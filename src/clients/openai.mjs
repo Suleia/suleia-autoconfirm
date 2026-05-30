@@ -14,10 +14,11 @@ Devuelve SOLO un JSON con esta forma exacta:
   "reason": "<explicación breve en una frase>"
 }
 Reglas:
-- CONFIRM: el cliente acepta o confirma el pedido.
-- CANCEL: el cliente rechaza explícitamente o pide cancelarlo.
+- CONFIRM: el cliente acepta o confirma el pedido de forma clara, por ejemplo "confirmo", "confirmado", "si lo quiero", "lo quiero", "confirmar mi pedido".
+- CANCEL: el cliente rechaza explícitamente, pide cancelarlo, dice que no lo quiere o pide cambiar/modificar datos de entrega.
 - UNCLEAR: cualquier otra cosa o si el cliente no ha respondido.
 - El silencio nunca es CANCEL.
+- Un cambio de direccion, cambio de datos o peticion de modificacion NO es confirmacion.
 - Ante duda entre CONFIRM y UNCLEAR, elige UNCLEAR.
 `.trim();
 
