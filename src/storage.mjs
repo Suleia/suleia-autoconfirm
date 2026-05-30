@@ -59,6 +59,7 @@ export function upsertOrder(storeId, order, extras = {}) {
     aiIntent: order.aiIntent || null,
     confirmedAt: order.confirmedAt || null,
     cancelledAt: order.cancelledAt || null,
+    chatbyTemplateSentAt: order.chatbyTemplateSentAt || null,
     raw: order.raw || null,
     updatedAt: now,
     createdAt: index >= 0 ? orders[index].createdAt : now,
