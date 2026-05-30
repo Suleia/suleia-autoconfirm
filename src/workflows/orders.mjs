@@ -74,6 +74,19 @@ function customerMessages(messages) {
     .filter((message) => String(message.content || '').trim());
 }
 
+function messageDate(message) {
+  return parseDate(message?.raw?.created_at || message?.raw?.createdAt || message?.created_at || message?.createdAt || message?.timestamp);
+}
+
+function customerMessagesAfter(messages, sinceIso) {
+  const since = parseDate(sinceIso);
+  if (!since) return customerMessages(messages);
+  return customerMessages(messages).filter((message) => {
+    const createdAt = messageDate(message);
+    return createdAt ? createdAt >= since : false;
+  });
+}
+
 function deterministicCustomerIntent(messages) {
   const text = normalizeText(messages.map((message) => message.content).join('\n'));
   if (!text) return null;
@@ -161,6 +174,7 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
       currencyCode: order.currencyCode,
       raw: order.raw,
       chatbyUserNs: existing?.chatbyUserNs || null,
+      chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
       aiConfidence: existing?.aiConfidence ?? null,
       aiIntent: existing?.aiIntent || null,
       confirmedAt: existing?.confirmedAt || null
@@ -204,7 +218,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   const userNs = created?.data?.user_ns || created?.user_ns || created?.userNs || created?.id || null;
   if (!userNs) return order;
 
-  const updated = upsertOrder(store.id, { ...order, chatbyUserNs: userNs });
+  let updated = upsertOrder(store.id, { ...order, chatbyUserNs: userNs });
 
   if (store.whatsappTemplateName || config.whatsappTemplateName) {
     await sendWhatsappTemplate({
@@ -212,6 +226,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
       template_name: store.whatsappTemplateName || config.whatsappTemplateName,
       params: templateParamsForOrder(order)
     });
+    updated = upsertOrder(store.id, { ...updated, chatbyTemplateSentAt: new Date().toISOString() });
   }
 
   await upsertSheetRow(updated);
@@ -228,7 +243,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   const messages = normalizeChatMessages(await getChatMessages(order.chatbyUserNs));
-  const inboundCustomerMessages = customerMessages(messages);
+  const validFrom = order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt;
+  const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
   if (!inboundCustomerMessages.length) {
     const patch = {
       ...order,
@@ -292,12 +308,14 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   if (intent === 'CANCEL' && confidence >= threshold) {
-    const cancellation = await cancelDropeaOrder(order.orderId);
-    patch.status = 'CANCELLED';
-    patch.cancelledAt = new Date().toISOString();
+    patch.status = 'MANUAL_REVIEW';
     const updated = upsertOrder(store.id, patch);
     await upsertSheetRow(updated);
-    return { action: 'cancelled', analysis, cancellation };
+    return {
+      dryRun: store.agentDryRun ?? config.defaultStore.agentDryRun,
+      action: 'would_not_confirm',
+      analysis
+    };
   }
 
   const updated = upsertOrder(store.id, patch);
