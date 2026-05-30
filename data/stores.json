@@ -2,7 +2,6 @@
   {
     "id": "suleia",
     "name": "Suleia",
-    "webhookToken": "68585ee6aaa1096986e8cfb9318a78a72a693a1ef61718da",
     "googleSheetName": "Pedidos",
     "shopifyDomain": null,
     "agentEnabled": false,
