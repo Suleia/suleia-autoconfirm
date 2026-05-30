@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: suleia-autoconfirm
+    env: docker
+    dockerfilePath: ./autoconfirm/Dockerfile
+    plan: starter
+    autoDeploy: false
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8787
