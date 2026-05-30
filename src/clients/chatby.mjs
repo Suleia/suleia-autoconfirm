@@ -108,6 +108,44 @@ export async function listSubscribers({ page = 1, limit = 100 } = {}) {
   return response?.data ?? response;
 }
 
+function digits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function fieldValue(subscriber, fieldName) {
+  const field = (subscriber.user_fields || []).find((item) => item.name === fieldName);
+  return field?.value ?? null;
+}
+
+export async function findSubscriberForOrder({ phone, orderId, maxPages = 10 } = {}) {
+  const phoneDigits = digits(phone);
+  for (let page = 1; page <= maxPages; page += 1) {
+    const subscribers = await listSubscribers({ page, limit: 100 });
+    if (!Array.isArray(subscribers) || !subscribers.length) break;
+
+    const found = subscribers.find((subscriber) => {
+      const samePhone = phoneDigits && digits(subscriber.phone || subscriber.user_id).endsWith(phoneDigits.slice(-9));
+      const sameOrder = String(fieldValue(subscriber, 'Dropea: NÃºmero') || fieldValue(subscriber, 'Dropea: Número') || '') === String(orderId);
+      return samePhone && sameOrder;
+    });
+
+    if (found) return found;
+  }
+  return null;
+}
+
+export function subscriberConfirmsOrder(subscriber) {
+  if (!subscriber) return false;
+  const labels = (subscriber.labels || []).map((label) => String(label.name || '').toUpperCase());
+  const tags = (subscriber.tags || []).map((tag) => String(tag.name || '').toUpperCase());
+  const leadStatus = String(subscriber.lead_status || '').toUpperCase();
+  const confirmedAt = fieldValue(subscriber, 'P. Confirmado');
+  return leadStatus === 'CONFIRMADO'
+    || labels.includes('CONFIRMADO')
+    || tags.includes('PED-CONFIRMADO')
+    || Boolean(confirmedAt);
+}
+
 export async function deleteSubscriber(payload) {
   return request('/subscriber/delete', {
     method: 'POST',
