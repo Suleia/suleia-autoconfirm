@@ -46,14 +46,13 @@ function normalizeOrder(order) {
 
 export async function listPendingDropeaOrders({ limit = 50, page = 1 } = {}) {
   const query = `
-    query PendingOrders($status: String!, $limit: Int!, $page: Int!) {
+    query PendingOrders($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
       orders(status: $status, limit: $limit, page: $page) {
         data {
           id
           status
           customer { full_name phone email }
           total_amount
-          currency
           created_at
         }
       }
@@ -78,7 +77,6 @@ export async function getDropeaOrderById(orderId) {
           status
           customer { full_name phone email }
           total_amount
-          currency
           created_at
         }
       }
