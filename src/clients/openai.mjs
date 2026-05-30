@@ -32,7 +32,7 @@ Reglas:
     body: JSON.stringify({
       model: config.openaiModel,
       temperature: 0,
-      response_format: { type: 'json_object' },
+      text: { format: { type: 'json_object' } },
       input: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt }
