@@ -43,6 +43,22 @@ function normalizeChatMessages(messages) {
   }));
 }
 
+function firstName(name) {
+  return String(name || '').trim().split(/\s+/)[0] || '';
+}
+
+function templateParamsForOrder(order) {
+  const address = order.raw?.shipping_address || order.raw?.shippingAddress || order.raw?.address || {};
+  return {
+    'BODY_{{1}}': `${firstName(order.customerName)}!`,
+    'BODY_{{2}}': order.raw?.product_name || order.raw?.productName || `Pedido ${order.orderId}`,
+    'BODY_{{3}}': `${order.orderAmount ?? ''}€`,
+    'BODY_{{4}}': [address.address1, address.address2].filter(Boolean).join(' ') || '',
+    'BODY_{{5}}': address.city || '',
+    'BODY_{{6}}': address.province || address.zip || ''
+  };
+}
+
 export async function ingestPendingOrders({ store = config.defaultStore, limit = 50 } = {}) {
   const pending = await listPendingDropeaOrders({ limit, page: 1 });
   const processed = [];
@@ -112,12 +128,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
     await sendWhatsappTemplate({
       user_ns: userNs,
       template_name: store.whatsappTemplateName || config.whatsappTemplateName,
-      variables: {
-        order_id: order.orderId,
-        customer_name: order.customerName || '',
-        amount: order.orderAmount ?? '',
-        currency: order.currencyCode || ''
-      }
+      params: templateParamsForOrder(order)
     });
   }
 
