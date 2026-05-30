@@ -65,15 +65,32 @@ async function sheetsRequest(method, url, body) {
   return data;
 }
 
-export async function upsertSheetRow(order) {
-  if (!config.googleSheetId) return { skipped: true };
+function valuesUrl(range, query = '') {
+  return `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}/values/${encodeURIComponent(range)}${query}`;
+}
 
-  const sheet = encodeURIComponent(config.googleSheetName || 'Pedidos');
-  const range = `${sheet}!A:Z`;
-  const getUrl = `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}/values/${range}`;
-  const current = await sheetsRequest('GET', getUrl);
-  const values = current.values || [];
-  const headers = values[0] || [
+async function getSpreadsheetMetadata() {
+  return sheetsRequest('GET', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}`);
+}
+
+async function ensureSheetTitle() {
+  const targetTitle = config.googleSheetName || 'Pedidos';
+  const metadata = await getSpreadsheetMetadata();
+  const sheets = metadata.sheets || [];
+  const existing = sheets.find((sheet) => sheet.properties?.title === targetTitle);
+  if (existing) return targetTitle;
+
+  await sheetsRequest('POST', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}:batchUpdate`, {
+    requests: [{ addSheet: { properties: { title: targetTitle } } }]
+  });
+
+  return targetTitle;
+}
+
+async function ensureHeaders(sheetTitle, values) {
+  if (values.length > 0) return values[0];
+
+  const headers = [
     'orderId',
     'nombre',
     'telefono',
@@ -82,6 +99,18 @@ export async function upsertSheetRow(order) {
     'importe',
     'fecha_confirmacion'
   ];
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:G1`, '?valueInputOption=RAW'), { values: [headers] });
+  return headers;
+}
+
+export async function upsertSheetRow(order) {
+  if (!config.googleSheetId) return { skipped: true };
+
+  const sheetTitle = await ensureSheetTitle();
+  const range = `${sheetTitle}!A:Z`;
+  const current = await sheetsRequest('GET', valuesUrl(range));
+  const values = current.values || [];
+  const headers = await ensureHeaders(sheetTitle, values);
 
   const orderIdIndex = headers.indexOf('orderId');
   const rowIndex = values.findIndex((row, index) => index > 0 && String(row[orderIdIndex]) === String(order.orderId));
@@ -96,13 +125,10 @@ export async function upsertSheetRow(order) {
   ];
 
   if (rowIndex > 0) {
-    const updateRange = `${sheet}!A${rowIndex + 1}:G${rowIndex + 1}`;
-    const updateUrl = `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}/values/${encodeURIComponent(updateRange)}?valueInputOption=RAW`;
-    await sheetsRequest('PUT', updateUrl, { values: [row] });
+    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:G${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
     return { updated: true, rowIndex };
   }
 
-  const appendUrl = `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}/values/${range}:append?valueInputOption=RAW&insertDataOption=INSERT_ROWS`;
-  await sheetsRequest('POST', appendUrl, { values: [row] });
+  await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
   return { appended: true };
 }
