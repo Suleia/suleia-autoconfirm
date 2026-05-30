@@ -35,10 +35,63 @@ export async function createSubscriber(payload) {
 }
 
 export async function sendWhatsappTemplate(payload) {
+  if (!payload.content) {
+    payload = await buildWhatsappTemplatePayload(payload);
+  }
+
   return request('/subscriber/send-whatsapp-template', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+}
+
+export async function listWhatsappTemplates() {
+  const response = await request('/whatsapp-template/list', {
+    method: 'POST',
+    body: JSON.stringify({ page: 1, limit: 200 })
+  });
+  return response?.data ?? response;
+}
+
+function parseTemplateName(templateName) {
+  const parts = String(templateName || '').trim().split(/\s+/);
+  if (parts.length >= 2 && /^[a-z]{2}_[A-Z]{2}$/.test(parts[0])) {
+    return { lang: parts[0], name: parts.slice(1).join(' ') };
+  }
+  return { lang: null, name: parts.join(' ') };
+}
+
+async function buildWhatsappTemplatePayload(payload) {
+  const { lang, name } = parseTemplateName(payload.template_name || payload.templateName);
+  const templates = await listWhatsappTemplates();
+  const template = templates.find((item) => item.name === name && item.status === 'APPROVED')
+    || templates.find((item) => item.name === name);
+
+  if (!template) {
+    throw new Error(`No se encontrÃ³ plantilla WhatsApp aprobada: ${name}`);
+  }
+
+  const defaultParams = template.default_values?.params && typeof template.default_values.params === 'object'
+    ? template.default_values.params
+    : {};
+
+  const quickReplyParams = Object.fromEntries(
+    Object.entries(defaultParams).filter(([key]) => key.startsWith('QUICK_REPLY_'))
+  );
+
+  return {
+    user_ns: payload.user_ns,
+    user_id: payload.user_id,
+    content: {
+      name: template.name,
+      lang: template.default_values?.lang || template.language || lang || 'es_ES',
+      namespace: template.namespace,
+      params: {
+        ...quickReplyParams,
+        ...(payload.params || {})
+      }
+    }
+  };
 }
 
 export async function getChatMessages(userNs) {
