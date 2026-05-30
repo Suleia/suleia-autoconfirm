@@ -38,6 +38,21 @@ function defaultStoreFromEnv() {
   };
 }
 
+function withEnvOverrides(store) {
+  const envStore = defaultStoreFromEnv();
+  return {
+    ...store,
+    webhookToken: process.env.WEBHOOK_TOKEN || store.webhookToken || envStore.webhookToken,
+    googleSheetName: process.env.GOOGLE_SHEET_NAME || store.googleSheetName || envStore.googleSheetName,
+    shopifyDomain: process.env.SHOPIFY_DOMAIN || store.shopifyDomain || envStore.shopifyDomain,
+    agentEnabled: bool(process.env.AGENT_ENABLED, store.agentEnabled ?? envStore.agentEnabled),
+    agentDryRun: bool(process.env.AGENT_DRY_RUN, store.agentDryRun ?? envStore.agentDryRun),
+    confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, store.confidenceThreshold ?? envStore.confidenceThreshold),
+    cooldownHours: int(process.env.COOLDOWN_HOURS, store.cooldownHours ?? envStore.cooldownHours),
+    activationCutoff: process.env.ACTIVATION_CUTOFF || store.activationCutoff || envStore.activationCutoff
+  };
+}
+
 export function resolvePaths() {
   const dataDir = path.join(root, 'data');
   ensureDir(dataDir);
@@ -55,12 +70,12 @@ export function loadStoreConfigs() {
   const paths = resolvePaths();
   if (process.env.STORE_CONFIG_PATH && readJson(paths.storesPath, null)) {
     const loaded = readJson(paths.storesPath, []);
-    return Array.isArray(loaded) ? loaded : [loaded];
+    return (Array.isArray(loaded) ? loaded : [loaded]).map(withEnvOverrides);
   }
 
   if (readJson(paths.storesPath, null)) {
     const loaded = readJson(paths.storesPath, []);
-    return Array.isArray(loaded) ? loaded : [loaded];
+    return (Array.isArray(loaded) ? loaded : [loaded]).map(withEnvOverrides);
   }
 
   const store = defaultStoreFromEnv();
