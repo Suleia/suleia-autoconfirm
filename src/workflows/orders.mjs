@@ -14,7 +14,13 @@ import {
   getDropeaOrderById,
   listPendingDropeaOrders
 } from '../clients/dropea.mjs';
-import { createSubscriber, getChatMessages, sendWhatsappTemplate } from '../clients/chatby.mjs';
+import {
+  createSubscriber,
+  findSubscriberForOrder,
+  getChatMessages,
+  sendWhatsappTemplate,
+  subscriberConfirmsOrder
+} from '../clients/chatby.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus } from '../clients/shopify.mjs';
 import { upsertSheetRow } from '../clients/sheets.mjs';
@@ -205,6 +211,21 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   if (order.chatbyUserNs) return order;
   if (!order.customerPhone) return order;
 
+  const existingSubscriber = await findSubscriberForOrder({
+    phone: order.customerPhone,
+    orderId: order.orderId
+  });
+
+  if (existingSubscriber?.user_ns) {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: existingSubscriber.user_ns,
+      chatbyTemplateSentAt: order.chatbyTemplateSentAt || existingSubscriber.subscribed || order.createdAt
+    });
+    await upsertSheetRow(updated);
+    return updated;
+  }
+
   const created = await createSubscriber({
     phone: order.customerPhone,
     name: order.customerName || order.customerPhone,
@@ -243,6 +264,38 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   const messages = normalizeChatMessages(await getChatMessages(order.chatbyUserNs));
+  const subscriber = await findSubscriberForOrder({
+    phone: order.customerPhone,
+    orderId: order.orderId
+  });
+
+  if (subscriberConfirmsOrder(subscriber)) {
+    const analysis = {
+      intent: 'CONFIRM',
+      confidence: 100,
+      reason: 'El cliente confirmo el pedido mediante el boton de WhatsApp.'
+    };
+    const patch = {
+      ...order,
+      aiConfidence: 100,
+      aiIntent: 'CONFIRM'
+    };
+
+    if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
+      patch.status = 'MANUAL_REVIEW';
+      const updated = upsertOrder(store.id, patch);
+      await upsertSheetRow(updated);
+      return { dryRun: true, action: 'would_confirm', analysis, source: 'chatby_button' };
+    }
+
+    const confirmation = await confirmDropeaOrder(order.orderId);
+    patch.status = 'CONFIRMED';
+    patch.confirmedAt = new Date().toISOString();
+    const updated = upsertOrder(store.id, patch);
+    await upsertSheetRow(updated);
+    return { action: 'confirmed', analysis, confirmation, source: 'chatby_button' };
+  }
+
   const validFrom = order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt;
   const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
   if (!inboundCustomerMessages.length) {
