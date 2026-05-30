@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { loadEnvFile, readJson, writeJson, ensureDir } from './lib/files.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const root = path.resolve(here, '..', '..');
+const root = path.resolve(here, '..');
 
 loadEnvFile(path.join(root, '.env'));
 
@@ -39,15 +39,15 @@ function defaultStoreFromEnv() {
 }
 
 export function resolvePaths() {
-  const dataDir = path.join(root, 'autoconfirm', 'data');
+  const dataDir = path.join(root, 'data');
   ensureDir(dataDir);
   return {
     root,
     dataDir,
-    storesPath: path.resolve(root, process.env.STORE_CONFIG_PATH || 'autoconfirm/data/stores.json'),
-    statePath: path.resolve(root, process.env.STATE_PATH || 'autoconfirm/data/state.json'),
-    webhookEventsPath: path.resolve(root, process.env.WEBHOOK_EVENTS_PATH || 'autoconfirm/data/webhook-events.json'),
-    ordersPath: path.resolve(root, process.env.ORDERS_PATH || 'autoconfirm/data/orders.json')
+    storesPath: path.resolve(root, process.env.STORE_CONFIG_PATH || 'data/stores.json'),
+    statePath: path.resolve(root, process.env.STATE_PATH || 'data/state.json'),
+    webhookEventsPath: path.resolve(root, process.env.WEBHOOK_EVENTS_PATH || 'data/webhook-events.json'),
+    ordersPath: path.resolve(root, process.env.ORDERS_PATH || 'data/orders.json')
   };
 }
 
