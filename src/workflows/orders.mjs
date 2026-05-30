@@ -23,7 +23,7 @@ import {
 } from '../clients/chatby.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus } from '../clients/shopify.mjs';
-import { upsertSheetRow } from '../clients/sheets.mjs';
+import { getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 
 const config = getAppConfig();
 
@@ -80,6 +80,17 @@ function customerMessages(messages) {
     .filter((message) => String(message.content || '').trim());
 }
 
+function messageTimestamp(message) {
+  const raw = message?.raw || {};
+  const numeric = Number(raw.ts || raw.timestamp || raw.created || raw.time);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric > 1e12 ? numeric : numeric * 1000;
+  }
+
+  const date = messageDate(message);
+  return date ? date.getTime() : 0;
+}
+
 function messageDate(message) {
   return parseDate(message?.raw?.created_at || message?.raw?.createdAt || message?.created_at || message?.createdAt || message?.timestamp);
 }
@@ -89,12 +100,21 @@ function customerMessagesAfter(messages, sinceIso) {
   if (!since) return customerMessages(messages);
   return customerMessages(messages).filter((message) => {
     const createdAt = messageDate(message);
-    return createdAt ? createdAt >= since : false;
+    if (createdAt) return createdAt >= since;
+    const timestamp = messageTimestamp(message);
+    return timestamp ? timestamp >= since.getTime() : false;
   });
 }
 
 function deterministicCustomerIntent(messages) {
-  const text = normalizeText(messages.map((message) => message.content).join('\n'));
+  const text = normalizeText(messages.map((message) => [
+    message.content,
+    message.raw?.payload?.title,
+    message.raw?.payload?.body,
+    message.raw?.title,
+    message.raw?.button_text,
+    message.raw?.buttonText
+  ].filter(Boolean).join(' ')).join('\n'));
   if (!text) return null;
 
   const cancelPatterns = [
@@ -139,6 +159,101 @@ function deterministicCustomerIntent(messages) {
       confidence: 100,
       reason: 'El cliente confirma el pedido mediante respuesta o boton de WhatsApp.'
     };
+  }
+
+  return null;
+}
+
+function confirmedStoredOrder(order, store) {
+  const confidence = Number(order.aiConfidence ?? 0);
+  const threshold = store.confidenceThreshold || config.defaultStore.confidenceThreshold || 90;
+  return String(order.aiIntent || '').toUpperCase() === 'CONFIRM' && confidence >= threshold;
+}
+
+function storedConfirmationResult(order, store) {
+  const analysis = {
+    intent: 'CONFIRM',
+    confidence: Number(order.aiConfidence ?? 100),
+    reason: 'Confirmacion ya detectada previamente; se conserva aunque Chatby haya cambiado el pedido activo del contacto.'
+  };
+
+  if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
+    return { dryRun: true, action: 'would_confirm', analysis, source: 'stored_confirmation' };
+  }
+
+  return null;
+}
+
+async function simulationOverrideResult(order, store) {
+  if (!(store.agentDryRun ?? config.defaultStore.agentDryRun)) return null;
+
+  const override = await getSimulationDecision(order.orderId);
+  if (!override) return null;
+
+  if (['CONFIRM', 'CONFIRMAR', 'CONFIRMED', 'SI', 'SÍ', 'YES'].includes(override.decision)) {
+    const analysis = {
+      intent: 'CONFIRM',
+      confidence: 100,
+      reason: override.reason || 'Confirmacion validada en la hoja de entrenamiento.'
+    };
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'MANUAL_REVIEW',
+      aiConfidence: 100,
+      aiIntent: 'CONFIRM'
+    });
+    await upsertSheetRow(updated);
+    return { dryRun: true, action: 'would_confirm', analysis, source: override.source || 'sheet_training' };
+  }
+
+  if (['NO_CONFIRM', 'NO CONFIRM', 'NO_CONFIRMAR', 'NO', 'CANCEL', 'CANCELAR'].includes(override.decision)) {
+    const analysis = {
+      intent: 'CANCEL',
+      confidence: 100,
+      reason: override.reason || 'Pedido marcado como no confirmado en la hoja de entrenamiento.'
+    };
+    const updated = upsertOrder(store.id, {
+      ...order,
+      aiConfidence: 100,
+      aiIntent: 'NO_CONFIRM'
+    });
+    await upsertSheetRow(updated);
+    return { dryRun: true, action: 'would_not_confirm', analysis, source: override.source || 'sheet_training' };
+  }
+
+  return null;
+}
+
+function currentSubscriberOrderId(subscriber) {
+  const fields = subscriber?.user_fields || [];
+  const field = fields.find((item) => normalizeText(item.name) === 'dropea: numero');
+  return field?.value ? String(field.value) : null;
+}
+
+function customerConversationIntentForOrder(messages, order) {
+  const orderedMessages = [...messages].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
+  const customerOnly = orderedMessages.filter((message) => isCustomerMessage(message));
+
+  for (let index = customerOnly.length - 1; index >= 0; index -= 1) {
+    const message = customerOnly[index];
+    const intent = deterministicCustomerIntent([message]);
+    if (!intent) continue;
+
+    if (intent.intent === 'CANCEL') {
+      return {
+        ...intent,
+        source: 'customer_message'
+      };
+    }
+
+    if (intent.intent === 'CONFIRM') {
+      return {
+        ...intent,
+        source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
+          ? 'chatby_button'
+          : 'customer_text'
+      };
+    }
   }
 
   return null;
@@ -259,6 +374,14 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     return { skipped: true, reason: 'order_not_pending' };
   }
 
+  if (confirmedStoredOrder(order, store)) {
+    const storedResult = storedConfirmationResult(order, store);
+    if (storedResult) return storedResult;
+  }
+
+  const simulationOverride = await simulationOverrideResult(order, store);
+  if (simulationOverride) return simulationOverride;
+
   if (!order.chatbyUserNs) {
     return { skipped: true, reason: 'no_chat_thread' };
   }
@@ -269,7 +392,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     orderId: order.orderId
   });
 
-  if (subscriberConfirmsOrder(subscriber)) {
+  const subscriberOrderId = currentSubscriberOrderId(subscriber);
+  if (subscriberOrderId === String(order.orderId) && subscriberConfirmsOrder(subscriber)) {
     const analysis = {
       intent: 'CONFIRM',
       confidence: 100,
@@ -299,6 +423,11 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   const validFrom = order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt;
   const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
   if (!inboundCustomerMessages.length) {
+    if (confirmedStoredOrder(order, store)) {
+      const storedResult = storedConfirmationResult(order, store);
+      if (storedResult) return storedResult;
+    }
+
     const patch = {
       ...order,
       aiConfidence: null,
@@ -318,7 +447,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     }
   }
 
-  const analysis = deterministicCustomerIntent(inboundCustomerMessages)
+  const analysis = customerConversationIntentForOrder(inboundCustomerMessages, order)
+    || deterministicCustomerIntent(inboundCustomerMessages)
     || await classifyConversation([
       { role: 'system', content: `Clasifica SOLO mensajes entrantes del cliente para el pedido ${order.orderId}.` },
       ...inboundCustomerMessages
