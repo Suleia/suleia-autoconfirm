@@ -38,9 +38,91 @@ function isAfterCutoff(order, cutoffIso) {
 function normalizeChatMessages(messages) {
   if (!Array.isArray(messages)) return [];
   return messages.map((message) => ({
-    role: message.role || message.sender || message.direction || 'message',
-    content: message.content || message.message || message.text || ''
+    role: String(message.role || message.sender || message.direction || 'message').toLowerCase(),
+    content: message.content || message.message || message.text || message.button_text || message.buttonText || '',
+    raw: message
   }));
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function isCustomerMessage(message) {
+  const role = normalizeText(message.role);
+  const raw = message.raw || {};
+  const direction = normalizeText(raw.direction || raw.type || raw.message_type || raw.messageType || raw.from_type || raw.fromType);
+  const sender = normalizeText(raw.sender || raw.sender_type || raw.senderType || raw.author || raw.from || raw.source);
+
+  if (['in', 'inbound', 'incoming', 'received', 'customer', 'subscriber', 'user', 'client', 'cliente'].includes(role)) return true;
+  if (['in', 'inbound', 'incoming', 'received'].includes(direction)) return true;
+  if (['customer', 'subscriber', 'user', 'client', 'cliente'].includes(sender)) return true;
+  if (raw.is_from_customer === true || raw.isFromCustomer === true || raw.from_customer === true) return true;
+  if (raw.is_echo === true || raw.isEcho === true) return false;
+  if (['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system', 'tienda', 'store'].includes(role)) return false;
+  if (['out', 'outbound', 'sent'].includes(direction)) return false;
+  return false;
+}
+
+function customerMessages(messages) {
+  return messages
+    .filter((message) => isCustomerMessage(message))
+    .filter((message) => String(message.content || '').trim());
+}
+
+function deterministicCustomerIntent(messages) {
+  const text = normalizeText(messages.map((message) => message.content).join('\n'));
+  if (!text) return null;
+
+  const cancelPatterns = [
+    /\bno lo quiero\b/,
+    /\bno quiero\b/,
+    /\bno confirmo\b/,
+    /\bcancel(ar|o|ado)?\b/,
+    /\banular\b/,
+    /\bno me interesa\b/,
+    /\bno lo voy a recibir\b/,
+    /\bno voy a aceptarlo\b/,
+    /\bcambiar datos\b/,
+    /\bcambiar direccion\b/,
+    /\bmodificar datos\b/,
+    /\bdireccion (mal|incorrecta|equivocada)\b/
+  ];
+
+  if (cancelPatterns.some((pattern) => pattern.test(text))) {
+    return {
+      intent: 'CANCEL',
+      confidence: 100,
+      reason: 'El cliente no confirma el pedido o pide cambiar datos de entrega.'
+    };
+  }
+
+  const confirmPatterns = [
+    /\bconfirmo\b/,
+    /\bconfirmado\b/,
+    /\bconfirmar mi pedido\b/,
+    /\bsi lo quiero\b/,
+    /\bs[ií],? lo quiero\b/,
+    /\blo quiero\b/,
+    /\badelante\b/,
+    /\bperfecto\b/,
+    /\bok\b/,
+    /\bvale\b/
+  ];
+
+  if (confirmPatterns.some((pattern) => pattern.test(text))) {
+    return {
+      intent: 'CONFIRM',
+      confidence: 100,
+      reason: 'El cliente confirma el pedido mediante respuesta o boton de WhatsApp.'
+    };
+  }
+
+  return null;
 }
 
 function firstName(name) {
@@ -146,11 +228,20 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   const messages = normalizeChatMessages(await getChatMessages(order.chatbyUserNs));
-  if (!messages.length) {
-    return { skipped: true, reason: 'no_messages' };
+  const inboundCustomerMessages = customerMessages(messages);
+  if (!inboundCustomerMessages.length) {
+    const patch = {
+      ...order,
+      aiConfidence: null,
+      aiIntent: 'WAITING_CUSTOMER'
+    };
+    const updated = upsertOrder(store.id, patch);
+    await upsertSheetRow(updated);
+    return { skipped: true, reason: 'no_customer_confirmation' };
   }
 
-  const lastMessageAt = parseDate(messages[messages.length - 1]?.created_at || messages[messages.length - 1]?.createdAt);
+  const lastMessage = inboundCustomerMessages[inboundCustomerMessages.length - 1];
+  const lastMessageAt = parseDate(lastMessage?.raw?.created_at || lastMessage?.raw?.createdAt || lastMessage?.created_at || lastMessage?.createdAt);
   if (lastMessageAt) {
     const diffHours = (Date.now() - lastMessageAt.getTime()) / 36e5;
     if (diffHours < (store.cooldownHours || config.defaultStore.cooldownHours || 1)) {
@@ -158,10 +249,11 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     }
   }
 
-  const analysis = await classifyConversation([
-    { role: 'tienda', content: `Pedido ${order.orderId}. Confirma si el cliente acepta.` },
-    ...messages
-  ]);
+  const analysis = deterministicCustomerIntent(inboundCustomerMessages)
+    || await classifyConversation([
+      { role: 'system', content: `Clasifica SOLO mensajes entrantes del cliente para el pedido ${order.orderId}.` },
+      ...inboundCustomerMessages
+    ]);
 
   const confidence = Number(analysis?.confidence ?? 0);
   const intent = String(analysis?.intent || 'UNCLEAR').toUpperCase();
