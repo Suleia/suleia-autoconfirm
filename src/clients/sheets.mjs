@@ -87,6 +87,19 @@ async function ensureSheetTitle() {
   return targetTitle;
 }
 
+async function ensureNamedSheet(sheetTitle) {
+  const metadata = await getSpreadsheetMetadata();
+  const sheets = metadata.sheets || [];
+  const existing = sheets.find((sheet) => sheet.properties?.title === sheetTitle);
+  if (existing) return sheetTitle;
+
+  await sheetsRequest('POST', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}:batchUpdate`, {
+    requests: [{ addSheet: { properties: { title: sheetTitle } } }]
+  });
+
+  return sheetTitle;
+}
+
 async function ensureHeaders(sheetTitle, values) {
   if (values.length > 0) return values[0];
 
@@ -100,6 +113,20 @@ async function ensureHeaders(sheetTitle, values) {
     'fecha_confirmacion'
   ];
   await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:G1`, '?valueInputOption=RAW'), { values: [headers] });
+  return headers;
+}
+
+async function ensureControlHeaders(sheetTitle, values) {
+  if (values.length > 0) return values[0];
+
+  const headers = [
+    'orderId',
+    'decision_simulacion',
+    'motivo',
+    'fuente',
+    'actualizado_en'
+  ];
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:E1`, '?valueInputOption=RAW'), { values: [headers] });
   return headers;
 }
 
@@ -126,6 +153,60 @@ export async function upsertSheetRow(order) {
 
   if (rowIndex > 0) {
     await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:G${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
+    return { updated: true, rowIndex };
+  }
+
+  await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
+  return { appended: true };
+}
+
+export async function getSimulationDecision(orderId) {
+  if (!config.googleSheetId) return null;
+
+  const sheetTitle = await ensureNamedSheet('Control Simulacion');
+  const range = `${sheetTitle}!A:Z`;
+  const current = await sheetsRequest('GET', valuesUrl(range));
+  const values = current.values || [];
+  const headers = await ensureControlHeaders(sheetTitle, values);
+  const orderIdIndex = headers.indexOf('orderId') >= 0 ? headers.indexOf('orderId') : 0;
+  const decisionIndex = headers.indexOf('decision_simulacion') >= 0 ? headers.indexOf('decision_simulacion') : 1;
+  const reasonIndex = headers.indexOf('motivo') >= 0 ? headers.indexOf('motivo') : 2;
+  const sourceIndex = headers.indexOf('fuente') >= 0 ? headers.indexOf('fuente') : 3;
+
+  const row = values.find((item, index) => index > 0 && String(item[orderIdIndex]) === String(orderId));
+  if (!row) return null;
+
+  const decision = String(row[decisionIndex] || '').trim().toUpperCase();
+  if (!decision) return null;
+
+  return {
+    orderId: String(orderId),
+    decision,
+    reason: row[reasonIndex] || '',
+    source: row[sourceIndex] || 'sheet_training'
+  };
+}
+
+export async function upsertSimulationDecision({ orderId, decision, reason = '', source = 'training' }) {
+  if (!config.googleSheetId) return { skipped: true };
+
+  const sheetTitle = await ensureNamedSheet('Control Simulacion');
+  const range = `${sheetTitle}!A:Z`;
+  const current = await sheetsRequest('GET', valuesUrl(range));
+  const values = current.values || [];
+  const headers = await ensureControlHeaders(sheetTitle, values);
+  const orderIdIndex = headers.indexOf('orderId') >= 0 ? headers.indexOf('orderId') : 0;
+  const rowIndex = values.findIndex((row, index) => index > 0 && String(row[orderIdIndex]) === String(orderId));
+  const row = [
+    orderId,
+    decision,
+    reason,
+    source,
+    new Date().toISOString()
+  ];
+
+  if (rowIndex > 0) {
+    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:E${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
     return { updated: true, rowIndex };
   }
 
