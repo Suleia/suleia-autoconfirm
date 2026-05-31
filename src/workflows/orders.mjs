@@ -212,13 +212,21 @@ async function simulationOverrideResult(order, store) {
       confidence: 100,
       reason: override.reason || 'Pedido marcado como no confirmado en la hoja de entrenamiento.'
     };
+    const source = override.source || 'sheet_training';
+    const isAddressChange = normalizeText(`${source} ${analysis.reason}`).includes('direccion')
+      || normalizeText(`${source} ${analysis.reason}`).includes('envio')
+      || normalizeText(`${source} ${analysis.reason}`).includes('envío');
     const updated = upsertOrder(store.id, {
       ...order,
+      status: isAddressChange ? 'MANUAL_REVIEW' : order.status,
       aiConfidence: 100,
-      aiIntent: 'NO_CONFIRM'
+      aiIntent: isAddressChange ? 'ADDRESS_CHANGE_REQUESTED' : 'NO_CONFIRM',
+      operationalNote: isAddressChange
+        ? 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
+        : order.operationalNote
     });
     await upsertSheetRow(updated);
-    return { dryRun: true, action: 'would_not_confirm', analysis, source: override.source || 'sheet_training' };
+    return { dryRun: true, action: 'would_not_confirm', analysis, source };
   }
 
   return null;
@@ -242,7 +250,9 @@ function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'CANCEL') {
       return {
         ...intent,
-        source: 'customer_message'
+        source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
+          ? 'chatby_change_address_button'
+          : 'customer_message'
       };
     }
 
@@ -392,6 +402,31 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     orderId: order.orderId
   });
 
+  const validFrom = order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt;
+  const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
+  const immediateCustomerIntent = customerConversationIntentForOrder(inboundCustomerMessages, order)
+    || deterministicCustomerIntent(inboundCustomerMessages);
+  if (immediateCustomerIntent?.intent === 'CANCEL') {
+    const patch = {
+      ...order,
+      status: 'MANUAL_REVIEW',
+      aiConfidence: Number(immediateCustomerIntent.confidence ?? 100),
+      aiIntent: 'ADDRESS_CHANGE_REQUESTED',
+      operationalNote: 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
+    };
+    const updated = upsertOrder(store.id, patch);
+    await upsertSheetRow(updated);
+    return {
+      dryRun: store.agentDryRun ?? config.defaultStore.agentDryRun,
+      action: 'would_not_confirm',
+      analysis: {
+        ...immediateCustomerIntent,
+        reason: 'El cliente ha pedido cambiar datos/direccion de envio; la direccion de Dropea no debe considerarse valida.'
+      },
+      source: immediateCustomerIntent.source || 'customer_change_request'
+    };
+  }
+
   const subscriberOrderId = currentSubscriberOrderId(subscriber);
   if (subscriberOrderId === String(order.orderId) && subscriberConfirmsOrder(subscriber)) {
     const analysis = {
@@ -420,8 +455,6 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     return { action: 'confirmed', analysis, confirmation, source: 'chatby_button' };
   }
 
-  const validFrom = order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt;
-  const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
   if (!inboundCustomerMessages.length) {
     if (confirmedStoredOrder(order, store)) {
       const storedResult = storedConfirmationResult(order, store);
