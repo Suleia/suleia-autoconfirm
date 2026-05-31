@@ -60,6 +60,7 @@ export function upsertOrder(storeId, order, extras = {}) {
     confirmedAt: order.confirmedAt || null,
     cancelledAt: order.cancelledAt || null,
     chatbyTemplateSentAt: order.chatbyTemplateSentAt || null,
+    operationalNote: order.operationalNote || null,
     raw: order.raw || null,
     updatedAt: now,
     createdAt: index >= 0 ? orders[index].createdAt : now,
