@@ -101,8 +101,6 @@ async function ensureNamedSheet(sheetTitle) {
 }
 
 async function ensureHeaders(sheetTitle, values) {
-  if (values.length > 0) return values[0];
-
   const headers = [
     'orderId',
     'nombre',
@@ -110,9 +108,25 @@ async function ensureHeaders(sheetTitle, values) {
     'fecha_creacion',
     'estado',
     'importe',
-    'fecha_confirmacion'
+    'fecha_confirmacion',
+    'decision_ia',
+    'confianza_ia',
+    'nota_operativa'
   ];
-  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:G1`, '?valueInputOption=RAW'), { values: [headers] });
+
+  if (values.length > 0) {
+    const currentHeaders = values[0] || [];
+    const mergedHeaders = [...currentHeaders];
+    headers.forEach((header, index) => {
+      if (!mergedHeaders[index]) mergedHeaders[index] = header;
+    });
+    if (mergedHeaders.length < headers.length || headers.some((header) => !currentHeaders.includes(header))) {
+      await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [mergedHeaders.slice(0, headers.length)] });
+    }
+    return mergedHeaders;
+  }
+
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [headers] });
   return headers;
 }
 
@@ -148,11 +162,14 @@ export async function upsertSheetRow(order) {
     order.createdAt || '',
     order.status || '',
     order.orderAmount ?? '',
-    order.confirmedAt || ''
+    order.confirmedAt || '',
+    order.aiIntent || '',
+    order.aiConfidence ?? '',
+    order.operationalNote || ''
   ];
 
   if (rowIndex > 0) {
-    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:G${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
+    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:J${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
     return { updated: true, rowIndex };
   }
 
