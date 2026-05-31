@@ -139,6 +139,9 @@ export function subscriberConfirmsOrder(subscriber) {
   const labels = (subscriber.labels || []).map((label) => String(label.name || '').toUpperCase());
   const tags = (subscriber.tags || []).map((tag) => String(tag.name || '').toUpperCase());
   const leadStatus = String(subscriber.lead_status || '').toUpperCase();
+  if (leadStatus.includes('DATOS') || leadStatus.includes('ENVIO') || leadStatus.includes('ENVÍO')) {
+    return false;
+  }
   const confirmedAt = fieldValue(subscriber, 'P. Confirmado');
   return leadStatus === 'CONFIRMADO'
     || labels.includes('CONFIRMADO')
