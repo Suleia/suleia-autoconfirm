@@ -1,4 +1,4 @@
-import { getAppConfig } from '../config.mjs';
+﻿import { getAppConfig } from '../config.mjs';
 import {
   findOrder,
   hasWebhookEvent,
@@ -9,7 +9,6 @@ import {
   upsertOrder
 } from '../storage.mjs';
 import {
-  cancelDropeaOrder,
   confirmDropeaOrder,
   getDropeaOrderById,
   listPendingDropeaOrders
@@ -21,11 +20,22 @@ import {
   sendWhatsappTemplate,
   subscriberConfirmsOrder
 } from '../clients/chatby.mjs';
+import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus } from '../clients/shopify.mjs';
 import { getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 
 const config = getAppConfig();
+let automationCycleRunning = false;
+
+async function safeUpsertSheetRow(order, context = 'sheet_sync') {
+  try {
+    return await upsertSheetRow(order);
+  } catch (error) {
+    console.error(`[${context}] Google Sheets sync failed for order ${order?.orderId || 'unknown'}:`, error);
+    return { skipped: true, error: error instanceof Error ? error.message : String(error) };
+  }
+}
 
 function parseDate(value) {
   if (!value) return null;
@@ -145,7 +155,7 @@ function deterministicCustomerIntent(messages) {
     /\bconfirmado\b/,
     /\bconfirmar mi pedido\b/,
     /\bsi lo quiero\b/,
-    /\bs[ií],? lo quiero\b/,
+    /\bs[iÃ­],? lo quiero\b/,
     /\blo quiero\b/,
     /\badelante\b/,
     /\bperfecto\b/,
@@ -190,7 +200,7 @@ async function simulationOverrideResult(order, store) {
   const override = await getSimulationDecision(order.orderId);
   if (!override) return null;
 
-  if (['CONFIRM', 'CONFIRMAR', 'CONFIRMED', 'SI', 'SÍ', 'YES'].includes(override.decision)) {
+  if (['CONFIRM', 'CONFIRMAR', 'CONFIRMED', 'SI', 'SÃ', 'YES'].includes(override.decision)) {
     const analysis = {
       intent: 'CONFIRM',
       confidence: 100,
@@ -202,7 +212,7 @@ async function simulationOverrideResult(order, store) {
       aiConfidence: 100,
       aiIntent: 'CONFIRM'
     });
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return { dryRun: true, action: 'would_confirm', analysis, source: override.source || 'sheet_training' };
   }
 
@@ -215,7 +225,7 @@ async function simulationOverrideResult(order, store) {
     const source = override.source || 'sheet_training';
     const isAddressChange = normalizeText(`${source} ${analysis.reason}`).includes('direccion')
       || normalizeText(`${source} ${analysis.reason}`).includes('envio')
-      || normalizeText(`${source} ${analysis.reason}`).includes('envío');
+      || normalizeText(`${source} ${analysis.reason}`).includes('envÃ­o');
     const updated = upsertOrder(store.id, {
       ...order,
       status: isAddressChange ? 'MANUAL_REVIEW' : order.status,
@@ -225,7 +235,7 @@ async function simulationOverrideResult(order, store) {
         ? 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
         : order.operationalNote
     });
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return { dryRun: true, action: 'would_not_confirm', analysis, source };
   }
 
@@ -273,12 +283,29 @@ function firstName(name) {
   return String(name || '').trim().split(/\s+/)[0] || '';
 }
 
+function normalizeDropeaWebhookOrder(payload) {
+  const customer = payload.customer || {};
+  const orderId = String(payload.order_id || payload.orderId || payload.id || '');
+  if (!orderId) return null;
+
+  return {
+    orderId,
+    status: String(payload.new_status || payload.status || 'PENDING').toUpperCase(),
+    customerName: customer.full_name || customer.fullName || customer.name || null,
+    customerPhone: customer.phone || customer.mobile || null,
+    customerEmail: customer.email || null,
+    orderAmount: Number(payload.total_amount ?? payload.amount ?? payload.total ?? 0) || null,
+    currencyCode: payload.currency || payload.currency_code || 'EUR',
+    raw: payload
+  };
+}
+
 function templateParamsForOrder(order) {
   const address = order.raw?.shipping_address || order.raw?.shippingAddress || order.raw?.address || {};
   return {
     'BODY_{{1}}': `${firstName(order.customerName)}!`,
     'BODY_{{2}}': order.raw?.product_name || order.raw?.productName || `Pedido ${order.orderId}`,
-    'BODY_{{3}}': `${order.orderAmount ?? ''}€`,
+    'BODY_{{3}}': `${order.orderAmount ?? ''}â‚¬`,
     'BODY_{{4}}': [address.address1, address.address2].filter(Boolean).join(' ') || '',
     'BODY_{{5}}': address.city || '',
     'BODY_{{6}}': address.province || address.zip || ''
@@ -311,15 +338,7 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
       confirmedAt: existing?.confirmedAt || null
     });
 
-    await upsertSheetRow({
-      orderId: merged.orderId,
-      customerName: merged.customerName,
-      customerPhone: merged.customerPhone,
-      createdAt: merged.createdAt,
-      status: merged.status,
-      orderAmount: merged.orderAmount,
-      confirmedAt: merged.confirmedAt
-    });
+    await safeUpsertSheetRow(merged);
 
     processed.push(merged);
   }
@@ -347,7 +366,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
       chatbyUserNs: existingSubscriber.user_ns,
       chatbyTemplateSentAt: order.chatbyTemplateSentAt || existingSubscriber.subscribed || order.createdAt
     });
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return updated;
   }
 
@@ -375,7 +394,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
     updated = upsertOrder(store.id, { ...updated, chatbyTemplateSentAt: new Date().toISOString() });
   }
 
-  await upsertSheetRow(updated);
+  await safeUpsertSheetRow(updated);
   return updated;
 }
 
@@ -404,6 +423,9 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
 
   const validFrom = order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt;
   const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
+  const latestInboundCustomerMessageAt = inboundCustomerMessages.length
+    ? parseDate(inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.created_at || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.createdAt || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.createdAt)
+    : null;
   const immediateCustomerIntent = customerConversationIntentForOrder(inboundCustomerMessages, order)
     || deterministicCustomerIntent(inboundCustomerMessages);
   if (immediateCustomerIntent?.intent === 'CANCEL') {
@@ -415,7 +437,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       operationalNote: 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
     };
     const updated = upsertOrder(store.id, patch);
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return {
       dryRun: store.agentDryRun ?? config.defaultStore.agentDryRun,
       action: 'would_not_confirm',
@@ -443,7 +465,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
       patch.status = 'MANUAL_REVIEW';
       const updated = upsertOrder(store.id, patch);
-      await upsertSheetRow(updated);
+      await safeUpsertSheetRow(updated);
       return { dryRun: true, action: 'would_confirm', analysis, source: 'chatby_button' };
     }
 
@@ -451,8 +473,33 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     patch.status = 'CONFIRMED';
     patch.confirmedAt = new Date().toISOString();
     const updated = upsertOrder(store.id, patch);
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return { action: 'confirmed', analysis, confirmation, source: 'chatby_button' };
+  }
+
+  const useAssistant = (store.agentEnabled ?? config.defaultStore.agentEnabled) && config.openaiAssistantEnabled && config.openaiAssistantId;
+  const assistantCheckedAt = parseDate(order.assistantCheckedAt);
+  const shouldRunAssistant =
+    useAssistant
+    && (
+      !assistantCheckedAt
+      || (latestInboundCustomerMessageAt && latestInboundCustomerMessageAt > assistantCheckedAt)
+      || (!inboundCustomerMessages.length && !assistantCheckedAt)
+    );
+
+  if (shouldRunAssistant) {
+    try {
+      const assistantResult = await runOpenAIAssistantAnalysis(order, store);
+      if (assistantResult) {
+        return assistantResult;
+      }
+    } catch (error) {
+      console.error('OpenAI assistant error:', error);
+    }
+  }
+
+  if (assistantCheckedAt && latestInboundCustomerMessageAt && latestInboundCustomerMessageAt <= assistantCheckedAt) {
+    return { skipped: true, reason: 'already_analyzed_no_new_message' };
   }
 
   if (!inboundCustomerMessages.length) {
@@ -461,13 +508,19 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       if (storedResult) return storedResult;
     }
 
+    if (assistantCheckedAt) {
+      return { skipped: true, reason: 'waiting_customer_already_logged' };
+    }
+
     const patch = {
       ...order,
       aiConfidence: null,
-      aiIntent: 'WAITING_CUSTOMER'
+      aiIntent: 'WAITING_CUSTOMER',
+      assistantCheckedAt: new Date().toISOString(),
+      operationalNote: order.operationalNote || 'Pedido nuevo en espera de respuesta del cliente.'
     };
     const updated = upsertOrder(store.id, patch);
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return { skipped: true, reason: 'no_customer_confirmation' };
   }
 
@@ -501,7 +554,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
       patch.status = 'MANUAL_REVIEW';
       const updated = upsertOrder(store.id, patch);
-      await upsertSheetRow(updated);
+      await safeUpsertSheetRow(updated);
       return { dryRun: true, action: 'would_confirm', analysis };
     }
 
@@ -510,7 +563,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       if (financialStatus !== 'paid') {
         patch.status = 'MANUAL_REVIEW';
         const updated = upsertOrder(store.id, patch);
-        await upsertSheetRow(updated);
+        await safeUpsertSheetRow(updated);
         return { action: 'manual_review_non_paid', analysis, financialStatus };
       }
     }
@@ -519,14 +572,14 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     patch.status = 'CONFIRMED';
     patch.confirmedAt = new Date().toISOString();
     const updated = upsertOrder(store.id, patch);
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return { action: 'confirmed', analysis, confirmation };
   }
 
   if (intent === 'CANCEL' && confidence >= threshold) {
     patch.status = 'MANUAL_REVIEW';
     const updated = upsertOrder(store.id, patch);
-    await upsertSheetRow(updated);
+    await safeUpsertSheetRow(updated);
     return {
       dryRun: store.agentDryRun ?? config.defaultStore.agentDryRun,
       action: 'would_not_confirm',
@@ -535,7 +588,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   const updated = upsertOrder(store.id, patch);
-  await upsertSheetRow(updated);
+  await safeUpsertSheetRow(updated);
   return { action: 'unclear', analysis };
 }
 
@@ -556,36 +609,105 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
   return { processed: results.length, results };
 }
 
+export async function runStoreAutomationCycle({ store = config.defaultStore, limit = 50 } = {}) {
+  if (automationCycleRunning) {
+    return { skipped: true, reason: 'cycle_running' };
+  }
+
+  automationCycleRunning = true;
+  try {
+    let ingestResult = null;
+    let confirmResult = null;
+    let ingestError = null;
+    let confirmError = null;
+
+    try {
+      ingestResult = await ingestPendingOrders({ store, limit });
+    } catch (error) {
+      ingestError = error instanceof Error ? error.message : String(error);
+      console.error('[automation_cycle] ingestPendingOrders failed:', error);
+    }
+
+    try {
+      confirmResult = await runAutoConfirm({ store });
+    } catch (error) {
+      confirmError = error instanceof Error ? error.message : String(error);
+      console.error('[automation_cycle] runAutoConfirm failed:', error);
+    }
+
+    const state = { ...loadState() };
+    state.lastAutomationCycleAt = new Date().toISOString();
+    saveState(state);
+
+    return {
+      ingest: ingestResult,
+      autoConfirm: confirmResult,
+      ingestError,
+      confirmError,
+      lastAutomationCycleAt: state.lastAutomationCycleAt
+    };
+  } finally {
+    automationCycleRunning = false;
+  }
+}
+
 export async function handleDropeaWebhook({ store, payload }) {
   const topic = payload.topic || payload.event || 'unknown';
   const orderId = String(payload.order_id || payload.orderId || payload.id || '');
   const prevStatus = payload.prev_status || payload.previous_status || payload.prevStatus || '';
   const newStatus = payload.new_status || payload.status || payload.newStatus || '';
-  const dedupeKey = `${orderId}:${topic}:${newStatus}`;
+  const dedupeKey = `${orderId || 'unknown'}:${topic}:${newStatus}:${payload.updated_at || payload.updatedAt || ''}`;
 
   if (hasWebhookEvent(store.id, dedupeKey)) {
     return { duplicate: true };
   }
 
   recordWebhookEvent(store.id, dedupeKey, 'received');
+  const receivedState = { ...loadState(), lastWebhookAt: new Date().toISOString(), lastWebhookError: null };
+  saveState(receivedState);
 
-  if (topic === 'order:status_update' || newStatus) {
+  const existing = orderId ? findOrder(store.id, orderId) : null;
+  const webhookOrder = normalizeDropeaWebhookOrder(payload);
+  if (webhookOrder) {
+    const updated = upsertOrder(store.id, {
+      ...(existing || {}),
+      ...webhookOrder,
+      chatbyUserNs: existing?.chatbyUserNs || null,
+      chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+      aiConfidence: existing?.aiConfidence ?? null,
+      aiIntent: existing?.aiIntent || null,
+      confirmedAt: existing?.confirmedAt || null,
+      operationalNote: existing?.operationalNote || null
+    });
+    await safeUpsertSheetRow(updated);
+    return {
+      orderUpdated: true,
+      source: 'webhook_payload',
+      orderId: updated.orderId,
+      prevStatus,
+      newStatus: updated.status
+    };
+  }
+
+  if (orderId && (topic === 'order:status_update' || newStatus)) {
     const dropeaOrder = await getDropeaOrderById(orderId);
     if (dropeaOrder) {
       const updated = upsertOrder(store.id, {
-        orderId: dropeaOrder.orderId,
-        status: dropeaOrder.status,
-        customerName: dropeaOrder.customerName,
-        customerPhone: dropeaOrder.customerPhone,
-        customerEmail: dropeaOrder.customerEmail,
-        orderAmount: dropeaOrder.orderAmount,
-        currencyCode: dropeaOrder.currencyCode,
-        raw: dropeaOrder.raw
+        ...(existing || {}),
+        ...dropeaOrder,
+        chatbyUserNs: existing?.chatbyUserNs || null,
+        chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+        aiConfidence: existing?.aiConfidence ?? null,
+        aiIntent: existing?.aiIntent || null,
+        confirmedAt: existing?.confirmedAt || null,
+        operationalNote: existing?.operationalNote || null
       });
-      await upsertSheetRow(updated);
-      return { orderUpdated: true, prevStatus, newStatus };
+      await safeUpsertSheetRow(updated);
+      return { orderUpdated: true, source: 'dropea_lookup', orderId: updated.orderId, prevStatus, newStatus: updated.status };
     }
   }
 
-  return { ignored: true };
+  const fallback = await ingestPendingOrders({ store });
+  return { fallbackSync: true, ...fallback };
 }
+

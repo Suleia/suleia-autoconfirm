@@ -111,6 +111,7 @@ async function ensureHeaders(sheetTitle, values) {
     'fecha_confirmacion',
     'decision_ia',
     'confianza_ia',
+    'ultima_revision_ia',
     'nota_operativa'
   ];
 
@@ -121,12 +122,12 @@ async function ensureHeaders(sheetTitle, values) {
       if (!mergedHeaders[index]) mergedHeaders[index] = header;
     });
     if (mergedHeaders.length < headers.length || headers.some((header) => !currentHeaders.includes(header))) {
-      await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [mergedHeaders.slice(0, headers.length)] });
+      await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:K1`, '?valueInputOption=RAW'), { values: [mergedHeaders.slice(0, headers.length)] });
     }
     return mergedHeaders;
   }
 
-  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [headers] });
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:K1`, '?valueInputOption=RAW'), { values: [headers] });
   return headers;
 }
 
@@ -165,11 +166,12 @@ export async function upsertSheetRow(order) {
     order.confirmedAt || '',
     order.aiIntent || '',
     order.aiConfidence ?? '',
+    order.assistantCheckedAt || '',
     order.operationalNote || ''
   ];
 
   if (rowIndex > 0) {
-    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:J${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
+    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:K${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
     return { updated: true, rowIndex };
   }
 

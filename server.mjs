@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { getAppConfig } from './src/config.mjs';
 import { listOrders, loadState, saveState } from './src/storage.mjs';
-import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook } from './src/workflows/orders.mjs';
+import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
 
 const config = getAppConfig();
 
@@ -44,10 +44,13 @@ function storeSummary() {
     webhookTokenSuffix: config.defaultStore.webhookToken?.slice(-6) || null,
     agentEnabled: config.defaultStore.agentEnabled,
     agentDryRun: config.defaultStore.agentDryRun,
+    autoPollEnabled: config.defaultStore.autoPollEnabled,
+    autoPollIntervalMinutes: config.defaultStore.autoPollIntervalMinutes,
     confidenceThreshold: config.defaultStore.confidenceThreshold,
     cooldownHours: config.defaultStore.cooldownHours,
     lastPollAt: state.lastPollAt,
     lastAutoConfirmAt: state.lastAutoConfirmAt,
+    lastAutomationCycleAt: state.lastAutomationCycleAt,
     orders: {
       total: listOrders({ storeId: config.defaultStore.id }).length,
       pending: listOrders({ storeId: config.defaultStore.id, status: 'PENDING' }).length
@@ -74,9 +77,19 @@ const server = http.createServer(async (req, res) => {
 
       setImmediate(async () => {
         try {
-          await handleDropeaWebhook({ store: config.defaultStore, payload });
+          const webhookResult = await handleDropeaWebhook({ store: config.defaultStore, payload });
+          console.log('Dropea webhook processed:', JSON.stringify(webhookResult));
         } catch (error) {
-          console.error('Webhook error:', error);
+          const state = { ...loadState(), lastWebhookError: error instanceof Error ? error.message : String(error), lastWebhookAt: new Date().toISOString() };
+          saveState(state);
+          console.error('Webhook processing error:', error);
+        }
+
+        try {
+          const cycleResult = await runStoreAutomationCycle({ store: config.defaultStore });
+          console.log('Automation cycle processed:', JSON.stringify(cycleResult));
+        } catch (error) {
+          console.error('Automation cycle error:', error);
         }
       });
       return;
@@ -109,7 +122,39 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+let pollTimer = null;
+let pollRunning = false;
+
+async function runBackgroundPoll() {
+  if (pollRunning) return;
+  pollRunning = true;
+  try {
+    const result = await runStoreAutomationCycle({ store: config.defaultStore });
+    const processed = result?.ingest?.processed ?? 0;
+    if (processed) {
+      console.log(`Background poll processed ${processed} orders.`);
+    }
+  } catch (error) {
+    console.error('Background poll error:', error);
+  } finally {
+    pollRunning = false;
+  }
+}
+
+function startBackgroundPoller() {
+  const intervalMinutes = config.defaultStore.autoPollIntervalMinutes || 5;
+  if (!(config.defaultStore.autoPollEnabled ?? true)) return;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    runBackgroundPoll();
+    pollTimer = setInterval(runBackgroundPoll, intervalMs);
+  }, 15000);
+}
+
 server.listen(config.port, () => {
   console.log(`AutoConfirm listening on http://localhost:${config.port}`);
   console.log(`Webhook: /api/webhooks/dropea/${config.defaultStore.webhookToken}`);
+  startBackgroundPoller();
 });

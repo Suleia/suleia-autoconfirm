@@ -8,7 +8,10 @@ function defaultState() {
   return {
     lastPollAt: null,
     lastAutoConfirmAt: null,
-    lastSheetSyncAt: null
+    lastSheetSyncAt: null,
+    lastAutomationCycleAt: null,
+    lastWebhookAt: null,
+    lastWebhookError: null
   };
 }
 
@@ -57,6 +60,7 @@ export function upsertOrder(storeId, order, extras = {}) {
     chatbyUserNs: order.chatbyUserNs || null,
     aiConfidence: order.aiConfidence ?? null,
     aiIntent: order.aiIntent || null,
+    assistantCheckedAt: order.assistantCheckedAt || null,
     confirmedAt: order.confirmedAt || null,
     cancelledAt: order.cancelledAt || null,
     chatbyTemplateSentAt: order.chatbyTemplateSentAt || null,

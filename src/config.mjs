@@ -32,6 +32,8 @@ function defaultStoreFromEnv() {
     shopifyDomain: process.env.SHOPIFY_DOMAIN || null,
     agentEnabled: bool(process.env.AGENT_ENABLED, false),
     agentDryRun: bool(process.env.AGENT_DRY_RUN, true),
+    autoPollEnabled: bool(process.env.AUTO_POLL_ENABLED, true),
+    autoPollIntervalMinutes: int(process.env.AUTO_POLL_INTERVAL_MINUTES, 5),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
     cooldownHours: int(process.env.COOLDOWN_HOURS, 1),
     activationCutoff: process.env.ACTIVATION_CUTOFF || null
@@ -47,6 +49,8 @@ function withEnvOverrides(store) {
     shopifyDomain: process.env.SHOPIFY_DOMAIN || store.shopifyDomain || envStore.shopifyDomain,
     agentEnabled: bool(process.env.AGENT_ENABLED, store.agentEnabled ?? envStore.agentEnabled),
     agentDryRun: bool(process.env.AGENT_DRY_RUN, store.agentDryRun ?? envStore.agentDryRun),
+    autoPollEnabled: bool(process.env.AUTO_POLL_ENABLED, store.autoPollEnabled ?? envStore.autoPollEnabled),
+    autoPollIntervalMinutes: int(process.env.AUTO_POLL_INTERVAL_MINUTES, store.autoPollIntervalMinutes ?? envStore.autoPollIntervalMinutes),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, store.confidenceThreshold ?? envStore.confidenceThreshold),
     cooldownHours: int(process.env.COOLDOWN_HOURS, store.cooldownHours ?? envStore.cooldownHours),
     activationCutoff: process.env.ACTIVATION_CUTOFF || store.activationCutoff || envStore.activationCutoff
@@ -95,6 +99,8 @@ export function getAppConfig() {
     timezone: process.env.AUTOCONFIRM_TIMEZONE || 'Europe/Madrid',
     openaiApiKey: process.env.OPENAI_API_KEY || null,
     openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+    openaiAssistantId: process.env.OPENAI_ASSISTANT_ID || null,
+    openaiAssistantEnabled: bool(process.env.OPENAI_ASSISTANT_ENABLED, Boolean(process.env.OPENAI_ASSISTANT_ID)),
     dropeaApiKey: process.env.DROPEA_API_KEY || null,
     chatbyToken: process.env.CHATBY_TOKEN || null,
     chatbyBaseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
