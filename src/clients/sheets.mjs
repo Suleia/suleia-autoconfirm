@@ -3,6 +3,7 @@ import { getAppConfig } from '../config.mjs';
 import { loadState, saveState } from '../storage.mjs';
 
 const config = getAppConfig();
+let simulationDecisionCache = null;
 
 function base64url(input) {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -211,11 +212,22 @@ export async function upsertSheetRow(order) {
 export async function getSimulationDecision(orderId) {
   if (!config.googleSheetId) return null;
 
-  const sheetTitle = await ensureNamedSheet('Control Simulacion');
-  const range = `${sheetTitle}!A:Z`;
-  const current = await sheetsRequest('GET', valuesUrl(range));
-  const values = current.values || [];
-  const headers = await ensureControlHeaders(sheetTitle, values);
+  const now = Date.now();
+  if (!simulationDecisionCache || simulationDecisionCache.expiresAt <= now) {
+    const sheetTitle = await ensureNamedSheet('Control Simulacion');
+    const range = `${sheetTitle}!A:Z`;
+    const current = await sheetsRequest('GET', valuesUrl(range));
+    const values = current.values || [];
+    const headers = await ensureControlHeaders(sheetTitle, values);
+    simulationDecisionCache = {
+      expiresAt: now + 60000,
+      values,
+      headers
+    };
+  }
+
+  const values = simulationDecisionCache.values || [];
+  const headers = simulationDecisionCache.headers || [];
   const orderIdIndex = headers.indexOf('orderId') >= 0 ? headers.indexOf('orderId') : 0;
   const decisionIndex = headers.indexOf('decision_simulacion') >= 0 ? headers.indexOf('decision_simulacion') : 1;
   const reasonIndex = headers.indexOf('motivo') >= 0 ? headers.indexOf('motivo') : 2;
@@ -237,6 +249,7 @@ export async function getSimulationDecision(orderId) {
 
 export async function upsertSimulationDecision({ orderId, decision, reason = '', source = 'training' }) {
   if (!config.googleSheetId) return { skipped: true };
+  simulationDecisionCache = null;
 
   const sheetTitle = await ensureNamedSheet('Control Simulacion');
   const range = `${sheetTitle}!A:Z`;

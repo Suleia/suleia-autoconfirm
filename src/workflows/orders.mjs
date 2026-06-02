@@ -217,7 +217,17 @@ function storedConfirmationResult(order, store) {
 async function simulationOverrideResult(order, store) {
   if (!(store.agentDryRun ?? config.defaultStore.agentDryRun)) return null;
 
-  const override = await getSimulationDecision(order.orderId);
+  let override = null;
+  try {
+    override = await getSimulationDecision(order.orderId);
+  } catch (error) {
+    const state = { ...loadState() };
+    state.lastSheetSyncError = error instanceof Error ? error.message : String(error);
+    saveState(state);
+    console.error(`[simulation_override] Google Sheets control lookup failed for order ${order.orderId}:`, error);
+    return null;
+  }
+
   if (!override) return null;
 
   if (['CONFIRM', 'CONFIRMAR', 'CONFIRMED', 'SI', 'SÃ', 'YES'].includes(override.decision)) {
