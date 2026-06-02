@@ -70,7 +70,7 @@ export async function listPendingDropeaOrders({ limit = 50, page = 1 } = {}) {
 
 export async function getDropeaOrderById(orderId) {
   const query = `
-    query OrderById($ids: [ID!]!) {
+    query OrderById($ids: [Int]) {
       orders(id: $ids) {
         data {
           id
@@ -84,7 +84,8 @@ export async function getDropeaOrderById(orderId) {
     }
   `;
 
-  const result = await requestGraphQL(query, { ids: [orderId] });
+  const numericOrderId = Number(orderId);
+  const result = await requestGraphQL(query, { ids: [Number.isFinite(numericOrderId) ? numericOrderId : orderId] });
   const order = result?.orders?.data?.[0];
   if (!order) return null;
   return {

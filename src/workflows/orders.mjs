@@ -481,6 +481,44 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     };
   }
 
+  if (immediateCustomerIntent?.intent === 'CONFIRM') {
+    const analysis = {
+      ...immediateCustomerIntent,
+      reason: immediateCustomerIntent.reason || 'El cliente confirma claramente el pedido.'
+    };
+    const patch = {
+      ...order,
+      aiConfidence: Number(immediateCustomerIntent.confidence ?? 100),
+      aiIntent: 'CONFIRM'
+    };
+
+    if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
+      patch.status = 'MANUAL_REVIEW';
+      patch.operationalNote = 'Simulacion: el cliente confirmo claramente y el pedido habria sido confirmado.';
+      const updated = upsertOrder(store.id, patch);
+      await safeUpsertSheetRow(updated);
+      return { dryRun: true, action: 'would_confirm', analysis, source: immediateCustomerIntent.source || 'customer_message' };
+    }
+
+    if (order.raw?.payment_method === 'SHOPIFY' || order.raw?.source === 'shopify') {
+      const financialStatus = await getShopifyOrderFinancialStatus(order.orderId);
+      if (financialStatus !== 'paid') {
+        patch.status = 'MANUAL_REVIEW';
+        patch.operationalNote = 'Pedido pendiente de pago en Shopify. No se confirma automaticamente.';
+        const updated = upsertOrder(store.id, patch);
+        await safeUpsertSheetRow(updated);
+        return { action: 'manual_review_non_paid', analysis, financialStatus };
+      }
+    }
+
+    const confirmation = await confirmDropeaOrder(order.orderId);
+    patch.status = 'CONFIRMED';
+    patch.confirmedAt = new Date().toISOString();
+    const updated = upsertOrder(store.id, patch);
+    await safeUpsertSheetRow(updated);
+    return { action: 'confirmed', analysis, confirmation, source: immediateCustomerIntent.source || 'customer_message' };
+  }
+
   const subscriberOrderId = currentSubscriberOrderId(subscriber);
   if (subscriberOrderId === String(order.orderId) && subscriberConfirmsOrder(subscriber)) {
     const analysis = {
