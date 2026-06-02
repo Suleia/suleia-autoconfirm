@@ -51,6 +51,10 @@ function storeSummary() {
     lastPollAt: state.lastPollAt,
     lastAutoConfirmAt: state.lastAutoConfirmAt,
     lastAutomationCycleAt: state.lastAutomationCycleAt,
+    lastWebhookAt: state.lastWebhookAt,
+    lastWebhookError: state.lastWebhookError,
+    lastIngestError: state.lastIngestError,
+    lastAutoConfirmError: state.lastAutoConfirmError,
     orders: {
       total: listOrders({ storeId: config.defaultStore.id }).length,
       pending: listOrders({ storeId: config.defaultStore.id, status: 'PENDING' }).length

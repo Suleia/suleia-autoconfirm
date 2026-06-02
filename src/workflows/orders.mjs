@@ -180,6 +180,16 @@ function confirmedStoredOrder(order, store) {
   return String(order.aiIntent || '').toUpperCase() === 'CONFIRM' && confidence >= threshold;
 }
 
+function workflowStatusForPolledOrder(existing, polledStatus) {
+  const remoteStatus = String(polledStatus || 'PENDING').toUpperCase();
+  const localStatus = String(existing?.status || '').toUpperCase();
+
+  if (!existing) return remoteStatus;
+  if (['CONFIRMED', 'CANCELLED'].includes(remoteStatus)) return remoteStatus;
+  if (['CONFIRMED', 'CANCELLED', 'MANUAL_REVIEW'].includes(localStatus)) return localStatus;
+  return remoteStatus;
+}
+
 function storedConfirmationResult(order, store) {
   const analysis = {
     intent: 'CONFIRM',
@@ -324,7 +334,7 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
     const existing = findOrder(store.id, order.orderId);
     const merged = upsertOrder(store.id, {
       orderId: order.orderId,
-      status: order.status || 'PENDING',
+      status: workflowStatusForPolledOrder(existing, order.status),
       customerName: order.customerName,
       customerPhone: order.customerPhone,
       customerEmail: order.customerEmail,
@@ -637,6 +647,8 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
 
     const state = { ...loadState() };
     state.lastAutomationCycleAt = new Date().toISOString();
+    state.lastIngestError = ingestError;
+    state.lastAutoConfirmError = confirmError;
     saveState(state);
 
     return {
