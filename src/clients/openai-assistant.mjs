@@ -65,7 +65,7 @@ function assistantTools() {
             chatby_user_ns: { type: 'string', description: 'Identificador de la conversacion en Chatby' },
             customer_phone: { type: 'string', description: 'Telefono del cliente' }
           },
-          required: ['order_id'],
+          required: ['order_id', 'chatby_user_ns', 'customer_phone'],
           additionalProperties: false
         },
         strict: true
