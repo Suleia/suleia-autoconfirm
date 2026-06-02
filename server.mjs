@@ -78,7 +78,19 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 404, { ok: false, error: 'invalid_webhook_token' });
       }
 
-      const payload = await readBody(req);
+      let payload = {};
+      try {
+        payload = await readBody(req);
+      } catch (error) {
+        const state = {
+          ...loadState(),
+          lastWebhookError: error instanceof Error ? error.message : String(error),
+          lastWebhookAt: new Date().toISOString()
+        };
+        saveState(state);
+        return sendJson(res, 200, { ok: true, accepted: false, error: 'invalid_json' });
+      }
+
       sendJson(res, 200, { ok: true, accepted: true });
 
       setImmediate(async () => {

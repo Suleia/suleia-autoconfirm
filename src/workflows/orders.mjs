@@ -1,7 +1,7 @@
 ﻿import { getAppConfig } from '../config.mjs';
 import {
   findOrder,
-  hasWebhookEvent,
+  hasRecentWebhookEvent,
   listPendingOrders,
   loadState,
   recordWebhookEvent,
@@ -318,6 +318,18 @@ function normalizeDropeaWebhookOrder(payload) {
     currencyCode: payload.currency || payload.currency_code || 'EUR',
     raw: payload
   };
+}
+
+function isExcludedNewSheetStatus(status) {
+  return [
+    'CANCELLED',
+    'REJECTED',
+    'REJECT',
+    'DELIVERED',
+    'CHARGED',
+    'RETURNED',
+    'LOST'
+  ].includes(String(status || '').toUpperCase());
 }
 
 function templateParamsForOrder(order) {
@@ -678,9 +690,9 @@ export async function handleDropeaWebhook({ store, payload }) {
   const orderId = String(payload.order_id || payload.orderId || payload.id || '');
   const prevStatus = payload.prev_status || payload.previous_status || payload.prevStatus || '';
   const newStatus = payload.new_status || payload.status || payload.newStatus || '';
-  const dedupeKey = `${orderId || 'unknown'}:${topic}:${newStatus}:${payload.updated_at || payload.updatedAt || ''}`;
+  const dedupeKey = `${orderId || 'unknown'}:${topic}:${newStatus || 'unknown'}`;
 
-  if (hasWebhookEvent(store.id, dedupeKey)) {
+  if (hasRecentWebhookEvent(store.id, dedupeKey)) {
     return { duplicate: true };
   }
 
@@ -689,11 +701,59 @@ export async function handleDropeaWebhook({ store, payload }) {
   saveState(receivedState);
 
   const existing = orderId ? findOrder(store.id, orderId) : null;
+
+  if (orderId && (topic === 'order:status_update' || newStatus)) {
+    const dropeaOrder = await getDropeaOrderById(orderId);
+    if (dropeaOrder) {
+      if (!existing && isExcludedNewSheetStatus(dropeaOrder.status)) {
+        return {
+          skipped: true,
+          source: 'dropea_lookup',
+          reason: 'excluded_terminal_status',
+          orderId,
+          prevStatus,
+          newStatus: dropeaOrder.status
+        };
+      }
+
+      const confirmedAt =
+        String(dropeaOrder.status || '').toUpperCase() === 'CONFIRMED'
+          ? existing?.confirmedAt || new Date().toISOString()
+          : existing?.confirmedAt || null;
+
+      const updated = upsertOrder(store.id, {
+        ...(existing || {}),
+        ...dropeaOrder,
+        status: workflowStatusForPolledOrder(existing, dropeaOrder.status),
+        chatbyUserNs: existing?.chatbyUserNs || null,
+        chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+        aiConfidence: existing?.aiConfidence ?? null,
+        aiIntent: existing?.aiIntent || null,
+        confirmedAt,
+        operationalNote: existing?.operationalNote || null
+      });
+      await safeUpsertSheetRow(updated);
+      return { orderUpdated: true, source: 'dropea_lookup', orderId: updated.orderId, prevStatus, newStatus: updated.status };
+    }
+  }
+
   const webhookOrder = normalizeDropeaWebhookOrder(payload);
   if (webhookOrder) {
+    if (!existing && isExcludedNewSheetStatus(webhookOrder.status)) {
+      return {
+        skipped: true,
+        source: 'webhook_payload',
+        reason: 'excluded_terminal_status',
+        orderId: webhookOrder.orderId,
+        prevStatus,
+        newStatus: webhookOrder.status
+      };
+    }
+
     const updated = upsertOrder(store.id, {
       ...(existing || {}),
       ...webhookOrder,
+      status: workflowStatusForPolledOrder(existing, webhookOrder.status),
       chatbyUserNs: existing?.chatbyUserNs || null,
       chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
       aiConfidence: existing?.aiConfidence ?? null,
@@ -709,24 +769,6 @@ export async function handleDropeaWebhook({ store, payload }) {
       prevStatus,
       newStatus: updated.status
     };
-  }
-
-  if (orderId && (topic === 'order:status_update' || newStatus)) {
-    const dropeaOrder = await getDropeaOrderById(orderId);
-    if (dropeaOrder) {
-      const updated = upsertOrder(store.id, {
-        ...(existing || {}),
-        ...dropeaOrder,
-        chatbyUserNs: existing?.chatbyUserNs || null,
-        chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
-        aiConfidence: existing?.aiConfidence ?? null,
-        aiIntent: existing?.aiIntent || null,
-        confirmedAt: existing?.confirmedAt || null,
-        operationalNote: existing?.operationalNote || null
-      });
-      await safeUpsertSheetRow(updated);
-      return { orderUpdated: true, source: 'dropea_lookup', orderId: updated.orderId, prevStatus, newStatus: updated.status };
-    }
   }
 
   const fallback = await ingestPendingOrders({ store });

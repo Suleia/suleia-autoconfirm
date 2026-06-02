@@ -78,6 +78,7 @@ export async function getDropeaOrderById(orderId) {
           customer { full_name phone email }
           total_amount
           created_at
+          issues { id incidence_code status solutions }
         }
       }
     }

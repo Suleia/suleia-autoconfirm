@@ -108,26 +108,25 @@ async function ensureHeaders(sheetTitle, values) {
     'fecha_creacion',
     'estado',
     'importe',
-    'fecha_confirmacion',
-    'decision_ia',
-    'confianza_ia',
-    'ultima_revision_ia',
-    'nota_operativa'
+    'en_incidencia',
+    'codigo_incidencia',
+    'detalle_incidencia',
+    'fecha_confirmacion'
   ];
 
   if (values.length > 0) {
     const currentHeaders = values[0] || [];
     const mergedHeaders = [...currentHeaders];
     headers.forEach((header, index) => {
-      if (!mergedHeaders[index]) mergedHeaders[index] = header;
+      mergedHeaders[index] = header;
     });
-    if (mergedHeaders.length < headers.length || headers.some((header) => !currentHeaders.includes(header))) {
-      await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:K1`, '?valueInputOption=RAW'), { values: [mergedHeaders.slice(0, headers.length)] });
+    if (headers.some((header, index) => currentHeaders[index] !== header)) {
+      await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [mergedHeaders.slice(0, headers.length)] });
     }
     return mergedHeaders;
   }
 
-  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:K1`, '?valueInputOption=RAW'), { values: [headers] });
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [headers] });
   return headers;
 }
 
@@ -145,6 +144,30 @@ async function ensureControlHeaders(sheetTitle, values) {
   return headers;
 }
 
+function formatSheetDate(value) {
+  if (!value) return '';
+  const raw = String(value);
+  const dropeaDate = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (dropeaDate) {
+    return `${dropeaDate[3]}/${dropeaDate[2]}/${dropeaDate[1]} ${dropeaDate[4]}:${dropeaDate[5]}`;
+  }
+
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  const parts = new Intl.DateTimeFormat('es-ES', {
+    timeZone: config.timezone || 'Europe/Madrid',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(date);
+  const pick = (type) => parts.find((part) => part.type === type)?.value || '';
+  return `${pick('day')}/${pick('month')}/${pick('year')} ${pick('hour')}:${pick('minute')}`;
+}
+
 export async function upsertSheetRow(order) {
   if (!config.googleSheetId) return { skipped: true };
 
@@ -156,22 +179,28 @@ export async function upsertSheetRow(order) {
 
   const orderIdIndex = headers.indexOf('orderId');
   const rowIndex = values.findIndex((row, index) => index > 0 && String(row[orderIdIndex]) === String(order.orderId));
+  const existingConfirmedAt = rowIndex > 0 ? values[rowIndex]?.[9] || '' : '';
+  const issue = order.raw?.issues || null;
+  const hasIssue = Boolean(issue);
+  const issueDetail = [
+    issue?.status || '',
+    issue?.solutions ? `Solucion: ${issue.solutions}` : ''
+  ].filter(Boolean).join(' | ');
   const row = [
     order.orderId,
     order.customerName || '',
     order.customerPhone || '',
-    order.createdAt || '',
+    formatSheetDate(order.raw?.created_at || order.raw?.createdAt || order.createdAt),
     order.status || '',
     order.orderAmount ?? '',
-    order.confirmedAt || '',
-    order.aiIntent || '',
-    order.aiConfidence ?? '',
-    order.assistantCheckedAt || '',
-    order.operationalNote || ''
+    hasIssue ? 'Si' : 'No',
+    issue?.incidence_code || '',
+    issueDetail,
+    order.confirmedAt || existingConfirmedAt || ''
   ];
 
   if (rowIndex > 0) {
-    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:K${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
+    await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:J${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
     return { updated: true, rowIndex };
   }
 

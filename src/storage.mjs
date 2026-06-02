@@ -100,7 +100,11 @@ export function findOrder(storeId, orderId) {
 }
 
 export function recordWebhookEvent(storeId, dedupeKey, outcome) {
-  const events = loadWebhookEvents();
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  const events = loadWebhookEvents().filter((event) => {
+    const createdAt = new Date(event.createdAt || 0).getTime();
+    return Number.isFinite(createdAt) && createdAt >= cutoff;
+  });
   const existing = events.find((event) => event.storeId === storeId && event.dedupeKey === dedupeKey);
   if (existing) return existing;
   const event = {
@@ -117,4 +121,13 @@ export function recordWebhookEvent(storeId, dedupeKey, outcome) {
 
 export function hasWebhookEvent(storeId, dedupeKey) {
   return loadWebhookEvents().some((event) => event.storeId === storeId && event.dedupeKey === dedupeKey);
+}
+
+export function hasRecentWebhookEvent(storeId, dedupeKey, windowMs = 60000) {
+  const cutoff = Date.now() - windowMs;
+  return loadWebhookEvents().some((event) => {
+    if (event.storeId !== storeId || event.dedupeKey !== dedupeKey) return false;
+    const createdAt = new Date(event.createdAt || 0).getTime();
+    return Number.isFinite(createdAt) && createdAt >= cutoff;
+  });
 }
