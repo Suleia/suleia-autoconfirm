@@ -53,6 +53,8 @@ function storeSummary() {
     lastAutomationCycleAt: state.lastAutomationCycleAt,
     lastWebhookAt: state.lastWebhookAt,
     lastWebhookError: state.lastWebhookError,
+    lastSheetSyncAt: state.lastSheetSyncAt,
+    lastSheetSyncError: state.lastSheetSyncError,
     lastIngestError: state.lastIngestError,
     lastAutoConfirmError: state.lastAutoConfirmError,
     orders: {

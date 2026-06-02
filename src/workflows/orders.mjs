@@ -30,9 +30,19 @@ let automationCycleRunning = false;
 
 async function safeUpsertSheetRow(order, context = 'sheet_sync') {
   try {
-    return await upsertSheetRow(order);
+    const result = await upsertSheetRow(order);
+    const state = { ...loadState() };
+    if (!result?.skipped) {
+      state.lastSheetSyncAt = new Date().toISOString();
+    }
+    state.lastSheetSyncError = null;
+    saveState(state);
+    return result;
   } catch (error) {
     console.error(`[${context}] Google Sheets sync failed for order ${order?.orderId || 'unknown'}:`, error);
+    const state = { ...loadState() };
+    state.lastSheetSyncError = error instanceof Error ? error.message : String(error);
+    saveState(state);
     return { skipped: true, error: error instanceof Error ? error.message : String(error) };
   }
 }
