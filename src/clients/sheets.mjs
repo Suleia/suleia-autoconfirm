@@ -4,6 +4,21 @@ import { loadState, saveState } from '../storage.mjs';
 
 const config = getAppConfig();
 let simulationDecisionCache = null;
+let spreadsheetMetadataCache = null;
+const sheetValuesCache = new Map();
+
+function cacheEntry(key) {
+  const entry = sheetValuesCache.get(key);
+  if (!entry || entry.expiresAt <= Date.now()) return null;
+  return entry;
+}
+
+function setCacheEntry(key, values) {
+  sheetValuesCache.set(key, {
+    expiresAt: Date.now() + 60000,
+    values
+  });
+}
 
 function base64url(input) {
   return Buffer.from(input).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -71,7 +86,16 @@ function valuesUrl(range, query = '') {
 }
 
 async function getSpreadsheetMetadata() {
-  return sheetsRequest('GET', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}`);
+  if (spreadsheetMetadataCache && spreadsheetMetadataCache.expiresAt > Date.now()) {
+    return spreadsheetMetadataCache.metadata;
+  }
+
+  const metadata = await sheetsRequest('GET', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}`);
+  spreadsheetMetadataCache = {
+    expiresAt: Date.now() + 300000,
+    metadata
+  };
+  return metadata;
 }
 
 async function ensureSheetTitle() {
@@ -84,6 +108,7 @@ async function ensureSheetTitle() {
   await sheetsRequest('POST', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}:batchUpdate`, {
     requests: [{ addSheet: { properties: { title: targetTitle } } }]
   });
+  spreadsheetMetadataCache = null;
 
   return targetTitle;
 }
@@ -97,8 +122,19 @@ async function ensureNamedSheet(sheetTitle) {
   await sheetsRequest('POST', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}:batchUpdate`, {
     requests: [{ addSheet: { properties: { title: sheetTitle } } }]
   });
+  spreadsheetMetadataCache = null;
 
   return sheetTitle;
+}
+
+async function getCachedValues(range) {
+  const cached = cacheEntry(range);
+  if (cached) return cached.values;
+
+  const current = await sheetsRequest('GET', valuesUrl(range));
+  const values = current.values || [];
+  setCacheEntry(range, values);
+  return values;
 }
 
 async function ensureHeaders(sheetTitle, values) {
@@ -123,11 +159,13 @@ async function ensureHeaders(sheetTitle, values) {
     });
     if (headers.some((header, index) => currentHeaders[index] !== header)) {
       await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [mergedHeaders.slice(0, headers.length)] });
+      values[0] = mergedHeaders.slice(0, headers.length);
     }
     return mergedHeaders;
   }
 
   await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:J1`, '?valueInputOption=RAW'), { values: [headers] });
+  values[0] = headers;
   return headers;
 }
 
@@ -142,6 +180,7 @@ async function ensureControlHeaders(sheetTitle, values) {
     'actualizado_en'
   ];
   await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:E1`, '?valueInputOption=RAW'), { values: [headers] });
+  values[0] = headers;
   return headers;
 }
 
@@ -160,6 +199,7 @@ async function ensureAgentDecisionHeaders(sheetTitle, values) {
     'dry_run'
   ];
   await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:I1`, '?valueInputOption=RAW'), { values: [headers] });
+  values[0] = headers;
   return headers;
 }
 
@@ -192,8 +232,7 @@ export async function upsertSheetRow(order) {
 
   const sheetTitle = await ensureSheetTitle();
   const range = `${sheetTitle}!A:Z`;
-  const current = await sheetsRequest('GET', valuesUrl(range));
-  const values = current.values || [];
+  const values = await getCachedValues(range);
   const headers = await ensureHeaders(sheetTitle, values);
 
   const orderIdIndex = headers.indexOf('orderId');
@@ -220,10 +259,14 @@ export async function upsertSheetRow(order) {
 
   if (rowIndex > 0) {
     await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:J${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
+    values[rowIndex] = row;
+    setCacheEntry(range, values);
     return { updated: true, rowIndex };
   }
 
   await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
+  values.push(row);
+  setCacheEntry(range, values);
   return { appended: true };
 }
 
@@ -234,8 +277,7 @@ export async function getSimulationDecision(orderId) {
   if (!simulationDecisionCache || simulationDecisionCache.expiresAt <= now) {
     const sheetTitle = await ensureNamedSheet('Control Simulacion');
     const range = `${sheetTitle}!A:Z`;
-    const current = await sheetsRequest('GET', valuesUrl(range));
-    const values = current.values || [];
+    const values = await getCachedValues(range);
     const headers = await ensureControlHeaders(sheetTitle, values);
     simulationDecisionCache = {
       expiresAt: now + 60000,
@@ -271,8 +313,7 @@ export async function upsertSimulationDecision({ orderId, decision, reason = '',
 
   const sheetTitle = await ensureNamedSheet('Control Simulacion');
   const range = `${sheetTitle}!A:Z`;
-  const current = await sheetsRequest('GET', valuesUrl(range));
-  const values = current.values || [];
+  const values = await getCachedValues(range);
   const headers = await ensureControlHeaders(sheetTitle, values);
   const orderIdIndex = headers.indexOf('orderId') >= 0 ? headers.indexOf('orderId') : 0;
   const rowIndex = values.findIndex((row, index) => index > 0 && String(row[orderIdIndex]) === String(orderId));
@@ -286,10 +327,14 @@ export async function upsertSimulationDecision({ orderId, decision, reason = '',
 
   if (rowIndex > 0) {
     await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:E${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
+    values[rowIndex] = row;
+    setCacheEntry(range, values);
     return { updated: true, rowIndex };
   }
 
   await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
+  values.push(row);
+  setCacheEntry(range, values);
   return { appended: true };
 }
 
@@ -307,8 +352,7 @@ export async function appendAgentDecision({
 
   const sheetTitle = await ensureNamedSheet('Decisiones Agente');
   const range = `${sheetTitle}!A:Z`;
-  const current = await sheetsRequest('GET', valuesUrl(range));
-  const values = current.values || [];
+  const values = await getCachedValues(range);
   await ensureAgentDecisionHeaders(sheetTitle, values);
 
   const row = [
@@ -324,5 +368,7 @@ export async function appendAgentDecision({
   ];
 
   await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
+  values.push(row);
+  setCacheEntry(range, values);
   return { appended: true };
 }
