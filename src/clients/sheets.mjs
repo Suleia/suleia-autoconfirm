@@ -145,6 +145,24 @@ async function ensureControlHeaders(sheetTitle, values) {
   return headers;
 }
 
+async function ensureAgentDecisionHeaders(sheetTitle, values) {
+  if (values.length > 0) return values[0];
+
+  const headers = [
+    'fecha',
+    'orderId',
+    'accion',
+    'intent',
+    'confianza',
+    'fuente',
+    'mensaje_cliente',
+    'motivo',
+    'dry_run'
+  ];
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:I1`, '?valueInputOption=RAW'), { values: [headers] });
+  return headers;
+}
+
 function formatSheetDate(value) {
   if (!value) return '';
   const raw = String(value);
@@ -270,6 +288,40 @@ export async function upsertSimulationDecision({ orderId, decision, reason = '',
     await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A${rowIndex + 1}:E${rowIndex + 1}`, '?valueInputOption=RAW'), { values: [row] });
     return { updated: true, rowIndex };
   }
+
+  await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
+  return { appended: true };
+}
+
+export async function appendAgentDecision({
+  orderId,
+  action,
+  intent = '',
+  confidence = '',
+  source = '',
+  customerMessage = '',
+  reason = '',
+  dryRun = ''
+}) {
+  if (!config.googleSheetId) return { skipped: true };
+
+  const sheetTitle = await ensureNamedSheet('Decisiones Agente');
+  const range = `${sheetTitle}!A:Z`;
+  const current = await sheetsRequest('GET', valuesUrl(range));
+  const values = current.values || [];
+  await ensureAgentDecisionHeaders(sheetTitle, values);
+
+  const row = [
+    new Date().toISOString(),
+    orderId,
+    action,
+    intent,
+    confidence,
+    source,
+    String(customerMessage || '').slice(0, 500),
+    String(reason || '').slice(0, 500),
+    String(dryRun)
+  ];
 
   await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
   return { appended: true };

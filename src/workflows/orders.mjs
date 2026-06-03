@@ -23,7 +23,7 @@ import {
 import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus } from '../clients/shopify.mjs';
-import { getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
+import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
@@ -45,6 +45,33 @@ async function safeUpsertSheetRow(order, context = 'sheet_sync') {
     saveState(state);
     return { skipped: true, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+async function safeAppendAgentDecision(decision, context = 'agent_decision') {
+  try {
+    return await appendAgentDecision(decision);
+  } catch (error) {
+    console.error(`[${context}] Agent decision audit failed for order ${decision?.orderId || 'unknown'}:`, error);
+    const state = { ...loadState() };
+    state.lastSheetSyncError = error instanceof Error ? error.message : String(error);
+    saveState(state);
+    return { skipped: true, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+async function recordDecisionAndReturn(order, result) {
+  const analysis = result?.analysis || {};
+  await safeAppendAgentDecision({
+    orderId: result?.orderId || order?.orderId,
+    action: result?.action || result?.reason || 'skipped',
+    intent: analysis.intent || order?.aiIntent || '',
+    confidence: analysis.confidence ?? order?.aiConfidence ?? '',
+    source: result?.source || 'workflow',
+    customerMessage: analysis.customer_message || analysis.customerMessage || '',
+    reason: analysis.reason || result?.reason || '',
+    dryRun: result?.dryRun ?? ''
+  });
+  return result;
 }
 
 function parseDate(value) {
@@ -141,15 +168,25 @@ function deterministicCustomerIntent(messages) {
     /\bno lo quiero\b/,
     /\bno quiero\b/,
     /\bno confirmo\b/,
+    /\bnao quero\b/,
+    /\bnao confirmo\b/,
     /\bcancel(ar|o|ado)?\b/,
+    /\bcancelar\b/,
     /\banular\b/,
+    /\banula\b/,
     /\bno me interesa\b/,
     /\bno lo voy a recibir\b/,
     /\bno voy a aceptarlo\b/,
     /\bcambiar datos\b/,
     /\bcambiar direccion\b/,
     /\bmodificar datos\b/,
-    /\bdireccion (mal|incorrecta|equivocada)\b/
+    /\bdireccion (mal|incorrecta|equivocada)\b/,
+    /\bmudar morada\b/,
+    /\balterar morada\b/,
+    /\bmudar endereco\b/,
+    /\balterar endereco\b/,
+    /\bendereco (errado|incorreto)\b/,
+    /\bmorada (errada|incorreta)\b/
   ];
 
   if (cancelPatterns.some((pattern) => pattern.test(text))) {
@@ -161,12 +198,23 @@ function deterministicCustomerIntent(messages) {
   }
 
   const confirmPatterns = [
+    /^(si|sii|siii|sim|ok|vale|perfecto|claro|correcto)$/,
     /\bconfirmo\b/,
     /\bconfirmado\b/,
+    /\bconfirmada\b/,
+    /\bconfirmar\b/,
     /\bconfirmar mi pedido\b/,
+    /\bconfirmar o pedido\b/,
     /\bsi lo quiero\b/,
-    /\bs[iÃ­],? lo quiero\b/,
+    /\bsi,? lo quiero\b/,
+    /\bsim,? quero\b/,
+    /\bquero sim\b/,
     /\blo quiero\b/,
+    /\beu quero\b/,
+    /\bpode enviar\b/,
+    /\bpode mandar\b/,
+    /\bpode seguir\b/,
+    /\bpode prosseguir\b/,
     /\badelante\b/,
     /\bperfecto\b/,
     /\bok\b/,
@@ -290,6 +338,7 @@ function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'CANCEL') {
       return {
         ...intent,
+        customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_change_address_button'
           : 'customer_message'
@@ -299,6 +348,7 @@ function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'CONFIRM') {
       return {
         ...intent,
+        customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_button'
           : 'customer_text'
@@ -679,6 +729,9 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
   for (const order of orders) {
     const hydrated = order.chatbyUserNs ? order : await ensureChatbyThread(order, store);
     const result = await analyzeAndMaybeConfirmOrder(hydrated, store);
+    if (result && !result.skipped) {
+      await recordDecisionAndReturn(hydrated, result);
+    }
     results.push({ orderId: order.orderId, result });
   }
 
