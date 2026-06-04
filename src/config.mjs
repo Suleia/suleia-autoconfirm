@@ -22,6 +22,13 @@ function randomToken() {
   return crypto.randomBytes(24).toString('hex');
 }
 
+function csv(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function defaultStoreFromEnv() {
   const webhookToken = process.env.WEBHOOK_TOKEN || randomToken();
   return {
@@ -113,6 +120,15 @@ export function getAppConfig() {
     googleSheetName: process.env.GOOGLE_SHEET_NAME || 'Pedidos',
     googleServiceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || null,
     googlePrivateKey: process.env.GOOGLE_PRIVATE_KEY || null,
+    metaAccessToken: process.env.META_ACCESS_TOKEN || null,
+    metaBusinessId: process.env.META_BUSINESS_ID || null,
+    metaAdAccountId: process.env.META_AD_ACCOUNT_ID || process.env.META_ACT_ID || null,
+    metaApiVersion: process.env.META_API_VERSION || 'v25.0',
+    metaDashboardEnabled: bool(process.env.META_DASHBOARD_ENABLED, Boolean(process.env.META_ACCESS_TOKEN && (process.env.META_AD_ACCOUNT_ID || process.env.META_ACT_ID))),
+    metaDashboardIntervalMinutes: int(process.env.META_DASHBOARD_INTERVAL_MINUTES, 360),
+    metaDashboardLookbackDays: int(process.env.META_DASHBOARD_LOOKBACK_DAYS, 30),
+    metaDashboardSheetPrefix: process.env.META_DASHBOARD_SHEET_PREFIX || 'Meta',
+    metaAttributionFields: csv(process.env.META_ATTRIBUTION_FIELDS || 'utm_campaign,campaign_id,fb_campaign_id,campaign_name,meta_campaign_id'),
     defaultStore: primaryStore,
     stores
   };

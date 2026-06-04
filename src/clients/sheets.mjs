@@ -127,6 +127,11 @@ async function ensureNamedSheet(sheetTitle) {
   return sheetTitle;
 }
 
+async function getSheetProperties(sheetTitle) {
+  const metadata = await getSpreadsheetMetadata();
+  return metadata.sheets?.find((sheet) => sheet.properties?.title === sheetTitle)?.properties || null;
+}
+
 async function getCachedValues(range) {
   const cached = cacheEntry(range);
   if (cached) return cached.values;
@@ -371,4 +376,76 @@ export async function appendAgentDecision({
   values.push(row);
   setCacheEntry(range, values);
   return { appended: true };
+}
+
+export async function replaceSheetValues(sheetTitle, rows, { frozenRows = 1, headerColor = { red: 0.02, green: 0.28, blue: 0.22 } } = {}) {
+  if (!config.googleSheetId) return { skipped: true };
+
+  await ensureNamedSheet(sheetTitle);
+  const safeRows = Array.isArray(rows) && rows.length ? rows : [['Sin datos']];
+  const width = safeRows.reduce((max, row) => Math.max(max, Array.isArray(row) ? row.length : 1), 1);
+  const normalizedRows = safeRows.map((row) => {
+    const current = Array.isArray(row) ? row : [row];
+    return [...current, ...Array(Math.max(0, width - current.length)).fill('')];
+  });
+
+  await sheetsRequest('POST', valuesUrl(`${sheetTitle}!A:Z`, ':clear'), {});
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1`, '?valueInputOption=RAW'), { values: normalizedRows });
+  sheetValuesCache.delete(`${sheetTitle}!A:Z`);
+
+  const properties = await getSheetProperties(sheetTitle);
+  if (!properties?.sheetId) return { updated: true, rows: normalizedRows.length };
+
+  const sheetId = properties.sheetId;
+  await sheetsRequest('POST', `https://sheets.googleapis.com/v4/spreadsheets/${config.googleSheetId}:batchUpdate`, {
+    requests: [
+      {
+        updateSheetProperties: {
+          properties: {
+            sheetId,
+            gridProperties: { frozenRowCount: frozenRows }
+          },
+          fields: 'gridProperties.frozenRowCount'
+        }
+      },
+      {
+        repeatCell: {
+          range: {
+            sheetId,
+            startRowIndex: 0,
+            endRowIndex: Math.min(frozenRows, normalizedRows.length)
+          },
+          cell: {
+            userEnteredFormat: {
+              backgroundColor: headerColor,
+              textFormat: {
+                foregroundColor: { red: 1, green: 1, blue: 1 },
+                bold: true
+              }
+            }
+          },
+          fields: 'userEnteredFormat(backgroundColor,textFormat)'
+        }
+      },
+      {
+        autoResizeDimensions: {
+          dimensions: {
+            sheetId,
+            dimension: 'COLUMNS',
+            startIndex: 0,
+            endIndex: Math.min(width, 26)
+          }
+        }
+      }
+    ]
+  });
+
+  return { updated: true, rows: normalizedRows.length };
+}
+
+export async function getSheetRows(sheetTitle, range = 'A:Z') {
+  if (!config.googleSheetId) return [];
+
+  await ensureNamedSheet(sheetTitle);
+  return getCachedValues(`${sheetTitle}!${range}`);
 }

@@ -2,6 +2,7 @@ import http from 'node:http';
 import { getAppConfig } from './src/config.mjs';
 import { listOrders, loadState, saveState } from './src/storage.mjs';
 import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
+import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 
 const config = getAppConfig();
 
@@ -57,6 +58,10 @@ function storeSummary() {
     lastSheetSyncError: state.lastSheetSyncError,
     lastIngestError: state.lastIngestError,
     lastAutoConfirmError: state.lastAutoConfirmError,
+    metaDashboardEnabled: config.metaDashboardEnabled,
+    metaDashboardIntervalMinutes: config.metaDashboardIntervalMinutes,
+    lastMetaDashboardAt: state.lastMetaDashboardAt,
+    lastMetaDashboardError: state.lastMetaDashboardError,
     orders: {
       total: listOrders({ storeId: config.defaultStore.id }).length,
       pending: listOrders({ storeId: config.defaultStore.id, status: 'PENDING' }).length
@@ -131,6 +136,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/sync-meta-dashboard') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await syncMetaDashboard({ store: config.defaultStore });
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
     return sendJson(res, 404, { ok: false, error: 'not_found' });
   } catch (error) {
     return sendJson(res, 500, {
@@ -142,6 +153,7 @@ const server = http.createServer(async (req, res) => {
 
 let pollTimer = null;
 let pollRunning = false;
+let metaDashboardTimer = null;
 
 async function runBackgroundPoll() {
   if (pollRunning) return;
@@ -171,8 +183,33 @@ function startBackgroundPoller() {
   }, 15000);
 }
 
+function startMetaDashboardSync() {
+  const intervalMinutes = config.metaDashboardIntervalMinutes || 360;
+  if (!config.metaDashboardEnabled) return;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    syncMetaDashboard({ store: config.defaultStore })
+      .then((result) => {
+        if (result?.ok) console.log(`Meta dashboard synced (${result.insights} campaign insights).`);
+        if (result?.error) console.error('Meta dashboard sync error:', result.error);
+      })
+      .catch((error) => console.error('Meta dashboard sync error:', error));
+    metaDashboardTimer = setInterval(() => {
+      syncMetaDashboard({ store: config.defaultStore })
+        .then((result) => {
+          if (result?.ok) console.log(`Meta dashboard synced (${result.insights} campaign insights).`);
+          if (result?.error) console.error('Meta dashboard sync error:', result.error);
+        })
+        .catch((error) => console.error('Meta dashboard sync error:', error));
+    }, intervalMs);
+  }, 45000);
+}
+
 server.listen(config.port, () => {
   console.log(`AutoConfirm listening on http://localhost:${config.port}`);
   console.log(`Webhook: /api/webhooks/dropea/${config.defaultStore.webhookToken}`);
   startBackgroundPoller();
+  startMetaDashboardSync();
 });

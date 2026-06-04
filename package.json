@@ -7,6 +7,7 @@
     "start": "node server.mjs",
     "poll": "node tools/poll-orders.mjs",
     "sync-sheet": "node tools/sync-orders-to-sheet.mjs",
+    "sync-meta-dashboard": "node tools/sync-meta-dashboard.mjs",
     "confirm": "node tools/auto-confirm.mjs",
     "health": "node tools/healthcheck.mjs"
   }
