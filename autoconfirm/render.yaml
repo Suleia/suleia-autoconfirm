@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: suleia-autoconfirm
+    env: docker
+    dockerfilePath: ./autoconfirm/Dockerfile
+    plan: starter
+    autoDeploy: false
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8787
+      - key: DROPEA_DROPSHIPPER_ID
+        value: 17431
+      - key: DROPEA_DASHBOARD_PROFIT
+        value: 448.19
