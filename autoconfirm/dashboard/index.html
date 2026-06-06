@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Suleia Command Center</title>
+    <link rel="stylesheet" href="/dashboard/styles.css">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">S</div>
+          <div>
+            <p>Suleia</p>
+            <span>Command Center</span>
+          </div>
+        </div>
+
+        <nav class="nav" aria-label="Secciones">
+          <button class="nav-item is-active" data-section="overview">Vista general</button>
+          <button class="nav-item" data-section="orders">Pedidos</button>
+          <button class="nav-item" data-section="agent">Agente</button>
+          <button class="nav-item" data-section="meta">Meta Ads</button>
+          <button class="nav-item" data-section="products">Productos</button>
+          <button class="nav-item" data-section="research">Competencia</button>
+          <button class="nav-item" data-section="settings">Costes y reglas</button>
+        </nav>
+
+        <div class="side-card">
+          <span class="status-dot"></span>
+          <div>
+            <strong>Automatización activa</strong>
+            <small>Modo simulación del agente</small>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Panel interno</p>
+            <h1 id="page-title">Vista general</h1>
+          </div>
+          <div class="top-actions">
+            <label class="search">
+              <span>Buscar</span>
+              <input id="search-input" type="search" placeholder="Pedido, producto, campaña...">
+            </label>
+            <button class="primary-action" id="sync-button">Actualizar datos</button>
+          </div>
+        </header>
+
+        <div class="status-banner" id="status-banner">Cargando datos reales del sistema...</div>
+
+        <section class="hero-grid" data-panel="overview">
+          <article class="hero-card">
+            <p class="eyebrow">Hoy</p>
+            <h2>Centro de decisiones de Suleia</h2>
+            <p>Una vista única para pedidos, confirmaciones, rentabilidad, campañas y oportunidades de producto. La app lee el flujo actual y separa claramente datos reales, simulación del agente y fuentes pendientes.</p>
+            <div class="hero-metrics">
+              <div><strong id="hero-orders">0</strong><span>Pedidos</span></div>
+              <div><strong id="hero-confirm-rate">0%</strong><span>Confirmación</span></div>
+              <div><strong id="hero-profit">€0,00</strong><span>Beneficio final</span></div>
+            </div>
+          </article>
+          <article class="pulse-card">
+            <p class="eyebrow">Estado del sistema</p>
+            <div class="timeline">
+              <div><span></span><strong id="system-agent-status">Agente</strong><small id="system-agent-mode">Cargando...</small></div>
+              <div><span></span><strong>Último ciclo</strong><small id="system-last-cycle">Sin dato</small></div>
+              <div><span></span><strong>Pendientes</strong><small><span id="system-pending">0</span> pedidos pendientes</small></div>
+              <div><span></span><strong>Fuentes</strong><small>Sheets, Render, Meta y estado local</small></div>
+            </div>
+          </article>
+        </section>
+
+        <section class="kpi-grid" data-panel="overview">
+          <article class="kpi positive"><span>Pedidos</span><strong id="kpi-orders">0</strong><small>Total capturado</small></article>
+          <article class="kpi"><span>Gasto Meta</span><strong id="kpi-spend">€0,00</strong><small>Desde dashboard Meta</small></article>
+          <article class="kpi positive"><span>Ingresos confirmados</span><strong id="kpi-revenue">€0,00</strong><small>Estimación por pedidos</small></article>
+          <article class="kpi warning"><span>Revisión</span><strong id="kpi-review">0</strong><small>Pedidos necesitan atención</small></article>
+          <article class="kpi positive"><span>Confirmación</span><strong id="kpi-confirm-rate">0%</strong><small>Tasa detectada</small></article>
+          <article class="kpi" id="profit-card"><span>Beneficio final</span><strong id="kpi-profit">€0,00</strong><small id="kpi-profit-note">Dropea - Meta</small></article>
+        </section>
+
+        <section class="content-grid">
+          <article class="panel span-7" data-panel="overview orders">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Operación</p>
+                <h3>Pedidos recientes</h3>
+              </div>
+              <span class="chip">Dropea + Chatby</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Producto</th>
+                    <th>Estado</th>
+                    <th>Agente</th>
+                    <th>Beneficio</th>
+                    <th>Feedback</th>
+                  </tr>
+                </thead>
+                <tbody id="orders-table"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel span-5" data-panel="overview meta">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Meta Ads</p>
+                <h3>Campañas por rentabilidad</h3>
+              </div>
+              <span class="chip">ROAS estimado</span>
+            </div>
+            <div id="campaign-list" class="bar-list"></div>
+          </article>
+
+          <article class="panel span-12" data-panel="overview settings">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Conexiones</p>
+                <h3>Fuentes de datos</h3>
+              </div>
+              <span class="chip">Lectura segura</span>
+            </div>
+            <div id="sources-list" class="sources-grid"></div>
+          </article>
+
+          <article class="panel span-12" data-panel="overview">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Finanzas</p>
+                <h3>Beneficio real</h3>
+              </div>
+              <span class="chip">Cálculo auditable</span>
+            </div>
+            <div class="finance-grid">
+              <div><span>Beneficio Dropea</span><strong id="finance-dropea-profit">€0,00</strong><small>Ya incluye stock y transporte</small></div>
+              <div><span>Gasto Meta</span><strong id="finance-meta">€0,00</strong><small>Periodo disponible</small></div>
+              <div class="finance-result"><span>Beneficio final</span><strong id="finance-profit">€0,00</strong><small id="finance-formula">Fórmula</small></div>
+              <div><span>Ingresos reconocidos</span><strong id="finance-revenue">€0,00</strong><small id="finance-orders">Lectura secundaria</small></div>
+              <div><span>Costes estimados alternativos</span><strong id="finance-alt-costs">€0,00</strong><small>No usados en beneficio final</small></div>
+            </div>
+            <form class="inline-form" id="finance-settings-form">
+              <label>
+                Actualizar beneficio neto de Dropea
+                <input id="finance-dropea-input" inputmode="decimal" placeholder="448,19">
+              </label>
+              <button class="mini-button" type="submit">Guardar beneficio Dropea</button>
+            </form>
+            <div id="finance-warnings" class="warning-list"></div>
+          </article>
+
+          <article class="panel span-12" data-panel="agent">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Conversación</p>
+                <h3>Hablar con el agente</h3>
+              </div>
+              <span class="chip">Memoria activa</span>
+            </div>
+            <div id="agent-chat" class="agent-chat"></div>
+            <form id="agent-chat-form" class="agent-chat-form">
+              <input id="agent-chat-input" placeholder="Escribe feedback, reglas o preguntas para el agente...">
+              <button class="primary-action" type="submit">Enviar</button>
+            </form>
+            <div id="agent-memory" class="memory-list"></div>
+          </article>
+
+          <article class="panel span-6" data-panel="agent">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Control</p>
+                <h3>Decisiones del agente</h3>
+              </div>
+              <span class="chip warning">Dry run</span>
+            </div>
+            <div id="agent-list" class="decision-list"></div>
+            <div class="learning-note" id="learning-note"></div>
+          </article>
+
+          <article class="panel span-6" data-panel="agent">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Aprendizaje</p>
+                <h3>Feedback reciente</h3>
+              </div>
+              <span class="chip">Correcciones</span>
+            </div>
+            <div id="feedback-list" class="decision-list"></div>
+          </article>
+
+          <article class="panel span-6" data-panel="agent settings">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Reglas</p>
+                <h3>Umbrales actuales</h3>
+              </div>
+              <span class="chip">Editable pronto</span>
+            </div>
+            <div class="rules-grid">
+              <div><span>Confianza mínima</span><strong>90%</strong></div>
+              <div><span>Modo real</span><strong>No</strong></div>
+              <div><span>Cooldown</span><strong>1 h</strong></div>
+              <div><span>Revisión manual</span><strong>Activa</strong></div>
+            </div>
+          </article>
+
+          <article class="panel span-7" data-panel="products">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Catálogo</p>
+                <h3>Productos activos</h3>
+              </div>
+              <span class="chip">Shopify + Dropea</span>
+            </div>
+            <div id="product-cards" class="product-grid"></div>
+          </article>
+
+          <article class="panel span-5" data-panel="research">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Radar</p>
+                <h3>Productos potenciales</h3>
+              </div>
+              <span class="chip">Investigación</span>
+            </div>
+            <div id="research-list" class="research-list"></div>
+          </article>
+
+          <article class="panel span-12" data-panel="settings">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Rentabilidad</p>
+                <h3>Modelo de costes inicial</h3>
+              </div>
+              <span class="chip">Base para cálculo real</span>
+            </div>
+            <div class="cost-grid">
+              <div><span>Coste producto</span><strong>Por SKU</strong><small>Dropea</small></div>
+              <div><span>Publicidad</span><strong>Por campaña</strong><small>Meta Ads</small></div>
+              <div><span>Pasarela</span><strong>% pedido</strong><small>Shopify Payments</small></div>
+              <div><span>Incidencias</span><strong>Manual</strong><small>Reembolso/devolución</small></div>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <dialog class="feedback-dialog" id="feedback-dialog">
+      <form method="dialog" class="feedback-form" id="feedback-form">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Corregir agente</p>
+            <h3 id="feedback-title">Pedido</h3>
+          </div>
+          <button class="ghost-button" type="button" id="feedback-close">Cerrar</button>
+        </div>
+        <label>
+          Qué debería aprender
+          <select id="feedback-verdict" required>
+            <option value="should_confirm">El agente debía confirmar</option>
+            <option value="should_not_confirm">El agente NO debía confirmar</option>
+            <option value="manual_review">Debía enviarlo a revisión manual</option>
+          </select>
+        </label>
+        <label>
+          Corrección breve
+          <input id="feedback-correction" placeholder="Ej: El cliente confirmó claramente por botón">
+        </label>
+        <label>
+          Nota opcional
+          <textarea id="feedback-note" rows="4" placeholder="Añade contexto para mejorar el criterio del agente..."></textarea>
+        </label>
+        <button class="primary-action" type="submit">Guardar feedback</button>
+      </form>
+    </dialog>
+
+    <script src="/dashboard/main.js"></script>
+  </body>
+</html>
