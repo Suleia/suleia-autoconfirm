@@ -1,10 +1,27 @@
 import http from 'node:http';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import { getAppConfig } from './src/config.mjs';
 import { listOrders, loadState, saveState } from './src/storage.mjs';
 import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
+import { buildDashboard, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
 
 const config = getAppConfig();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const dashboardDir = path.join(__dirname, 'dashboard');
+const dashboardPassword = process.env.DASHBOARD_PASSWORD || '';
+const dashboardSessionSecret = process.env.DASHBOARD_SESSION_SECRET || process.env.CRON_SECRET || 'suleia-dashboard-dev-secret';
+
+const staticTypes = {
+  '.html': 'text/html; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.svg': 'image/svg+xml; charset=utf-8'
+};
 
 function sendJson(res, statusCode, payload) {
   const body = JSON.stringify(payload, null, 2);
@@ -32,10 +49,132 @@ function readBody(req) {
   });
 }
 
+function parseCookies(req) {
+  return Object.fromEntries(
+    String(req.headers.cookie || '')
+      .split(';')
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .map((item) => {
+        const index = item.indexOf('=');
+        if (index < 0) return [item, ''];
+        return [decodeURIComponent(item.slice(0, index)), decodeURIComponent(item.slice(index + 1))];
+      })
+  );
+}
+
+function signSession(value) {
+  return crypto.createHmac('sha256', dashboardSessionSecret).update(value).digest('hex');
+}
+
+function safeEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function createSessionCookie(req) {
+  const value = `suleia:${Date.now()}`;
+  const signed = `${value}.${signSession(value)}`;
+  const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
+  return `suleia_dashboard=${encodeURIComponent(signed)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${60 * 60 * 12}${secure}`;
+}
+
+function isDashboardAuthenticated(req) {
+  if (!dashboardPassword) return false;
+  const cookie = parseCookies(req).suleia_dashboard;
+  if (!cookie || !cookie.includes('.')) return false;
+  const index = cookie.lastIndexOf('.');
+  const value = cookie.slice(0, index);
+  const signature = cookie.slice(index + 1);
+  return safeEqual(signature, signSession(value));
+}
+
+function sendDashboardLogin(res, message = '') {
+  const body = `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Suleia Dashboard Login</title>
+    <style>
+      body{margin:0;min-height:100vh;display:grid;place-items:center;background:linear-gradient(135deg,#f6efe3,#d9f5ec);font-family:Georgia,"Times New Roman",serif;color:#17212b}
+      form{width:min(420px,calc(100vw - 32px));padding:34px;border:1px solid rgba(23,33,43,.12);border-radius:30px;background:rgba(255,253,248,.88);box-shadow:0 24px 80px rgba(38,57,75,.16)}
+      h1{margin:0 0 10px;font-size:44px;letter-spacing:-.05em}
+      p{color:#65727f;line-height:1.5}
+      label{display:grid;gap:8px;margin:22px 0 16px;font-family:"Trebuchet MS",Verdana,sans-serif;font-weight:900;color:#65727f}
+      input{border:1px solid rgba(23,33,43,.16);border-radius:16px;padding:14px;font:inherit}
+      button{width:100%;border:0;border-radius:16px;padding:14px 18px;color:white;background:#0d8b8f;font-family:"Trebuchet MS",Verdana,sans-serif;font-weight:900;cursor:pointer}
+      .error{padding:12px 14px;border-radius:14px;color:#9c3525;background:rgba(232,109,87,.14);font-family:"Trebuchet MS",Verdana,sans-serif;font-weight:900}
+    </style>
+  </head>
+  <body>
+    <form method="post" action="/api/dashboard-login">
+      <h1>Suleia</h1>
+      <p>Acceso privado al Command Center.</p>
+      ${message ? `<div class="error">${message}</div>` : ''}
+      <label>Contraseña<input name="password" type="password" autofocus autocomplete="current-password"></label>
+      <button type="submit">Entrar</button>
+    </form>
+  </body>
+</html>`;
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' });
+  res.end(body);
+}
+
+function readFormBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8');
+      resolve(Object.fromEntries(new URLSearchParams(raw)));
+    });
+    req.on('error', reject);
+  });
+}
+
+function requireDashboardAuth(req, res) {
+  if (isDashboardAuthenticated(req)) return true;
+  if (req.method === 'GET' && (req.url === '/dashboard' || req.url.startsWith('/dashboard/'))) {
+    sendDashboardLogin(res);
+  } else {
+    sendJson(res, 401, { ok: false, error: 'dashboard_unauthorized' });
+  }
+  return false;
+}
+
 function isAuthorizedCron(req) {
   if (!config.cronSecret) return true;
   const header = req.headers.authorization || '';
   return header === `Bearer ${config.cronSecret}`;
+}
+
+function dashboardFilePath(urlPath) {
+  const cleanPath = decodeURIComponent(urlPath.split('?')[0]);
+  const relativePath = cleanPath === '/dashboard' || cleanPath === '/dashboard/'
+    ? 'index.html'
+    : cleanPath.replace(/^\/dashboard\/?/, '');
+  const resolved = path.normalize(path.join(dashboardDir, relativePath || 'index.html'));
+  return resolved.startsWith(dashboardDir) ? resolved : null;
+}
+
+async function sendDashboardFile(res, reqUrl) {
+  const filePath = dashboardFilePath(reqUrl);
+  if (!filePath) return sendJson(res, 403, { ok: false, error: 'forbidden' });
+  try {
+    const data = await fs.readFile(filePath);
+    const ext = path.extname(filePath);
+    res.writeHead(200, {
+      'Content-Type': staticTypes[ext] || 'application/octet-stream',
+      'Cache-Control': 'no-store'
+    });
+    res.end(data);
+    return true;
+  } catch {
+    return sendJson(res, 404, { ok: false, error: 'not_found' });
+  }
 }
 
 function storeSummary() {
@@ -75,6 +214,50 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
       return sendJson(res, 200, { ok: true, ...storeSummary() });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/dashboard-login') {
+      return sendDashboardLogin(res);
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/dashboard-login') {
+      const body = await readFormBody(req);
+      const valid = dashboardPassword && safeEqual(body.password, dashboardPassword);
+      if (!valid) return sendDashboardLogin(res, 'Contraseña incorrecta.');
+      res.writeHead(303, {
+        Location: '/dashboard',
+        'Set-Cookie': createSessionCookie(req),
+        'Cache-Control': 'no-store'
+      });
+      return res.end();
+    }
+
+    if (req.method === 'GET' && (url.pathname === '/dashboard' || url.pathname.startsWith('/dashboard/'))) {
+      if (!requireDashboardAuth(req, res)) return;
+      return sendDashboardFile(res, req.url);
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/dashboard') {
+      if (!requireDashboardAuth(req, res)) return;
+      return sendJson(res, 200, { ok: true, dashboard: await buildDashboard({ health: storeSummary() }) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/agent-feedback') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      return sendJson(res, 200, { ok: true, feedback: await saveAgentFeedback(body) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/finance-settings') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      return sendJson(res, 200, { ok: true, settings: await saveFinanceSettings(body) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/agent-chat') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      return sendJson(res, 200, { ok: true, ...(await saveAgentChat(body.message, storeSummary())) });
     }
 
     if (req.method === 'POST' && url.pathname.startsWith('/api/webhooks/dropea/')) {
