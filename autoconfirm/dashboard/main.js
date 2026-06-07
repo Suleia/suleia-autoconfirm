@@ -373,6 +373,29 @@ function renderAgentChat() {
   }
 }
 
+async function sendAgentMessage(message) {
+  const input = document.querySelector('#agent-chat-input');
+  const button = agentChatForm.querySelector('button');
+  if (input) input.value = '';
+  button.disabled = true;
+  button.textContent = 'Pensando...';
+  try {
+    const response = await fetch('/api/agent-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message })
+    });
+    const payload = await readJsonResponse(response);
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    await loadDashboard();
+  } catch (error) {
+    alert(`No se pudo hablar con el agente: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Enviar';
+  }
+}
+
 function renderPanels() {
   document.body.dataset.section = state.section;
   pageTitle.textContent = titles[state.section];
@@ -528,25 +551,13 @@ agentChatForm?.addEventListener('submit', async (event) => {
   const input = document.querySelector('#agent-chat-input');
   const message = input.value.trim();
   if (!message) return;
-  const button = agentChatForm.querySelector('button');
-  input.value = '';
-  button.disabled = true;
-  button.textContent = 'Enviando...';
-  try {
-    const response = await fetch('/api/agent-chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
-    });
-    const payload = await readJsonResponse(response);
-    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-    await loadDashboard();
-  } catch (error) {
-    alert(`No se pudo hablar con el agente: ${error instanceof Error ? error.message : String(error)}`);
-  } finally {
-    button.disabled = false;
-    button.textContent = 'Enviar';
-  }
+  await sendAgentMessage(message);
+});
+
+document.querySelectorAll('[data-agent-prompt]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    await sendAgentMessage(button.dataset.agentPrompt || '');
+  });
 });
 
 syncButton.addEventListener('click', async () => {
