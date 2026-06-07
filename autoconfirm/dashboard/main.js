@@ -81,6 +81,7 @@ function hasAgentConfirmation(order) {
 
 function hasAddressChange(order) {
   const text = normalize([
+    order.status,
     order.agentIntent,
     order.agentReason,
     order.note,
@@ -100,8 +101,8 @@ function friendlyOrderState(order) {
 
   if (hasAddressChange(order)) {
     return {
-      label: 'Cambio de direccion',
-      detail: 'No confirmar hasta revisar los datos de entrega.',
+      label: 'Pendiente por direccion',
+      detail: 'El cliente pidio cambiar datos. No confirmar hasta corregirlo en Dropea.',
       tone: 'warning'
     };
   }
@@ -154,7 +155,7 @@ function agentEvidence(order) {
   if (hasAddressChange(order)) {
     return {
       label: 'Cambio solicitado',
-      detail: 'Evidencia alta: el cliente pidio modificar direccion o datos.',
+      detail: 'Evidencia alta: el cliente pidio modificar direccion o datos. Bloquea confirmacion.',
       tone: 'warning'
     };
   }
