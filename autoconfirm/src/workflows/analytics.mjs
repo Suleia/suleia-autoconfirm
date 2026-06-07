@@ -55,6 +55,13 @@ function normalizeText(value) {
     .trim();
 }
 
+function productFromCampaignName(name) {
+  const normalized = normalizeText(name);
+  if (normalized.includes('colla') || normalized.includes('gum')) return 'Collagum';
+  if (normalized.includes('nida')) return 'NIDA premium';
+  return 'Sin producto detectado';
+}
+
 function deepFind(raw, targetKeys) {
   if (!raw || typeof raw !== 'object') return null;
   const stack = [raw];
@@ -244,14 +251,18 @@ function campaignRows({ campaigns, insights, orders }) {
   const rows = [[
     'campaign_id',
     'campana',
+    'producto',
     'estado',
     'gasto',
     'impresiones',
     'clicks',
     'ctr',
     'cpc',
+    'cpm',
     'compras_pixel',
+    'valor_compra_pixel',
     'cpa_pixel',
+    'roas_meta',
     'pedidos_dropea_atribuidos',
     'confirmados_atribuidos',
     'tasa_confirmacion',
@@ -274,14 +285,18 @@ function campaignRows({ campaigns, insights, orders }) {
     rows.push([
       insight.campaignId,
       insight.campaignName,
+      productFromCampaignName(insight.campaignName),
       campaign?.effective_status || campaign?.status || '',
       money(insight.spend),
       insight.impressions,
       insight.clicks,
       `${metric(insight.ctr, 2)}%`,
       money(insight.cpc),
+      money(insight.cpm),
       insight.purchases,
+      money(insight.purchaseValue),
       insight.costPerPurchase === null ? '' : money(insight.costPerPurchase),
+      insight.roas === null ? '' : metric(insight.roas, 2),
       orderSummary.total,
       orderSummary.confirmed,
       orderSummary.confirmRate === null ? '' : percent(orderSummary.confirmRate),
