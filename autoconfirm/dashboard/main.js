@@ -62,18 +62,150 @@ function matchesQuery(values) {
 }
 
 function toneForOrder(order) {
-  const status = normalize(order.status);
-  const action = normalize(order.agentAction);
-  if (status.includes('confirm') || action.includes('confirm') && !action.includes('not')) return 'positive';
-  if (status.includes('manual') || status.includes('revision')) return 'warning';
-  if (status.includes('cancel') || action.includes('not_confirm')) return 'danger';
-  return 'neutral';
+  return friendlyOrderState(order).tone;
 }
 
 function agentLabel(order) {
   if (order.agentAction) return `${order.agentAction}${order.agentConfidence ? ` · ${order.agentConfidence}%` : ''}`;
   if (order.note) return order.note;
   return 'Sin decision visible';
+}
+
+function hasAgentConfirmation(order) {
+  const action = normalize(order.agentAction);
+  const intent = normalize(order.agentIntent);
+  const status = normalize(order.status);
+  if (action.includes('not_confirm')) return false;
+  return action.includes('confirm') || intent.includes('confirm') || status.includes('confirm');
+}
+
+function hasAddressChange(order) {
+  const text = normalize([
+    order.agentIntent,
+    order.agentReason,
+    order.note,
+    order.feedbackVerdict,
+    order.feedbackCorrection
+  ].join(' '));
+  return text.includes('address_change')
+    || text.includes('cambio de direccion')
+    || text.includes('cambio direccion')
+    || text.includes('direccion');
+}
+
+function friendlyOrderState(order) {
+  const status = normalize(order.status);
+  const action = normalize(order.agentAction);
+  const intent = normalize(order.agentIntent);
+
+  if (hasAddressChange(order)) {
+    return {
+      label: 'Cambio de direccion',
+      detail: 'No confirmar hasta revisar los datos de entrega.',
+      tone: 'warning'
+    };
+  }
+
+  if (status.includes('cancel') || intent.includes('cancel') || action.includes('not_confirm')) {
+    return {
+      label: 'No confirmar',
+      detail: 'El cliente no ha dado una confirmacion valida o el pedido esta cancelado.',
+      tone: 'danger'
+    };
+  }
+
+  if (status.includes('manual') || status.includes('revision')) {
+    return {
+      label: 'Revision manual',
+      detail: 'Necesita una comprobacion humana antes de actuar.',
+      tone: 'warning'
+    };
+  }
+
+  if (hasAgentConfirmation(order)) {
+    return {
+      label: 'Confirmado',
+      detail: 'Hay una senal suficiente para confirmar el pedido.',
+      tone: 'positive'
+    };
+  }
+
+  if (status.includes('pending') || status.includes('pend')) {
+    return {
+      label: 'Pendiente de respuesta',
+      detail: 'Todavia no hay una respuesta clara del cliente.',
+      tone: 'neutral'
+    };
+  }
+
+  return {
+    label: 'Sin evaluar',
+    detail: 'Aun no hay una decision visible del agente.',
+    tone: 'neutral'
+  };
+}
+
+function agentEvidence(order) {
+  const confidence = Number(order.agentConfidence);
+  const reason = order.agentReason || order.note || '';
+  const status = normalize(order.status);
+  const intent = normalize(order.agentIntent);
+
+  if (hasAddressChange(order)) {
+    return {
+      label: 'Cambio solicitado',
+      detail: 'Evidencia alta: el cliente pidio modificar direccion o datos.',
+      tone: 'warning'
+    };
+  }
+
+  if (hasAgentConfirmation(order)) {
+    return {
+      label: 'Confirmacion clara',
+      detail: confidence >= 90
+        ? 'Evidencia alta: boton o texto de confirmacion detectado.'
+        : 'Confirmacion detectada, pero conviene revisar la evidencia.',
+      tone: confidence >= 90 ? 'positive' : 'warning'
+    };
+  }
+
+  if (status.includes('cancel') || intent.includes('cancel')) {
+    return {
+      label: 'Cancelacion clara',
+      detail: 'Evidencia alta: el cliente no quiere continuar.',
+      tone: 'danger'
+    };
+  }
+
+  if (confidence >= 90) {
+    return {
+      label: 'Evidencia alta',
+      detail: reason || 'El agente encontro una senal fuerte, pero sin accion automatica.',
+      tone: 'positive'
+    };
+  }
+
+  if (confidence >= 70) {
+    return {
+      label: 'Evidencia media',
+      detail: reason || 'Hay indicios, pero no son suficientes para actuar solo.',
+      tone: 'warning'
+    };
+  }
+
+  if (Number.isFinite(confidence) && confidence > 0) {
+    return {
+      label: 'Evidencia baja',
+      detail: reason || 'No hay certeza suficiente para automatizar.',
+      tone: 'neutral'
+    };
+  }
+
+  return {
+    label: 'Sin senal suficiente',
+    detail: reason || 'Esperando respuesta o informacion util del cliente.',
+    tone: 'neutral'
+  };
 }
 
 function setText(selector, value) {
@@ -87,17 +219,25 @@ function renderOrders() {
   const rows = orders
     .filter((order) => matchesQuery([order.orderId, order.customer, order.product, order.status, order.agentAction]))
     .map((order) => {
-      const tone = toneForOrder(order);
+      const orderState = friendlyOrderState(order);
+      const evidence = agentEvidence(order);
       return `
         <tr>
           <td><strong>#${escapeHtml(order.orderId)}</strong><small>${escapeHtml(order.createdAt || '')}</small></td>
           <td>${escapeHtml(order.product || 'Producto')}</td>
           <td>
-            <span class="pill ${tone}">${escapeHtml(order.status || 'Sin estado')}</span>
-            <small>${escapeHtml(agentLabel(order))}</small>
+            <span class="pill ${orderState.tone}">${escapeHtml(orderState.label)}</span>
+            <small>${escapeHtml(orderState.detail)}</small>
           </td>
-          <td><strong>${escapeHtml(order.customer || 'Sin cliente')}</strong><small>${escapeHtml(order.phone || '')}</small></td>
-          <td>${money(order.amount)}</td>
+          <td>
+            <span class="signal-chip ${evidence.tone}">${escapeHtml(evidence.label)}</span>
+            <small>${escapeHtml(evidence.detail)}</small>
+          </td>
+          <td>
+            <strong>${escapeHtml(order.customer || 'Sin cliente')}</strong>
+            <small>${escapeHtml(order.phone || '')}</small>
+            <small class="money-inline">${money(order.amount)}</small>
+          </td>
           <td>
             <button class="mini-button" data-feedback-order="${escapeHtml(order.orderId)}">
               Corregir
