@@ -264,7 +264,7 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
 
   if (!existing) return remoteStatus;
   if (['CONFIRMED', 'CANCELLED'].includes(remoteStatus)) return remoteStatus;
-  if (['CONFIRMED', 'CANCELLED', 'MANUAL_REVIEW'].includes(localStatus)) return localStatus;
+  if (['CONFIRMED', 'CANCELLED', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
   return remoteStatus;
 }
 
@@ -306,9 +306,10 @@ async function simulationOverrideResult(order, store) {
     };
     const updated = upsertOrder(store.id, {
       ...order,
-      status: 'MANUAL_REVIEW',
+      status: 'CONFIRMED_BY_CUSTOMER',
       aiConfidence: 100,
-      aiIntent: 'CONFIRM'
+      aiIntent: 'CONFIRM',
+      operationalNote: 'Cliente confirmo claramente. En modo simulacion, el agente habria confirmado el pedido.'
     });
     await safeUpsertSheetRow(updated);
     return { dryRun: true, action: 'would_confirm', analysis, source: override.source || 'sheet_training' };
@@ -326,11 +327,11 @@ async function simulationOverrideResult(order, store) {
       || normalizeText(`${source} ${analysis.reason}`).includes('envÃ­o');
     const updated = upsertOrder(store.id, {
       ...order,
-      status: isAddressChange ? 'MANUAL_REVIEW' : order.status,
+      status: isAddressChange ? 'PENDING_ADDRESS_CHANGE' : order.status,
       aiConfidence: 100,
       aiIntent: isAddressChange ? 'ADDRESS_CHANGE_REQUESTED' : 'NO_CONFIRM',
       operationalNote: isAddressChange
-        ? 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
+        ? 'Cliente solicito cambiar datos/direccion de envio. Pedido pendiente hasta corregir direccion en Dropea; no confirmar automaticamente.'
         : order.operationalNote
     });
     await safeUpsertSheetRow(updated);
@@ -354,6 +355,16 @@ function customerConversationIntentForOrder(messages, order) {
     const message = customerOnly[index];
     const intent = deterministicCustomerIntent([message]);
     if (!intent) continue;
+
+    if (intent.intent === 'ADDRESS_CHANGE') {
+      return {
+        ...intent,
+        customer_message: message.content || '',
+        source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
+          ? 'chatby_change_address_button'
+          : 'customer_address_change'
+      };
+    }
 
     if (intent.intent === 'CANCEL') {
       return {
@@ -544,11 +555,11 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     const isAddressChange = immediateCustomerIntent.intent === 'ADDRESS_CHANGE';
     const patch = {
       ...order,
-      status: 'MANUAL_REVIEW',
+      status: isAddressChange ? 'PENDING_ADDRESS_CHANGE' : 'MANUAL_REVIEW',
       aiConfidence: Number(immediateCustomerIntent.confidence ?? 100),
       aiIntent: isAddressChange ? 'ADDRESS_CHANGE_REQUESTED' : 'NO_CONFIRM',
       operationalNote: isAddressChange
-        ? 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
+        ? 'Cliente solicito cambiar datos/direccion de envio. Pedido pendiente hasta corregir direccion en Dropea; no confirmar automaticamente.'
         : 'Cliente no confirma el pedido. No confirmar automaticamente.'
     };
     const updated = upsertOrder(store.id, patch);
@@ -578,8 +589,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     };
 
     if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
-      patch.status = 'MANUAL_REVIEW';
-      patch.operationalNote = 'Simulacion: el cliente confirmo claramente y el pedido habria sido confirmado.';
+      patch.status = 'CONFIRMED_BY_CUSTOMER';
+      patch.operationalNote = 'Cliente confirmo claramente. En modo simulacion, el agente habria confirmado el pedido.';
       const updated = upsertOrder(store.id, patch);
       await safeUpsertSheetRow(updated);
       return { dryRun: true, action: 'would_confirm', analysis, source: immediateCustomerIntent.source || 'customer_message' };
@@ -618,7 +629,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     };
 
     if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
-      patch.status = 'MANUAL_REVIEW';
+      patch.status = 'CONFIRMED_BY_CUSTOMER';
+      patch.operationalNote = 'Cliente confirmo claramente por boton. En modo simulacion, el agente habria confirmado el pedido.';
       const updated = upsertOrder(store.id, patch);
       await safeUpsertSheetRow(updated);
       return { dryRun: true, action: 'would_confirm', analysis, source: 'chatby_button' };
@@ -735,7 +747,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     patch.status = 'MANUAL_REVIEW';
     if (intent === 'ADDRESS_CHANGE') {
       patch.aiIntent = 'ADDRESS_CHANGE_REQUESTED';
-      patch.operationalNote = 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.';
+      patch.status = 'PENDING_ADDRESS_CHANGE';
+      patch.operationalNote = 'Cliente solicito cambiar datos/direccion de envio. Pedido pendiente hasta corregir direccion en Dropea; no confirmar automaticamente.';
     }
     const updated = upsertOrder(store.id, patch);
     await safeUpsertSheetRow(updated);
