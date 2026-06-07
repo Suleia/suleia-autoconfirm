@@ -488,12 +488,109 @@ th {
   gap: 14px;
 }
 
+.meta-period {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(13, 139, 143, .16);
+  border-radius: 18px;
+  color: #0f696f;
+  background: rgba(189, 235, 224, .34);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-weight: 900;
+}
+
+.meta-product-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.meta-product-card {
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 92% 10%, rgba(241, 189, 99, .28), transparent 30%),
+    rgba(255, 255, 255, .62);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+.meta-product-card span,
+.meta-product-card small,
+.meta-product-card b,
+.meta-product-card em {
+  display: block;
+}
+
+.meta-product-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.meta-product-card strong {
+  display: block;
+  margin: 8px 0 4px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 30px;
+}
+
+.meta-product-card div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.meta-product-card em {
+  color: var(--navy);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.meta-campaign-list {
+  display: grid;
+  gap: 12px;
+}
+
 .bar-row {
   display: grid;
   grid-template-columns: minmax(160px, 1fr) minmax(130px, .8fr) 46px;
   gap: 12px;
   align-items: center;
   font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+.meta-campaign-row {
+  grid-template-columns: minmax(180px, 1fr) minmax(130px, .55fr) 54px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, .52);
+}
+
+.meta-campaign-row small {
+  grid-column: 1 / -1;
+  font-size: 12px;
+}
+
+.meta-campaign-row b.positive {
+  color: #126044;
+}
+
+.meta-campaign-row b.warning {
+  color: #875611;
+}
+
+.meta-campaign-row b.neutral {
+  color: var(--muted);
 }
 
 .bar-row strong,
