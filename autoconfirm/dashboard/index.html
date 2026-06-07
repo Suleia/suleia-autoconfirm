@@ -165,9 +165,24 @@
               </div>
               <span class="chip">Memoria activa</span>
             </div>
+            <div class="agent-command-grid">
+              <div class="agent-command-card strong">
+                <span>Qué puedes hacer aquí</span>
+                <strong>Entrenar al agente hablando con él</strong>
+                <p>Explícale reglas, pregúntale por una decisión o corrige criterios. Las reglas importantes quedan guardadas como memoria operativa.</p>
+              </div>
+              <button class="agent-prompt-card" type="button" data-agent-prompt="Recuerda: si el cliente solicita cambio de dirección o datos de entrega, no debes confirmar el pedido. Debes enviarlo a revisión manual hasta corregirlo en Dropea.">
+                <span>Regla rápida</span>
+                <strong>Cambio de dirección</strong>
+              </button>
+              <button class="agent-prompt-card" type="button" data-agent-prompt="Analiza tus últimas decisiones y dime en qué casos dudas más y qué reglas necesitas mejorar.">
+                <span>Auditoría</span>
+                <strong>Revisar aciertos</strong>
+              </button>
+            </div>
             <div id="agent-chat" class="agent-chat"></div>
             <form id="agent-chat-form" class="agent-chat-form">
-              <input id="agent-chat-input" placeholder="Escribe feedback, reglas o preguntas para el agente...">
+              <textarea id="agent-chat-input" rows="3" placeholder="Habla con el agente: dale feedback, enséñale reglas o pregúntale por un pedido concreto..."></textarea>
               <button class="primary-action" type="submit">Enviar</button>
             </form>
             <div id="agent-memory" class="memory-list"></div>
