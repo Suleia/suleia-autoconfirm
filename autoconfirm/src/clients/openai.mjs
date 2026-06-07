@@ -20,16 +20,17 @@ export async function classifyConversation(messages) {
 Eres un asistente que clasifica la respuesta de un cliente a un mensaje de confirmacion de pedido contra reembolso (COD).
 Devuelve SOLO un JSON con esta forma exacta:
 {
-  "intent": "CONFIRM" | "CANCEL" | "UNCLEAR",
+  "intent": "CONFIRM" | "CANCEL" | "ADDRESS_CHANGE" | "UNCLEAR",
   "confidence": <entero 0-100>,
   "reason": "<explicacion breve en una frase>"
 }
 Reglas:
 - CONFIRM: el cliente acepta o confirma el pedido de forma clara, por ejemplo "confirmo", "confirmado", "si lo quiero", "lo quiero", "confirmar mi pedido".
-- CANCEL: el cliente rechaza explicitamente, pide cancelarlo, dice que no lo quiere o pide cambiar/modificar datos de entrega.
+- ADDRESS_CHANGE: el cliente pide cambiar/modificar/corregir direccion, calle, numero, codigo postal, ciudad, provincia, telefono o datos de entrega.
+- CANCEL: el cliente rechaza explicitamente, pide cancelarlo o dice que no lo quiere.
 - UNCLEAR: cualquier otra cosa o si el cliente no ha respondido.
 - El silencio nunca es CANCEL.
-- Un cambio de direccion, cambio de datos o peticion de modificacion NO es confirmacion.
+- Un cambio de direccion, cambio de datos o peticion de modificacion NO es confirmacion y siempre debe clasificarse como ADDRESS_CHANGE.
 - Ante duda entre CONFIRM y UNCLEAR, elige UNCLEAR.
 `.trim();
 
