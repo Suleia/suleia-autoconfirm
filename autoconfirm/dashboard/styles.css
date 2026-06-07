@@ -404,6 +404,10 @@ body[data-section="meta"] .meta-panel {
   grid-column: 1 / -1;
 }
 
+body[data-section="orders"] .orders-panel {
+  grid-column: 1 / -1;
+}
+
 .panel {
   padding: 24px;
 }
@@ -437,6 +441,52 @@ table {
   width: 100%;
   border-collapse: collapse;
   font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+body[data-section="orders"] .orders-panel table {
+  table-layout: fixed;
+}
+
+body[data-section="orders"] .orders-panel th,
+body[data-section="orders"] .orders-panel td {
+  padding: 13px 8px;
+  vertical-align: top;
+}
+
+body[data-section="orders"] .orders-panel th:nth-child(1),
+body[data-section="orders"] .orders-panel td:nth-child(1) {
+  width: 17%;
+}
+
+body[data-section="orders"] .orders-panel th:nth-child(2),
+body[data-section="orders"] .orders-panel td:nth-child(2) {
+  width: 13%;
+}
+
+body[data-section="orders"] .orders-panel th:nth-child(3),
+body[data-section="orders"] .orders-panel td:nth-child(3) {
+  width: 24%;
+}
+
+body[data-section="orders"] .orders-panel th:nth-child(4),
+body[data-section="orders"] .orders-panel td:nth-child(4) {
+  width: 22%;
+}
+
+body[data-section="orders"] .orders-panel th:nth-child(5),
+body[data-section="orders"] .orders-panel td:nth-child(5) {
+  width: 10%;
+}
+
+body[data-section="orders"] .orders-panel th:nth-child(6),
+body[data-section="orders"] .orders-panel td:nth-child(6) {
+  width: 14%;
+}
+
+body[data-section="orders"] .orders-panel strong,
+body[data-section="orders"] .orders-panel small,
+body[data-section="orders"] .orders-panel td {
+  overflow-wrap: anywhere;
 }
 
 th,
