@@ -400,6 +400,10 @@ h3 {
 .span-7 { grid-column: span 7; }
 .span-12 { grid-column: span 12; }
 
+body[data-section="meta"] .meta-panel {
+  grid-column: 1 / -1;
+}
+
 .panel {
   padding: 24px;
 }
@@ -594,7 +598,51 @@ th {
 }
 
 .meta-table {
-  min-width: 1120px;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.meta-table th,
+.meta-table td {
+  padding: 13px 8px;
+}
+
+.meta-table th:nth-child(1),
+.meta-table td:nth-child(1) {
+  width: 64px;
+}
+
+.meta-table th:nth-child(2),
+.meta-table td:nth-child(2) {
+  width: 30%;
+}
+
+.meta-table th:nth-child(3),
+.meta-table td:nth-child(3) {
+  width: 12%;
+}
+
+.meta-table th:nth-child(4),
+.meta-table td:nth-child(4),
+.meta-table th:nth-child(5),
+.meta-table td:nth-child(5),
+.meta-table th:nth-child(6),
+.meta-table td:nth-child(6),
+.meta-table th:nth-child(7),
+.meta-table td:nth-child(7),
+.meta-table th:nth-child(8),
+.meta-table td:nth-child(8) {
+  width: 11%;
+}
+
+.meta-table strong,
+.meta-table small {
+  overflow-wrap: anywhere;
+}
+
+.meta-table .product-tag,
+.meta-table .status-badge {
+  white-space: normal;
 }
 
 .meta-table tbody tr {
