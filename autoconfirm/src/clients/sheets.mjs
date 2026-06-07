@@ -208,6 +208,21 @@ async function ensureAgentDecisionHeaders(sheetTitle, values) {
   return headers;
 }
 
+async function ensureAgentMemoryHeaders(sheetTitle, values) {
+  if (values.length > 0) return values[0];
+
+  const headers = [
+    'id',
+    'tipo',
+    'regla',
+    'fuente',
+    'creado_en'
+  ];
+  await sheetsRequest('PUT', valuesUrl(`${sheetTitle}!A1:E1`, '?valueInputOption=RAW'), { values: [headers] });
+  values[0] = headers;
+  return headers;
+}
+
 function formatSheetDate(value) {
   if (!value) return '';
   const raw = String(value);
@@ -370,6 +385,58 @@ export async function appendAgentDecision({
     String(customerMessage || '').slice(0, 500),
     String(reason || '').slice(0, 500),
     String(dryRun)
+  ];
+
+  await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
+  values.push(row);
+  setCacheEntry(range, values);
+  return { appended: true };
+}
+
+export async function getAgentMemoryRules() {
+  if (!config.googleSheetId) return [];
+
+  const sheetTitle = await ensureNamedSheet('Memoria Agente');
+  const range = `${sheetTitle}!A:Z`;
+  const values = await getCachedValues(range);
+  const headers = await ensureAgentMemoryHeaders(sheetTitle, values);
+  const index = (name, fallback) => {
+    const found = headers.indexOf(name);
+    return found >= 0 ? found : fallback;
+  };
+  const idIndex = index('id', 0);
+  const typeIndex = index('tipo', 1);
+  const textIndex = index('regla', 2);
+  const sourceIndex = index('fuente', 3);
+  const createdIndex = index('creado_en', 4);
+
+  return values.slice(1)
+    .filter((row) => row?.[textIndex])
+    .map((row) => ({
+      id: row[idIndex] || '',
+      type: row[typeIndex] || '',
+      text: row[textIndex] || '',
+      source: row[sourceIndex] || '',
+      createdAt: row[createdIndex] || ''
+    }));
+}
+
+export async function appendAgentMemoryRule(rule) {
+  if (!config.googleSheetId || !rule?.text) return { skipped: true };
+
+  const sheetTitle = await ensureNamedSheet('Memoria Agente');
+  const range = `${sheetTitle}!A:Z`;
+  const values = await getCachedValues(range);
+  await ensureAgentMemoryHeaders(sheetTitle, values);
+  const existing = values.slice(1).some((row) => String(row[2] || '').trim().toLowerCase() === String(rule.text || '').trim().toLowerCase());
+  if (existing) return { skipped: true, reason: 'duplicate_rule' };
+
+  const row = [
+    rule.id || `lesson_${Date.now()}`,
+    rule.type || 'feedback_rule',
+    String(rule.text || '').slice(0, 1000),
+    rule.source || 'dashboard',
+    rule.createdAt || new Date().toISOString()
   ];
 
   await sheetsRequest('POST', valuesUrl(range, ':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS'), { values: [row] });
