@@ -194,6 +194,27 @@ function latest(items, field, limit = 12) {
     .slice(0, limit);
 }
 
+function parseDashboardDate(value) {
+  if (!value) return 0;
+  const text = String(value);
+  const spanish = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (spanish) {
+    const [, day, month, year, hour = '0', minute = '0'] = spanish;
+    const date = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+    return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+  }
+  const date = new Date(text);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function sortOrdersRecentFirst(orders) {
+  return [...orders].sort((a, b) => {
+    const dateDiff = parseDashboardDate(b.createdAt) - parseDashboardDate(a.createdAt);
+    if (dateDiff) return dateDiff;
+    return Number(String(b.orderId || '').replace(/\D/g, '')) - Number(String(a.orderId || '').replace(/\D/g, ''));
+  });
+}
+
 function uniqueLessons(...groups) {
   const byText = new Map();
   for (const group of groups) {
@@ -564,7 +585,7 @@ export async function buildDashboard({ health = null } = {}) {
       confirmRate: orders.length ? confirmed.length / orders.length : null
     },
     finance,
-    orders: latest(orders, 'createdAt', 120),
+    orders: sortOrdersRecentFirst(orders),
     decisions: latest(decisions, 'date', 40),
     feedback: latest(feedback, 'createdAt', 40),
     learning: {
