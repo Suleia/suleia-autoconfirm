@@ -159,8 +159,25 @@ function mergeOrders(sheetOrders, localOrders, liveOrders, decisions, feedback) 
   for (const item of feedback) {
     const current = byId.get(String(item.orderId));
     if (!current) continue;
+    const feedbackText = normalize([item.verdict, item.correction, item.note].filter(Boolean).join(' '));
+    const addressChange = isAddressChangeFeedback(feedbackText);
+    const feedbackPatch = {};
+    if (item.verdict === 'should_confirm') {
+      feedbackPatch.status = 'CONFIRMED_BY_CUSTOMER';
+      feedbackPatch.agentAction = 'would_confirm';
+      feedbackPatch.agentIntent = 'CONFIRM';
+      feedbackPatch.agentConfidence = 100;
+      feedbackPatch.agentReason = item.correction || item.note || 'Samuel corrigio el pedido como confirmado por el cliente.';
+    } else if (addressChange) {
+      feedbackPatch.status = 'PENDING_ADDRESS_CHANGE';
+      feedbackPatch.agentAction = 'would_not_confirm';
+      feedbackPatch.agentIntent = 'ADDRESS_CHANGE_REQUESTED';
+      feedbackPatch.agentConfidence = 100;
+      feedbackPatch.agentReason = item.correction || item.note || 'Samuel corrigio el pedido como cambio de direccion; no confirmar.';
+    }
     byId.set(String(item.orderId), {
       ...current,
+      ...feedbackPatch,
       feedbackVerdict: item.verdict,
       feedbackCorrection: item.correction,
       feedbackNote: item.note,
@@ -500,6 +517,15 @@ function isAddressChangeFeedback(text) {
 
 function learnedRuleFromFeedback(item) {
   const text = [item.verdict, item.correction, item.note].filter(Boolean).join(' ');
+  if (item.verdict === 'should_confirm') {
+    return {
+      id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'confirmed_customer_signal',
+      text: 'Si el cliente confirma claramente el pedido por boton de Chatby o por texto explicito, el agente debe marcarlo como confirmado por cliente y no dejarlo en revision manual.',
+      source: `feedback_order_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
   if (isAddressChangeFeedback(text)) {
     return {
       id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
