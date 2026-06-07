@@ -46,10 +46,14 @@ function normalizeInsight(row) {
   const impressions = Number(row.impressions || 0);
   const reach = Number(row.reach || 0);
   const purchases = actionValue(row.actions, 'purchase') || actionValue(row.actions, 'offsite_conversion.fb_pixel_purchase');
+  const purchaseValue = actionValue(row.action_values, 'purchase') || actionValue(row.action_values, 'offsite_conversion.fb_pixel_purchase');
+  const roas = Array.isArray(row.purchase_roas) ? Number(row.purchase_roas[0]?.value || 0) : 0;
 
   return {
     campaignId: row.campaign_id || '',
     campaignName: row.campaign_name || 'Sin campana',
+    dateStart: row.date_start || '',
+    dateStop: row.date_stop || '',
     spend,
     impressions,
     reach,
@@ -58,7 +62,9 @@ function normalizeInsight(row) {
     cpc: Number(row.cpc || 0),
     cpm: Number(row.cpm || 0),
     purchases,
-    costPerPurchase: purchases ? spend / purchases : null
+    purchaseValue,
+    costPerPurchase: purchases ? spend / purchases : null,
+    roas: Number.isFinite(roas) ? roas : null
   };
 }
 
@@ -83,15 +89,24 @@ export async function getCampaigns({ limit = 100 } = {}) {
   return result.data || [];
 }
 
-export async function getCampaignInsights({ since, until, limit = 100 } = {}) {
+export async function getCampaignInsights({ since, until, datePreset, limit = 100 } = {}) {
   const adAccountId = normalizeAdAccountId(config.metaAdAccountId);
   if (!adAccountId) throw new Error('Falta META_AD_ACCOUNT_ID.');
 
-  const result = await metaRequest(`${adAccountId}/insights`, {
+  const params = {
     level: 'campaign',
-    fields: 'campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,cpm,actions',
-    time_range: { since, until },
+    fields: 'campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas,date_start,date_stop',
     limit
+  };
+
+  if (datePreset) {
+    params.date_preset = datePreset;
+  } else {
+    params.time_range = { since, until };
+  }
+
+  const result = await metaRequest(`${adAccountId}/insights`, {
+    ...params
   });
 
   return (result.data || []).map(normalizeInsight);
