@@ -555,9 +555,122 @@ th {
   font-weight: 900;
 }
 
-.meta-campaign-list {
+.meta-table-card {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 255, 255, .56);
+}
+
+.meta-table-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(circle at 94% 18%, rgba(189, 235, 224, .52), transparent 28%),
+    rgba(255, 253, 248, .86);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+.meta-table-head strong,
+.meta-table-head span {
+  display: block;
+}
+
+.meta-table-head > span {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 8px 11px;
+  color: #0f696f;
+  background: rgba(189, 235, 224, .7);
+  font-weight: 900;
+}
+
+.meta-table-wrap {
+  max-height: 620px;
+}
+
+.meta-table {
+  min-width: 1120px;
+}
+
+.meta-table tbody tr {
+  background: rgba(255, 255, 255, .42);
+}
+
+.meta-table tbody tr:hover {
+  background: rgba(189, 235, 224, .18);
+}
+
+.meta-table td {
+  vertical-align: top;
+}
+
+.rank-cell {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.rank-cell span {
   display: grid;
-  gap: 12px;
+  place-items: center;
+  min-width: 34px;
+  height: 34px;
+  border-radius: 13px;
+  color: var(--navy);
+  background: rgba(38, 57, 75, .08);
+  font-weight: 900;
+}
+
+.campaign-indicator {
+  width: 13px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--muted);
+  box-shadow: 0 0 0 6px rgba(101, 114, 127, .08);
+}
+
+.campaign-indicator.winner,
+.status-badge.winner {
+  background: #1fab75;
+}
+
+.campaign-indicator.steady,
+.status-badge.steady {
+  background: var(--teal);
+}
+
+.campaign-indicator.weak,
+.status-badge.weak {
+  background: var(--sun);
+}
+
+.campaign-indicator.empty,
+.status-badge.empty {
+  background: var(--coral);
+}
+
+.product-tag,
+.status-badge {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 8px 10px;
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.product-tag {
+  color: #0f696f;
+  background: rgba(189, 235, 224, .62);
+}
+
+.status-badge {
+  color: #fff;
 }
 
 .bar-row {
