@@ -117,6 +117,21 @@ function renderCampaigns() {
     return;
   }
 
+  const sortedCampaigns = [...campaigns].sort((a, b) => {
+    const roasDiff = Number(b.roasMeta || b.roasConfirmed || 0) - Number(a.roasMeta || a.roasConfirmed || 0);
+    return roasDiff || Number(b.spend || 0) - Number(a.spend || 0);
+  });
+  const totalSpend = products.reduce((sum, product) => sum + Number(product.spend || 0), 0) || campaigns.reduce((sum, campaign) => sum + Number(campaign.spend || 0), 0);
+
+  const indicatorFor = (campaign) => {
+    const roas = Number(campaign.roasMeta || campaign.roasConfirmed || 0);
+    const cpa = Number(campaign.cpaPixel || campaign.cpaConfirmed || 0);
+    if (roas >= 5) return { label: 'Ganadora', tone: 'winner', note: 'Escalable' };
+    if (roas >= 2.5) return { label: 'Correcta', tone: 'steady', note: 'Vigilar CPA' };
+    if (roas > 0 || cpa > 0) return { label: 'Débil', tone: 'weak', note: 'Revisar creativo' };
+    return { label: 'Sin ventas', tone: 'empty', note: 'Sin purchase' };
+  };
+
   const productCards = products.length ? `
     <div class="meta-period">
       <span>Periodo: ${escapeHtml(meta.period || 'this_month')}</span>
@@ -127,7 +142,11 @@ function renderCampaigns() {
         <div class="meta-product-card">
           <span>${escapeHtml(product.product)}</span>
           <strong>${money(product.spend)}</strong>
-          <small>${product.campaigns} campana${product.campaigns === 1 ? '' : 's'} Â· ${product.purchases || 0} compras pixel</small>
+          <small>${product.campaigns} campana${product.campaigns === 1 ? '' : 's'} · ${product.purchases || 0} compras pixel</small>
+          <div>
+            <b>Peso inversión</b>
+            <em>${totalSpend ? percent(product.spend / totalSpend) : '0%'}</em>
+          </div>
           <div>
             <b>CPA pixel</b>
             <em>${product.cpaPixel ? money(product.cpaPixel) : 's/d'}</em>
@@ -141,25 +160,63 @@ function renderCampaigns() {
     </div>
   ` : '';
 
-  const campaignRows = campaigns.slice(0, 20).map((campaign) => {
+  const campaignRows = sortedCampaigns.slice(0, 30).map((campaign, index) => {
     const roas = Number(campaign.roasMeta || campaign.roasConfirmed || 0);
-    const width = Math.min(Math.max(roas * 18, 8), 100);
-    const efficiency = roas >= 2 ? 'positive' : roas > 0 ? 'warning' : 'neutral';
+    const indicator = indicatorFor(campaign);
+    const spendWeight = totalSpend ? Number(campaign.spend || 0) / totalSpend : 0;
     return `
-      <div class="bar-row meta-campaign-row">
-        <div>
-          <strong>${escapeHtml(campaign.name || 'Campana Meta')}</strong>
-          <span>${escapeHtml(campaign.product || 'Sin producto')} Â· ${escapeHtml(campaign.status || 'sin estado')}</span>
-          ${(campaign.adsetName || campaign.adName) ? `<span>${escapeHtml([campaign.adsetName, campaign.adName].filter(Boolean).join(' / '))}</span>` : ''}
-        </div>
-        <div class="bar"><span style="width:${width}%"></span></div>
-        <b class="${efficiency}">${roas ? `${roas.toFixed(1)}x` : 's/d'}</b>
-        <small>${money(campaign.spend)} gasto Â· ${campaign.clicks || 0} clicks Â· ${campaign.purchases || 0} compras Â· CPA ${campaign.cpaPixel ? money(campaign.cpaPixel) : 's/d'}</small>
-      </div>
+      <tr>
+        <td>
+          <div class="rank-cell">
+            <span>#${index + 1}</span>
+            <i class="campaign-indicator ${indicator.tone}"></i>
+          </div>
+        </td>
+        <td>
+          <strong>${escapeHtml(campaign.name || 'Campaña Meta')}</strong>
+          <small>${escapeHtml([campaign.adsetName, campaign.adName].filter(Boolean).join(' / ') || 'Sin conjunto/anuncio')}</small>
+        </td>
+        <td><span class="product-tag">${escapeHtml(campaign.product || 'Sin producto')}</span></td>
+        <td>${money(campaign.spend)}<small>${percent(spendWeight)} del gasto</small></td>
+        <td>${campaign.impressions || 0}<small>${campaign.clicks || 0} clicks</small></td>
+        <td>${campaign.ctr ? `${Number(campaign.ctr).toFixed(2)}%` : 's/d'}<small>CPC ${campaign.cpc ? money(campaign.cpc) : 's/d'}</small></td>
+        <td>${campaign.purchases || 0}<small>CPA ${campaign.cpaPixel ? money(campaign.cpaPixel) : 's/d'}</small></td>
+        <td><strong>${roas ? `${roas.toFixed(2)}x` : 's/d'}</strong><small>Valor ${campaign.purchaseValue ? money(campaign.purchaseValue) : 's/d'}</small></td>
+        <td><span class="status-badge ${indicator.tone}">${indicator.label}</span><small>${indicator.note}</small></td>
+      </tr>
     `;
   }).join('');
 
-  list.innerHTML = `${productCards}<div class="meta-campaign-list">${campaignRows}</div>`;
+  list.innerHTML = `
+    ${productCards}
+    <div class="meta-table-card">
+      <div class="meta-table-head">
+        <div>
+          <strong>Ranking de campañas y anuncios</strong>
+          <span>Ordenado por ROAS Meta y gasto. Cada fila incluye indicador de rendimiento.</span>
+        </div>
+        <span>${sortedCampaigns.length} filas</span>
+      </div>
+      <div class="table-wrap meta-table-wrap">
+        <table class="meta-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Campaña / anuncio</th>
+              <th>Producto</th>
+              <th>Gasto</th>
+              <th>Volumen</th>
+              <th>Tráfico</th>
+              <th>Compras</th>
+              <th>ROAS</th>
+              <th>Indicador</th>
+            </tr>
+          </thead>
+          <tbody>${campaignRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function renderDecisions() {
