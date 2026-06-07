@@ -892,13 +892,82 @@ th {
 }
 
 .inline-form input,
-.agent-chat-form input {
+.agent-chat-form input,
+.agent-chat-form textarea {
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 13px 14px;
   color: var(--ink);
   background: rgba(255, 255, 255, .78);
   outline: none;
+  resize: vertical;
+}
+
+.agent-command-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(180px, .8fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.agent-command-card,
+.agent-prompt-card {
+  min-height: 132px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  text-align: left;
+  background: rgba(255, 255, 255, .58);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+}
+
+.agent-command-card.strong {
+  color: #fff;
+  background:
+    radial-gradient(circle at 90% 15%, rgba(189, 235, 224, .34), transparent 28%),
+    linear-gradient(135deg, var(--navy), #0f696f);
+}
+
+.agent-command-card span,
+.agent-command-card strong,
+.agent-command-card p,
+.agent-prompt-card span,
+.agent-prompt-card strong {
+  display: block;
+}
+
+.agent-command-card span,
+.agent-prompt-card span {
+  color: inherit;
+  opacity: .74;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.agent-command-card strong,
+.agent-prompt-card strong {
+  margin-top: 8px;
+  font-size: 22px;
+}
+
+.agent-command-card p {
+  margin: 10px 0 0;
+  color: rgba(255, 255, 255, .76);
+  line-height: 1.45;
+}
+
+.agent-prompt-card {
+  cursor: pointer;
+  color: var(--ink);
+  transition: .18s ease;
+}
+
+.agent-prompt-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(13, 139, 143, .35);
+  background: rgba(189, 235, 224, .42);
 }
 
 .agent-chat {
@@ -948,6 +1017,7 @@ th {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   margin-top: 14px;
+  align-items: stretch;
 }
 
 .memory-list {
@@ -1141,7 +1211,8 @@ th {
   .cost-grid,
   .product-grid,
   .sources-grid,
-  .finance-grid {
+  .finance-grid,
+  .agent-command-grid {
     grid-template-columns: 1fr;
   }
 
