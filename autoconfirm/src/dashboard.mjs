@@ -495,7 +495,7 @@ function buildAgentReply({ message, dashboard }) {
   if (lower.includes('beneficio') || lower.includes('meta') || lower.includes('dropea')) {
     reply = `Estoy usando beneficio Dropea (${moneyText(finance.dropeaProfit)}) menos Meta (${moneyText(finance.metaSpend)}). Beneficio final actual: ${moneyText(finance.businessProfit)}.`;
   } else if (lower.includes('confirm') || lower.includes('pedido')) {
-    reply = 'Aprendido. Para confirmaciones, priorizare boton de Chatby, etiqueta CONFIRMADO o mensaje explicito. Si hay duda de direccion, cancelacion o cambio de datos, lo mandare a revision.';
+    reply = 'Aprendido. Para confirmaciones, priorizare boton de Chatby, etiqueta CONFIRMADO o mensaje explicito. Si hay cambio de direccion o datos de entrega, lo dejare pendiente por direccion y no lo confirmare.';
   }
   const lesson = /aprende|recuerda|cuando|si el cliente|debes|deberias|deberia/i.test(text)
     ? { id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text, createdAt: new Date().toISOString() }
@@ -530,7 +530,7 @@ function learnedRuleFromFeedback(item) {
     return {
       id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'address_change_no_confirm',
-      text: 'No confirmar pedidos cuando el cliente marca, solicita o menciona cambio de direccion/datos de entrega. Enviar a revision manual hasta corregir direccion en Dropea.',
+      text: 'No confirmar pedidos cuando el cliente marca, solicita o menciona cambio de direccion/datos de entrega. Dejar el pedido pendiente por direccion hasta corregir direccion en Dropea.',
       source: `feedback_order_${item.orderId}`,
       createdAt: new Date().toISOString()
     };
