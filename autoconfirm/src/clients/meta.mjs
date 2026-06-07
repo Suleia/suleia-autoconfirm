@@ -52,6 +52,10 @@ function normalizeInsight(row) {
   return {
     campaignId: row.campaign_id || '',
     campaignName: row.campaign_name || 'Sin campana',
+    adsetId: row.adset_id || '',
+    adsetName: row.adset_name || '',
+    adId: row.ad_id || '',
+    adName: row.ad_name || '',
     dateStart: row.date_start || '',
     dateStop: row.date_stop || '',
     spend,
@@ -89,13 +93,32 @@ export async function getCampaigns({ limit = 100 } = {}) {
   return result.data || [];
 }
 
-export async function getCampaignInsights({ since, until, datePreset, limit = 100 } = {}) {
+export async function getCampaignInsights({ since, until, datePreset, level = 'campaign', limit = 100 } = {}) {
   const adAccountId = normalizeAdAccountId(config.metaAdAccountId);
   if (!adAccountId) throw new Error('Falta META_AD_ACCOUNT_ID.');
 
   const params = {
-    level: 'campaign',
-    fields: 'campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,cpm,actions,action_values,purchase_roas,date_start,date_stop',
+    level,
+    fields: [
+      'campaign_id',
+      'campaign_name',
+      level !== 'campaign' ? 'adset_id' : null,
+      level !== 'campaign' ? 'adset_name' : null,
+      level === 'ad' ? 'ad_id' : null,
+      level === 'ad' ? 'ad_name' : null,
+      'spend',
+      'impressions',
+      'reach',
+      'clicks',
+      'ctr',
+      'cpc',
+      'cpm',
+      'actions',
+      'action_values',
+      'purchase_roas',
+      'date_start',
+      'date_stop'
+    ].filter(Boolean).join(','),
     limit
   };
 
