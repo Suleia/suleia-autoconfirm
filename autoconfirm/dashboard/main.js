@@ -178,8 +178,7 @@ function renderCampaigns() {
         </td>
         <td><span class="product-tag">${escapeHtml(campaign.product || 'Sin producto')}</span></td>
         <td>${money(campaign.spend)}<small>${percent(spendWeight)} del gasto</small></td>
-        <td>${campaign.impressions || 0}<small>${campaign.clicks || 0} clicks</small></td>
-        <td>${campaign.ctr ? `${Number(campaign.ctr).toFixed(2)}%` : 's/d'}<small>CPC ${campaign.cpc ? money(campaign.cpc) : 's/d'}</small></td>
+        <td>${campaign.impressions || 0}<small>${campaign.clicks || 0} clicks · CTR ${campaign.ctr ? `${Number(campaign.ctr).toFixed(2)}%` : 's/d'}</small></td>
         <td>${campaign.purchases || 0}<small>CPA ${campaign.cpaPixel ? money(campaign.cpaPixel) : 's/d'}</small></td>
         <td><strong>${roas ? `${roas.toFixed(2)}x` : 's/d'}</strong><small>Valor ${campaign.purchaseValue ? money(campaign.purchaseValue) : 's/d'}</small></td>
         <td><span class="status-badge ${indicator.tone}">${indicator.label}</span><small>${indicator.note}</small></td>
@@ -205,8 +204,7 @@ function renderCampaigns() {
               <th>Campaña / anuncio</th>
               <th>Producto</th>
               <th>Gasto</th>
-              <th>Volumen</th>
-              <th>Tráfico</th>
+              <th>Volumen / tráfico</th>
               <th>Compras</th>
               <th>ROAS</th>
               <th>Indicador</th>
@@ -376,6 +374,7 @@ function renderAgentChat() {
 }
 
 function renderPanels() {
+  document.body.dataset.section = state.section;
   pageTitle.textContent = titles[state.section];
   navItems.forEach((item) => item.classList.toggle('is-active', item.dataset.section === state.section));
   panels.forEach((panel) => {
