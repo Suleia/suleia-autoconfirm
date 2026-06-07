@@ -70,6 +70,10 @@ function guessProductFromCampaign(name) {
   return 'Sin producto detectado';
 }
 
+function guessProductFromMetaRow(...names) {
+  return guessProductFromCampaign(names.filter(Boolean).join(' '));
+}
+
 function orderFromSheet(row) {
   const orderId = row.orderId || row.pedido || row.id || '';
   return {
@@ -226,7 +230,9 @@ function campaignNumber(row, ...fields) {
 
 function normalizeCampaignRow(row) {
   const name = row.campana || row.campaign_name || row.Campana || row.name || row.campaign_id || 'Campana Meta';
-  const product = row.producto || row.Producto || guessProductFromCampaign(name);
+  const adsetName = row.conjunto || row.adset_name || row.adsetName || '';
+  const adName = row.anuncio || row.ad_name || row.adName || '';
+  const product = row.producto || row.Producto || guessProductFromMetaRow(name, adsetName, adName);
   const spend = campaignNumber(row, 'gasto', 'spend', 'Gasto');
   const clicks = campaignNumber(row, 'clicks', 'Clicks');
   const impressions = campaignNumber(row, 'impresiones', 'impressions', 'Impresiones');
@@ -238,6 +244,8 @@ function normalizeCampaignRow(row) {
   return {
     campaignId: row.campaign_id || row.campaignId || row.id || '',
     name,
+    adsetName,
+    adName,
     product,
     status: row.estado || row.status || row.effective_status || '',
     periodStart: row.periodo_inicio || row.dateStart || '',
@@ -370,13 +378,17 @@ async function loadLiveMetaCampaigns() {
   const source = { name: 'Meta API - campanas en vivo', ok: true, error: null };
   try {
     const datePreset = process.env.META_DASHBOARD_DATE_PRESET || 'this_month';
-    const insights = await getCampaignInsights({ datePreset, limit: 100 });
+    const insights = await getCampaignInsights({ datePreset, level: 'ad', limit: 200 });
     return {
       source: { ...source, period: datePreset },
       campaigns: insights.map((item) => ({
         campaign_id: item.campaignId,
         campana: item.campaignName,
-        producto: guessProductFromCampaign(item.campaignName),
+        adset_id: item.adsetId,
+        conjunto: item.adsetName,
+        ad_id: item.adId,
+        anuncio: item.adName,
+        producto: guessProductFromMetaRow(item.campaignName, item.adsetName, item.adName),
         periodo_inicio: item.dateStart,
         periodo_fin: item.dateStop,
         gasto: item.spend,
