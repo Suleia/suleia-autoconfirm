@@ -455,32 +455,32 @@ body[data-section="orders"] .orders-panel td {
 
 body[data-section="orders"] .orders-panel th:nth-child(1),
 body[data-section="orders"] .orders-panel td:nth-child(1) {
-  width: 17%;
+  width: 15%;
 }
 
 body[data-section="orders"] .orders-panel th:nth-child(2),
 body[data-section="orders"] .orders-panel td:nth-child(2) {
-  width: 13%;
+  width: 12%;
 }
 
 body[data-section="orders"] .orders-panel th:nth-child(3),
 body[data-section="orders"] .orders-panel td:nth-child(3) {
-  width: 24%;
+  width: 21%;
 }
 
 body[data-section="orders"] .orders-panel th:nth-child(4),
 body[data-section="orders"] .orders-panel td:nth-child(4) {
-  width: 22%;
+  width: 25%;
 }
 
 body[data-section="orders"] .orders-panel th:nth-child(5),
 body[data-section="orders"] .orders-panel td:nth-child(5) {
-  width: 10%;
+  width: 17%;
 }
 
 body[data-section="orders"] .orders-panel th:nth-child(6),
 body[data-section="orders"] .orders-panel td:nth-child(6) {
-  width: 14%;
+  width: 10%;
 }
 
 body[data-section="orders"] .orders-panel strong,
@@ -519,6 +519,41 @@ th {
 .pill.positive { color: #126044; background: rgba(31, 171, 117, .14); }
 .pill.warning { color: #875611; background: rgba(241, 189, 99, .28); }
 .pill.danger { color: #9c3525; background: rgba(232, 109, 87, .16); }
+.pill.neutral { color: var(--navy); background: rgba(38, 57, 75, .09); }
+
+.signal-chip {
+  display: inline-flex;
+  border-radius: 999px;
+  padding: 7px 10px;
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.signal-chip.positive {
+  color: #126044;
+  background: rgba(31, 171, 117, .14);
+}
+
+.signal-chip.warning {
+  color: #875611;
+  background: rgba(241, 189, 99, .28);
+}
+
+.signal-chip.danger {
+  color: #9c3525;
+  background: rgba(232, 109, 87, .16);
+}
+
+.signal-chip.neutral {
+  color: var(--navy);
+  background: rgba(38, 57, 75, .09);
+}
+
+.money-inline {
+  color: var(--navy);
+  font-weight: 900;
+}
 
 .money-good {
   color: #126044;
