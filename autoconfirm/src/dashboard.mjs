@@ -5,7 +5,8 @@ import { getAppConfig } from './config.mjs';
 import { listOrders, loadState } from './storage.mjs';
 import { getDropeaOrderById, listPendingDropeaOrders } from './clients/dropea.mjs';
 import { getCampaignInsights } from './clients/meta.mjs';
-import { getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
+import { chatWithOperationsAgent } from './clients/openai.mjs';
+import { appendAgentMemoryRule, getAgentMemoryRules, getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
 
 const config = getAppConfig();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -191,6 +192,17 @@ function latest(items, field, limit = 12) {
   return [...items]
     .sort((a, b) => String(b[field] || '').localeCompare(String(a[field] || '')))
     .slice(0, limit);
+}
+
+function uniqueLessons(...groups) {
+  const byText = new Map();
+  for (const group of groups) {
+    for (const item of group || []) {
+      if (!item?.text) continue;
+      byText.set(normalize(item.text), item);
+    }
+  }
+  return [...byText.values()];
 }
 
 function defaultFinanceSettings() {
@@ -453,6 +465,41 @@ function buildAgentReply({ message, dashboard }) {
   return { reply, lesson };
 }
 
+function isAddressChangeFeedback(text) {
+  const normalized = normalize(text);
+  return normalized.includes('cambio de direccion')
+    || normalized.includes('cambiar direccion')
+    || normalized.includes('modificar direccion')
+    || normalized.includes('corregir direccion')
+    || normalized.includes('cambio direccion')
+    || normalized.includes('cambiar datos')
+    || normalized.includes('modificar datos')
+    || normalized.includes('datos de entrega');
+}
+
+function learnedRuleFromFeedback(item) {
+  const text = [item.verdict, item.correction, item.note].filter(Boolean).join(' ');
+  if (isAddressChangeFeedback(text)) {
+    return {
+      id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'address_change_no_confirm',
+      text: 'No confirmar pedidos cuando el cliente marca, solicita o menciona cambio de direccion/datos de entrega. Enviar a revision manual hasta corregir direccion en Dropea.',
+      source: `feedback_order_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.correction || item.note) {
+    return {
+      id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'feedback_rule',
+      text: [item.correction, item.note].filter(Boolean).join(' | '),
+      source: `feedback_order_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  return null;
+}
+
 export async function buildDashboard({ health = null } = {}) {
   const localOrdersRaw = listOrders({ storeId: config.defaultStore.id });
   const localState = loadState();
@@ -463,7 +510,14 @@ export async function buildDashboard({ health = null } = {}) {
   const feedback = await readJson(path.join(dashboardDataDir, 'agent-feedback.json'), []);
   const financeSettings = await loadFinanceSettings();
   const agentChat = await readJson(path.join(dashboardDataDir, 'agent-chat.json'), []);
-  const agentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
+  const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
+  let sheetAgentMemory = [];
+  try {
+    sheetAgentMemory = await getAgentMemoryRules();
+  } catch {
+    sheetAgentMemory = [];
+  }
+  const agentMemory = uniqueLessons(sheetAgentMemory, localAgentMemory);
 
   const sheetOrders = rowObjects(pedidos.rows).map(orderFromSheet);
   const localOrders = localOrdersRaw.map(orderFromLocal);
@@ -541,7 +595,9 @@ export async function buildDashboard({ health = null } = {}) {
 export async function saveAgentFeedback({ orderId, verdict = 'manual_review', correction = '', note = '' }) {
   if (!orderId) throw new Error('orderId_required');
   const feedbackPath = path.join(dashboardDataDir, 'agent-feedback.json');
+  const memoryPath = path.join(dashboardDataDir, 'agent-memory.json');
   const feedback = await readJson(feedbackPath, []);
+  const memory = await readJson(memoryPath, []);
   const item = {
     id: `fb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     orderId: String(orderId),
@@ -552,6 +608,16 @@ export async function saveAgentFeedback({ orderId, verdict = 'manual_review', co
   };
   feedback.push(item);
   await writeJson(feedbackPath, feedback);
+  const lesson = learnedRuleFromFeedback(item);
+  if (lesson && !memory.some((existing) => normalize(existing.text) === normalize(lesson.text))) {
+    memory.push(lesson);
+    await writeJson(memoryPath, memory);
+    try {
+      await appendAgentMemoryRule(lesson);
+    } catch {
+      // Local memory is still available if Google Sheets is temporarily unavailable.
+    }
+  }
   const decision = item.verdict === 'should_confirm' ? 'CONFIRM' : item.verdict === 'should_not_confirm' ? 'NO_CONFIRM' : 'MANUAL_REVIEW';
   await upsertSimulationDecision({
     orderId: item.orderId,
@@ -559,7 +625,7 @@ export async function saveAgentFeedback({ orderId, verdict = 'manual_review', co
     reason: [item.correction, item.note].filter(Boolean).join(' | '),
     source: 'command_center_feedback'
   });
-  return item;
+  return { ...item, learnedRule: lesson };
 }
 
 export async function saveFinanceSettings({ dropeaProfit, note = '' }) {
@@ -584,13 +650,30 @@ export async function saveAgentChat(message, health) {
   const memory = await readJson(memoryPath, []);
   const dashboard = await buildDashboard({ health });
   const userMessage = { id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, role: 'user', text: String(message).trim(), createdAt: new Date().toISOString() };
-  const { reply, lesson } = buildAgentReply({ message, dashboard });
-  const agentMessage = { id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, role: 'agent', text: reply, createdAt: new Date().toISOString() };
+  const { reply: fallbackReply, lesson } = buildAgentReply({ message, dashboard });
+  let reply = fallbackReply;
+  let aiError = null;
+  try {
+    reply = await chatWithOperationsAgent({ message, dashboard, memory }) || fallbackReply;
+  } catch (error) {
+    aiError = error instanceof Error ? error.message : String(error);
+  }
+  const agentMessage = {
+    id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    role: 'agent',
+    text: aiError ? `${reply}\n\nNota tecnica: no he podido usar IA avanzada ahora mismo (${aiError}). He aplicado respuesta segura basada en reglas.` : reply,
+    createdAt: new Date().toISOString()
+  };
   chat.push(userMessage, agentMessage);
   await writeJson(chatPath, chat);
   if (lesson) {
     memory.push(lesson);
     await writeJson(memoryPath, memory);
+    try {
+      await appendAgentMemoryRule(lesson);
+    } catch {
+      // Keep the chat responsive even if the persistent memory sheet fails.
+    }
   }
   return { reply: agentMessage, lesson };
 }
