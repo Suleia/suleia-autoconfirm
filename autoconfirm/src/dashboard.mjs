@@ -63,6 +63,13 @@ function guessProduct(order) {
   return 'Producto';
 }
 
+function guessProductFromCampaign(name) {
+  const normalized = normalize(name);
+  if (normalized.includes('colla') || normalized.includes('gum')) return 'Collagum';
+  if (normalized.includes('nida')) return 'NIDA premium';
+  return 'Sin producto detectado';
+}
+
 function orderFromSheet(row) {
   const orderId = row.orderId || row.pedido || row.id || '';
   return {
@@ -209,19 +216,110 @@ function paymentCostForOrder(order) {
   return amount ? Number((amount * 0.014 + 0.25).toFixed(2)) : 0;
 }
 
+function campaignNumber(row, ...fields) {
+  for (const field of fields) {
+    const value = numberFrom(row[field]);
+    if (value !== null) return value;
+  }
+  return 0;
+}
+
+function normalizeCampaignRow(row) {
+  const name = row.campana || row.campaign_name || row.Campana || row.name || row.campaign_id || 'Campana Meta';
+  const product = row.producto || row.Producto || guessProductFromCampaign(name);
+  const spend = campaignNumber(row, 'gasto', 'spend', 'Gasto');
+  const clicks = campaignNumber(row, 'clicks', 'Clicks');
+  const impressions = campaignNumber(row, 'impresiones', 'impressions', 'Impresiones');
+  const purchases = campaignNumber(row, 'compras_pixel', 'purchases', 'Compras Pixel');
+  const purchaseValue = campaignNumber(row, 'valor_compra_pixel', 'purchaseValue', 'Valor Compra Pixel');
+  const cpaPixel = campaignNumber(row, 'cpa_pixel', 'costPerPurchase', 'CPA Pixel') || (purchases ? spend / purchases : 0);
+  const roasMeta = campaignNumber(row, 'roas_meta', 'roas', 'ROAS Meta') || (spend ? purchaseValue / spend : 0);
+
+  return {
+    campaignId: row.campaign_id || row.campaignId || row.id || '',
+    name,
+    product,
+    status: row.estado || row.status || row.effective_status || '',
+    periodStart: row.periodo_inicio || row.dateStart || '',
+    periodEnd: row.periodo_fin || row.dateStop || '',
+    spend,
+    impressions,
+    reach: campaignNumber(row, 'alcance', 'reach'),
+    clicks,
+    ctr: campaignNumber(row, 'ctr'),
+    cpc: campaignNumber(row, 'cpc'),
+    cpm: campaignNumber(row, 'cpm'),
+    purchases,
+    purchaseValue,
+    cpaPixel,
+    roasMeta,
+    attributedOrders: campaignNumber(row, 'pedidos_dropea_atribuidos'),
+    confirmedOrders: campaignNumber(row, 'confirmados_atribuidos'),
+    confirmedRevenue: campaignNumber(row, 'ingresos_confirmados'),
+    cpaConfirmed: campaignNumber(row, 'cpa_confirmado'),
+    roasConfirmed: campaignNumber(row, 'roas_confirmado', 'roasConfirmado', 'ROAS Confirmado'),
+    source: row.fuente || row.source || ''
+  };
+}
+
+function buildCampaignAnalytics(campaignRows) {
+  const campaigns = campaignRows.map(normalizeCampaignRow).sort((a, b) => b.spend - a.spend);
+  const byProduct = new Map();
+
+  for (const campaign of campaigns) {
+    const product = campaign.product || 'Sin producto detectado';
+    const current = byProduct.get(product) || {
+      product,
+      campaigns: 0,
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      purchases: 0,
+      purchaseValue: 0,
+      attributedOrders: 0,
+      confirmedOrders: 0,
+      confirmedRevenue: 0
+    };
+    current.campaigns += 1;
+    current.spend += campaign.spend;
+    current.impressions += campaign.impressions;
+    current.clicks += campaign.clicks;
+    current.purchases += campaign.purchases;
+    current.purchaseValue += campaign.purchaseValue;
+    current.attributedOrders += campaign.attributedOrders;
+    current.confirmedOrders += campaign.confirmedOrders;
+    current.confirmedRevenue += campaign.confirmedRevenue;
+    byProduct.set(product, current);
+  }
+
+  const products = [...byProduct.values()].map((item) => ({
+    ...item,
+    ctr: item.impressions ? item.clicks / item.impressions : 0,
+    cpc: item.clicks ? item.spend / item.clicks : 0,
+    cpaPixel: item.purchases ? item.spend / item.purchases : 0,
+    roasMeta: item.spend ? item.purchaseValue / item.spend : 0,
+    cpaConfirmed: item.confirmedOrders ? item.spend / item.confirmedOrders : 0,
+    roasConfirmed: item.spend ? item.confirmedRevenue / item.spend : 0
+  })).sort((a, b) => b.spend - a.spend);
+
+  return { campaigns, products };
+}
+
 function calculateFinance({ orders, campaignRows, metaRows, financeSettings }) {
   const recognizedOrders = orders.filter(isRecognizedSale);
   const revenue = recognizedOrders.reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
   const productCost = recognizedOrders.reduce((sum, order) => sum + productCostForOrder(order), 0);
   const paymentFees = recognizedOrders.reduce((sum, order) => sum + paymentCostForOrder(order), 0);
+  const campaignSpend = campaignRows.reduce((sum, row) => sum + normalizeCampaignRow(row).spend, 0);
   const spendRow = metaRows.find((row) => normalize(row.Metrica) === 'gasto meta');
-  const metaSpend = numberFrom(spendRow?.Valor) || campaignRows.reduce((sum, row) => sum + (numberFrom(row.gasto) || 0), 0);
+  const metaSpend = campaignSpend || numberFrom(spendRow?.Valor) || 0;
   const dropeaProfit = numberFrom(financeSettings?.dropeaProfit);
   const businessProfit = dropeaProfit !== null ? dropeaProfit - metaSpend : revenue - productCost - paymentFees - metaSpend;
   const attributedOrders = campaignRows.reduce((sum, row) => sum + (numberFrom(row.pedidos_dropea_atribuidos) || 0), 0);
   const warnings = [
     'El beneficio principal usa el beneficio neto marcado por Dropea y resta Meta.',
     !attributedOrders && metaSpend ? 'El gasto Meta no esta atribuido a pedidos concretos; se usa gasto del periodo disponible.' : null,
+    campaignSpend ? null : 'Meta no esta disponible en vivo; se usa el ultimo dato guardado en Sheets si existe.',
     dropeaProfit === null ? 'No hay beneficio Dropea disponible; se usa calculo alternativo.' : null
   ].filter(Boolean);
 
@@ -271,20 +369,29 @@ async function loadLiveDropeaOrders(knownOrderIds) {
 async function loadLiveMetaCampaigns() {
   const source = { name: 'Meta API - campanas en vivo', ok: true, error: null };
   try {
-    const until = new Date().toISOString().slice(0, 10);
-    const sinceDate = new Date();
-    sinceDate.setDate(sinceDate.getDate() - 7);
-    const insights = await getCampaignInsights({ since: sinceDate.toISOString().slice(0, 10), until, limit: 100 });
+    const datePreset = process.env.META_DASHBOARD_DATE_PRESET || 'this_month';
+    const insights = await getCampaignInsights({ datePreset, limit: 100 });
     return {
-      source,
+      source: { ...source, period: datePreset },
       campaigns: insights.map((item) => ({
         campaign_id: item.campaignId,
         campana: item.campaignName,
+        producto: guessProductFromCampaign(item.campaignName),
+        periodo_inicio: item.dateStart,
+        periodo_fin: item.dateStop,
         gasto: item.spend,
         impresiones: item.impressions,
+        alcance: item.reach,
         clicks: item.clicks,
+        ctr: item.ctr,
+        cpc: item.cpc,
+        cpm: item.cpm,
         compras_pixel: item.purchases,
-        roas_confirmado: ''
+        valor_compra_pixel: item.purchaseValue,
+        cpa_pixel: item.costPerPurchase,
+        roas_meta: item.roas,
+        roas_confirmado: '',
+        fuente: 'Meta API en vivo'
       }))
     };
   } catch (error) {
@@ -359,7 +466,13 @@ export async function buildDashboard({ health = null } = {}) {
   const pending = orders.filter((order) => normalize(order.status).includes('pending'));
   const metaRows = rowObjects(metaDashboard.rows);
   const campaignRows = liveMeta.campaigns.length ? liveMeta.campaigns : rowObjects(metaCampaigns.rows);
-  const finance = calculateFinance({ orders, campaignRows, metaRows, financeSettings });
+  const campaignAnalytics = buildCampaignAnalytics(campaignRows);
+  const finance = calculateFinance({
+    orders,
+    campaignRows,
+    metaRows: liveMeta.campaigns.length ? [] : metaRows,
+    financeSettings
+  });
 
   return {
     generatedAt: new Date().toISOString(),
@@ -397,7 +510,13 @@ export async function buildDashboard({ health = null } = {}) {
     },
     agentChat: latest(agentChat, 'createdAt', 30).reverse(),
     agentMemory: latest(agentMemory, 'createdAt', 40),
-    campaigns: campaignRows.slice(0, 20),
+    campaigns: campaignAnalytics.campaigns.slice(0, 50),
+    campaignProducts: campaignAnalytics.products,
+    meta: {
+      period: liveMeta.source.period || process.env.META_DASHBOARD_DATE_PRESET || 'this_month',
+      spendSource: liveMeta.campaigns.length ? 'Meta API en vivo' : 'Google Sheet - Meta Campanas',
+      lastError: liveMeta.source.ok ? null : liveMeta.source.error
+    },
     products: buildProducts(orders),
     research: [
       { name: 'Kit sonrisa premium', score: 91, basis: 'Hipotesis manual', note: 'Complementa Collagum y permite packs de mayor ticket.' },
