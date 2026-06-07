@@ -150,6 +150,7 @@ function renderCampaigns() {
         <div>
           <strong>${escapeHtml(campaign.name || 'Campana Meta')}</strong>
           <span>${escapeHtml(campaign.product || 'Sin producto')} Â· ${escapeHtml(campaign.status || 'sin estado')}</span>
+          ${(campaign.adsetName || campaign.adName) ? `<span>${escapeHtml([campaign.adsetName, campaign.adName].filter(Boolean).join(' / '))}</span>` : ''}
         </div>
         <div class="bar"><span style="width:${width}%"></span></div>
         <b class="${efficiency}">${roas ? `${roas.toFixed(1)}x` : 's/d'}</b>
