@@ -110,27 +110,55 @@ function renderOrders() {
 function renderCampaigns() {
   const list = document.querySelector('#campaign-list');
   const campaigns = state.dashboard?.campaigns || [];
+  const products = state.dashboard?.campaignProducts || [];
+  const meta = state.dashboard?.meta || {};
   if (!campaigns.length) {
-    list.innerHTML = '<div class="empty-state">Todavia no hay datos de campanas Meta sincronizados. Cuando se refresque Meta Dashboard, apareceran aqui.</div>';
+    list.innerHTML = `<div class="empty-state">Todavia no hay datos de campanas Meta sincronizados.${meta.lastError ? ` Error actual: ${escapeHtml(meta.lastError)}` : ' Cuando se refresque Meta Dashboard, apareceran aqui.'}</div>`;
     return;
   }
 
-  list.innerHTML = campaigns.slice(0, 8).map((campaign) => {
-    const name = campaign.campana || campaign.campaign_name || campaign.Campana || campaign.campaign_id || 'Campana Meta';
-    const spend = Number(String(campaign.gasto || campaign.spend || 0).replace(',', '.')) || 0;
-    const roas = Number(String(campaign.roas_confirmado || campaign.roas || 0).replace(',', '.')) || 0;
+  const productCards = products.length ? `
+    <div class="meta-period">
+      <span>Periodo: ${escapeHtml(meta.period || 'this_month')}</span>
+      <strong>${escapeHtml(meta.spendSource || 'Meta')}</strong>
+    </div>
+    <div class="meta-product-grid">
+      ${products.map((product) => `
+        <div class="meta-product-card">
+          <span>${escapeHtml(product.product)}</span>
+          <strong>${money(product.spend)}</strong>
+          <small>${product.campaigns} campana${product.campaigns === 1 ? '' : 's'} Â· ${product.purchases || 0} compras pixel</small>
+          <div>
+            <b>CPA pixel</b>
+            <em>${product.cpaPixel ? money(product.cpaPixel) : 's/d'}</em>
+          </div>
+          <div>
+            <b>ROAS Meta</b>
+            <em>${product.roasMeta ? `${product.roasMeta.toFixed(2)}x` : 's/d'}</em>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  const campaignRows = campaigns.slice(0, 20).map((campaign) => {
+    const roas = Number(campaign.roasMeta || campaign.roasConfirmed || 0);
     const width = Math.min(Math.max(roas * 18, 8), 100);
+    const efficiency = roas >= 2 ? 'positive' : roas > 0 ? 'warning' : 'neutral';
     return `
-      <div class="bar-row">
+      <div class="bar-row meta-campaign-row">
         <div>
-          <strong>${escapeHtml(name)}</strong>
-          <span>${money(spend)} gastados</span>
+          <strong>${escapeHtml(campaign.name || 'Campana Meta')}</strong>
+          <span>${escapeHtml(campaign.product || 'Sin producto')} Â· ${escapeHtml(campaign.status || 'sin estado')}</span>
         </div>
         <div class="bar"><span style="width:${width}%"></span></div>
-        <b>${roas ? `${roas.toFixed(1)}x` : 's/d'}</b>
+        <b class="${efficiency}">${roas ? `${roas.toFixed(1)}x` : 's/d'}</b>
+        <small>${money(campaign.spend)} gasto Â· ${campaign.clicks || 0} clicks Â· ${campaign.purchases || 0} compras Â· CPA ${campaign.cpaPixel ? money(campaign.cpaPixel) : 's/d'}</small>
       </div>
     `;
   }).join('');
+
+  list.innerHTML = `${productCards}<div class="meta-campaign-list">${campaignRows}</div>`;
 }
 
 function renderDecisions() {
