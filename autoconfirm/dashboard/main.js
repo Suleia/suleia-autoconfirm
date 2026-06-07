@@ -92,15 +92,18 @@ function renderOrders() {
         <tr>
           <td><strong>#${escapeHtml(order.orderId)}</strong><small>${escapeHtml(order.createdAt || '')}</small></td>
           <td>${escapeHtml(order.product || 'Producto')}</td>
-        <td><span class="pill ${tone}">${escapeHtml(order.status || 'Sin estado')}</span></td>
-        <td>${escapeHtml(agentLabel(order))}</td>
-        <td>${money(order.amount)}</td>
-        <td>
-          <button class="mini-button" data-feedback-order="${escapeHtml(order.orderId)}">
-            Corregir
-          </button>
-          ${order.feedbackVerdict ? `<small>Feedback: ${escapeHtml(order.feedbackVerdict)}</small>` : ''}
-        </td>
+          <td>
+            <span class="pill ${tone}">${escapeHtml(order.status || 'Sin estado')}</span>
+            <small>${escapeHtml(agentLabel(order))}</small>
+          </td>
+          <td><strong>${escapeHtml(order.customer || 'Sin cliente')}</strong><small>${escapeHtml(order.phone || '')}</small></td>
+          <td>${money(order.amount)}</td>
+          <td>
+            <button class="mini-button" data-feedback-order="${escapeHtml(order.orderId)}">
+              Corregir
+            </button>
+            ${order.feedbackVerdict ? `<small>Feedback: ${escapeHtml(order.feedbackVerdict)}</small>` : ''}
+          </td>
       </tr>
     `;
     });
