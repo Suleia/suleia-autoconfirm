@@ -164,6 +164,36 @@ function deterministicCustomerIntent(messages) {
   ].filter(Boolean).join(' ')).join('\n'));
   if (!text) return null;
 
+  const addressChangePatterns = [
+    /\bcambio de direccion\b/,
+    /\bcambiar direccion\b/,
+    /\bcambiar la direccion\b/,
+    /\bmodificar direccion\b/,
+    /\bmodificar la direccion\b/,
+    /\bcambio direccion\b/,
+    /\bdireccion (mal|incorrecta|equivocada)\b/,
+    /\bcambiar datos\b/,
+    /\bmodificar datos\b/,
+    /\bcambiar envio\b/,
+    /\bcambiar el envio\b/,
+    /\bcorregir direccion\b/,
+    /\bcorregir la direccion\b/,
+    /\bmudar morada\b/,
+    /\balterar morada\b/,
+    /\bmudar endereco\b/,
+    /\balterar endereco\b/,
+    /\bendereco (errado|incorreto)\b/,
+    /\bmorada (errada|incorreta)\b/
+  ];
+
+  if (addressChangePatterns.some((pattern) => pattern.test(text))) {
+    return {
+      intent: 'ADDRESS_CHANGE',
+      confidence: 100,
+      reason: 'El cliente pide cambiar o corregir datos de entrega; no se debe confirmar hasta revisar direccion.'
+    };
+  }
+
   const cancelPatterns = [
     /\bno lo quiero\b/,
     /\bno quiero\b/,
@@ -177,23 +207,13 @@ function deterministicCustomerIntent(messages) {
     /\bno me interesa\b/,
     /\bno lo voy a recibir\b/,
     /\bno voy a aceptarlo\b/,
-    /\bcambiar datos\b/,
-    /\bcambiar direccion\b/,
-    /\bmodificar datos\b/,
-    /\bdireccion (mal|incorrecta|equivocada)\b/,
-    /\bmudar morada\b/,
-    /\balterar morada\b/,
-    /\bmudar endereco\b/,
-    /\balterar endereco\b/,
-    /\bendereco (errado|incorreto)\b/,
-    /\bmorada (errada|incorreta)\b/
   ];
 
   if (cancelPatterns.some((pattern) => pattern.test(text))) {
     return {
       intent: 'CANCEL',
       confidence: 100,
-      reason: 'El cliente no confirma el pedido o pide cambiar datos de entrega.'
+      reason: 'El cliente no confirma el pedido.'
     };
   }
 
@@ -520,13 +540,16 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     : null;
   const immediateCustomerIntent = customerConversationIntentForOrder(inboundCustomerMessages, order)
     || deterministicCustomerIntent(inboundCustomerMessages);
-  if (immediateCustomerIntent?.intent === 'CANCEL') {
+  if (['CANCEL', 'ADDRESS_CHANGE'].includes(immediateCustomerIntent?.intent)) {
+    const isAddressChange = immediateCustomerIntent.intent === 'ADDRESS_CHANGE';
     const patch = {
       ...order,
       status: 'MANUAL_REVIEW',
       aiConfidence: Number(immediateCustomerIntent.confidence ?? 100),
-      aiIntent: 'ADDRESS_CHANGE_REQUESTED',
-      operationalNote: 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
+      aiIntent: isAddressChange ? 'ADDRESS_CHANGE_REQUESTED' : 'NO_CONFIRM',
+      operationalNote: isAddressChange
+        ? 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.'
+        : 'Cliente no confirma el pedido. No confirmar automaticamente.'
     };
     const updated = upsertOrder(store.id, patch);
     await safeUpsertSheetRow(updated);
@@ -535,7 +558,9 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       action: 'would_not_confirm',
       analysis: {
         ...immediateCustomerIntent,
-        reason: 'El cliente ha pedido cambiar datos/direccion de envio; la direccion de Dropea no debe considerarse valida.'
+        reason: isAddressChange
+          ? 'El cliente ha pedido cambiar datos/direccion de envio; la direccion de Dropea no debe considerarse valida.'
+          : immediateCustomerIntent.reason
       },
       source: immediateCustomerIntent.source || 'customer_change_request'
     };
@@ -706,8 +731,12 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     return { action: 'confirmed', analysis, confirmation };
   }
 
-  if (intent === 'CANCEL' && confidence >= threshold) {
+  if (['CANCEL', 'ADDRESS_CHANGE'].includes(intent) && confidence >= threshold) {
     patch.status = 'MANUAL_REVIEW';
+    if (intent === 'ADDRESS_CHANGE') {
+      patch.aiIntent = 'ADDRESS_CHANGE_REQUESTED';
+      patch.operationalNote = 'Cliente solicito cambiar datos/direccion de envio. No confirmar en Dropea hasta revisar y corregir direccion.';
+    }
     const updated = upsertOrder(store.id, patch);
     await safeUpsertSheetRow(updated);
     return {
