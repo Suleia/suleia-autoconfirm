@@ -139,7 +139,59 @@ function decisionFromSheet(row) {
   };
 }
 
-function mergeOrders(sheetOrders, localOrders, liveOrders, decisions, feedback) {
+function controlDecisionFromSheet(row) {
+  return {
+    date: row.actualizado_en || '',
+    orderId: String(row.orderId || ''),
+    decision: String(row.decision_simulacion || '').trim().toUpperCase(),
+    reason: row.motivo || '',
+    source: row.fuente || 'control_simulacion'
+  };
+}
+
+function orderPatchFromControl(control) {
+  const reason = control.reason || '';
+  const addressChange = isAddressChangeFeedback(`${control.source} ${reason}`);
+  if (['CONFIRM', 'CONFIRMAR', 'CONFIRMED', 'SI', 'SÍ', 'YES'].includes(control.decision)) {
+    return {
+      status: 'CONFIRMED_BY_CUSTOMER',
+      agentAction: 'would_confirm',
+      agentIntent: 'CONFIRM',
+      agentConfidence: 100,
+      agentReason: reason || 'Confirmacion validada por feedback operativo.',
+      controlDecision: control.decision,
+      controlSource: control.source,
+      controlAt: control.date
+    };
+  }
+  if (['NO_CONFIRM', 'NO CONFIRM', 'NO_CONFIRMAR', 'NO', 'CANCEL', 'CANCELAR'].includes(control.decision)) {
+    return {
+      status: addressChange ? 'PENDING_ADDRESS_CHANGE' : 'NOT_CONFIRMED_BY_CUSTOMER',
+      agentAction: 'would_not_confirm',
+      agentIntent: addressChange ? 'ADDRESS_CHANGE_REQUESTED' : 'NO_CONFIRM',
+      agentConfidence: 100,
+      agentReason: reason || 'No confirmado por feedback operativo.',
+      controlDecision: control.decision,
+      controlSource: control.source,
+      controlAt: control.date
+    };
+  }
+  if (['MANUAL_REVIEW', 'REVIEW', 'REVISION'].includes(control.decision)) {
+    return {
+      status: 'MANUAL_REVIEW',
+      agentAction: 'manual_review',
+      agentIntent: 'MANUAL_REVIEW',
+      agentConfidence: 100,
+      agentReason: reason || 'Revision manual indicada por feedback operativo.',
+      controlDecision: control.decision,
+      controlSource: control.source,
+      controlAt: control.date
+    };
+  }
+  return null;
+}
+
+function mergeOrders(sheetOrders, localOrders, liveOrders, decisions, controlDecisions, feedback) {
   const byId = new Map();
   for (const order of localOrders) byId.set(order.orderId, order);
   for (const order of liveOrders) byId.set(order.orderId, { ...(byId.get(order.orderId) || {}), ...order });
@@ -154,6 +206,16 @@ function mergeOrders(sheetOrders, localOrders, liveOrders, decisions, feedback) 
       agentConfidence: decision.confidence,
       agentReason: decision.reason,
       dryRun: decision.dryRun
+    });
+  }
+  for (const control of controlDecisions) {
+    const current = byId.get(control.orderId);
+    if (!current) continue;
+    const patch = orderPatchFromControl(control);
+    if (!patch) continue;
+    byId.set(control.orderId, {
+      ...current,
+      ...patch
     });
   }
   for (const item of feedback) {
@@ -552,6 +614,7 @@ export async function buildDashboard({ health = null } = {}) {
   const localState = loadState();
   const pedidos = await readSheet('Pedidos');
   const decisiones = await readSheet('Decisiones Agente');
+  const controlSimulacion = await readSheet('Control Simulacion');
   const metaDashboard = await readSheet('Meta Dashboard');
   const metaCampaigns = await readSheet('Meta Campanas');
   const feedback = await readJson(path.join(dashboardDataDir, 'agent-feedback.json'), []);
@@ -569,10 +632,11 @@ export async function buildDashboard({ health = null } = {}) {
   const sheetOrders = rowObjects(pedidos.rows).map(orderFromSheet);
   const localOrders = localOrdersRaw.map(orderFromLocal);
   const decisions = rowObjects(decisiones.rows).map(decisionFromSheet);
+  const controlDecisions = rowObjects(controlSimulacion.rows).map(controlDecisionFromSheet).filter((item) => item.orderId && item.decision);
   const knownOrderIds = [...sheetOrders, ...localOrders].map((order) => order.orderId);
   const liveDropea = await loadLiveDropeaOrders(knownOrderIds);
   const liveMeta = await loadLiveMetaCampaigns();
-  const orders = mergeOrders(sheetOrders, localOrders, liveDropea.orders, decisions, feedback);
+  const orders = mergeOrders(sheetOrders, localOrders, liveDropea.orders, decisions, controlDecisions, feedback);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
   const manualReview = orders.filter(isManualReview);
