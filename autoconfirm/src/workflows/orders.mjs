@@ -268,7 +268,7 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
   return remoteStatus;
 }
 
-function storedConfirmationResult(order, store) {
+async function storedConfirmationResult(order, store) {
   const analysis = {
     intent: 'CONFIRM',
     confidence: Number(order.aiConfidence ?? 100),
@@ -276,6 +276,14 @@ function storedConfirmationResult(order, store) {
   };
 
   if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'CONFIRMED_BY_CUSTOMER',
+      aiConfidence: analysis.confidence,
+      aiIntent: 'CONFIRM',
+      operationalNote: 'Confirmacion ya detectada previamente. En modo simulacion, el agente habria confirmado el pedido.'
+    });
+    await safeUpsertSheetRow(updated);
     return { dryRun: true, action: 'would_confirm', analysis, source: 'stored_confirmation' };
   }
 
@@ -527,7 +535,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   if (confirmedStoredOrder(order, store)) {
-    const storedResult = storedConfirmationResult(order, store);
+    const storedResult = await storedConfirmationResult(order, store);
     if (storedResult) return storedResult;
   }
 
@@ -671,7 +679,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
 
   if (!inboundCustomerMessages.length) {
     if (confirmedStoredOrder(order, store)) {
-      const storedResult = storedConfirmationResult(order, store);
+      const storedResult = await storedConfirmationResult(order, store);
       if (storedResult) return storedResult;
     }
 
