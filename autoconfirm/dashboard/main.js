@@ -512,8 +512,14 @@ function renderAgentChat() {
   if (memory) {
     const lessons = state.dashboard?.agentMemory || [];
     memory.innerHTML = lessons.length
-      ? `<strong>Memoria aprendida</strong>${lessons.slice(0, 6).map((lesson) => `<span>${escapeHtml(lesson.text)}</span>`).join('')}`
-      : '<strong>Memoria aprendida</strong><span>Aun no hay reglas generales guardadas.</span>';
+      ? lessons.slice(0, 10).map((lesson) => `
+        <article class="memory-item">
+          <b>${escapeHtml(lesson.type || 'regla')}</b>
+          <span>${escapeHtml(lesson.text)}</span>
+          <small>${escapeHtml(lesson.source || 'memoria')} ${lesson.createdAt ? `· ${escapeHtml(lesson.createdAt)}` : ''}</small>
+        </article>
+      `).join('')
+      : '<div class="empty-state">Aun no hay reglas generales guardadas. Escribe una instruccion y el agente la convertira en memoria.</div>';
   }
 }
 
@@ -701,6 +707,16 @@ agentChatForm?.addEventListener('submit', async (event) => {
 document.querySelectorAll('[data-agent-prompt]').forEach((button) => {
   button.addEventListener('click', async () => {
     await sendAgentMessage(button.dataset.agentPrompt || '');
+  });
+});
+
+document.querySelectorAll('[data-agent-prefix]').forEach((button) => {
+  button.addEventListener('click', () => {
+    const input = document.querySelector('#agent-chat-input');
+    if (!input) return;
+    input.value = `${button.dataset.agentPrefix || ''}${input.value}`.trimStart();
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
   });
 });
 
