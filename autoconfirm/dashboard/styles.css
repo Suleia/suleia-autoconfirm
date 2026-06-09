@@ -988,41 +988,41 @@ th {
   resize: vertical;
 }
 
-.agent-command-grid {
+.agent-studio {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(180px, .8fr));
-  gap: 14px;
-  margin-bottom: 16px;
+  grid-template-columns: minmax(320px, .9fr) minmax(0, 1.45fr);
+  gap: 16px;
+  margin-bottom: 18px;
 }
 
-.agent-command-card,
-.agent-prompt-card {
-  min-height: 132px;
-  padding: 18px;
+.agent-hero-card,
+.agent-training-panel,
+.agent-chat-shell,
+.agent-memory-card {
   border: 1px solid var(--line);
-  border-radius: 24px;
-  text-align: left;
+  border-radius: 28px;
   background: rgba(255, 255, 255, .58);
   font-family: "Trebuchet MS", Verdana, sans-serif;
 }
 
-.agent-command-card.strong {
+.agent-hero-card {
+  padding: 24px;
   color: #fff;
   background:
-    radial-gradient(circle at 90% 15%, rgba(189, 235, 224, .34), transparent 28%),
-    linear-gradient(135deg, var(--navy), #0f696f);
+    radial-gradient(circle at 88% 12%, rgba(241, 189, 99, .28), transparent 28%),
+    radial-gradient(circle at 20% 90%, rgba(189, 235, 224, .25), transparent 28%),
+    linear-gradient(135deg, #1e3142, #0f696f);
 }
 
-.agent-command-card span,
-.agent-command-card strong,
-.agent-command-card p,
-.agent-prompt-card span,
-.agent-prompt-card strong {
+.agent-hero-card span,
+.agent-hero-card strong,
+.agent-hero-card p {
   display: block;
 }
 
-.agent-command-card span,
-.agent-prompt-card span {
+.agent-hero-card span,
+.training-head span,
+.chat-toolbar span {
   color: inherit;
   opacity: .74;
   font-size: 12px;
@@ -1031,34 +1031,128 @@ th {
   text-transform: uppercase;
 }
 
-.agent-command-card strong,
-.agent-prompt-card strong {
-  margin-top: 8px;
-  font-size: 22px;
+.agent-hero-card strong {
+  max-width: 520px;
+  margin-top: 10px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: .94;
+  letter-spacing: -.05em;
 }
 
-.agent-command-card p {
-  margin: 10px 0 0;
+.agent-hero-card p {
+  margin: 16px 0 0;
   color: rgba(255, 255, 255, .76);
-  line-height: 1.45;
+  line-height: 1.55;
 }
 
-.agent-prompt-card {
+.agent-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.agent-hero-actions .mini-button {
+  color: #fff;
+  border-color: rgba(255, 255, 255, .24);
+  background: rgba(255, 255, 255, .12);
+}
+
+.agent-training-panel {
+  padding: 18px;
+}
+
+.training-head,
+.chat-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.training-head strong,
+.chat-toolbar strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 22px;
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+.training-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.training-groups section {
+  padding: 14px;
+  border: 1px solid rgba(23, 33, 43, .1);
+  border-radius: 22px;
+  background: rgba(255, 253, 248, .66);
+}
+
+.training-groups h4 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.training-groups button,
+.mode-pills button {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 10px 11px;
+  margin-top: 8px;
+  color: var(--navy);
+  background: rgba(255, 255, 255, .66);
   cursor: pointer;
-  color: var(--ink);
+  text-align: left;
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 13px;
+  font-weight: 900;
   transition: .18s ease;
 }
 
-.agent-prompt-card:hover {
-  transform: translateY(-2px);
+.training-groups button:hover,
+.mode-pills button:hover {
+  transform: translateY(-1px);
   border-color: rgba(13, 139, 143, .35);
-  background: rgba(189, 235, 224, .42);
+  background: rgba(189, 235, 224, .44);
+}
+
+.agent-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(280px, .55fr);
+  gap: 16px;
+}
+
+.agent-chat-shell,
+.agent-memory-card {
+  padding: 18px;
+}
+
+.mode-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.mode-pills button {
+  width: auto;
+  margin: 0;
+  border-radius: 999px;
+  text-align: center;
 }
 
 .agent-chat {
   display: grid;
   gap: 12px;
-  max-height: 420px;
+  max-height: 460px;
   overflow: auto;
   padding: 18px;
   border: 1px solid var(--line);
@@ -1108,20 +1202,43 @@ th {
 .memory-list {
   display: grid;
   gap: 8px;
-  margin-top: 16px;
-  padding: 14px;
+  margin-top: 0;
+  padding: 0;
   border-radius: 20px;
-  background: rgba(38, 57, 75, .06);
+  background: transparent;
   font-family: "Trebuchet MS", Verdana, sans-serif;
 }
 
-.memory-list strong,
-.memory-list span {
+.memory-item {
+  display: grid;
+  gap: 7px;
+  padding: 13px;
+  border: 1px solid rgba(23, 33, 43, .1);
+  border-radius: 18px;
+  background: rgba(255, 253, 248, .66);
+}
+
+.memory-item b,
+.memory-item span,
+.memory-item small {
   display: block;
 }
 
-.memory-list span {
+.memory-item b {
+  color: #0f696f;
+  font-size: 12px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.memory-item span {
   color: var(--muted);
+  line-height: 1.35;
+}
+
+.memory-item small {
+  color: rgba(101, 114, 127, .78);
+  font-size: 11px;
 }
 
 .source-item {
@@ -1297,8 +1414,14 @@ th {
   .product-grid,
   .sources-grid,
   .finance-grid,
-  .agent-command-grid {
+  .agent-studio,
+  .agent-workbench,
+  .training-groups {
     grid-template-columns: 1fr;
+  }
+
+  .mode-pills {
+    justify-content: flex-start;
   }
 
   .span-5,
