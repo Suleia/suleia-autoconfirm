@@ -160,32 +160,83 @@
           <article class="panel span-12" data-panel="agent">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Conversación</p>
-                <h3>Hablar con el agente</h3>
+                <p class="eyebrow">Centro de entrenamiento</p>
+                <h3>Agente operativo Suleia</h3>
               </div>
-              <span class="chip">Memoria activa</span>
+              <span class="chip">Aprendizaje continuo</span>
             </div>
-            <div class="agent-command-grid">
-              <div class="agent-command-card strong">
-                <span>Qué puedes hacer aquí</span>
-                <strong>Entrenar al agente hablando con él</strong>
-                <p>Explícale reglas, pregúntale por una decisión o corrige criterios. Las reglas importantes quedan guardadas como memoria operativa.</p>
+
+            <div class="agent-studio">
+              <div class="agent-hero-card">
+                <span>Conversar, corregir y enseñar</span>
+                <strong>Convierte al agente en tu operador interno</strong>
+                <p>Explícale reglas, pregúntale por pedidos, define procedimientos, pide auditorías o enséñale cómo quieres que actúe. Todo lo importante queda guardado como memoria operativa.</p>
+                <div class="agent-hero-actions">
+                  <button class="mini-button" type="button" data-agent-prompt="Analiza tus ultimas decisiones de pedidos y dime cuales confirmarias, cuales bloquearias y que regla has usado en cada caso.">Revisar decisiones</button>
+                  <button class="mini-button" type="button" data-agent-prompt="Resume tu memoria aprendida y dime que reglas tienes activas para confirmacion, cambios de direccion, cancelaciones e incidencias.">Ver memoria activa</button>
+                  <button class="mini-button" type="button" data-agent-prompt="Propón 5 mejoras concretas para reducir errores del agente en confirmaciones de pedidos COD.">Pedir mejoras</button>
+                </div>
               </div>
-              <button class="agent-prompt-card" type="button" data-agent-prompt="Recuerda: si el cliente solicita cambio de dirección o datos de entrega, no debes confirmar el pedido. Debes enviarlo a revisión manual hasta corregirlo en Dropea.">
-                <span>Regla rápida</span>
-                <strong>Cambio de dirección</strong>
-              </button>
-              <button class="agent-prompt-card" type="button" data-agent-prompt="Analiza tus últimas decisiones y dime en qué casos dudas más y qué reglas necesitas mejorar.">
-                <span>Auditoría</span>
-                <strong>Revisar aciertos</strong>
-              </button>
+
+              <div class="agent-training-panel">
+                <div class="training-head">
+                  <span>Acciones rápidas</span>
+                  <strong>Enseñar por contexto</strong>
+                </div>
+                <div class="training-groups">
+                  <section>
+                    <h4>Pedidos</h4>
+                    <button type="button" data-agent-prompt="Aprende esta regla: si el cliente confirma claramente por boton o texto explicito, debes confirmar el pedido. Si hay duda, explica por que no confirmas.">Confirmación clara</button>
+                    <button type="button" data-agent-prompt="Aprende esta regla: si el ultimo gesto del cliente es cambio de direccion o datos de entrega, no confirmes aunque antes hubiera confirmado. Dejalo pendiente por direccion.">Cambio de dirección</button>
+                    <button type="button" data-agent-prompt="Aprende esta regla: si el cliente cancela, rechaza o dice que no lo quiere, no confirmes y registra el motivo como no confirmado.">Cancelación</button>
+                    <button type="button" data-agent-prompt="Revisa los pedidos pendientes y dime cuales necesitan accion humana, cuales esperan respuesta y cuales tienen señal suficiente.">Revisar pendientes</button>
+                  </section>
+                  <section>
+                    <h4>Agente</h4>
+                    <button type="button" data-agent-prompt="Haz una auditoria de tus ultimas decisiones. Separa aciertos, posibles errores y reglas que necesitas mejorar.">Auditar aciertos</button>
+                    <button type="button" data-agent-prompt="Preguntame 5 cosas que necesites aprender para confirmar pedidos con mas precision.">Pregúntame</button>
+                    <button type="button" data-agent-prompt="Crea una checklist operativa antes de confirmar cualquier pedido en Dropea.">Crear checklist</button>
+                    <button type="button" data-agent-prompt="Convierte mi siguiente mensaje en una regla permanente si contiene una instruccion util para operar.">Modo aprendizaje</button>
+                  </section>
+                  <section>
+                    <h4>Negocio</h4>
+                    <button type="button" data-agent-prompt="Analiza el beneficio actual usando Dropea menos Meta y dime que decision operativa tomarias hoy.">Rentabilidad</button>
+                    <button type="button" data-agent-prompt="Analiza Meta Ads por producto y dime que campanas escalar, pausar o revisar.">Meta Ads</button>
+                    <button type="button" data-agent-prompt="Dime que informacion falta para tomar mejores decisiones sobre productos, competencia y nuevas oportunidades.">Productos</button>
+                    <button type="button" data-agent-prompt="Prepara un resumen ejecutivo del estado actual: pedidos, confirmaciones, gasto Meta, beneficio y riesgos.">Resumen diario</button>
+                  </section>
+                </div>
+              </div>
             </div>
-            <div id="agent-chat" class="agent-chat"></div>
-            <form id="agent-chat-form" class="agent-chat-form">
-              <textarea id="agent-chat-input" rows="3" placeholder="Habla con el agente: dale feedback, enséñale reglas o pregúntale por un pedido concreto..."></textarea>
-              <button class="primary-action" type="submit">Enviar</button>
-            </form>
-            <div id="agent-memory" class="memory-list"></div>
+
+            <div class="agent-workbench">
+              <div class="agent-chat-shell">
+                <div class="chat-toolbar">
+                  <div>
+                    <span>Conversación directa</span>
+                    <strong>Habla con el agente</strong>
+                  </div>
+                  <div class="mode-pills">
+                    <button type="button" data-agent-prefix="Aprende esta regla y guardala en memoria: ">Enseñar regla</button>
+                    <button type="button" data-agent-prefix="Analiza este pedido y dime que harias: ">Analizar pedido</button>
+                    <button type="button" data-agent-prefix="Crea un procedimiento operativo para: ">Crear proceso</button>
+                  </div>
+                </div>
+                <div id="agent-chat" class="agent-chat"></div>
+                <form id="agent-chat-form" class="agent-chat-form">
+                  <textarea id="agent-chat-input" rows="4" placeholder="Escribe aquí una regla, una corrección, una pregunta, un proceso nuevo, una tarea o una idea para que el agente la aprenda..."></textarea>
+                  <button class="primary-action" type="submit">Enviar</button>
+                </form>
+              </div>
+
+              <aside class="agent-memory-card">
+                <div class="training-head">
+                  <span>Memoria</span>
+                  <strong>Lo aprendido</strong>
+                </div>
+                <div id="agent-memory" class="memory-list"></div>
+              </aside>
+            </div>
           </article>
 
           <article class="panel span-6" data-panel="agent">
