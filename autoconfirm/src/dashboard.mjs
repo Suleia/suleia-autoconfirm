@@ -559,10 +559,49 @@ function buildAgentReply({ message, dashboard }) {
   } else if (lower.includes('confirm') || lower.includes('pedido')) {
     reply = 'Aprendido. Para confirmaciones, priorizare boton de Chatby, etiqueta CONFIRMADO o mensaje explicito. Si hay cambio de direccion o datos de entrega, lo dejare pendiente por direccion y no lo confirmare.';
   }
-  const lesson = /aprende|recuerda|cuando|si el cliente|debes|deberias|deberia/i.test(text)
-    ? { id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, text, createdAt: new Date().toISOString() }
+  const lessonType = memoryTypeFromMessage(text);
+  const lesson = lessonType
+    ? { id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, type: lessonType, text, source: 'agent_chat', createdAt: new Date().toISOString() }
     : null;
   return { reply, lesson };
+}
+
+function memoryTypeFromMessage(text) {
+  const normalized = normalize(text);
+  if (!normalized) return null;
+  const shouldLearn = [
+    'aprende',
+    'recuerda',
+    'guarda',
+    'memoria',
+    'regla',
+    'criterio',
+    'cuando',
+    'si el cliente',
+    'debes',
+    'deberias',
+    'deberia',
+    'procedimiento',
+    'proceso',
+    'checklist',
+    'tarea',
+    'accion',
+    'mejora',
+    'analiza',
+    'audita',
+    'producto',
+    'competencia',
+    'meta ads',
+    'rentabilidad',
+    'beneficio'
+  ].some((keyword) => normalized.includes(keyword));
+  if (!shouldLearn) return null;
+  if (normalized.includes('procedimiento') || normalized.includes('proceso') || normalized.includes('checklist')) return 'operational_process';
+  if (normalized.includes('meta ads') || normalized.includes('campana') || normalized.includes('campanas')) return 'marketing_rule';
+  if (normalized.includes('producto') || normalized.includes('competencia') || normalized.includes('catalogo')) return 'product_research_rule';
+  if (normalized.includes('beneficio') || normalized.includes('rentabilidad') || normalized.includes('dropea')) return 'finance_rule';
+  if (normalized.includes('pedido') || normalized.includes('cliente') || normalized.includes('confirm')) return 'order_decision_rule';
+  return 'feedback_rule';
 }
 
 function isAddressChangeFeedback(text) {
