@@ -267,6 +267,177 @@ function isManualReview(order) {
   return normalize(order.status).includes('manual_review') || normalize(order.status).includes('revision');
 }
 
+function agentCustomerSignal(order) {
+  const text = normalize([
+    order.status,
+    order.agentIntent,
+    order.agentAction,
+    order.agentReason,
+    order.note,
+    order.feedbackVerdict,
+    order.feedbackCorrection,
+    order.feedbackNote
+  ].filter(Boolean).join(' '));
+
+  if (text.includes('address_change') || text.includes('direccion') || text.includes('cambio de direccion') || text.includes('cambiar datos')) {
+    return {
+      code: 'address_change',
+      label: 'Cambio de direccion',
+      detail: 'El cliente ha pedido modificar direccion o datos de entrega.',
+      confidence: 100,
+      tone: 'warning'
+    };
+  }
+
+  if (text.includes('duplicate_order') || text.includes('duplicado')) {
+    return {
+      code: 'duplicate',
+      label: 'Posible duplicado',
+      detail: 'El pedido necesita revision manual por posible duplicidad.',
+      confidence: 90,
+      tone: 'warning'
+    };
+  }
+
+  if (text.includes('cancel') || text.includes('reject') || text.includes('rechaz') || text.includes('no_confirm') || text.includes('no confirmado')) {
+    return {
+      code: 'rejected',
+      label: 'Rechazo o no confirmacion',
+      detail: 'No existe una confirmacion valida o el cliente ha rechazado/cancelado.',
+      confidence: 100,
+      tone: 'danger'
+    };
+  }
+
+  if (text.includes('confirm')) {
+    return {
+      code: 'confirmed',
+      label: 'Confirmacion clara',
+      detail: 'Hay senal de confirmacion por boton, texto o feedback validado.',
+      confidence: Number(order.agentConfidence) || 100,
+      tone: 'positive'
+    };
+  }
+
+  if (text.includes('ausente') || text.includes('incidencia')) {
+    return {
+      code: 'absent_or_issue',
+      label: 'Incidencia o ausente',
+      detail: 'El pedido necesita seguimiento antes de confirmar.',
+      confidence: 80,
+      tone: 'warning'
+    };
+  }
+
+  return {
+    code: 'unclear',
+    label: 'Sin senal suficiente',
+    detail: 'Todavia no hay una respuesta clara del cliente.',
+    confidence: Number(order.agentConfidence) || 0,
+    tone: 'neutral'
+  };
+}
+
+function agentRecommendation(order) {
+  const signal = agentCustomerSignal(order);
+  const status = normalize(order.status);
+  const intent = normalize(order.agentIntent);
+  const action = normalize(order.agentAction);
+
+  if (signal.code === 'address_change') {
+    return {
+      code: 'hold_address',
+      label: 'No confirmar',
+      nextStep: 'Corregir direccion en Dropea y mantener pendiente.',
+      explanation: 'No confirmo porque el ultimo gesto relevante del cliente es cambio de direccion o datos de entrega.',
+      tone: 'warning',
+      confidence: 100
+    };
+  }
+
+  if (signal.code === 'rejected') {
+    return {
+      code: 'do_not_confirm',
+      label: 'No confirmar',
+      nextStep: 'Registrar motivo y no avanzar el pedido.',
+      explanation: 'No confirmo porque el cliente no ha aceptado el pedido o hay rechazo/cancelacion.',
+      tone: 'danger',
+      confidence: 100
+    };
+  }
+
+  if (signal.code === 'duplicate') {
+    return {
+      code: 'manual_duplicate',
+      label: 'Revision por duplicado',
+      nextStep: 'Comprobar si existe otro pedido del mismo cliente antes de actuar.',
+      explanation: 'No automatizo porque el pedido puede estar duplicado.',
+      tone: 'warning',
+      confidence: 90
+    };
+  }
+
+  if (signal.code === 'absent_or_issue') {
+    return {
+      code: 'followup_issue',
+      label: 'Seguimiento incidencia',
+      nextStep: 'Revisar incidencia y coordinar nueva entrega antes de confirmar.',
+      explanation: 'No confirmo automaticamente porque hay ausente o incidencia abierta.',
+      tone: 'warning',
+      confidence: 80
+    };
+  }
+
+  if (signal.code === 'confirmed' || status.includes('confirmed_by_customer') || intent === 'confirm' || action === 'would_confirm') {
+    return {
+      code: 'confirm',
+      label: 'Confirmar pedido',
+      nextStep: 'En modo real, confirmar en Dropea.',
+      explanation: 'Confirmo porque el cliente ha dado una senal clara de aceptacion del pedido.',
+      tone: 'positive',
+      confidence: signal.confidence || Number(order.agentConfidence) || 100
+    };
+  }
+
+  if (isManualReview(order)) {
+    return {
+      code: 'manual_review',
+      label: 'Revision humana',
+      nextStep: 'Revisar conversacion antes de actuar.',
+      explanation: 'No automatizo porque el pedido esta en revision manual o la evidencia no es concluyente.',
+      tone: 'warning',
+      confidence: Number(order.agentConfidence) || 60
+    };
+  }
+
+  return {
+    code: 'wait_customer',
+    label: 'Esperar respuesta',
+    nextStep: 'No actuar hasta recibir una senal clara.',
+    explanation: 'No confirmo porque aun no hay confirmacion clara del cliente.',
+    tone: 'neutral',
+    confidence: Number(order.agentConfidence) || 0
+  };
+}
+
+function enrichOrderForAgent(order) {
+  const signal = agentCustomerSignal(order);
+  const recommendation = agentRecommendation(order);
+  return {
+    ...order,
+    customerSignal: signal.code,
+    customerSignalLabel: signal.label,
+    customerSignalDetail: signal.detail,
+    customerSignalTone: signal.tone,
+    agentRecommendedAction: recommendation.code,
+    agentRecommendedLabel: recommendation.label,
+    agentNextStep: recommendation.nextStep,
+    agentDecisionExplanation: recommendation.explanation,
+    agentDecisionTone: recommendation.tone,
+    agentUsefulConfidence: recommendation.confidence
+  };
+}
+
 function latest(items, field, limit = 12) {
   return [...items]
     .sort((a, b) => String(b[field] || '').localeCompare(String(a[field] || '')))
@@ -607,6 +778,7 @@ function memoryTypeFromMessage(text) {
 function isAddressChangeFeedback(text) {
   const normalized = normalize(text);
   return normalized.includes('cambio de direccion')
+    || normalized.includes('address_change')
     || normalized.includes('cambiar direccion')
     || normalized.includes('modificar direccion')
     || normalized.includes('corregir direccion')
@@ -627,11 +799,47 @@ function learnedRuleFromFeedback(item) {
       createdAt: new Date().toISOString()
     };
   }
-  if (isAddressChangeFeedback(text)) {
+  if (item.verdict === 'address_change' || isAddressChangeFeedback(text)) {
     return {
       id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'address_change_no_confirm',
       text: 'No confirmar pedidos cuando el cliente marca, solicita o menciona cambio de direccion/datos de entrega. Dejar el pedido pendiente por direccion hasta corregir direccion en Dropea.',
+      source: `feedback_order_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'absent_or_issue') {
+    return {
+      id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'absent_or_issue_followup',
+      text: 'Si el pedido esta ausente o en incidencia, el agente no debe confirmar automaticamente: debe pedir seguimiento, nueva entrega o revision operativa antes de actuar.',
+      source: `feedback_order_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'rejected_or_cancelled' || item.verdict === 'should_not_confirm') {
+    return {
+      id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'rejected_or_cancelled_no_confirm',
+      text: 'Si el cliente rechaza, cancela, dice que no lo quiere o no confirma de forma clara, el agente no debe confirmar el pedido.',
+      source: `feedback_order_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'unclear_wait') {
+    return {
+      id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'unclear_wait_customer',
+      text: 'Si la respuesta del cliente es dudosa o no contiene una senal clara, el agente debe esperar respuesta y explicar que no confirma por falta de evidencia.',
+      source: `feedback_order_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'duplicate_order') {
+    return {
+      id: `lesson_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'duplicate_manual_review',
+      text: 'Si el pedido parece duplicado, el agente debe enviarlo a revision manual y no confirmar automaticamente.',
       source: `feedback_order_${item.orderId}`,
       createdAt: new Date().toISOString()
     };
@@ -675,7 +883,8 @@ export async function buildDashboard({ health = null } = {}) {
   const knownOrderIds = [...sheetOrders, ...localOrders].map((order) => order.orderId);
   const liveDropea = await loadLiveDropeaOrders(knownOrderIds);
   const liveMeta = await loadLiveMetaCampaigns();
-  const orders = mergeOrders(sheetOrders, localOrders, liveDropea.orders, decisions, controlDecisions, feedback);
+  const orders = mergeOrders(sheetOrders, localOrders, liveDropea.orders, decisions, controlDecisions, feedback)
+    .map(enrichOrderForAgent);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
   const manualReview = orders.filter(isManualReview);
@@ -768,11 +977,15 @@ export async function saveAgentFeedback({ orderId, verdict = 'manual_review', co
       // Local memory is still available if Google Sheets is temporarily unavailable.
     }
   }
-  const decision = item.verdict === 'should_confirm' ? 'CONFIRM' : item.verdict === 'should_not_confirm' ? 'NO_CONFIRM' : 'MANUAL_REVIEW';
+  const decision = item.verdict === 'should_confirm'
+    ? 'CONFIRM'
+    : ['should_not_confirm', 'address_change', 'rejected_or_cancelled', 'unclear_wait'].includes(item.verdict)
+      ? 'NO_CONFIRM'
+      : 'MANUAL_REVIEW';
   await upsertSimulationDecision({
     orderId: item.orderId,
     decision,
-    reason: [item.correction, item.note].filter(Boolean).join(' | '),
+    reason: [item.verdict, item.correction, item.note].filter(Boolean).join(' | '),
     source: 'command_center_feedback'
   });
   return { ...item, learnedRule: lesson };
