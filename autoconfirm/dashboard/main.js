@@ -95,6 +95,14 @@ function hasAddressChange(order) {
 }
 
 function friendlyOrderState(order) {
+  if (order.agentRecommendedLabel) {
+    return {
+      label: order.agentRecommendedLabel,
+      detail: order.agentDecisionExplanation || order.agentNextStep || 'Decision operativa calculada por el agente.',
+      tone: order.agentDecisionTone || 'neutral'
+    };
+  }
+
   const status = normalize(order.status);
   const action = normalize(order.agentAction);
   const intent = normalize(order.agentIntent);
@@ -147,6 +155,14 @@ function friendlyOrderState(order) {
 }
 
 function agentEvidence(order) {
+  if (order.customerSignalLabel) {
+    return {
+      label: order.customerSignalLabel,
+      detail: order.customerSignalDetail || order.agentNextStep || 'Senal interpretada por el agente.',
+      tone: order.customerSignalTone || 'neutral'
+    };
+  }
+
   const confidence = Number(order.agentConfidence);
   const reason = order.agentReason || order.note || '';
   const status = normalize(order.status);
@@ -233,6 +249,7 @@ function renderOrders() {
           <td>
             <span class="signal-chip ${evidence.tone}">${escapeHtml(evidence.label)}</span>
             <small>${escapeHtml(evidence.detail)}</small>
+            ${order.agentNextStep ? `<small><strong>Siguiente paso:</strong> ${escapeHtml(order.agentNextStep)}</small>` : ''}
           </td>
           <td>
             <strong>${escapeHtml(order.customer || 'Sin cliente')}</strong>
@@ -376,6 +393,32 @@ function renderDecisions() {
         <span>${escapeHtml(decision.reason || decision.message || 'Sin motivo registrado')}</span>
       </div>
       <b>${decision.confidence ?? '-'}%</b>
+    </div>
+  `).join('');
+}
+
+function renderAgentDiagnostics() {
+  const list = document.querySelector('#agent-list');
+  if (!list) return;
+  const orders = state.dashboard?.orders || [];
+  const diagnosedOrders = orders
+    .filter((order) => order.agentRecommendedLabel || order.customerSignalLabel || order.agentAction || order.status)
+    .slice(0, 14);
+
+  if (!diagnosedOrders.length) {
+    list.innerHTML = '<div class="empty-state">No hay pedidos diagnosticados por el agente todavia.</div>';
+    return;
+  }
+
+  list.innerHTML = diagnosedOrders.map((order) => `
+    <div class="decision agent-decision-card ${escapeHtml(order.agentDecisionTone || 'neutral')}">
+      <div>
+        <strong>#${escapeHtml(order.orderId)} · ${escapeHtml(order.agentRecommendedLabel || 'Sin accion')}</strong>
+        <span><b>Señal:</b> ${escapeHtml(order.customerSignalLabel || 'Sin señal')} · ${escapeHtml(order.customerSignalDetail || '')}</span>
+        <span><b>Porque:</b> ${escapeHtml(order.agentDecisionExplanation || order.agentReason || order.note || 'Sin explicacion registrada')}</span>
+        <span><b>Siguiente paso:</b> ${escapeHtml(order.agentNextStep || 'Esperar nueva informacion')}</span>
+      </div>
+      <b>${order.agentUsefulConfidence ?? order.agentConfidence ?? '-'}%</b>
     </div>
   `).join('');
 }
@@ -582,7 +625,7 @@ function render() {
   renderAgentChat();
   renderOrders();
   renderCampaigns();
-  renderDecisions();
+  renderAgentDiagnostics();
   renderFeedback();
   renderProducts();
   renderResearch();
