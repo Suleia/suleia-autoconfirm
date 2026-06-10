@@ -550,6 +550,37 @@ th {
   background: rgba(38, 57, 75, .09);
 }
 
+.agent-decision-card {
+  position: relative;
+  overflow: hidden;
+}
+
+.agent-decision-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 6px;
+  background: rgba(38, 57, 75, .18);
+}
+
+.agent-decision-card.positive::before {
+  background: #1fab75;
+}
+
+.agent-decision-card.warning::before {
+  background: #f1bd63;
+}
+
+.agent-decision-card.danger::before {
+  background: #e86d57;
+}
+
+.agent-decision-card span b {
+  display: inline;
+  color: var(--navy);
+  font-size: 12px;
+}
+
 .money-inline {
   color: var(--navy);
   font-weight: 900;
