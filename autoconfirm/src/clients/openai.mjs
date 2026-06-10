@@ -67,6 +67,15 @@ export async function chatWithOperationsAgent({ message, dashboard, memory = [] 
   const compactDashboard = {
     finance: dashboard?.finance || {},
     kpis: dashboard?.kpis || {},
+    latestOrders: (dashboard?.orders || []).slice(0, 12).map((order) => ({
+      orderId: order.orderId,
+      status: order.status,
+      customerSignal: order.customerSignalLabel || order.customerSignal,
+      recommendedAction: order.agentRecommendedLabel || order.agentRecommendedAction,
+      explanation: order.agentDecisionExplanation,
+      nextStep: order.agentNextStep,
+      confidence: order.agentUsefulConfidence ?? order.agentConfidence
+    })),
     latestDecisions: (dashboard?.decisions || []).slice(0, 8),
     latestFeedback: (dashboard?.feedback || []).slice(0, 8),
     learnedRules: memory.slice(-20)
@@ -78,6 +87,8 @@ Tu trabajo es explicar decisiones de confirmacion de pedidos, aceptar feedback, 
 Reglas criticas:
 - Nunca confirmes pedidos si el cliente pide cambiar direccion, cambiar datos, modificar entrega, corregir calle, numero, CP, ciudad o provincia.
 - Si hay cambio de direccion o datos de entrega, la accion correcta es dejar el pedido pendiente por direccion y no confirmar hasta corregir en Dropea.
+- Cada respuesta sobre pedidos debe explicar "confirmo/no confirmo porque..." usando la senal del cliente.
+- Separa siempre estas senales: confirmado, cambio de direccion, ausente/incidencia, rechazo/cancelacion, duda/sin senal, duplicado si aplica.
 - Si una correccion de Samuel contradice una decision anterior, acepta el feedback y conviertelo en aprendizaje.
 - Responde de forma breve, clara y accionable.
 `.trim();
