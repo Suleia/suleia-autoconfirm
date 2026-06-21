@@ -121,6 +121,7 @@ export function getAppConfig() {
     shopifyAdminAccessToken: process.env.SHOPIFY_ADMIN_ACCESS_TOKEN || process.env.SHOPIFY_ACCESS_TOKEN || null,
     shopifyApiVersion: process.env.SHOPIFY_API_VERSION || '2026-04',
     googleSheetsEnabled: bool(process.env.GOOGLE_SHEETS_ENABLED, false),
+    googleSheetsLegacyReadEnabled: bool(process.env.GOOGLE_SHEETS_LEGACY_READ_ENABLED, Boolean(process.env.GOOGLE_SHEET_ID)),
     googleSheetId: process.env.GOOGLE_SHEET_ID || null,
     googleSheetName: process.env.GOOGLE_SHEET_NAME || 'Pedidos',
     googleServiceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || null,
