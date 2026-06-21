@@ -105,7 +105,14 @@ function orderFromLocal(order) {
     issueCode: order.raw?.issues?.incidence_code || '',
     note: order.operationalNote || '',
     confirmedAt: order.confirmedAt || '',
-    product: guessProduct(order)
+    product: guessProduct(order),
+    agentAction: order.agentAction || '',
+    agentIntent: order.aiIntent || order.agentIntent || '',
+    agentConfidence: order.aiConfidence ?? order.agentConfidence ?? null,
+    agentReason: order.operationalNote || order.agentReason || '',
+    chatbyUserNs: order.chatbyUserNs || '',
+    chatbyTemplateSentAt: order.chatbyTemplateSentAt || '',
+    raw: order.raw || {}
   };
 }
 
@@ -122,7 +129,8 @@ function orderFromDropea(order) {
     note: '',
     confirmedAt: '',
     product: guessProduct(order),
-    liveSource: 'Dropea'
+    liveSource: 'Dropea',
+    raw: order.raw || {}
   };
 }
 
@@ -224,10 +232,47 @@ function orderPatchFromControl(control) {
   return null;
 }
 
+function protectedAgentState(order = {}) {
+  const status = normalize(order.status);
+  const intent = normalize(order.agentIntent);
+  const action = normalize(order.agentAction);
+  return Boolean(order.feedbackVerdict)
+    || Boolean(order.confirmedAt)
+    || ['confirm', 'address_change_requested', 'no_confirm', 'manual_review'].includes(intent)
+    || ['would_confirm', 'would_not_confirm', 'manual_review'].includes(action)
+    || status.includes('confirmed_by_customer')
+    || status.includes('pending_address_change')
+    || status.includes('not_confirmed_by_customer')
+    || status.includes('manual_review');
+}
+
+function mergeLiveOrder(existing = {}, live = {}) {
+  const merged = { ...existing, ...live };
+  if (!protectedAgentState(existing)) return merged;
+
+  return {
+    ...merged,
+    status: existing.status || merged.status,
+    confirmedAt: existing.confirmedAt || merged.confirmedAt,
+    note: existing.note || merged.note,
+    agentAction: existing.agentAction || merged.agentAction,
+    agentIntent: existing.agentIntent || merged.agentIntent,
+    agentConfidence: existing.agentConfidence ?? merged.agentConfidence,
+    agentReason: existing.agentReason || merged.agentReason,
+    feedbackVerdict: existing.feedbackVerdict || merged.feedbackVerdict,
+    feedbackCorrection: existing.feedbackCorrection || merged.feedbackCorrection,
+    feedbackNote: existing.feedbackNote || merged.feedbackNote,
+    feedbackAt: existing.feedbackAt || merged.feedbackAt,
+    controlDecision: existing.controlDecision || merged.controlDecision,
+    controlSource: existing.controlSource || merged.controlSource,
+    controlAt: existing.controlAt || merged.controlAt
+  };
+}
+
 function mergeOrders(sheetOrders, localOrders, liveOrders, decisions, controlDecisions, feedback) {
   const byId = new Map();
   for (const order of localOrders) byId.set(order.orderId, order);
-  for (const order of liveOrders) byId.set(order.orderId, { ...(byId.get(order.orderId) || {}), ...order });
+  for (const order of liveOrders) byId.set(order.orderId, mergeLiveOrder(byId.get(order.orderId) || {}, order));
   for (const order of sheetOrders) byId.set(order.orderId, { ...(byId.get(order.orderId) || {}), ...order });
   for (const decision of decisions) {
     const current = byId.get(decision.orderId);
