@@ -604,6 +604,18 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
 }
 
 export async function ingestShopifyOrders({ store = config.defaultStore, limit = 100 } = {}) {
+  if (!config.shopifyDomain || (!config.shopifyAdminAccessToken && (!config.shopifyClientId || !config.shopifyClientSecret))) {
+    const state = { ...loadState() };
+    state.lastShopifySyncError = 'Faltan credenciales de Shopify para verificar pedidos.';
+    saveState(state);
+    return {
+      skipped: true,
+      reason: 'missing_shopify_credentials',
+      processed: 0,
+      orders: []
+    };
+  }
+
   const recent = await listRecentShopifyOrders({ first: limit });
   const processed = [];
 
