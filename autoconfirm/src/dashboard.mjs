@@ -5,6 +5,7 @@ import { getAppConfig } from './config.mjs';
 import { listOrders, loadState } from './storage.mjs';
 import { getDropeaOrderById, listPendingDropeaOrders } from './clients/dropea.mjs';
 import { getCampaignInsights } from './clients/meta.mjs';
+import { listRecentShopifyOrders } from './clients/shopify.mjs';
 import { chatWithOperationsAgent } from './clients/openai.mjs';
 import { appendAgentMemoryRule, getAgentMemoryRules, getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
 
@@ -122,6 +123,38 @@ function orderFromDropea(order) {
     confirmedAt: '',
     product: guessProduct(order),
     liveSource: 'Dropea'
+  };
+}
+
+function orderFromShopify(order) {
+  const productName = order.products?.map((item) => item.title).filter(Boolean).join(', ') || 'Producto Shopify';
+  const financialStatus = normalize(order.financialStatus || '');
+  const status = order.cancelledAt
+    ? 'CANCELLED'
+    : financialStatus.includes('paid')
+      ? 'SHOPIFY_PAID'
+      : financialStatus.includes('pending')
+        ? 'SHOPIFY_PENDING_PAYMENT'
+        : `SHOPIFY_${String(order.financialStatus || 'ORDER').toUpperCase().replace(/\s+/g, '_')}`;
+
+  return {
+    orderId: String(order.name || order.id || '').replace(/^#/, 'SHOPIFY-'),
+    shopifyOrderId: order.id,
+    customer: order.customerName || '',
+    phone: order.customerPhone || '',
+    createdAt: order.createdAt || '',
+    status,
+    amount: Number(order.totalAmount) || null,
+    issue: '',
+    issueCode: '',
+    note: `Pedido Shopify ${order.name || ''} · pago ${order.financialStatus || 'sin dato'} · fulfillment ${order.fulfillmentStatus || 'sin dato'}`,
+    confirmedAt: financialStatus.includes('paid') ? order.createdAt || '' : '',
+    product: productName,
+    liveSource: 'Shopify',
+    raw: {
+      source: 'shopify',
+      ...order
+    }
   };
 }
 
@@ -593,7 +626,43 @@ function buildCampaignAnalytics(campaignRows) {
     roasConfirmed: item.spend ? item.confirmedRevenue / item.spend : 0
   })).sort((a, b) => b.spend - a.spend);
 
-  return { campaigns, products };
+  const totals = campaigns.reduce((total, campaign) => ({
+    campaigns: total.campaigns + 1,
+    spend: total.spend + campaign.spend,
+    impressions: total.impressions + campaign.impressions,
+    reach: total.reach + campaign.reach,
+    clicks: total.clicks + campaign.clicks,
+    purchases: total.purchases + campaign.purchases,
+    purchaseValue: total.purchaseValue + campaign.purchaseValue,
+    attributedOrders: total.attributedOrders + campaign.attributedOrders,
+    confirmedOrders: total.confirmedOrders + campaign.confirmedOrders,
+    confirmedRevenue: total.confirmedRevenue + campaign.confirmedRevenue
+  }), {
+    campaigns: 0,
+    spend: 0,
+    impressions: 0,
+    reach: 0,
+    clicks: 0,
+    purchases: 0,
+    purchaseValue: 0,
+    attributedOrders: 0,
+    confirmedOrders: 0,
+    confirmedRevenue: 0
+  });
+
+  return {
+    campaigns,
+    products,
+    totals: {
+      ...totals,
+      ctr: totals.impressions ? totals.clicks / totals.impressions : 0,
+      cpc: totals.clicks ? totals.spend / totals.clicks : 0,
+      cpaPixel: totals.purchases ? totals.spend / totals.purchases : 0,
+      roasMeta: totals.spend ? totals.purchaseValue / totals.spend : 0,
+      cpaConfirmed: totals.confirmedOrders ? totals.spend / totals.confirmedOrders : 0,
+      roasConfirmed: totals.spend ? totals.confirmedRevenue / totals.spend : 0
+    }
+  };
 }
 
 function calculateFinance({ orders, campaignRows, metaRows, financeSettings }) {
@@ -632,6 +701,79 @@ function calculateFinance({ orders, campaignRows, metaRows, financeSettings }) {
   };
 }
 
+async function readIntegrationHealthcheck() {
+  const logPath = path.resolve(root, '..', 'integration-healthcheck.log');
+  try {
+    const [raw, stat] = await Promise.all([
+      fs.readFile(logPath, 'utf8'),
+      fs.stat(logPath)
+    ]);
+    const services = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('{'))
+      .map((line) => {
+        try {
+          return JSON.parse(line);
+        } catch {
+          return null;
+        }
+      })
+      .filter(Boolean);
+    return { ok: services.length > 0, services, updatedAt: stat.mtime.toISOString() };
+  } catch {
+    return { ok: false, services: [], updatedAt: null };
+  }
+}
+
+function secretState(value) {
+  return value ? 'guardado' : 'falta';
+}
+
+async function buildConnectionVault({ sources }) {
+  const healthcheck = await readIntegrationHealthcheck();
+  const envVars = {
+    Dropea: {
+      apiKey: secretState(config.dropeaApiKey),
+      dropshipperId: process.env.DROPEA_DROPSHIPPER_ID || '17431'
+    },
+    Chatby: {
+      token: secretState(config.chatbyToken),
+      baseUrl: config.chatbyBaseUrl
+    },
+    Shopify: {
+      domain: config.shopifyDomain || config.defaultStore.shopifyDomain || 'no configurado',
+      clientId: secretState(config.shopifyClientId),
+      clientSecret: secretState(config.shopifyClientSecret),
+      apiVersion: config.shopifyApiVersion
+    },
+    Meta: {
+      accessToken: secretState(config.metaAccessToken),
+      businessId: config.metaBusinessId || 'no configurado',
+      adAccountId: config.metaAdAccountId || 'no configurado',
+      apiVersion: config.metaApiVersion
+    },
+    GoogleSheets: {
+      sheetId: secretState(config.googleSheetId),
+      serviceAccount: config.googleServiceAccountEmail || 'no configurado',
+      privateKey: secretState(config.googlePrivateKey)
+    },
+    OpenAI: {
+      apiKey: secretState(config.openaiApiKey),
+      model: config.openaiModel
+    }
+  };
+
+  return {
+    storagePolicy: 'Los secretos viven en autoconfirm/.env y en variables de entorno de Render. El dashboard solo muestra estado, nunca valores.',
+    lastHealthcheckAt: healthcheck.updatedAt,
+    healthcheckServices: healthcheck.services,
+    liveSources: sources.map((source) => ({ name: source.name, ok: Boolean(source.ok), error: source.error || null })),
+    envVars,
+    runbook: 'SULEIA_CONNECTIONS_RUNBOOK.md'
+  };
+}
+
 async function loadLiveDropeaOrders(knownOrderIds) {
   const source = { name: 'Dropea API - pedidos vivos', ok: true, error: null };
   const orders = [];
@@ -657,13 +799,34 @@ async function loadLiveDropeaOrders(knownOrderIds) {
   return { source, orders };
 }
 
+async function loadLiveShopifyOrders() {
+  const source = {
+    name: 'Shopify API - pedidos recientes',
+    ok: true,
+    error: null,
+    generatedAt: new Date().toISOString()
+  };
+  try {
+    const recent = await listRecentShopifyOrders({ first: 100 });
+    return {
+      source: { ...source, rows: recent.length },
+      orders: recent.map(orderFromShopify)
+    };
+  } catch (error) {
+    source.ok = false;
+    source.error = error instanceof Error ? error.message : String(error);
+    return { source, orders: [] };
+  }
+}
+
 async function loadLiveMetaCampaigns() {
-  const source = { name: 'Meta API - campanas en vivo', ok: true, error: null };
+  const generatedAt = new Date().toISOString();
+  const source = { name: 'Meta API - campanas en vivo', ok: true, error: null, generatedAt };
   try {
     const datePreset = process.env.META_DASHBOARD_DATE_PRESET || 'this_month';
     const insights = await getCampaignInsights({ datePreset, level: 'ad', limit: 200 });
     return {
-      source: { ...source, period: datePreset },
+      source: { ...source, period: datePreset, rows: insights.length },
       campaigns: insights.map((item) => ({
         campaign_id: item.campaignId,
         campana: item.campaignName,
@@ -859,38 +1022,34 @@ function learnedRuleFromFeedback(item) {
 export async function buildDashboard({ health = null } = {}) {
   const localOrdersRaw = listOrders({ storeId: config.defaultStore.id });
   const localState = loadState();
-  const pedidos = await readSheet('Pedidos');
-  const decisiones = await readSheet('Decisiones Agente');
-  const controlSimulacion = await readSheet('Control Simulacion');
-  const metaDashboard = await readSheet('Meta Dashboard');
-  const metaCampaigns = await readSheet('Meta Campanas');
   const feedback = await readJson(path.join(dashboardDataDir, 'agent-feedback.json'), []);
   const financeSettings = await loadFinanceSettings();
   const agentChat = await readJson(path.join(dashboardDataDir, 'agent-chat.json'), []);
   const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
   let sheetAgentMemory = [];
-  try {
+  if (config.googleSheetsEnabled) try {
     sheetAgentMemory = await getAgentMemoryRules();
   } catch {
     sheetAgentMemory = [];
   }
   const agentMemory = uniqueLessons(sheetAgentMemory, localAgentMemory);
 
-  const sheetOrders = rowObjects(pedidos.rows).map(orderFromSheet);
+  const sheetOrders = [];
   const localOrders = localOrdersRaw.map(orderFromLocal);
-  const decisions = rowObjects(decisiones.rows).map(decisionFromSheet);
-  const controlDecisions = rowObjects(controlSimulacion.rows).map(controlDecisionFromSheet).filter((item) => item.orderId && item.decision);
+  const decisions = [];
+  const controlDecisions = [];
   const knownOrderIds = [...sheetOrders, ...localOrders].map((order) => order.orderId);
   const liveDropea = await loadLiveDropeaOrders(knownOrderIds);
+  const liveShopify = await loadLiveShopifyOrders();
   const liveMeta = await loadLiveMetaCampaigns();
-  const orders = mergeOrders(sheetOrders, localOrders, liveDropea.orders, decisions, controlDecisions, feedback)
+  const orders = mergeOrders(sheetOrders, localOrders, [...liveDropea.orders, ...liveShopify.orders], decisions, controlDecisions, feedback)
     .map(enrichOrderForAgent);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
   const manualReview = orders.filter(isManualReview);
   const pending = orders.filter((order) => normalize(order.status).includes('pending'));
-  const metaRows = rowObjects(metaDashboard.rows);
-  const campaignRows = liveMeta.campaigns.length ? liveMeta.campaigns : rowObjects(metaCampaigns.rows);
+  const metaRows = [];
+  const campaignRows = liveMeta.campaigns;
   const campaignAnalytics = buildCampaignAnalytics(campaignRows);
   const finance = calculateFinance({
     orders,
@@ -898,18 +1057,19 @@ export async function buildDashboard({ health = null } = {}) {
     metaRows: liveMeta.campaigns.length ? [] : metaRows,
     financeSettings
   });
+  const sources = [
+    { name: 'Google Sheets - plantilla historica', ok: true, disabled: true, error: null },
+    liveDropea.source,
+    liveShopify.source,
+    liveMeta.source,
+    { name: 'Render - AutoConfirm', ok: Boolean(health), error: null }
+  ];
+  const connectionVault = await buildConnectionVault({ sources });
 
   return {
     generatedAt: new Date().toISOString(),
-    sources: [
-      { name: pedidos.source, ok: pedidos.ok, error: pedidos.error || null },
-      { name: decisiones.source, ok: decisiones.ok, error: decisiones.error || null },
-      { name: metaDashboard.source, ok: metaDashboard.ok, error: metaDashboard.error || null },
-      { name: metaCampaigns.source, ok: metaCampaigns.ok, error: metaCampaigns.error || null },
-      liveDropea.source,
-      liveMeta.source,
-      { name: 'Render - AutoConfirm', ok: Boolean(health), error: null }
-    ],
+    sources,
+    connectionVault,
     system: { render: health, localState, store: config.defaultStore },
     kpis: {
       orders: orders.length,
@@ -929,8 +1089,8 @@ export async function buildDashboard({ health = null } = {}) {
     learning: {
       feedbackCount: feedback.length,
       memoryCount: agentMemory.length,
-      controlSheet: 'Control Simulacion',
-      mode: 'El feedback por pedido se usa como override en simulacion. La memoria general queda guardada para convertirla en reglas validadas.',
+      controlSheet: 'desactivado',
+      mode: 'El feedback por pedido y la memoria general se guardan dentro del Command Center. Google Sheets ya no es fuente operativa.',
       lastFeedbackAt: latest(feedback, 'createdAt', 1)[0]?.createdAt || null
     },
     agentChat: latest(agentChat, 'createdAt', 30).reverse(),
@@ -939,8 +1099,18 @@ export async function buildDashboard({ health = null } = {}) {
     campaignProducts: campaignAnalytics.products,
     meta: {
       period: liveMeta.source.period || process.env.META_DASHBOARD_DATE_PRESET || 'this_month',
-      spendSource: liveMeta.campaigns.length ? 'Meta API en vivo' : 'Google Sheet - Meta Campanas',
-      lastError: liveMeta.source.ok ? null : liveMeta.source.error
+      spendSource: liveMeta.campaigns.length ? 'Meta API en vivo' : 'Meta API sin datos disponibles',
+      lastError: liveMeta.source.ok ? null : liveMeta.source.error,
+      live: Boolean(liveMeta.campaigns.length),
+      updatedAt: liveMeta.source.generatedAt || new Date().toISOString(),
+      rows: liveMeta.campaigns.length || campaignAnalytics.campaigns.length,
+      totals: campaignAnalytics.totals
+    },
+    shopify: {
+      live: Boolean(liveShopify.orders.length),
+      rows: liveShopify.orders.length,
+      updatedAt: liveShopify.source.generatedAt || new Date().toISOString(),
+      lastError: liveShopify.source.ok ? null : liveShopify.source.error
     },
     products: buildProducts(orders),
     research: [
@@ -982,12 +1152,18 @@ export async function saveAgentFeedback({ orderId, verdict = 'manual_review', co
     : ['should_not_confirm', 'address_change', 'rejected_or_cancelled', 'unclear_wait'].includes(item.verdict)
       ? 'NO_CONFIRM'
       : 'MANUAL_REVIEW';
-  await upsertSimulationDecision({
-    orderId: item.orderId,
-    decision,
-    reason: [item.verdict, item.correction, item.note].filter(Boolean).join(' | '),
-    source: 'command_center_feedback'
-  });
+  if (config.googleSheetsEnabled) {
+    try {
+      await upsertSimulationDecision({
+        orderId: item.orderId,
+        decision,
+        reason: [item.verdict, item.correction, item.note].filter(Boolean).join(' | '),
+        source: 'command_center_feedback'
+      });
+    } catch {
+      // The local feedback file remains the source of truth for Command Center learning.
+    }
+  }
   return { ...item, learnedRule: lesson };
 }
 
