@@ -97,7 +97,16 @@ function assistantTools() {
             sheet_note: { type: 'string', description: 'Nota exacta para registrar en Google Sheets' },
             dry_run: { type: 'boolean', description: 'Si es true, solo simula la accion sin ejecutarla en Dropea' }
           },
-          required: ['order_id', 'chatby_user_ns', 'action', 'latest_chatby_event', 'customer_message', 'dry_run'],
+          required: [
+            'order_id',
+            'chatby_user_ns',
+            'action',
+            'latest_chatby_event',
+            'customer_message',
+            'shipping_address',
+            'sheet_note',
+            'dry_run'
+          ],
           additionalProperties: false
         },
         strict: true
