@@ -20,15 +20,20 @@ import {
   sendWhatsappTemplate,
   subscriberConfirmsOrder
 } from '../clients/chatby.mjs';
+import { sendMetaWhatsappTemplate } from '../clients/meta-whatsapp.mjs';
 import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
-import { getShopifyOrderFinancialStatus } from '../clients/shopify.mjs';
+import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clients/shopify.mjs';
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
 
 async function safeUpsertSheetRow(order, context = 'sheet_sync') {
+  if (!config.googleSheetsEnabled) {
+    return { skipped: true, reason: 'google_sheets_disabled' };
+  }
+
   try {
     const result = await upsertSheetRow(order);
     const state = { ...loadState() };
@@ -48,6 +53,10 @@ async function safeUpsertSheetRow(order, context = 'sheet_sync') {
 }
 
 async function safeAppendAgentDecision(decision, context = 'agent_decision') {
+  if (!config.googleSheetsEnabled) {
+    return { skipped: true, reason: 'google_sheets_disabled' };
+  }
+
   try {
     return await appendAgentDecision(decision);
   } catch (error) {
@@ -268,6 +277,75 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
   return remoteStatus;
 }
 
+function isShopifyOrder(order) {
+  return normalizeText(order?.raw?.source) === 'shopify'
+    || normalizeText(order?.raw?.payment_method) === 'shopify'
+    || String(order?.orderId || '').startsWith('SHOPIFY-');
+}
+
+function shopifyWorkflowStatusForOrder(order, existing) {
+  const localStatus = String(existing?.status || '').toUpperCase();
+  const financialStatus = normalizeText(order.financialStatus);
+
+  if (order.cancelledAt) return 'CANCELLED';
+  if (['CONFIRMED', 'CANCELLED', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
+  if (financialStatus.includes('paid') || financialStatus.includes('pagado')) return 'CONFIRMED';
+  return 'PENDING';
+}
+
+function normalizeShopifyWorkflowOrder(order, existing = null) {
+  const products = Array.isArray(order.products) ? order.products : [];
+  const productName = products.map((item) => item.title).filter(Boolean).join(', ') || 'Producto Shopify';
+  const orderId = String(order.name || order.id || '').replace(/^#/, 'SHOPIFY-');
+  const status = shopifyWorkflowStatusForOrder(order, existing);
+
+  return {
+    ...(existing || {}),
+    orderId,
+    shopifyOrderId: order.id,
+    status,
+    customerName: order.customerName,
+    customerPhone: order.customerPhone,
+    customerEmail: order.customerEmail,
+    orderAmount: order.totalAmount,
+    currencyCode: order.currencyCode,
+    productName,
+    createdAt: order.createdAt,
+    raw: {
+      source: 'shopify',
+      ...order
+    },
+    chatbyUserNs: existing?.chatbyUserNs || null,
+    chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+    aiConfidence: existing?.aiConfidence ?? null,
+    aiIntent: existing?.aiIntent || null,
+    confirmedAt: status === 'CONFIRMED' ? existing?.confirmedAt || new Date().toISOString() : existing?.confirmedAt || null,
+    operationalNote: existing?.operationalNote
+      || `Pedido sincronizado desde Shopify. Pago: ${order.financialStatus || 'sin dato'}. Fulfillment: ${order.fulfillmentStatus || 'sin dato'}.`
+  };
+}
+
+async function shopifyFinancialStatusForOrder(order) {
+  const rawStatus = normalizeText(order?.raw?.financialStatus || order?.raw?.displayFinancialStatus || order?.raw?.raw?.displayFinancialStatus);
+  if (rawStatus) return rawStatus;
+
+  if (!String(order?.orderId || '').startsWith('SHOPIFY-')) {
+    return normalizeText(await getShopifyOrderFinancialStatus(order.orderId));
+  }
+
+  return '';
+}
+
+function shopifyConfirmationResult(order, store, patch, analysis, source = 'shopify') {
+  const updated = upsertOrder(store.id, {
+    ...patch,
+    status: 'CONFIRMED',
+    confirmedAt: patch.confirmedAt || new Date().toISOString(),
+    operationalNote: 'Pedido Shopify confirmado localmente por el agente. No se ejecuta confirmacion en Dropea para pedidos de Shopify.'
+  });
+  return { action: 'confirmed_shopify_local', analysis, source, order: updated };
+}
+
 async function storedConfirmationResult(order, store) {
   const analysis = {
     intent: 'CONFIRM',
@@ -292,6 +370,7 @@ async function storedConfirmationResult(order, store) {
 
 async function simulationOverrideResult(order, store) {
   if (!(store.agentDryRun ?? config.defaultStore.agentDryRun)) return null;
+  if (!config.googleSheetsEnabled) return null;
 
   let override = null;
   try {
@@ -443,6 +522,49 @@ function templateParamsForOrder(order) {
   };
 }
 
+function configuredWhatsappTemplate(store) {
+  return store.whatsappTemplateName || config.whatsappTemplateName || null;
+}
+
+async function sendChatbyTemplateForOrder(order, userNs, store) {
+  const templateName = configuredWhatsappTemplate(store);
+  if (!templateName || !userNs || order.chatbyTemplateSentAt) return order;
+
+  const params = templateParamsForOrder(order);
+  let sendResponse = null;
+  let provider = 'chatby';
+
+  try {
+    sendResponse = await sendWhatsappTemplate({
+      user_ns: userNs,
+      user_id: order.customerPhone,
+      template_name: templateName,
+      params
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const canFallbackToMeta = /pro feature only/i.test(message) || config.whatsappProvider === 'meta';
+    if (!canFallbackToMeta) throw error;
+
+    provider = 'meta';
+    sendResponse = await sendMetaWhatsappTemplate({
+      to: order.customerPhone,
+      templateName,
+      params
+    });
+  }
+
+  return upsertOrder(store.id, {
+    ...order,
+    chatbyUserNs: userNs,
+    chatbyTemplateSentAt: new Date().toISOString(),
+    chatbyLastSendResponse: {
+      provider,
+      response: sendResponse
+    }
+  });
+}
+
 export async function ingestPendingOrders({ store = config.defaultStore, limit = 50 } = {}) {
   const pending = await listPendingDropeaOrders({ limit, page: 1 });
   const processed = [];
@@ -481,9 +603,38 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
   return { processed: processed.length, orders: processed };
 }
 
+export async function ingestShopifyOrders({ store = config.defaultStore, limit = 100 } = {}) {
+  const recent = await listRecentShopifyOrders({ first: limit });
+  const processed = [];
+
+  for (const order of recent) {
+    const orderId = String(order.name || order.id || '').replace(/^#/, 'SHOPIFY-');
+    if (!orderId) continue;
+    if (!isAfterCutoff({ createdAt: order.createdAt, raw: order }, store.activationCutoff)) {
+      continue;
+    }
+
+    const existing = findOrder(store.id, orderId);
+    const merged = upsertOrder(store.id, normalizeShopifyWorkflowOrder(order, existing));
+    await safeUpsertSheetRow(merged, 'shopify_ingest');
+    processed.push(merged);
+  }
+
+  const state = { ...loadState() };
+  state.lastShopifySyncAt = new Date().toISOString();
+  state.lastShopifySyncError = null;
+  saveState(state);
+
+  return { processed: processed.length, orders: processed };
+}
+
 export async function ensureChatbyThread(order, store = config.defaultStore) {
   if (!config.chatbyToken) return order;
-  if (order.chatbyUserNs) return order;
+  if (order.chatbyUserNs) {
+    const updated = await sendChatbyTemplateForOrder(order, order.chatbyUserNs, store);
+    if (updated !== order) await safeUpsertSheetRow(updated);
+    return updated;
+  }
   if (!order.customerPhone) return order;
 
   const existingSubscriber = await findSubscriberForOrder({
@@ -492,11 +643,12 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   });
 
   if (existingSubscriber?.user_ns) {
-    const updated = upsertOrder(store.id, {
+    let updated = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: existingSubscriber.user_ns,
-      chatbyTemplateSentAt: order.chatbyTemplateSentAt || existingSubscriber.subscribed || order.createdAt
+      chatbyTemplateSentAt: order.chatbyTemplateSentAt || null
     });
+    updated = await sendChatbyTemplateForOrder(updated, existingSubscriber.user_ns, store);
     await safeUpsertSheetRow(updated);
     return updated;
   }
@@ -515,15 +667,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   if (!userNs) return order;
 
   let updated = upsertOrder(store.id, { ...order, chatbyUserNs: userNs });
-
-  if (store.whatsappTemplateName || config.whatsappTemplateName) {
-    await sendWhatsappTemplate({
-      user_ns: userNs,
-      template_name: store.whatsappTemplateName || config.whatsappTemplateName,
-      params: templateParamsForOrder(order)
-    });
-    updated = upsertOrder(store.id, { ...updated, chatbyTemplateSentAt: new Date().toISOString() });
-  }
+  updated = await sendChatbyTemplateForOrder(updated, userNs, store);
 
   await safeUpsertSheetRow(updated);
   return updated;
@@ -604,15 +748,19 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       return { dryRun: true, action: 'would_confirm', analysis, source: immediateCustomerIntent.source || 'customer_message' };
     }
 
-    if (order.raw?.payment_method === 'SHOPIFY' || order.raw?.source === 'shopify') {
-      const financialStatus = await getShopifyOrderFinancialStatus(order.orderId);
-      if (financialStatus !== 'paid') {
+    if (isShopifyOrder(order)) {
+      const financialStatus = await shopifyFinancialStatusForOrder(order);
+      if (!financialStatus.includes('paid') && !financialStatus.includes('pagado')) {
         patch.status = 'MANUAL_REVIEW';
         patch.operationalNote = 'Pedido pendiente de pago en Shopify. No se confirma automaticamente.';
         const updated = upsertOrder(store.id, patch);
         await safeUpsertSheetRow(updated);
         return { action: 'manual_review_non_paid', analysis, financialStatus };
       }
+
+      const result = shopifyConfirmationResult(order, store, patch, analysis, immediateCustomerIntent.source || 'customer_message');
+      await safeUpsertSheetRow(result.order);
+      return result;
     }
 
     const confirmation = await confirmDropeaOrder(order.orderId);
@@ -642,6 +790,21 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       const updated = upsertOrder(store.id, patch);
       await safeUpsertSheetRow(updated);
       return { dryRun: true, action: 'would_confirm', analysis, source: 'chatby_button' };
+    }
+
+    if (isShopifyOrder(order)) {
+      const financialStatus = await shopifyFinancialStatusForOrder(order);
+      if (!financialStatus.includes('paid') && !financialStatus.includes('pagado')) {
+        patch.status = 'MANUAL_REVIEW';
+        patch.operationalNote = 'Pedido pendiente de pago en Shopify. No se confirma automaticamente.';
+        const updated = upsertOrder(store.id, patch);
+        await safeUpsertSheetRow(updated);
+        return { action: 'manual_review_non_paid', analysis, financialStatus };
+      }
+
+      const result = shopifyConfirmationResult(order, store, patch, analysis, 'chatby_button');
+      await safeUpsertSheetRow(result.order);
+      return result;
     }
 
     const confirmation = await confirmDropeaOrder(order.orderId);
@@ -733,14 +896,18 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       return { dryRun: true, action: 'would_confirm', analysis };
     }
 
-    if (order.raw?.payment_method === 'SHOPIFY' || order.raw?.source === 'shopify') {
-      const financialStatus = await getShopifyOrderFinancialStatus(order.orderId);
-      if (financialStatus !== 'paid') {
+    if (isShopifyOrder(order)) {
+      const financialStatus = await shopifyFinancialStatusForOrder(order);
+      if (!financialStatus.includes('paid') && !financialStatus.includes('pagado')) {
         patch.status = 'MANUAL_REVIEW';
         const updated = upsertOrder(store.id, patch);
         await safeUpsertSheetRow(updated);
         return { action: 'manual_review_non_paid', analysis, financialStatus };
       }
+
+      const result = shopifyConfirmationResult(order, store, patch, analysis);
+      await safeUpsertSheetRow(result.order);
+      return result;
     }
 
     const confirmation = await confirmDropeaOrder(order.orderId);
@@ -777,7 +944,7 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
   const results = [];
 
   for (const order of orders) {
-    const hydrated = order.chatbyUserNs ? order : await ensureChatbyThread(order, store);
+    const hydrated = await ensureChatbyThread(order, store);
     const result = await analyzeAndMaybeConfirmOrder(hydrated, store);
     if (result && !result.skipped) {
       await recordDecisionAndReturn(hydrated, result);
@@ -800,8 +967,10 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
   automationCycleRunning = true;
   try {
     let ingestResult = null;
+    let shopifyIngestResult = null;
     let confirmResult = null;
     let ingestError = null;
+    let shopifyIngestError = null;
     let confirmError = null;
 
     try {
@@ -809,6 +978,16 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     } catch (error) {
       ingestError = error instanceof Error ? error.message : String(error);
       console.error('[automation_cycle] ingestPendingOrders failed:', error);
+    }
+
+    try {
+      shopifyIngestResult = await ingestShopifyOrders({ store, limit: Math.max(limit, 100) });
+    } catch (error) {
+      shopifyIngestError = error instanceof Error ? error.message : String(error);
+      const state = { ...loadState() };
+      state.lastShopifySyncError = shopifyIngestError;
+      saveState(state);
+      console.error('[automation_cycle] ingestShopifyOrders failed:', error);
     }
 
     try {
@@ -821,13 +1000,16 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     const state = { ...loadState() };
     state.lastAutomationCycleAt = new Date().toISOString();
     state.lastIngestError = ingestError;
+    state.lastShopifySyncError = shopifyIngestError;
     state.lastAutoConfirmError = confirmError;
     saveState(state);
 
     return {
       ingest: ingestResult,
+      shopifyIngest: shopifyIngestResult,
       autoConfirm: confirmResult,
       ingestError,
+      shopifyIngestError,
       confirmError,
       lastAutomationCycleAt: state.lastAutomationCycleAt
     };
