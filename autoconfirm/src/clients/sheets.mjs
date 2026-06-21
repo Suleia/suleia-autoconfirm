@@ -248,6 +248,7 @@ function formatSheetDate(value) {
 }
 
 export async function upsertSheetRow(order) {
+  if (!config.googleSheetsEnabled) return { skipped: true, reason: 'google_sheets_disabled' };
   if (!config.googleSheetId) return { skipped: true };
 
   const sheetTitle = await ensureSheetTitle();
@@ -291,6 +292,7 @@ export async function upsertSheetRow(order) {
 }
 
 export async function getSimulationDecision(orderId) {
+  if (!config.googleSheetsEnabled) return null;
   if (!config.googleSheetId) return null;
 
   const now = Date.now();
@@ -328,6 +330,7 @@ export async function getSimulationDecision(orderId) {
 }
 
 export async function upsertSimulationDecision({ orderId, decision, reason = '', source = 'training' }) {
+  if (!config.googleSheetsEnabled) return { skipped: true, reason: 'google_sheets_disabled' };
   if (!config.googleSheetId) return { skipped: true };
   simulationDecisionCache = null;
 
@@ -368,6 +371,7 @@ export async function appendAgentDecision({
   reason = '',
   dryRun = ''
 }) {
+  if (!config.googleSheetsEnabled) return { skipped: true, reason: 'google_sheets_disabled' };
   if (!config.googleSheetId) return { skipped: true };
 
   const sheetTitle = await ensureNamedSheet('Decisiones Agente');
@@ -394,6 +398,7 @@ export async function appendAgentDecision({
 }
 
 export async function getAgentMemoryRules() {
+  if (!config.googleSheetsEnabled) return [];
   if (!config.googleSheetId) return [];
 
   const sheetTitle = await ensureNamedSheet('Memoria Agente');
@@ -422,6 +427,7 @@ export async function getAgentMemoryRules() {
 }
 
 export async function appendAgentMemoryRule(rule) {
+  if (!config.googleSheetsEnabled) return { skipped: true, reason: 'google_sheets_disabled' };
   if (!config.googleSheetId || !rule?.text) return { skipped: true };
 
   const sheetTitle = await ensureNamedSheet('Memoria Agente');
@@ -446,6 +452,7 @@ export async function appendAgentMemoryRule(rule) {
 }
 
 export async function replaceSheetValues(sheetTitle, rows, { frozenRows = 1, headerColor = { red: 0.02, green: 0.28, blue: 0.22 } } = {}) {
+  if (!config.googleSheetsEnabled) return { skipped: true, reason: 'google_sheets_disabled' };
   if (!config.googleSheetId) return { skipped: true };
 
   await ensureNamedSheet(sheetTitle);
@@ -511,6 +518,7 @@ export async function replaceSheetValues(sheetTitle, rows, { frozenRows = 1, hea
 }
 
 export async function getSheetRows(sheetTitle, range = 'A:Z') {
+  if (!config.googleSheetsEnabled) return [];
   if (!config.googleSheetId) return [];
 
   await ensureNamedSheet(sheetTitle);
