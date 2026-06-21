@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { getAppConfig } from './config.mjs';
 import { listOrders, loadState } from './storage.mjs';
 import { getDropeaOrderById, listPendingDropeaOrders } from './clients/dropea.mjs';
+import { findSubscriberForOrder, getChatMessages, subscriberConfirmsOrder } from './clients/chatby.mjs';
 import { getCampaignInsights } from './clients/meta.mjs';
 import { listRecentShopifyOrders } from './clients/shopify.mjs';
 import { chatWithOperationsAgent } from './clients/openai.mjs';
@@ -325,6 +326,168 @@ function mergeOrders(sheetOrders, localOrders, liveOrders, decisions, controlDec
     });
   }
   return [...byId.values()].filter((order) => order.orderId);
+}
+
+function chatbyText(value) {
+  return normalize(String(value || ''));
+}
+
+function messageContent(message = {}) {
+  const raw = message.raw || message;
+  return [
+    message.content,
+    message.message,
+    message.text,
+    message.button_text,
+    message.buttonText,
+    raw.content,
+    raw.message,
+    raw.text,
+    raw.button_text,
+    raw.buttonText,
+    raw.payload?.title,
+    raw.payload?.body,
+    raw.title
+  ].filter(Boolean).join(' ');
+}
+
+function messageTime(message = {}) {
+  const raw = message.raw || message;
+  const numeric = Number(raw.ts || raw.timestamp || raw.created || raw.time);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric > 1e12 ? numeric : numeric * 1000;
+  const date = new Date(raw.created_at || raw.createdAt || message.created_at || message.createdAt || 0);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function isLikelyCustomerMessage(message = {}) {
+  const raw = message.raw || message;
+  const role = chatbyText(message.role || raw.role || raw.sender || raw.direction || raw.type || raw.from_type || raw.sender_type);
+  if (['in', 'inbound', 'incoming', 'received', 'customer', 'subscriber', 'user', 'client', 'cliente'].includes(role)) return true;
+  if (raw.is_from_customer === true || raw.isFromCustomer === true || raw.from_customer === true) return true;
+  if (raw.is_echo === true || raw.isEcho === true) return false;
+  if (['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system'].includes(role)) return false;
+  return Boolean(messageContent(message));
+}
+
+function classifyChatbySignal({ subscriber, messages = [] } = {}) {
+  if (subscriber) {
+    const leadStatus = chatbyText(subscriber.lead_status);
+    if (leadStatus.includes('datos') || leadStatus.includes('envio') || leadStatus.includes('direccion')) {
+      return {
+        status: 'PENDING_ADDRESS_CHANGE',
+        agentAction: 'would_not_confirm',
+        agentIntent: 'ADDRESS_CHANGE_REQUESTED',
+        agentConfidence: 100,
+        agentReason: 'Chatby indica cambio de datos/direccion. No confirmar automaticamente.',
+        source: 'chatby_live'
+      };
+    }
+    if (subscriberConfirmsOrder(subscriber)) {
+      return {
+        status: 'CONFIRMED_BY_CUSTOMER',
+        agentAction: 'would_confirm',
+        agentIntent: 'CONFIRM',
+        agentConfidence: 100,
+        agentReason: 'Chatby indica que el cliente confirmo el pedido.',
+        source: 'chatby_live'
+      };
+    }
+  }
+
+  const customerMessages = [...messages]
+    .filter(isLikelyCustomerMessage)
+    .sort((left, right) => messageTime(left) - messageTime(right));
+  const latest = customerMessages[customerMessages.length - 1];
+  const text = chatbyText(messageContent(latest));
+  if (!text) return null;
+
+  if (text.includes('cambiar datos') || text.includes('cambio de direccion') || text.includes('cambiar direccion') || text.includes('direccion') || text.includes('dirección')) {
+    return {
+      status: 'PENDING_ADDRESS_CHANGE',
+      agentAction: 'would_not_confirm',
+      agentIntent: 'ADDRESS_CHANGE_REQUESTED',
+      agentConfidence: 100,
+      agentReason: 'El ultimo mensaje/boton de Chatby pide cambiar direccion o datos de entrega.',
+      source: 'chatby_message'
+    };
+  }
+
+  if (text.includes('no confirmo') || text.includes('cancel') || text.includes('rechaz') || text.includes('no lo quiero')) {
+    return {
+      status: 'NOT_CONFIRMED_BY_CUSTOMER',
+      agentAction: 'would_not_confirm',
+      agentIntent: 'NO_CONFIRM',
+      agentConfidence: 100,
+      agentReason: 'El ultimo mensaje de Chatby no confirma o rechaza el pedido.',
+      source: 'chatby_message'
+    };
+  }
+
+  if (text.includes('confirmar mi pedido') || text.includes('confirmo') || text.includes('confirmado') || text.includes('si lo quiero') || text.includes('sí lo quiero') || text.includes('lo quiero') || text.includes('vale') || text.includes('perfecto')) {
+    return {
+      status: 'CONFIRMED_BY_CUSTOMER',
+      agentAction: 'would_confirm',
+      agentIntent: 'CONFIRM',
+      agentConfidence: 100,
+      agentReason: 'El cliente confirmo el pedido en Chatby.',
+      source: 'chatby_message'
+    };
+  }
+
+  return null;
+}
+
+async function applyLiveChatbySignals(orders) {
+  if (!config.chatbyToken) return { orders, source: { name: 'Chatby API - senales cliente', ok: false, error: 'Falta CHATBY_TOKEN' } };
+  const hydrated = [];
+  const recent = sortOrdersRecentFirst(orders).slice(0, 120);
+  const recentIds = new Set(recent.map((order) => String(order.orderId)));
+  let checked = 0;
+  let patched = 0;
+  let lastError = null;
+
+  for (const order of orders) {
+    if (!recentIds.has(String(order.orderId)) || protectedAgentState(order)) {
+      hydrated.push(order);
+      continue;
+    }
+
+    try {
+      let subscriber = null;
+      if (order.phone || order.orderId) {
+        subscriber = await findSubscriberForOrder({ phone: order.phone, orderId: order.orderId, maxPages: 3 });
+      }
+      const userNs = order.chatbyUserNs || subscriber?.user_ns || subscriber?.userNs || null;
+      const messages = userNs ? await getChatMessages(userNs) : [];
+      const signal = classifyChatbySignal({ subscriber, messages });
+      checked += 1;
+      if (signal) {
+        patched += 1;
+        hydrated.push({
+          ...order,
+          ...signal,
+          chatbyUserNs: userNs || order.chatbyUserNs,
+          chatbyLiveCheckedAt: new Date().toISOString()
+        });
+      } else {
+        hydrated.push({ ...order, chatbyUserNs: userNs || order.chatbyUserNs, chatbyLiveCheckedAt: new Date().toISOString() });
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+      hydrated.push(order);
+    }
+  }
+
+  return {
+    orders: hydrated,
+    source: {
+      name: 'Chatby API - senales cliente',
+      ok: !lastError || checked > 0,
+      checked,
+      patched,
+      error: lastError
+    }
+  };
 }
 
 function isCancelled(order) {
@@ -1072,7 +1235,7 @@ export async function buildDashboard({ health = null } = {}) {
   const agentChat = await readJson(path.join(dashboardDataDir, 'agent-chat.json'), []);
   const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
   let sheetAgentMemory = [];
-  if (config.googleSheetsEnabled) try {
+  if (config.googleSheetsEnabled || config.googleSheetsLegacyReadEnabled) try {
     sheetAgentMemory = await getAgentMemoryRules();
   } catch {
     sheetAgentMemory = [];
@@ -1081,13 +1244,29 @@ export async function buildDashboard({ health = null } = {}) {
 
   const sheetOrders = [];
   const localOrders = localOrdersRaw.map(orderFromLocal);
-  const decisions = [];
-  const controlDecisions = [];
+  let decisions = [];
+  let controlDecisions = [];
+  let legacyDecisionSource = { name: 'Google Sheets - aprendizaje historico', ok: false, disabled: true, error: null };
+  if (config.googleSheetsLegacyReadEnabled || config.googleSheetsEnabled) {
+    const decisiones = await readSheet('Decisiones Agente');
+    const controlSimulacion = await readSheet('Control Simulacion');
+    decisions = rowObjects(decisiones.rows).map(decisionFromSheet);
+    controlDecisions = rowObjects(controlSimulacion.rows).map(controlDecisionFromSheet).filter((item) => item.orderId && item.decision);
+    legacyDecisionSource = {
+      name: 'Google Sheets - aprendizaje historico',
+      ok: decisiones.ok || controlSimulacion.ok,
+      rows: (decisiones.rows?.length || 0) + (controlSimulacion.rows?.length || 0),
+      disabled: false,
+      error: decisiones.error || controlSimulacion.error || null
+    };
+  }
   const knownOrderIds = [...sheetOrders, ...localOrders].map((order) => order.orderId);
   const liveDropea = await loadLiveDropeaOrders(knownOrderIds);
   const liveShopify = await loadLiveShopifyOrders();
   const liveMeta = await loadLiveMetaCampaigns();
-  const orders = mergeOrders(sheetOrders, localOrders, [...liveDropea.orders, ...liveShopify.orders], decisions, controlDecisions, feedback)
+  const mergedOrders = mergeOrders(sheetOrders, localOrders, [...liveDropea.orders, ...liveShopify.orders], decisions, controlDecisions, feedback);
+  const liveChatby = await applyLiveChatbySignals(mergedOrders);
+  const orders = liveChatby.orders
     .map(enrichOrderForAgent);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
@@ -1104,8 +1283,10 @@ export async function buildDashboard({ health = null } = {}) {
   });
   const sources = [
     { name: 'Google Sheets - plantilla historica', ok: true, disabled: true, error: null },
+    legacyDecisionSource,
     liveDropea.source,
     liveShopify.source,
+    liveChatby.source,
     liveMeta.source,
     { name: 'Render - AutoConfirm', ok: Boolean(health), error: null }
   ];
