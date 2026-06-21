@@ -13,3 +13,15 @@ services:
         value: 17431
       - key: DROPEA_DASHBOARD_PROFIT
         value: 448.19
+      - key: GOOGLE_SHEETS_ENABLED
+        value: false
+      - key: SHOPIFY_DOMAIN
+        sync: false
+      - key: SHOPIFY_ADMIN_ACCESS_TOKEN
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: CHATBY_TOKEN
+        sync: false
+      - key: DROPEA_API_KEY
+        sync: false
