@@ -292,7 +292,7 @@ export async function upsertSheetRow(order) {
 }
 
 export async function getSimulationDecision(orderId) {
-  if (!config.googleSheetsEnabled) return null;
+  if (!config.googleSheetsEnabled && !config.googleSheetsLegacyReadEnabled) return null;
   if (!config.googleSheetId) return null;
 
   const now = Date.now();
@@ -398,7 +398,7 @@ export async function appendAgentDecision({
 }
 
 export async function getAgentMemoryRules() {
-  if (!config.googleSheetsEnabled) return [];
+  if (!config.googleSheetsEnabled && !config.googleSheetsLegacyReadEnabled) return [];
   if (!config.googleSheetId) return [];
 
   const sheetTitle = await ensureNamedSheet('Memoria Agente');
@@ -518,7 +518,7 @@ export async function replaceSheetValues(sheetTitle, rows, { frozenRows = 1, hea
 }
 
 export async function getSheetRows(sheetTitle, range = 'A:Z') {
-  if (!config.googleSheetsEnabled) return [];
+  if (!config.googleSheetsEnabled && !config.googleSheetsLegacyReadEnabled) return [];
   if (!config.googleSheetId) return [];
 
   await ensureNamedSheet(sheetTitle);
