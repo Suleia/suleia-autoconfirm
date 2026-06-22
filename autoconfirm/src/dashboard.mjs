@@ -764,6 +764,7 @@ function normalizeCampaignRow(row) {
   const purchaseValue = campaignNumber(row, 'valor_compra_pixel', 'purchaseValue', 'Valor Compra Pixel');
   const cpaPixel = campaignNumber(row, 'cpa_pixel', 'costPerPurchase', 'CPA Pixel') || (purchases ? spend / purchases : 0);
   const roasMeta = campaignNumber(row, 'roas_meta', 'roas', 'ROAS Meta') || (spend ? purchaseValue / spend : 0);
+  const day = row.fecha || row.day || row.dateStart || row.periodo_inicio || '';
 
   return {
     campaignId: row.campaign_id || row.campaignId || row.id || '',
@@ -772,6 +773,7 @@ function normalizeCampaignRow(row) {
     adName,
     product,
     status: row.estado || row.status || row.effective_status || '',
+    day,
     periodStart: row.periodo_inicio || row.dateStart || '',
     periodEnd: row.periodo_fin || row.dateStop || '',
     spend,
@@ -795,8 +797,17 @@ function normalizeCampaignRow(row) {
 }
 
 function buildCampaignAnalytics(campaignRows) {
-  const campaigns = campaignRows.map(normalizeCampaignRow).sort((a, b) => b.spend - a.spend);
+  const campaigns = campaignRows
+    .map(normalizeCampaignRow)
+    .filter((campaign) => (
+      Number(campaign.spend || 0) > 0
+      || Number(campaign.impressions || 0) > 0
+      || Number(campaign.clicks || 0) > 0
+      || Number(campaign.purchases || 0) > 0
+    ))
+    .sort((a, b) => String(b.day || b.periodStart || '').localeCompare(String(a.day || a.periodStart || '')) || b.spend - a.spend);
   const byProduct = new Map();
+  const byDay = new Map();
 
   for (const campaign of campaigns) {
     const product = campaign.product || 'Sin producto detectado';
@@ -822,6 +833,38 @@ function buildCampaignAnalytics(campaignRows) {
     current.confirmedOrders += campaign.confirmedOrders;
     current.confirmedRevenue += campaign.confirmedRevenue;
     byProduct.set(product, current);
+
+    const day = campaign.day || campaign.periodStart || 'Sin fecha';
+    const dayItem = byDay.get(day) || {
+      day,
+      campaigns: 0,
+      spend: 0,
+      impressions: 0,
+      reach: 0,
+      clicks: 0,
+      purchases: 0,
+      purchaseValue: 0,
+      bestCampaign: '',
+      bestRoas: 0,
+      worstCampaign: '',
+      worstRoas: null
+    };
+    dayItem.campaigns += 1;
+    dayItem.spend += campaign.spend;
+    dayItem.impressions += campaign.impressions;
+    dayItem.reach += campaign.reach;
+    dayItem.clicks += campaign.clicks;
+    dayItem.purchases += campaign.purchases;
+    dayItem.purchaseValue += campaign.purchaseValue;
+    if (campaign.roasMeta > dayItem.bestRoas) {
+      dayItem.bestRoas = campaign.roasMeta;
+      dayItem.bestCampaign = campaign.name;
+    }
+    if (campaign.spend > 0 && (dayItem.worstRoas === null || campaign.roasMeta < dayItem.worstRoas)) {
+      dayItem.worstRoas = campaign.roasMeta;
+      dayItem.worstCampaign = campaign.name;
+    }
+    byDay.set(day, dayItem);
   }
 
   const products = [...byProduct.values()].map((item) => ({
@@ -861,6 +904,13 @@ function buildCampaignAnalytics(campaignRows) {
   return {
     campaigns,
     products,
+    days: [...byDay.values()].map((item) => ({
+      ...item,
+      ctr: item.impressions ? item.clicks / item.impressions : 0,
+      cpc: item.clicks ? item.spend / item.clicks : 0,
+      cpaPixel: item.purchases ? item.spend / item.purchases : 0,
+      roasMeta: item.spend ? item.purchaseValue / item.spend : 0
+    })).sort((a, b) => String(b.day || '').localeCompare(String(a.day || ''))),
     totals: {
       ...totals,
       ctr: totals.impressions ? totals.clicks / totals.impressions : 0,
@@ -1043,7 +1093,7 @@ async function loadLiveMetaCampaigns() {
   const source = { name: 'Meta API - campanas en vivo', ok: true, error: null, generatedAt };
   try {
     const datePreset = process.env.META_DASHBOARD_DATE_PRESET || 'this_month';
-    const insights = await getCampaignInsights({ datePreset, level: 'ad', limit: 200 });
+    const insights = await getCampaignInsights({ datePreset, level: 'ad', limit: 500, timeIncrement: 1 });
     return {
       source: { ...source, period: datePreset, rows: insights.length },
       campaigns: insights.map((item) => ({
@@ -1053,6 +1103,7 @@ async function loadLiveMetaCampaigns() {
         conjunto: item.adsetName,
         ad_id: item.adId,
         anuncio: item.adName,
+        fecha: item.dateStart,
         producto: guessProductFromMetaRow(item.campaignName, item.adsetName, item.adName),
         periodo_inicio: item.dateStart,
         periodo_fin: item.dateStop,
@@ -1334,6 +1385,7 @@ export async function buildDashboard({ health = null } = {}) {
     agentMemory: latest(agentMemory, 'createdAt', 40),
     campaigns: campaignAnalytics.campaigns.slice(0, 50),
     campaignProducts: campaignAnalytics.products,
+    campaignDays: campaignAnalytics.days,
     meta: {
       period: liveMeta.source.period || process.env.META_DASHBOARD_DATE_PRESET || 'this_month',
       spendSource: liveMeta.campaigns.length ? 'Meta API en vivo' : 'Meta API sin datos disponibles',
