@@ -325,6 +325,36 @@ function normalizeShopifyWorkflowOrder(order, existing = null) {
   };
 }
 
+function normalizeShopifyWebhookOrder(payload) {
+  const customer = payload.customer || {};
+  const billing = payload.billing_address || {};
+  const shipping = payload.shipping_address || {};
+  const lineItems = Array.isArray(payload.line_items) ? payload.line_items : [];
+  const name = payload.name || (payload.order_number ? `#${payload.order_number}` : String(payload.id || ''));
+
+  return {
+    id: payload.admin_graphql_api_id || payload.id,
+    name,
+    createdAt: payload.created_at || payload.createdAt || new Date().toISOString(),
+    cancelledAt: payload.cancelled_at || payload.cancelledAt || null,
+    financialStatus: payload.financial_status || payload.displayFinancialStatus || '',
+    fulfillmentStatus: payload.fulfillment_status || payload.displayFulfillmentStatus || '',
+    totalAmount: Number(payload.total_price || payload.current_total_price || payload.totalAmount || 0),
+    currencyCode: payload.currency || payload.currencyCode || 'EUR',
+    customerName: [
+      customer.first_name || shipping.first_name || billing.first_name,
+      customer.last_name || shipping.last_name || billing.last_name
+    ].filter(Boolean).join(' ') || shipping.name || billing.name || payload.email || 'Cliente Shopify',
+    customerEmail: payload.email || customer.email || null,
+    customerPhone: payload.phone || shipping.phone || billing.phone || customer.phone || null,
+    products: lineItems.map((item) => ({
+      title: item.title || item.name || item.sku || 'Producto Shopify',
+      quantity: Number(item.quantity || 1)
+    })),
+    raw: payload
+  };
+}
+
 async function shopifyFinancialStatusForOrder(order) {
   const rawStatus = normalizeText(order?.raw?.financialStatus || order?.raw?.displayFinancialStatus || order?.raw?.raw?.displayFinancialStatus);
   if (rawStatus) return rawStatus;
@@ -638,6 +668,29 @@ export async function ingestShopifyOrders({ store = config.defaultStore, limit =
   saveState(state);
 
   return { processed: processed.length, orders: processed };
+}
+
+export async function handleShopifyWebhook({ store = config.defaultStore, payload }) {
+  const normalized = normalizeShopifyWebhookOrder(payload || {});
+  const orderId = String(normalized.name || normalized.id || '').replace(/^#/, 'SHOPIFY-');
+  if (!orderId) {
+    return { accepted: false, reason: 'missing_shopify_order_id' };
+  }
+
+  if (!isAfterCutoff({ createdAt: normalized.createdAt, raw: normalized }, store.activationCutoff)) {
+    return { accepted: true, skipped: true, reason: 'before_activation_cutoff', orderId };
+  }
+
+  const existing = findOrder(store.id, orderId);
+  const merged = upsertOrder(store.id, normalizeShopifyWorkflowOrder(normalized, existing));
+  await safeUpsertSheetRow(merged, 'shopify_webhook');
+
+  const state = { ...loadState() };
+  state.lastShopifyWebhookAt = new Date().toISOString();
+  state.lastShopifySyncError = null;
+  saveState(state);
+
+  return { accepted: true, order: merged };
 }
 
 export async function ensureChatbyThread(order, store = config.defaultStore) {
