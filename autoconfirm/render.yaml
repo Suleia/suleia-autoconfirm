@@ -24,7 +24,9 @@ services:
       - key: META_DASHBOARD_ENABLED
         value: true
       - key: META_DASHBOARD_INTERVAL_MINUTES
-        value: 360
+        value: 720
+      - key: AUTO_POLL_ENABLED
+        value: false
       - key: CHATBY_TOKEN
         sync: false
       - key: DROPEA_API_KEY
