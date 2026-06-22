@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAppConfig } from './config.mjs';
 import { listOrders, loadState } from './storage.mjs';
-import { getDropeaOrderById, listPendingDropeaOrders } from './clients/dropea.mjs';
+import { getDropeaOrderById, listPendingDropeaOrders, listRecentDropeaOrders } from './clients/dropea.mjs';
 import { findSubscriberForOrder, getChatMessages, subscriberConfirmsOrder } from './clients/chatby.mjs';
 import { getCampaignInsights } from './clients/meta.mjs';
 import { listRecentShopifyOrders } from './clients/shopify.mjs';
@@ -986,13 +986,12 @@ async function loadLiveDropeaOrders(knownOrderIds) {
   const source = { name: 'Dropea API - pedidos vivos', ok: true, error: null };
   const orders = [];
   try {
-    for (let page = 1; page <= 10; page += 1) {
-      const pending = await listPendingDropeaOrders({ limit: 100, page });
-      if (!Array.isArray(pending) || !pending.length) break;
-      orders.push(...pending.map(orderFromDropea));
-      if (pending.length < 100) break;
-    }
-    for (const orderId of [...new Set(knownOrderIds)].filter(Boolean).slice(0, 60)) {
+    const recent = await listRecentDropeaOrders({ limit: 100, pages: 3 });
+    orders.push(...recent.map(orderFromDropea));
+    source.statuses = 'multiestado';
+
+    for (const orderId of [...new Set(knownOrderIds)].filter(Boolean)) {
+      if (orders.some((order) => String(order.orderId) === String(orderId))) continue;
       try {
         const order = await getDropeaOrderById(orderId);
         if (order) orders.push(orderFromDropea(order));
@@ -1001,9 +1000,21 @@ async function loadLiveDropeaOrders(knownOrderIds) {
       }
     }
   } catch (error) {
-    source.ok = false;
-    source.error = error instanceof Error ? error.message : String(error);
+    try {
+      for (let page = 1; page <= 10; page += 1) {
+        const pending = await listPendingDropeaOrders({ limit: 100, page });
+        if (!Array.isArray(pending) || !pending.length) break;
+        orders.push(...pending.map(orderFromDropea));
+        if (pending.length < 100) break;
+      }
+      source.warning = error instanceof Error ? error.message : String(error);
+      source.statuses = 'PENDING fallback';
+    } catch {
+      source.ok = false;
+      source.error = error instanceof Error ? error.message : String(error);
+    }
   }
+  source.rows = orders.length;
   return { source, orders };
 }
 
