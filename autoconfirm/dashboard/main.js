@@ -982,6 +982,24 @@ async function loadDashboard() {
   }
 }
 
+async function refreshDashboardNow() {
+  state.loading = true;
+  state.error = null;
+  render();
+
+  try {
+    const response = await fetch('/api/dashboard-refresh', { method: 'POST' });
+    const payload = await readJsonResponse(response);
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.dashboard = payload.dashboard;
+  } catch (error) {
+    state.error = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.loading = false;
+    render();
+  }
+}
+
 function scheduleAutoRefresh() {
   if (refreshCountdownTimer) window.clearInterval(refreshCountdownTimer);
 
@@ -1113,7 +1131,7 @@ document.querySelectorAll('[data-agent-prefix]').forEach((button) => {
 syncButton.addEventListener('click', async () => {
   syncButton.textContent = 'Actualizando...';
   syncButton.disabled = true;
-  await loadDashboard();
+  await refreshDashboardNow();
   syncButton.textContent = 'Actualizar datos';
   syncButton.disabled = false;
 });
