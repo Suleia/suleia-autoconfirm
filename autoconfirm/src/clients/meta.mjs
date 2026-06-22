@@ -93,7 +93,7 @@ export async function getCampaigns({ limit = 100 } = {}) {
   return result.data || [];
 }
 
-export async function getCampaignInsights({ since, until, datePreset, level = 'campaign', limit = 100 } = {}) {
+export async function getCampaignInsights({ since, until, datePreset, level = 'campaign', limit = 100, timeIncrement = null } = {}) {
   const adAccountId = normalizeAdAccountId(config.metaAdAccountId);
   if (!adAccountId) throw new Error('Falta META_AD_ACCOUNT_ID.');
 
@@ -121,6 +121,10 @@ export async function getCampaignInsights({ since, until, datePreset, level = 'c
     ].filter(Boolean).join(','),
     limit
   };
+
+  if (timeIncrement) {
+    params.time_increment = timeIncrement;
+  }
 
   if (datePreset) {
     params.date_preset = datePreset;
