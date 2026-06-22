@@ -68,6 +68,64 @@ export async function listPendingDropeaOrders({ limit = 50, page = 1 } = {}) {
   }));
 }
 
+export async function listDropeaOrdersByStatus({ status = 'PENDING', limit = 100, page = 1 } = {}) {
+  const query = `
+    query OrdersByStatus($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
+      orders(status: $status, limit: $limit, page: $page) {
+        data {
+          id
+          status
+          customer { full_name phone email }
+          total_amount
+          created_at
+          issues { id incidence_code status solutions }
+        }
+      }
+    }
+  `;
+
+  const result = await requestGraphQL(query, { status, limit, page });
+  const items = result?.orders?.data ?? [];
+  return items.map((order) => ({
+    ...normalizeOrder(order),
+    ...normalizeCustomer(order.customer),
+    raw: order
+  }));
+}
+
+export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses = null } = {}) {
+  const targetStatuses = statuses || [
+    'PENDING',
+    'CONFIRMED',
+    'CANCELLED',
+    'REJECTED',
+    'WITH_ISSUE',
+    'IN_PREPARATION',
+    'PREPARED',
+    'IN_TRANSIT',
+    'DELIVERED'
+  ];
+  const byId = new Map();
+
+  for (const status of targetStatuses) {
+    for (let page = 1; page <= pages; page += 1) {
+      try {
+        const orders = await listDropeaOrdersByStatus({ status, limit, page });
+        for (const order of orders) {
+          byId.set(String(order.orderId), order);
+        }
+        if (orders.length < limit) break;
+      } catch (error) {
+        // Some Dropea environments do not expose every enum. Keep the other statuses available.
+        if (status === 'PENDING') throw error;
+        break;
+      }
+    }
+  }
+
+  return [...byId.values()];
+}
+
 export async function getDropeaOrderById(orderId) {
   const query = `
     query OrderById($ids: [Int]) {
