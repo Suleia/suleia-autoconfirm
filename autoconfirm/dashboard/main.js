@@ -29,11 +29,9 @@ const feedbackClose = document.querySelector('#feedback-close');
 const financeSettingsForm = document.querySelector('#finance-settings-form');
 const agentChatForm = document.querySelector('#agent-chat-form');
 let feedbackOrderId = null;
-let refreshTimer = null;
 let refreshCountdownTimer = null;
-let nextRefreshAt = null;
 
-const AUTO_REFRESH_MS = 5 * 60 * 1000;
+const META_REFRESH_HOURS = 12;
 
 function money(value) {
   const number = Number(value);
@@ -65,11 +63,7 @@ function formatDateTime(value) {
 }
 
 function refreshCountdownText() {
-  if (!nextRefreshAt) return 'Autoactualizacion preparando...';
-  const ms = Math.max(0, nextRefreshAt - Date.now());
-  const minutes = Math.floor(ms / 60000);
-  const seconds = Math.floor((ms % 60000) / 1000);
-  return `Proximo refresco en ${minutes}:${String(seconds).padStart(2, '0')}`;
+  return `Meta se actualiza cada ${META_REFRESH_HOURS}h. Pedidos por evento Shopify/Dropea y boton manual.`;
 }
 
 function escapeHtml(value) {
@@ -367,6 +361,7 @@ function renderCampaigns() {
   const list = document.querySelector('#campaign-list');
   const campaigns = state.dashboard?.campaigns || [];
   const products = state.dashboard?.campaignProducts || [];
+  const days = state.dashboard?.campaignDays || [];
   const meta = state.dashboard?.meta || {};
   if (!campaigns.length) {
     list.innerHTML = `<div class="empty-state">Todavia no hay datos de campanas Meta sincronizados.${meta.lastError ? ` Error actual: ${escapeHtml(meta.lastError)}` : ' Cuando se refresque Meta Dashboard, apareceran aqui.'}</div>`;
@@ -477,7 +472,6 @@ function renderCampaignsV2() {
   const list = document.querySelector('#campaign-list');
   const campaigns = state.dashboard?.campaigns || [];
   const products = state.dashboard?.campaignProducts || [];
-  const days = state.dashboard?.campaignDays || [];
   const meta = state.dashboard?.meta || {};
   if (!list) return;
 
@@ -531,7 +525,7 @@ function renderCampaignsV2() {
       <div class="meta-source-card ${meta.live ? 'is-live' : 'is-fallback'}">
         <span>${meta.live ? 'Dato real en vivo' : 'Dato guardado'}</span>
         <strong>${escapeHtml(meta.spendSource || 'Meta')}</strong>
-        <small>Desglose diario · periodo ${escapeHtml(meta.period || 'this_month')} · actualizado ${formatDateTime(meta.updatedAt)} · refresco cada 6h</small>
+        <small>Desglose diario · periodo ${escapeHtml(meta.period || 'this_month')} · actualizado ${formatDateTime(meta.updatedAt)} · refresco cada 12h</small>
       </div>
       <div><span>Gasto</span><strong>${money(totals.spend ?? totalSpend)}</strong><small>${meta.rows || campaigns.length} filas leidas</small></div>
       <div><span>Compras pixel</span><strong>${totals.purchases ?? campaigns.reduce((sum, item) => sum + Number(item.purchases || 0), 0)}</strong><small>Segun Meta Ads</small></div>
@@ -570,6 +564,7 @@ function renderCampaignsV2() {
       </section>
     </div>
   ` : '';
+  const visibleDayCards = '';
 
   const productCards = products.length ? `
     <div class="meta-product-grid">
@@ -610,7 +605,7 @@ function renderCampaignsV2() {
 
   list.innerHTML = `
     ${metaSummary}
-    ${dayCards}
+    ${visibleDayCards}
     ${productCards}
     <div class="meta-table-card">
       <div class="meta-table-head">
@@ -988,18 +983,11 @@ async function loadDashboard() {
 }
 
 function scheduleAutoRefresh() {
-  if (refreshTimer) window.clearInterval(refreshTimer);
   if (refreshCountdownTimer) window.clearInterval(refreshCountdownTimer);
-
-  nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
-  refreshTimer = window.setInterval(async () => {
-    nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
-    await loadDashboard();
-  }, AUTO_REFRESH_MS);
 
   refreshCountdownTimer = window.setInterval(() => {
     if (!state.loading && !state.error) renderError();
-  }, 1000);
+  }, 60000);
 }
 
 async function readJsonResponse(response) {
