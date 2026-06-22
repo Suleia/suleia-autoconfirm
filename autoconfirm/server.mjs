@@ -242,6 +242,31 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, dashboard: await buildDashboard({ health: storeSummary() }) });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/dashboard-refresh') {
+      if (!requireDashboardAuth(req, res)) return;
+      const results = {};
+
+      try {
+        results.orders = await runStoreAutomationCycle({ store: config.defaultStore });
+      } catch (error) {
+        results.ordersError = error instanceof Error ? error.message : String(error);
+        console.error('Dashboard refresh orders error:', error);
+      }
+
+      try {
+        results.meta = await syncMetaDashboard({ store: config.defaultStore });
+      } catch (error) {
+        results.metaError = error instanceof Error ? error.message : String(error);
+        console.error('Dashboard refresh Meta error:', error);
+      }
+
+      return sendJson(res, 200, {
+        ok: true,
+        refresh: results,
+        dashboard: await buildDashboard({ health: storeSummary() })
+      });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/agent-feedback') {
       if (!requireDashboardAuth(req, res)) return;
       const body = await readBody(req);
