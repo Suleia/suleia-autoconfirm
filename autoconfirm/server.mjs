@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { getAppConfig } from './src/config.mjs';
 import { listOrders, loadState, saveState } from './src/storage.mjs';
-import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
+import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, handleShopifyWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 import { buildDashboard, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
 
@@ -301,6 +301,51 @@ const server = http.createServer(async (req, res) => {
       return;
     }
 
+    if (req.method === 'POST' && url.pathname.startsWith('/api/webhooks/shopify/')) {
+      const token = url.pathname.split('/').pop();
+      if (token !== config.defaultStore.webhookToken) {
+        return sendJson(res, 404, { ok: false, error: 'invalid_webhook_token' });
+      }
+
+      let payload = {};
+      try {
+        payload = await readBody(req);
+      } catch (error) {
+        const state = {
+          ...loadState(),
+          lastShopifyWebhookError: error instanceof Error ? error.message : String(error),
+          lastShopifyWebhookAt: new Date().toISOString()
+        };
+        saveState(state);
+        return sendJson(res, 200, { ok: true, accepted: false, error: 'invalid_json' });
+      }
+
+      sendJson(res, 200, { ok: true, accepted: true });
+
+      setImmediate(async () => {
+        try {
+          const webhookResult = await handleShopifyWebhook({ store: config.defaultStore, payload });
+          console.log('Shopify webhook processed:', JSON.stringify(webhookResult));
+        } catch (error) {
+          const state = {
+            ...loadState(),
+            lastShopifyWebhookError: error instanceof Error ? error.message : String(error),
+            lastShopifyWebhookAt: new Date().toISOString()
+          };
+          saveState(state);
+          console.error('Shopify webhook processing error:', error);
+        }
+
+        try {
+          const cycleResult = await runStoreAutomationCycle({ store: config.defaultStore });
+          console.log('Automation cycle processed after Shopify webhook:', JSON.stringify(cycleResult));
+        } catch (error) {
+          console.error('Automation cycle error after Shopify webhook:', error);
+        }
+      });
+      return;
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/poll-orders') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await ingestPendingOrders({ store: config.defaultStore });
@@ -367,7 +412,7 @@ function startBackgroundPoller() {
 }
 
 function startMetaDashboardSync() {
-  const intervalMinutes = config.metaDashboardIntervalMinutes || 360;
+  const intervalMinutes = config.metaDashboardIntervalMinutes || 720;
   if (!config.metaDashboardEnabled) return;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
@@ -393,6 +438,7 @@ function startMetaDashboardSync() {
 server.listen(config.port, () => {
   console.log(`AutoConfirm listening on http://localhost:${config.port}`);
   console.log(`Webhook: /api/webhooks/dropea/${config.defaultStore.webhookToken}`);
+  console.log(`Shopify webhook: /api/webhooks/shopify/${config.defaultStore.webhookToken}`);
   startBackgroundPoller();
   startMetaDashboardSync();
 });
