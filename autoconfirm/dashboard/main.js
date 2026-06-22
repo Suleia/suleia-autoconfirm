@@ -1,6 +1,7 @@
 const state = {
   section: 'overview',
   query: '',
+  orderFilter: 'all',
   loading: true,
   error: null,
   dashboard: null
@@ -21,12 +22,18 @@ const navItems = [...document.querySelectorAll('.nav-item')];
 const panels = [...document.querySelectorAll('[data-panel]')];
 const searchInput = document.querySelector('#search-input');
 const syncButton = document.querySelector('#sync-button');
+const orderFilterButtons = [...document.querySelectorAll('[data-order-filter]')];
 const feedbackDialog = document.querySelector('#feedback-dialog');
 const feedbackForm = document.querySelector('#feedback-form');
 const feedbackClose = document.querySelector('#feedback-close');
 const financeSettingsForm = document.querySelector('#finance-settings-form');
 const agentChatForm = document.querySelector('#agent-chat-form');
 let feedbackOrderId = null;
+let refreshTimer = null;
+let refreshCountdownTimer = null;
+let nextRefreshAt = null;
+
+const AUTO_REFRESH_MS = 5 * 60 * 1000;
 
 function money(value) {
   const number = Number(value);
@@ -38,6 +45,31 @@ function percent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '0%';
   return new Intl.NumberFormat('es-ES', { style: 'percent', maximumFractionDigits: 0 }).format(number);
+}
+
+function numberCompact(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '0';
+  return new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 }).format(number);
+}
+
+function formatDateTime(value) {
+  const date = value ? new Date(value) : null;
+  if (!date || Number.isNaN(date.getTime())) return 'Sin fecha';
+  return new Intl.DateTimeFormat('es-ES', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date);
+}
+
+function refreshCountdownText() {
+  if (!nextRefreshAt) return 'Autoactualizacion preparando...';
+  const ms = Math.max(0, nextRefreshAt - Date.now());
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.floor((ms % 60000) / 1000);
+  return `Proximo refresco en ${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function escapeHtml(value) {
@@ -230,21 +262,80 @@ function setText(selector, value) {
   if (node) node.textContent = value;
 }
 
+function orderFilterCategory(order) {
+  const signal = normalize(order.customerSignal || order.agentRecommendedAction || order.agentRecommendedLabel || order.status || '');
+  const tone = normalize(order.agentDecisionTone || '');
+  const stateLabel = normalize(friendlyOrderState(order).label);
+  if (signal.includes('address') || signal.includes('direccion') || stateLabel.includes('direccion')) return 'address';
+  if (signal.includes('absent') || signal.includes('issue') || signal.includes('incidencia') || stateLabel.includes('incidencia')) return 'issue';
+  if (signal.includes('not_confirm') || signal.includes('rejected') || signal.includes('cancel') || tone.includes('danger') || stateLabel.includes('no confirmar')) return 'blocked';
+  if (signal.includes('confirm') || stateLabel.includes('confirmar pedido')) return 'confirm';
+  if (signal.includes('manual') || stateLabel.includes('revision')) return 'review';
+  return 'review';
+}
+
+function orderMatchesFilter(order) {
+  if (state.orderFilter === 'all') return true;
+  return orderFilterCategory(order) === state.orderFilter;
+}
+
+function countOrdersByFilter(orders, filter) {
+  return orders.filter((order) => filter === 'all' || orderFilterCategory(order) === filter).length;
+}
+
+function renderOrdersSummary(orders, visibleOrders) {
+  const summary = document.querySelector('#orders-summary');
+  const note = document.querySelector('#orders-count-note');
+  if (!summary) return;
+
+  const latest = orders[0];
+  const cards = [
+    { label: 'Total pedidos', value: orders.length, detail: 'Cargados en el Command Center', tone: 'neutral' },
+    { label: 'Confirmar ahora', value: countOrdersByFilter(orders, 'confirm'), detail: 'Señal clara del cliente', tone: 'positive' },
+    { label: 'Dirección', value: countOrdersByFilter(orders, 'address'), detail: 'No confirmar hasta corregir', tone: 'warning' },
+    { label: 'Incidencias', value: countOrdersByFilter(orders, 'issue'), detail: 'Seguimiento antes de actuar', tone: 'warning' },
+    { label: 'Bloqueados', value: countOrdersByFilter(orders, 'blocked'), detail: 'Rechazo, cancelación o no señal', tone: 'danger' }
+  ];
+
+  summary.innerHTML = cards.map((card) => `
+    <article class="order-summary-card ${card.tone}">
+      <span>${escapeHtml(card.label)}</span>
+      <strong>${escapeHtml(card.value)}</strong>
+      <small>${escapeHtml(card.detail)}</small>
+    </article>
+  `).join('');
+
+  if (note) {
+    note.textContent = `${visibleOrders.length} pedidos visibles · último: ${latest?.orderId ? `#${latest.orderId}` : 'sin dato'} · ordenado de más reciente a menos reciente`;
+  }
+}
+
 function renderOrders() {
   const table = document.querySelector('#orders-table');
   const orders = state.dashboard?.orders || [];
   const rows = orders
     .filter((order) => matchesQuery([order.orderId, order.customer, order.product, order.status, order.agentAction]))
+    .filter(orderMatchesFilter)
     .map((order) => {
       const orderState = friendlyOrderState(order);
       const evidence = agentEvidence(order);
+      const confidence = order.agentUsefulConfidence ?? order.agentConfidence;
+      const source = order.liveSource || order.raw?.source || 'Sistema';
       return `
         <tr>
-          <td><strong>#${escapeHtml(order.orderId)}</strong><small>${escapeHtml(order.createdAt || '')}</small></td>
-          <td>${escapeHtml(order.product || 'Producto')}</td>
+          <td>
+            <strong>#${escapeHtml(order.orderId)}</strong>
+            <small>${escapeHtml(order.createdAt || '')}</small>
+            <span class="order-source">${escapeHtml(source)}</span>
+          </td>
+          <td>
+            ${escapeHtml(order.product || 'Producto')}
+            ${order.shopifyOrderId ? '<small>Pedido capturado desde Shopify</small>' : ''}
+          </td>
           <td>
             <span class="pill ${orderState.tone}">${escapeHtml(orderState.label)}</span>
             <small>${escapeHtml(orderState.detail)}</small>
+            <small><strong>Confianza útil:</strong> ${confidence ?? '-'}%</small>
           </td>
           <td>
             <span class="signal-chip ${evidence.tone}">${escapeHtml(evidence.label)}</span>
@@ -265,6 +356,10 @@ function renderOrders() {
       </tr>
     `;
     });
+  const visibleOrders = orders
+    .filter((order) => matchesQuery([order.orderId, order.customer, order.product, order.status, order.agentAction]))
+    .filter(orderMatchesFilter);
+  renderOrdersSummary(orders, visibleOrders);
   table.innerHTML = rows.join('') || '<tr><td colspan="6">No hay resultados para esta busqueda.</td></tr>';
 }
 
@@ -378,6 +473,174 @@ function renderCampaigns() {
   `;
 }
 
+function renderCampaignsV2() {
+  const list = document.querySelector('#campaign-list');
+  const campaigns = state.dashboard?.campaigns || [];
+  const products = state.dashboard?.campaignProducts || [];
+  const days = state.dashboard?.campaignDays || [];
+  const meta = state.dashboard?.meta || {};
+  if (!list) return;
+
+  if (!campaigns.length) {
+    list.innerHTML = `<div class="empty-state">Todavia no hay datos de campanas Meta sincronizados.${meta.lastError ? ` Error actual: ${escapeHtml(meta.lastError)}` : ' Cuando se refresque Meta Dashboard, apareceran aqui.'}</div>`;
+    return;
+  }
+
+  const sortedCampaigns = [...campaigns].sort((a, b) => (
+    String(b.day || b.periodStart || '').localeCompare(String(a.day || a.periodStart || ''))
+    || Number(b.spend || 0) - Number(a.spend || 0)
+    || Number(b.roasMeta || b.roasConfirmed || 0) - Number(a.roasMeta || a.roasConfirmed || 0)
+  ));
+  const totals = meta.totals || {};
+  const totalSpend = products.reduce((sum, product) => sum + Number(product.spend || 0), 0)
+    || campaigns.reduce((sum, campaign) => sum + Number(campaign.spend || 0), 0);
+
+  const indicatorFor = (campaign) => {
+    const roas = Number(campaign.roasMeta || campaign.roasConfirmed || 0);
+    const cpa = Number(campaign.cpaPixel || campaign.cpaConfirmed || 0);
+    const spend = Number(campaign.spend || 0);
+    if (roas >= 5) return { label: 'Escalar', tone: 'winner', note: 'ROAS alto. Subir presupuesto poco a poco si mantiene CPA.' };
+    if (roas >= 2.5) return { label: 'Mantener', tone: 'steady', note: 'Funciona. Vigilar CPA, frecuencia y margen.' };
+    if (roas > 0 || cpa > 0) return { label: 'Optimizar', tone: 'weak', note: 'Hay senales, pero necesita revisar creativo, oferta o publico.' };
+    if (spend >= 15) return { label: 'Pausar/Revisar', tone: 'empty', note: 'Gasto sin compras pixel. No seguir invirtiendo a ciegas.' };
+    return { label: 'Aprendiendo', tone: 'empty', note: 'Aun sin volumen suficiente para decidir.' };
+  };
+
+  const dayIndicator = (day) => {
+    const roas = Number(day.roasMeta || 0);
+    const spend = Number(day.spend || 0);
+    const purchases = Number(day.purchases || 0);
+    if (roas >= 5 && purchases > 0) return { label: 'Día ganador', tone: 'winner', note: 'Escalar aprendizajes de creativos/campañas.' };
+    if (roas >= 2.5 && purchases > 0) return { label: 'Día rentable', tone: 'steady', note: 'Mantener y vigilar CPA.' };
+    if (spend >= 15 && purchases === 0) return { label: 'Día flojo', tone: 'empty', note: 'Gasto sin compras. Revisar antes de invertir más.' };
+    if (spend > 0) return { label: 'Día a optimizar', tone: 'weak', note: 'Hay gasto, pero el rendimiento no es fuerte.' };
+    return { label: 'Sin inversión', tone: 'empty', note: 'Meta no reporta gasto ese día.' };
+  };
+
+  const activeDays = days.filter((day) => Number(day.spend || 0) > 0 || Number(day.purchases || 0) > 0);
+  const bestDays = [...activeDays]
+    .sort((a, b) => Number(b.roasMeta || 0) - Number(a.roasMeta || 0) || Number(b.purchaseValue || 0) - Number(a.purchaseValue || 0))
+    .slice(0, 3);
+  const worstDays = [...activeDays]
+    .filter((day) => Number(day.spend || 0) >= 1)
+    .sort((a, b) => Number(a.roasMeta || 0) - Number(b.roasMeta || 0) || Number(b.spend || 0) - Number(a.spend || 0))
+    .slice(0, 3);
+
+  const metaSummary = `
+    <div class="meta-live-summary">
+      <div class="meta-source-card ${meta.live ? 'is-live' : 'is-fallback'}">
+        <span>${meta.live ? 'Dato real en vivo' : 'Dato guardado'}</span>
+        <strong>${escapeHtml(meta.spendSource || 'Meta')}</strong>
+        <small>Desglose diario · periodo ${escapeHtml(meta.period || 'this_month')} · actualizado ${formatDateTime(meta.updatedAt)} · refresco cada 6h</small>
+      </div>
+      <div><span>Gasto</span><strong>${money(totals.spend ?? totalSpend)}</strong><small>${meta.rows || campaigns.length} filas leidas</small></div>
+      <div><span>Compras pixel</span><strong>${totals.purchases ?? campaigns.reduce((sum, item) => sum + Number(item.purchases || 0), 0)}</strong><small>Segun Meta Ads</small></div>
+      <div><span>ROAS Meta</span><strong>${totals.roasMeta ? `${Number(totals.roasMeta).toFixed(2)}x` : 's/d'}</strong><small>Valor compra / gasto</small></div>
+      <div><span>CPC medio</span><strong>${totals.cpc ? money(totals.cpc) : 's/d'}</strong><small>${numberCompact(totals.clicks || 0)} clicks</small></div>
+    </div>
+  `;
+
+  const dayCards = activeDays.length ? `
+    <div class="meta-day-board">
+      <section>
+        <div class="meta-day-title"><strong>Mejores días</strong><span>ROAS y valor de compra</span></div>
+        ${bestDays.map((day) => {
+          const indicator = dayIndicator(day);
+          return `
+            <article class="meta-day-card ${indicator.tone}">
+              <div><strong>${escapeHtml(day.day)}</strong><span class="status-badge ${indicator.tone}">${indicator.label}</span></div>
+              <p>${money(day.spend)} gastados · ${day.purchases || 0} compras · ROAS ${day.roasMeta ? `${Number(day.roasMeta).toFixed(2)}x` : 's/d'}</p>
+              <small>Mejor campaña: ${escapeHtml(day.bestCampaign || 'sin dato')}</small>
+            </article>
+          `;
+        }).join('')}
+      </section>
+      <section>
+        <div class="meta-day-title"><strong>Días a revisar</strong><span>Gasto con bajo retorno</span></div>
+        ${worstDays.map((day) => {
+          const indicator = dayIndicator(day);
+          return `
+            <article class="meta-day-card ${indicator.tone}">
+              <div><strong>${escapeHtml(day.day)}</strong><span class="status-badge ${indicator.tone}">${indicator.label}</span></div>
+              <p>${money(day.spend)} gastados · ${day.purchases || 0} compras · ROAS ${day.roasMeta ? `${Number(day.roasMeta).toFixed(2)}x` : '0.00x'}</p>
+              <small>${escapeHtml(indicator.note)}</small>
+            </article>
+          `;
+        }).join('')}
+      </section>
+    </div>
+  ` : '';
+
+  const productCards = products.length ? `
+    <div class="meta-product-grid">
+      ${products.map((product) => `
+        <div class="meta-product-card">
+          <span>${escapeHtml(product.product)}</span>
+          <strong>${money(product.spend)}</strong>
+          <small>${product.campaigns} campana${product.campaigns === 1 ? '' : 's'} - ${product.purchases || 0} compras pixel</small>
+          <div><b>Peso inversion</b><em>${totalSpend ? percent(product.spend / totalSpend) : '0%'}</em></div>
+          <div><b>CPA pixel</b><em>${product.cpaPixel ? money(product.cpaPixel) : 's/d'}</em></div>
+          <div><b>ROAS Meta</b><em>${product.roasMeta ? `${product.roasMeta.toFixed(2)}x` : 's/d'}</em></div>
+          <div><b>CTR</b><em>${product.ctr ? `${(product.ctr * 100).toFixed(2)}%` : 's/d'}</em></div>
+        </div>
+      `).join('')}
+    </div>
+  ` : '';
+
+  const campaignRows = sortedCampaigns.slice(0, 40).map((campaign, index) => {
+    const roas = Number(campaign.roasMeta || campaign.roasConfirmed || 0);
+    const indicator = indicatorFor(campaign);
+    const spendWeight = totalSpend ? Number(campaign.spend || 0) / totalSpend : 0;
+    return `
+      <tr>
+        <td><div class="rank-cell"><span>#${index + 1}</span><i class="campaign-indicator ${indicator.tone}"></i></div></td>
+        <td>
+          <strong>${escapeHtml(campaign.name || 'Campana Meta')}</strong>
+          <small>${escapeHtml(campaign.day || campaign.periodStart || 'Sin fecha')} · ${escapeHtml([campaign.adsetName, campaign.adName].filter(Boolean).join(' / ') || 'Sin conjunto/anuncio')}</small>
+        </td>
+        <td><span class="product-tag">${escapeHtml(campaign.product || 'Sin producto')}</span></td>
+        <td>${money(campaign.spend)}<small>${percent(spendWeight)} del gasto</small></td>
+        <td>${numberCompact(campaign.impressions || 0)}<small>${campaign.clicks || 0} clicks - CTR ${campaign.ctr ? `${Number(campaign.ctr).toFixed(2)}%` : 's/d'}</small></td>
+        <td>${campaign.purchases || 0}<small>CPA ${campaign.cpaPixel ? money(campaign.cpaPixel) : 's/d'}</small></td>
+        <td><strong>${roas ? `${roas.toFixed(2)}x` : 's/d'}</strong><small>Valor ${campaign.purchaseValue ? money(campaign.purchaseValue) : 's/d'}</small></td>
+        <td><span class="status-badge ${indicator.tone}">${indicator.label}</span><small>${escapeHtml(indicator.note)}</small></td>
+      </tr>
+    `;
+  }).join('');
+
+  list.innerHTML = `
+    ${metaSummary}
+    ${dayCards}
+    ${productCards}
+    <div class="meta-table-card">
+      <div class="meta-table-head">
+        <div>
+          <strong>Campañas y anuncios por día</strong>
+          <span>Datos diarios reales desde Meta. Los días sin gasto no aparecen como inversión.</span>
+        </div>
+        <span>${sortedCampaigns.length} filas</span>
+      </div>
+      <div class="table-wrap meta-table-wrap">
+        <table class="meta-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>Campana / anuncio</th>
+              <th>Producto</th>
+              <th>Gasto</th>
+              <th>Volumen / trafico</th>
+              <th>Compras</th>
+              <th>ROAS</th>
+              <th>Accion</th>
+            </tr>
+          </thead>
+          <tbody>${campaignRows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
 function renderDecisions() {
   const list = document.querySelector('#agent-list');
   const decisions = state.dashboard?.decisions || [];
@@ -394,6 +657,53 @@ function renderDecisions() {
       </div>
       <b>${decision.confidence ?? '-'}%</b>
     </div>
+  `).join('');
+}
+
+function renderAgentOperationalHealth() {
+  const scoreboard = document.querySelector('#agent-scoreboard');
+  const signalMap = document.querySelector('#agent-signal-map');
+  if (!scoreboard || !signalMap) return;
+
+  const orders = state.dashboard?.orders || [];
+  const learning = state.dashboard?.learning || {};
+  const feedback = state.dashboard?.feedback || [];
+  const memory = state.dashboard?.agentMemory || [];
+  const sources = state.dashboard?.sources || [];
+  const connectionVault = state.dashboard?.connectionVault || {};
+  const connectedSources = sources.filter((source) => source.ok).length;
+  const totalSources = sources.length || 1;
+  const confirmed = countOrdersByFilter(orders, 'confirm');
+  const needsAttention = countOrdersByFilter(orders, 'address') + countOrdersByFilter(orders, 'issue') + countOrdersByFilter(orders, 'review');
+
+  scoreboard.innerHTML = [
+    { label: 'Memoria activa', value: memory.length || learning.memoryCount || 0, detail: 'Reglas guardadas' },
+    { label: 'Feedback recibido', value: feedback.length || learning.feedbackCount || 0, detail: 'Correcciones aplicadas' },
+    { label: 'Listos para confirmar', value: confirmed, detail: 'Con señal clara' },
+    { label: 'Requieren atención', value: needsAttention, detail: 'Dirección, incidencia o revisión' },
+    { label: 'Conexiones OK', value: `${connectedSources}/${totalSources}`, detail: connectionVault.lastHealthcheckAt ? `Última revisión: ${connectionVault.lastHealthcheckAt}` : 'Según lectura actual' }
+  ].map((item) => `
+    <article>
+      <span>${escapeHtml(item.label)}</span>
+      <strong>${escapeHtml(item.value)}</strong>
+      <small>${escapeHtml(item.detail)}</small>
+    </article>
+  `).join('');
+
+  const signals = [
+    { key: 'confirm', label: 'Confirmación clara', detail: 'Confirmar en Dropea si el modo real está activo.', tone: 'positive' },
+    { key: 'address', label: 'Cambio de dirección', detail: 'No confirmar. Corregir datos y dejar pendiente.', tone: 'warning' },
+    { key: 'issue', label: 'Ausente o incidencia', detail: 'Coordinar entrega o revisar incidencia antes de actuar.', tone: 'warning' },
+    { key: 'blocked', label: 'Rechazo/cancelación', detail: 'No confirmar y registrar motivo.', tone: 'danger' },
+    { key: 'review', label: 'Duda o manual', detail: 'Esperar señal clara o revisión humana.', tone: 'neutral' }
+  ];
+
+  signalMap.innerHTML = signals.map((signal) => `
+    <article class="${signal.tone}">
+      <strong>${escapeHtml(signal.label)}</strong>
+      <span>${escapeHtml(countOrdersByFilter(orders, signal.key))} pedidos</span>
+      <small>${escapeHtml(signal.detail)}</small>
+    </article>
   `).join('');
 }
 
@@ -473,7 +783,9 @@ function renderSources() {
   const list = document.querySelector('#sources-list');
   if (!list) return;
   const sources = state.dashboard?.sources || [];
-  list.innerHTML = sources.map((source) => `
+  const vault = state.dashboard?.connectionVault || {};
+  const envGroups = Object.entries(vault.envVars || {});
+  const sourceCards = sources.map((source) => `
     <div class="source-item ${source.ok ? 'ok' : 'bad'}">
       <span></span>
       <div>
@@ -482,6 +794,26 @@ function renderSources() {
       </div>
     </div>
   `).join('');
+  const vaultCards = envGroups.map(([service, values]) => {
+    const details = Object.entries(values).map(([key, value]) => `
+      <small><b>${escapeHtml(key)}:</b> ${escapeHtml(value)}</small>
+    `).join('');
+    return `
+      <div class="source-item vault">
+        <span></span>
+        <div>
+          <strong>${escapeHtml(service)}</strong>
+          ${details}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.innerHTML = `
+    ${sourceCards}
+    ${vaultCards}
+    ${vault.storagePolicy ? `<div class="source-policy">${escapeHtml(vault.storagePolicy)} Runbook: ${escapeHtml(vault.runbook || 'pendiente')}.</div>` : ''}
+  `;
 }
 
 function renderSystem() {
@@ -614,7 +946,10 @@ function renderError() {
     banner.className = 'status-banner is-error';
     return;
   }
-  banner.hidden = true;
+  const meta = state.dashboard?.meta || {};
+  banner.hidden = false;
+  banner.className = `status-banner ${meta.live ? 'is-ok' : 'is-warning'}`;
+  banner.textContent = `Datos actualizados ${formatDateTime(state.dashboard?.generatedAt)}. Meta: ${meta.spendSource || 'sin fuente'} (${meta.live ? 'en vivo' : 'fallback'}). ${refreshCountdownText()}`;
 }
 
 function render() {
@@ -624,7 +959,8 @@ function render() {
   renderFinance();
   renderAgentChat();
   renderOrders();
-  renderCampaigns();
+  renderCampaignsV2();
+  renderAgentOperationalHealth();
   renderAgentDiagnostics();
   renderFeedback();
   renderProducts();
@@ -651,6 +987,21 @@ async function loadDashboard() {
   }
 }
 
+function scheduleAutoRefresh() {
+  if (refreshTimer) window.clearInterval(refreshTimer);
+  if (refreshCountdownTimer) window.clearInterval(refreshCountdownTimer);
+
+  nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
+  refreshTimer = window.setInterval(async () => {
+    nextRefreshAt = Date.now() + AUTO_REFRESH_MS;
+    await loadDashboard();
+  }, AUTO_REFRESH_MS);
+
+  refreshCountdownTimer = window.setInterval(() => {
+    if (!state.loading && !state.error) renderError();
+  }, 1000);
+}
+
 async function readJsonResponse(response) {
   const text = await response.text();
   try {
@@ -670,6 +1021,14 @@ navItems.forEach((item) => {
 searchInput.addEventListener('input', (event) => {
   state.query = event.target.value;
   renderOrders();
+});
+
+orderFilterButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    state.orderFilter = button.dataset.orderFilter || 'all';
+    orderFilterButtons.forEach((item) => item.classList.toggle('is-active', item === button));
+    renderOrders();
+  });
 });
 
 document.addEventListener('click', (event) => {
@@ -771,4 +1130,5 @@ syncButton.addEventListener('click', async () => {
   syncButton.disabled = false;
 });
 
+scheduleAutoRefresh();
 loadDashboard();
