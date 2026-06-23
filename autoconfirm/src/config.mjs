@@ -41,6 +41,7 @@ function defaultStoreFromEnv() {
     agentDryRun: bool(process.env.AGENT_DRY_RUN, true),
     autoPollEnabled: bool(process.env.AUTO_POLL_ENABLED, false),
     autoPollIntervalMinutes: int(process.env.AUTO_POLL_INTERVAL_MINUTES, 5),
+    unansweredCancelAfterHours: int(process.env.UNANSWERED_CANCEL_AFTER_HOURS, 36),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
     cooldownHours: int(process.env.COOLDOWN_HOURS, 1),
     activationCutoff: process.env.ACTIVATION_CUTOFF || null
@@ -58,6 +59,7 @@ function withEnvOverrides(store) {
     agentDryRun: bool(process.env.AGENT_DRY_RUN, store.agentDryRun ?? envStore.agentDryRun),
     autoPollEnabled: bool(process.env.AUTO_POLL_ENABLED, store.autoPollEnabled ?? envStore.autoPollEnabled),
     autoPollIntervalMinutes: int(process.env.AUTO_POLL_INTERVAL_MINUTES, store.autoPollIntervalMinutes ?? envStore.autoPollIntervalMinutes),
+    unansweredCancelAfterHours: int(process.env.UNANSWERED_CANCEL_AFTER_HOURS, store.unansweredCancelAfterHours ?? envStore.unansweredCancelAfterHours),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, store.confidenceThreshold ?? envStore.confidenceThreshold),
     cooldownHours: int(process.env.COOLDOWN_HOURS, store.cooldownHours ?? envStore.cooldownHours),
     activationCutoff: process.env.ACTIVATION_CUTOFF || store.activationCutoff || envStore.activationCutoff
