@@ -9,6 +9,7 @@ import {
   upsertOrder
 } from '../storage.mjs';
 import {
+  cancelDropeaOrder,
   confirmDropeaOrder,
   getDropeaOrderById,
   listPendingDropeaOrders
@@ -87,6 +88,12 @@ function parseDate(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function hoursSince(value) {
+  const date = parseDate(value);
+  if (!date) return null;
+  return (Date.now() - date.getTime()) / 36e5;
 }
 
 function isAfterCutoff(order, cutoffIso) {
@@ -396,6 +403,45 @@ async function storedConfirmationResult(order, store) {
   }
 
   return null;
+}
+
+async function unansweredTimeoutCancellationResult(order, store, validFrom) {
+  const limitHours = Number(store.unansweredCancelAfterHours ?? config.defaultStore.unansweredCancelAfterHours ?? 36);
+  if (!Number.isFinite(limitHours) || limitHours <= 0) return null;
+  if (isShopifyOrder(order)) return null;
+
+  const elapsedHours = hoursSince(validFrom || order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt);
+  if (elapsedHours === null || elapsedHours < limitHours) return null;
+
+  const dryRun = Boolean(store.agentDryRun ?? config.defaultStore.agentDryRun);
+  const analysis = {
+    intent: 'CANCEL_UNANSWERED_TIMEOUT',
+    confidence: 100,
+    reason: `Han pasado ${Math.floor(elapsedHours)} horas desde la plantilla/entrada del pedido sin confirmacion ni cambio de direccion. Regla activa: cancelar tras ${limitHours}h sin senal.`
+  };
+  const patch = {
+    ...order,
+    aiConfidence: 100,
+    aiIntent: 'CANCEL_UNANSWERED_TIMEOUT',
+    operationalNote: dryRun
+      ? `Simulacion: el agente cancelaria este pedido en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion. Accion equivalente: seleccionar pedido, pulsar Cancelar y aceptar.`
+      : `Pedido cancelado automaticamente en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion.`,
+    timeoutCancellationEvaluatedAt: new Date().toISOString()
+  };
+
+  if (dryRun) {
+    patch.status = 'WOULD_CANCEL_UNANSWERED';
+    const updated = upsertOrder(store.id, patch);
+    await safeUpsertSheetRow(updated);
+    return { dryRun: true, action: 'would_cancel_unanswered_timeout', analysis, source: 'unanswered_36h_rule' };
+  }
+
+  const cancellation = await cancelDropeaOrder(order.orderId);
+  patch.status = 'CANCELLED';
+  patch.cancelledAt = new Date().toISOString();
+  const updated = upsertOrder(store.id, patch);
+  await safeUpsertSheetRow(updated);
+  return { dryRun: false, action: 'cancelled_unanswered_timeout', analysis, cancellation, source: 'unanswered_36h_rule' };
 }
 
 async function simulationOverrideResult(order, store) {
@@ -879,6 +925,9 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     await safeUpsertSheetRow(updated);
     return { action: 'confirmed', analysis, confirmation, source: 'chatby_button' };
   }
+
+  const timeoutCancellation = await unansweredTimeoutCancellationResult(order, store, validFrom);
+  if (timeoutCancellation) return timeoutCancellation;
 
   const useAssistant = (store.agentEnabled ?? config.defaultStore.agentEnabled) && config.openaiAssistantEnabled && config.openaiAssistantId;
   const assistantCheckedAt = parseDate(order.assistantCheckedAt);
