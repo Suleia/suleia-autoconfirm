@@ -520,6 +520,16 @@ function agentCustomerSignal(order) {
     order.feedbackNote
   ].filter(Boolean).join(' '));
 
+  if (text.includes('would_cancel_unanswered') || text.includes('cancel_unanswered_timeout') || text.includes('36h') || text.includes('sin confirmacion ni cambio de direccion')) {
+    return {
+      code: 'unanswered_timeout',
+      label: 'Sin respuesta 36h',
+      detail: 'No hay confirmacion ni cambio de direccion tras el plazo operativo.',
+      confidence: 100,
+      tone: 'danger'
+    };
+  }
+
   if (text.includes('address_change') || text.includes('direccion') || text.includes('cambio de direccion') || text.includes('cambiar datos')) {
     return {
       code: 'address_change',
@@ -592,6 +602,17 @@ function agentRecommendation(order) {
       nextStep: 'Corregir direccion en Dropea y mantener pendiente.',
       explanation: 'No confirmo porque el ultimo gesto relevante del cliente es cambio de direccion o datos de entrega.',
       tone: 'warning',
+      confidence: 100
+    };
+  }
+
+  if (signal.code === 'unanswered_timeout') {
+    return {
+      code: 'cancel_timeout',
+      label: 'Cancelaria en Dropea',
+      nextStep: 'Modo simulacion: seleccionaria el pedido, pulsaria Cancelar y aceptaria. En modo real ejecutara cancelacion en Dropea.',
+      explanation: 'No hay confirmacion ni cambio de direccion despues de 36 horas. La regla operativa indica cancelar el pedido.',
+      tone: 'danger',
       confidence: 100
     };
   }
@@ -715,6 +736,18 @@ function uniqueLessons(...groups) {
     }
   }
   return [...byText.values()];
+}
+
+function systemAgentMemoryRules() {
+  return [
+    {
+      id: 'system_unanswered_cancel_36h',
+      type: 'unanswered_timeout_cancel',
+      text: 'Si un pedido de Dropea permanece 36 horas sin confirmacion clara del cliente y sin solicitud de cambio de direccion/datos, el agente debe cancelarlo. En modo simulacion solo debe marcar que lo cancelaria; en modo real debe seleccionar el pedido, pulsar Cancelar y aceptar en Dropea, equivalente a ejecutar la cancelacion por API.',
+      source: 'system_rule',
+      createdAt: '2026-06-23T00:00:00.000Z'
+    }
+  ];
 }
 
 function defaultFinanceSettings() {
@@ -1302,7 +1335,7 @@ export async function buildDashboard({ health = null } = {}) {
   } catch {
     sheetAgentMemory = [];
   }
-  const agentMemory = uniqueLessons(sheetAgentMemory, localAgentMemory);
+  const agentMemory = uniqueLessons(systemAgentMemoryRules(), sheetAgentMemory, localAgentMemory);
 
   const sheetOrders = [];
   const localOrders = localOrdersRaw.map(orderFromLocal);
