@@ -113,6 +113,10 @@ function orderFromLocal(order) {
     agentReason: order.operationalNote || order.agentReason || '',
     chatbyUserNs: order.chatbyUserNs || '',
     chatbyTemplateSentAt: order.chatbyTemplateSentAt || '',
+    chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || '',
+    chatbyTemplateName: order.chatbyTemplateName || '',
+    chatbyTemplateSendStatus: order.chatbyTemplateSendStatus || '',
+    chatbyTemplateLastError: order.chatbyTemplateLastError || '',
     raw: order.raw || {}
   };
 }
