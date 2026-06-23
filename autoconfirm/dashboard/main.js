@@ -133,6 +133,14 @@ function friendlyOrderState(order) {
   const action = normalize(order.agentAction);
   const intent = normalize(order.agentIntent);
 
+  if (status.includes('would_cancel_unanswered') || intent.includes('cancel_unanswered_timeout') || action.includes('cancel_unanswered_timeout')) {
+    return {
+      label: 'Cancelaria por 36h sin respuesta',
+      detail: 'Modo simulacion: el agente seleccionaria el pedido en Dropea, pulsaria Cancelar y aceptaria.',
+      tone: 'danger'
+    };
+  }
+
   if (hasAddressChange(order)) {
     return {
       label: 'Pendiente por direccion',
