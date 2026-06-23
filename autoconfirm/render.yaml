@@ -27,6 +27,8 @@ services:
         value: 720
       - key: AUTO_POLL_ENABLED
         value: false
+      - key: UNANSWERED_CANCEL_AFTER_HOURS
+        value: 36
       - key: CHATBY_TOKEN
         sync: false
       - key: DROPEA_API_KEY
