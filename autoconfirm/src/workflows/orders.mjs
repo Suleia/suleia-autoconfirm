@@ -602,13 +602,69 @@ function configuredWhatsappTemplate(store) {
   return store.whatsappTemplateName || config.whatsappTemplateName || null;
 }
 
+function templateAlreadyAttempted(order, templateName) {
+  if (order.chatbyTemplateAttemptedAt || order.chatbyTemplateSentAt) return true;
+  if (!templateName) return false;
+  return normalizeText(order.chatbyTemplateName) === normalizeText(templateName)
+    && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.chatbyTemplateSendStatus));
+}
+
+function messageLooksLikeTemplate(message, templateName) {
+  const target = normalizeText(String(templateName || '').split(/\s+/).pop() || templateName);
+  if (!target) return false;
+  const raw = message?.raw || message || {};
+  const text = normalizeText([
+    message?.content,
+    raw.template_name,
+    raw.templateName,
+    raw.name,
+    raw.content?.name,
+    raw.message,
+    raw.text,
+    raw.title,
+    JSON.stringify(raw)
+  ].filter(Boolean).join(' '));
+  return text.includes(target);
+}
+
+async function markTemplateAlreadySeen(order, userNs, store, templateName) {
+  if (!userNs) return null;
+  try {
+    const messages = normalizeChatMessages(await getChatMessages(userNs));
+    if (!messages.some((message) => messageLooksLikeTemplate(message, templateName))) return null;
+    return upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      chatbyTemplateSentAt: order.chatbyTemplateSentAt || new Date().toISOString(),
+      chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || new Date().toISOString(),
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: 'already_seen'
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function sendChatbyTemplateForOrder(order, userNs, store) {
   const templateName = configuredWhatsappTemplate(store);
-  if (!templateName || !userNs || order.chatbyTemplateSentAt) return order;
+  if (!templateName || !userNs || templateAlreadyAttempted(order, templateName)) return order;
+
+  const alreadySeen = await markTemplateAlreadySeen(order, userNs, store, templateName);
+  if (alreadySeen) return alreadySeen;
 
   const params = templateParamsForOrder(order);
   let sendResponse = null;
   let provider = 'chatby';
+  const attemptedAt = new Date().toISOString();
+
+  upsertOrder(store.id, {
+    ...order,
+    chatbyUserNs: userNs,
+    chatbyTemplateAttemptedAt: attemptedAt,
+    chatbyTemplateName: templateName,
+    chatbyTemplateSendStatus: 'attempted',
+    chatbyTemplateLastError: null
+  });
 
   try {
     sendResponse = await sendWhatsappTemplate({
@@ -620,20 +676,44 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const canFallbackToMeta = /pro feature only/i.test(message) || config.whatsappProvider === 'meta';
-    if (!canFallbackToMeta) throw error;
+    if (!canFallbackToMeta) {
+      return upsertOrder(store.id, {
+        ...order,
+        chatbyUserNs: userNs,
+        chatbyTemplateAttemptedAt: attemptedAt,
+        chatbyTemplateName: templateName,
+        chatbyTemplateSendStatus: 'failed',
+        chatbyTemplateLastError: message
+      });
+    }
 
-    provider = 'meta';
-    sendResponse = await sendMetaWhatsappTemplate({
-      to: order.customerPhone,
-      templateName,
-      params
-    });
+    try {
+      provider = 'meta';
+      sendResponse = await sendMetaWhatsappTemplate({
+        to: order.customerPhone,
+        templateName,
+        params
+      });
+    } catch (fallbackError) {
+      return upsertOrder(store.id, {
+        ...order,
+        chatbyUserNs: userNs,
+        chatbyTemplateAttemptedAt: attemptedAt,
+        chatbyTemplateName: templateName,
+        chatbyTemplateSendStatus: 'failed',
+        chatbyTemplateLastError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+      });
+    }
   }
 
   return upsertOrder(store.id, {
     ...order,
     chatbyUserNs: userNs,
     chatbyTemplateSentAt: new Date().toISOString(),
+    chatbyTemplateAttemptedAt: attemptedAt,
+    chatbyTemplateName: templateName,
+    chatbyTemplateSendStatus: 'sent',
+    chatbyTemplateLastError: null,
     chatbyLastSendResponse: {
       provider,
       response: sendResponse
@@ -662,6 +742,10 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
       raw: order.raw,
       chatbyUserNs: existing?.chatbyUserNs || null,
       chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+      chatbyTemplateAttemptedAt: existing?.chatbyTemplateAttemptedAt || null,
+      chatbyTemplateName: existing?.chatbyTemplateName || null,
+      chatbyTemplateSendStatus: existing?.chatbyTemplateSendStatus || null,
+      chatbyTemplateLastError: existing?.chatbyTemplateLastError || null,
       aiConfidence: existing?.aiConfidence ?? null,
       aiIntent: existing?.aiIntent || null,
       confirmedAt: existing?.confirmedAt || null
@@ -1174,6 +1258,10 @@ export async function handleDropeaWebhook({ store, payload }) {
         status: workflowStatusForPolledOrder(existing, dropeaOrder.status),
         chatbyUserNs: existing?.chatbyUserNs || null,
         chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+        chatbyTemplateAttemptedAt: existing?.chatbyTemplateAttemptedAt || null,
+        chatbyTemplateName: existing?.chatbyTemplateName || null,
+        chatbyTemplateSendStatus: existing?.chatbyTemplateSendStatus || null,
+        chatbyTemplateLastError: existing?.chatbyTemplateLastError || null,
         aiConfidence: existing?.aiConfidence ?? null,
         aiIntent: existing?.aiIntent || null,
         confirmedAt,
@@ -1203,6 +1291,10 @@ export async function handleDropeaWebhook({ store, payload }) {
       status: workflowStatusForPolledOrder(existing, webhookOrder.status),
       chatbyUserNs: existing?.chatbyUserNs || null,
       chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+      chatbyTemplateAttemptedAt: existing?.chatbyTemplateAttemptedAt || null,
+      chatbyTemplateName: existing?.chatbyTemplateName || null,
+      chatbyTemplateSendStatus: existing?.chatbyTemplateSendStatus || null,
+      chatbyTemplateLastError: existing?.chatbyTemplateLastError || null,
       aiConfidence: existing?.aiConfidence ?? null,
       aiIntent: existing?.aiIntent || null,
       confirmedAt: existing?.confirmedAt || null,
