@@ -253,17 +253,10 @@ const server = http.createServer(async (req, res) => {
         console.error('Dashboard refresh orders error:', error);
       }
 
-      try {
-        results.meta = await syncMetaDashboard({ store: config.defaultStore });
-      } catch (error) {
-        results.metaError = error instanceof Error ? error.message : String(error);
-        console.error('Dashboard refresh Meta error:', error);
-      }
-
       return sendJson(res, 200, {
         ok: true,
         refresh: results,
-        dashboard: await buildDashboard({ health: storeSummary() })
+        dashboard: await buildDashboard({ health: storeSummary(), forceMeta: true })
       });
     }
 
