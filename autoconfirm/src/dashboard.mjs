@@ -1241,6 +1241,155 @@ function buildProducts(orders) {
   }));
 }
 
+function alibabaSearchUrl(query) {
+  return `https://www.alibaba.com/trade/search?SearchText=${encodeURIComponent(query)}`;
+}
+
+function beautyOpportunityCatalog() {
+  return [
+    {
+      name: 'Crema cuello y escote efecto tensor',
+      category: 'Cuidado facial premium',
+      query: 'neck firming cream private label',
+      targetAudience: 'Mujeres 35+ que ya compran hidratantes y buscan firmeza visible.',
+      why: 'Complementa NIDA sin canibalizarla: permite rutina rostro + cuello y aumenta ticket medio.',
+      metaAngles: ['Antes/despues cuello y escote', 'Rutina antiedad en 30 segundos', 'Pack rostro + cuello'],
+      expectedTicket: '29,99 € - 39,99 €',
+      supplierTarget: 'Cosmetica private label con GMP/ISO, MOQ bajo y opcion de tarro premium.',
+      validation: ['Revisar Biblioteca de Anuncios de Meta en Espana', 'Pedir 3 muestras', 'Validar claims permitidos en UE'],
+      risks: ['Claims de firmeza demasiado agresivos', 'Textura o perfume pueden elevar devoluciones']
+    },
+    {
+      name: 'Serum facial vitamina C + acido hialuronico',
+      category: 'Luminosidad y manchas',
+      query: 'vitamin c hyaluronic acid serum private label',
+      targetAudience: 'Cliente que compra hidratante y busca piel luminosa, manchas y efecto buena cara.',
+      why: 'Producto visual, facil de explicar en anuncios y compatible con packs junto a NIDA.',
+      metaAngles: ['Piel apagada vs piel luminosa', 'Rutina manana de 2 pasos', 'Pack serum + crema'],
+      expectedTicket: '24,99 € - 34,99 €',
+      supplierTarget: 'Serum con envase airless/opaco, documentacion CPNP y estabilidad validada.',
+      validation: ['Comparar creativos ganadores de competidores', 'Revisar coste por muestra', 'Test A/B landing simple'],
+      risks: ['Mercado competido', 'Necesita diferenciacion clara en formula/envase']
+    },
+    {
+      name: 'Parches hidrogel contorno de ojos',
+      category: 'Belleza rapida y visual',
+      query: 'hydrogel eye patches private label collagen',
+      targetAudience: 'Compradora impulsiva que responde a contenido visual de ojeras, bolsas y frescor.',
+      why: 'Muy demostrable en video, buen producto de entrada y facil de combinar en upsell.',
+      metaAngles: ['Efecto frio inmediato', 'Rutina express antes de salir', 'Pack descanso facial'],
+      expectedTicket: '19,99 € - 29,99 €',
+      supplierTarget: 'Parches con hidrogel, colageno o niacinamida, packaging premium y lote pequeno.',
+      validation: ['Verificar tolerancia piel sensible', 'Validar tiempos de entrega', 'Probar creativos UGC'],
+      risks: ['Ticket bajo si no se vende en pack', 'Necesita fotos/video muy buenos']
+    },
+    {
+      name: 'Balsamo labial volumen natural',
+      category: 'Labios y belleza diaria',
+      query: 'lip plumper balm private label natural',
+      targetAudience: 'Mujeres que buscan producto de belleza pequeno, recurrente y facil de llevar.',
+      why: 'Producto compacto con alto potencial de repeticion y buen encaje con contenido Meta Ads.',
+      metaAngles: ['Labio hidratado y jugoso', 'Bolso/neceser diario', 'Antes/despues sutil'],
+      expectedTicket: '18,99 € - 24,99 €',
+      supplierTarget: 'Balsamo sin claims medicos, con ingredientes hidratantes y packaging elegante.',
+      validation: ['Revisar ingredientes irritantes', 'Pedir muestras', 'Test de bundle con Collagum'],
+      risks: ['Claims de volumen limitados', 'Puede requerir alto volumen para rentabilidad']
+    },
+    {
+      name: 'Mascarilla nocturna hidratante',
+      category: 'Hidratacion intensiva',
+      query: 'overnight hydrating face mask private label',
+      targetAudience: 'Cliente de crema hidratante que quiere resultado visible al despertar.',
+      why: 'Extiende la promesa de hidratacion de Suleia y permite campanas de rutina nocturna.',
+      metaAngles: ['Piel descansada al despertar', 'Rutina noche premium', 'Antes de dormir en 20 segundos'],
+      expectedTicket: '29,99 € - 39,99 €',
+      supplierTarget: 'Formula hidratante con textura sensorial, tarro o tubo premium y documentacion UE.',
+      validation: ['Comparar margen con NIDA', 'Testar fragancia/textura', 'Validar fotos sensoriales'],
+      risks: ['Muy cercano a NIDA si no se posiciona como noche/intensivo']
+    }
+  ];
+}
+
+function campaignVerdict(campaign) {
+  const roas = Number(campaign.roasMeta || campaign.roasConfirmed || 0);
+  const purchases = Number(campaign.purchases || 0);
+  const spend = Number(campaign.spend || 0);
+  if (roas >= 5 && purchases >= 2) return { label: 'Escalar', tone: 'positive', action: 'Subir presupuesto de forma gradual y duplicar creativo ganador.' };
+  if (roas >= 2.5) return { label: 'Mantener y optimizar', tone: 'warning', action: 'Mantener presupuesto, probar 2 creativos y vigilar CPA.' };
+  if (spend > 20 && purchases === 0) return { label: 'Pausar/revisar', tone: 'danger', action: 'Revisar anuncio, landing y audiencia antes de invertir mas.' };
+  return { label: 'Aprendizaje', tone: 'neutral', action: 'Esperar mas datos o agrupar con campanas similares.' };
+}
+
+function buildBusinessManager({ campaignAnalytics, finance, orders, lastRequestedAt = null }) {
+  const campaigns = campaignAnalytics.campaigns || [];
+  const products = campaignAnalytics.products || [];
+  const totals = campaignAnalytics.totals || {};
+  const topCampaigns = [...campaigns]
+    .filter((campaign) => Number(campaign.spend || 0) > 0)
+    .sort((left, right) => Number(right.roasMeta || 0) - Number(left.roasMeta || 0) || Number(right.purchases || 0) - Number(left.purchases || 0))
+    .slice(0, 6)
+    .map((campaign) => ({
+      campaign: campaign.name,
+      product: campaign.product || 'Sin producto detectado',
+      day: campaign.day || campaign.periodStart || '',
+      spend: campaign.spend,
+      purchases: campaign.purchases,
+      roas: campaign.roasMeta,
+      cpa: campaign.cpaPixel,
+      ctr: campaign.ctr,
+      ...campaignVerdict(campaign)
+    }));
+
+  const strongestProduct = [...products].sort((left, right) => Number(right.roasMeta || 0) - Number(left.roasMeta || 0))[0] || null;
+  const totalOrders = Array.isArray(orders) ? orders.length : 0;
+  const activeProducts = new Set((orders || []).map((order) => order.product || guessProduct(order))).size;
+  const marketFitBoost = strongestProduct?.product === 'NIDA premium' ? 8 : 0;
+  const opportunities = beautyOpportunityCatalog().map((item, index) => {
+    const score = Math.max(60, Math.min(98, 88 - (index * 4) + marketFitBoost + (Number(totals.roasMeta || 0) >= 3 ? 3 : 0)));
+    return {
+      ...item,
+      score,
+      priority: score >= 90 ? 'Alta' : score >= 80 ? 'Media-alta' : 'Media',
+      alibabaSearch: alibabaSearchUrl(item.query),
+      sourceType: 'Radar manager del negocio',
+      evidence: [
+        `Encaje con cartera actual: ${item.category}.`,
+        strongestProduct ? `Meta actual: mejor producto ${strongestProduct.product} con ROAS ${Number(strongestProduct.roasMeta || 0).toFixed(2)}x.` : 'Meta actual: pendiente de acumular mas datos por producto.',
+        'Proveedor: busqueda preparada en Alibaba; requiere validar certificaciones, muestras y costes reales.'
+      ]
+    };
+  }).sort((a, b) => b.score - a.score);
+
+  const recommendedNextMove = topCampaigns.find((item) => item.label === 'Escalar')?.action
+    || (topCampaigns[0]?.action || 'Reunir mas datos de Meta antes de escalar presupuesto.');
+
+  return {
+    name: 'Manager del negocio',
+    role: 'Marketing, escalado y radar de productos',
+    status: 'Activo bajo demanda',
+    updatedAt: new Date().toISOString(),
+    lastRequestedAt,
+    summary: `Analiza Meta Ads, rentabilidad y oportunidades de belleza para escalar Suleia sin tocar el agente logistico.`,
+    kpis: {
+      metaSpend: finance.metaSpend,
+      metaPurchases: totals.purchases || 0,
+      metaRoas: totals.roasMeta || 0,
+      businessProfit: finance.businessProfit,
+      activeProducts,
+      analyzedOrders: totalOrders
+    },
+    recommendedNextMove,
+    campaignActions: topCampaigns,
+    productReports: opportunities,
+    safeguards: [
+      'No confirma, rechaza ni modifica pedidos.',
+      'No envia plantillas de Chatby.',
+      'Solo lee metricas y genera informes comerciales.',
+      'Las oportunidades de proveedor son hipotesis: validar muestras, certificaciones y costes antes de comprar.'
+    ]
+  };
+}
+
 function moneyText(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 'sin dato';
@@ -1390,6 +1539,7 @@ export async function buildDashboard({ health = null } = {}) {
   const financeSettings = await loadFinanceSettings();
   const agentChat = await readJson(path.join(dashboardDataDir, 'agent-chat.json'), []);
   const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
+  const businessManagerRequests = await readJson(path.join(dashboardDataDir, 'business-manager-requests.json'), []);
   let sheetAgentMemory = [];
   if (config.googleSheetsEnabled || config.googleSheetsLegacyReadEnabled) try {
     sheetAgentMemory = await getAgentMemoryRules();
@@ -1436,6 +1586,13 @@ export async function buildDashboard({ health = null } = {}) {
     campaignRows,
     metaRows: liveMeta.campaigns.length ? [] : metaRows,
     financeSettings
+  });
+  const products = buildProducts(orders);
+  const businessManager = buildBusinessManager({
+    campaignAnalytics,
+    finance,
+    orders,
+    lastRequestedAt: latest(businessManagerRequests, 'createdAt', 1)[0]?.createdAt || null
   });
   const sources = [
     { name: 'Google Sheets - plantilla historica', ok: true, disabled: true, error: null },
@@ -1495,13 +1652,28 @@ export async function buildDashboard({ health = null } = {}) {
       updatedAt: liveShopify.source.generatedAt || new Date().toISOString(),
       lastError: liveShopify.source.ok ? null : liveShopify.source.error
     },
-    products: buildProducts(orders),
-    research: [
-      { name: 'Kit sonrisa premium', score: 91, basis: 'Hipotesis manual', note: 'Complementa Collagum y permite packs de mayor ticket.' },
-      { name: 'Serum efecto lifting', score: 86, basis: 'Hipotesis manual', note: 'Buen angulo visual para anuncios y landing directa.' },
-      { name: 'Parches drenantes', score: 74, basis: 'Hipotesis manual', note: 'Requiere validar proveedor, devoluciones y margen real.' }
-    ]
+    products,
+    businessManager,
+    research: businessManager.productReports.map((item) => ({
+      name: item.name,
+      score: item.score,
+      basis: item.sourceType,
+      note: item.why
+    }))
   };
+}
+
+export async function requestBusinessManagerReport({ note = '' } = {}) {
+  const requestPath = path.join(dashboardDataDir, 'business-manager-requests.json');
+  const requests = await readJson(requestPath, []);
+  const item = {
+    id: `bm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    note: String(note || ''),
+    createdAt: new Date().toISOString()
+  };
+  requests.push(item);
+  await writeJson(requestPath, requests.slice(-100));
+  return item;
 }
 
 export async function saveAgentFeedback({ orderId, verdict = 'manual_review', correction = '', note = '' }) {
