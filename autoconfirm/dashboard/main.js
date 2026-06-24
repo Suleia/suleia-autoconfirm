@@ -794,7 +794,7 @@ function renderFeedback() {
   `).join('');
 }
 
-function renderProducts() {
+function renderProductsLegacy() {
   const grid = document.querySelector('#product-cards');
   const products = state.dashboard?.products || [];
   grid.innerHTML = products.map((product) => `
@@ -899,6 +899,42 @@ function renderBusinessManager() {
       ${(manager.safeguards || []).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}
     </div>
   `;
+}
+
+function renderProducts() {
+  const grid = document.querySelector('#product-cards');
+  const products = state.dashboard?.products || [];
+  grid.innerHTML = products.map((product) => {
+    const conversion = product.conversionRate === null || product.conversionRate === undefined ? 's/d' : percent(product.conversionRate);
+    const metaCtr = product.metaCtr ? `${Number(product.metaCtr).toFixed(2)}%` : 's/d';
+    return `
+      <article class="product-card product-card-pro">
+        <div class="product-card-top">
+          <span>${escapeHtml(product.status || 'Activo')}</span>
+          <b>${escapeHtml(product.recommendation || 'Sin recomendacion')}</b>
+        </div>
+        <strong>${escapeHtml(product.name)}</strong>
+        <p>${money(product.price)} precio base · margen estimado ${product.margin ?? '-'}%</p>
+        <div class="product-metric-grid">
+          <div><span>Pedidos</span><strong>${escapeHtml(product.orders || 0)}</strong></div>
+          <div><span>Confirmados</span><strong>${escapeHtml(product.confirmedOrders || 0)}</strong></div>
+          <div><span>Ingresos</span><strong>${money(product.revenue)}</strong></div>
+          <div><span>Conversion</span><strong>${conversion}</strong></div>
+        </div>
+        <div class="product-meta-strip">
+          <div><span>Meta Ads</span><strong>${money(product.metaSpend)}</strong><small>gasto</small></div>
+          <div><span>ROAS</span><strong>${Number(product.metaRoas || 0).toFixed(2)}x</strong><small>pixel Meta</small></div>
+          <div><span>CPA</span><strong>${product.metaCpa ? money(product.metaCpa) : 's/d'}</strong><small>${product.metaPurchases || 0} compras</small></div>
+          <div><span>CTR</span><strong>${metaCtr}</strong><small>${product.metaClicks || 0} clicks</small></div>
+        </div>
+        <div class="product-bottom-line">
+          <span>Contribucion estimada: ${money(product.contribution)}</span>
+          <span>${product.metaImpressions ? `${numberCompact(product.metaImpressions)} impresiones` : 'Sin impresiones Meta'}</span>
+        </div>
+      </article>
+    `;
+  }).join('');
+  renderBusinessManager();
 }
 
 function renderResearch() {
@@ -1085,7 +1121,11 @@ function renderError() {
   const meta = state.dashboard?.meta || {};
   banner.hidden = false;
   banner.className = `status-banner ${meta.live ? 'is-ok' : 'is-warning'}`;
-  banner.textContent = `Datos actualizados ${formatDateTime(state.dashboard?.generatedAt)}. Meta: ${meta.spendSource || 'sin fuente'} (${meta.live ? 'en vivo' : 'fallback'}). ${refreshCountdownText()}`;
+  const metaMode = meta.cached
+    ? `cache rapido${meta.cacheAgeMinutes !== null && meta.cacheAgeMinutes !== undefined ? `, ${meta.cacheAgeMinutes} min` : ''}`
+    : (meta.live ? 'en vivo' : 'fallback');
+  const nextMeta = meta.nextRefreshAt ? ` Proximo Meta: ${formatDateTime(meta.nextRefreshAt)}.` : '';
+  banner.textContent = `Datos actualizados ${formatDateTime(state.dashboard?.generatedAt)}. Meta: ${meta.spendSource || 'sin fuente'} (${metaMode}).${nextMeta} ${refreshCountdownText()}`;
 }
 
 function render() {
