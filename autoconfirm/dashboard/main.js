@@ -324,15 +324,36 @@ function renderOrders() {
   const table = document.querySelector('#orders-table');
   const orders = state.dashboard?.orders || [];
   const rows = orders
-    .filter((order) => matchesQuery([order.orderId, order.customer, order.product, order.status, order.agentAction]))
+    .filter((order) => matchesQuery([order.orderId, order.customer, order.product, order.status, order.agentAction, order.realActionLabel]))
     .filter(orderMatchesFilter)
     .map((order) => {
       const orderState = friendlyOrderState(order);
       const evidence = agentEvidence(order);
       const confidence = order.agentUsefulConfidence ?? order.agentConfidence;
       const source = order.liveSource || order.raw?.source || 'Sistema';
+      const realActionTone = order.realActionTone || 'neutral';
+      const realActionLabel = order.realActionLabel || 'Sin accion real';
+      const realActionDetail = order.realActionDetail || 'Aun no se ha ejecutado accion en Dropea';
+      const intent = normalize(order.agentIntent || order.status || '');
+      const isScheduled = intent.includes('confirm_delay_pending') || intent.includes('confirm_delay');
+      const timeline = Array.isArray(order.timeline) ? order.timeline : [];
+      const timelineHtml = timeline.length ? `
+        <div class="order-timeline" aria-label="Historial del pedido">
+          ${timeline.map((item) => `
+            <span class="order-timeline-step ${escapeHtml(item.tone || 'neutral')}">
+              <i></i>
+              ${escapeHtml(item.label)} · ${escapeHtml(formatDateTime(item.value))}
+            </span>
+          `).join('')}
+        </div>
+      ` : '';
+      const scheduledAlert = isScheduled ? `
+        <div class="order-alert">
+          Confirmacion programada: revisar Chatby antes de actuar${order.confirmationDueAt ? ` · ${escapeHtml(formatDateTime(order.confirmationDueAt))}` : ''}
+        </div>
+      ` : '';
       return `
-        <tr>
+        <tr class="${isScheduled ? 'order-row is-scheduled' : 'order-row'}">
           <td>
             <strong>#${escapeHtml(order.orderId)}</strong>
             <small>${escapeHtml(order.createdAt || '')}</small>
@@ -346,6 +367,14 @@ function renderOrders() {
             <span class="pill ${orderState.tone}">${escapeHtml(orderState.label)}</span>
             <small>${escapeHtml(orderState.detail)}</small>
             <small><strong>Confianza útil:</strong> ${confidence ?? '-'}%</small>
+          </td>
+          <td>
+            <div class="real-action-card ${escapeHtml(realActionTone)}">
+              <span>${escapeHtml(realActionLabel)}</span>
+              <strong>${escapeHtml(realActionDetail)}</strong>
+            </div>
+            ${scheduledAlert}
+            ${timelineHtml}
           </td>
           <td>
             <span class="signal-chip ${evidence.tone}">${escapeHtml(evidence.label)}</span>
@@ -367,10 +396,10 @@ function renderOrders() {
     `;
     });
   const visibleOrders = orders
-    .filter((order) => matchesQuery([order.orderId, order.customer, order.product, order.status, order.agentAction]))
+    .filter((order) => matchesQuery([order.orderId, order.customer, order.product, order.status, order.agentAction, order.realActionLabel]))
     .filter(orderMatchesFilter);
   renderOrdersSummary(orders, visibleOrders);
-  table.innerHTML = rows.join('') || '<tr><td colspan="6">No hay resultados para esta busqueda.</td></tr>';
+  table.innerHTML = rows.join('') || '<tr><td colspan="7">No hay resultados para esta busqueda.</td></tr>';
 }
 
 function renderCampaigns() {
