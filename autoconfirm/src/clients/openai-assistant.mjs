@@ -128,7 +128,7 @@ Reglas obligatorias:
 - Si existe contradiccion entre una señal antigua y una nueva, manda siempre la señal mas reciente.
 - Si hay cambio de direccion, la accion correcta es REGISTER_ADDRESS_CHANGE.
 - Si el pedido acaba de entrar y el cliente aún no ha respondido, usa WAITING_CUSTOMER.
-- Si un pedido de Dropea supera 36 horas sin confirmacion clara y sin cambio de direccion/datos, no lo confirmes: la regla operativa es cancelarlo. En simulacion, registra que se cancelaria; en modo real, el flujo de sistema ejecutara la cancelacion.
+- Si un pedido de Dropea supera 36 horas sin confirmacion clara y sin cambio de direccion/datos, no lo confirmes ni lo dejes esperando: la regla operativa es rechazarlo/cancelarlo automaticamente en Dropea.
 - Si no hay certeza, usa MANUAL_REVIEW.
 - Si se pide cambio de direccion, registra una nota operativa para Google Sheets.
 - No inventes confirmaciones.
