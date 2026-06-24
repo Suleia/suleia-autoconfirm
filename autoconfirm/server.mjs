@@ -7,7 +7,7 @@ import { getAppConfig } from './src/config.mjs';
 import { listOrders, loadState, saveState } from './src/storage.mjs';
 import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, handleShopifyWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
-import { buildDashboard, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
+import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
 
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -283,6 +283,17 @@ const server = http.createServer(async (req, res) => {
       if (!requireDashboardAuth(req, res)) return;
       const body = await readBody(req);
       return sendJson(res, 200, { ok: true, ...(await saveAgentChat(body.message, storeSummary())) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/business-manager-report') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      const request = await requestBusinessManagerReport(body);
+      return sendJson(res, 200, {
+        ok: true,
+        request,
+        dashboard: await buildDashboard({ health: storeSummary() })
+      });
     }
 
     if (req.method === 'POST' && url.pathname.startsWith('/api/webhooks/dropea/')) {
