@@ -28,6 +28,7 @@ const feedbackForm = document.querySelector('#feedback-form');
 const feedbackClose = document.querySelector('#feedback-close');
 const financeSettingsForm = document.querySelector('#finance-settings-form');
 const agentChatForm = document.querySelector('#agent-chat-form');
+const businessManagerButton = document.querySelector('#business-manager-button');
 let feedbackOrderId = null;
 let refreshCountdownTimer = null;
 
@@ -803,6 +804,101 @@ function renderProducts() {
       <p>${money(product.price)} · ${product.orders || 0} pedidos · margen ${product.margin ?? '-'}%</p>
     </div>
   `).join('');
+  renderBusinessManager();
+}
+
+function renderBusinessManager() {
+  const panel = document.querySelector('#business-manager-report');
+  if (!panel) return;
+  const manager = state.dashboard?.businessManager;
+  if (!manager) {
+    panel.innerHTML = '<div class="empty-state">Todavia no hay informe del manager del negocio.</div>';
+    return;
+  }
+
+  const kpis = manager.kpis || {};
+  const campaignActions = manager.campaignActions || [];
+  const reports = manager.productReports || [];
+  panel.innerHTML = `
+    <div class="business-hero">
+      <div>
+        <span>${escapeHtml(manager.role || 'Marketing y producto')}</span>
+        <strong>${escapeHtml(manager.name || 'Manager del negocio')}</strong>
+        <p>${escapeHtml(manager.summary || '')}</p>
+        <small>Actualizado ${escapeHtml(formatDateTime(manager.updatedAt))}${manager.lastRequestedAt ? ` · ultimo informe pedido ${escapeHtml(formatDateTime(manager.lastRequestedAt))}` : ''}</small>
+      </div>
+      <div class="business-next">
+        <span>Siguiente movimiento</span>
+        <strong>${escapeHtml(manager.recommendedNextMove || 'Esperar mas datos')}</strong>
+      </div>
+    </div>
+
+    <div class="business-kpis">
+      <div><span>Gasto Meta</span><strong>${money(kpis.metaSpend)}</strong></div>
+      <div><span>Compras pixel</span><strong>${escapeHtml(kpis.metaPurchases ?? 0)}</strong></div>
+      <div><span>ROAS Meta</span><strong>${Number(kpis.metaRoas || 0).toFixed(2)}x</strong></div>
+      <div><span>Beneficio final</span><strong>${money(kpis.businessProfit)}</strong></div>
+    </div>
+
+    <div class="business-columns">
+      <section>
+        <div class="business-section-title">
+          <span>Meta Ads</span>
+          <strong>Acciones para escalar</strong>
+        </div>
+        <div class="business-action-list">
+          ${campaignActions.length ? campaignActions.map((item) => `
+            <article class="business-action ${escapeHtml(item.tone || 'neutral')}">
+              <div>
+                <span>${escapeHtml(item.label || 'Analizar')}</span>
+                <strong>${escapeHtml(item.campaign || 'Campana Meta')}</strong>
+                <small>${escapeHtml(item.product || 'Sin producto')} · ${escapeHtml(item.day || 'sin fecha')}</small>
+              </div>
+              <b>${Number(item.roas || 0).toFixed(2)}x</b>
+              <p>${escapeHtml(item.action || '')}</p>
+            </article>
+          `).join('') : '<div class="empty-state">Sin campanas suficientes para recomendar escalado.</div>'}
+        </div>
+      </section>
+
+      <section>
+        <div class="business-section-title">
+          <span>Radar beauty Espana</span>
+          <strong>Productos potenciales</strong>
+        </div>
+        <div class="business-product-list">
+          ${reports.map((item) => `
+            <article class="business-product-card">
+              <div class="business-product-head">
+                <div>
+                  <span>${escapeHtml(item.category)}</span>
+                  <strong>${escapeHtml(item.name)}</strong>
+                </div>
+                <b>${escapeHtml(item.score)}</b>
+              </div>
+              <p>${escapeHtml(item.why)}</p>
+              <div class="business-tags">
+                <span>${escapeHtml(item.priority)}</span>
+                <span>${escapeHtml(item.expectedTicket)}</span>
+                <span>${escapeHtml(item.sourceType)}</span>
+              </div>
+              <small><b>Cliente:</b> ${escapeHtml(item.targetAudience)}</small>
+              <small><b>Proveedor:</b> ${escapeHtml(item.supplierTarget)}</small>
+              <small><b>Angulos Meta:</b> ${escapeHtml((item.metaAngles || []).join(' · '))}</small>
+              <div class="business-card-actions">
+                <a href="${escapeHtml(item.alibabaSearch)}" target="_blank" rel="noopener">Buscar en Alibaba</a>
+                <span>${escapeHtml((item.validation || []).slice(0, 2).join(' · '))}</span>
+              </div>
+            </article>
+          `).join('')}
+        </div>
+      </section>
+    </div>
+
+    <div class="business-safeguards">
+      ${(manager.safeguards || []).map((item) => `<span>${escapeHtml(item)}</span>`).join('')}
+    </div>
+  `;
 }
 
 function renderResearch() {
@@ -1045,6 +1141,29 @@ async function refreshDashboardNow() {
   }
 }
 
+async function requestBusinessManagerReport() {
+  if (!businessManagerButton) return;
+  businessManagerButton.disabled = true;
+  businessManagerButton.textContent = 'Analizando...';
+  try {
+    const response = await fetch('/api/business-manager-report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note: 'Informe solicitado desde Productos' })
+    });
+    const payload = await readJsonResponse(response);
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    state.dashboard = payload.dashboard;
+    state.section = 'products';
+    render();
+  } catch (error) {
+    alert(`No se pudo generar el informe del manager: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    businessManagerButton.disabled = false;
+    businessManagerButton.textContent = 'Pedir informe';
+  }
+}
+
 function scheduleAutoRefresh() {
   if (refreshCountdownTimer) window.clearInterval(refreshCountdownTimer);
 
@@ -1172,6 +1291,8 @@ document.querySelectorAll('[data-agent-prefix]').forEach((button) => {
     input.setSelectionRange(input.value.length, input.value.length);
   });
 });
+
+businessManagerButton?.addEventListener('click', requestBusinessManagerReport);
 
 syncButton.addEventListener('click', async () => {
   syncButton.textContent = 'Actualizando...';
