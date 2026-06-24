@@ -700,9 +700,48 @@ function agentRecommendation(order) {
   };
 }
 
+function realActionForOrder(order) {
+  const status = normalize(order.status);
+  const intent = normalize(order.agentIntent);
+  const action = normalize(order.agentAction);
+  if (status.includes('confirmed') || order.confirmedAt) {
+    return { label: 'Confirmado en Dropea', tone: 'positive', detail: order.confirmedAt || 'Confirmacion ejecutada' };
+  }
+  if (status.includes('rejected_after_confirm') || intent.includes('cancel_after_confirmation') || action.includes('rejected_after_confirmation_cancel')) {
+    return { label: 'Rechazado tras cancelar', tone: 'danger', detail: 'Cliente cancelo durante la espera de 1h' };
+  }
+  if (status.includes('rejected_unanswered') || intent.includes('reject_unanswered_timeout') || action.includes('rejected_unanswered_timeout')) {
+    return { label: 'Rechazado 36h sin respuesta', tone: 'danger', detail: 'Cancelacion ejecutada por silencio operativo' };
+  }
+  if (intent.includes('confirm_delay_pending') || status.includes('confirm_delay')) {
+    return { label: 'Programado', tone: 'warning', detail: order.confirmationDueAt ? `Confirmar desde ${order.confirmationDueAt}` : 'Esperando ventana de seguridad' };
+  }
+  if (status.includes('pending_address_change')) {
+    return { label: 'Bloqueado direccion', tone: 'warning', detail: 'No confirmar hasta corregir datos' };
+  }
+  if (status.includes('manual')) {
+    return { label: 'Revision manual', tone: 'warning', detail: 'Requiere validacion humana' };
+  }
+  return { label: 'Sin accion real', tone: 'neutral', detail: 'Aun no se ha ejecutado accion en Dropea' };
+}
+
+function orderTimeline(order) {
+  const items = [
+    { label: 'Pedido', value: order.createdAt, tone: 'neutral' },
+    { label: 'Plantilla', value: order.chatbyTemplateSentAt || order.chatbyTemplateAttemptedAt, tone: order.chatbyTemplateSendStatus === 'failed' ? 'danger' : 'neutral' },
+    { label: 'Confirmacion cliente', value: order.confirmationDelayStartedAt, tone: 'positive' },
+    { label: 'Revisar/actuar', value: order.confirmationDueAt, tone: 'warning' },
+    { label: 'Confirmado', value: order.confirmedAt, tone: 'positive' },
+    { label: 'Rechazado', value: order.cancelledAt, tone: 'danger' }
+  ].filter((item) => item.value);
+
+  return items.slice(-5);
+}
+
 function enrichOrderForAgent(order) {
   const signal = agentCustomerSignal(order);
   const recommendation = agentRecommendation(order);
+  const realAction = realActionForOrder(order);
   return {
     ...order,
     customerSignal: signal.code,
@@ -714,7 +753,11 @@ function enrichOrderForAgent(order) {
     agentNextStep: recommendation.nextStep,
     agentDecisionExplanation: recommendation.explanation,
     agentDecisionTone: recommendation.tone,
-    agentUsefulConfidence: recommendation.confidence
+    agentUsefulConfidence: recommendation.confidence,
+    realActionLabel: realAction.label,
+    realActionTone: realAction.tone,
+    realActionDetail: realAction.detail,
+    timeline: orderTimeline(order)
   };
 }
 
