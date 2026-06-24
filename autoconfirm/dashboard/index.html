@@ -93,13 +93,25 @@
               </div>
               <span class="chip">Dropea + Chatby</span>
             </div>
+            <div id="orders-summary" class="orders-summary"></div>
+            <div class="orders-toolbar">
+              <div class="filter-pills" id="orders-filters">
+                <button class="is-active" type="button" data-order-filter="all">Todos</button>
+                <button type="button" data-order-filter="confirm">Confirmar</button>
+                <button type="button" data-order-filter="address">Dirección</button>
+                <button type="button" data-order-filter="issue">Incidencias</button>
+                <button type="button" data-order-filter="blocked">No confirmar</button>
+                <button type="button" data-order-filter="review">Revisión</button>
+              </div>
+              <small id="orders-count-note">Ordenado de más reciente a menos reciente</small>
+            </div>
             <div class="table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Pedido / fecha</th>
                     <th>Producto</th>
-                    <th>Estado claro</th>
+                    <th>Acción recomendada</th>
                     <th>Señal del cliente</th>
                     <th>Cliente / importe</th>
                     <th>Feedback</th>
@@ -178,6 +190,17 @@
                 </div>
               </div>
 
+              <div class="agent-command-panel">
+                <div class="training-head">
+                  <span>Estado operativo</span>
+                  <strong>Salud del agente</strong>
+                </div>
+                <div id="agent-scoreboard" class="agent-scoreboard"></div>
+                <div id="agent-signal-map" class="agent-signal-map"></div>
+              </div>
+            </div>
+
+            <div class="agent-studio agent-studio-wide">
               <div class="agent-training-panel">
                 <div class="training-head">
                   <span>Acciones rápidas</span>
@@ -205,6 +228,39 @@
                     <button type="button" data-agent-prompt="Dime que informacion falta para tomar mejores decisiones sobre productos, competencia y nuevas oportunidades.">Productos</button>
                     <button type="button" data-agent-prompt="Prepara un resumen ejecutivo del estado actual: pedidos, confirmaciones, gasto Meta, beneficio y riesgos.">Resumen diario</button>
                   </section>
+                </div>
+              </div>
+
+              <div class="agent-training-panel">
+                <div class="training-head">
+                  <span>Playbooks</span>
+                  <strong>Procedimientos guiados</strong>
+                </div>
+                <div class="playbook-grid">
+                  <button type="button" data-agent-prefix="Ensena este nuevo escenario al agente: ">
+                    <b>Nuevo escenario</b>
+                    <span>Crear una regla nueva para casos que aún no contempla.</span>
+                  </button>
+                  <button type="button" data-agent-prefix="Audita el pedido #">
+                    <b>Auditar pedido</b>
+                    <span>Preguntarle por un pedido concreto y su razonamiento.</span>
+                  </button>
+                  <button type="button" data-agent-prefix="Corrige tu criterio: ">
+                    <b>Corregir criterio</b>
+                    <span>Explicarle por qué una decisión fue incorrecta.</span>
+                  </button>
+                  <button type="button" data-agent-prefix="Documenta este proceso paso a paso: ">
+                    <b>Guardar proceso</b>
+                    <span>Convertir una tarea repetible en memoria operativa.</span>
+                  </button>
+                  <button type="button" data-agent-prefix="Antes de actuar en Dropea, verifica siempre que ">
+                    <b>Checklist Dropea</b>
+                    <span>Añadir validaciones previas a cualquier acción.</span>
+                  </button>
+                  <button type="button" data-agent-prefix="Si detectas este patron, clasificalo como ">
+                    <b>Nueva señal</b>
+                    <span>Definir nuevas señales de cliente para clasificar pedidos.</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -245,7 +301,7 @@
                 <p class="eyebrow">Control</p>
                 <h3>Decisiones del agente</h3>
               </div>
-              <span class="chip warning">Dry run</span>
+              <span class="chip warning">Acciones controladas</span>
             </div>
             <div id="agent-list" class="decision-list"></div>
             <div class="learning-note" id="learning-note"></div>
