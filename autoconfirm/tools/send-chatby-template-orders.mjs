@@ -11,6 +11,7 @@ import { sendMetaWhatsappTemplate } from '../src/clients/meta-whatsapp.mjs';
 const config = getAppConfig();
 
 const forceSend = process.argv.includes('--force');
+const forceSendAllowed = ['1', 'true', 'yes'].includes(String(process.env.ALLOW_CHATBY_FORCE_SEND || '').toLowerCase());
 
 function parseOrderIds() {
   const ids = process.argv
@@ -102,6 +103,15 @@ async function resolveChatbyUserNs(order, existing) {
 }
 
 async function sendTemplateForOrderId(orderId) {
+  if (forceSend && !forceSendAllowed) {
+    return {
+      orderId,
+      ok: false,
+      blocked: true,
+      error: 'force_send_blocked_set_ALLOW_CHATBY_FORCE_SEND_true_to_override'
+    };
+  }
+
   const existing = findOrder(config.defaultStore.id, orderId);
   let liveOrder = null;
   let liveOrderWarning = null;
