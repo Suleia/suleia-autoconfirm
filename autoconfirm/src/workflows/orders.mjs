@@ -280,7 +280,7 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
 
   if (!existing) return remoteStatus;
   if (['CONFIRMED', 'CANCELLED'].includes(remoteStatus)) return remoteStatus;
-  if (['CONFIRMED', 'CANCELLED', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
+  if (['CONFIRMED', 'CANCELLED', 'REJECTED_UNANSWERED', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
   return remoteStatus;
 }
 
@@ -413,35 +413,36 @@ async function unansweredTimeoutCancellationResult(order, store, validFrom) {
   const elapsedHours = hoursSince(validFrom || order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt);
   if (elapsedHours === null || elapsedHours < limitHours) return null;
 
-  const dryRun = Boolean(store.agentDryRun ?? config.defaultStore.agentDryRun);
+  const rejectRealEnabled = Boolean(store.unansweredRejectRealEnabled ?? config.defaultStore.unansweredRejectRealEnabled);
+  const dryRun = Boolean(store.agentDryRun ?? config.defaultStore.agentDryRun) && !rejectRealEnabled;
   const analysis = {
-    intent: 'CANCEL_UNANSWERED_TIMEOUT',
+    intent: 'REJECT_UNANSWERED_TIMEOUT',
     confidence: 100,
-    reason: `Han pasado ${Math.floor(elapsedHours)} horas desde la plantilla/entrada del pedido sin confirmacion ni cambio de direccion. Regla activa: cancelar tras ${limitHours}h sin senal.`
+    reason: `Han pasado ${Math.floor(elapsedHours)} horas desde la plantilla/entrada del pedido sin confirmacion ni cambio de direccion. Regla activa: rechazar/cancelar en Dropea tras ${limitHours}h sin accion del cliente.`
   };
   const patch = {
     ...order,
     aiConfidence: 100,
-    aiIntent: 'CANCEL_UNANSWERED_TIMEOUT',
+    aiIntent: 'REJECT_UNANSWERED_TIMEOUT',
     operationalNote: dryRun
-      ? `Simulacion: el agente cancelaria este pedido en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion. Accion equivalente: seleccionar pedido, pulsar Cancelar y aceptar.`
-      : `Pedido cancelado automaticamente en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion.`,
+      ? `Simulacion: el agente rechazaria/cancelaria este pedido en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion. Accion equivalente: seleccionar pedido, pulsar Cancelar y aceptar.`
+      : `Pedido rechazado/cancelado automaticamente en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion.`,
     timeoutCancellationEvaluatedAt: new Date().toISOString()
   };
 
   if (dryRun) {
-    patch.status = 'WOULD_CANCEL_UNANSWERED';
+    patch.status = 'WOULD_REJECT_UNANSWERED';
     const updated = upsertOrder(store.id, patch);
     await safeUpsertSheetRow(updated);
-    return { dryRun: true, action: 'would_cancel_unanswered_timeout', analysis, source: 'unanswered_36h_rule' };
+    return { dryRun: true, action: 'would_reject_unanswered_timeout', analysis, source: 'unanswered_36h_rule' };
   }
 
   const cancellation = await cancelDropeaOrder(order.orderId);
-  patch.status = 'CANCELLED';
+  patch.status = 'REJECTED_UNANSWERED';
   patch.cancelledAt = new Date().toISOString();
   const updated = upsertOrder(store.id, patch);
   await safeUpsertSheetRow(updated);
-  return { dryRun: false, action: 'cancelled_unanswered_timeout', analysis, cancellation, source: 'unanswered_36h_rule' };
+  return { dryRun: false, action: 'rejected_unanswered_timeout', analysis, cancellation, source: 'unanswered_36h_rule' };
 }
 
 async function simulationOverrideResult(order, store) {
