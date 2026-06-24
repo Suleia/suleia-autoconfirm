@@ -1182,13 +1182,37 @@ async function loadLiveShopifyOrders() {
   }
 }
 
-async function loadLiveMetaCampaigns() {
+function cacheIsFresh(cache, ttlMinutes) {
+  const updatedAt = new Date(cache?.source?.generatedAt || cache?.updatedAt || 0).getTime();
+  if (!Number.isFinite(updatedAt) || updatedAt <= 0) return false;
+  return Date.now() - updatedAt < ttlMinutes * 60 * 1000;
+}
+
+async function loadLiveMetaCampaigns({ force = false } = {}) {
   const generatedAt = new Date().toISOString();
   const source = { name: 'Meta API - campanas en vivo', ok: true, error: null, generatedAt };
+  const cachePath = path.join(dashboardDataDir, 'meta-campaign-cache.json');
+  const ttlMinutes = config.metaDashboardIntervalMinutes || 720;
+  const cached = await readJson(cachePath, null);
+
+  if (!force && cached?.campaigns && cacheIsFresh(cached, ttlMinutes)) {
+    return {
+      source: {
+        ...(cached.source || source),
+        name: 'Meta API - cache rapido',
+        ok: true,
+        cached: true,
+        cacheAgeMinutes: Math.round((Date.now() - new Date(cached.source?.generatedAt || cached.updatedAt).getTime()) / 60000),
+        nextRefreshAt: new Date(new Date(cached.source?.generatedAt || cached.updatedAt).getTime() + ttlMinutes * 60 * 1000).toISOString()
+      },
+      campaigns: cached.campaigns || []
+    };
+  }
+
   try {
     const datePreset = process.env.META_DASHBOARD_DATE_PRESET || 'this_month';
     const insights = await getCampaignInsights({ datePreset, level: 'ad', limit: 500, timeIncrement: 1 });
-    return {
+    const result = {
       source: { ...source, period: datePreset, rows: insights.length },
       campaigns: insights.map((item) => ({
         campaign_id: item.campaignId,
@@ -1216,29 +1240,73 @@ async function loadLiveMetaCampaigns() {
         fuente: 'Meta API en vivo'
       }))
     };
+    await writeJson(cachePath, { ...result, updatedAt: generatedAt });
+    return result;
   } catch (error) {
+    if (cached?.campaigns) {
+      return {
+        source: {
+          ...(cached.source || source),
+          name: 'Meta API - cache por fallo de vivo',
+          ok: true,
+          cached: true,
+          stale: true,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        campaigns: cached.campaigns || []
+      };
+    }
     source.ok = false;
     source.error = error instanceof Error ? error.message : String(error);
     return { source, campaigns: [] };
   }
 }
 
-function buildProducts(orders) {
+function buildProducts(orders, campaignAnalytics = { products: [] }) {
   const products = new Map([
-    ['NIDA premium', { name: 'NIDA premium', price: 34.99, cost: 12.5, status: 'Activo', orders: 0, revenue: 0 }],
-    ['Collagum', { name: 'Collagum', price: 24.99, cost: 8.5, status: 'Test', orders: 0, revenue: 0 }]
+    ['NIDA premium', { name: 'NIDA premium', price: 34.99, cost: 12.5, status: 'Activo', orders: 0, confirmedOrders: 0, revenue: 0 }],
+    ['Collagum', { name: 'Collagum', price: 24.99, cost: 8.5, status: 'Test', orders: 0, confirmedOrders: 0, revenue: 0 }]
   ]);
   for (const order of orders) {
     const name = order.product || 'Producto';
-    const product = products.get(name) || { name, price: order.amount || 0, cost: 0, status: 'Detectado', orders: 0, revenue: 0 };
+    const product = products.get(name) || { name, price: order.amount || 0, cost: 0, status: 'Detectado', orders: 0, confirmedOrders: 0, revenue: 0 };
     product.orders += 1;
-    product.revenue += Number(order.amount) || 0;
+    if (isRecognizedSale(order)) {
+      product.confirmedOrders += 1;
+      product.revenue += Number(order.amount) || 0;
+    }
     products.set(name, product);
   }
+
+  for (const metaProduct of campaignAnalytics.products || []) {
+    const name = metaProduct.product || 'Sin producto detectado';
+    const product = products.get(name) || { name, price: 0, cost: 0, status: 'Detectado en Meta', orders: 0, confirmedOrders: 0, revenue: 0 };
+    product.metaSpend = Number(metaProduct.spend || 0);
+    product.metaPurchases = Number(metaProduct.purchases || 0);
+    product.metaPurchaseValue = Number(metaProduct.purchaseValue || 0);
+    product.metaRoas = Number(metaProduct.roasMeta || 0);
+    product.metaCpa = Number(metaProduct.cpaPixel || 0);
+    product.metaCtr = Number(metaProduct.ctr || 0);
+    product.metaClicks = Number(metaProduct.clicks || 0);
+    product.metaImpressions = Number(metaProduct.impressions || 0);
+    products.set(name, product);
+  }
+
   return [...products.values()].map((product) => ({
     ...product,
-    margin: product.price ? Math.round(((product.price - product.cost) / product.price) * 100) : null
-  }));
+    margin: product.price ? Math.round(((product.price - product.cost) / product.price) * 100) : null,
+    conversionRate: product.orders ? product.confirmedOrders / product.orders : null,
+    contribution: Number(product.revenue || 0) - Number(product.metaSpend || 0),
+    recommendation: product.metaSpend > 20 && !product.metaPurchases
+      ? 'Revisar antes de escalar'
+      : product.metaRoas >= 4
+        ? 'Escalable'
+        : product.metaRoas >= 2
+          ? 'Mantener y optimizar'
+          : product.orders
+            ? 'Necesita mas datos'
+            : 'Pendiente de venta'
+  })).sort((a, b) => Number(b.revenue || 0) - Number(a.revenue || 0) || Number(b.metaSpend || 0) - Number(a.metaSpend || 0));
 }
 
 function alibabaSearchUrl(query) {
@@ -1532,7 +1600,7 @@ function learnedRuleFromFeedback(item) {
   return null;
 }
 
-export async function buildDashboard({ health = null } = {}) {
+export async function buildDashboard({ health = null, forceMeta = false } = {}) {
   const localOrdersRaw = listOrders({ storeId: config.defaultStore.id });
   const localState = loadState();
   const feedback = await readJson(path.join(dashboardDataDir, 'agent-feedback.json'), []);
@@ -1569,7 +1637,7 @@ export async function buildDashboard({ health = null } = {}) {
   const knownOrderIds = [...sheetOrders, ...localOrders].map((order) => order.orderId);
   const liveDropea = await loadLiveDropeaOrders(knownOrderIds);
   const liveShopify = await loadLiveShopifyOrders();
-  const liveMeta = await loadLiveMetaCampaigns();
+  const liveMeta = await loadLiveMetaCampaigns({ force: forceMeta });
   const mergedOrders = mergeOrders(sheetOrders, localOrders, [...liveDropea.orders, ...liveShopify.orders], decisions, controlDecisions, feedback);
   const liveChatby = await applyLiveChatbySignals(mergedOrders);
   const orders = liveChatby.orders
@@ -1587,7 +1655,7 @@ export async function buildDashboard({ health = null } = {}) {
     metaRows: liveMeta.campaigns.length ? [] : metaRows,
     financeSettings
   });
-  const products = buildProducts(orders);
+  const products = buildProducts(orders, campaignAnalytics);
   const businessManager = buildBusinessManager({
     campaignAnalytics,
     finance,
@@ -1639,9 +1707,13 @@ export async function buildDashboard({ health = null } = {}) {
     campaignDays: campaignAnalytics.days,
     meta: {
       period: liveMeta.source.period || process.env.META_DASHBOARD_DATE_PRESET || 'this_month',
-      spendSource: liveMeta.campaigns.length ? 'Meta API en vivo' : 'Meta API sin datos disponibles',
+      spendSource: liveMeta.campaigns.length ? (liveMeta.source.cached ? 'Meta API cache rapido' : 'Meta API en vivo') : 'Meta API sin datos disponibles',
       lastError: liveMeta.source.ok ? null : liveMeta.source.error,
       live: Boolean(liveMeta.campaigns.length),
+      cached: Boolean(liveMeta.source.cached),
+      stale: Boolean(liveMeta.source.stale),
+      cacheAgeMinutes: liveMeta.source.cacheAgeMinutes ?? null,
+      nextRefreshAt: liveMeta.source.nextRefreshAt || null,
       updatedAt: liveMeta.source.generatedAt || new Date().toISOString(),
       rows: liveMeta.campaigns.length || campaignAnalytics.campaigns.length,
       totals: campaignAnalytics.totals
