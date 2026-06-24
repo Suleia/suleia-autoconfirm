@@ -1,7 +1,7 @@
 import { getAppConfig } from '../config.mjs';
 import { findOrder, upsertOrder } from '../storage.mjs';
 import { getChatMessages, findSubscriberForOrder, subscriberConfirmsOrder } from './chatby.mjs';
-import { confirmDropeaOrder, getDropeaOrderById } from './dropea.mjs';
+import { getDropeaOrderById } from './dropea.mjs';
 import { getShopifyOrderFinancialStatus } from './shopify.mjs';
 import { upsertSheetRow } from './sheets.mjs';
 
@@ -142,6 +142,12 @@ Flujo de trabajo:
 `.trim();
 }
 
+function addHours(value, hours) {
+  const date = value ? new Date(value) : new Date();
+  const base = Number.isNaN(date.getTime()) ? new Date() : date;
+  return new Date(base.getTime() + (Number(hours) || 1) * 36e5).toISOString();
+}
+
 async function ensureAssistantConfigured() {
   if (!config.openaiAssistantId) {
     throw new Error('Falta OPENAI_ASSISTANT_ID.');
@@ -252,7 +258,7 @@ function detectLatestEvent(messages) {
     }
   }
 
-  if (/\bno lo quiero\b|\bno quiero\b|\bno confirmo\b|\bcancel(ar|o|ado)?\b|\banular\b/.test(text)) {
+  if (/\bno lo quiero\b|\bno quiero\b|\bno confirmo\b|\bno confirmar\b|\bcancel(ar|o|ado)?\b|\bquiero cancelar\b|\banular\b|\banulad[oa]\b|\bno enviar\b|\bno lo envie(s)?\b|\bno me lo envie(s)?\b|\bno me lo mand(e|es|en)\b|\bno lo mand(e|es|en)\b|\bme arrepenti\b|\bme he arrepentido\b|\bya no lo quiero\b|\bya no quiero\b|\bya no me interesa\b|\bno me interesa\b|\bno lo voy a recibir\b|\bno voy a aceptarlo\b|\bno acepto\b|\brechaz(o|ar|ado)\b|\bno recogere\b|\bpedido por error\b|\bme equivoque\b|\berror al pedir\b|\bno lo necesito\b|\bno hace falta\b|\bdejadlo\b|\bdejalo\b|\bdejarlo\b|\bpaso\b/.test(text)) {
     return {
       latest_chatby_event: 'TEXT_CANCEL',
       customer_message: last.content || '',
@@ -384,6 +390,32 @@ async function executeApplyAction(args, store) {
   };
 
   if (action === 'CONFIRM_ORDER') {
+    if (!(current.raw?.payment_method === 'SHOPIFY' || current.raw?.source === 'shopify')) {
+      const delayHours = Number(store.confirmationDelayHours ?? config.defaultStore.confirmationDelayHours ?? 1) || 1;
+      const startedAt = assistantCheckedAt;
+      const dueAt = addHours(startedAt, delayHours);
+      const updated = upsertOrder(store.id, {
+        ...basePatch,
+        status: 'PENDING',
+        aiIntent: 'CONFIRM_DELAY_PENDING',
+        confirmationDelayStartedAt: startedAt,
+        confirmationDueAt: dueAt,
+        confirmationSource: 'openai_assistant',
+        operationalNote: noteFromAssistant || `Confirmacion detectada por asistente. El agente esperara ${delayHours}h y revisara Chatby antes de confirmar en Dropea.`
+      });
+      await upsertSheetRow(updated);
+      return {
+        action: 'confirmation_scheduled',
+        dryRun: false,
+        orderId,
+        dueAt,
+        latest_chatby_event: latestEvent,
+        customer_message: customerMessage,
+        source: 'openai_assistant',
+        updatedOrderStatus: updated.status
+      };
+    }
+
     if (dryRun) {
       const updated = upsertOrder(store.id, {
         ...basePatch,
@@ -419,24 +451,23 @@ async function executeApplyAction(args, store) {
           source: 'openai_assistant'
         };
       }
-    }
 
-    const confirmation = await confirmDropeaOrder(orderId);
-    const updated = upsertOrder(store.id, {
-      ...basePatch,
-      status: 'CONFIRMED',
-      confirmedAt: new Date().toISOString(),
-      operationalNote: noteFromAssistant || current.operationalNote || null
-    });
-    await upsertSheetRow(updated);
-    return {
-      action: 'confirmed',
-      dryRun: false,
-      orderId,
-      confirmation,
-      source: 'openai_assistant',
-      updatedOrderStatus: updated.status
-    };
+      const updated = upsertOrder(store.id, {
+        ...basePatch,
+        status: 'CONFIRMED',
+        confirmedAt: new Date().toISOString(),
+        operationalNote: noteFromAssistant || 'Pedido Shopify confirmado localmente por el asistente.'
+      });
+      await upsertSheetRow(updated);
+      return {
+        action: 'confirmed_shopify_local',
+        dryRun: false,
+        orderId,
+        financialStatus,
+        source: 'openai_assistant',
+        updatedOrderStatus: updated.status
+      };
+    }
   }
 
   if (action === 'REGISTER_ADDRESS_CHANGE') {
