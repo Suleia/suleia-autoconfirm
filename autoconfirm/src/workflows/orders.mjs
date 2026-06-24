@@ -96,6 +96,11 @@ function hoursSince(value) {
   return (Date.now() - date.getTime()) / 36e5;
 }
 
+function addHours(value, hours) {
+  const date = parseDate(value) || new Date();
+  return new Date(date.getTime() + (Number(hours) || 1) * 36e5).toISOString();
+}
+
 function isAfterCutoff(order, cutoffIso) {
   if (!cutoffIso) return true;
   const cutoff = parseDate(cutoffIso);
@@ -214,15 +219,47 @@ function deterministicCustomerIntent(messages) {
     /\bno lo quiero\b/,
     /\bno quiero\b/,
     /\bno confirmo\b/,
+    /\bno confirmar\b/,
     /\bnao quero\b/,
     /\bnao confirmo\b/,
     /\bcancel(ar|o|ado)?\b/,
     /\bcancelar\b/,
+    /\bquiero cancelar\b/,
+    /\bquiero anular\b/,
     /\banular\b/,
     /\banula\b/,
+    /\banulad[oa]\b/,
+    /\beliminar pedido\b/,
+    /\bquitar pedido\b/,
+    /\bborra(r)? pedido\b/,
+    /\bno enviar\b/,
+    /\bno lo envie(s)?\b/,
+    /\bno me lo envie(s)?\b/,
+    /\bno me lo mand(e|es|en)\b/,
+    /\bno lo mand(e|es|en)\b/,
+    /\bno mand(e|es|en) nada\b/,
+    /\bme arrepenti\b/,
+    /\bme he arrepentido\b/,
+    /\bya no lo quiero\b/,
+    /\bya no quiero\b/,
+    /\bya no me interesa\b/,
     /\bno me interesa\b/,
     /\bno lo voy a recibir\b/,
     /\bno voy a aceptarlo\b/,
+    /\bno acepto\b/,
+    /\brechaz(o|ar|ado)\b/,
+    /\bno recogere\b/,
+    /\bno lo recogere\b/,
+    /\bno puedo recibirlo\b/,
+    /\bpedido por error\b/,
+    /\bme equivoque\b/,
+    /\berror al pedir\b/,
+    /\bno lo necesito\b/,
+    /\bno hace falta\b/,
+    /\bdejadlo\b/,
+    /\bdejalo\b/,
+    /\bdejarlo\b/,
+    /\bpaso\b/
   ];
 
   if (cancelPatterns.some((pattern) => pattern.test(text))) {
@@ -280,7 +317,7 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
 
   if (!existing) return remoteStatus;
   if (['CONFIRMED', 'CANCELLED'].includes(remoteStatus)) return remoteStatus;
-  if (['CONFIRMED', 'CANCELLED', 'REJECTED_UNANSWERED', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
+  if (['CONFIRMED', 'CANCELLED', 'REJECTED_UNANSWERED', 'REJECTED_AFTER_CONFIRM_CANCEL', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
   return remoteStatus;
 }
 
@@ -443,6 +480,135 @@ async function unansweredTimeoutCancellationResult(order, store, validFrom) {
   const updated = upsertOrder(store.id, patch);
   await safeUpsertSheetRow(updated);
   return { dryRun: false, action: 'rejected_unanswered_timeout', analysis, cancellation, source: 'unanswered_36h_rule' };
+}
+
+async function scheduleDelayedConfirmation(order, store, analysis, source, signalAt = null) {
+  const delayHours = Number(store.confirmationDelayHours ?? config.defaultStore.confirmationDelayHours ?? 1) || 1;
+  const startedAt = signalAt || new Date().toISOString();
+  const dueAt = addHours(startedAt, delayHours);
+  const updated = upsertOrder(store.id, {
+    ...order,
+    status: 'PENDING',
+    aiConfidence: Number(analysis?.confidence ?? 100),
+    aiIntent: 'CONFIRM_DELAY_PENDING',
+    confirmationDelayStartedAt: startedAt,
+    confirmationDueAt: dueAt,
+    confirmationSource: source || 'customer_confirmation',
+    operationalNote: `Cliente confirmo claramente. El agente esperara ${delayHours}h antes de confirmar en Dropea y revisara si el cliente cancela durante la espera.`
+  });
+  await safeUpsertSheetRow(updated);
+  return {
+    action: 'confirmation_scheduled',
+    dryRun: false,
+    analysis: {
+      ...analysis,
+      intent: 'CONFIRM_DELAY_PENDING',
+      reason: `Confirmacion detectada. Confirmacion real programada para ${dueAt}; antes se revisara Chatby por cancelaciones posteriores.`
+    },
+    source,
+    dueAt
+  };
+}
+
+async function processDelayedConfirmation(order, store, inboundCustomerMessages) {
+  if (String(order.aiIntent || '').toUpperCase() !== 'CONFIRM_DELAY_PENDING') return null;
+
+  const dueAt = parseDate(order.confirmationDueAt);
+  const startedAt = order.confirmationDelayStartedAt || order.confirmationDueAt || new Date().toISOString();
+  const messagesAfterConfirmation = customerMessagesAfter(inboundCustomerMessages, startedAt);
+  const latestIntent = customerConversationIntentForOrder(messagesAfterConfirmation, order)
+    || deterministicCustomerIntent(messagesAfterConfirmation);
+
+  if (latestIntent?.intent === 'CANCEL') {
+    const cancellation = await cancelDropeaOrder(order.orderId);
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'REJECTED_AFTER_CONFIRM_CANCEL',
+      aiConfidence: Number(latestIntent.confidence ?? 100),
+      aiIntent: 'CANCEL_AFTER_CONFIRMATION',
+      cancelledAt: new Date().toISOString(),
+      operationalNote: 'Cliente cancelo despues de confirmar y antes de la hora de espera. El agente rechazo/cancelo el pedido en Dropea.'
+    });
+    await safeUpsertSheetRow(updated);
+    return {
+      action: 'rejected_after_confirmation_cancel',
+      dryRun: false,
+      analysis: {
+        ...latestIntent,
+        reason: latestIntent.reason || 'El cliente cancelo despues de confirmar, dentro de la ventana de espera.'
+      },
+      cancellation,
+      source: latestIntent.source || 'customer_cancel_after_confirmation'
+    };
+  }
+
+  if (latestIntent?.intent === 'ADDRESS_CHANGE') {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'PENDING_ADDRESS_CHANGE',
+      aiConfidence: Number(latestIntent.confidence ?? 100),
+      aiIntent: 'ADDRESS_CHANGE_REQUESTED',
+      operationalNote: 'Cliente pidio cambiar direccion/datos despues de confirmar. No se confirma en Dropea hasta corregir datos.'
+    });
+    await safeUpsertSheetRow(updated);
+    return {
+      action: 'hold_after_confirmation_address_change',
+      dryRun: false,
+      analysis: latestIntent,
+      source: latestIntent.source || 'customer_address_change_after_confirmation'
+    };
+  }
+
+  if (!dueAt || Date.now() < dueAt.getTime()) {
+    return {
+      skipped: true,
+      reason: 'confirmation_delay_waiting',
+      dueAt: order.confirmationDueAt
+    };
+  }
+
+  const delayedConfirmRealEnabled = Boolean(store.delayedConfirmRealEnabled ?? config.defaultStore.delayedConfirmRealEnabled);
+  if (!delayedConfirmRealEnabled) {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'CONFIRM_DELAY_READY',
+      aiIntent: 'CONFIRM_DELAY_READY',
+      operationalNote: 'La espera de 1h termino y no hubo cancelacion posterior, pero la confirmacion real esta desactivada.'
+    });
+    await safeUpsertSheetRow(updated);
+    return {
+      dryRun: true,
+      action: 'would_confirm_after_delay',
+      analysis: {
+        intent: 'CONFIRM',
+        confidence: Number(order.aiConfidence ?? 100),
+        reason: 'Pasada la espera de 1h sin cancelacion posterior. Confirmacion real desactivada por configuracion.'
+      },
+      source: order.confirmationSource || 'delayed_confirmation'
+    };
+  }
+
+  const confirmation = await confirmDropeaOrder(order.orderId);
+  const updated = upsertOrder(store.id, {
+    ...order,
+    status: 'CONFIRMED',
+    aiConfidence: Number(order.aiConfidence ?? 100),
+    aiIntent: 'CONFIRM',
+    confirmedAt: new Date().toISOString(),
+    operationalNote: 'Confirmacion ejecutada en Dropea tras esperar 1h y comprobar que no hubo cancelacion posterior en Chatby.'
+  });
+  await safeUpsertSheetRow(updated);
+  return {
+    action: 'confirmed_after_delay',
+    dryRun: false,
+    analysis: {
+      intent: 'CONFIRM',
+      confidence: Number(order.aiConfidence ?? 100),
+      reason: 'Pasada la espera de 1h tras la confirmacion, no se detecto cancelacion posterior en Chatby.'
+    },
+    confirmation,
+    source: order.confirmationSource || 'delayed_confirmation'
+  };
 }
 
 async function simulationOverrideResult(order, store) {
@@ -749,6 +915,9 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
       chatbyTemplateLastError: existing?.chatbyTemplateLastError || null,
       aiConfidence: existing?.aiConfidence ?? null,
       aiIntent: existing?.aiIntent || null,
+      confirmationDelayStartedAt: existing?.confirmationDelayStartedAt || null,
+      confirmationDueAt: existing?.confirmationDueAt || null,
+      confirmationSource: existing?.confirmationSource || null,
       confirmedAt: existing?.confirmedAt || null
     });
 
@@ -897,6 +1066,10 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   const latestInboundCustomerMessageAt = inboundCustomerMessages.length
     ? parseDate(inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.created_at || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.createdAt || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.createdAt)
     : null;
+
+  const delayedConfirmationResult = await processDelayedConfirmation(order, store, inboundCustomerMessages);
+  if (delayedConfirmationResult) return delayedConfirmationResult;
+
   const immediateCustomerIntent = customerConversationIntentForOrder(inboundCustomerMessages, order)
     || deterministicCustomerIntent(inboundCustomerMessages);
   if (['CANCEL', 'ADDRESS_CHANGE'].includes(immediateCustomerIntent?.intent)) {
@@ -959,12 +1132,13 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       return result;
     }
 
-    const confirmation = await confirmDropeaOrder(order.orderId);
-    patch.status = 'CONFIRMED';
-    patch.confirmedAt = new Date().toISOString();
-    const updated = upsertOrder(store.id, patch);
-    await safeUpsertSheetRow(updated);
-    return { action: 'confirmed', analysis, confirmation, source: immediateCustomerIntent.source || 'customer_message' };
+    return scheduleDelayedConfirmation(
+      patch,
+      store,
+      analysis,
+      immediateCustomerIntent.source || 'customer_message',
+      latestInboundCustomerMessageAt?.toISOString() || new Date().toISOString()
+    );
   }
 
   const subscriberOrderId = currentSubscriberOrderId(subscriber);
@@ -1003,12 +1177,13 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       return result;
     }
 
-    const confirmation = await confirmDropeaOrder(order.orderId);
-    patch.status = 'CONFIRMED';
-    patch.confirmedAt = new Date().toISOString();
-    const updated = upsertOrder(store.id, patch);
-    await safeUpsertSheetRow(updated);
-    return { action: 'confirmed', analysis, confirmation, source: 'chatby_button' };
+    return scheduleDelayedConfirmation(
+      patch,
+      store,
+      analysis,
+      'chatby_button',
+      latestInboundCustomerMessageAt?.toISOString() || new Date().toISOString()
+    );
   }
 
   const timeoutCancellation = await unansweredTimeoutCancellationResult(order, store, validFrom);
@@ -1109,12 +1284,13 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       return result;
     }
 
-    const confirmation = await confirmDropeaOrder(order.orderId);
-    patch.status = 'CONFIRMED';
-    patch.confirmedAt = new Date().toISOString();
-    const updated = upsertOrder(store.id, patch);
-    await safeUpsertSheetRow(updated);
-    return { action: 'confirmed', analysis, confirmation };
+    return scheduleDelayedConfirmation(
+      patch,
+      store,
+      analysis,
+      analysis.source || 'classified_customer_message',
+      lastMessageAt?.toISOString() || new Date().toISOString()
+    );
   }
 
   if (['CANCEL', 'ADDRESS_CHANGE'].includes(intent) && confidence >= threshold) {
@@ -1265,6 +1441,9 @@ export async function handleDropeaWebhook({ store, payload }) {
         chatbyTemplateLastError: existing?.chatbyTemplateLastError || null,
         aiConfidence: existing?.aiConfidence ?? null,
         aiIntent: existing?.aiIntent || null,
+        confirmationDelayStartedAt: existing?.confirmationDelayStartedAt || null,
+        confirmationDueAt: existing?.confirmationDueAt || null,
+        confirmationSource: existing?.confirmationSource || null,
         confirmedAt,
         operationalNote: existing?.operationalNote || null
       });
@@ -1298,6 +1477,9 @@ export async function handleDropeaWebhook({ store, payload }) {
       chatbyTemplateLastError: existing?.chatbyTemplateLastError || null,
       aiConfidence: existing?.aiConfidence ?? null,
       aiIntent: existing?.aiIntent || null,
+      confirmationDelayStartedAt: existing?.confirmationDelayStartedAt || null,
+      confirmationDueAt: existing?.confirmationDueAt || null,
+      confirmationSource: existing?.confirmationSource || null,
       confirmedAt: existing?.confirmedAt || null,
       operationalNote: existing?.operationalNote || null
     });
