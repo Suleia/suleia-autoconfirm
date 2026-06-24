@@ -524,7 +524,7 @@ function agentCustomerSignal(order) {
     order.feedbackNote
   ].filter(Boolean).join(' '));
 
-  if (text.includes('would_cancel_unanswered') || text.includes('cancel_unanswered_timeout') || text.includes('36h') || text.includes('sin confirmacion ni cambio de direccion')) {
+  if (text.includes('would_cancel_unanswered') || text.includes('would_reject_unanswered') || text.includes('cancel_unanswered_timeout') || text.includes('reject_unanswered_timeout') || text.includes('36h') || text.includes('sin confirmacion ni cambio de direccion')) {
     return {
       code: 'unanswered_timeout',
       label: 'Sin respuesta 36h',
@@ -612,10 +612,10 @@ function agentRecommendation(order) {
 
   if (signal.code === 'unanswered_timeout') {
     return {
-      code: 'cancel_timeout',
-      label: 'Cancelaria en Dropea',
-      nextStep: 'Modo simulacion: seleccionaria el pedido, pulsaria Cancelar y aceptaria. En modo real ejecutara cancelacion en Dropea.',
-      explanation: 'No hay confirmacion ni cambio de direccion despues de 36 horas. La regla operativa indica cancelar el pedido.',
+      code: 'reject_timeout',
+      label: 'Rechazar en Dropea',
+      nextStep: 'Si no hay confirmacion ni cambio de direccion tras 36h, ejecutar rechazo/cancelacion en Dropea.',
+      explanation: 'No hay confirmacion ni cambio de direccion despues de 36 horas. La regla operativa indica rechazar el pedido.',
       tone: 'danger',
       confidence: 100
     };
@@ -747,7 +747,7 @@ function systemAgentMemoryRules() {
     {
       id: 'system_unanswered_cancel_36h',
       type: 'unanswered_timeout_cancel',
-      text: 'Si un pedido de Dropea permanece 36 horas sin confirmacion clara del cliente y sin solicitud de cambio de direccion/datos, el agente debe cancelarlo. En modo simulacion solo debe marcar que lo cancelaria; en modo real debe seleccionar el pedido, pulsar Cancelar y aceptar en Dropea, equivalente a ejecutar la cancelacion por API.',
+      text: 'Si un pedido de Dropea permanece 36 horas sin confirmacion clara del cliente y sin solicitud de cambio de direccion/datos, el agente debe rechazarlo/cancelarlo automaticamente en Dropea. La accion operativa equivale a seleccionar el pedido, pulsar Cancelar y aceptar, ejecutada por API.',
       source: 'system_rule',
       createdAt: '2026-06-23T00:00:00.000Z'
     }
