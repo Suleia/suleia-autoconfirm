@@ -141,6 +141,14 @@ function friendlyOrderState(order) {
     };
   }
 
+  if (intent.includes('confirm_delay_pending')) {
+    return {
+      label: 'Confirmación programada',
+      detail: 'Cliente confirmó. El agente espera 1h y revisa Chatby antes de confirmar en Dropea.',
+      tone: 'warning'
+    };
+  }
+
   if (hasAddressChange(order)) {
     return {
       label: 'Pendiente por direccion',
