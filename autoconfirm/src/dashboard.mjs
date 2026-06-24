@@ -111,6 +111,9 @@ function orderFromLocal(order) {
     agentIntent: order.aiIntent || order.agentIntent || '',
     agentConfidence: order.aiConfidence ?? order.agentConfidence ?? null,
     agentReason: order.operationalNote || order.agentReason || '',
+    confirmationDelayStartedAt: order.confirmationDelayStartedAt || '',
+    confirmationDueAt: order.confirmationDueAt || '',
+    confirmationSource: order.confirmationSource || '',
     chatbyUserNs: order.chatbyUserNs || '',
     chatbyTemplateSentAt: order.chatbyTemplateSentAt || '',
     chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || '',
@@ -607,6 +610,17 @@ function agentRecommendation(order) {
       explanation: 'No confirmo porque el ultimo gesto relevante del cliente es cambio de direccion o datos de entrega.',
       tone: 'warning',
       confidence: 100
+    };
+  }
+
+  if (intent.includes('confirm_delay_pending')) {
+    return {
+      code: 'confirm_delay',
+      label: 'Confirmación programada',
+      nextStep: 'Esperar 1h desde la confirmación y revisar Chatby antes de confirmar en Dropea.',
+      explanation: 'El cliente confirmó, pero el agente aplica la ventana de seguridad de 1h por si el cliente cancela después.',
+      tone: 'warning',
+      confidence: Number(order.agentConfidence) || 100
     };
   }
 
