@@ -133,10 +133,10 @@ function friendlyOrderState(order) {
   const action = normalize(order.agentAction);
   const intent = normalize(order.agentIntent);
 
-  if (status.includes('would_cancel_unanswered') || intent.includes('cancel_unanswered_timeout') || action.includes('cancel_unanswered_timeout')) {
+  if (status.includes('would_cancel_unanswered') || status.includes('would_reject_unanswered') || status.includes('rejected_unanswered') || intent.includes('cancel_unanswered_timeout') || intent.includes('reject_unanswered_timeout') || action.includes('cancel_unanswered_timeout') || action.includes('reject_unanswered_timeout')) {
     return {
-      label: 'Cancelaria por 36h sin respuesta',
-      detail: 'Modo simulacion: el agente seleccionaria el pedido en Dropea, pulsaria Cancelar y aceptaria.',
+      label: status.includes('rejected_unanswered') ? 'Rechazado por 36h sin respuesta' : 'Rechazar por 36h sin respuesta',
+      detail: 'Sin confirmacion ni cambio de direccion tras 36h. Accion en Dropea: cancelar/rechazar pedido.',
       tone: 'danger'
     };
   }
