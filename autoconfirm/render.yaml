@@ -26,7 +26,13 @@ services:
       - key: META_DASHBOARD_INTERVAL_MINUTES
         value: 720
       - key: AUTO_POLL_ENABLED
-        value: false
+        value: true
+      - key: AUTO_POLL_INTERVAL_MINUTES
+        value: 5
+      - key: DELAYED_CONFIRM_REAL_ENABLED
+        value: true
+      - key: CONFIRMATION_DELAY_HOURS
+        value: 1
       - key: UNANSWERED_CANCEL_AFTER_HOURS
         value: 36
       - key: UNANSWERED_REJECT_REAL_ENABLED
