@@ -15,10 +15,8 @@ import {
   listPendingDropeaOrders
 } from '../clients/dropea.mjs';
 import {
-  createSubscriber,
   findSubscriberForOrder,
   getChatMessages,
-  sendWhatsappTemplate,
   subscriberConfirmsOrder
 } from '../clients/chatby.mjs';
 import { sendMetaWhatsappTemplate } from '../clients/meta-whatsapp.mjs';
@@ -821,7 +819,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
 
   const params = templateParamsForOrder(order);
   let sendResponse = null;
-  let provider = normalizeText(config.whatsappProvider) === 'meta' ? 'meta' : 'chatby';
+  const provider = 'meta';
   const attemptedAt = new Date().toISOString();
 
   upsertOrder(store.id, {
@@ -834,51 +832,21 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   });
 
   try {
-    if (provider === 'meta') {
-      sendResponse = await sendMetaWhatsappTemplate({
-        to: order.customerPhone,
-        templateName,
-        params
-      });
-    } else {
-      sendResponse = await sendWhatsappTemplate({
-        user_ns: userNs,
-        user_id: order.customerPhone,
-        template_name: templateName,
-        params
-      });
-    }
+    sendResponse = await sendMetaWhatsappTemplate({
+      to: order.customerPhone,
+      templateName,
+      params
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const canFallbackToMeta = provider !== 'meta' && /pro feature only|fuera del tiempo permitido|outside the allowed time|outside.*window/i.test(message);
-    if (!canFallbackToMeta) {
-      return upsertOrder(store.id, {
-        ...order,
-        chatbyUserNs: userNs,
-        chatbyTemplateAttemptedAt: attemptedAt,
-        chatbyTemplateName: templateName,
-        chatbyTemplateSendStatus: 'failed',
-        chatbyTemplateLastError: message
-      });
-    }
-
-    try {
-      provider = 'meta';
-      sendResponse = await sendMetaWhatsappTemplate({
-        to: order.customerPhone,
-        templateName,
-        params
-      });
-    } catch (fallbackError) {
-      return upsertOrder(store.id, {
-        ...order,
-        chatbyUserNs: userNs,
-        chatbyTemplateAttemptedAt: attemptedAt,
-        chatbyTemplateName: templateName,
-        chatbyTemplateSendStatus: 'failed',
-        chatbyTemplateLastError: fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
-      });
-    }
+    return upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      chatbyTemplateAttemptedAt: attemptedAt,
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: 'failed',
+      chatbyTemplateLastError: message
+    });
   }
 
   return upsertOrder(store.id, {
@@ -1015,8 +983,7 @@ export async function handleShopifyWebhook({ store = config.defaultStore, payloa
 
 export async function ensureChatbyThread(order, store = config.defaultStore) {
   const templateName = configuredWhatsappTemplate(store);
-  const provider = normalizeText(config.whatsappProvider);
-  if (provider === 'meta' && templateName && !templateAlreadyAttempted(order, templateName)) {
+  if (templateName && !templateAlreadyAttempted(order, templateName)) {
     const attemptedAt = new Date().toISOString();
     const params = templateParamsForOrder(order);
     upsertOrder(store.id, {
@@ -1061,9 +1028,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
 
   if (!config.chatbyToken) return order;
   if (order.chatbyUserNs) {
-    const updated = await sendChatbyTemplateForOrder(order, order.chatbyUserNs, store);
-    if (updated !== order) await safeUpsertSheetRow(updated);
-    return updated;
+    return order;
   }
   if (!order.customerPhone) return order;
 
@@ -1073,34 +1038,16 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   });
 
   if (existingSubscriber?.user_ns) {
-    let updated = upsertOrder(store.id, {
+    const updated = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: existingSubscriber.user_ns,
       chatbyTemplateSentAt: order.chatbyTemplateSentAt || null
     });
-    updated = await sendChatbyTemplateForOrder(updated, existingSubscriber.user_ns, store);
     await safeUpsertSheetRow(updated);
     return updated;
   }
 
-  const created = await createSubscriber({
-    phone: order.customerPhone,
-    name: order.customerName || order.customerPhone,
-    email: order.customerEmail || undefined,
-    metadata: {
-      orderId: order.orderId,
-      source: 'dropea'
-    }
-  });
-
-  const userNs = created?.data?.user_ns || created?.user_ns || created?.userNs || created?.id || null;
-  if (!userNs) return order;
-
-  let updated = upsertOrder(store.id, { ...order, chatbyUserNs: userNs });
-  updated = await sendChatbyTemplateForOrder(updated, userNs, store);
-
-  await safeUpsertSheetRow(updated);
-  return updated;
+  return order;
 }
 
 async function attachExistingChatbyThread(order, store = config.defaultStore) {
@@ -1412,10 +1359,26 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
   const results = [];
 
   for (const order of orders) {
-    const hydrated = await ensureChatbyThread(order, store);
-    const result = await analyzeAndMaybeConfirmOrder(hydrated, store);
-    if (result && !result.skipped) {
-      await recordDecisionAndReturn(hydrated, result);
+    let hydrated = order;
+    let result = null;
+    try {
+      hydrated = await ensureChatbyThread(order, store);
+      result = await analyzeAndMaybeConfirmOrder(hydrated, store);
+      if (result && !result.skipped) {
+        await recordDecisionAndReturn(hydrated, result);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const updated = upsertOrder(store.id, {
+        ...hydrated,
+        aiIntent: hydrated.aiIntent || 'AGENT_ERROR',
+        operationalNote: `Error del agente logistico: ${message}`,
+        lastAgentErrorAt: new Date().toISOString(),
+        lastAgentError: message
+      });
+      await safeUpsertSheetRow(updated);
+      result = { action: 'agent_error', error: message };
+      console.error(`[auto_confirm] Order ${order.orderId} failed:`, error);
     }
     results.push({ orderId: order.orderId, result });
   }
