@@ -821,7 +821,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
 
   const params = templateParamsForOrder(order);
   let sendResponse = null;
-  let provider = 'chatby';
+  let provider = normalizeText(config.whatsappProvider) === 'meta' ? 'meta' : 'chatby';
   const attemptedAt = new Date().toISOString();
 
   upsertOrder(store.id, {
@@ -834,15 +834,23 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   });
 
   try {
-    sendResponse = await sendWhatsappTemplate({
-      user_ns: userNs,
-      user_id: order.customerPhone,
-      template_name: templateName,
-      params
-    });
+    if (provider === 'meta') {
+      sendResponse = await sendMetaWhatsappTemplate({
+        to: order.customerPhone,
+        templateName,
+        params
+      });
+    } else {
+      sendResponse = await sendWhatsappTemplate({
+        user_ns: userNs,
+        user_id: order.customerPhone,
+        template_name: templateName,
+        params
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const canFallbackToMeta = /pro feature only/i.test(message) || config.whatsappProvider === 'meta';
+    const canFallbackToMeta = provider !== 'meta' && /pro feature only|fuera del tiempo permitido|outside the allowed time|outside.*window/i.test(message);
     if (!canFallbackToMeta) {
       return upsertOrder(store.id, {
         ...order,
@@ -994,6 +1002,51 @@ export async function handleShopifyWebhook({ store = config.defaultStore, payloa
 }
 
 export async function ensureChatbyThread(order, store = config.defaultStore) {
+  const templateName = configuredWhatsappTemplate(store);
+  const provider = normalizeText(config.whatsappProvider);
+  if (provider === 'meta' && templateName && !templateAlreadyAttempted(order, templateName)) {
+    const attemptedAt = new Date().toISOString();
+    const params = templateParamsForOrder(order);
+    upsertOrder(store.id, {
+      ...order,
+      chatbyTemplateAttemptedAt: attemptedAt,
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: 'attempted',
+      chatbyTemplateLastError: null
+    });
+    try {
+      const sendResponse = await sendMetaWhatsappTemplate({
+        to: order.customerPhone,
+        templateName,
+        params
+      });
+      const updated = upsertOrder(store.id, {
+        ...order,
+        chatbyTemplateSentAt: new Date().toISOString(),
+        chatbyTemplateAttemptedAt: attemptedAt,
+        chatbyTemplateName: templateName,
+        chatbyTemplateSendStatus: 'sent',
+        chatbyTemplateLastError: null,
+        chatbyLastSendResponse: {
+          provider: 'meta',
+          response: sendResponse
+        }
+      });
+      await safeUpsertSheetRow(updated);
+      return updated;
+    } catch (error) {
+      const updated = upsertOrder(store.id, {
+        ...order,
+        chatbyTemplateAttemptedAt: attemptedAt,
+        chatbyTemplateName: templateName,
+        chatbyTemplateSendStatus: 'failed',
+        chatbyTemplateLastError: error instanceof Error ? error.message : String(error)
+      });
+      await safeUpsertSheetRow(updated);
+      return updated;
+    }
+  }
+
   if (!config.chatbyToken) return order;
   if (order.chatbyUserNs) {
     const updated = await sendChatbyTemplateForOrder(order, order.chatbyUserNs, store);
