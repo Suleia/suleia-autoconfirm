@@ -4,7 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { getAppConfig } from './src/config.mjs';
-import { listOrders, loadState, saveState } from './src/storage.mjs';
+import { findOrder, listOrders, loadState, saveState, upsertOrder } from './src/storage.mjs';
+import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs';
 import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, handleShopifyWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
@@ -151,6 +152,10 @@ function isAuthorizedCron(req) {
   return header === `Bearer ${config.cronSecret}`;
 }
 
+function isAuthorizedDashboardAction(req) {
+  return isDashboardAuthenticated(req) || isAuthorizedCron(req);
+}
+
 function dashboardFilePath(urlPath) {
   const cleanPath = decodeURIComponent(urlPath.split('?')[0]);
   const relativePath = cleanPath === '/dashboard' || cleanPath === '/dashboard/'
@@ -286,6 +291,47 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         request,
         dashboard: await buildDashboard({ health: storeSummary() })
+      });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/logistics/cancel-dropea-order') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      const orderId = String(body.orderId || body.order_id || '').trim();
+      if (!/^\d+$/.test(orderId)) return sendJson(res, 400, { ok: false, error: 'invalid_order_id' });
+
+      const before = await getDropeaOrderById(orderId).catch((error) => ({
+        lookupError: error instanceof Error ? error.message : String(error)
+      }));
+      const cancellation = await cancelDropeaOrder(orderId);
+      const after = await getDropeaOrderById(orderId).catch((error) => ({
+        lookupError: error instanceof Error ? error.message : String(error)
+      }));
+
+      const existing = findOrder(config.defaultStore.id, orderId) || {};
+      const updated = upsertOrder(config.defaultStore.id, {
+        ...existing,
+        orderId,
+        status: 'CANCELLED',
+        aiConfidence: 100,
+        aiIntent: 'MANUAL_CANCEL_REQUEST',
+        cancelledAt: new Date().toISOString(),
+        operationalNote: 'Pedido cancelado manualmente desde endpoint logistico seguro en Render.',
+        raw: {
+          ...(existing.raw || {}),
+          beforeDropeaStatus: before?.status || before?.lookupError || null,
+          afterDropeaStatus: after?.status || after?.lookupError || null,
+          manualCancellation: cancellation
+        }
+      });
+
+      return sendJson(res, 200, {
+        ok: true,
+        orderId,
+        before: before?.status || before?.lookupError || null,
+        cancellation,
+        after: after?.status || after?.lookupError || null,
+        order: updated
       });
     }
 
