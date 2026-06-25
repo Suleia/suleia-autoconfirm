@@ -24,7 +24,22 @@ async function request(path, options = {}) {
   if (!response.ok) {
     throw new Error(`Chatby respondió ${response.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
   }
+  assertNoChatbyError(data);
   return data;
+}
+
+function assertNoChatbyError(data) {
+  if (!data || typeof data !== 'object') return;
+
+  const status = String(data.status || data.state || '').toLowerCase();
+  const explicitFailure = data.ok === false
+    || data.success === false
+    || Boolean(data.error)
+    || ['error', 'failed', 'failure'].includes(status);
+
+  if (explicitFailure) {
+    throw new Error(`Chatby devolvio error: ${JSON.stringify(data)}`);
+  }
 }
 
 export async function createSubscriber(payload) {
@@ -112,8 +127,37 @@ function digits(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
 function fieldValue(subscriber, fieldName) {
   const field = (subscriber.user_fields || []).find((item) => item.name === fieldName);
+  return field?.value ?? null;
+}
+
+function dropeaOrderFieldValue(subscriber) {
+  const field = (subscriber.user_fields || []).find((item) => {
+    const name = normalizeText(item.name);
+    return name.includes('dropea')
+      && (
+        name.includes('numero')
+        || name.includes('n mero')
+        || name.includes('nã')
+        || name.includes('num')
+        || name.includes('order')
+        || name.includes('pedido')
+      );
+  });
+  return field?.value ?? null;
+}
+
+function confirmationFieldValue(subscriber) {
+  const field = (subscriber.user_fields || []).find((item) => normalizeText(item.name).includes('confirm'));
   return field?.value ?? null;
 }
 
@@ -147,6 +191,38 @@ export function subscriberConfirmsOrder(subscriber) {
     || labels.includes('CONFIRMADO')
     || tags.includes('PED-CONFIRMADO')
     || Boolean(confirmedAt);
+}
+
+export async function findSubscriberForOrderRobust({ phone, orderId, maxPages = 10 } = {}) {
+  const phoneDigits = digits(phone);
+  for (let page = 1; page <= maxPages; page += 1) {
+    const subscribers = await listSubscribers({ page, limit: 100 });
+    if (!Array.isArray(subscribers) || !subscribers.length) break;
+
+    const found = subscribers.find((subscriber) => {
+      const samePhone = phoneDigits && digits(subscriber.phone || subscriber.user_id).endsWith(phoneDigits.slice(-9));
+      const sameOrder = String(dropeaOrderFieldValue(subscriber) || '') === String(orderId);
+      return samePhone && sameOrder;
+    });
+
+    if (found) return found;
+  }
+  return null;
+}
+
+export function subscriberConfirmsOrderRobust(subscriber) {
+  if (!subscriber) return false;
+  const labels = (subscriber.labels || []).map((label) => String(label.name || '').toUpperCase());
+  const tags = (subscriber.tags || []).map((tag) => String(tag.name || '').toUpperCase());
+  const leadStatus = String(subscriber.lead_status || '').toUpperCase();
+  if (leadStatus.includes('DATOS') || leadStatus.includes('ENVIO') || leadStatus.includes('ENVÃO')) {
+    return false;
+  }
+  return leadStatus === 'CONFIRMADO'
+    || labels.includes('CONFIRMADO')
+    || tags.includes('PED-CONFIRMADO')
+    || Boolean(confirmationFieldValue(subscriber))
+    || Boolean(fieldValue(subscriber, 'P. Confirmado'));
 }
 
 export async function deleteSubscriber(payload) {
