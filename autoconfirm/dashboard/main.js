@@ -391,6 +391,9 @@ function renderOrders() {
             <button class="mini-button" data-feedback-order="${escapeHtml(order.orderId)}">
               Corregir
             </button>
+            <button class="mini-button danger-action" data-cancel-dropea-order="${escapeHtml(order.orderId)}">
+              Cancelar Dropea
+            </button>
             ${order.feedbackVerdict ? `<small>Feedback: ${escapeHtml(order.feedbackVerdict)}</small>` : ''}
           </td>
       </tr>
@@ -1249,6 +1252,34 @@ document.addEventListener('click', (event) => {
   document.querySelector('#feedback-correction').value = '';
   document.querySelector('#feedback-note').value = '';
   feedbackDialog.showModal();
+});
+
+document.addEventListener('click', async (event) => {
+  const button = event.target.closest('[data-cancel-dropea-order]');
+  if (!button) return;
+  const orderId = button.dataset.cancelDropeaOrder;
+  if (!orderId) return;
+  const confirmed = window.confirm(`Vas a cancelar en Dropea el pedido #${orderId}. Esta accion es real. ¿Continuar?`);
+  if (!confirmed) return;
+
+  button.disabled = true;
+  button.textContent = 'Cancelando...';
+  try {
+    const response = await fetch('/api/logistics/cancel-dropea-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId })
+    });
+    const payload = await readJsonResponse(response);
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    alert(`Pedido #${orderId} cancelado en Dropea. Estado despues: ${payload.after || 'verificado'}`);
+    await loadDashboard();
+  } catch (error) {
+    alert(`No se pudo cancelar el pedido #${orderId}: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Cancelar Dropea';
+  }
 });
 
 feedbackClose.addEventListener('click', () => {
