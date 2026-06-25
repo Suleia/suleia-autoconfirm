@@ -15,9 +15,9 @@ import {
   listPendingDropeaOrders
 } from '../clients/dropea.mjs';
 import {
-  findSubscriberForOrder,
+  findSubscriberForOrderRobust as findSubscriberForOrder,
   getChatMessages,
-  subscriberConfirmsOrder
+  subscriberConfirmsOrderRobust as subscriberConfirmsOrder
 } from '../clients/chatby.mjs';
 import { sendMetaWhatsappTemplate } from '../clients/meta-whatsapp.mjs';
 import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
@@ -480,7 +480,7 @@ async function unansweredTimeoutCancellationResult(order, store, validFrom) {
   return { dryRun: false, action: 'rejected_unanswered_timeout', analysis, cancellation, source: 'unanswered_36h_rule' };
 }
 
-async function scheduleDelayedConfirmation(order, store, analysis, source, signalAt = null) {
+async function scheduleDelayedConfirmation(order, store, analysis, source, signalAt = null, inboundCustomerMessages = []) {
   const delayHours = Number(store.confirmationDelayHours ?? config.defaultStore.confirmationDelayHours ?? 1) || 1;
   const startedAt = signalAt || new Date().toISOString();
   const dueAt = addHours(startedAt, delayHours);
@@ -495,6 +495,13 @@ async function scheduleDelayedConfirmation(order, store, analysis, source, signa
     operationalNote: `Cliente confirmo claramente. El agente esperara ${delayHours}h antes de confirmar en Dropea y revisara si el cliente cancela durante la espera.`
   });
   await safeUpsertSheetRow(updated);
+
+  const dueDate = parseDate(dueAt);
+  if (dueDate && Date.now() >= dueDate.getTime()) {
+    const immediateResult = await processDelayedConfirmation(updated, store, inboundCustomerMessages);
+    if (immediateResult && !immediateResult.skipped) return immediateResult;
+  }
+
   return {
     action: 'confirmation_scheduled',
     dryRun: false,
@@ -671,8 +678,40 @@ async function simulationOverrideResult(order, store) {
 
 function currentSubscriberOrderId(subscriber) {
   const fields = subscriber?.user_fields || [];
-  const field = fields.find((item) => normalizeText(item.name) === 'dropea: numero');
+  const field = fields.find((item) => {
+    const name = normalizeText(item.name);
+    return name.includes('dropea')
+      && (
+        name.includes('numero')
+        || name.includes('n mero')
+        || name.includes('nã')
+        || name.includes('num')
+        || name.includes('order')
+        || name.includes('pedido')
+      );
+  });
   return field?.value ? String(field.value) : null;
+}
+
+function subscriberConfirmationTimestamp(subscriber) {
+  if (!subscriberConfirmsOrder(subscriber)) return null;
+
+  const fields = subscriber?.user_fields || [];
+  const confirmationField = fields.find((item) => {
+    const name = normalizeText(item.name);
+    return name.includes('confirm');
+  });
+  const fieldDate = parseDate(confirmationField?.value);
+  if (fieldDate) return fieldDate;
+
+  return parseDate(
+    subscriber?.confirmed_at
+    || subscriber?.confirmedAt
+    || subscriber?.lead_status_updated_at
+    || subscriber?.leadStatusUpdatedAt
+    || subscriber?.updated_at
+    || subscriber?.updatedAt
+  );
 }
 
 function customerConversationIntentForOrder(messages, order) {
@@ -720,6 +759,16 @@ function customerConversationIntentForOrder(messages, order) {
 
 function firstName(name) {
   return String(name || '').trim().split(/\s+/)[0] || '';
+}
+
+function sameOrderId(left, right) {
+  const leftText = String(left || '');
+  const rightText = String(right || '');
+  if (!leftText || !rightText) return false;
+  if (leftText === rightText) return true;
+  const leftDigits = leftText.replace(/\D/g, '');
+  const rightDigits = rightText.replace(/\D/g, '');
+  return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
 }
 
 function normalizeDropeaWebhookOrder(payload) {
@@ -1177,12 +1226,13 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       store,
       analysis,
       immediateCustomerIntent.source || 'customer_message',
-      latestInboundCustomerMessageAt?.toISOString() || new Date().toISOString()
+      latestInboundCustomerMessageAt?.toISOString() || new Date().toISOString(),
+      inboundCustomerMessages
     );
   }
 
   const subscriberOrderId = currentSubscriberOrderId(subscriber);
-  if (subscriberOrderId === String(order.orderId) && subscriberConfirmsOrder(subscriber)) {
+  if (sameOrderId(subscriberOrderId, order.orderId) && subscriberConfirmsOrder(subscriber)) {
     const analysis = {
       intent: 'CONFIRM',
       confidence: 100,
@@ -1222,7 +1272,10 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       store,
       analysis,
       'chatby_button',
-      latestInboundCustomerMessageAt?.toISOString() || new Date().toISOString()
+      subscriberConfirmationTimestamp(subscriber)?.toISOString()
+        || latestInboundCustomerMessageAt?.toISOString()
+        || new Date().toISOString(),
+      inboundCustomerMessages
     );
   }
 
@@ -1329,7 +1382,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       store,
       analysis,
       analysis.source || 'classified_customer_message',
-      lastMessageAt?.toISOString() || new Date().toISOString()
+      lastMessageAt?.toISOString() || new Date().toISOString(),
+      inboundCustomerMessages
     );
   }
 
