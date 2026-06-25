@@ -1091,7 +1091,24 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   return updated;
 }
 
+async function attachExistingChatbyThread(order, store = config.defaultStore) {
+  if (order.chatbyUserNs || !config.chatbyToken || !order.customerPhone) return order;
+  const existingSubscriber = await findSubscriberForOrder({
+    phone: order.customerPhone,
+    orderId: order.orderId
+  });
+  if (!existingSubscriber?.user_ns) return order;
+  const updated = upsertOrder(store.id, {
+    ...order,
+    chatbyUserNs: existingSubscriber.user_ns
+  });
+  await safeUpsertSheetRow(updated);
+  return updated;
+}
+
 export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultStore) {
+  order = await attachExistingChatbyThread(order, store);
+
   if (order.status !== 'PENDING') {
     return { skipped: true, reason: 'order_not_pending' };
   }
