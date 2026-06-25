@@ -45,6 +45,17 @@ function templateParamsForOrder(order) {
 }
 
 async function sendOrderTemplate({ userNs, order, templateName, params }) {
+  if (String(config.whatsappProvider || '').toLowerCase() === 'meta') {
+    return {
+      provider: 'meta',
+      response: await sendMetaWhatsappTemplate({
+        to: order.customerPhone,
+        templateName,
+        params
+      })
+    };
+  }
+
   try {
     return {
       provider: 'chatby',
@@ -159,9 +170,12 @@ async function sendTemplateForOrderId(orderId) {
     };
   }
 
-  const userNs = await resolveChatbyUserNs(prepared, existing);
   const templateName = config.whatsappTemplateName || config.defaultStore.whatsappTemplateName || null;
   if (!templateName) throw new Error('Falta WHATSAPP_TEMPLATE_NAME.');
+  const provider = String(config.whatsappProvider || '').toLowerCase();
+  const userNs = provider === 'meta'
+    ? (prepared.chatbyUserNs || null)
+    : await resolveChatbyUserNs(prepared, existing);
 
   const sentAt = new Date().toISOString();
   upsertOrder(config.defaultStore.id, {
