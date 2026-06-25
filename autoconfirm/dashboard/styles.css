@@ -248,6 +248,19 @@ h3 {
   background: rgba(189, 235, 224, .46);
 }
 
+.mini-button.danger-action {
+  margin-top: 8px;
+  color: #9c3525;
+  border-color: rgba(232, 109, 87, .34);
+  background: rgba(232, 109, 87, .12);
+}
+
+.mini-button.danger-action:hover {
+  color: #fff;
+  border-color: transparent;
+  background: #c94b3a;
+}
+
 .status-banner {
   margin: 0 0 18px;
   padding: 14px 18px;
