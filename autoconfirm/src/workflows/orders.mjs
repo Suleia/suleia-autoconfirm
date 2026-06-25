@@ -896,8 +896,16 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   });
 }
 
-export async function ingestPendingOrders({ store = config.defaultStore, limit = 50 } = {}) {
-  const pending = await listPendingDropeaOrders({ limit, page: 1 });
+export async function ingestPendingOrders({ store = config.defaultStore, limit = 100, pages = 5 } = {}) {
+  const pendingById = new Map();
+  for (let page = 1; page <= pages; page += 1) {
+    const pageOrders = await listPendingDropeaOrders({ limit, page });
+    for (const order of pageOrders) {
+      pendingById.set(String(order.orderId), order);
+    }
+    if (pageOrders.length < limit) break;
+  }
+  const pending = [...pendingById.values()];
   const processed = [];
 
   for (const order of pending) {
@@ -926,7 +934,11 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
       confirmationDelayStartedAt: existing?.confirmationDelayStartedAt || null,
       confirmationDueAt: existing?.confirmationDueAt || null,
       confirmationSource: existing?.confirmationSource || null,
-      confirmedAt: existing?.confirmedAt || null
+      confirmedAt: existing?.confirmedAt || null,
+      cancelledAt: existing?.cancelledAt || null,
+      timeoutCancellationEvaluatedAt: existing?.timeoutCancellationEvaluatedAt || null,
+      assistantCheckedAt: existing?.assistantCheckedAt || null,
+      operationalNote: existing?.operationalNote || null
     });
 
     await safeUpsertSheetRow(merged);
@@ -1122,6 +1134,13 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   if (simulationOverride) return simulationOverride;
 
   if (!order.chatbyUserNs) {
+    const validFrom = order.chatbyTemplateSentAt
+      || order.chatbyTemplateAttemptedAt
+      || order.createdAt
+      || order.raw?.created_at
+      || order.raw?.createdAt;
+    const timeoutCancellation = await unansweredTimeoutCancellationResult(order, store, validFrom);
+    if (timeoutCancellation) return timeoutCancellation;
     return { skipped: true, reason: 'no_chat_thread' };
   }
 
@@ -1131,7 +1150,11 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     orderId: order.orderId
   });
 
-  const validFrom = order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt;
+  const validFrom = order.chatbyTemplateSentAt
+    || order.chatbyTemplateAttemptedAt
+    || order.createdAt
+    || order.raw?.created_at
+    || order.raw?.createdAt;
   const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
   const latestInboundCustomerMessageAt = inboundCustomerMessages.length
     ? parseDate(inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.created_at || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.createdAt || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.createdAt)
