@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAppConfig } from './config.mjs';
 import { listOrders, loadState } from './storage.mjs';
-import { getDropeaOrderById, listPendingDropeaOrders, listRecentDropeaOrders } from './clients/dropea.mjs';
+import { getDropeaOrderById, listDropeaOrdersByStatus, listPendingDropeaOrders, listRecentDropeaOrders } from './clients/dropea.mjs';
 import { findSubscriberForOrder, getChatMessages, subscriberConfirmsOrder } from './clients/chatby.mjs';
 import { getCampaignInsights } from './clients/meta.mjs';
 import { listRecentShopifyOrders } from './clients/shopify.mjs';
@@ -1162,6 +1162,39 @@ async function loadLiveDropeaOrders(knownOrderIds) {
   return { source, orders };
 }
 
+async function loadOperationalDropeaOrders() {
+  const source = {
+    name: 'Dropea API - pendientes e incidencias',
+    ok: true,
+    error: null,
+    statuses: 'PENDING, WITH_ISSUE',
+    generatedAt: new Date().toISOString()
+  };
+  const byId = new Map();
+
+  try {
+    for (const status of ['PENDING', 'WITH_ISSUE']) {
+      for (let page = 1; page <= 3; page += 1) {
+        const pageOrders = status === 'PENDING'
+          ? await listPendingDropeaOrders({ limit: 100, page })
+          : await listDropeaOrdersByStatus({ status, limit: 100, page });
+        if (!Array.isArray(pageOrders) || !pageOrders.length) break;
+        for (const order of pageOrders) {
+          byId.set(String(order.orderId), orderFromDropea(order));
+        }
+        if (pageOrders.length < 100) break;
+      }
+    }
+  } catch (error) {
+    source.ok = false;
+    source.error = error instanceof Error ? error.message : String(error);
+  }
+
+  const orders = [...byId.values()];
+  source.rows = orders.length;
+  return { source, orders };
+}
+
 async function loadLiveShopifyOrders() {
   const source = {
     name: 'Shopify API - pedidos recientes',
@@ -1634,13 +1667,27 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
       error: decisiones.error || controlSimulacion.error || null
     };
   }
-  const knownOrderIds = [...sheetOrders, ...localOrders].map((order) => order.orderId);
-  const liveDropea = await loadLiveDropeaOrders(knownOrderIds);
-  const liveShopify = await loadLiveShopifyOrders();
+  const liveDropea = await loadOperationalDropeaOrders();
+  const liveShopify = {
+    source: { name: 'Shopify API - omitido en vista rapida', ok: true, disabled: true, rows: 0, error: null },
+    orders: []
+  };
   const liveMeta = await loadLiveMetaCampaigns({ force: forceMeta });
-  const mergedOrders = mergeOrders(sheetOrders, localOrders, [...liveDropea.orders, ...liveShopify.orders], decisions, controlDecisions, feedback);
-  const liveChatby = await applyLiveChatbySignals(mergedOrders);
-  const orders = liveChatby.orders
+  const operationalDropeaIds = new Set(liveDropea.orders.map((order) => String(order.orderId)));
+  const mergedOrders = mergeOrders(sheetOrders, localOrders, liveDropea.orders, decisions, controlDecisions, feedback)
+    .filter((order) => operationalDropeaIds.has(String(order.orderId)));
+  const liveChatby = {
+    orders: mergedOrders,
+    source: {
+      name: 'Chatby API - omitido en vista rapida',
+      ok: true,
+      disabled: true,
+      checked: 0,
+      patched: 0,
+      error: null
+    }
+  };
+  const orders = mergedOrders
     .map(enrichOrderForAgent);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
