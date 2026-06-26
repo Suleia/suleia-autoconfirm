@@ -301,7 +301,7 @@ function renderOrdersSummary(orders, visibleOrders) {
 
   const latest = orders[0];
   const cards = [
-    { label: 'Total pedidos', value: orders.length, detail: 'Cargados en el Command Center', tone: 'neutral' },
+    { label: 'Cola operativa', value: orders.length, detail: 'Solo pendientes e incidencias en Dropea', tone: 'neutral' },
     { label: 'Confirmar ahora', value: countOrdersByFilter(orders, 'confirm'), detail: 'Señal clara del cliente', tone: 'positive' },
     { label: 'Dirección', value: countOrdersByFilter(orders, 'address'), detail: 'No confirmar hasta corregir', tone: 'warning' },
     { label: 'Incidencias', value: countOrdersByFilter(orders, 'issue'), detail: 'Seguimiento antes de actuar', tone: 'warning' },
