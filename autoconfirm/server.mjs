@@ -251,17 +251,17 @@ const server = http.createServer(async (req, res) => {
       if (!requireDashboardAuth(req, res)) return;
       const results = {};
 
-      try {
-        results.orders = await runStoreAutomationCycle({ store: config.defaultStore });
-      } catch (error) {
-        results.ordersError = error instanceof Error ? error.message : String(error);
-        console.error('Dashboard refresh orders error:', error);
-      }
+      setTimeout(() => {
+        runStoreAutomationCycle({ store: config.defaultStore })
+          .then((result) => console.log('Dashboard background refresh processed:', JSON.stringify(result)))
+          .catch((error) => console.error('Dashboard background refresh error:', error));
+      }, 0);
+      results.orders = { queued: true, mode: 'background' };
 
       return sendJson(res, 200, {
         ok: true,
         refresh: results,
-        dashboard: await buildDashboard({ health: storeSummary(), forceMeta: true })
+        dashboard: await buildDashboard({ health: storeSummary(), forceMeta: false })
       });
     }
 
