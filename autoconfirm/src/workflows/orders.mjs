@@ -94,6 +94,14 @@ function hoursSince(value) {
   return (Date.now() - date.getTime()) / 36e5;
 }
 
+function unansweredTimeoutStart(order) {
+  return order.raw?.created_at
+    || order.raw?.createdAt
+    || order.createdAt
+    || order.chatbyTemplateSentAt
+    || order.chatbyTemplateAttemptedAt;
+}
+
 function addHours(value, hours) {
   const date = parseDate(value) || new Date();
   return new Date(date.getTime() + (Number(hours) || 1) * 36e5).toISOString();
@@ -445,7 +453,7 @@ async function unansweredTimeoutCancellationResult(order, store, validFrom) {
   if (!Number.isFinite(limitHours) || limitHours <= 0) return null;
   if (isShopifyOrder(order)) return null;
 
-  const elapsedHours = hoursSince(validFrom || order.chatbyTemplateSentAt || order.createdAt || order.raw?.created_at || order.raw?.createdAt);
+  const elapsedHours = hoursSince(validFrom || unansweredTimeoutStart(order));
   if (elapsedHours === null || elapsedHours < limitHours) return null;
 
   const rejectRealEnabled = Boolean(store.unansweredRejectRealEnabled ?? config.defaultStore.unansweredRejectRealEnabled);
@@ -1130,11 +1138,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   if (simulationOverride) return simulationOverride;
 
   if (!order.chatbyUserNs) {
-    const validFrom = order.chatbyTemplateSentAt
-      || order.chatbyTemplateAttemptedAt
-      || order.createdAt
-      || order.raw?.created_at
-      || order.raw?.createdAt;
+    const validFrom = unansweredTimeoutStart(order);
     const timeoutCancellation = await unansweredTimeoutCancellationResult(order, store, validFrom);
     if (timeoutCancellation) return timeoutCancellation;
     return { skipped: true, reason: 'no_chat_thread' };
@@ -1146,11 +1150,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     orderId: order.orderId
   });
 
-  const validFrom = order.chatbyTemplateSentAt
-    || order.chatbyTemplateAttemptedAt
-    || order.createdAt
-    || order.raw?.created_at
-    || order.raw?.createdAt;
+  const validFrom = unansweredTimeoutStart(order);
   const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
   const latestInboundCustomerMessageAt = inboundCustomerMessages.length
     ? parseDate(inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.created_at || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.createdAt || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.createdAt)
@@ -1416,6 +1416,16 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
     let hydrated = order;
     let result = null;
     try {
+      const timeoutBeforeChatby = await unansweredTimeoutCancellationResult(order, store, unansweredTimeoutStart(order));
+      if (timeoutBeforeChatby) {
+        result = timeoutBeforeChatby;
+        if (!result.skipped) {
+          await recordDecisionAndReturn(order, result);
+        }
+        results.push({ orderId: order.orderId, result });
+        continue;
+      }
+
       hydrated = await ensureChatbyThread(order, store);
       result = await analyzeAndMaybeConfirmOrder(hydrated, store);
       if (result && !result.skipped) {
