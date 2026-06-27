@@ -8,6 +8,7 @@ import { findOrder, listOrders, loadState, saveState, upsertOrder } from './src/
 import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs';
 import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, handleShopifyWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
+import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cancellations.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
 
 const config = getAppConfig();
@@ -463,9 +464,11 @@ async function runBackgroundPoll() {
   pollRunning = true;
   try {
     const result = await runStoreAutomationCycle({ store: config.defaultStore });
+    const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
     const processed = result?.ingest?.processed ?? 0;
-    if (processed) {
-      console.log(`Background poll processed ${processed} orders.`);
+    const cancelled = unanswered?.processed ?? 0;
+    if (processed || cancelled) {
+      console.log(`Background poll processed ${processed} orders and ${cancelled} unanswered cancellations.`);
     }
   } catch (error) {
     console.error('Background poll error:', error);
