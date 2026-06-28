@@ -45,7 +45,7 @@ function defaultStoreFromEnv() {
     confirmationDelayHours: Number(process.env.CONFIRMATION_DELAY_HOURS ?? 1) || 1,
     unansweredCancelAfterHours: int(process.env.UNANSWERED_CANCEL_AFTER_HOURS, 36),
     unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, true),
-    unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, 15),
+    unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, 120),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
     cooldownHours: int(process.env.COOLDOWN_HOURS, 1),
     activationCutoff: process.env.ACTIVATION_CUTOFF || null
