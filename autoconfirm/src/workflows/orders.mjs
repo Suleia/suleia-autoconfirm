@@ -449,45 +449,9 @@ async function storedConfirmationResult(order, store) {
 }
 
 async function unansweredTimeoutCancellationResult(order, store, validFrom) {
-  const limitHours = Number(store.unansweredCancelAfterHours ?? config.defaultStore.unansweredCancelAfterHours ?? 36);
-  if (!Number.isFinite(limitHours) || limitHours <= 0) return null;
-  if (isShopifyOrder(order)) return null;
-  if (confirmedStoredOrder(order, store)) return null;
-  if (['CONFIRMED', 'CONFIRMED_BY_CUSTOMER', 'CONFIRM_DELAY_PENDING', 'CONFIRM_DELAY_READY'].includes(String(order.status || '').toUpperCase())) return null;
-
-  const elapsedHours = hoursSince(validFrom || unansweredTimeoutStart(order));
-  if (elapsedHours === null || elapsedHours < limitHours) return null;
-
-  const rejectRealEnabled = Boolean(store.unansweredRejectRealEnabled ?? config.defaultStore.unansweredRejectRealEnabled);
-  const dryRun = Boolean(store.agentDryRun ?? config.defaultStore.agentDryRun) && !rejectRealEnabled;
-  const analysis = {
-    intent: 'REJECT_UNANSWERED_TIMEOUT',
-    confidence: 100,
-    reason: `Han pasado ${Math.floor(elapsedHours)} horas desde la plantilla/entrada del pedido sin confirmacion ni cambio de direccion. Regla activa: rechazar/cancelar en Dropea tras ${limitHours}h sin accion del cliente.`
-  };
-  const patch = {
-    ...order,
-    aiConfidence: 100,
-    aiIntent: 'REJECT_UNANSWERED_TIMEOUT',
-    operationalNote: dryRun
-      ? `Simulacion: el agente rechazaria/cancelaria este pedido en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion. Accion equivalente: seleccionar pedido, pulsar Cancelar y aceptar.`
-      : `Pedido rechazado/cancelado automaticamente en Dropea tras ${limitHours}h sin confirmacion ni cambio de direccion.`,
-    timeoutCancellationEvaluatedAt: new Date().toISOString()
-  };
-
-  if (dryRun) {
-    patch.status = 'WOULD_REJECT_UNANSWERED';
-    const updated = upsertOrder(store.id, patch);
-    await safeUpsertSheetRow(updated);
-    return { dryRun: true, action: 'would_reject_unanswered_timeout', analysis, source: 'unanswered_36h_rule' };
-  }
-
-  const cancellation = await cancelDropeaOrder(order.orderId);
-  patch.status = 'REJECTED_UNANSWERED';
-  patch.cancelledAt = new Date().toISOString();
-  const updated = upsertOrder(store.id, patch);
-  await safeUpsertSheetRow(updated);
-  return { dryRun: false, action: 'rejected_unanswered_timeout', analysis, cancellation, source: 'unanswered_36h_rule' };
+  // La cancelacion por 36h se ejecuta solo desde runUnansweredCancellationSweep,
+  // que verifica Chatby en modo fail-safe antes de tocar Dropea.
+  return null;
 }
 
 async function scheduleDelayedConfirmation(order, store, analysis, source, signalAt = null, inboundCustomerMessages = []) {
