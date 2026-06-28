@@ -45,6 +45,34 @@ function messageDate(message) {
   return parseDate(message?.created_at || message?.createdAt || message?.timestamp || message?.time);
 }
 
+function compactStringList(values) {
+  return values
+    .map((value) => normalizeText(value))
+    .filter(Boolean);
+}
+
+function subscriberHasCustomerAction(subscriber) {
+  if (!subscriber) return false;
+
+  const leadStatus = normalizeText(subscriber.lead_status || subscriber.status || '');
+  const passiveStatuses = new Set(['pendiente', 'pending', 'abierto', 'open', 'nuevo', 'new', 'sin respuesta']);
+  if (leadStatus && !passiveStatuses.has(leadStatus)) return true;
+
+  const labels = compactStringList((subscriber.labels || []).map((label) => label.name || label.title || label));
+  const tags = compactStringList((subscriber.tags || []).map((tag) => tag.name || tag.title || tag));
+  const actionPattern = /(confirm|cancel|rechaz|direccion|direcc|datos|envio|entrega|respuesta|respond)/;
+  if ([...labels, ...tags].some((value) => actionPattern.test(value))) return true;
+
+  const fields = Array.isArray(subscriber.user_fields) ? subscriber.user_fields : [];
+  return fields.some((field) => {
+    const name = normalizeText(field?.name || field?.label || '');
+    const value = normalizeText(field?.value || '');
+    if (!value) return false;
+    if (/dropea|pedido|order|telefono|phone|nombre|email|importe|total/.test(name)) return false;
+    return /(confirm|cancel|rechaz|direccion|direcc|datos|envio|entrega|respuesta|respond|boton|button|accion|action)/.test(name);
+  });
+}
+
 function isCustomerMessage(message) {
   const role = normalizeText(message?.role || message?.sender || message?.direction || message?.type);
   const sender = normalizeText(message?.sender_type || message?.senderType || message?.from_type || message?.fromType || message?.source);
@@ -106,13 +134,15 @@ async function customerMessagesForOrder(order, createdAt) {
     phone: order.customerPhone,
     orderId: order.orderId
   });
-  if (!subscriber?.user_ns) return { ok: true, reason: 'no_chatby_thread', messages: [] };
+  if (!subscriber?.user_ns) return { ok: false, reason: 'no_chatby_thread', messages: [] };
 
   const since = parseDate(createdAt);
   const messages = await getChatMessages(subscriber.user_ns);
   return {
     ok: true,
     reason: 'chatby_thread_checked',
+    subscriber,
+    hasCustomerAction: subscriberHasCustomerAction(subscriber),
     messages: (Array.isArray(messages) ? messages : [])
     .filter(isCustomerMessage)
     .filter((message) => {
@@ -188,8 +218,13 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
       }
 
       const signal = classifyCustomerSignal(chatbyCheck.messages);
-      if (signal === 'CONFIRM' || signal === 'ADDRESS_CHANGE') {
-        results.push({ orderId: order.orderId, skipped: true, reason: `customer_signal_${signal.toLowerCase()}` });
+      if (chatbyCheck.hasCustomerAction || signal !== 'NO_RESPONSE') {
+        results.push({
+          orderId: order.orderId,
+          skipped: true,
+          reason: chatbyCheck.hasCustomerAction ? 'chatby_customer_action_detected' : `customer_signal_${signal.toLowerCase()}`,
+          customerMessages: chatbyCheck.messages.length
+        });
         continue;
       }
 
@@ -197,11 +232,9 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         ...existing,
         ...order,
         aiConfidence: 100,
-        aiIntent: signal === 'CANCEL' ? 'CANCEL_BY_CUSTOMER' : 'REJECT_UNANSWERED_TIMEOUT',
+        aiIntent: 'REJECT_UNANSWERED_TIMEOUT',
         timeoutCancellationEvaluatedAt: new Date().toISOString(),
-        operationalNote: signal === 'CANCEL'
-          ? 'Cliente muestra intencion de cancelar. El agente logistico cancela/rechaza el pedido en Dropea.'
-          : `Sin confirmacion ni cambio de direccion tras ${Math.floor(elapsedHours)}h desde la fecha real del pedido en Dropea.`
+        operationalNote: `Sin ninguna respuesta ni accion del cliente en Chatby tras ${Math.floor(elapsedHours)}h desde la fecha real del pedido en Dropea.`
       };
 
       if (dryRun) {
