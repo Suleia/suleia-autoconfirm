@@ -39,12 +39,13 @@ function defaultStoreFromEnv() {
     shopifyDomain: process.env.SHOPIFY_DOMAIN || null,
     agentEnabled: bool(process.env.AGENT_ENABLED, false),
     agentDryRun: bool(process.env.AGENT_DRY_RUN, true),
-    autoPollEnabled: bool(process.env.AUTO_POLL_ENABLED, false),
+    autoPollEnabled: bool(process.env.AUTO_POLL_ENABLED, true),
     autoPollIntervalMinutes: int(process.env.AUTO_POLL_INTERVAL_MINUTES, 5),
     delayedConfirmRealEnabled: bool(process.env.DELAYED_CONFIRM_REAL_ENABLED, false),
     confirmationDelayHours: Number(process.env.CONFIRMATION_DELAY_HOURS ?? 1) || 1,
     unansweredCancelAfterHours: int(process.env.UNANSWERED_CANCEL_AFTER_HOURS, 36),
-    unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, false),
+    unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, true),
+    unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, 15),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
     cooldownHours: int(process.env.COOLDOWN_HOURS, 1),
     activationCutoff: process.env.ACTIVATION_CUTOFF || null
@@ -66,6 +67,7 @@ function withEnvOverrides(store) {
     confirmationDelayHours: Number(process.env.CONFIRMATION_DELAY_HOURS ?? store.confirmationDelayHours ?? envStore.confirmationDelayHours ?? 1) || 1,
     unansweredCancelAfterHours: int(process.env.UNANSWERED_CANCEL_AFTER_HOURS, store.unansweredCancelAfterHours ?? envStore.unansweredCancelAfterHours),
     unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, store.unansweredRejectRealEnabled ?? envStore.unansweredRejectRealEnabled),
+    unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, store.unansweredCancellationIntervalMinutes ?? envStore.unansweredCancellationIntervalMinutes),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, store.confidenceThreshold ?? envStore.confidenceThreshold),
     cooldownHours: int(process.env.COOLDOWN_HOURS, store.cooldownHours ?? envStore.cooldownHours),
     activationCutoff: process.env.ACTIVATION_CUTOFF || store.activationCutoff || envStore.activationCutoff
