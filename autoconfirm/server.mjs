@@ -203,6 +203,8 @@ function storeSummary() {
     lastSheetSyncError: state.lastSheetSyncError,
     lastIngestError: state.lastIngestError,
     lastAutoConfirmError: state.lastAutoConfirmError,
+    lastUnansweredCancellationSweepAt: state.lastUnansweredCancellationSweepAt,
+    lastUnansweredCancellationSweepError: state.lastUnansweredCancellationSweepError,
     metaDashboardEnabled: config.metaDashboardEnabled,
     metaDashboardIntervalMinutes: config.metaDashboardIntervalMinutes,
     lastMetaDashboardAt: state.lastMetaDashboardAt,
@@ -212,6 +214,12 @@ function storeSummary() {
       pending: listOrders({ storeId: config.defaultStore.id, status: 'PENDING' }).length
     }
   };
+}
+
+async function runAutomationAndUnansweredSweep(context = 'automation') {
+  const cycle = await runStoreAutomationCycle({ store: config.defaultStore });
+  const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
+  return { context, cycle, unanswered };
 }
 
 const server = http.createServer(async (req, res) => {
@@ -253,7 +261,7 @@ const server = http.createServer(async (req, res) => {
       const results = {};
 
       setTimeout(() => {
-        runStoreAutomationCycle({ store: config.defaultStore })
+        runAutomationAndUnansweredSweep('dashboard_refresh')
           .then((result) => console.log('Dashboard background refresh processed:', JSON.stringify(result)))
           .catch((error) => console.error('Dashboard background refresh error:', error));
       }, 0);
@@ -368,7 +376,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         try {
-          const cycleResult = await runStoreAutomationCycle({ store: config.defaultStore });
+          const cycleResult = await runAutomationAndUnansweredSweep('dropea_webhook');
           console.log('Automation cycle processed:', JSON.stringify(cycleResult));
         } catch (error) {
           console.error('Automation cycle error:', error);
@@ -413,7 +421,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         try {
-          const cycleResult = await runStoreAutomationCycle({ store: config.defaultStore });
+          const cycleResult = await runAutomationAndUnansweredSweep('shopify_webhook');
           console.log('Automation cycle processed after Shopify webhook:', JSON.stringify(cycleResult));
         } catch (error) {
           console.error('Automation cycle error after Shopify webhook:', error);
@@ -424,13 +432,23 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/cron/poll-orders') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-      const result = await ingestPendingOrders({ store: config.defaultStore });
+      const poll = await ingestPendingOrders({ store: config.defaultStore });
+      const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
+      const result = { poll, unanswered };
       return sendJson(res, 200, { ok: true, result });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/cron/auto-confirm') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-      const result = await runAutoConfirm({ store: config.defaultStore });
+      const autoConfirm = await runAutoConfirm({ store: config.defaultStore });
+      const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
+      const result = { autoConfirm, unanswered };
+      return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cron/unanswered-cancellations') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await runUnansweredCancellationSweep({ store: config.defaultStore });
       return sendJson(res, 200, { ok: true, result });
     }
 
@@ -463,9 +481,9 @@ async function runBackgroundPoll() {
   if (pollRunning) return;
   pollRunning = true;
   try {
-    const result = await runStoreAutomationCycle({ store: config.defaultStore });
-    const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
-    const processed = result?.ingest?.processed ?? 0;
+    const result = await runAutomationAndUnansweredSweep('background_poll');
+    const processed = result?.cycle?.ingest?.processed ?? 0;
+    const unanswered = result?.unanswered;
     const cancelled = unanswered?.processed ?? 0;
     if (processed || cancelled) {
       console.log(`Background poll processed ${processed} orders and ${cancelled} unanswered cancellations.`);
