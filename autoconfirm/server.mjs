@@ -205,6 +205,8 @@ function storeSummary() {
     lastAutoConfirmError: state.lastAutoConfirmError,
     lastUnansweredCancellationSweepAt: state.lastUnansweredCancellationSweepAt,
     lastUnansweredCancellationSweepError: state.lastUnansweredCancellationSweepError,
+    unansweredCancellationIntervalMinutes: config.defaultStore.unansweredCancellationIntervalMinutes,
+    unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
     metaDashboardEnabled: config.metaDashboardEnabled,
     metaDashboardIntervalMinutes: config.metaDashboardIntervalMinutes,
     lastMetaDashboardAt: state.lastMetaDashboardAt,
@@ -476,6 +478,8 @@ const server = http.createServer(async (req, res) => {
 let pollTimer = null;
 let pollRunning = false;
 let metaDashboardTimer = null;
+let unansweredCancellationTimer = null;
+let unansweredCancellationRunning = false;
 
 async function runBackgroundPoll() {
   if (pollRunning) return;
@@ -507,6 +511,34 @@ function startBackgroundPoller() {
   }, 15000);
 }
 
+async function runScheduledUnansweredCancellationSweep() {
+  if (unansweredCancellationRunning) return;
+  unansweredCancellationRunning = true;
+  try {
+    const result = await runUnansweredCancellationSweep({ store: config.defaultStore });
+    const cancelled = result?.results?.filter((item) => item.action === 'cancelled_unanswered').length ?? 0;
+    const skipped = result?.results?.filter((item) => item.skipped).length ?? 0;
+    if (cancelled || skipped) {
+      console.log(`Unanswered cancellation sweep checked ${result.results.length} orders, cancelled ${cancelled}, skipped ${skipped}.`);
+    }
+  } catch (error) {
+    console.error('Unanswered cancellation sweep error:', error);
+  } finally {
+    unansweredCancellationRunning = false;
+  }
+}
+
+function startUnansweredCancellationScheduler() {
+  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 15;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    runScheduledUnansweredCancellationSweep();
+    unansweredCancellationTimer = setInterval(runScheduledUnansweredCancellationSweep, intervalMs);
+  }, 30000);
+}
+
 function startMetaDashboardSync() {
   const intervalMinutes = config.metaDashboardIntervalMinutes || 720;
   if (!config.metaDashboardEnabled) return;
@@ -536,5 +568,6 @@ server.listen(config.port, () => {
   console.log(`Webhook: /api/webhooks/dropea/${config.defaultStore.webhookToken}`);
   console.log(`Shopify webhook: /api/webhooks/shopify/${config.defaultStore.webhookToken}`);
   startBackgroundPoller();
+  startUnansweredCancellationScheduler();
   startMetaDashboardSync();
 });
