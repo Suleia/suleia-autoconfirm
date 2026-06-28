@@ -452,6 +452,8 @@ async function unansweredTimeoutCancellationResult(order, store, validFrom) {
   const limitHours = Number(store.unansweredCancelAfterHours ?? config.defaultStore.unansweredCancelAfterHours ?? 36);
   if (!Number.isFinite(limitHours) || limitHours <= 0) return null;
   if (isShopifyOrder(order)) return null;
+  if (confirmedStoredOrder(order, store)) return null;
+  if (['CONFIRMED', 'CONFIRMED_BY_CUSTOMER', 'CONFIRM_DELAY_PENDING', 'CONFIRM_DELAY_READY'].includes(String(order.status || '').toUpperCase())) return null;
 
   const elapsedHours = hoursSince(validFrom || unansweredTimeoutStart(order));
   if (elapsedHours === null || elapsedHours < limitHours) return null;
@@ -1416,16 +1418,6 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
     let hydrated = order;
     let result = null;
     try {
-      const timeoutBeforeChatby = await unansweredTimeoutCancellationResult(order, store, unansweredTimeoutStart(order));
-      if (timeoutBeforeChatby) {
-        result = timeoutBeforeChatby;
-        if (!result.skipped) {
-          await recordDecisionAndReturn(order, result);
-        }
-        results.push({ orderId: order.orderId, result });
-        continue;
-      }
-
       hydrated = await ensureChatbyThread(order, store);
       result = await analyzeAndMaybeConfirmOrder(hydrated, store);
       if (result && !result.skipped) {
