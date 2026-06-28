@@ -529,7 +529,7 @@ async function runScheduledUnansweredCancellationSweep() {
 }
 
 function startUnansweredCancellationScheduler() {
-  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 15;
+  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 120;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;
