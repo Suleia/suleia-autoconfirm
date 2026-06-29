@@ -8,7 +8,9 @@
     "poll": "node tools/poll-orders.mjs",
     "sync-sheet": "node tools/sync-orders-to-sheet.mjs",
     "sync-meta-dashboard": "node tools/sync-meta-dashboard.mjs",
+    "send-chatby-template-orders": "node tools/send-chatby-template-orders.mjs",
     "confirm": "node tools/auto-confirm.mjs",
+    "cancel-unanswered": "node tools/unanswered-cancellations.mjs",
     "health": "node tools/healthcheck.mjs"
   }
 }
