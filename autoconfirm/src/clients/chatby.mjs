@@ -210,6 +210,23 @@ export async function findSubscriberForOrderRobust({ phone, orderId, maxPages = 
   return null;
 }
 
+export async function findSubscriberByPhone({ phone, maxPages = 20 } = {}) {
+  const phoneDigits = digits(phone);
+  if (!phoneDigits) return null;
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const subscribers = await listSubscribers({ page, limit: 100 });
+    if (!Array.isArray(subscribers) || !subscribers.length) break;
+
+    const found = subscribers.find((subscriber) => {
+      return digits(subscriber.phone || subscriber.user_id).endsWith(phoneDigits.slice(-9));
+    });
+
+    if (found) return found;
+  }
+  return null;
+}
+
 export function subscriberConfirmsOrderRobust(subscriber) {
   if (!subscriber) return false;
   const labels = (subscriber.labels || []).map((label) => String(label.name || '').toUpperCase());
