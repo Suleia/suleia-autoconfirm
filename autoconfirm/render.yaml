@@ -35,6 +35,58 @@ services:
         value: 1
       - key: UNANSWERED_CANCEL_AFTER_HOURS
         value: 36
+      - key: UNANSWERED_CANCELLATION_INTERVAL_MINUTES
+        value: 120
+      - key: UNANSWERED_REJECT_REAL_ENABLED
+        value: true
+      - key: CHATBY_TOKEN
+        sync: false
+      - key: WHATSAPP_PROVIDER
+        value: meta
+      - key: WHATSAPP_TEMPLATE_NAME
+        value: es_ES dropea_pedido_nuevo_v1
+      - key: META_WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: DROPEA_API_KEY
+        sync: false
+  - type: cron
+    name: suleia-unanswered-cancellations
+    env: docker
+    dockerfilePath: ./autoconfirm/Dockerfile
+    dockerCommand: node tools/unanswered-cancellations.mjs
+    schedule: "0 */2 * * *"
+    plan: starter
+    envVars:
+      - key: PORT
+        value: 8787
+      - key: DROPEA_DROPSHIPPER_ID
+        value: 17431
+      - key: DROPEA_DASHBOARD_PROFIT
+        value: 448.19
+      - key: GOOGLE_SHEETS_ENABLED
+        value: false
+      - key: SHOPIFY_DOMAIN
+        sync: false
+      - key: SHOPIFY_ADMIN_ACCESS_TOKEN
+        sync: false
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_DASHBOARD_ENABLED
+        value: true
+      - key: META_DASHBOARD_INTERVAL_MINUTES
+        value: 720
+      - key: AUTO_POLL_ENABLED
+        value: true
+      - key: AUTO_POLL_INTERVAL_MINUTES
+        value: 5
+      - key: DELAYED_CONFIRM_REAL_ENABLED
+        value: true
+      - key: CONFIRMATION_DELAY_HOURS
+        value: 1
+      - key: UNANSWERED_CANCEL_AFTER_HOURS
+        value: 36
+      - key: UNANSWERED_CANCELLATION_INTERVAL_MINUTES
+        value: 120
       - key: UNANSWERED_REJECT_REAL_ENABLED
         value: true
       - key: CHATBY_TOKEN
