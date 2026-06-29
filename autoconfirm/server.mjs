@@ -224,6 +224,11 @@ async function runAutomationAndUnansweredSweep(context = 'automation') {
   return { context, cycle, unanswered };
 }
 
+async function runAutomationOnly(context = 'automation') {
+  const cycle = await runStoreAutomationCycle({ store: config.defaultStore });
+  return { context, cycle };
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -263,7 +268,7 @@ const server = http.createServer(async (req, res) => {
       const results = {};
 
       setTimeout(() => {
-        runAutomationAndUnansweredSweep('dashboard_refresh')
+        runAutomationOnly('dashboard_refresh')
           .then((result) => console.log('Dashboard background refresh processed:', JSON.stringify(result)))
           .catch((error) => console.error('Dashboard background refresh error:', error));
       }, 0);
@@ -378,7 +383,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         try {
-          const cycleResult = await runAutomationAndUnansweredSweep('dropea_webhook');
+          const cycleResult = await runAutomationOnly('dropea_webhook');
           console.log('Automation cycle processed:', JSON.stringify(cycleResult));
         } catch (error) {
           console.error('Automation cycle error:', error);
@@ -423,7 +428,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         try {
-          const cycleResult = await runAutomationAndUnansweredSweep('shopify_webhook');
+          const cycleResult = await runAutomationOnly('shopify_webhook');
           console.log('Automation cycle processed after Shopify webhook:', JSON.stringify(cycleResult));
         } catch (error) {
           console.error('Automation cycle error after Shopify webhook:', error);
@@ -485,12 +490,10 @@ async function runBackgroundPoll() {
   if (pollRunning) return;
   pollRunning = true;
   try {
-    const result = await runAutomationAndUnansweredSweep('background_poll');
+    const result = await runAutomationOnly('background_poll');
     const processed = result?.cycle?.ingest?.processed ?? 0;
-    const unanswered = result?.unanswered;
-    const cancelled = unanswered?.processed ?? 0;
-    if (processed || cancelled) {
-      console.log(`Background poll processed ${processed} orders and ${cancelled} unanswered cancellations.`);
+    if (processed) {
+      console.log(`Background poll processed ${processed} orders.`);
     }
   } catch (error) {
     console.error('Background poll error:', error);
