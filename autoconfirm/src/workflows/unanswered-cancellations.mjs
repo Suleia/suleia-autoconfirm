@@ -1,6 +1,7 @@
 import { getAppConfig } from '../config.mjs';
 import { cancelDropeaOrder, listPendingDropeaOrders } from '../clients/dropea.mjs';
 import {
+  findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
   getChatMessages
 } from '../clients/chatby.mjs';
@@ -81,7 +82,8 @@ function isCustomerMessage(message) {
   if (['customer', 'subscriber', 'user', 'client', 'cliente'].includes(role)) return true;
   if (['in', 'inbound', 'incoming', 'received'].includes(role)) return true;
   if (['customer', 'subscriber', 'user', 'client', 'cliente'].includes(sender)) return true;
-  return Boolean(messageContent(message).trim()) && !['outbound', 'sent'].includes(role);
+  if (['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system'].includes(sender)) return false;
+  return false;
 }
 
 function classifyCustomerSignal(messages) {
@@ -133,7 +135,7 @@ async function customerMessagesForOrder(order, createdAt) {
   const subscriber = await findSubscriberForOrder({
     phone: order.customerPhone,
     orderId: order.orderId
-  });
+  }) || await findSubscriberByPhone({ phone: order.customerPhone });
   if (!subscriber?.user_ns) return { ok: false, reason: 'no_chatby_thread', messages: [] };
 
   const since = parseDate(createdAt);
@@ -255,6 +257,21 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
     const state = { ...loadState() };
     state.lastUnansweredCancellationSweepAt = new Date().toISOString();
     state.lastUnansweredCancellationSweepError = null;
+    state.lastUnansweredCancellationSweepSummary = {
+      checked: results.length,
+      cancelled: results.filter((item) => item.action === 'cancelled_unanswered').length,
+      skipped: results.filter((item) => item.skipped).length,
+      dryRun: results.filter((item) => item.dryRun).length,
+      sample: results.slice(-50).map((item) => ({
+        orderId: item.orderId,
+        action: item.action || null,
+        skipped: Boolean(item.skipped),
+        reason: item.reason || null,
+        dryRun: Boolean(item.dryRun),
+        customerMessages: item.customerMessages ?? null,
+        elapsedHours: item.elapsedHours ?? null
+      }))
+    };
     saveState(state);
 
     return { processed: results.length, results };
