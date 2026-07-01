@@ -1,5 +1,5 @@
 import { getAppConfig } from '../config.mjs';
-import { cancelDropeaOrder, listPendingDropeaOrders } from '../clients/dropea.mjs';
+import { cancelDropeaOrder, getDropeaOrderById, listDropeaOrdersByStatus } from '../clients/dropea.mjs';
 import {
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
@@ -136,7 +136,15 @@ async function customerMessagesForOrder(order, createdAt) {
     phone: order.customerPhone,
     orderId: order.orderId
   }) || await findSubscriberByPhone({ phone: order.customerPhone });
-  if (!subscriber?.user_ns) return { ok: false, reason: 'no_chatby_thread', messages: [] };
+  if (!subscriber?.user_ns) {
+    return {
+      ok: true,
+      reason: 'no_chatby_thread_assumed_no_response',
+      subscriber: null,
+      hasCustomerAction: false,
+      messages: []
+    };
+  }
 
   const since = parseDate(createdAt);
   const messages = await getChatMessages(subscriber.user_ns);
@@ -166,7 +174,65 @@ function hasStoredConfirmation(order) {
   ].includes(status) || intent.includes('confirm');
 }
 
-export async function runUnansweredCancellationSweep({ store = config.defaultStore, limit = 100, pages = 5 } = {}) {
+function cancellationStatusesFromEnv() {
+  return String(process.env.UNANSWERED_CANCELLATION_STATUSES || 'PENDING,WITH_ISSUE')
+    .split(',')
+    .map((status) => status.trim().toUpperCase())
+    .filter(Boolean);
+}
+
+function isCancellationCandidateStatus(status) {
+  const normalized = normalizeText(status)
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return [
+    'pending',
+    'pendiente',
+    'pend',
+    'pend_de_confirmacion',
+    'pendiente_confirmacion',
+    'pendiente_de_confirmacion',
+    'with_issue',
+    'con_incidencia',
+    'incidencia'
+  ].includes(normalized) || (normalized.includes('pend') && normalized.includes('confirm'));
+}
+
+async function collectCancellationCandidates({ limit, pages, orderIds = [] }) {
+  const pendingById = new Map();
+  const statuses = cancellationStatusesFromEnv();
+
+  for (const status of statuses) {
+    for (let page = 1; page <= pages; page += 1) {
+      let pageOrders = [];
+      try {
+        pageOrders = await listDropeaOrdersByStatus({ status, limit, page });
+      } catch (error) {
+        if (status === 'PENDING') throw error;
+        break;
+      }
+      for (const order of pageOrders) {
+        if (isCancellationCandidateStatus(order.status)) {
+          pendingById.set(String(order.orderId), order);
+        }
+      }
+      if (pageOrders.length < limit) break;
+    }
+  }
+
+  for (const orderId of orderIds) {
+    const cleanOrderId = String(orderId || '').trim();
+    if (!cleanOrderId || pendingById.has(cleanOrderId)) continue;
+    const order = await getDropeaOrderById(cleanOrderId);
+    if (order && isCancellationCandidateStatus(order.status)) {
+      pendingById.set(String(order.orderId), order);
+    }
+  }
+
+  return [...pendingById.values()];
+}
+
+export async function runUnansweredCancellationSweep({ store = config.defaultStore, limit = 100, pages = 5, orderIds = [] } = {}) {
   const enabled = Boolean(store.unansweredRejectRealEnabled ?? config.defaultStore.unansweredRejectRealEnabled);
   const dryRun = Boolean(store.agentDryRun ?? config.defaultStore.agentDryRun) && !enabled;
   const limitHours = Number(store.unansweredCancelAfterHours ?? config.defaultStore.unansweredCancelAfterHours ?? 36);
@@ -177,14 +243,9 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
       return { skipped: true, reason: 'invalid_unanswered_limit_hours' };
     }
 
-    const pendingById = new Map();
-    for (let page = 1; page <= pages; page += 1) {
-      const pageOrders = await listPendingDropeaOrders({ limit, page });
-      for (const order of pageOrders) pendingById.set(String(order.orderId), order);
-      if (pageOrders.length < limit) break;
-    }
+    const candidateOrders = await collectCancellationCandidates({ limit, pages, orderIds });
 
-    for (const order of pendingById.values()) {
+    for (const order of candidateOrders) {
       const existing = findOrder(store.id, order.orderId) || {};
       if (hasStoredConfirmation(existing)) {
         results.push({ orderId: order.orderId, skipped: true, reason: 'stored_confirmation_detected' });
@@ -225,6 +286,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           orderId: order.orderId,
           skipped: true,
           reason: chatbyCheck.hasCustomerAction ? 'chatby_customer_action_detected' : `customer_signal_${signal.toLowerCase()}`,
+          chatbyReason: chatbyCheck.reason,
           customerMessages: chatbyCheck.messages.length
         });
         continue;
@@ -241,7 +303,14 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
 
       if (dryRun) {
         const updated = upsertOrder(store.id, { ...patch, status: 'WOULD_REJECT_UNANSWERED' });
-        results.push({ orderId: order.orderId, dryRun: true, action: 'would_cancel_unanswered', order: updated });
+        results.push({
+          orderId: order.orderId,
+          dryRun: true,
+          action: 'would_cancel_unanswered',
+          chatbyReason: chatbyCheck.reason,
+          customerMessages: chatbyCheck.messages.length,
+          order: updated
+        });
         continue;
       }
 
@@ -251,7 +320,15 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         status: 'REJECTED_UNANSWERED',
         cancelledAt: new Date().toISOString()
       });
-      results.push({ orderId: order.orderId, dryRun: false, action: 'cancelled_unanswered', cancellation, order: updated });
+      results.push({
+        orderId: order.orderId,
+        dryRun: false,
+        action: 'cancelled_unanswered',
+        chatbyReason: chatbyCheck.reason,
+        customerMessages: chatbyCheck.messages.length,
+        cancellation,
+        order: updated
+      });
     }
 
     const state = { ...loadState() };
@@ -269,7 +346,8 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         reason: item.reason || null,
         dryRun: Boolean(item.dryRun),
         customerMessages: item.customerMessages ?? null,
-        elapsedHours: item.elapsedHours ?? null
+        elapsedHours: item.elapsedHours ?? null,
+        chatbyReason: item.chatbyReason ?? null
       }))
     };
     saveState(state);
