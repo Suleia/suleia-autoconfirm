@@ -35,6 +35,8 @@ services:
         value: 1
       - key: UNANSWERED_CANCEL_AFTER_HOURS
         value: 36
+      - key: UNANSWERED_CANCELLATION_STATUSES
+        value: PENDING,WITH_ISSUE
       - key: UNANSWERED_CANCELLATION_INTERVAL_MINUTES
         value: 120
       - key: UNANSWERED_REJECT_REAL_ENABLED
@@ -85,6 +87,8 @@ services:
         value: 1
       - key: UNANSWERED_CANCEL_AFTER_HOURS
         value: 36
+      - key: UNANSWERED_CANCELLATION_STATUSES
+        value: PENDING,WITH_ISSUE
       - key: UNANSWERED_CANCELLATION_INTERVAL_MINUTES
         value: 120
       - key: UNANSWERED_REJECT_REAL_ENABLED
