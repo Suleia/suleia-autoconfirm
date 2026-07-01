@@ -463,6 +463,20 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/logistics/run-unanswered-cancellation') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      const orderId = String(body.orderId || body.order_id || url.searchParams.get('orderId') || '').trim();
+      if (!/^\d+$/.test(orderId)) return sendJson(res, 400, { ok: false, error: 'invalid_order_id' });
+      const result = await runUnansweredCancellationSweep({
+        store: config.defaultStore,
+        orderIds: [orderId],
+        limit: 100,
+        pages: 5
+      });
+      return sendJson(res, 200, { ok: true, result });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-sheet') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await ingestPendingOrders({ store: config.defaultStore });
