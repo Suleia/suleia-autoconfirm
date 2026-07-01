@@ -455,7 +455,11 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/cron/unanswered-cancellations') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-      const result = await runUnansweredCancellationSweep({ store: config.defaultStore });
+      const orderId = url.searchParams.get('orderId') || url.searchParams.get('order_id');
+      const result = await runUnansweredCancellationSweep({
+        store: config.defaultStore,
+        orderIds: orderId ? [orderId] : []
+      });
       return sendJson(res, 200, { ok: true, result });
     }
 
