@@ -174,6 +174,23 @@ function hasStoredConfirmation(order) {
   ].includes(status) || intent.includes('confirm');
 }
 
+async function executeDropeaCancellation(orderId) {
+  const before = await getDropeaOrderById(orderId).catch((error) => ({
+    lookupError: error instanceof Error ? error.message : String(error)
+  }));
+  const cancellation = await cancelDropeaOrder(orderId);
+  const after = await getDropeaOrderById(orderId).catch((error) => ({
+    lookupError: error instanceof Error ? error.message : String(error)
+  }));
+
+  return {
+    beforeStatus: before?.status || before?.lookupError || null,
+    cancellation,
+    afterStatus: after?.status || after?.lookupError || null,
+    verifiedAt: new Date().toISOString()
+  };
+}
+
 function cancellationStatusesFromEnv() {
   return String(process.env.UNANSWERED_CANCELLATION_STATUSES || 'PENDING,WITH_ISSUE')
     .split(',')
@@ -314,11 +331,15 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         continue;
       }
 
-      const cancellation = await cancelDropeaOrder(order.orderId);
+      const cancellation = await executeDropeaCancellation(order.orderId);
       const updated = upsertOrder(store.id, {
         ...patch,
         status: 'REJECTED_UNANSWERED',
-        cancelledAt: new Date().toISOString()
+        cancelledAt: new Date().toISOString(),
+        raw: {
+          ...(patch.raw || {}),
+          automaticUnansweredCancellation: cancellation
+        }
       });
       results.push({
         orderId: order.orderId,
