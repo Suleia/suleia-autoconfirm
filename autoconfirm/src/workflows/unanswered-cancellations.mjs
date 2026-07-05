@@ -56,12 +56,12 @@ function subscriberHasCustomerAction(subscriber) {
   if (!subscriber) return false;
 
   const leadStatus = normalizeText(subscriber.lead_status || subscriber.status || '');
-  const passiveStatuses = new Set(['pendiente', 'pending', 'abierto', 'open', 'nuevo', 'new', 'sin respuesta']);
-  if (leadStatus && !passiveStatuses.has(leadStatus)) return true;
+  const explicitActionStatus = /(confirm|cancel|rechaz|direccion|direcc|datos|envio|entrega|respond|respuesta)/;
+  if (explicitActionStatus.test(leadStatus)) return true;
 
   const labels = compactStringList((subscriber.labels || []).map((label) => label.name || label.title || label));
   const tags = compactStringList((subscriber.tags || []).map((tag) => tag.name || tag.title || tag));
-  const actionPattern = /(confirm|cancel|rechaz|direccion|direcc|datos|envio|entrega|respuesta|respond)/;
+  const actionPattern = /(confirmad|ped-confirm|cancel|rechaz|direccion|direcc|datos envio|cambio datos|cambio direccion)/;
   if ([...labels, ...tags].some((value) => actionPattern.test(value))) return true;
 
   const fields = Array.isArray(subscriber.user_fields) ? subscriber.user_fields : [];
@@ -70,14 +70,17 @@ function subscriberHasCustomerAction(subscriber) {
     const value = normalizeText(field?.value || '');
     if (!value) return false;
     if (/dropea|pedido|order|telefono|phone|nombre|email|importe|total/.test(name)) return false;
-    return /(confirm|cancel|rechaz|direccion|direcc|datos|envio|entrega|respuesta|respond|boton|button|accion|action)/.test(name);
+    return /(confirm|cancel|rechaz|direccion|direcc|datos_envio|datos envio|cambio direccion|accion cliente|respuesta cliente)/.test(name);
   });
 }
 
 function isCustomerMessage(message) {
-  const role = normalizeText(message?.role || message?.sender || message?.direction || message?.type);
-  const sender = normalizeText(message?.sender_type || message?.senderType || message?.from_type || message?.fromType || message?.source);
+  const role = normalizeText(message?.role || message?.sender || message?.direction || message?.type || message?.from || message?.sent_by || message?.sentBy);
+  const sender = normalizeText(message?.sender_type || message?.senderType || message?.from_type || message?.fromType || message?.source || message?.author_type || message?.authorType);
   if (message?.is_echo === true || message?.isEcho === true) return false;
+  if (message?.from_me === true || message?.fromMe === true || message?.is_outgoing === true || message?.isOutgoing === true) return false;
+  if (message?.is_bot === true || message?.isBot === true || message?.bot_id || message?.botId || message?.agent_id || message?.agentId || message?.admin_id || message?.adminId) return false;
+  if (message?.is_customer === true || message?.isCustomer === true || message?.from_me === false || message?.fromMe === false || message?.is_outgoing === false || message?.isOutgoing === false) return true;
   if (['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system'].includes(role)) return false;
   if (['customer', 'subscriber', 'user', 'client', 'cliente'].includes(role)) return true;
   if (['in', 'inbound', 'incoming', 'received'].includes(role)) return true;
@@ -331,25 +334,50 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         continue;
       }
 
-      const cancellation = await executeDropeaCancellation(order.orderId);
-      const updated = upsertOrder(store.id, {
-        ...patch,
-        status: 'REJECTED_UNANSWERED',
-        cancelledAt: new Date().toISOString(),
-        raw: {
-          ...(patch.raw || {}),
-          automaticUnansweredCancellation: cancellation
-        }
-      });
-      results.push({
-        orderId: order.orderId,
-        dryRun: false,
-        action: 'cancelled_unanswered',
-        chatbyReason: chatbyCheck.reason,
-        customerMessages: chatbyCheck.messages.length,
-        cancellation,
-        order: updated
-      });
+      try {
+        const cancellation = await executeDropeaCancellation(order.orderId);
+        const updated = upsertOrder(store.id, {
+          ...patch,
+          status: 'REJECTED_UNANSWERED',
+          cancelledAt: new Date().toISOString(),
+          raw: {
+            ...(patch.raw || {}),
+            automaticUnansweredCancellation: cancellation
+          }
+        });
+        results.push({
+          orderId: order.orderId,
+          dryRun: false,
+          action: 'cancelled_unanswered',
+          chatbyReason: chatbyCheck.reason,
+          customerMessages: chatbyCheck.messages.length,
+          cancellation,
+          order: updated
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const updated = upsertOrder(store.id, {
+          ...patch,
+          status: 'REJECT_UNANSWERED_FAILED',
+          cancellationError: message,
+          raw: {
+            ...(patch.raw || {}),
+            automaticUnansweredCancellationError: {
+              message,
+              failedAt: new Date().toISOString()
+            }
+          }
+        });
+        results.push({
+          orderId: order.orderId,
+          skipped: true,
+          reason: 'dropea_cancellation_failed',
+          error: message,
+          chatbyReason: chatbyCheck.reason,
+          customerMessages: chatbyCheck.messages.length,
+          order: updated
+        });
+      }
     }
 
     const state = { ...loadState() };
