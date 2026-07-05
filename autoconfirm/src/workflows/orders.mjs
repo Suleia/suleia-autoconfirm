@@ -15,6 +15,7 @@ import {
   listPendingDropeaOrders
 } from '../clients/dropea.mjs';
 import {
+  findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
   getChatMessages,
   subscriberConfirmsOrderRobust as subscriberConfirmsOrder
@@ -176,7 +177,7 @@ function customerMessagesAfter(messages, sinceIso) {
     const createdAt = messageDate(message);
     if (createdAt) return createdAt >= since;
     const timestamp = messageTimestamp(message);
-    return timestamp ? timestamp >= since.getTime() : false;
+    return timestamp ? timestamp >= since.getTime() : true;
   });
 }
 
@@ -745,6 +746,32 @@ function sameOrderId(left, right) {
   return Boolean(leftDigits && rightDigits && leftDigits === rightDigits);
 }
 
+function subscriberContainsOrderId(subscriber, orderId) {
+  const target = String(orderId || '').replace(/\D/g, '');
+  if (!target) return false;
+  const text = JSON.stringify(subscriber || {});
+  return text.replace(/\D/g, ' ').split(/\s+/).includes(target);
+}
+
+async function resolveSubscriberForOrder(order) {
+  const exact = await findSubscriberForOrder({
+    phone: order.customerPhone,
+    orderId: order.orderId
+  });
+  if (exact) return exact;
+
+  if (!order.customerPhone) return null;
+  const byPhone = await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  if (!byPhone) return null;
+
+  const sameThread = order.chatbyUserNs && String(byPhone.user_ns || byPhone.userNs || '') === String(order.chatbyUserNs);
+  if (sameThread || subscriberContainsOrderId(byPhone, order.orderId)) {
+    return byPhone;
+  }
+
+  return null;
+}
+
 function normalizeDropeaWebhookOrder(payload) {
   const customer = payload.customer || {};
   const orderId = String(payload.order_id || payload.orderId || payload.id || '');
@@ -1075,10 +1102,7 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
 
 async function attachExistingChatbyThread(order, store = config.defaultStore) {
   if (order.chatbyUserNs || !config.chatbyToken || !order.customerPhone) return order;
-  const existingSubscriber = await findSubscriberForOrder({
-    phone: order.customerPhone,
-    orderId: order.orderId
-  });
+  const existingSubscriber = await resolveSubscriberForOrder(order);
   if (!existingSubscriber?.user_ns) return order;
   const updated = upsertOrder(store.id, {
     ...order,
@@ -1111,10 +1135,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   const messages = normalizeChatMessages(await getChatMessages(order.chatbyUserNs));
-  const subscriber = await findSubscriberForOrder({
-    phone: order.customerPhone,
-    orderId: order.orderId
-  });
+  const subscriber = await resolveSubscriberForOrder(order);
 
   const validFrom = unansweredTimeoutStart(order);
   const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
