@@ -56,6 +56,7 @@ function normalizeIncidence(incidence) {
 
   return {
     orderId: orderId === null || orderId === undefined ? null : String(orderId),
+    id: incidence.id ?? incidence.incidence_id ?? incidence.incidenceId ?? null,
     incidenceId: incidence.id ?? incidence.incidence_id ?? incidence.incidenceId ?? null,
     status: String(incidence.status ?? incidence.state ?? 'PENDING').toUpperCase(),
     orderStatus: String(incidence.order_status ?? incidence.orderStatus ?? order.status ?? 'CON INCIDENCIA').toUpperCase(),
@@ -188,13 +189,14 @@ export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses 
 }
 
 export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
-  const roots = ['orderIncidences', 'orderIncidence', 'incidences', 'incidents', 'orderIssues', 'issues'];
+  const roots = ['issues', 'orderIncidences', 'orderIncidence', 'incidences', 'incidents', 'orderIssues'];
   const fieldSets = [
+    'id order { id status customer { full_name phone email } total_amount created_at } incidence_code status solutions',
     'id order_id incidence_code status created_at last_response_at',
     'id orderId incidenceCode status createdAt lastResponseAt',
     'id order_id reason status created_at',
     'id orderId reason status createdAt',
-    'id order { id status customer { full_name phone email } } incidence_code status created_at'
+    'id order { id status customer { full_name phone email } } incidence_code status'
   ];
   const attempts = roots.flatMap((rootName) => fieldSets.flatMap((fields, index) => [
     {
