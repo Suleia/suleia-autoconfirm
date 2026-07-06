@@ -336,15 +336,32 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
 
       try {
         const cancellation = await executeDropeaCancellation(order.orderId);
+        const cancelledAt = new Date().toISOString();
         const updated = upsertOrder(store.id, {
           ...patch,
           status: 'REJECTED_UNANSWERED',
-          cancelledAt: new Date().toISOString(),
+          cancelledAt,
           raw: {
             ...(patch.raw || {}),
             automaticUnansweredCancellation: cancellation
           }
         });
+        const state = { ...loadState() };
+        const history = Array.isArray(state.automaticUnansweredCancellations)
+          ? state.automaticUnansweredCancellations
+          : [];
+        state.automaticUnansweredCancellations = [
+          ...history,
+          {
+            orderId: String(order.orderId),
+            cancelledAt,
+            elapsedHours: Number(elapsedHours.toFixed(2)),
+            source: 'automatic_36h_unanswered_sweep',
+            chatbyReason: chatbyCheck.reason,
+            customerMessages: chatbyCheck.messages.length
+          }
+        ].slice(-200);
+        saveState(state);
         results.push({
           orderId: order.orderId,
           dryRun: false,
