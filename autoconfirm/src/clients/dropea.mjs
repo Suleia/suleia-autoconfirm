@@ -44,6 +44,52 @@ function normalizeOrder(order) {
   };
 }
 
+function normalizeIncidence(incidence) {
+  const order = incidence.order || incidence.order_data || incidence.orderData || incidence.order_info || {};
+  const customer = incidence.customer || order.customer || {};
+  const orderId = incidence.order_id
+    ?? incidence.orderId
+    ?? incidence.id_order
+    ?? incidence.order?.id
+    ?? order.id
+    ?? null;
+
+  return {
+    orderId: orderId === null || orderId === undefined ? null : String(orderId),
+    incidenceId: incidence.id ?? incidence.incidence_id ?? incidence.incidenceId ?? null,
+    status: String(incidence.status ?? incidence.state ?? 'PENDING').toUpperCase(),
+    orderStatus: String(incidence.order_status ?? incidence.orderStatus ?? order.status ?? 'CON INCIDENCIA').toUpperCase(),
+    reason: incidence.incidence_code
+      || incidence.incidenceCode
+      || incidence.reason
+      || incidence.type
+      || incidence.name
+      || incidence.code
+      || 'Incidencia pendiente',
+    createdAt: incidence.created_at
+      || incidence.createdAt
+      || incidence.date
+      || incidence.opened_at
+      || incidence.openedAt
+      || null,
+    lastResponseAt: incidence.last_response_at || incidence.lastResponseAt || incidence.last_response || null,
+    customerName: customer.full_name || customer.fullName || customer.name || incidence.customer_name || incidence.customerName || null,
+    customerPhone: customer.phone || customer.mobile || incidence.phone || incidence.customer_phone || incidence.customerPhone || null,
+    raw: incidence
+  };
+}
+
+function extractConnectionItems(result) {
+  if (!result || typeof result !== 'object') return [];
+  for (const value of Object.values(result)) {
+    if (Array.isArray(value)) return value;
+    if (Array.isArray(value?.data)) return value.data;
+    if (Array.isArray(value?.items)) return value.items;
+    if (Array.isArray(value?.nodes)) return value.nodes;
+  }
+  return [];
+}
+
 export async function listPendingDropeaOrders({ limit = 50, page = 1 } = {}) {
   const query = `
     query PendingOrders($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
@@ -93,6 +139,22 @@ export async function listDropeaOrdersByStatus({ status = 'PENDING', limit = 100
   }));
 }
 
+export async function listDropeaOrderStateValues() {
+  const query = `
+    query OrderStateEnumValues {
+      __type(name: "OrderStateEnum") {
+        enumValues {
+          name
+        }
+      }
+    }
+  `;
+  const result = await requestGraphQL(query);
+  return (result?.__type?.enumValues || [])
+    .map((item) => item?.name)
+    .filter(Boolean);
+}
+
 export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses = null } = {}) {
   const targetStatuses = statuses || [
     'PENDING',
@@ -123,6 +185,83 @@ export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses 
   }
 
   return [...byId.values()];
+}
+
+export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
+  const roots = ['orderIncidences', 'orderIncidence', 'incidences', 'incidents', 'orderIssues', 'issues'];
+  const fieldSets = [
+    'id order_id incidence_code status created_at last_response_at',
+    'id orderId incidenceCode status createdAt lastResponseAt',
+    'id order_id reason status created_at',
+    'id orderId reason status createdAt',
+    'id order { id status customer { full_name phone email } } incidence_code status created_at'
+  ];
+  const attempts = roots.flatMap((rootName) => fieldSets.flatMap((fields, index) => [
+    {
+      name: `${rootName}_connection_${index + 1}`,
+      query: `
+        query DropeaIncidences($limit: Int!, $page: Int!) {
+          ${rootName}(limit: $limit, page: $page) {
+            data {
+              ${fields}
+            }
+          }
+        }
+      `
+    },
+    {
+      name: `${rootName}_list_${index + 1}`,
+      query: `
+        query DropeaIncidences($limit: Int!, $page: Int!) {
+          ${rootName}(limit: $limit, page: $page) {
+            ${fields}
+          }
+        }
+      `
+    },
+    {
+      name: `${rootName}_connection_noargs_${index + 1}`,
+      query: `
+        query DropeaIncidences {
+          ${rootName} {
+            data {
+              ${fields}
+            }
+          }
+        }
+      `
+    },
+    {
+      name: `${rootName}_list_noargs_${index + 1}`,
+      query: `
+        query DropeaIncidences {
+          ${rootName} {
+            ${fields}
+          }
+        }
+      `
+    }
+  ]));
+
+  const errors = [];
+  const emptySuccesses = [];
+  for (const attempt of attempts) {
+    try {
+      const result = await requestGraphQL(attempt.query, { limit, page });
+      const items = extractConnectionItems(result);
+      if (items.length) {
+        return items.map((item) => ({
+          ...normalizeIncidence(item),
+          source: attempt.name
+        }));
+      }
+      emptySuccesses.push(attempt.name);
+    } catch (error) {
+      errors.push(`${attempt.name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  throw new Error(`No se pudo leer listado de incidencias en Dropea. Endpoints vacios: ${emptySuccesses.join(', ') || 'ninguno'}. Errores: ${errors.join(' | ')}`);
 }
 
 export async function getDropeaOrderById(orderId) {
