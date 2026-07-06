@@ -10,6 +10,7 @@ const state = {
 const titles = {
   overview: 'Vista general',
   orders: 'Pedidos',
+  incidents: 'Incidencias',
   agent: 'Control del agente',
   meta: 'Meta Ads',
   products: 'Productos',
@@ -404,6 +405,86 @@ function renderOrders() {
     .filter(orderMatchesFilter);
   renderOrdersSummary(orders, visibleOrders);
   table.innerHTML = rows.join('') || '<tr><td colspan="7">No hay resultados para esta busqueda.</td></tr>';
+}
+
+function renderIncidents() {
+  const table = document.querySelector('#incidents-table');
+  const summary = document.querySelector('#incidents-summary');
+  if (!table || !summary) return;
+
+  const data = state.dashboard?.incidents || {};
+  const incidents = Array.isArray(data.incidents) ? data.incidents : [];
+  const visible = incidents.filter((incident) => matchesQuery([
+    incident.orderId,
+    incident.incidenceId,
+    incident.reason,
+    incident.customerName,
+    incident.phone,
+    incident.chatbyStatus,
+    incident.chatbySummary,
+    incident.proposedSolution
+  ]));
+
+  const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
+  const needsAddress = incidents.filter((incident) => normalize(`${incident.chatbyStatus} ${incident.reason}`).includes('direccion')).length;
+  const rejected = incidents.filter((incident) => normalize(incident.chatbyStatus).includes('rechaza') || normalize(incident.chatbyStatus).includes('cancela')).length;
+  const cards = [
+    { label: 'Pendientes', value: incidents.length, detail: `Actualizado ${formatDateTime(data.updatedAt)}`, tone: 'neutral' },
+    { label: 'Dirección/datos', value: needsAddress, detail: 'Probable corrección de entrega', tone: 'warning' },
+    { label: 'Rechazo/cancelación', value: rejected, detail: 'No insistir sin revisar', tone: 'danger' },
+    { label: 'Sin Chatby', value: noChatby, detail: 'Necesitan revisión manual', tone: noChatby ? 'warning' : 'positive' }
+  ];
+
+  summary.innerHTML = cards.map((card) => `
+    <article class="order-summary-card ${card.tone}">
+      <span>${escapeHtml(card.label)}</span>
+      <strong>${escapeHtml(card.value)}</strong>
+      <small>${escapeHtml(card.detail)}</small>
+    </article>
+  `).join('');
+
+  if (data.error) {
+    table.innerHTML = `<tr><td colspan="6">No se pudo actualizar incidencias: ${escapeHtml(data.error)}</td></tr>`;
+    return;
+  }
+
+  table.innerHTML = visible.map((incident) => {
+    const statusTone = normalize(incident.chatbyStatus).includes('rechaza') || normalize(incident.chatbyStatus).includes('cancela')
+      ? 'danger'
+      : normalize(incident.chatbyStatus).includes('direccion') || normalize(incident.chatbyStatus).includes('reprogramar')
+        ? 'warning'
+        : incident.chatbyUserNs
+          ? 'positive'
+          : 'neutral';
+    return `
+      <tr>
+        <td>
+          <strong>#${escapeHtml(incident.orderId)}</strong>
+          <small>Incidencia ${escapeHtml(incident.incidenceId || '-')}</small>
+          <small>${escapeHtml(formatDateTime(incident.incidenceDate))}</small>
+        </td>
+        <td>
+          <span class="pill warning">${escapeHtml(incident.reason || 'Incidencia')}</span>
+          <small>${escapeHtml(incident.issueStatus || 'PENDIENTE')} · ${escapeHtml(incident.orderStatus || '')}</small>
+        </td>
+        <td>
+          <strong>${escapeHtml(incident.customerName || 'Sin nombre')}</strong>
+          <small>${escapeHtml(incident.phone || 'Sin telefono')}</small>
+        </td>
+        <td>
+          <span class="signal-chip ${statusTone}">${escapeHtml(incident.chatbyStatus || 'Sin analizar')}</span>
+          <small>${escapeHtml(incident.customerMessages || 0)} mensajes de cliente</small>
+        </td>
+        <td>
+          <small>${escapeHtml(incident.chatbySummary || 'Sin resumen')}</small>
+        </td>
+        <td>
+          <strong>${escapeHtml(incident.proposedSolution || 'Revisión manual')}</strong>
+          ${incident.chatbyUserNs ? `<small>Chatby: ${escapeHtml(incident.chatbyUserNs)}</small>` : ''}
+        </td>
+      </tr>
+    `;
+  }).join('') || '<tr><td colspan="6">No hay incidencias pendientes para mostrar.</td></tr>';
 }
 
 function renderCampaigns() {
@@ -1138,6 +1219,7 @@ function render() {
   renderFinance();
   renderAgentChat();
   renderOrders();
+  renderIncidents();
   renderCampaignsV2();
   renderAgentOperationalHealth();
   renderAgentDiagnostics();
