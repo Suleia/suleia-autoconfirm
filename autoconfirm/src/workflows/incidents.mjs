@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
-import { listDropeaOrdersByStatus } from '../clients/dropea.mjs';
+import { getDropeaOrderById, listDropeaIncidences, listDropeaOrdersByStatus, listDropeaOrderStateValues } from '../clients/dropea.mjs';
 import { findSubscriberByPhone, getChatMessages } from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
 
@@ -52,11 +52,13 @@ function issueReason(issue) {
 function issueDate(order, issue) {
   return issue?.created_at
     || issue?.createdAt
+    || issue?.created_at
     || issue?.date
     || issue?.opened_at
-    || order.raw?.updated_at
-    || order.raw?.created_at
-    || order.createdAt
+    || issue?.createdAt
+    || order?.raw?.updated_at
+    || order?.raw?.created_at
+    || order?.createdAt
     || null;
 }
 
@@ -185,8 +187,38 @@ async function chatbyContextForPhone(phone) {
 }
 
 async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
+  let directIncidentsError = null;
+  try {
+    const rows = [];
+    for (let page = 1; page <= pages; page += 1) {
+      const incidences = await listDropeaIncidences({ limit, page });
+      if (!Array.isArray(incidences) || !incidences.length) break;
+      for (const incidence of incidences.filter(isPendingIssue)) {
+        let order = null;
+        if (incidence.orderId) {
+          order = await getDropeaOrderById(incidence.orderId).catch(() => null);
+        }
+        rows.push({ order, issue: incidence });
+      }
+      if (incidences.length < limit) break;
+    }
+    if (rows.length) return rows;
+  } catch (error) {
+    directIncidentsError = error instanceof Error ? error.message : String(error);
+    // Fallback to order scans for Dropea API versions that do not expose incidents directly.
+  }
+
   const rows = [];
-  const statuses = ['PENDING', 'CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT'];
+  const defaultStatuses = ['PENDING', 'CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT'];
+  let statuses = defaultStatuses;
+  try {
+    const discoveredStatuses = await listDropeaOrderStateValues();
+    if (Array.isArray(discoveredStatuses) && discoveredStatuses.length) {
+      statuses = discoveredStatuses;
+    }
+  } catch {
+    statuses = defaultStatuses;
+  }
 
   for (const status of statuses) {
     for (let page = 1; page <= pages; page += 1) {
@@ -194,7 +226,6 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
       try {
         orders = await listDropeaOrdersByStatus({ status, limit, page });
       } catch (error) {
-        if (status === 'PENDING') throw error;
         break;
       }
       if (!Array.isArray(orders) || !orders.length) break;
@@ -206,6 +237,9 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
       }
       if (orders.length < limit) break;
     }
+  }
+  if (!rows.length && directIncidentsError) {
+    throw new Error(`No se encontraron incidencias por pedidos y el endpoint directo fallo: ${directIncidentsError}`);
   }
   return rows;
 }
@@ -226,7 +260,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
   try {
     const pending = await collectPendingIncidents({ limit, pages });
     for (const { order, issue } of pending) {
-      const phone = order.customerPhone || order.raw?.customer?.phone || '';
+      const phone = order?.customerPhone || order?.raw?.customer?.phone || issue?.customerPhone || '';
       let chatby;
       try {
         chatby = await chatbyContextForPhone(phone);
@@ -242,15 +276,15 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       }
 
       incidents.push({
-        orderId: String(order.orderId),
-        incidenceId: issue?.id ? String(issue.id) : null,
+        orderId: String(order?.orderId || issue?.orderId || ''),
+        incidenceId: issue?.id || issue?.incidenceId ? String(issue.id || issue.incidenceId) : null,
         incidenceDate: issueDate(order, issue),
         reason: issue ? issueReason(issue) : 'Pedido con incidencia',
         issueStatus: issue ? (issueStatus(issue) || 'PENDIENTE') : 'PENDIENTE',
-        orderStatus: order.status || 'WITH_ISSUE',
-        customerName: order.customerName || order.raw?.customer?.full_name || '',
+        orderStatus: order?.status || issue?.orderStatus || 'CON INCIDENCIA',
+        customerName: order?.customerName || order?.raw?.customer?.full_name || issue?.customerName || '',
         phone,
-        amount: order.orderAmount ?? null,
+        amount: order?.orderAmount ?? null,
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
         proposedSolution: chatby.proposedSolution,
