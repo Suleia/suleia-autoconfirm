@@ -9,6 +9,7 @@ import { getCampaignInsights } from './clients/meta.mjs';
 import { listRecentShopifyOrders } from './clients/shopify.mjs';
 import { chatWithOperationsAgent } from './clients/openai.mjs';
 import { appendAgentMemoryRule, getAgentMemoryRules, getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
+import { loadIncidentsCache } from './workflows/incidents.mjs';
 
 const config = getAppConfig();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1641,6 +1642,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
   const agentChat = await readJson(path.join(dashboardDataDir, 'agent-chat.json'), []);
   const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
   const businessManagerRequests = await readJson(path.join(dashboardDataDir, 'business-manager-requests.json'), []);
+  const incidents = loadIncidentsCache();
   let sheetAgentMemory = [];
   if (config.googleSheetsEnabled || config.googleSheetsLegacyReadEnabled) try {
     sheetAgentMemory = await getAgentMemoryRules();
@@ -1772,6 +1774,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
       lastError: liveShopify.source.ok ? null : liveShopify.source.error
     },
     products,
+    incidents,
     businessManager,
     research: businessManager.productReports.map((item) => ({
       name: item.name,
