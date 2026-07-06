@@ -195,9 +195,10 @@ async function executeDropeaCancellation(orderId) {
 }
 
 function cancellationStatusesFromEnv() {
-  return String(process.env.UNANSWERED_CANCELLATION_STATUSES || 'PENDING,WITH_ISSUE')
+  return String(process.env.UNANSWERED_CANCELLATION_STATUSES || 'PENDING')
     .split(',')
     .map((status) => status.trim().toUpperCase())
+    .filter((status) => status !== 'WITH_ISSUE' && status !== 'CON_INCIDENCIA')
     .filter(Boolean);
 }
 
