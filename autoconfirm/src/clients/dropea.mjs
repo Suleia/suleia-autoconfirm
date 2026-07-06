@@ -99,7 +99,6 @@ export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses 
     'CONFIRMED',
     'CANCELLED',
     'REJECTED',
-    'WITH_ISSUE',
     'IN_PREPARATION',
     'PREPARED',
     'IN_TRANSIT',
