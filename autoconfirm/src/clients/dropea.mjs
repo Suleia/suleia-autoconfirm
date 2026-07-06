@@ -140,6 +140,31 @@ export async function listDropeaOrdersByStatus({ status = 'PENDING', limit = 100
   }));
 }
 
+export async function listDropeaOrders({ limit = 100, page = 1 } = {}) {
+  const query = `
+    query Orders($limit: Int!, $page: Int!) {
+      orders(limit: $limit, page: $page) {
+        data {
+          id
+          status
+          customer { full_name phone email }
+          total_amount
+          created_at
+          issues { id incidence_code status }
+        }
+      }
+    }
+  `;
+
+  const result = await requestGraphQL(query, { limit, page });
+  const items = result?.orders?.data ?? [];
+  return items.map((order) => ({
+    ...normalizeOrder(order),
+    ...normalizeCustomer(order.customer),
+    raw: order
+  }));
+}
+
 export async function listDropeaOrderStateValues() {
   const query = `
     query OrderStateEnumValues {
@@ -189,9 +214,63 @@ export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses 
 }
 
 export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
+  const minimalIssuesQuery = `
+    query DropeaIssues($limit: Int!, $page: Int!) {
+      issues(limit: $limit, page: $page) {
+        data {
+          id
+          incidence_code
+          status
+          order {
+            id
+          }
+        }
+      }
+    }
+  `;
+  try {
+    const result = await requestGraphQL(minimalIssuesQuery, { limit, page });
+    const items = result?.issues?.data ?? [];
+    if (Array.isArray(items) && items.length) {
+      return items.map((item) => ({
+        ...normalizeIncidence(item),
+        source: 'issues_minimal'
+      }));
+    }
+  } catch {
+    // Keep probing alternate shapes below so the log remains useful if Dropea changes the schema.
+  }
+
+  const minimalIssuesNoArgsQuery = `
+    query DropeaIssues {
+      issues {
+        data {
+          id
+          incidence_code
+          status
+          order {
+            id
+          }
+        }
+      }
+    }
+  `;
+  try {
+    const result = await requestGraphQL(minimalIssuesNoArgsQuery);
+    const items = result?.issues?.data ?? [];
+    if (Array.isArray(items) && items.length) {
+      return items.map((item) => ({
+        ...normalizeIncidence(item),
+        source: 'issues_minimal_noargs'
+      }));
+    }
+  } catch {
+    // Keep probing alternate shapes below so the log remains useful if Dropea changes the schema.
+  }
+
   const roots = ['issues', 'orderIncidences', 'orderIncidence', 'incidences', 'incidents', 'orderIssues'];
   const fieldSets = [
-    'id order { id status customer { full_name phone email } total_amount created_at } incidence_code status solutions',
+    'id order { id } incidence_code status',
     'id order_id incidence_code status created_at last_response_at',
     'id orderId incidenceCode status createdAt lastResponseAt',
     'id order_id reason status created_at',
