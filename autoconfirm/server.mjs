@@ -9,6 +9,7 @@ import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs'
 import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, handleShopifyWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cancellations.mjs';
+import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
 
 const config = getAppConfig();
@@ -209,8 +210,12 @@ function storeSummary() {
     automaticUnansweredCancellations: Array.isArray(state.automaticUnansweredCancellations)
       ? state.automaticUnansweredCancellations.slice(-50)
       : [],
+    lastIncidentsSyncAt: state.lastIncidentsSyncAt,
+    lastIncidentsSyncError: state.lastIncidentsSyncError,
+    lastIncidentsSyncCount: state.lastIncidentsSyncCount,
     unansweredCancellationIntervalMinutes: config.defaultStore.unansweredCancellationIntervalMinutes,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
+    incidentsSyncIntervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
     metaDashboardEnabled: config.metaDashboardEnabled,
     metaDashboardIntervalMinutes: config.metaDashboardIntervalMinutes,
     lastMetaDashboardAt: state.lastMetaDashboardAt,
@@ -493,6 +498,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/sync-incidents') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await syncPendingIncidents();
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
     return sendJson(res, 404, { ok: false, error: 'not_found' });
   } catch (error) {
     return sendJson(res, 500, {
@@ -507,6 +518,8 @@ let pollRunning = false;
 let metaDashboardTimer = null;
 let unansweredCancellationTimer = null;
 let unansweredCancellationRunning = false;
+let incidentsSyncTimer = null;
+let incidentsSyncRunning = false;
 
 async function runBackgroundPoll() {
   if (pollRunning) return;
@@ -564,6 +577,30 @@ function startUnansweredCancellationScheduler() {
   }, 30000);
 }
 
+async function runScheduledIncidentsSync() {
+  if (incidentsSyncRunning) return;
+  incidentsSyncRunning = true;
+  try {
+    const result = await syncPendingIncidents();
+    console.log(`Incidents sync checked ${result.count || 0} pending incidents.`);
+  } catch (error) {
+    console.error('Incidents sync error:', error);
+  } finally {
+    incidentsSyncRunning = false;
+  }
+}
+
+function startIncidentsScheduler() {
+  const intervalMinutes = config.defaultStore.incidentsSyncIntervalMinutes || 480;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    runScheduledIncidentsSync();
+    incidentsSyncTimer = setInterval(runScheduledIncidentsSync, intervalMs);
+  }, 60000);
+}
+
 function startMetaDashboardSync() {
   const intervalMinutes = config.metaDashboardIntervalMinutes || 720;
   if (!config.metaDashboardEnabled) return;
@@ -594,5 +631,6 @@ server.listen(config.port, () => {
   console.log(`Shopify webhook: /api/webhooks/shopify/${config.defaultStore.webhookToken}`);
   startBackgroundPoller();
   startUnansweredCancellationScheduler();
+  startIncidentsScheduler();
   startMetaDashboardSync();
 });
