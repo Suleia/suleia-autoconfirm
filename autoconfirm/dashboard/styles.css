@@ -2303,9 +2303,35 @@ th {
   .span-5,
   .span-6,
   .span-7,
-  .span-12 {
-    grid-column: span 12;
-  }
+.span-12 {
+  grid-column: span 12;
+}
+
+.incidents-panel {
+  background:
+    radial-gradient(circle at top right, rgba(255, 214, 140, .22), transparent 28%),
+    linear-gradient(135deg, rgba(255, 255, 255, .96), rgba(244, 255, 250, .92));
+}
+
+.incidents-table-wrap table {
+  min-width: 1180px;
+}
+
+.incidents-table-wrap td {
+  vertical-align: top;
+}
+
+.incidents-table-wrap td strong {
+  display: block;
+  line-height: 1.2;
+}
+
+.incidents-table-wrap td small {
+  display: block;
+  color: var(--muted);
+  line-height: 1.45;
+  margin-top: 4px;
+}
 }
 
 @media (max-width: 560px) {
