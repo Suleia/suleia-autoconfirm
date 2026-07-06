@@ -42,6 +42,7 @@ function isPendingIssue(issue) {
 
 function issueReason(issue) {
   return issue?.incidence_code
+    || issue?.incidenceCode
     || issue?.code
     || issue?.reason
     || issue?.type
