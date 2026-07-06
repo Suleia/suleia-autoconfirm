@@ -20,6 +20,7 @@
         <nav class="nav" aria-label="Secciones">
           <button class="nav-item is-active" data-section="overview">Vista general</button>
           <button class="nav-item" data-section="orders">Pedidos</button>
+          <button class="nav-item" data-section="incidents">Incidencias</button>
           <button class="nav-item" data-section="agent">Agente</button>
           <button class="nav-item" data-section="meta">Meta Ads</button>
           <button class="nav-item" data-section="products">Productos</button>
@@ -132,6 +133,32 @@
               <span class="chip">ROAS estimado</span>
             </div>
             <div id="campaign-list" class="bar-list"></div>
+          </article>
+
+          <article class="panel span-12 incidents-panel" data-panel="incidents">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">Dropea + Chatby</p>
+                <h3>Incidencias pendientes</h3>
+              </div>
+              <span class="chip">Refresco cada 8h</span>
+            </div>
+            <div id="incidents-summary" class="orders-summary"></div>
+            <div class="table-wrap incidents-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pedido / incidencia</th>
+                    <th>Motivo</th>
+                    <th>Cliente / teléfono</th>
+                    <th>Chatby</th>
+                    <th>Qué ocurre</th>
+                    <th>Solución propuesta</th>
+                  </tr>
+                </thead>
+                <tbody id="incidents-table"></tbody>
+              </table>
+            </div>
           </article>
 
           <article class="panel span-12" data-panel="overview settings">
