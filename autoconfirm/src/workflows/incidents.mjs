@@ -186,16 +186,26 @@ async function chatbyContextForPhone(phone) {
 
 async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   const rows = [];
-  for (let page = 1; page <= pages; page += 1) {
-    const orders = await listDropeaOrdersByStatus({ status: 'WITH_ISSUE', limit, page });
-    if (!Array.isArray(orders) || !orders.length) break;
-    for (const order of orders) {
-      const issues = asArray(order.raw?.issues).filter(isPendingIssue);
-      for (const issue of issues.length ? issues : [null]) {
-        rows.push({ order, issue });
+  const statuses = ['PENDING', 'CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT'];
+
+  for (const status of statuses) {
+    for (let page = 1; page <= pages; page += 1) {
+      let orders = [];
+      try {
+        orders = await listDropeaOrdersByStatus({ status, limit, page });
+      } catch (error) {
+        if (status === 'PENDING') throw error;
+        break;
       }
+      if (!Array.isArray(orders) || !orders.length) break;
+      for (const order of orders) {
+        const issues = asArray(order.raw?.issues).filter(isPendingIssue);
+        for (const issue of issues) {
+          rows.push({ order, issue });
+        }
+      }
+      if (orders.length < limit) break;
     }
-    if (orders.length < limit) break;
   }
   return rows;
 }
