@@ -1168,20 +1168,31 @@ async function loadOperationalDropeaOrders() {
     name: 'Dropea API - pendientes e incidencias',
     ok: true,
     error: null,
-    statuses: 'PENDING, WITH_ISSUE',
+    statuses: 'PENDING + pedidos con issues',
     generatedAt: new Date().toISOString()
   };
   const byId = new Map();
 
   try {
-    for (const status of ['PENDING', 'WITH_ISSUE']) {
+    for (const status of ['PENDING', 'CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT']) {
       for (let page = 1; page <= 3; page += 1) {
-        const pageOrders = status === 'PENDING'
-          ? await listPendingDropeaOrders({ limit: 100, page })
-          : await listDropeaOrdersByStatus({ status, limit: 100, page });
+        let pageOrders = [];
+        try {
+          pageOrders = status === 'PENDING'
+            ? await listPendingDropeaOrders({ limit: 100, page })
+            : await listDropeaOrdersByStatus({ status, limit: 100, page });
+        } catch (error) {
+          if (status === 'PENDING') throw error;
+          break;
+        }
         if (!Array.isArray(pageOrders) || !pageOrders.length) break;
         for (const order of pageOrders) {
-          byId.set(String(order.orderId), orderFromDropea(order));
+          const hasIssues = Array.isArray(order.raw?.issues)
+            ? order.raw.issues.length > 0
+            : Boolean(order.raw?.issues);
+          if (status === 'PENDING' || hasIssues) {
+            byId.set(String(order.orderId), orderFromDropea(order));
+          }
         }
         if (pageOrders.length < 100) break;
       }
