@@ -205,6 +205,10 @@ function storeSummary() {
     lastAutoConfirmError: state.lastAutoConfirmError,
     lastUnansweredCancellationSweepAt: state.lastUnansweredCancellationSweepAt,
     lastUnansweredCancellationSweepError: state.lastUnansweredCancellationSweepError,
+    lastUnansweredCancellationSweepSummary: state.lastUnansweredCancellationSweepSummary || null,
+    automaticUnansweredCancellations: Array.isArray(state.automaticUnansweredCancellations)
+      ? state.automaticUnansweredCancellations.slice(-50)
+      : [],
     unansweredCancellationIntervalMinutes: config.defaultStore.unansweredCancellationIntervalMinutes,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
     metaDashboardEnabled: config.metaDashboardEnabled,
