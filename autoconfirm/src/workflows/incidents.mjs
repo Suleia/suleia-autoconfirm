@@ -61,37 +61,14 @@ function unique(values) {
 
 function incidentStatusCandidates(discoveredStatuses = []) {
   const discovered = Array.isArray(discoveredStatuses) ? discoveredStatuses : [];
-  const likely = [
-    'INCIDENCE',
-    'INCIDENT',
-    'INCIDENTS',
-    'ISSUE',
-    'ISSUES',
-    'WITH_INCIDENT',
-    'WITH_INCIDENTS',
-    'WITH_INCIDENCE',
-    'WITH_INCIDENCES',
-    'HAS_INCIDENT',
-    'HAS_INCIDENCE',
-    'CON_INCIDENCIA',
-    'INCIDENCIA',
-    'PENDING_ISSUE',
-    'PENDING_INCIDENT',
-    'PENDING_INCIDENCE',
-    'UNRESOLVED',
-    'PENDING_RESOLUTION'
-  ];
-
-  const matchingDiscovered = discovered.filter((status) => {
+  return unique(discovered.filter((status) => {
     const text = normalize(status);
     return text.includes('incid')
       || text.includes('issue')
       || text.includes('problem')
       || text.includes('resolver')
       || text.includes('unresolved');
-  });
-
-  return unique([...matchingDiscovered, ...likely]);
+  }));
 }
 
 function issueReason(issue) {
