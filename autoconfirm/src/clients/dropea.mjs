@@ -125,7 +125,7 @@ export async function listDropeaOrdersByStatus({ status = 'PENDING', limit = 100
           customer { full_name phone email }
           total_amount
           created_at
-          issues { id incidence_code status solutions }
+          issues { id incidence_code status }
         }
       }
     }
@@ -151,6 +151,30 @@ export async function listDropeaOrders({ limit = 100, page = 1 } = {}) {
           total_amount
           created_at
           issues { id incidence_code status }
+        }
+      }
+    }
+  `;
+
+  const result = await requestGraphQL(query, { limit, page });
+  const items = result?.orders?.data ?? [];
+  return items.map((order) => ({
+    ...normalizeOrder(order),
+    ...normalizeCustomer(order.customer),
+    raw: order
+  }));
+}
+
+export async function listDropeaOrdersBasic({ limit = 100, page = 1 } = {}) {
+  const query = `
+    query Orders($limit: Int!, $page: Int!) {
+      orders(limit: $limit, page: $page) {
+        data {
+          id
+          status
+          customer { full_name phone email }
+          total_amount
+          created_at
         }
       }
     }
@@ -355,7 +379,7 @@ export async function getDropeaOrderById(orderId) {
           customer { full_name phone email }
           total_amount
           created_at
-          issues { id incidence_code status solutions }
+          issues { id incidence_code status }
         }
       }
     }
