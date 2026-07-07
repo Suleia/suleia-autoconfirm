@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
-import { getDropeaOrderById, listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatus, listDropeaOrderStateValues } from '../clients/dropea.mjs';
+import { getDropeaOrderById, listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatusBasic, listDropeaOrderStateValues } from '../clients/dropea.mjs';
 import { findSubscriberByPhone, getChatMessages } from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
 
@@ -53,6 +53,45 @@ function orderLooksLikeIncident(order) {
     || text.includes('issue')
     || text.includes('con incidencia')
     || text.includes('incidence');
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function incidentStatusCandidates(discoveredStatuses = []) {
+  const discovered = Array.isArray(discoveredStatuses) ? discoveredStatuses : [];
+  const likely = [
+    'INCIDENCE',
+    'INCIDENT',
+    'INCIDENTS',
+    'ISSUE',
+    'ISSUES',
+    'WITH_INCIDENT',
+    'WITH_INCIDENTS',
+    'WITH_INCIDENCE',
+    'WITH_INCIDENCES',
+    'HAS_INCIDENT',
+    'HAS_INCIDENCE',
+    'CON_INCIDENCIA',
+    'INCIDENCIA',
+    'PENDING_ISSUE',
+    'PENDING_INCIDENT',
+    'PENDING_INCIDENCE',
+    'UNRESOLVED',
+    'PENDING_RESOLUTION'
+  ];
+
+  const matchingDiscovered = discovered.filter((status) => {
+    const text = normalize(status);
+    return text.includes('incid')
+      || text.includes('issue')
+      || text.includes('problem')
+      || text.includes('resolver')
+      || text.includes('unresolved');
+  });
+
+  return unique([...matchingDiscovered, ...likely]);
 }
 
 function issueReason(issue) {
@@ -205,6 +244,12 @@ async function chatbyContextForPhone(phone) {
 async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   let directIncidentsError = null;
   const fallbackErrors = [];
+  const diagnostics = {
+    ordersWithIssuesScanned: 0,
+    ordersBasicScanned: 0,
+    statusCandidatesTried: [],
+    statusRows: {}
+  };
   try {
     const rows = [];
     for (let page = 1; page <= pages; page += 1) {
@@ -235,6 +280,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
       break;
     }
     if (!Array.isArray(orders) || !orders.length) break;
+    diagnostics.ordersWithIssuesScanned += orders.length;
     for (const order of orders) {
       const issues = asArray(order.raw?.issues).filter(isPendingIssue);
       for (const issue of issues) {
@@ -254,6 +300,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
       break;
     }
     if (!Array.isArray(orders) || !orders.length) break;
+    diagnostics.ordersBasicScanned += orders.length;
     for (const order of orders.filter(orderLooksLikeIncident)) {
       rows.push({
         order,
@@ -269,38 +316,45 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   }
   if (rows.length) return rows;
 
-  const defaultStatuses = ['PENDING', 'CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT'];
-  let statuses = defaultStatuses;
+  const defaultStatuses = [];
+  let discoveredStatuses = defaultStatuses;
   try {
-    const discoveredStatuses = await listDropeaOrderStateValues();
-    if (Array.isArray(discoveredStatuses) && discoveredStatuses.length) {
-      statuses = discoveredStatuses;
-    }
+    discoveredStatuses = await listDropeaOrderStateValues();
   } catch {
-    statuses = defaultStatuses;
+    discoveredStatuses = defaultStatuses;
   }
 
-  for (const status of statuses) {
+  const statusCandidates = incidentStatusCandidates(discoveredStatuses);
+  diagnostics.statusCandidatesTried = statusCandidates;
+
+  for (const status of statusCandidates) {
     for (let page = 1; page <= pages; page += 1) {
       let orders = [];
       try {
-        orders = await listDropeaOrdersByStatus({ status, limit, page });
+        orders = await listDropeaOrdersByStatusBasic({ status, limit, page });
       } catch (error) {
         fallbackErrors.push(`orders_status_${status}_page_${page}: ${error instanceof Error ? error.message : String(error)}`);
         break;
       }
       if (!Array.isArray(orders) || !orders.length) break;
+      diagnostics.statusRows[status] = (diagnostics.statusRows[status] || 0) + orders.length;
       for (const order of orders) {
-        const issues = asArray(order.raw?.issues).filter(isPendingIssue);
-        for (const issue of issues) {
-          rows.push({ order, issue });
-        }
+        rows.push({
+          order,
+          issue: {
+            id: null,
+            incidence_code: 'Incidencia pendiente',
+            status: 'PENDIENTE',
+            created_at: order?.raw?.created_at || null,
+            source: `orders_status_${status}`
+          }
+        });
       }
       if (orders.length < limit) break;
     }
   }
   if (!rows.length && directIncidentsError) {
-    throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
+    throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Diagnostico: ${JSON.stringify(diagnostics)}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
   }
   return rows;
 }
