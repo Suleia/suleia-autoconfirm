@@ -140,6 +140,30 @@ export async function listDropeaOrdersByStatus({ status = 'PENDING', limit = 100
   }));
 }
 
+export async function listDropeaOrdersByStatusBasic({ status = 'PENDING', limit = 100, page = 1 } = {}) {
+  const query = `
+    query OrdersByStatusBasic($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
+      orders(status: $status, limit: $limit, page: $page) {
+        data {
+          id
+          status
+          customer { full_name phone email }
+          total_amount
+          created_at
+        }
+      }
+    }
+  `;
+
+  const result = await requestGraphQL(query, { status, limit, page });
+  const items = result?.orders?.data ?? [];
+  return items.map((order) => ({
+    ...normalizeOrder(order),
+    ...normalizeCustomer(order.customer),
+    raw: order
+  }));
+}
+
 export async function listDropeaOrders({ limit = 100, page = 1 } = {}) {
   const query = `
     query Orders($limit: Int!, $page: Int!) {
