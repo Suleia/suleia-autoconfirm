@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAppConfig } from './config.mjs';
 import { listOrders, loadState } from './storage.mjs';
-import { getDropeaOrderById, listDropeaOrdersByStatus, listPendingDropeaOrders, listRecentDropeaOrders } from './clients/dropea.mjs';
+import { getDropeaOrderById, listDropeaOrdersByStatusBasic, listPendingDropeaOrders, listRecentDropeaOrders } from './clients/dropea.mjs';
 import { findSubscriberForOrder, getChatMessages, subscriberConfirmsOrder } from './clients/chatby.mjs';
 import { getCampaignInsights } from './clients/meta.mjs';
 import { listRecentShopifyOrders } from './clients/shopify.mjs';
@@ -1180,7 +1180,7 @@ async function loadOperationalDropeaOrders() {
         try {
           pageOrders = status === 'PENDING'
             ? await listPendingDropeaOrders({ limit: 100, page })
-            : await listDropeaOrdersByStatus({ status, limit: 100, page });
+            : await listDropeaOrdersByStatusBasic({ status, limit: 100, page });
         } catch (error) {
           if (status === 'PENDING') throw error;
           break;
