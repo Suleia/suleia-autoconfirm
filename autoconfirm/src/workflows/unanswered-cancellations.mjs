@@ -285,17 +285,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
 
     for (const order of candidateOrders) {
       const existing = findOrder(store.id, order.orderId) || {};
-      if (hasStoredConfirmation(existing)) {
-        results.push({
-          orderId: order.orderId,
-          skipped: true,
-          reason: 'stored_confirmation_detected',
-          status: order.status,
-          localStatus: existing.status || null,
-          localIntent: existing.aiIntent || null
-        });
-        continue;
-      }
+      const storedConfirmation = hasStoredConfirmation(existing);
 
       const createdAt = order.raw?.created_at || order.raw?.createdAt || order.createdAt;
       const elapsedHours = hoursSince(createdAt);
@@ -348,7 +338,10 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           chatbyReason: chatbyCheck.reason,
           customerMessages: chatbyCheck.messages.length,
           status: order.status,
-          elapsedHours: Number(elapsedHours.toFixed(2))
+          elapsedHours: Number(elapsedHours.toFixed(2)),
+          localStatus: existing.status || null,
+          localIntent: existing.aiIntent || null,
+          storedConfirmation
         });
         continue;
       }
@@ -359,6 +352,8 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         aiConfidence: 100,
         aiIntent: 'REJECT_UNANSWERED_TIMEOUT',
         timeoutCancellationEvaluatedAt: new Date().toISOString(),
+        previousLocalStatus: existing.status || null,
+        previousLocalIntent: existing.aiIntent || null,
         operationalNote: `Sin ninguna respuesta ni accion del cliente en Chatby tras ${Math.floor(elapsedHours)}h desde la fecha real del pedido en Dropea.`
       };
 
