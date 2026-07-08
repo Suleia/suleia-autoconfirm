@@ -172,12 +172,26 @@ async function customerMessagesForOrder(order, createdAt) {
 function hasStoredConfirmation(order) {
   const status = normalizeText(order?.status);
   const intent = normalizeText(order?.aiIntent);
-  return [
+  if ([
     'confirmed',
     'confirmed_by_customer',
     'confirm_delay_pending',
     'confirm_delay_ready'
-  ].includes(status) || intent.includes('confirm');
+  ].includes(status)) return true;
+
+  if (/(not_confirm|no_confirm|should_not_confirm|unconfirm|sin_confirm|no_confirmado|reject|rechaz|cancel|address|direccion|unclear|wait|esperar)/.test(intent)) {
+    return false;
+  }
+
+  return [
+    'confirm',
+    'confirmed',
+    'should_confirm',
+    'customer_confirmed',
+    'confirmed_by_customer',
+    'confirm_delay_pending',
+    'confirm_delay_ready'
+  ].includes(intent);
 }
 
 async function executeDropeaCancellation(orderId) {
