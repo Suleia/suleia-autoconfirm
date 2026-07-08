@@ -56,7 +56,7 @@ function subscriberHasCustomerAction(subscriber) {
   if (!subscriber) return false;
 
   const leadStatus = normalizeText(subscriber.lead_status || subscriber.status || '');
-  const explicitActionStatus = /(confirm|cancel|rechaz|direccion|direcc|datos|envio|entrega|respond|respuesta)/;
+  const explicitActionStatus = /(confirmad|confirm|cancel|rechaz|direccion|direcc|datos envio|cambio datos|cambio direccion)/;
   if (explicitActionStatus.test(leadStatus)) return true;
 
   const labels = compactStringList((subscriber.labels || []).map((label) => label.name || label.title || label));
@@ -70,13 +70,14 @@ function subscriberHasCustomerAction(subscriber) {
     const value = normalizeText(field?.value || '');
     if (!value) return false;
     if (/dropea|pedido|order|telefono|phone|nombre|email|importe|total/.test(name)) return false;
-    return /(confirm|cancel|rechaz|direccion|direcc|datos_envio|datos envio|cambio direccion|accion cliente|respuesta cliente)/.test(name);
+    return /(confirm|cancel|rechaz|direccion|direcc|datos_envio|datos envio|cambio direccion|accion cliente)/.test(name);
   });
 }
 
 function isCustomerMessage(message) {
   const role = normalizeText(message?.role || message?.sender || message?.direction || message?.type || message?.from || message?.sent_by || message?.sentBy);
   const sender = normalizeText(message?.sender_type || message?.senderType || message?.from_type || message?.fromType || message?.source || message?.author_type || message?.authorType);
+  const content = normalizeText(messageContent(message));
   if (message?.is_echo === true || message?.isEcho === true) return false;
   if (message?.from_me === true || message?.fromMe === true || message?.is_outgoing === true || message?.isOutgoing === true) return false;
   if (message?.is_bot === true || message?.isBot === true || message?.bot_id || message?.botId || message?.agent_id || message?.agentId || message?.admin_id || message?.adminId) return false;
@@ -86,6 +87,8 @@ function isCustomerMessage(message) {
   if (['in', 'inbound', 'incoming', 'received'].includes(role)) return true;
   if (['customer', 'subscriber', 'user', 'client', 'cliente'].includes(sender)) return true;
   if (['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system'].includes(sender)) return false;
+  if (/^(agente|bot|suleia|plantilla|template)\b/.test(content)) return false;
+  if (/dropea_pedido_nuevo|pedido_nuevo_v/.test(content)) return false;
   return false;
 }
 
@@ -269,18 +272,31 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
     for (const order of candidateOrders) {
       const existing = findOrder(store.id, order.orderId) || {};
       if (hasStoredConfirmation(existing)) {
-        results.push({ orderId: order.orderId, skipped: true, reason: 'stored_confirmation_detected' });
+        results.push({
+          orderId: order.orderId,
+          skipped: true,
+          reason: 'stored_confirmation_detected',
+          status: order.status,
+          localStatus: existing.status || null,
+          localIntent: existing.aiIntent || null
+        });
         continue;
       }
 
       const createdAt = order.raw?.created_at || order.raw?.createdAt || order.createdAt;
       const elapsedHours = hoursSince(createdAt);
       if (elapsedHours === null) {
-        results.push({ orderId: order.orderId, skipped: true, reason: 'missing_dropea_created_at' });
+        results.push({ orderId: order.orderId, skipped: true, reason: 'missing_dropea_created_at', status: order.status });
         continue;
       }
       if (elapsedHours < limitHours) {
-        results.push({ orderId: order.orderId, skipped: true, reason: 'before_36h_window', elapsedHours: Number(elapsedHours.toFixed(2)) });
+        results.push({
+          orderId: order.orderId,
+          skipped: true,
+          reason: 'before_36h_window',
+          status: order.status,
+          elapsedHours: Number(elapsedHours.toFixed(2))
+        });
         continue;
       }
 
@@ -292,12 +308,20 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           orderId: order.orderId,
           skipped: true,
           reason: 'chatby_check_failed_fail_closed',
+          status: order.status,
+          elapsedHours: Number(elapsedHours.toFixed(2)),
           error: error instanceof Error ? error.message : String(error)
         });
         continue;
       }
       if (!chatbyCheck.ok) {
-        results.push({ orderId: order.orderId, skipped: true, reason: `${chatbyCheck.reason}_fail_closed` });
+        results.push({
+          orderId: order.orderId,
+          skipped: true,
+          reason: `${chatbyCheck.reason}_fail_closed`,
+          status: order.status,
+          elapsedHours: Number(elapsedHours.toFixed(2))
+        });
         continue;
       }
 
@@ -308,7 +332,9 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           skipped: true,
           reason: chatbyCheck.hasCustomerAction ? 'chatby_customer_action_detected' : `customer_signal_${signal.toLowerCase()}`,
           chatbyReason: chatbyCheck.reason,
-          customerMessages: chatbyCheck.messages.length
+          customerMessages: chatbyCheck.messages.length,
+          status: order.status,
+          elapsedHours: Number(elapsedHours.toFixed(2))
         });
         continue;
       }
@@ -330,6 +356,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           action: 'would_cancel_unanswered',
           chatbyReason: chatbyCheck.reason,
           customerMessages: chatbyCheck.messages.length,
+          elapsedHours: Number(elapsedHours.toFixed(2)),
           order: updated
         });
         continue;
@@ -369,6 +396,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           action: 'cancelled_unanswered',
           chatbyReason: chatbyCheck.reason,
           customerMessages: chatbyCheck.messages.length,
+          elapsedHours: Number(elapsedHours.toFixed(2)),
           cancellation,
           order: updated
         });
@@ -393,6 +421,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           error: message,
           chatbyReason: chatbyCheck.reason,
           customerMessages: chatbyCheck.messages.length,
+          elapsedHours: Number(elapsedHours.toFixed(2)),
           order: updated
         });
       }
