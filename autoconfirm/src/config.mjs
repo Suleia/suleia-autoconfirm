@@ -46,7 +46,8 @@ function defaultStoreFromEnv() {
     unansweredCancelAfterHours: int(process.env.UNANSWERED_CANCEL_AFTER_HOURS, 36),
     unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, true),
     unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, 300),
-    incidentsSyncIntervalMinutes: int(process.env.INCIDENTS_SYNC_INTERVAL_MINUTES, 480),
+    incidentsSyncIntervalMinutes: int(process.env.INCIDENTS_SYNC_INTERVAL_MINUTES, 240),
+    operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, 240),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
     cooldownHours: int(process.env.COOLDOWN_HOURS, 1),
     activationCutoff: process.env.ACTIVATION_CUTOFF || null
@@ -70,6 +71,7 @@ function withEnvOverrides(store) {
     unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, store.unansweredRejectRealEnabled ?? envStore.unansweredRejectRealEnabled),
     unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, store.unansweredCancellationIntervalMinutes ?? envStore.unansweredCancellationIntervalMinutes),
     incidentsSyncIntervalMinutes: int(process.env.INCIDENTS_SYNC_INTERVAL_MINUTES, store.incidentsSyncIntervalMinutes ?? envStore.incidentsSyncIntervalMinutes),
+    operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, store.operationalDashboardIntervalMinutes ?? envStore.operationalDashboardIntervalMinutes),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, store.confidenceThreshold ?? envStore.confidenceThreshold),
     cooldownHours: int(process.env.COOLDOWN_HOURS, store.cooldownHours ?? envStore.cooldownHours),
     activationCutoff: process.env.ACTIVATION_CUTOFF || store.activationCutoff || envStore.activationCutoff
