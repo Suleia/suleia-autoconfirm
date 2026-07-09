@@ -229,24 +229,6 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     statusCandidatesTried: [],
     statusRows: {}
   };
-  try {
-    for (let page = 1; page <= pages; page += 1) {
-      const incidences = await listDropeaIncidences({ limit, page });
-      if (!Array.isArray(incidences) || !incidences.length) break;
-      for (const incidence of incidences.filter(isPendingIssue)) {
-        let order = null;
-        if (incidence.orderId) {
-          order = await getDropeaOrderById(incidence.orderId).catch(() => null);
-        }
-        directRows.push({ order, issue: incidence });
-      }
-      if (incidences.length < limit) break;
-    }
-  } catch (error) {
-    directIncidentsError = error instanceof Error ? error.message : String(error);
-    // Fallback to order scans for Dropea API versions that do not expose incidents directly.
-  }
-
   const rows = [];
   for (let page = 1; page <= Math.max(pages, 5); page += 1) {
     let orders = [];
@@ -350,10 +332,29 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
       if (orders.length < limit) break;
     }
   }
+  if (rows.length) return rows;
+
+  try {
+    for (let page = 1; page <= pages; page += 1) {
+      const incidences = await listDropeaIncidences({ limit, page });
+      if (!Array.isArray(incidences) || !incidences.length) break;
+      for (const incidence of incidences.filter(isPendingIssue)) {
+        if (!incidence.orderId) continue;
+        const order = await getDropeaOrderById(incidence.orderId).catch(() => null);
+        if (!order || String(order.status || '').toUpperCase() !== 'INCIDENCE') continue;
+        directRows.push({ order, issue: incidence });
+      }
+      if (incidences.length < limit) break;
+    }
+  } catch (error) {
+    directIncidentsError = error instanceof Error ? error.message : String(error);
+  }
+  if (directRows.length) return directRows;
+
   if (!rows.length && directIncidentsError) {
     throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Diagnostico: ${JSON.stringify(diagnostics)}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
   }
-  return rows.length ? rows : directRows;
+  return rows;
 }
 
 export function loadIncidentsCache() {
