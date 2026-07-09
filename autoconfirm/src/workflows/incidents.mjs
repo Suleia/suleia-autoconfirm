@@ -250,6 +250,23 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   }
   if (rows.length) return rows;
 
+  try {
+    for (let page = 1; page <= Math.max(pages, 5); page += 1) {
+      const incidences = await listDropeaIncidences({ limit, page });
+      if (!Array.isArray(incidences) || !incidences.length) break;
+      for (const incidence of incidences.filter(isPendingIssue)) {
+        if (!incidence.orderId) continue;
+        const order = await getDropeaOrderById(incidence.orderId).catch(() => null);
+        if (!order || String(order.status || '').toUpperCase() !== 'INCIDENCE') continue;
+        directRows.push({ order, issue: incidence });
+      }
+      if (incidences.length < limit) break;
+    }
+  } catch (error) {
+    directIncidentsError = error instanceof Error ? error.message : String(error);
+  }
+  if (directRows.length) return directRows;
+
   for (let page = 1; page <= Math.max(pages, 10); page += 1) {
     let orders = [];
     try {
@@ -269,87 +286,6 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     if (orders.length < limit) break;
   }
   if (rows.length) return rows;
-
-  for (let page = 1; page <= Math.max(pages, 10); page += 1) {
-    let orders = [];
-    try {
-      orders = await listDropeaOrdersBasic({ limit, page });
-    } catch (error) {
-      fallbackErrors.push(`orders_basic_page_${page}: ${error instanceof Error ? error.message : String(error)}`);
-      break;
-    }
-    if (!Array.isArray(orders) || !orders.length) break;
-    diagnostics.ordersBasicScanned += orders.length;
-    for (const order of orders.filter(orderLooksLikeIncident)) {
-      rows.push({
-        order,
-        issue: {
-          id: null,
-          incidence_code: 'Incidencia pendiente',
-          status: 'PENDIENTE',
-          created_at: order?.raw?.created_at || null
-        }
-      });
-    }
-    if (orders.length < limit) break;
-  }
-  if (rows.length) return rows;
-
-  const defaultStatuses = [];
-  let discoveredStatuses = defaultStatuses;
-  try {
-    discoveredStatuses = await listDropeaOrderStateValues();
-  } catch {
-    discoveredStatuses = defaultStatuses;
-  }
-
-  const statusCandidates = incidentStatusCandidates(discoveredStatuses);
-  diagnostics.statusCandidatesTried = statusCandidates;
-
-  for (const status of statusCandidates) {
-    for (let page = 1; page <= pages; page += 1) {
-      let orders = [];
-      try {
-        orders = await listDropeaOrdersByStatusBasic({ status, limit, page });
-      } catch (error) {
-        fallbackErrors.push(`orders_status_${status}_page_${page}: ${error instanceof Error ? error.message : String(error)}`);
-        break;
-      }
-      if (!Array.isArray(orders) || !orders.length) break;
-      diagnostics.statusRows[status] = (diagnostics.statusRows[status] || 0) + orders.length;
-      for (const order of orders) {
-        rows.push({
-          order,
-          issue: {
-            id: null,
-            incidence_code: 'Incidencia pendiente',
-            status: 'PENDIENTE',
-            created_at: order?.raw?.created_at || null,
-            source: `orders_status_${status}`
-          }
-        });
-      }
-      if (orders.length < limit) break;
-    }
-  }
-  if (rows.length) return rows;
-
-  try {
-    for (let page = 1; page <= pages; page += 1) {
-      const incidences = await listDropeaIncidences({ limit, page });
-      if (!Array.isArray(incidences) || !incidences.length) break;
-      for (const incidence of incidences.filter(isPendingIssue)) {
-        if (!incidence.orderId) continue;
-        const order = await getDropeaOrderById(incidence.orderId).catch(() => null);
-        if (!order || String(order.status || '').toUpperCase() !== 'INCIDENCE') continue;
-        directRows.push({ order, issue: incidence });
-      }
-      if (incidences.length < limit) break;
-    }
-  } catch (error) {
-    directIncidentsError = error instanceof Error ? error.message : String(error);
-  }
-  if (directRows.length) return directRows;
 
   if (!rows.length && directIncidentsError) {
     throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Diagnostico: ${JSON.stringify(diagnostics)}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
