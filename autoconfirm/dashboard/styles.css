@@ -464,7 +464,7 @@ body[data-section="orders"] .orders-panel {
 
 .orders-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
   margin-bottom: 14px;
 }
@@ -632,6 +632,36 @@ th {
 
 .order-row.is-scheduled {
   background: linear-gradient(90deg, rgba(241, 189, 99, .16), rgba(255, 255, 255, 0) 50%);
+}
+
+.order-row.is-confirmed,
+.incident-row.customer-responded {
+  background: linear-gradient(90deg, rgba(31, 171, 117, .14), rgba(255, 255, 255, .18) 58%);
+}
+
+.order-row.is-confirmed td:first-child,
+.incident-row.customer-responded td:first-child {
+  box-shadow: inset 5px 0 0 rgba(31, 171, 117, .84);
+}
+
+.customer-response-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 7px;
+  padding: 6px 9px;
+  border-radius: 999px;
+  color: #126044;
+  background: rgba(31, 171, 117, .16);
+  font-family: "Trebuchet MS", Verdana, sans-serif;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.customer-response-badge.is-confirmed {
+  color: #fff;
+  background: linear-gradient(135deg, #1fab75, #0d8b8f);
 }
 
 .real-action-card {
