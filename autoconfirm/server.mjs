@@ -10,6 +10,7 @@ import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, handleShopify
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cancellations.mjs';
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
+import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
 
 const config = getAppConfig();
@@ -213,9 +214,13 @@ function storeSummary() {
     lastIncidentsSyncAt: state.lastIncidentsSyncAt,
     lastIncidentsSyncError: state.lastIncidentsSyncError,
     lastIncidentsSyncCount: state.lastIncidentsSyncCount,
+    lastOperationalOrdersSyncAt: state.lastOperationalOrdersSyncAt,
+    lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
+    lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
     unansweredCancellationIntervalMinutes: config.defaultStore.unansweredCancellationIntervalMinutes,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
     incidentsSyncIntervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
+    operationalDashboardIntervalMinutes: config.defaultStore.operationalDashboardIntervalMinutes,
     metaDashboardEnabled: config.metaDashboardEnabled,
     metaDashboardIntervalMinutes: config.metaDashboardIntervalMinutes,
     lastMetaDashboardAt: state.lastMetaDashboardAt,
@@ -282,6 +287,17 @@ const server = http.createServer(async (req, res) => {
           .catch((error) => console.error('Dashboard background refresh error:', error));
       }, 0);
       results.orders = { queued: true, mode: 'background' };
+
+      setTimeout(() => {
+        runScheduledOperationalOrdersSync()
+          .catch((error) => console.error('Dashboard operational orders refresh error:', error));
+      }, 0);
+      setTimeout(() => {
+        runScheduledIncidentsSync()
+          .catch((error) => console.error('Dashboard incidents refresh error:', error));
+      }, 0);
+      results.operationalOrders = { queued: true, mode: 'background' };
+      results.incidents = { queued: true, mode: 'background' };
 
       return sendJson(res, 200, {
         ok: true,
@@ -397,6 +413,9 @@ const server = http.createServer(async (req, res) => {
         } catch (error) {
           console.error('Automation cycle error:', error);
         }
+
+        runScheduledOperationalOrdersSync()
+          .catch((error) => console.error('Operational orders sync after Dropea webhook error:', error));
       });
       return;
     }
@@ -442,6 +461,9 @@ const server = http.createServer(async (req, res) => {
         } catch (error) {
           console.error('Automation cycle error after Shopify webhook:', error);
         }
+
+        runScheduledOperationalOrdersSync()
+          .catch((error) => console.error('Operational orders sync after Shopify webhook error:', error));
       });
       return;
     }
@@ -504,6 +526,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/sync-operational-orders') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await syncOperationalOrders();
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
     return sendJson(res, 404, { ok: false, error: 'not_found' });
   } catch (error) {
     return sendJson(res, 500, {
@@ -520,6 +548,8 @@ let unansweredCancellationTimer = null;
 let unansweredCancellationRunning = false;
 let incidentsSyncTimer = null;
 let incidentsSyncRunning = false;
+let operationalOrdersSyncTimer = null;
+let operationalOrdersSyncRunning = false;
 
 async function runBackgroundPoll() {
   if (pollRunning) return;
@@ -591,7 +621,7 @@ async function runScheduledIncidentsSync() {
 }
 
 function startIncidentsScheduler() {
-  const intervalMinutes = config.defaultStore.incidentsSyncIntervalMinutes || 480;
+  const intervalMinutes = config.defaultStore.incidentsSyncIntervalMinutes || 240;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;
@@ -599,6 +629,30 @@ function startIncidentsScheduler() {
     runScheduledIncidentsSync();
     incidentsSyncTimer = setInterval(runScheduledIncidentsSync, intervalMs);
   }, 60000);
+}
+
+async function runScheduledOperationalOrdersSync() {
+  if (operationalOrdersSyncRunning) return;
+  operationalOrdersSyncRunning = true;
+  try {
+    const result = await syncOperationalOrders();
+    console.log(`Operational orders sync checked ${result.count || 0} pending orders.`);
+  } catch (error) {
+    console.error('Operational orders sync error:', error);
+  } finally {
+    operationalOrdersSyncRunning = false;
+  }
+}
+
+function startOperationalOrdersScheduler() {
+  const intervalMinutes = config.defaultStore.operationalDashboardIntervalMinutes || 240;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    runScheduledOperationalOrdersSync();
+    operationalOrdersSyncTimer = setInterval(runScheduledOperationalOrdersSync, intervalMs);
+  }, 20000);
 }
 
 function startMetaDashboardSync() {
@@ -631,6 +685,7 @@ server.listen(config.port, () => {
   console.log(`Shopify webhook: /api/webhooks/shopify/${config.defaultStore.webhookToken}`);
   startBackgroundPoller();
   startUnansweredCancellationScheduler();
+  startOperationalOrdersScheduler();
   startIncidentsScheduler();
   startMetaDashboardSync();
 });
