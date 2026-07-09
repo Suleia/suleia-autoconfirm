@@ -129,7 +129,7 @@ async function collectPendingOrders({ limit = 100, pages = 10 } = {}) {
   return orders;
 }
 
-async function enrichPendingOrder(order) {
+async function enrichPendingOrder(order, previous = null) {
   let subscriber = null;
   let messages = [];
   let chatbyStatus = 'Sin Chatby';
@@ -168,6 +168,22 @@ async function enrichPendingOrder(order) {
   } catch (error) {
     chatbyError = error instanceof Error ? error.message : String(error);
     chatbyStatus = 'Error revisando Chatby';
+    if (previous && (previous.customerConfirmed || Number(previous.customerMessages || 0) > 0 || previous.customerSignalRaw)) {
+      return {
+        ...previous,
+        customer: order.customerName || previous.customer || '',
+        phone: order.customerPhone || previous.phone || '',
+        createdAt: order.raw?.created_at || order.raw?.createdAt || previous.createdAt || '',
+        dropeaStatus: order.status || previous.dropeaStatus || 'PENDING',
+        amount: Number(order.orderAmount) || previous.amount || null,
+        product: guessProduct(order) || previous.product,
+        liveSource: 'Dropea + Chatby cache conservada',
+        chatbyStatus: 'Chatby limitado: mantengo ultima senal valida',
+        chatbyLiveCheckedAt: new Date().toISOString(),
+        chatbyError,
+        raw: order.raw || previous.raw || {}
+      };
+    }
   }
 
   return {
@@ -214,10 +230,12 @@ export async function syncOperationalOrders({ limit = 100, pages = 10 } = {}) {
   const updatedAt = new Date().toISOString();
 
   try {
+    const previousCache = loadOperationalOrdersCache();
+    const previousByOrderId = new Map((previousCache.orders || []).map((order) => [String(order.orderId), order]));
     const pending = await collectPendingOrders({ limit, pages });
     const orders = [];
     for (const order of pending) {
-      orders.push(await enrichPendingOrder(order));
+      orders.push(await enrichPendingOrder(order, previousByOrderId.get(String(order.orderId))));
     }
 
     const payload = {
