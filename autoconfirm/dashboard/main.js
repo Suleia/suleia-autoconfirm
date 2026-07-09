@@ -103,8 +103,12 @@ function hasAgentConfirmation(order) {
   const action = normalize(order.agentAction);
   const intent = normalize(order.agentIntent);
   const status = normalize(order.status);
-  if (action.includes('not_confirm')) return false;
-  return action.includes('confirm') || intent.includes('confirm') || status.includes('confirm');
+  if (order.customerConfirmed === true) return true;
+  if (action.includes('not_confirm') || intent.includes('no_confirm') || intent.includes('not_confirm')) return false;
+  return action === 'would_confirm'
+    || intent === 'confirm'
+    || intent === 'confirmed'
+    || status.includes('confirmed_by_customer');
 }
 
 function hasAddressChange(order) {
@@ -281,7 +285,7 @@ function orderFilterCategory(order) {
   if (signal.includes('address') || signal.includes('direccion') || stateLabel.includes('direccion')) return 'address';
   if (signal.includes('absent') || signal.includes('issue') || signal.includes('incidencia') || stateLabel.includes('incidencia')) return 'issue';
   if (signal.includes('not_confirm') || signal.includes('rejected') || signal.includes('cancel') || tone.includes('danger') || stateLabel.includes('no confirmar')) return 'blocked';
-  if (signal.includes('confirm') || stateLabel.includes('confirmar pedido')) return 'confirm';
+  if (hasAgentConfirmation(order) || stateLabel.includes('confirmado') || stateLabel.includes('confirmar pedido')) return 'confirm';
   if (signal.includes('manual') || stateLabel.includes('revision')) return 'review';
   return 'review';
 }
@@ -302,6 +306,7 @@ function renderOrdersSummary(orders, visibleOrders) {
 
   const latest = orders[0];
   const cards = [
+    { label: 'Con respuesta', value: orders.filter((order) => Number(order.customerMessages) > 0).length, detail: 'Cliente contesto en Chatby', tone: 'positive' },
     { label: 'Cola operativa', value: orders.length, detail: 'Solo pendientes e incidencias en Dropea', tone: 'neutral' },
     { label: 'Confirmar ahora', value: countOrdersByFilter(orders, 'confirm'), detail: 'Señal clara del cliente', tone: 'positive' },
     { label: 'Dirección', value: countOrdersByFilter(orders, 'address'), detail: 'No confirmar hasta corregir', tone: 'warning' },
@@ -338,6 +343,10 @@ function renderOrders() {
       const realActionDetail = order.realActionDetail || 'Aun no se ha ejecutado accion en Dropea';
       const intent = normalize(order.agentIntent || order.status || '');
       const isScheduled = intent.includes('confirm_delay_pending') || intent.includes('confirm_delay');
+      const isConfirmedByCustomer = hasAgentConfirmation(order);
+      const rowClasses = ['order-row'];
+      if (isScheduled) rowClasses.push('is-scheduled');
+      if (isConfirmedByCustomer) rowClasses.push('is-confirmed');
       const timeline = Array.isArray(order.timeline) ? order.timeline : [];
       const timelineHtml = timeline.length ? `
         <div class="order-timeline" aria-label="Historial del pedido">
@@ -355,11 +364,12 @@ function renderOrders() {
         </div>
       ` : '';
       return `
-        <tr class="${isScheduled ? 'order-row is-scheduled' : 'order-row'}">
+        <tr class="${rowClasses.join(' ')}">
           <td>
             <strong>#${escapeHtml(order.orderId)}</strong>
             <small>${escapeHtml(order.createdAt || '')}</small>
             <span class="order-source">${escapeHtml(source)}</span>
+            ${isConfirmedByCustomer ? '<span class="customer-response-badge is-confirmed">Confirmado por cliente</span>' : ''}
           </td>
           <td>
             ${escapeHtml(order.product || 'Producto')}
@@ -368,6 +378,7 @@ function renderOrders() {
           <td>
             <span class="pill ${orderState.tone}">${escapeHtml(orderState.label)}</span>
             <small>${escapeHtml(orderState.detail)}</small>
+            <small><strong>Dropea:</strong> ${escapeHtml(order.dropeaStatus || order.raw?.status || 'PENDING')}</small>
             <small><strong>Confianza útil:</strong> ${confidence ?? '-'}%</small>
           </td>
           <td>
@@ -426,9 +437,11 @@ function renderIncidents() {
   ]));
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
+  const customerResponded = incidents.filter((incident) => incident.customerResponded || Number(incident.customerMessages) > 0).length;
   const needsAddress = incidents.filter((incident) => normalize(`${incident.chatbyStatus} ${incident.reason}`).includes('direccion')).length;
   const rejected = incidents.filter((incident) => normalize(incident.chatbyStatus).includes('rechaza') || normalize(incident.chatbyStatus).includes('cancela')).length;
   const cards = [
+    { label: 'Cliente respondio', value: customerResponded, detail: 'Prioridad para resolver', tone: 'positive' },
     { label: 'Pendientes', value: incidents.length, detail: `Actualizado ${formatDateTime(data.updatedAt)}`, tone: 'neutral' },
     { label: 'Dirección/datos', value: needsAddress, detail: 'Probable corrección de entrega', tone: 'warning' },
     { label: 'Rechazo/cancelación', value: rejected, detail: 'No insistir sin revisar', tone: 'danger' },
@@ -449,19 +462,21 @@ function renderIncidents() {
   }
 
   table.innerHTML = visible.map((incident) => {
+    const hasCustomerResponse = incident.customerResponded || Number(incident.customerMessages) > 0;
     const statusTone = normalize(incident.chatbyStatus).includes('rechaza') || normalize(incident.chatbyStatus).includes('cancela')
       ? 'danger'
       : normalize(incident.chatbyStatus).includes('direccion') || normalize(incident.chatbyStatus).includes('reprogramar')
         ? 'warning'
-        : incident.chatbyUserNs
+        : hasCustomerResponse
           ? 'positive'
           : 'neutral';
     return `
-      <tr>
+      <tr class="incident-row ${hasCustomerResponse ? 'customer-responded' : ''}">
         <td>
           <strong>#${escapeHtml(incident.orderId)}</strong>
           <small>Incidencia ${escapeHtml(incident.incidenceId || '-')}</small>
           <small>${escapeHtml(formatDateTime(incident.incidenceDate))}</small>
+          ${hasCustomerResponse ? '<span class="customer-response-badge">Cliente respondio</span>' : ''}
         </td>
         <td>
           <span class="pill warning">${escapeHtml(incident.reason || 'Incidencia')}</span>
