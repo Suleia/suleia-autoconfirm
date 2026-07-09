@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
-import { getDropeaOrderById, listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatusBasic, listDropeaOrderStateValues } from '../clients/dropea.mjs';
+import { getDropeaOrderById, listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatus, listDropeaOrdersByStatusBasic, listDropeaOrderStateValues } from '../clients/dropea.mjs';
 import { findSubscriberByPhone, getChatMessages } from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
 
@@ -220,15 +220,16 @@ async function chatbyContextForPhone(phone) {
 
 async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   let directIncidentsError = null;
+  const directRows = [];
   const fallbackErrors = [];
   const diagnostics = {
+    incidenceStatusScanned: 0,
     ordersWithIssuesScanned: 0,
     ordersBasicScanned: 0,
     statusCandidatesTried: [],
     statusRows: {}
   };
   try {
-    const rows = [];
     for (let page = 1; page <= pages; page += 1) {
       const incidences = await listDropeaIncidences({ limit, page });
       if (!Array.isArray(incidences) || !incidences.length) break;
@@ -237,17 +238,36 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
         if (incidence.orderId) {
           order = await getDropeaOrderById(incidence.orderId).catch(() => null);
         }
-        rows.push({ order, issue: incidence });
+        directRows.push({ order, issue: incidence });
       }
       if (incidences.length < limit) break;
     }
-    if (rows.length) return rows;
   } catch (error) {
     directIncidentsError = error instanceof Error ? error.message : String(error);
     // Fallback to order scans for Dropea API versions that do not expose incidents directly.
   }
 
   const rows = [];
+  for (let page = 1; page <= Math.max(pages, 5); page += 1) {
+    let orders = [];
+    try {
+      orders = await listDropeaOrdersByStatus({ status: 'INCIDENCE', limit, page });
+    } catch (error) {
+      fallbackErrors.push(`orders_status_INCIDENCE_page_${page}: ${error instanceof Error ? error.message : String(error)}`);
+      break;
+    }
+    if (!Array.isArray(orders) || !orders.length) break;
+    diagnostics.incidenceStatusScanned += orders.length;
+    for (const order of orders) {
+      const issues = asArray(order.raw?.issues).filter(isPendingIssue);
+      for (const issue of issues) {
+        rows.push({ order, issue });
+      }
+    }
+    if (orders.length < limit) break;
+  }
+  if (rows.length) return rows;
+
   for (let page = 1; page <= Math.max(pages, 10); page += 1) {
     let orders = [];
     try {
@@ -333,7 +353,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   if (!rows.length && directIncidentsError) {
     throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Diagnostico: ${JSON.stringify(diagnostics)}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
   }
-  return rows;
+  return rows.length ? rows : directRows;
 }
 
 export function loadIncidentsCache() {
@@ -381,6 +401,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         chatbySummary: chatby.summary,
         proposedSolution: chatby.proposedSolution,
         customerMessages: chatby.customerMessages || 0,
+        customerResponded: Number(chatby.customerMessages || 0) > 0,
         chatbyUserNs: chatby.userNs || null
       });
     }
