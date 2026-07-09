@@ -307,8 +307,11 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
   const incidents = [];
 
   try {
+    const previousCache = loadIncidentsCache();
+    const previousByOrderId = new Map((previousCache.incidents || []).map((incident) => [String(incident.orderId), incident]));
     const pending = await collectPendingIncidents({ limit, pages });
     for (const { order, issue } of pending) {
+      const orderId = String(order?.orderId || issue?.orderId || '');
       const phone = order?.customerPhone || order?.raw?.customer?.phone || issue?.customerPhone || '';
       let chatby;
       try {
@@ -322,10 +325,22 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
           userNs: null,
           customerMessages: 0
         };
+        const previous = previousByOrderId.get(orderId);
+        const previousHasSignal = previous && (previous.customerResponded || Number(previous.customerMessages || 0) > 0 || previous.chatbyUserNs);
+        if (previousHasSignal) {
+          chatby = {
+            ok: false,
+            status: 'Chatby limitado: mantengo lectura anterior',
+            summary: previous.chatbySummary || 'No he podido refrescar Chatby, asi que mantengo la ultima lectura valida.',
+            proposedSolution: previous.proposedSolution || 'Revisar cuando Chatby vuelva a responder.',
+            userNs: previous.chatbyUserNs || null,
+            customerMessages: previous.customerMessages || 0
+          };
+        }
       }
 
       incidents.push({
-        orderId: String(order?.orderId || issue?.orderId || ''),
+        orderId,
         incidenceId: issue?.id || issue?.incidenceId ? String(issue.id || issue.incidenceId) : null,
         incidenceDate: issueDate(order, issue),
         reason: issue ? issueReason(issue) : 'Pedido con incidencia',
