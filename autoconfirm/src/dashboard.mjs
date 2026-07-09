@@ -10,6 +10,7 @@ import { listRecentShopifyOrders } from './clients/shopify.mjs';
 import { chatWithOperationsAgent } from './clients/openai.mjs';
 import { appendAgentMemoryRule, getAgentMemoryRules, getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
 import { loadIncidentsCache } from './workflows/incidents.mjs';
+import { loadOperationalOrdersCache } from './workflows/operational-orders.mjs';
 
 const config = getAppConfig();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -1646,6 +1647,7 @@ function learnedRuleFromFeedback(item) {
 }
 
 export async function buildDashboard({ health = null, forceMeta = false } = {}) {
+  const legacySheetsForDashboard = process.env.DASHBOARD_ENABLE_LEGACY_SHEETS === 'true';
   const localOrdersRaw = listOrders({ storeId: config.defaultStore.id });
   const localState = loadState();
   const feedback = await readJson(path.join(dashboardDataDir, 'agent-feedback.json'), []);
@@ -1654,8 +1656,9 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
   const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
   const businessManagerRequests = await readJson(path.join(dashboardDataDir, 'business-manager-requests.json'), []);
   const incidents = loadIncidentsCache();
+  const operationalOrders = loadOperationalOrdersCache();
   let sheetAgentMemory = [];
-  if (config.googleSheetsEnabled || config.googleSheetsLegacyReadEnabled) try {
+  if (legacySheetsForDashboard && (config.googleSheetsEnabled || config.googleSheetsLegacyReadEnabled)) try {
     sheetAgentMemory = await getAgentMemoryRules();
   } catch {
     sheetAgentMemory = [];
@@ -1667,7 +1670,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
   let decisions = [];
   let controlDecisions = [];
   let legacyDecisionSource = { name: 'Google Sheets - aprendizaje historico', ok: false, disabled: true, error: null };
-  if (config.googleSheetsLegacyReadEnabled || config.googleSheetsEnabled) {
+  if (legacySheetsForDashboard && (config.googleSheetsLegacyReadEnabled || config.googleSheetsEnabled)) {
     const decisiones = await readSheet('Decisiones Agente');
     const controlSimulacion = await readSheet('Control Simulacion');
     decisions = rowObjects(decisiones.rows).map(decisionFromSheet);
@@ -1680,7 +1683,19 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
       error: decisiones.error || controlSimulacion.error || null
     };
   }
-  const liveDropea = await loadOperationalDropeaOrders();
+  const cachedOperationalOrders = Array.isArray(operationalOrders.orders) ? operationalOrders.orders : [];
+  const liveDropea = {
+    source: {
+      name: 'Dropea + Chatby - cache operativo rapido',
+      ok: Boolean(operationalOrders.ok),
+      cached: true,
+      rows: cachedOperationalOrders.length,
+      generatedAt: operationalOrders.updatedAt,
+      intervalMinutes: operationalOrders.intervalMinutes,
+      error: operationalOrders.error || null
+    },
+    orders: cachedOperationalOrders
+  };
   const liveShopify = {
     source: { name: 'Shopify API - omitido en vista rapida', ok: true, disabled: true, rows: 0, error: null },
     orders: []
@@ -1783,6 +1798,14 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
       rows: liveShopify.orders.length,
       updatedAt: liveShopify.source.generatedAt || new Date().toISOString(),
       lastError: liveShopify.source.ok ? null : liveShopify.source.error
+    },
+    operationalOrders: {
+      updatedAt: operationalOrders.updatedAt,
+      intervalMinutes: operationalOrders.intervalMinutes,
+      count: operationalOrders.count ?? cachedOperationalOrders.length,
+      confirmedByCustomer: operationalOrders.confirmedByCustomer ?? cachedOperationalOrders.filter((order) => order.customerConfirmed).length,
+      withCustomerResponse: operationalOrders.withCustomerResponse ?? cachedOperationalOrders.filter((order) => Number(order.customerMessages) > 0).length,
+      lastError: operationalOrders.error || null
     },
     products,
     incidents,
