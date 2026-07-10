@@ -210,6 +210,133 @@ function typeAwareIncidentSolution(classification, chatby) {
       };
 }
 
+function customerSignalForIncident(chatby) {
+  const messages = Number(chatby.customerMessages || 0);
+  const intent = chatby.intent || '';
+  if (intent === 'chatby_error') {
+    return {
+      label: 'Chatby no disponible',
+      tone: 'danger',
+      detail: 'No he podido leer la conversacion. No actuar sin revisar.'
+    };
+  }
+  if (intent === 'not_found_chatby' || intent === 'missing_phone' || intent === 'no_conversation') {
+    return {
+      label: 'Sin conversacion localizada',
+      tone: 'warning',
+      detail: 'No encuentro hilo fiable en Chatby para este telefono.'
+    };
+  }
+  if (messages <= 0 || intent === 'outbound_only') {
+    return {
+      label: 'Cliente sin respuesta',
+      tone: 'neutral',
+      detail: 'Solo veo mensajes salientes; el cliente no ha contestado.'
+    };
+  }
+  if (intent === 'reject_or_cancel') {
+    return {
+      label: 'Cliente quiere cancelar/rechazar',
+      tone: 'danger',
+      detail: 'Hay respuesta entrante con contexto de rechazo o cancelacion.'
+    };
+  }
+  if (intent === 'delivery_instruction' || intent === 'reprogram_delivery') {
+    return {
+      label: 'Cliente da instruccion de entrega',
+      tone: 'positive',
+      detail: 'Hay respuesta accionable para resolver o reprogramar entrega.'
+    };
+  }
+  if (intent === 'address_data') {
+    return {
+      label: 'Cliente aporta datos de direccion',
+      tone: 'positive',
+      detail: 'Hay respuesta entrante con datos o correccion de envio.'
+    };
+  }
+  if (intent === 'positive_confirmation') {
+    return {
+      label: 'Cliente muestra conformidad',
+      tone: 'positive',
+      detail: 'Hay respuesta positiva, pero conviene revisar como aplica a la incidencia.'
+    };
+  }
+  return {
+    label: 'Respuesta ambigua',
+    tone: 'warning',
+    detail: 'El cliente ha contestado, pero necesito criterio o feedback para decidir mejor.'
+  };
+}
+
+function confidenceForIncident({ classification, chatby, recommendation }) {
+  const intent = chatby.intent || '';
+  const messages = Number(chatby.customerMessages || 0);
+  const hasLastMessage = Boolean(chatby.lastCustomerMessage);
+  const hasEvidence = Array.isArray(chatby.evidence) && chatby.evidence.length > 0;
+  let score = 45;
+  const reasons = [];
+
+  if (classification.type !== 'unknown') {
+    score += 18;
+    reasons.push(`Tipologia Dropea identificada: ${classification.label}`);
+  } else {
+    reasons.push('Tipologia Dropea poco especifica');
+  }
+
+  if (intent === 'chatby_error') {
+    return {
+      score: 18,
+      reason: 'Chatby no respondio correctamente; no hay base fiable para actuar.'
+    };
+  }
+  if (['missing_phone', 'not_found_chatby', 'no_conversation'].includes(intent)) {
+    return {
+      score: 28,
+      reason: 'No he localizado una conversacion util en Chatby para contrastar la incidencia.'
+    };
+  }
+
+  if (messages > 0) {
+    score += 16;
+    reasons.push(`${messages} mensaje(s) entrante(s) del cliente`);
+  } else {
+    score -= 12;
+    reasons.push('Sin respuesta entrante del cliente');
+  }
+
+  if (hasLastMessage) {
+    score += 8;
+    reasons.push('Ultimo mensaje del cliente disponible');
+  }
+  if (hasEvidence) {
+    score += Math.min(12, chatby.evidence.length * 4);
+    reasons.push(`Evidencias: ${chatby.evidence.join(', ')}`);
+  }
+
+  if (['reject_or_cancel', 'delivery_instruction', 'address_data'].includes(intent)) {
+    score += 18;
+    reasons.push(`Intencion clara detectada: ${chatby.status || intent}`);
+  } else if (intent === 'reprogram_delivery' || intent === 'positive_confirmation') {
+    score += 12;
+    reasons.push(`Senal accionable detectada: ${chatby.status || intent}`);
+  } else if (intent === 'customer_unclear') {
+    score -= 4;
+    reasons.push('Respuesta real, pero con intencion incompleta');
+  } else if (intent === 'outbound_only') {
+    score = classification.type === 'unknown' ? 34 : 48;
+    reasons.push('La recomendacion se basa en Dropea, no en respuesta del cliente');
+  }
+
+  if (recommendation.tone === 'positive' && messages > 0) score += 5;
+  if (recommendation.tone === 'danger' && intent !== 'reject_or_cancel') score -= 6;
+
+  return {
+    score: Math.max(12, Math.min(96, Math.round(score))),
+    reason: reasons.slice(0, 4).join(' | ')
+  };
+}
+
 function issueDate(order, issue) {
   return issue?.created_at
     || issue?.createdAt
@@ -261,6 +388,7 @@ function isCustomerMessage(message) {
 }
 
 function evidenceFromConversation(customerText, allText) {
+  if (!customerText) return allText ? ['solo mensajes salientes'] : [];
   const checks = [
     { key: 'cancelacion', label: 'rechazo/cancelación', regex: /no acept|rechaz|no lo quiero|no quiero|cancel|anul|no me interesa|no voy a recibir/ },
     { key: 'direccion', label: 'datos de dirección', regex: /direccion|direcci|calle|numero|piso|portal|codigo postal|cp|datos/ },
@@ -559,6 +687,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       }
       const classification = classifyIncident(issue, order);
       const recommendation = typeAwareIncidentSolution(classification, chatby);
+      const customerSignal = customerSignalForIncident(chatby);
+      const confidence = confidenceForIncident({ classification, chatby, recommendation });
 
       incidents.push({
         orderId,
@@ -578,13 +708,18 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         chatbyIntent: chatby.intent || 'unknown',
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
+        customerSignalLabel: customerSignal.label,
+        customerSignalTone: customerSignal.tone,
+        customerSignalDetail: customerSignal.detail,
         proposedSolution: recommendation.solution,
         actionRecommended: recommendation.action,
         actionTone: recommendation.tone,
+        confidenceReason: confidence.reason,
+        recommendedNextStep: recommendation.solution,
         lastCustomerMessage: chatby.lastCustomerMessage || '',
         lastCustomerAt: chatby.lastCustomerAt || null,
         evidence: Array.isArray(chatby.evidence) ? chatby.evidence : [],
-        contextConfidence: chatby.confidence ?? null,
+        contextConfidence: confidence.score,
         priority: Number(chatby.customerMessages || 0) > 0 ? 'high' : recommendation.tone === 'danger' ? 'medium' : 'normal',
         customerMessages: chatby.customerMessages || 0,
         customerResponded: Number(chatby.customerMessages || 0) > 0,
