@@ -141,19 +141,27 @@
                 <p class="eyebrow">Dropea + Chatby</p>
                 <h3>Incidencias pendientes</h3>
               </div>
-              <span class="chip">Refresco cada 4h</span>
+              <span class="chip">Refresco cada 6h</span>
             </div>
             <div id="incidents-summary" class="orders-summary"></div>
+            <div class="incident-type-strip" id="incidents-type-filters" aria-label="Filtrar incidencias por tipología">
+              <button class="incident-type-button is-active" type="button" data-incident-filter="all">Todas</button>
+              <button class="incident-type-button" type="button" data-incident-filter="absent">Ausente</button>
+              <button class="incident-type-button" type="button" data-incident-filter="address">Dirección / datos</button>
+              <button class="incident-type-button" type="button" data-incident-filter="rejected_goods">No acepta mercancía</button>
+              <button class="incident-type-button" type="button" data-incident-filter="responded">Con respuesta</button>
+            </div>
             <div class="table-wrap incidents-table-wrap">
               <table>
                 <thead>
                   <tr>
                     <th>Pedido / incidencia</th>
-                    <th>Motivo</th>
+                    <th>Tipología</th>
                     <th>Cliente / teléfono</th>
                     <th>Chatby</th>
-                    <th>Qué ocurre</th>
+                    <th>Contexto</th>
                     <th>Solución propuesta</th>
+                    <th>Feedback</th>
                   </tr>
                 </thead>
                 <tbody id="incidents-table"></tbody>
@@ -445,6 +453,37 @@
           <textarea id="feedback-note" rows="4" placeholder="Añade contexto para mejorar el criterio del agente..."></textarea>
         </label>
         <button class="primary-action" type="submit">Guardar feedback</button>
+      </form>
+    </dialog>
+
+    <dialog class="feedback-dialog" id="incident-feedback-dialog">
+      <form method="dialog" class="feedback-form" id="incident-feedback-form">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">Mejorar incidencias</p>
+            <h3 id="incident-feedback-title">Incidencia</h3>
+          </div>
+          <button class="ghost-button" type="button" id="incident-feedback-close">Cerrar</button>
+        </div>
+        <label>
+          Qué debería aprender
+          <select id="incident-feedback-verdict" required>
+            <option value="resolve_delivery_instruction">Resolver con instrucción de entrega</option>
+            <option value="request_address_data">Pedir o corregir dirección</option>
+            <option value="cancel_or_reject">Cliente rechaza: cancelar/rechazar</option>
+            <option value="send_absent_template">Ausente: coordinar nueva entrega</option>
+            <option value="manual_review">Revisión manual</option>
+          </select>
+        </label>
+        <label>
+          Corrección breve
+          <input id="incident-feedback-correction" placeholder="Ej: Si dice entregar por la tarde, resolver con esa instrucción">
+        </label>
+        <label>
+          Nota opcional
+          <textarea id="incident-feedback-note" rows="4" placeholder="Añade el criterio que debe recordar para próximas incidencias..."></textarea>
+        </label>
+        <button class="primary-action" type="submit">Guardar aprendizaje</button>
       </form>
     </dialog>
 
