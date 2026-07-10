@@ -2,6 +2,7 @@ const state = {
   section: 'overview',
   query: '',
   orderFilter: 'all',
+  incidentFilter: 'all',
   loading: true,
   error: null,
   dashboard: null
@@ -24,13 +25,18 @@ const panels = [...document.querySelectorAll('[data-panel]')];
 const searchInput = document.querySelector('#search-input');
 const syncButton = document.querySelector('#sync-button');
 const orderFilterButtons = [...document.querySelectorAll('[data-order-filter]')];
+const incidentFilterButtons = [...document.querySelectorAll('[data-incident-filter]')];
 const feedbackDialog = document.querySelector('#feedback-dialog');
 const feedbackForm = document.querySelector('#feedback-form');
 const feedbackClose = document.querySelector('#feedback-close');
+const incidentFeedbackDialog = document.querySelector('#incident-feedback-dialog');
+const incidentFeedbackForm = document.querySelector('#incident-feedback-form');
+const incidentFeedbackClose = document.querySelector('#incident-feedback-close');
 const financeSettingsForm = document.querySelector('#finance-settings-form');
 const agentChatForm = document.querySelector('#agent-chat-form');
 const businessManagerButton = document.querySelector('#business-manager-button');
 let feedbackOrderId = null;
+let feedbackIncident = null;
 let refreshCountdownTimer = null;
 
 const META_REFRESH_HOURS = 12;
@@ -65,7 +71,7 @@ function formatDateTime(value) {
 }
 
 function refreshCountdownText() {
-  return `Meta se actualiza cada ${META_REFRESH_HOURS}h. Pedidos por evento Shopify/Dropea y boton manual.`;
+  return `Meta se actualiza cada ${META_REFRESH_HOURS}h. Incidencias cada 6h. Pedidos por evento Shopify/Dropea y boton manual.`;
 }
 
 function escapeHtml(value) {
@@ -418,6 +424,49 @@ function renderOrders() {
   table.innerHTML = rows.join('') || '<tr><td colspan="7">No hay resultados para esta busqueda.</td></tr>';
 }
 
+function incidentTypeLabel(type) {
+  if (type === 'absent') return 'Ausente';
+  if (type === 'address') return 'Dirección / datos';
+  if (type === 'rejected_goods') return 'No acepta mercancía';
+  return 'Incidencia';
+}
+
+function inferredIncidentType(incident) {
+  if (incident.incidentType) return incident.incidentType;
+  const code = String(incident.reasonCode || incident.rawReason || incident.reason || '').trim().toUpperCase();
+  const text = normalize([
+    incident.reason,
+    incident.reasonCode,
+    incident.rawReason,
+    incident.chatbyStatus,
+    incident.chatbySummary
+  ].filter(Boolean).join(' '));
+  if (code === 'AS' || text.includes('ausente')) return 'absent';
+  if (code === 'NAM' || text.includes('no acepta') || text.includes('rechaz')) return 'rejected_goods';
+  if (code === 'MCC' || text.includes('direccion') || text.includes('dirección') || text.includes('faltan datos')) return 'address';
+  return 'unknown';
+}
+
+function inferredIncidentTone(incident) {
+  const type = inferredIncidentType(incident);
+  if (type === 'rejected_goods') return 'danger';
+  if (type === 'address' || type === 'absent') return 'warning';
+  return 'neutral';
+}
+
+function incidentMatchesFilter(incident) {
+  if (state.incidentFilter === 'all') return true;
+  if (state.incidentFilter === 'responded') return incident.customerResponded || Number(incident.customerMessages) > 0;
+  return inferredIncidentType(incident) === state.incidentFilter;
+}
+
+function incidentTone(incident) {
+  if (incident.actionTone) return incident.actionTone;
+  if (incident.customerResponded || Number(incident.customerMessages) > 0) return 'positive';
+  if (incident.incidentTypeTone) return incident.incidentTypeTone;
+  return 'neutral';
+}
+
 function renderIncidents() {
   const table = document.querySelector('#incidents-table');
   const summary = document.querySelector('#incidents-summary');
@@ -429,22 +478,30 @@ function renderIncidents() {
     incident.orderId,
     incident.incidenceId,
     incident.reason,
+    incident.reasonCode,
+    incident.rawReason,
+    incident.incidentTypeLabel,
     incident.customerName,
     incident.phone,
     incident.chatbyStatus,
     incident.chatbySummary,
-    incident.proposedSolution
-  ]));
+    incident.proposedSolution,
+    incident.actionRecommended,
+    incident.feedbackCorrection,
+    incident.feedbackNote
+  ])).filter(incidentMatchesFilter);
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
   const customerResponded = incidents.filter((incident) => incident.customerResponded || Number(incident.customerMessages) > 0).length;
-  const needsAddress = incidents.filter((incident) => normalize(`${incident.chatbyStatus} ${incident.reason}`).includes('direccion')).length;
-  const rejected = incidents.filter((incident) => normalize(incident.chatbyStatus).includes('rechaza') || normalize(incident.chatbyStatus).includes('cancela')).length;
+  const needsAddress = incidents.filter((incident) => inferredIncidentType(incident) === 'address').length;
+  const absent = incidents.filter((incident) => inferredIncidentType(incident) === 'absent').length;
+  const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
-    { label: 'Cliente respondio', value: customerResponded, detail: 'Prioridad para resolver', tone: 'positive' },
+    { label: 'Con respuesta', value: customerResponded, detail: 'Alertas para resolver primero', tone: 'positive' },
     { label: 'Pendientes', value: incidents.length, detail: `Actualizado ${formatDateTime(data.updatedAt)}`, tone: 'neutral' },
-    { label: 'Dirección/datos', value: needsAddress, detail: 'Probable corrección de entrega', tone: 'warning' },
-    { label: 'Rechazo/cancelación', value: rejected, detail: 'No insistir sin revisar', tone: 'danger' },
+    { label: 'Ausente', value: absent, detail: 'Coordinar nueva entrega', tone: 'warning' },
+    { label: 'Dirección/datos', value: needsAddress, detail: 'Corregir datos de entrega', tone: 'warning' },
+    { label: 'No acepta mercancía', value: rejected, detail: 'Validar rechazo/cancelación', tone: 'danger' },
     { label: 'Sin Chatby', value: noChatby, detail: 'Necesitan revisión manual', tone: noChatby ? 'warning' : 'positive' }
   ];
 
@@ -457,29 +514,29 @@ function renderIncidents() {
   `).join('');
 
   if (data.error) {
-    table.innerHTML = `<tr><td colspan="6">No se pudo actualizar incidencias: ${escapeHtml(data.error)}</td></tr>`;
+    table.innerHTML = `<tr><td colspan="7">No se pudo actualizar incidencias: ${escapeHtml(data.error)}</td></tr>`;
     return;
   }
 
   table.innerHTML = visible.map((incident) => {
     const hasCustomerResponse = incident.customerResponded || Number(incident.customerMessages) > 0;
-    const statusTone = normalize(incident.chatbyStatus).includes('rechaza') || normalize(incident.chatbyStatus).includes('cancela')
-      ? 'danger'
-      : normalize(incident.chatbyStatus).includes('direccion') || normalize(incident.chatbyStatus).includes('reprogramar')
-        ? 'warning'
-        : hasCustomerResponse
-          ? 'positive'
-          : 'neutral';
+    const statusTone = incidentTone(incident);
+    const type = inferredIncidentType(incident);
+    const typeTone = incident.incidentTypeTone || inferredIncidentTone(incident);
+    const feedback = incident.feedbackVerdict
+      ? `<small class="incident-feedback-saved">Feedback: ${escapeHtml(incident.feedbackVerdict)} · ${escapeHtml(formatDateTime(incident.feedbackAt))}</small>`
+      : '';
     return `
       <tr class="incident-row ${hasCustomerResponse ? 'customer-responded' : ''}">
         <td>
           <strong>#${escapeHtml(incident.orderId)}</strong>
           <small>Incidencia ${escapeHtml(incident.incidenceId || '-')}</small>
           <small>${escapeHtml(formatDateTime(incident.incidenceDate))}</small>
-          ${hasCustomerResponse ? '<span class="customer-response-badge">Cliente respondio</span>' : ''}
+          ${hasCustomerResponse ? '<span class="customer-response-badge">Cliente respondió</span>' : ''}
         </td>
         <td>
-          <span class="pill warning">${escapeHtml(incident.reason || 'Incidencia')}</span>
+          <span class="pill ${typeTone}">${escapeHtml(incident.incidentTypeLabel || incidentTypeLabel(type))}</span>
+          ${incident.reasonCode ? `<small>Código Dropea: ${escapeHtml(incident.reasonCode)}</small>` : ''}
           <small>${escapeHtml(incident.issueStatus || 'PENDIENTE')} · ${escapeHtml(incident.orderStatus || '')}</small>
         </td>
         <td>
@@ -489,17 +546,25 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.chatbyStatus || 'Sin analizar')}</span>
           <small>${escapeHtml(incident.customerMessages || 0)} mensajes de cliente</small>
+          ${hasCustomerResponse ? '<small class="incident-alert">Revisar respuesta del cliente</small>' : ''}
         </td>
         <td>
           <small>${escapeHtml(incident.chatbySummary || 'Sin resumen')}</small>
         </td>
         <td>
-          <strong>${escapeHtml(incident.proposedSolution || 'Revisión manual')}</strong>
+          <span class="signal-chip ${statusTone}">${escapeHtml(incident.actionRecommended || 'Revisión manual')}</span>
+          <small>${escapeHtml(incident.proposedSolution || 'Revisión manual')}</small>
           ${incident.chatbyUserNs ? `<small>Chatby: ${escapeHtml(incident.chatbyUserNs)}</small>` : ''}
+        </td>
+        <td>
+          <button class="mini-button" data-incident-feedback="${escapeHtml(incident.orderId)}" data-incidence-id="${escapeHtml(incident.incidenceId || '')}" data-issue-type="${escapeHtml(type)}">
+            Enseñar
+          </button>
+          ${feedback}
         </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="6">No hay incidencias pendientes para mostrar.</td></tr>';
+  }).join('') || '<tr><td colspan="7">No hay incidencias pendientes para mostrar.</td></tr>';
 }
 
 function renderCampaigns() {
@@ -1331,6 +1396,7 @@ navItems.forEach((item) => {
 searchInput.addEventListener('input', (event) => {
   state.query = event.target.value;
   renderOrders();
+  renderIncidents();
 });
 
 orderFilterButtons.forEach((button) => {
@@ -1338,6 +1404,14 @@ orderFilterButtons.forEach((button) => {
     state.orderFilter = button.dataset.orderFilter || 'all';
     orderFilterButtons.forEach((item) => item.classList.toggle('is-active', item === button));
     renderOrders();
+  });
+});
+
+incidentFilterButtons.forEach((button) => {
+  button.addEventListener('click', () => {
+    state.incidentFilter = button.dataset.incidentFilter || 'all';
+    incidentFilterButtons.forEach((item) => item.classList.toggle('is-active', item === button));
+    renderIncidents();
   });
 });
 
@@ -1349,6 +1423,20 @@ document.addEventListener('click', (event) => {
   document.querySelector('#feedback-correction').value = '';
   document.querySelector('#feedback-note').value = '';
   feedbackDialog.showModal();
+});
+
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-incident-feedback]');
+  if (!button) return;
+  feedbackIncident = {
+    orderId: button.dataset.incidentFeedback,
+    incidenceId: button.dataset.incidenceId || '',
+    issueType: button.dataset.issueType || ''
+  };
+  document.querySelector('#incident-feedback-title').textContent = `Incidencia #${feedbackIncident.incidenceId || '-'} · pedido #${feedbackIncident.orderId}`;
+  document.querySelector('#incident-feedback-correction').value = '';
+  document.querySelector('#incident-feedback-note').value = '';
+  incidentFeedbackDialog?.showModal();
 });
 
 document.addEventListener('click', async (event) => {
@@ -1383,6 +1471,10 @@ feedbackClose.addEventListener('click', () => {
   feedbackDialog.close();
 });
 
+incidentFeedbackClose?.addEventListener('click', () => {
+  incidentFeedbackDialog?.close();
+});
+
 feedbackForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!feedbackOrderId) return;
@@ -1409,6 +1501,37 @@ feedbackForm.addEventListener('submit', async (event) => {
   } finally {
     submit.disabled = false;
     submit.textContent = 'Guardar feedback';
+  }
+});
+
+incidentFeedbackForm?.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  if (!feedbackIncident?.orderId) return;
+  const submit = incidentFeedbackForm.querySelector('button[type="submit"]');
+  submit.disabled = true;
+  submit.textContent = 'Guardando...';
+  try {
+    const response = await fetch('/api/incident-feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderId: feedbackIncident.orderId,
+        incidenceId: feedbackIncident.incidenceId,
+        issueType: feedbackIncident.issueType,
+        verdict: document.querySelector('#incident-feedback-verdict').value,
+        correction: document.querySelector('#incident-feedback-correction').value,
+        note: document.querySelector('#incident-feedback-note').value
+      })
+    });
+    const payload = await readJsonResponse(response);
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    incidentFeedbackDialog?.close();
+    await loadDashboard();
+  } catch (error) {
+    alert(`No se pudo guardar el feedback de incidencia: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    submit.disabled = false;
+    submit.textContent = 'Guardar aprendizaje';
   }
 });
 
