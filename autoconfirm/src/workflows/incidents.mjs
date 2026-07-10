@@ -131,26 +131,27 @@ function classifyIncident(issue, order) {
 function typeAwareIncidentSolution(classification, chatby) {
   const intent = chatby.intent || '';
   const responded = Number(chatby.customerMessages || 0) > 0;
+  const last = chatby.lastCustomerMessage ? ` Último mensaje: "${clip(chatby.lastCustomerMessage, 120)}".` : '';
 
   if (intent === 'reject_or_cancel') {
     return {
       action: 'Rechazar/cancelar incidencia',
       tone: 'danger',
-      solution: 'El cliente muestra rechazo o cancelación. Propuesta: rechazar/cancelar en Dropea y registrar el motivo.'
+      solution: `El cliente muestra rechazo o cancelación.${last} Propuesta: rechazar/cancelar en Dropea y registrar el motivo.`
     };
   }
   if (intent === 'delivery_instruction' || intent === 'reprogram_delivery') {
     return {
       action: 'Resolver con instrucción de entrega',
       tone: 'positive',
-      solution: 'El cliente ha dado una instrucción útil. Propuesta: resolver en Dropea trasladando literalmente la franja, teléfono o comentario del cliente.'
+      solution: `El cliente ha dado una instrucción útil.${last} Propuesta: resolver en Dropea trasladando literalmente la franja, teléfono o comentario del cliente.`
     };
   }
   if (intent === 'address_data') {
     return {
       action: 'Actualizar datos de entrega',
       tone: 'positive',
-      solution: 'El cliente ha enviado o mencionado datos de dirección. Propuesta: actualizar Dropea si están completos; si falta algo, pedir el dato exacto por Chatby.'
+      solution: `El cliente ha enviado o mencionado datos de dirección.${last} Propuesta: actualizar Dropea si están completos; si falta algo, pedir el dato exacto por Chatby.`
     };
   }
 
@@ -233,12 +234,69 @@ function messageText(message) {
   ].filter(Boolean).join(' ');
 }
 
+function messageDate(message) {
+  const value = message?.created_at
+    || message?.createdAt
+    || message?.date
+    || message?.timestamp
+    || message?.sent_at
+    || message?.sentAt
+    || null;
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date.toISOString() : null;
+}
+
+function clip(value, max = 180) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1)}…`;
+}
+
 function isCustomerMessage(message) {
   const raw = JSON.stringify(message || {});
   const from = normalize(message?.from || message?.sender || message?.role || message?.type || message?.direction || '');
   if (from.includes('customer') || from.includes('user') || from.includes('cliente') || from.includes('inbound')) return true;
   if (from.includes('bot') || from.includes('agent') || from.includes('admin') || from.includes('outbound')) return false;
   return raw.includes('"is_bot":false') || raw.includes('"from_me":false') || raw.includes('"incoming"');
+}
+
+function evidenceFromConversation(customerText, allText) {
+  const checks = [
+    { key: 'cancelacion', label: 'rechazo/cancelación', regex: /no acept|rechaz|no lo quiero|no quiero|cancel|anul|no me interesa|no voy a recibir/ },
+    { key: 'direccion', label: 'datos de dirección', regex: /direccion|direcci|calle|numero|piso|portal|codigo postal|cp|datos/ },
+    { key: 'horario', label: 'franja u horario de entrega', regex: /tarde|manana|mañana|mediodia|medio dia|noche|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo|horario|franja|llamar|telefono|telf|teléfono|movil|móvil/ },
+    { key: 'reprogramacion', label: 'reprogramación de entrega', regex: /otro dia|otro día|reparto|entrega|ausente|no estaba|no habia nadie|no había nadie/ },
+    { key: 'conformidad', label: 'conformidad positiva', regex: /confirm|correcto|si\b|sí\b|adelante|ok|vale/ },
+    { key: 'solo_saliente', label: 'solo mensajes salientes', regex: /./ }
+  ];
+  const source = customerText || allText;
+  return checks
+    .filter((item) => item.regex.test(source) && (item.key !== 'solo_saliente' || !customerText))
+    .map((item) => item.label)
+    .slice(0, 4);
+}
+
+function baseConversationMeta({ intent, customerMessages, customerText, allText, messages }) {
+  const lastCustomerMessage = [...messages].reverse().find(isCustomerMessage);
+  const lastMessageText = lastCustomerMessage ? clip(messageText(lastCustomerMessage), 220) : '';
+  const confidenceByIntent = {
+    reject_or_cancel: 94,
+    address_data: 88,
+    delivery_instruction: 92,
+    reprogram_delivery: 86,
+    positive_confirmation: 78,
+    customer_unclear: 52,
+    outbound_only: 35,
+    no_signal: 25,
+    no_conversation: 20
+  };
+  return {
+    lastCustomerMessage: lastMessageText,
+    lastCustomerAt: lastCustomerMessage ? messageDate(lastCustomerMessage) : null,
+    evidence: evidenceFromConversation(customerText, allText),
+    confidence: confidenceByIntent[intent] ?? (customerMessages ? 55 : 30),
+    customerMessages
+  };
 }
 
 function summarizeConversation(messages = []) {
@@ -252,7 +310,7 @@ function summarizeConversation(messages = []) {
       status: 'Sin conversación localizada',
       summary: 'No he encontrado conversación en Chatby con ese teléfono.',
       proposedSolution: 'Revisar teléfono en Dropea y contactar manualmente antes de resolver la incidencia.',
-      customerMessages: 0
+      ...baseConversationMeta({ intent: 'no_conversation', customerMessages: 0, customerText, allText, messages })
     };
   }
 
@@ -262,7 +320,7 @@ function summarizeConversation(messages = []) {
       status: 'Cliente rechaza o cancela',
       summary: 'La conversación contiene señales de rechazo, cancelación o no aceptación del pedido.',
       proposedSolution: 'No insistir en confirmación. Revisar si procede cancelar/rechazar en Dropea y registrar motivo.',
-      customerMessages: customerMessages.length
+      ...baseConversationMeta({ intent: 'reject_or_cancel', customerMessages: customerMessages.length, customerText, allText, messages })
     };
   }
 
@@ -272,7 +330,7 @@ function summarizeConversation(messages = []) {
       status: 'Necesita corrección de dirección',
       summary: 'El cliente menciona datos de entrega o dirección, por lo que la incidencia parece relacionada con información de envío.',
       proposedSolution: 'Actualizar datos en Dropea si el cliente dejó dirección completa. Si faltan datos, pedirlos por Chatby.',
-      customerMessages: customerMessages.length
+      ...baseConversationMeta({ intent: 'address_data', customerMessages: customerMessages.length, customerText, allText, messages })
     };
   }
 
@@ -282,7 +340,7 @@ function summarizeConversation(messages = []) {
       status: 'Cliente da instrucciones de entrega',
       summary: 'El cliente ha indicado una franja, horario, telefono de contacto o instruccion concreta para resolver la incidencia de entrega.',
       proposedSolution: 'Resolver en Dropea trasladando literalmente la instruccion del cliente. No cancelar ni tratar como falta de respuesta.',
-      customerMessages: customerMessages.length
+      ...baseConversationMeta({ intent: 'delivery_instruction', customerMessages: customerMessages.length, customerText, allText, messages })
     };
   }
 
@@ -292,7 +350,7 @@ function summarizeConversation(messages = []) {
       status: 'Reprogramar entrega',
       summary: 'El cliente habla de entrega, ausencia, horario o nueva fecha.',
       proposedSolution: 'Responder con opción de nueva entrega y trasladar la solución a Dropea cuando haya fecha clara.',
-      customerMessages: customerMessages.length
+      ...baseConversationMeta({ intent: 'reprogram_delivery', customerMessages: customerMessages.length, customerText, allText, messages })
     };
   }
 
@@ -302,13 +360,14 @@ function summarizeConversation(messages = []) {
       status: 'Cliente muestra conformidad',
       summary: 'Hay señales positivas o de conformidad del cliente, pero la incidencia sigue abierta.',
       proposedSolution: 'Comprobar si Dropea permite enviar solución o reactivar entrega. No cancelar sin revisar incidencia.',
-      customerMessages: customerMessages.length
+      ...baseConversationMeta({ intent: 'positive_confirmation', customerMessages: customerMessages.length, customerText, allText, messages })
     };
   }
 
   if (allText) {
+    const intent = customerMessages.length ? 'customer_unclear' : 'outbound_only';
     return {
-      intent: customerMessages.length ? 'customer_unclear' : 'outbound_only',
+      intent,
       status: customerMessages.length ? 'Respuesta sin intención clara' : 'Solo mensajes salientes',
       summary: customerMessages.length
         ? 'Hay respuesta del cliente, pero no contiene una intención operativa clara.'
@@ -316,7 +375,7 @@ function summarizeConversation(messages = []) {
       proposedSolution: customerMessages.length
         ? 'Revisar manualmente la conversación antes de resolver la incidencia.'
         : 'Enviar recordatorio o contactar manualmente si la incidencia requiere acción.',
-      customerMessages: customerMessages.length
+      ...baseConversationMeta({ intent, customerMessages: customerMessages.length, customerText, allText, messages })
     };
   }
 
@@ -325,7 +384,7 @@ function summarizeConversation(messages = []) {
     status: 'Sin señal útil',
     summary: 'No hay texto suficiente para interpretar la incidencia desde Chatby.',
     proposedSolution: 'Revisión manual.',
-    customerMessages: customerMessages.length
+    ...baseConversationMeta({ intent: 'no_signal', customerMessages: customerMessages.length, customerText, allText, messages })
   };
 }
 
@@ -456,13 +515,20 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
   try {
     const previousCache = loadIncidentsCache();
     const previousByOrderId = new Map((previousCache.incidents || []).map((incident) => [String(incident.orderId), incident]));
+    const chatbyByPhone = new Map();
     const pending = await collectPendingIncidents({ limit, pages });
     for (const { order, issue } of pending) {
       const orderId = String(order?.orderId || issue?.orderId || '');
       const phone = order?.customerPhone || order?.raw?.customer?.phone || issue?.customerPhone || '';
       let chatby;
       try {
-        chatby = await chatbyContextForPhone(phone);
+        const phoneKey = digits(phone).slice(-9) || `order:${orderId}`;
+        if (chatbyByPhone.has(phoneKey)) {
+          chatby = chatbyByPhone.get(phoneKey);
+        } else {
+          chatby = await chatbyContextForPhone(phone);
+          chatbyByPhone.set(phoneKey, chatby);
+        }
       } catch (error) {
         chatby = {
           ok: false,
@@ -483,7 +549,11 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
             summary: previous.chatbySummary || 'No he podido refrescar Chatby, asi que mantengo la ultima lectura valida.',
             proposedSolution: previous.proposedSolution || 'Revisar cuando Chatby vuelva a responder.',
             userNs: previous.chatbyUserNs || null,
-            customerMessages: previous.customerMessages || 0
+            customerMessages: previous.customerMessages || 0,
+            lastCustomerMessage: previous.lastCustomerMessage || '',
+            lastCustomerAt: previous.lastCustomerAt || null,
+            evidence: previous.evidence || [],
+            confidence: previous.contextConfidence || previous.confidence || 45
           };
         }
       }
@@ -511,6 +581,11 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         proposedSolution: recommendation.solution,
         actionRecommended: recommendation.action,
         actionTone: recommendation.tone,
+        lastCustomerMessage: chatby.lastCustomerMessage || '',
+        lastCustomerAt: chatby.lastCustomerAt || null,
+        evidence: Array.isArray(chatby.evidence) ? chatby.evidence : [],
+        contextConfidence: chatby.confidence ?? null,
+        priority: Number(chatby.customerMessages || 0) > 0 ? 'high' : recommendation.tone === 'danger' ? 'medium' : 'normal',
         customerMessages: chatby.customerMessages || 0,
         customerResponded: Number(chatby.customerMessages || 0) > 0,
         alertLevel: Number(chatby.customerMessages || 0) > 0 ? 'customer_response' : 'no_response',
