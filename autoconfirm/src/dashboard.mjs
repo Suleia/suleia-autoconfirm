@@ -1721,6 +1721,24 @@ function learnedRuleFromIncidentFeedback(item) {
       createdAt: new Date().toISOString()
     };
   }
+  if (item.verdict === 'customer_response_resolves_issue') {
+    return {
+      id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'incident_customer_response_resolves',
+      text: 'En incidencias, cuando el cliente responde con una instrucción accionable o confirma cómo resolver, marcar como incidencia accionable y proponer resolución concreta en Dropea.',
+      source: `feedback_incident_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'wait_more_context') {
+    return {
+      id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'incident_wait_more_context',
+      text: 'En incidencias con respuesta ambigua o incompleta, no resolver automáticamente: pedir el dato exacto que falta o esperar más contexto antes de actuar en Dropea.',
+      source: `feedback_incident_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
   if (item.correction || item.note) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
