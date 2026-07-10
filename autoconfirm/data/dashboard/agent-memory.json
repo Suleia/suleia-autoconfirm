@@ -1,1 +1,10 @@
-[]
+[
+  {
+    "id": "incident-delivery-instruction-1286577",
+    "createdAt": "2026-07-09T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "orderId": "1286577",
+    "text": "Si en una incidencia por ausente el cliente indica una franja o instruccion clara de entrega, por ejemplo 'entregar por la tarde' y aporta telefono de contacto, la incidencia debe clasificarse como resoluble. La solucion para Dropea debe trasladar literalmente la instruccion del cliente. No cancelar, no tratar como sin respuesta y no ejecutar acciones automaticas sin validacion."
+  }
+]
