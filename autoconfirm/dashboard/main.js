@@ -467,6 +467,19 @@ function incidentTone(incident) {
   return 'neutral';
 }
 
+function incidentConfidence(incident) {
+  const value = Number(incident.contextConfidence);
+  if (!Number.isFinite(value)) return null;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function incidentConfidenceTone(value) {
+  if (value === null) return 'neutral';
+  if (value >= 80) return 'positive';
+  if (value >= 55) return 'warning';
+  return 'danger';
+}
+
 function renderIncidents() {
   const table = document.querySelector('#incidents-table');
   const summary = document.querySelector('#incidents-summary');
@@ -485,6 +498,8 @@ function renderIncidents() {
     incident.phone,
     incident.chatbyStatus,
     incident.chatbySummary,
+    incident.lastCustomerMessage,
+    ...(incident.evidence || []),
     incident.proposedSolution,
     incident.actionRecommended,
     incident.feedbackCorrection,
@@ -493,10 +508,12 @@ function renderIncidents() {
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
   const customerResponded = incidents.filter((incident) => incident.customerResponded || Number(incident.customerMessages) > 0).length;
+  const highPriority = incidents.filter((incident) => incident.priority === 'high' || incident.customerResponded || Number(incident.customerMessages) > 0).length;
   const needsAddress = incidents.filter((incident) => inferredIncidentType(incident) === 'address').length;
   const absent = incidents.filter((incident) => inferredIncidentType(incident) === 'absent').length;
   const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
+    { label: 'Alta prioridad', value: highPriority, detail: 'Respuesta o señal accionable', tone: highPriority ? 'positive' : 'neutral' },
     { label: 'Con respuesta', value: customerResponded, detail: 'Alertas para resolver primero', tone: 'positive' },
     { label: 'Pendientes', value: incidents.length, detail: `Actualizado ${formatDateTime(data.updatedAt)}`, tone: 'neutral' },
     { label: 'Ausente', value: absent, detail: 'Coordinar nueva entrega', tone: 'warning' },
@@ -523,6 +540,9 @@ function renderIncidents() {
     const statusTone = incidentTone(incident);
     const type = inferredIncidentType(incident);
     const typeTone = incident.incidentTypeTone || inferredIncidentTone(incident);
+    const confidence = incidentConfidence(incident);
+    const confidenceTone = incidentConfidenceTone(confidence);
+    const evidence = Array.isArray(incident.evidence) ? incident.evidence : [];
     const feedback = incident.feedbackVerdict
       ? `<small class="incident-feedback-saved">Feedback: ${escapeHtml(incident.feedbackVerdict)} · ${escapeHtml(formatDateTime(incident.feedbackAt))}</small>`
       : '';
@@ -546,10 +566,13 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.chatbyStatus || 'Sin analizar')}</span>
           <small>${escapeHtml(incident.customerMessages || 0)} mensajes de cliente</small>
+          ${confidence !== null ? `<span class="signal-chip ${confidenceTone}">Confianza ${confidence}%</span>` : ''}
           ${hasCustomerResponse ? '<small class="incident-alert">Revisar respuesta del cliente</small>' : ''}
         </td>
         <td>
           <small>${escapeHtml(incident.chatbySummary || 'Sin resumen')}</small>
+          ${incident.lastCustomerMessage ? `<blockquote class="incident-last-message">${escapeHtml(incident.lastCustomerMessage)}</blockquote>` : ''}
+          ${evidence.length ? `<div class="incident-evidence">${evidence.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
         </td>
         <td>
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.actionRecommended || 'Revisión manual')}</span>
