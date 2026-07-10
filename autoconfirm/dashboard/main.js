@@ -508,11 +508,13 @@ function renderIncidents() {
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
   const customerResponded = incidents.filter((incident) => incident.customerResponded || Number(incident.customerMessages) > 0).length;
+  const learned = incidents.filter((incident) => incident.memoryApplied || incident.feedbackVerdict).length;
   const highPriority = incidents.filter((incident) => incident.priority === 'high' || incident.customerResponded || Number(incident.customerMessages) > 0).length;
   const needsAddress = incidents.filter((incident) => inferredIncidentType(incident) === 'address').length;
   const absent = incidents.filter((incident) => inferredIncidentType(incident) === 'absent').length;
   const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
+    { label: 'Con aprendizaje', value: learned, detail: 'Feedback aplicado al agente', tone: learned ? 'positive' : 'neutral' },
     { label: 'Alta prioridad', value: highPriority, detail: 'Respuesta o señal accionable', tone: highPriority ? 'positive' : 'neutral' },
     { label: 'Con respuesta', value: customerResponded, detail: 'Alertas para resolver primero', tone: 'positive' },
     { label: 'Pendientes', value: incidents.length, detail: `Actualizado ${formatDateTime(data.updatedAt)}`, tone: 'neutral' },
@@ -543,6 +545,9 @@ function renderIncidents() {
     const confidence = incidentConfidence(incident);
     const confidenceTone = incidentConfidenceTone(confidence);
     const evidence = Array.isArray(incident.evidence) ? incident.evidence : [];
+    const memory = incident.memoryApplied
+      ? `<small class="incident-memory-applied">Aprendizaje aplicado: ${escapeHtml(incident.memoryText || 'Regla guardada')}</small>`
+      : '';
     const feedback = incident.feedbackVerdict
       ? `<small class="incident-feedback-saved">Feedback: ${escapeHtml(incident.feedbackVerdict)} · ${escapeHtml(formatDateTime(incident.feedbackAt))}</small>`
       : '';
@@ -572,6 +577,7 @@ function renderIncidents() {
         <td>
           <small>${escapeHtml(incident.chatbySummary || 'Sin resumen')}</small>
           ${incident.lastCustomerMessage ? `<blockquote class="incident-last-message">${escapeHtml(incident.lastCustomerMessage)}</blockquote>` : ''}
+          ${memory}
           ${evidence.length ? `<div class="incident-evidence">${evidence.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
         </td>
         <td>
