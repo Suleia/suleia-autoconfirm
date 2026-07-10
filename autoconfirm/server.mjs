@@ -11,7 +11,7 @@ import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cancellations.mjs';
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
-import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings } from './src/dashboard.mjs';
+import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
 
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -310,6 +310,12 @@ const server = http.createServer(async (req, res) => {
       if (!requireDashboardAuth(req, res)) return;
       const body = await readBody(req);
       return sendJson(res, 200, { ok: true, feedback: await saveAgentFeedback(body) });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/incident-feedback') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      return sendJson(res, 200, { ok: true, feedback: await saveIncidentFeedback(body) });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/finance-settings') {
@@ -621,7 +627,7 @@ async function runScheduledIncidentsSync() {
 }
 
 function startIncidentsScheduler() {
-  const intervalMinutes = config.defaultStore.incidentsSyncIntervalMinutes || 240;
+  const intervalMinutes = config.defaultStore.incidentsSyncIntervalMinutes || 360;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;
