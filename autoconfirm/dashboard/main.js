@@ -480,6 +480,13 @@ function incidentConfidenceTone(value) {
   return 'danger';
 }
 
+function incidentConfidenceLabel(value) {
+  if (value === null) return 'Sin medir';
+  if (value >= 80) return 'Alta';
+  if (value >= 55) return 'Media';
+  return 'Baja';
+}
+
 function renderIncidents() {
   const table = document.querySelector('#incidents-table');
   const summary = document.querySelector('#incidents-summary');
@@ -544,7 +551,11 @@ function renderIncidents() {
     const typeTone = incident.incidentTypeTone || inferredIncidentTone(incident);
     const confidence = incidentConfidence(incident);
     const confidenceTone = incidentConfidenceTone(confidence);
+    const confidenceLabel = incidentConfidenceLabel(confidence);
     const evidence = Array.isArray(incident.evidence) ? incident.evidence : [];
+    const customerSignalTone = incident.customerSignalTone || statusTone;
+    const customerSignalLabel = incident.customerSignalLabel || (hasCustomerResponse ? 'Cliente respondio' : 'Sin respuesta del cliente');
+    const customerSignalDetail = incident.customerSignalDetail || (hasCustomerResponse ? 'Hay respuesta entrante en Chatby.' : 'No veo respuesta entrante en Chatby.');
     const memory = incident.memoryApplied
       ? `<small class="incident-memory-applied">Aprendizaje aplicado: ${escapeHtml(incident.memoryText || 'Regla guardada')}</small>`
       : '';
@@ -569,12 +580,16 @@ function renderIncidents() {
           <small>${escapeHtml(incident.phone || 'Sin telefono')}</small>
         </td>
         <td>
-          <span class="signal-chip ${statusTone}">${escapeHtml(incident.chatbyStatus || 'Sin analizar')}</span>
-          <small>${escapeHtml(incident.customerMessages || 0)} mensajes de cliente</small>
-          ${confidence !== null ? `<span class="signal-chip ${confidenceTone}">Confianza ${confidence}%</span>` : ''}
+          <span class="signal-chip ${customerSignalTone}">${escapeHtml(customerSignalLabel)}</span>
+          <small>${escapeHtml(customerSignalDetail)}</small>
+          <small>${escapeHtml(incident.customerMessages || 0)} mensajes entrantes del cliente</small>
+          ${incident.lastCustomerAt ? `<small>Ultima respuesta: ${escapeHtml(formatDateTime(incident.lastCustomerAt))}</small>` : ''}
+          ${confidence !== null ? `<span class="signal-chip ${confidenceTone}">Confianza ${escapeHtml(confidenceLabel)} - ${confidence}%</span>` : ''}
+          ${incident.confidenceReason ? `<small class="incident-confidence-reason">${escapeHtml(incident.confidenceReason)}</small>` : ''}
           ${hasCustomerResponse ? '<small class="incident-alert">Revisar respuesta del cliente</small>' : ''}
         </td>
         <td>
+          <strong class="incident-mini-title">${escapeHtml(incident.chatbyStatus || 'Sin analizar')}</strong>
           <small>${escapeHtml(incident.chatbySummary || 'Sin resumen')}</small>
           ${incident.lastCustomerMessage ? `<blockquote class="incident-last-message">${escapeHtml(incident.lastCustomerMessage)}</blockquote>` : ''}
           ${memory}
@@ -582,13 +597,14 @@ function renderIncidents() {
         </td>
         <td>
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.actionRecommended || 'Revisión manual')}</span>
-          <small>${escapeHtml(incident.proposedSolution || 'Revisión manual')}</small>
+          <small>${escapeHtml(incident.recommendedNextStep || incident.proposedSolution || 'Revision manual')}</small>
           ${incident.chatbyUserNs ? `<small>Chatby: ${escapeHtml(incident.chatbyUserNs)}</small>` : ''}
         </td>
         <td>
-          <button class="mini-button" data-incident-feedback="${escapeHtml(incident.orderId)}" data-incidence-id="${escapeHtml(incident.incidenceId || '')}" data-issue-type="${escapeHtml(type)}">
+          <button class="incident-feedback-button" data-incident-feedback="${escapeHtml(incident.orderId)}" data-incidence-id="${escapeHtml(incident.incidenceId || '')}" data-issue-type="${escapeHtml(type)}">
             Enseñar
           </button>
+          <small class="incident-feedback-hint">Corrige al agente y queda guardado en memoria.</small>
           ${feedback}
         </td>
       </tr>
