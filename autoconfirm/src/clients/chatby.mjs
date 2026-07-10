@@ -2,23 +2,37 @@ import { getAppConfig } from '../config.mjs';
 
 const config = getAppConfig();
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function request(path, options = {}) {
   if (!config.chatbyToken) throw new Error('Falta CHATBY_TOKEN.');
-  const response = await fetch(`${config.chatbyBaseUrl}${path}`, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${config.chatbyToken}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    }
-  });
-
-  const text = await response.text();
+  const maxAttempts = Number(options.maxAttempts || 3);
+  let response;
+  let text = '';
   let data = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = text;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    response = await fetch(`${config.chatbyBaseUrl}${path}`, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${config.chatbyToken}`,
+        'Content-Type': 'application/json',
+        ...(options.headers || {})
+      }
+    });
+
+    text = await response.text();
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+
+    if (response.status !== 429 || attempt === maxAttempts) break;
+    const retryAfter = Number(response.headers.get('retry-after'));
+    await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 750 * attempt);
   }
 
   if (!response.ok) {
@@ -156,6 +170,24 @@ function dropeaOrderFieldValue(subscriber) {
   return field?.value ?? null;
 }
 
+function subscriberContainsOrderId(subscriber, orderId) {
+  const target = digits(orderId);
+  if (!target) return false;
+  const text = JSON.stringify(subscriber || {});
+  return text.replace(/\D/g, ' ').split(/\s+/).includes(target);
+}
+
+function withSyntheticOrderField(subscriber, orderId) {
+  if (!subscriber || dropeaOrderFieldValue(subscriber)) return subscriber;
+  return {
+    ...subscriber,
+    user_fields: [
+      ...(subscriber.user_fields || []),
+      { name: 'Dropea: Numero', value: String(orderId) }
+    ]
+  };
+}
+
 function confirmationFieldValue(subscriber) {
   const field = (subscriber.user_fields || []).find((item) => normalizeText(item.name).includes('confirm'));
   return field?.value ?? null;
@@ -195,18 +227,31 @@ export function subscriberConfirmsOrder(subscriber) {
 
 export async function findSubscriberForOrderRobust({ phone, orderId, maxPages = 10 } = {}) {
   const phoneDigits = digits(phone);
+  const samePhoneSubscribers = [];
+
   for (let page = 1; page <= maxPages; page += 1) {
     const subscribers = await listSubscribers({ page, limit: 100 });
     if (!Array.isArray(subscribers) || !subscribers.length) break;
 
-    const found = subscribers.find((subscriber) => {
+    for (const subscriber of subscribers) {
       const samePhone = phoneDigits && digits(subscriber.phone || subscriber.user_id).endsWith(phoneDigits.slice(-9));
-      const sameOrder = String(dropeaOrderFieldValue(subscriber) || '') === String(orderId);
-      return samePhone && sameOrder;
-    });
+      if (!samePhone) continue;
+      samePhoneSubscribers.push(subscriber);
 
-    if (found) return found;
+      const sameOrder = String(dropeaOrderFieldValue(subscriber) || '') === String(orderId);
+      if (sameOrder) return subscriber;
+
+      if (subscriberContainsOrderId(subscriber, orderId)) {
+        return withSyntheticOrderField(subscriber, orderId);
+      }
+    }
   }
+
+  const confirmedSamePhone = samePhoneSubscribers.filter((subscriber) => subscriberConfirmsOrderRobust(subscriber));
+  if (confirmedSamePhone.length === 1) {
+    return withSyntheticOrderField(confirmedSamePhone[0], orderId);
+  }
+
   return null;
 }
 
