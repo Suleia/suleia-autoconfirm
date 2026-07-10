@@ -81,6 +81,134 @@ function issueReason(issue) {
     || 'Incidencia pendiente';
 }
 
+const INCIDENT_TYPES = {
+  absent: { type: 'absent', label: 'Ausente', tone: 'warning' },
+  rejectedGoods: { type: 'rejected_goods', label: 'No acepta mercancía', tone: 'danger' },
+  address: { type: 'address', label: 'Dirección incorrecta o faltan datos', tone: 'warning' },
+  unknown: { type: 'unknown', label: 'Incidencia pendiente', tone: 'neutral' }
+};
+
+function classifyIncident(issue, order) {
+  const rawReason = issue ? issueReason(issue) : 'Pedido con incidencia';
+  const code = String(rawReason || '').trim().toUpperCase();
+  const text = normalize([
+    rawReason,
+    issue?.title,
+    issue?.description,
+    issue?.incidence,
+    issue?.incidence_type,
+    issue?.incidenceType,
+    issue?.category,
+    order?.raw?.incidence,
+    order?.raw?.incidence_type,
+    order?.raw?.issues?.incidence_code,
+    order?.raw?.issues?.reason
+  ].filter(Boolean).join(' '));
+
+  if (code === 'AS' || text.includes('ausente') || text.includes('no habia nadie') || text.includes('no había nadie')) {
+    return { ...INCIDENT_TYPES.absent, code, rawReason };
+  }
+  if (code === 'NAM' || text.includes('no acepta') || text.includes('rechaza mercancia') || text.includes('rechaza mercancía')) {
+    return { ...INCIDENT_TYPES.rejectedGoods, code, rawReason };
+  }
+  if (
+    code === 'MCC'
+    || code === 'DIR'
+    || code === 'DI'
+    || text.includes('direccion')
+    || text.includes('dirección')
+    || text.includes('faltan datos')
+    || text.includes('datos incompletos')
+    || text.includes('codigo postal')
+    || text.includes('cp')
+  ) {
+    return { ...INCIDENT_TYPES.address, code, rawReason };
+  }
+
+  return { ...INCIDENT_TYPES.unknown, code, rawReason };
+}
+
+function typeAwareIncidentSolution(classification, chatby) {
+  const intent = chatby.intent || '';
+  const responded = Number(chatby.customerMessages || 0) > 0;
+
+  if (intent === 'reject_or_cancel') {
+    return {
+      action: 'Rechazar/cancelar incidencia',
+      tone: 'danger',
+      solution: 'El cliente muestra rechazo o cancelación. Propuesta: rechazar/cancelar en Dropea y registrar el motivo.'
+    };
+  }
+  if (intent === 'delivery_instruction' || intent === 'reprogram_delivery') {
+    return {
+      action: 'Resolver con instrucción de entrega',
+      tone: 'positive',
+      solution: 'El cliente ha dado una instrucción útil. Propuesta: resolver en Dropea trasladando literalmente la franja, teléfono o comentario del cliente.'
+    };
+  }
+  if (intent === 'address_data') {
+    return {
+      action: 'Actualizar datos de entrega',
+      tone: 'positive',
+      solution: 'El cliente ha enviado o mencionado datos de dirección. Propuesta: actualizar Dropea si están completos; si falta algo, pedir el dato exacto por Chatby.'
+    };
+  }
+
+  if (classification.type === 'address') {
+    return responded
+      ? {
+          action: 'Revisar datos recibidos',
+          tone: 'warning',
+          solution: 'Hay respuesta del cliente, pero no veo datos completos. Propuesta: revisar conversación y pedir solo el dato que falta antes de resolver.'
+        }
+      : {
+          action: 'Pedir dirección completa',
+          tone: 'warning',
+          solution: 'Incidencia de dirección sin respuesta del cliente. Propuesta: pedir calle, número, piso/puerta, CP y ciudad por Chatby.'
+        };
+  }
+
+  if (classification.type === 'rejected_goods') {
+    return responded
+      ? {
+          action: 'Validar rechazo del cliente',
+          tone: 'danger',
+          solution: 'Incidencia de no aceptación con respuesta. Propuesta: confirmar si el cliente rechaza definitivamente; si sí, rechazar en Dropea.'
+        }
+      : {
+          action: 'Confirmar si desea recibirlo',
+          tone: 'danger',
+          solution: 'Incidencia de no aceptación sin respuesta clara. Propuesta: preguntar si desea recibirlo o cancelar, sin insistir con mensajes repetidos.'
+        };
+  }
+
+  if (classification.type === 'absent') {
+    return responded
+      ? {
+          action: 'Coordinar nueva entrega',
+          tone: 'positive',
+          solution: 'Incidencia por ausente con respuesta. Propuesta: extraer franja/fecha/teléfono y resolver en Dropea con esa instrucción.'
+        }
+      : {
+          action: 'Solicitar nueva entrega',
+          tone: 'warning',
+          solution: 'Incidencia por ausente sin respuesta. Propuesta: enviar plantilla de coordinación de entrega y esperar instrucción del cliente.'
+        };
+  }
+
+  return responded
+    ? {
+        action: 'Revisión con respuesta',
+        tone: 'warning',
+        solution: 'Hay respuesta del cliente, pero la tipología no está clara. Propuesta: revisar manualmente y dar feedback al agente.'
+      }
+    : {
+        action: 'Revisión manual',
+        tone: 'neutral',
+        solution: chatby.proposedSolution || 'Sin señal suficiente. Propuesta: revisar Dropea y Chatby antes de resolver.'
+      };
+}
+
 function issueDate(order, issue) {
   return issue?.created_at
     || issue?.createdAt
@@ -120,6 +248,7 @@ function summarizeConversation(messages = []) {
 
   if (!messages.length) {
     return {
+      intent: 'no_conversation',
       status: 'Sin conversación localizada',
       summary: 'No he encontrado conversación en Chatby con ese teléfono.',
       proposedSolution: 'Revisar teléfono en Dropea y contactar manualmente antes de resolver la incidencia.',
@@ -129,6 +258,7 @@ function summarizeConversation(messages = []) {
 
   if (/no acept|rechaz|no lo quiero|no quiero|cancel|anul|no me interesa|no voy a recibir/.test(customerText)) {
     return {
+      intent: 'reject_or_cancel',
       status: 'Cliente rechaza o cancela',
       summary: 'La conversación contiene señales de rechazo, cancelación o no aceptación del pedido.',
       proposedSolution: 'No insistir en confirmación. Revisar si procede cancelar/rechazar en Dropea y registrar motivo.',
@@ -138,6 +268,7 @@ function summarizeConversation(messages = []) {
 
   if (/direccion|direcci|calle|numero|piso|portal|codigo postal|cp|datos/.test(customerText)) {
     return {
+      intent: 'address_data',
       status: 'Necesita corrección de dirección',
       summary: 'El cliente menciona datos de entrega o dirección, por lo que la incidencia parece relacionada con información de envío.',
       proposedSolution: 'Actualizar datos en Dropea si el cliente dejó dirección completa. Si faltan datos, pedirlos por Chatby.',
@@ -145,8 +276,19 @@ function summarizeConversation(messages = []) {
     };
   }
 
+  if (/tarde|manana|mañana|mediodia|medio dia|noche|lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo|horario|franja|llamar|telefono|telf|teléfono|movil|móvil/.test(customerText)) {
+    return {
+      intent: 'delivery_instruction',
+      status: 'Cliente da instrucciones de entrega',
+      summary: 'El cliente ha indicado una franja, horario, telefono de contacto o instruccion concreta para resolver la incidencia de entrega.',
+      proposedSolution: 'Resolver en Dropea trasladando literalmente la instruccion del cliente. No cancelar ni tratar como falta de respuesta.',
+      customerMessages: customerMessages.length
+    };
+  }
+
   if (/manana|mañana|otro dia|otro día|reparto|entrega|ausente|no estaba|no habia nadie|no había nadie|horario/.test(customerText)) {
     return {
+      intent: 'reprogram_delivery',
       status: 'Reprogramar entrega',
       summary: 'El cliente habla de entrega, ausencia, horario o nueva fecha.',
       proposedSolution: 'Responder con opción de nueva entrega y trasladar la solución a Dropea cuando haya fecha clara.',
@@ -156,6 +298,7 @@ function summarizeConversation(messages = []) {
 
   if (/confirm|correcto|si\b|sí\b|adelante|ok|vale/.test(customerText)) {
     return {
+      intent: 'positive_confirmation',
       status: 'Cliente muestra conformidad',
       summary: 'Hay señales positivas o de conformidad del cliente, pero la incidencia sigue abierta.',
       proposedSolution: 'Comprobar si Dropea permite enviar solución o reactivar entrega. No cancelar sin revisar incidencia.',
@@ -165,6 +308,7 @@ function summarizeConversation(messages = []) {
 
   if (allText) {
     return {
+      intent: customerMessages.length ? 'customer_unclear' : 'outbound_only',
       status: customerMessages.length ? 'Respuesta sin intención clara' : 'Solo mensajes salientes',
       summary: customerMessages.length
         ? 'Hay respuesta del cliente, pero no contiene una intención operativa clara.'
@@ -177,6 +321,7 @@ function summarizeConversation(messages = []) {
   }
 
   return {
+    intent: 'no_signal',
     status: 'Sin señal útil',
     summary: 'No hay texto suficiente para interpretar la incidencia desde Chatby.',
     proposedSolution: 'Revisión manual.',
@@ -188,6 +333,7 @@ async function chatbyContextForPhone(phone) {
   if (!digits(phone)) {
     return {
       ok: false,
+      intent: 'missing_phone',
       status: 'Sin teléfono',
       summary: 'Dropea no aporta teléfono suficiente para buscar conversación.',
       proposedSolution: 'Revisar el pedido en Dropea.',
@@ -200,6 +346,7 @@ async function chatbyContextForPhone(phone) {
   if (!subscriber) {
     return {
       ok: false,
+      intent: 'not_found_chatby',
       status: 'No encontrado en Chatby',
       summary: 'No he localizado contacto en Chatby con ese teléfono.',
       proposedSolution: 'Comprobar teléfono y contactar manualmente si la incidencia requiere respuesta.',
@@ -319,6 +466,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       } catch (error) {
         chatby = {
           ok: false,
+          intent: 'chatby_error',
           status: 'Error leyendo Chatby',
           summary: error instanceof Error ? error.message : String(error),
           proposedSolution: 'No resolver automáticamente. Revisar Chatby o credenciales.',
@@ -330,6 +478,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         if (previousHasSignal) {
           chatby = {
             ok: false,
+            intent: previous.chatbyIntent || 'cached_previous',
             status: 'Chatby limitado: mantengo lectura anterior',
             summary: previous.chatbySummary || 'No he podido refrescar Chatby, asi que mantengo la ultima lectura valida.',
             proposedSolution: previous.proposedSolution || 'Revisar cuando Chatby vuelva a responder.',
@@ -338,22 +487,33 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
           };
         }
       }
+      const classification = classifyIncident(issue, order);
+      const recommendation = typeAwareIncidentSolution(classification, chatby);
 
       incidents.push({
         orderId,
         incidenceId: issue?.id || issue?.incidenceId ? String(issue.id || issue.incidenceId) : null,
         incidenceDate: issueDate(order, issue),
-        reason: issue ? issueReason(issue) : 'Pedido con incidencia',
+        reason: classification.label,
+        reasonCode: classification.code || null,
+        rawReason: classification.rawReason,
+        incidentType: classification.type,
+        incidentTypeLabel: classification.label,
+        incidentTypeTone: classification.tone,
         issueStatus: issue ? (issueStatus(issue) || 'PENDIENTE') : 'PENDIENTE',
         orderStatus: order?.status || issue?.orderStatus || 'CON INCIDENCIA',
         customerName: order?.customerName || order?.raw?.customer?.full_name || issue?.customerName || '',
         phone,
         amount: order?.orderAmount ?? null,
+        chatbyIntent: chatby.intent || 'unknown',
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
-        proposedSolution: chatby.proposedSolution,
+        proposedSolution: recommendation.solution,
+        actionRecommended: recommendation.action,
+        actionTone: recommendation.tone,
         customerMessages: chatby.customerMessages || 0,
         customerResponded: Number(chatby.customerMessages || 0) > 0,
+        alertLevel: Number(chatby.customerMessages || 0) > 0 ? 'customer_response' : 'no_response',
         chatbyUserNs: chatby.userNs || null
       });
     }
