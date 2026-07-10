@@ -1659,8 +1659,72 @@ function latestIncidentFeedbackByKey(feedback = []) {
   return map;
 }
 
-function mergeIncidentFeedback(incidents, feedback) {
+function latestIncidentMemoryByKey(memory = []) {
+  const map = new Map();
+  for (const item of memory) {
+    if (item.scope && item.scope !== 'incidents') continue;
+    if (!item.orderId && !item.incidenceId) continue;
+    const key = `${item.orderId || ''}:${item.incidenceId || ''}`;
+    const fallbackKey = `${item.orderId || ''}:`;
+    for (const candidate of [key, fallbackKey]) {
+      if (!candidate || candidate === ':') continue;
+      const current = map.get(candidate);
+      if (!current || new Date(item.createdAt || 0) > new Date(current.createdAt || 0)) {
+        map.set(candidate, item);
+      }
+    }
+  }
+  return map;
+}
+
+function clipText(value, max = 220) {
+  const text = String(value || '').trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 1).trim()}...`;
+}
+
+function applyIncidentMemory(incident, memoryItem) {
+  if (!memoryItem) return incident;
+  const memoryText = String(memoryItem.text || memoryItem.note || '').trim();
+  if (!memoryText) return incident;
+  const normalized = normalize(memoryText);
+  const isDeliveryInstruction =
+    normalized.includes('entregar') ||
+    normalized.includes('franja') ||
+    normalized.includes('horario') ||
+    normalized.includes('telefono') ||
+    normalized.includes('tarde') ||
+    normalized.includes('manana');
+  const base = {
+    ...incident,
+    memoryApplied: true,
+    memoryText,
+    memoryAt: memoryItem.createdAt,
+    evidence: Array.from(new Set([...(incident.evidence || []), 'memoria aplicada'])),
+    contextConfidence: Math.max(Number(incident.contextConfidence || 0), isDeliveryInstruction ? 88 : 75)
+  };
+
+  if (!isDeliveryInstruction) {
+    return base;
+  }
+
+  return {
+    ...base,
+    chatbyIntent: incident.chatbyIntent === 'outbound_only' ? 'delivery_instruction' : incident.chatbyIntent,
+    chatbyStatus: 'Aprendizaje aplicado',
+    chatbySummary: `Memoria aplicada: ${clipText(memoryText)}`,
+    proposedSolution: `Resolver en Dropea usando la instruccion aprendida del cliente: ${clipText(memoryText)}`,
+    actionRecommended: 'Resolver con instruccion del cliente',
+    actionTone: 'success',
+    customerResponded: true,
+    alertLevel: 'customer_action',
+    priority: 'high'
+  };
+}
+
+function mergeIncidentFeedback(incidents, feedback, memory = []) {
   const byKey = latestIncidentFeedbackByKey(feedback);
+  const memoryByKey = latestIncidentMemoryByKey(memory);
   return {
     ...incidents,
     intervalMinutes: incidents.intervalMinutes ?? config.defaultStore.incidentsSyncIntervalMinutes,
@@ -1668,14 +1732,15 @@ function mergeIncidentFeedback(incidents, feedback) {
       const key = `${incident.orderId || ''}:${incident.incidenceId || ''}`;
       const fallbackKey = `${incident.orderId || ''}:`;
       const item = byKey.get(key) || byKey.get(fallbackKey);
-      if (!item) return incident;
-      return {
+      const memoryItem = memoryByKey.get(key) || memoryByKey.get(fallbackKey);
+      const withFeedback = item ? {
         ...incident,
         feedbackVerdict: item.verdict,
         feedbackCorrection: item.correction,
         feedbackNote: item.note,
         feedbackAt: item.createdAt
-      };
+      } : incident;
+      return applyIncidentMemory(withFeedback, memoryItem);
     })
   };
 }
@@ -1761,7 +1826,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
   const agentChat = await readJson(path.join(dashboardDataDir, 'agent-chat.json'), []);
   const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
   const businessManagerRequests = await readJson(path.join(dashboardDataDir, 'business-manager-requests.json'), []);
-  const incidents = mergeIncidentFeedback(loadIncidentsCache(), incidentFeedback);
+  const incidents = mergeIncidentFeedback(loadIncidentsCache(), incidentFeedback, localAgentMemory);
   const operationalOrders = loadOperationalOrdersCache();
   let sheetAgentMemory = [];
   if (legacySheetsForDashboard && (config.googleSheetsEnabled || config.googleSheetsLegacyReadEnabled)) try {
