@@ -2475,6 +2475,18 @@ th {
   font-weight: 900;
 }
 
+.incident-memory-applied {
+  background: rgba(32, 178, 122, .12);
+  border: 1px solid rgba(32, 178, 122, .24);
+  border-radius: 14px;
+  color: #087f5b;
+  display: block;
+  font-weight: 800;
+  line-height: 1.45;
+  margin-top: 8px;
+  padding: 8px 10px;
+}
+
 .incident-feedback-saved {
   color: #0d8b8f !important;
   font-weight: 800;
