@@ -1701,7 +1701,8 @@ function applyIncidentMemory(incident, memoryItem) {
     memoryText,
     memoryAt: memoryItem.createdAt,
     evidence: Array.from(new Set([...(incident.evidence || []), 'memoria aplicada'])),
-    contextConfidence: Math.max(Number(incident.contextConfidence || 0), isDeliveryInstruction ? 88 : 75)
+    contextConfidence: Math.max(Number(incident.contextConfidence || 0), isDeliveryInstruction ? 88 : 75),
+    confidenceReason: incident.confidenceReason || 'Confianza reforzada por una regla aprendida desde feedback manual.'
   };
 
   if (!isDeliveryInstruction) {
@@ -1712,8 +1713,12 @@ function applyIncidentMemory(incident, memoryItem) {
     ...base,
     chatbyIntent: incident.chatbyIntent === 'outbound_only' ? 'delivery_instruction' : incident.chatbyIntent,
     chatbyStatus: 'Aprendizaje aplicado',
+    customerSignalLabel: 'Aprendizaje aplicado',
+    customerSignalTone: 'positive',
+    customerSignalDetail: 'Hay una regla guardada para este caso o pedido.',
     chatbySummary: `Memoria aplicada: ${clipText(memoryText)}`,
     proposedSolution: `Resolver en Dropea usando la instruccion aprendida del cliente: ${clipText(memoryText)}`,
+    recommendedNextStep: `Resolver en Dropea usando la instruccion aprendida del cliente: ${clipText(memoryText)}`,
     actionRecommended: 'Resolver con instruccion del cliente',
     actionTone: 'success',
     customerResponded: true,
