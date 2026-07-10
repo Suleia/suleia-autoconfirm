@@ -1646,16 +1646,104 @@ function learnedRuleFromFeedback(item) {
   return null;
 }
 
+function latestIncidentFeedbackByKey(feedback = []) {
+  const map = new Map();
+  for (const item of feedback) {
+    const key = `${item.orderId || ''}:${item.incidenceId || ''}`;
+    if (!key || key === ':') continue;
+    const current = map.get(key);
+    if (!current || new Date(item.createdAt || 0) > new Date(current.createdAt || 0)) {
+      map.set(key, item);
+    }
+  }
+  return map;
+}
+
+function mergeIncidentFeedback(incidents, feedback) {
+  const byKey = latestIncidentFeedbackByKey(feedback);
+  return {
+    ...incidents,
+    intervalMinutes: incidents.intervalMinutes ?? config.defaultStore.incidentsSyncIntervalMinutes,
+    incidents: (incidents.incidents || []).map((incident) => {
+      const key = `${incident.orderId || ''}:${incident.incidenceId || ''}`;
+      const fallbackKey = `${incident.orderId || ''}:`;
+      const item = byKey.get(key) || byKey.get(fallbackKey);
+      if (!item) return incident;
+      return {
+        ...incident,
+        feedbackVerdict: item.verdict,
+        feedbackCorrection: item.correction,
+        feedbackNote: item.note,
+        feedbackAt: item.createdAt
+      };
+    })
+  };
+}
+
+function learnedRuleFromIncidentFeedback(item) {
+  const text = [item.verdict, item.issueType, item.correction, item.note].filter(Boolean).join(' ');
+  const normalized = normalize(text);
+  const type = String(item.issueType || '').trim();
+
+  if (item.verdict === 'resolve_delivery_instruction' || normalized.includes('entregar') || normalized.includes('franja')) {
+    return {
+      id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'incident_delivery_instruction',
+      text: 'En incidencias, si el cliente indica franja, horario, teléfono o instrucción de entrega, proponer resolver en Dropea copiando esa instrucción y no tratarlo como falta de respuesta.',
+      source: `feedback_incident_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'request_address_data' || type === 'address' || normalized.includes('direccion') || normalized.includes('dirección')) {
+    return {
+      id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'incident_address_data',
+      text: 'En incidencias de dirección o datos incompletos, no cerrar la incidencia hasta tener calle, número, piso/puerta si aplica, CP, ciudad y teléfono válido.',
+      source: `feedback_incident_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'cancel_or_reject' || type === 'rejected_goods' || normalized.includes('rechaz') || normalized.includes('cancel')) {
+    return {
+      id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'incident_reject_goods',
+      text: 'En incidencias de no acepta mercancía, si el cliente confirma rechazo o cancelación, proponer rechazar/cancelar en Dropea y no insistir con nuevas confirmaciones.',
+      source: `feedback_incident_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.verdict === 'send_absent_template' || type === 'absent') {
+    return {
+      id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'incident_absent_followup',
+      text: 'En incidencias por ausente, si no hay respuesta del cliente, proponer coordinar nueva entrega por Chatby; si responde, extraer fecha/franja/teléfono y resolver en Dropea.',
+      source: `feedback_incident_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  if (item.correction || item.note) {
+    return {
+      id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+      type: 'incident_feedback_rule',
+      text: [item.correction, item.note].filter(Boolean).join(' | '),
+      source: `feedback_incident_${item.orderId}`,
+      createdAt: new Date().toISOString()
+    };
+  }
+  return null;
+}
+
 export async function buildDashboard({ health = null, forceMeta = false } = {}) {
   const legacySheetsForDashboard = process.env.DASHBOARD_ENABLE_LEGACY_SHEETS === 'true';
   const localOrdersRaw = listOrders({ storeId: config.defaultStore.id });
   const localState = loadState();
   const feedback = await readJson(path.join(dashboardDataDir, 'agent-feedback.json'), []);
+  const incidentFeedback = await readJson(path.join(dashboardDataDir, 'incident-feedback.json'), []);
   const financeSettings = await loadFinanceSettings();
   const agentChat = await readJson(path.join(dashboardDataDir, 'agent-chat.json'), []);
   const localAgentMemory = await readJson(path.join(dashboardDataDir, 'agent-memory.json'), []);
   const businessManagerRequests = await readJson(path.join(dashboardDataDir, 'business-manager-requests.json'), []);
-  const incidents = loadIncidentsCache();
+  const incidents = mergeIncidentFeedback(loadIncidentsCache(), incidentFeedback);
   const operationalOrders = loadOperationalOrdersCache();
   let sheetAgentMemory = [];
   if (legacySheetsForDashboard && (config.googleSheetsEnabled || config.googleSheetsLegacyReadEnabled)) try {
@@ -1768,8 +1856,9 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
     orders: sortOrdersRecentFirst(orders),
     decisions: latest(decisions, 'date', 40),
     feedback: latest(feedback, 'createdAt', 40),
+    incidentFeedback: latest(incidentFeedback, 'createdAt', 40),
     learning: {
-      feedbackCount: feedback.length,
+      feedbackCount: feedback.length + incidentFeedback.length,
       memoryCount: agentMemory.length,
       controlSheet: 'desactivado',
       mode: 'El feedback por pedido y la memoria general se guardan dentro del Command Center. Google Sheets ya no es fuente operativa.',
@@ -1875,6 +1964,39 @@ export async function saveAgentFeedback({ orderId, verdict = 'manual_review', co
       // The local feedback file remains the source of truth for Command Center learning.
     }
   }
+  return { ...item, learnedRule: lesson };
+}
+
+export async function saveIncidentFeedback({ orderId, incidenceId = '', issueType = '', verdict = 'manual_review', correction = '', note = '' }) {
+  if (!orderId) throw new Error('orderId_required');
+  const feedbackPath = path.join(dashboardDataDir, 'incident-feedback.json');
+  const memoryPath = path.join(dashboardDataDir, 'agent-memory.json');
+  const feedback = await readJson(feedbackPath, []);
+  const memory = await readJson(memoryPath, []);
+  const item = {
+    id: `ifb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    orderId: String(orderId),
+    incidenceId: String(incidenceId || ''),
+    issueType: String(issueType || ''),
+    verdict: String(verdict),
+    correction: String(correction || ''),
+    note: String(note || ''),
+    createdAt: new Date().toISOString()
+  };
+  feedback.push(item);
+  await writeJson(feedbackPath, feedback.slice(-500));
+
+  const lesson = learnedRuleFromIncidentFeedback(item);
+  if (lesson && !memory.some((existing) => normalize(existing.text) === normalize(lesson.text))) {
+    memory.push(lesson);
+    await writeJson(memoryPath, memory);
+    try {
+      await appendAgentMemoryRule(lesson);
+    } catch {
+      // La memoria local del Command Center sigue siendo la fuente operativa.
+    }
+  }
+
   return { ...item, learnedRule: lesson };
 }
 
