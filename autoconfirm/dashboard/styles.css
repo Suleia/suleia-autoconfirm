@@ -2447,6 +2447,25 @@ th {
   font-weight: 900;
 }
 
+.incident-mini-title {
+  color: var(--navy);
+  display: block;
+  font-size: 14px;
+  letter-spacing: -.01em;
+  margin-bottom: 4px;
+}
+
+.incident-confidence-reason {
+  background: rgba(255, 255, 255, .72);
+  border: 1px solid rgba(36, 55, 76, .10);
+  border-radius: 12px;
+  color: #43546a !important;
+  font-size: 12px;
+  font-weight: 750;
+  margin-top: 8px !important;
+  padding: 8px 10px;
+}
+
 .incident-last-message {
   margin: 10px 0 0;
   padding: 10px 12px;
@@ -2490,4 +2509,39 @@ th {
 .incident-feedback-saved {
   color: #0d8b8f !important;
   font-weight: 800;
+}
+
+.incident-feedback-button {
+  align-items: center;
+  background: linear-gradient(135deg, #10283a, #0d8b8f);
+  border: 0;
+  border-radius: 999px;
+  box-shadow: 0 12px 26px rgba(13, 139, 143, .18);
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-weight: 900;
+  justify-content: center;
+  letter-spacing: -.01em;
+  min-width: 124px;
+  padding: 10px 14px;
+}
+
+.incident-feedback-button {
+  font-size: 0;
+}
+
+.incident-feedback-button::after {
+  content: "Dar feedback";
+  font-size: 13px;
+}
+
+.incident-feedback-button:hover {
+  transform: translateY(-1px);
+}
+
+.incident-feedback-hint {
+  color: #66758a !important;
+  font-size: 11px;
+  max-width: 150px;
 }
