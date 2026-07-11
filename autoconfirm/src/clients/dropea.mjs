@@ -40,6 +40,7 @@ function normalizeOrder(order) {
     status: String(order.status ?? 'PENDING').toUpperCase(),
     orderAmount: Number(order.total_amount ?? order.amount ?? order.total ?? order.total_price ?? 0) || null,
     currencyCode: order.currency || order.currency_code || 'EUR',
+    createdAt: order.created_at || order.createdAt || order.date || null,
     raw: order
   };
 }
