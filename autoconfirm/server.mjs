@@ -6,7 +6,14 @@ import crypto from 'node:crypto';
 import { getAppConfig } from './src/config.mjs';
 import { findOrder, listOrders, loadState, saveState, upsertOrder } from './src/storage.mjs';
 import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs';
-import { ingestPendingOrders, runAutoConfirm, handleDropeaWebhook, handleShopifyWebhook, runStoreAutomationCycle } from './src/workflows/orders.mjs';
+import {
+  backfillTodayMissingInitialTemplates,
+  ingestPendingOrders,
+  runAutoConfirm,
+  handleDropeaWebhook,
+  handleShopifyWebhook,
+  runStoreAutomationCycle
+} from './src/workflows/orders.mjs';
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cancellations.mjs';
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
@@ -519,6 +526,16 @@ const server = http.createServer(async (req, res) => {
       const autoConfirm = await runAutoConfirm({ store: config.defaultStore });
       const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
       const result = { autoConfirm, unanswered };
+      return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cron/backfill-today-messages') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await backfillTodayMissingInitialTemplates({
+        store: config.defaultStore,
+        limit: Number(url.searchParams.get('limit') || 100),
+        pages: Number(url.searchParams.get('pages') || 2)
+      });
       return sendJson(res, 200, { ok: true, result });
     }
 
