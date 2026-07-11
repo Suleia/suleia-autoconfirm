@@ -284,7 +284,7 @@ export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
   try {
     const result = await requestGraphQL(richIssuesQuery, { limit, page });
     const items = result?.issues?.data ?? [];
-    if (Array.isArray(items) && items.length) {
+    if (Array.isArray(items)) {
       return items.map((item) => ({
         ...normalizeIncidence(item),
         source: 'issues_rich'
@@ -311,7 +311,7 @@ export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
   try {
     const result = await requestGraphQL(minimalIssuesQuery, { limit, page });
     const items = result?.issues?.data ?? [];
-    if (Array.isArray(items) && items.length) {
+    if (Array.isArray(items)) {
       return items.map((item) => ({
         ...normalizeIncidence(item),
         source: 'issues_minimal'
