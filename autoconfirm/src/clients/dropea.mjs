@@ -262,6 +262,37 @@ export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses 
 }
 
 export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
+  const richIssuesQuery = `
+    query DropeaIssuesRich($limit: Int!, $page: Int!) {
+      issues(limit: $limit, page: $page) {
+        data {
+          id
+          incidence_code
+          status
+          created_at
+          last_response_at
+          order {
+            id
+            status
+            customer { full_name phone email }
+          }
+        }
+      }
+    }
+  `;
+  try {
+    const result = await requestGraphQL(richIssuesQuery, { limit, page });
+    const items = result?.issues?.data ?? [];
+    if (Array.isArray(items) && items.length) {
+      return items.map((item) => ({
+        ...normalizeIncidence(item),
+        source: 'issues_rich'
+      }));
+    }
+  } catch {
+    // Fall back to the minimal shape if this Dropea account does not expose rich issue fields.
+  }
+
   const minimalIssuesQuery = `
     query DropeaIssues($limit: Int!, $page: Int!) {
       issues(limit: $limit, page: $page) {
