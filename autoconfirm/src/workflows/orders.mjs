@@ -16,9 +16,11 @@ import {
   listPendingDropeaOrders
 } from '../clients/dropea.mjs';
 import {
+  createSubscriber,
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
   getChatMessages,
+  sendWhatsappTemplate,
   subscriberConfirmsOrderRobust as subscriberConfirmsOrder
 } from '../clients/chatby.mjs';
 import { sendMetaWhatsappTemplate } from '../clients/meta-whatsapp.mjs';
@@ -1091,6 +1093,67 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
   }
 }
 
+function createdChatbyUserNs(created) {
+  return created?.data?.user_ns || created?.user_ns || created?.userNs || created?.id || null;
+}
+
+function shouldFallbackToChatby(error) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /authorization error|oauth|meta whatsapp respondio 400|meta whatsapp respondio 401|meta whatsapp respondio 403/i.test(message);
+}
+
+async function resolveOrCreateChatbyUserNsForTemplate(order, userNs) {
+  if (userNs) return userNs;
+  if (!config.chatbyToken || !order.customerPhone) return null;
+
+  const subscriber = await resolveSubscriberForOrder(order)
+    || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  if (subscriber?.user_ns) return subscriber.user_ns;
+
+  const created = await createSubscriber({
+    phone: order.customerPhone,
+    name: order.customerName || order.customerPhone,
+    email: order.customerEmail || undefined,
+    metadata: {
+      orderId: order.orderId,
+      source: 'dropea',
+      createdBy: 'suleia-autoconfirm'
+    }
+  });
+
+  return createdChatbyUserNs(created);
+}
+
+async function sendInitialTemplateWithFallback({ order, templateName, params, userNs }) {
+  try {
+    const response = await sendMetaWhatsappTemplate({
+      to: order.customerPhone,
+      templateName,
+      params
+    });
+    return { provider: 'meta', response, userNs };
+  } catch (error) {
+    if (!shouldFallbackToChatby(error)) throw error;
+
+    const fallbackUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
+    if (!fallbackUserNs) throw error;
+
+    const response = await sendWhatsappTemplate({
+      user_ns: fallbackUserNs,
+      user_id: order.customerPhone,
+      template_name: templateName,
+      params
+    });
+
+    return {
+      provider: 'chatby',
+      fallbackReason: error instanceof Error ? error.message : String(error),
+      response,
+      userNs: fallbackUserNs
+    };
+  }
+}
+
 async function sendChatbyTemplateForOrder(order, userNs, store) {
   const blocked = await applyBlockedCustomerPolicy(order, store, 'chatby_template_send_guard');
   if (blocked) return blocked.order || order;
@@ -1116,10 +1179,11 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   });
 
   try {
-    sendResponse = await sendMetaWhatsappTemplate({
-      to: order.customerPhone,
+    sendResponse = await sendInitialTemplateWithFallback({
+      order,
       templateName,
-      params
+      params,
+      userNs
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -1135,15 +1199,16 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
 
   return upsertOrder(store.id, {
     ...order,
-    chatbyUserNs: userNs,
+    chatbyUserNs: sendResponse.userNs || userNs,
     chatbyTemplateSentAt: new Date().toISOString(),
     chatbyTemplateAttemptedAt: attemptedAt,
     chatbyTemplateName: templateName,
     chatbyTemplateSendStatus: 'sent',
     chatbyTemplateLastError: null,
     chatbyLastSendResponse: {
-      provider,
-      response: sendResponse
+      provider: sendResponse.provider || provider,
+      response: sendResponse.response,
+      fallbackReason: sendResponse.fallbackReason || null
     }
   });
 }
@@ -1414,21 +1479,24 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
       chatbyTemplateLastError: null
     });
     try {
-      const sendResponse = await sendMetaWhatsappTemplate({
-        to: order.customerPhone,
+      const sendResponse = await sendInitialTemplateWithFallback({
+        order,
         templateName,
-        params
+        params,
+        userNs: order.chatbyUserNs || null
       });
       const updated = upsertOrder(store.id, {
         ...order,
+        chatbyUserNs: sendResponse.userNs || order.chatbyUserNs || null,
         chatbyTemplateSentAt: new Date().toISOString(),
         chatbyTemplateAttemptedAt: attemptedAt,
         chatbyTemplateName: templateName,
         chatbyTemplateSendStatus: 'sent',
         chatbyTemplateLastError: null,
         chatbyLastSendResponse: {
-          provider: 'meta',
-          response: sendResponse
+          provider: sendResponse.provider || 'meta',
+          response: sendResponse.response,
+          fallbackReason: sendResponse.fallbackReason || null
         }
       });
       await safeUpsertSheetRow(updated);
