@@ -74,8 +74,21 @@ function refreshCountdownText() {
   return `Meta se actualiza cada ${META_REFRESH_HOURS}h. Incidencias cada 6h. Pedidos por evento Shopify/Dropea y boton manual.`;
 }
 
-function escapeHtml(value) {
+function cleanDisplayText(value) {
   return String(value ?? '')
+    .replaceAll('Ã±', 'n')
+    .replaceAll('Ã³', 'o')
+    .replaceAll('Ã©', 'e')
+    .replaceAll('Ã¡', 'a')
+    .replaceAll('Ã­', 'i')
+    .replaceAll('Ãº', 'u')
+    .replaceAll('Ãš', 'U')
+    .replaceAll('Â·', '-')
+    .replaceAll('â€¦', '...');
+}
+
+function escapeHtml(value) {
+  return cleanDisplayText(value)
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
@@ -506,12 +519,21 @@ function renderIncidents() {
     incident.chatbyStatus,
     incident.chatbySummary,
     incident.lastCustomerMessage,
+    incident.customerIntentDetail,
+    incident.resolutionStage,
+    incident.operationalInstruction,
+    incident.templateRecommendation,
+    incident.templateName,
     ...(incident.evidence || []),
     incident.proposedSolution,
     incident.actionRecommended,
     incident.feedbackCorrection,
     incident.feedbackNote
-  ])).filter(incidentMatchesFilter);
+  ])).filter(incidentMatchesFilter).sort((a, b) => {
+    const bId = Number(String(b.incidenceId || '').replace(/\D/g, '')) || 0;
+    const aId = Number(String(a.incidenceId || '').replace(/\D/g, '')) || 0;
+    return bId - aId;
+  });
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
   const customerResponded = incidents.filter((incident) => incident.customerResponded || Number(incident.customerMessages) > 0).length;
@@ -568,6 +590,7 @@ function renderIncidents() {
           <strong>#${escapeHtml(incident.orderId)}</strong>
           <small>Incidencia ${escapeHtml(incident.incidenceId || '-')}</small>
           <small>${escapeHtml(formatDateTime(incident.incidenceDate))}</small>
+          ${Number.isFinite(Number(incident.incidentAgeHours)) ? `<small>${Math.round(Number(incident.incidentAgeHours))}h abierta</small>` : ''}
           ${hasCustomerResponse ? '<span class="customer-response-badge">Cliente respondió</span>' : ''}
         </td>
         <td>
@@ -582,6 +605,7 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${customerSignalTone}">${escapeHtml(customerSignalLabel)}</span>
           <small>${escapeHtml(customerSignalDetail)}</small>
+          ${incident.resolutionStage ? `<small class="incident-stage">Etapa: ${escapeHtml(incident.resolutionStage)}</small>` : ''}
           <small>${escapeHtml(incident.customerMessages || 0)} mensajes entrantes del cliente</small>
           ${incident.lastCustomerAt ? `<small>Ultima respuesta: ${escapeHtml(formatDateTime(incident.lastCustomerAt))}</small>` : ''}
           ${confidence !== null ? `<span class="signal-chip ${confidenceTone}">Confianza ${escapeHtml(confidenceLabel)} - ${confidence}%</span>` : ''}
@@ -590,6 +614,7 @@ function renderIncidents() {
         </td>
         <td>
           <strong class="incident-mini-title">${escapeHtml(incident.chatbyStatus || 'Sin analizar')}</strong>
+          ${incident.customerIntentDetail ? `<small class="incident-intent-detail">${escapeHtml(incident.customerIntentDetail)}</small>` : ''}
           <small>${escapeHtml(incident.chatbySummary || 'Sin resumen')}</small>
           ${incident.lastCustomerMessage ? `<blockquote class="incident-last-message">${escapeHtml(incident.lastCustomerMessage)}</blockquote>` : ''}
           ${memory}
@@ -598,6 +623,8 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.actionRecommended || 'Revisión manual')}</span>
           <small>${escapeHtml(incident.recommendedNextStep || incident.proposedSolution || 'Revision manual')}</small>
+          ${incident.operationalInstruction ? `<div class="incident-resolution-box"><b>Que haria:</b> ${escapeHtml(incident.operationalInstruction)}</div>` : ''}
+          ${incident.templateRecommendation ? `<small class="incident-template-chip">Plantilla sugerida: ${escapeHtml(incident.templateRecommendation)}</small>` : ''}
           ${incident.chatbyUserNs ? `<small>Chatby: ${escapeHtml(incident.chatbyUserNs)}</small>` : ''}
         </td>
         <td>
