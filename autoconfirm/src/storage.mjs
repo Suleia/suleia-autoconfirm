@@ -46,6 +46,7 @@ export function getStoreByWebhookToken(token) {
 export function upsertOrder(storeId, order, extras = {}) {
   const orders = loadOrders();
   const index = orders.findIndex((item) => item.storeId === storeId && item.orderId === order.orderId);
+  const previous = index >= 0 ? orders[index] : {};
   const now = new Date().toISOString();
   const next = {
     id: index >= 0 ? orders[index].id : `order_${Math.random().toString(36).slice(2, 10)}`,
@@ -75,6 +76,12 @@ export function upsertOrder(storeId, order, extras = {}) {
     chatbyTemplateSendStatus: order.chatbyTemplateSendStatus || null,
     chatbyTemplateLastError: order.chatbyTemplateLastError || null,
     chatbyLastSendResponse: order.chatbyLastSendResponse || null,
+    preparedTemplateSentAt: order.preparedTemplateSentAt || previous.preparedTemplateSentAt || null,
+    preparedTemplateAttemptedAt: order.preparedTemplateAttemptedAt || previous.preparedTemplateAttemptedAt || null,
+    preparedTemplateName: order.preparedTemplateName || previous.preparedTemplateName || null,
+    preparedTemplateSendStatus: order.preparedTemplateSendStatus || previous.preparedTemplateSendStatus || null,
+    preparedTemplateLastError: order.preparedTemplateLastError || previous.preparedTemplateLastError || null,
+    preparedTemplateLastResponse: order.preparedTemplateLastResponse || previous.preparedTemplateLastResponse || null,
     operationalNote: order.operationalNote || null,
     raw: order.raw || null,
     updatedAt: now,
