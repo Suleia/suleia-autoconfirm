@@ -6,6 +6,7 @@ import {
   getChatMessages
 } from '../clients/chatby.mjs';
 import { findOrder, loadState, saveState, upsertOrder } from '../storage.mjs';
+import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
 
 const config = getAppConfig();
 
@@ -286,6 +287,94 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
     for (const order of candidateOrders) {
       const existing = findOrder(store.id, order.orderId) || {};
       const storedConfirmation = hasStoredConfirmation(existing);
+
+      if (isBlockedCustomerOrder(order, store)) {
+        if (String(existing.status || '').toUpperCase() === 'REJECTED_BLOCKED_CUSTOMER' && existing.cancelledAt) {
+          results.push({
+            orderId: order.orderId,
+            skipped: true,
+            reason: 'blocked_customer_already_cancelled',
+            status: existing.status
+          });
+          continue;
+        }
+
+        const now = new Date().toISOString();
+        const reason = blockedCustomerReason(order, store);
+        try {
+          const cancellation = await executeDropeaCancellation(order.orderId);
+          const updated = upsertOrder(store.id, {
+            ...existing,
+            ...order,
+            status: 'REJECTED_BLOCKED_CUSTOMER',
+            aiConfidence: 100,
+            aiIntent: 'BLOCKED_CUSTOMER',
+            chatbyTemplateSendStatus: 'blocked_customer_no_send',
+            chatbyTemplateLastError: null,
+            cancelledAt: now,
+            operationalNote: reason,
+            raw: {
+              ...(order.raw || existing.raw || {}),
+              automaticBlockedCustomerCancellation: {
+                cancellation,
+                source: 'automatic_blocked_customer_sweep',
+                cancelledAt: now
+              }
+            }
+          });
+          const state = { ...loadState() };
+          const history = Array.isArray(state.automaticBlockedCustomerCancellations)
+            ? state.automaticBlockedCustomerCancellations
+            : [];
+          state.automaticBlockedCustomerCancellations = [
+            ...history,
+            {
+              orderId: String(order.orderId),
+              phone: order.customerPhone || null,
+              cancelledAt: now,
+              source: 'automatic_blocked_customer_sweep'
+            }
+          ].slice(-200);
+          saveState(state);
+          results.push({
+            orderId: order.orderId,
+            dryRun: false,
+            action: 'cancelled_blocked_customer',
+            reason: 'blocked_customer_phone',
+            cancellation,
+            order: updated
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const updated = upsertOrder(store.id, {
+            ...existing,
+            ...order,
+            status: 'BLOCKED_CUSTOMER_CANCELLATION_FAILED',
+            aiConfidence: 100,
+            aiIntent: 'BLOCKED_CUSTOMER',
+            chatbyTemplateSendStatus: 'blocked_customer_no_send',
+            chatbyTemplateLastError: null,
+            cancellationError: message,
+            operationalNote: reason,
+            raw: {
+              ...(order.raw || existing.raw || {}),
+              automaticBlockedCustomerCancellationError: {
+                message,
+                source: 'automatic_blocked_customer_sweep',
+                failedAt: now
+              }
+            }
+          });
+          results.push({
+            orderId: order.orderId,
+            skipped: true,
+            reason: 'blocked_customer_dropea_cancellation_failed',
+            error: message,
+            order: updated
+          });
+        }
+        continue;
+      }
 
       const createdAt = order.raw?.created_at || order.raw?.createdAt || order.createdAt;
       const elapsedHours = hoursSince(createdAt);
