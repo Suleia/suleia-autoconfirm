@@ -1015,6 +1015,15 @@ function retryableTemplateFailure(order) {
     );
 }
 
+function staleTemplateAttempt(order) {
+  const status = normalizeText(order?.chatbyTemplateSendStatus);
+  if (status !== 'attempted') return false;
+  if (order?.chatbyTemplateSentAt) return false;
+  const attemptedAt = parseDate(order?.chatbyTemplateAttemptedAt);
+  if (!attemptedAt) return true;
+  return (Date.now() - attemptedAt.getTime()) / 60000 >= Number(process.env.INITIAL_TEMPLATE_RETRY_AFTER_MINUTES || 10);
+}
+
 function messageLooksLikeTemplate(message, templateName) {
   const target = normalizeText(String(templateName || '').split(/\s+/).pop() || templateName);
   if (!target) return false;
@@ -1264,13 +1273,13 @@ export async function backfillTodayMissingInitialTemplates({
       continue;
     }
 
-    const retryableFailure = retryableTemplateFailure(merged);
-    if (templateAlreadyAttempted(merged, templateName) && !retryableFailure) {
+    const retryableAttempt = retryableTemplateFailure(merged) || staleTemplateAttempt(merged);
+    if (templateAlreadyAttempted(merged, templateName) && !retryableAttempt) {
       results.push({ orderId: order.orderId, skipped: true, reason: 'already_attempted', status: merged.chatbyTemplateSendStatus });
       continue;
     }
 
-    const sendCandidate = retryableFailure
+    const sendCandidate = retryableAttempt
       ? {
           ...merged,
           chatbyTemplateSentAt: null,
