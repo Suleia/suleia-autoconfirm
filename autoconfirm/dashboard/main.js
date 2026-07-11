@@ -1340,19 +1340,63 @@ function renderError() {
 function render() {
   renderPanels();
   renderError();
-  renderKpis();
-  renderFinance();
-  renderAgentChat();
-  renderOrders();
-  renderIncidents();
-  renderCampaignsV2();
-  renderAgentOperationalHealth();
-  renderAgentDiagnostics();
-  renderFeedback();
-  renderProducts();
-  renderResearch();
-  renderSources();
-  renderSystem();
+  if (!state.dashboard) return;
+
+  if (state.section === 'overview') {
+    renderKpis();
+    renderFinance();
+    renderOrders();
+    renderCampaignsV2();
+    renderSystem();
+    return;
+  }
+
+  if (state.section === 'orders') {
+    renderOrders();
+    return;
+  }
+
+  if (state.section === 'incidents') {
+    renderIncidents();
+    return;
+  }
+
+  if (state.section === 'agent') {
+    renderAgentChat();
+    renderAgentOperationalHealth();
+    renderAgentDiagnostics();
+    renderFeedback();
+    return;
+  }
+
+  if (state.section === 'meta') {
+    renderCampaignsV2();
+    return;
+  }
+
+  if (state.section === 'products') {
+    renderProducts();
+    renderResearch();
+    return;
+  }
+
+  if (state.section === 'research') {
+    renderResearch();
+    return;
+  }
+
+  if (state.section === 'sources') {
+    renderSources();
+    renderSystem();
+    return;
+  }
+
+  if (state.section === 'settings') {
+    renderFinance();
+    renderAgentDiagnostics();
+    renderSources();
+    renderSystem();
+  }
 }
 
 async function loadDashboard() {
@@ -1383,6 +1427,11 @@ async function refreshDashboardNow() {
     const payload = await readJsonResponse(response);
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     state.dashboard = payload.dashboard;
+    if (payload.refresh) {
+      window.setTimeout(() => {
+        loadDashboard().catch(() => {});
+      }, 5000);
+    }
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
   } finally {
