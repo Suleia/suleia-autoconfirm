@@ -1589,7 +1589,8 @@ export async function backfillTodayMissingInitialTemplates({
     }
 
     if (subscriber?.user_ns) {
-      const alreadySeen = await markTemplateAlreadySeenForOrder(sendCandidate, subscriber.user_ns, store, templateName);
+      const alreadySeen = await markTemplateAlreadySeenForOrder(sendCandidate, subscriber.user_ns, store, templateName)
+        || await markTemplateAlreadySeen(sendCandidate, subscriber.user_ns, store, templateName);
       if (alreadySeen) {
         results.push({ orderId: order.orderId, action: 'already_seen', userNs: subscriber.user_ns });
         continue;
