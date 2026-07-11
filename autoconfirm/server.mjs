@@ -8,6 +8,7 @@ import { findOrder, listOrders, loadState, saveState, upsertOrder } from './src/
 import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs';
 import {
   backfillTodayMissingInitialTemplates,
+  backfillMissingPreparedTemplates,
   ingestPendingOrders,
   runAutoConfirm,
   handleDropeaWebhook,
@@ -535,6 +536,17 @@ const server = http.createServer(async (req, res) => {
         store: config.defaultStore,
         limit: Number(url.searchParams.get('limit') || 100),
         pages: Number(url.searchParams.get('pages') || 2)
+      });
+      return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cron/backfill-prepared-messages') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await backfillMissingPreparedTemplates({
+        store: config.defaultStore,
+        limit: Number(url.searchParams.get('limit') || 100),
+        pages: Number(url.searchParams.get('pages') || 2),
+        targetDate: url.searchParams.get('date') || null
       });
       return sendJson(res, 200, { ok: true, result });
     }
