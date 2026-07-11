@@ -1,4 +1,5 @@
 import { getAppConfig } from '../config.mjs';
+import { blockedCustomerMatch } from '../policies/blocked-customers.mjs';
 
 const config = getAppConfig();
 
@@ -34,6 +35,9 @@ export async function sendMetaWhatsappTemplate({ to, templateName, params = {} }
 
   const phone = digits(to);
   if (!phone) throw new Error('Falta telefono del cliente para WhatsApp.');
+  if (blockedCustomerMatch(phone, config.defaultStore)) {
+    throw new Error('Envio bloqueado: cliente vetado por politica operativa.');
+  }
 
   const { language, name } = parseTemplateName(templateName);
   const bodyParams = orderedBodyParams(params);
