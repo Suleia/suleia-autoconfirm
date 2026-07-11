@@ -999,6 +999,70 @@ function configuredWhatsappTemplate(store) {
   return store.whatsappTemplateName || config.whatsappTemplateName || null;
 }
 
+function configuredPreparedWhatsappTemplate() {
+  return config.preparedWhatsappTemplateName || 'es_ES dropea_pedido_preparado_v1';
+}
+
+function firstExisting(...values) {
+  return values.find((value) => value !== null && value !== undefined && String(value).trim() !== '') || null;
+}
+
+function rawValueByKeys(raw, keys) {
+  if (!raw || typeof raw !== 'object') return null;
+  for (const key of keys) {
+    if (raw[key] !== null && raw[key] !== undefined && String(raw[key]).trim() !== '') return raw[key];
+  }
+  for (const value of Object.values(raw)) {
+    if (value && typeof value === 'object') {
+      const found = rawValueByKeys(value, keys);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function productNameForOrder(order) {
+  const raw = order.raw || {};
+  const productFromItems = Array.isArray(raw.products || raw.items || raw.lines)
+    ? (raw.products || raw.items || raw.lines)
+        .map((item) => item?.title || item?.name || item?.product_name || item?.productName)
+        .filter(Boolean)
+        .join(', ')
+    : '';
+
+  return firstExisting(
+    raw.product_name,
+    raw.productName,
+    raw.product,
+    productFromItems,
+    `Pedido ${order.orderId}`
+  );
+}
+
+function preparedTemplateParamsForOrder(order) {
+  const raw = order.raw || {};
+  const carrier = firstExisting(
+    rawValueByKeys(raw, ['carrier_name', 'carrierName', 'transportista', 'transportist', 'transport', 'shipping_company', 'shippingCompany', 'courier']),
+    'tu transportista'
+  );
+  const tracking = firstExisting(
+    rawValueByKeys(raw, ['tracking', 'tracking_number', 'trackingNumber', 'tracking_code', 'trackingCode']),
+    'pendiente de actualizar'
+  );
+  const trackingUrl = firstExisting(
+    rawValueByKeys(raw, ['tracking_url', 'trackingUrl', 'tracking_link', 'trackingLink']),
+    'pendiente de actualizar'
+  );
+
+  return {
+    'BODY_{{1}}': `${firstName(order.customerName)}!`,
+    'BODY_{{2}}': productNameForOrder(order),
+    'BODY_{{3}}': String(carrier),
+    'BODY_{{4}}': String(tracking),
+    'BODY_{{5}}': String(trackingUrl)
+  };
+}
+
 function templateAlreadyAttempted(order, templateName) {
   if (order.chatbyTemplateAttemptedAt || order.chatbyTemplateSentAt) return true;
   if (!templateName) return false;
@@ -1228,6 +1292,168 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   });
 }
 
+function preparedTemplateAlreadyAttempted(order, templateName) {
+  if (order.preparedTemplateAttemptedAt || order.preparedTemplateSentAt) return true;
+  if (!templateName) return false;
+  return normalizeText(order.preparedTemplateName) === normalizeText(templateName)
+    && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.preparedTemplateSendStatus));
+}
+
+function orderNeedsPreparedTemplate(order) {
+  return ['PREPARED', 'IN_TRANSIT', 'DELIVERED'].includes(String(order?.status || '').toUpperCase());
+}
+
+async function markPreparedTemplateAlreadySeen(order, userNs, store, templateName) {
+  if (!userNs) return null;
+  try {
+    const messages = normalizeChatMessages(await getChatMessages(userNs));
+    if (!messages.some((message) => messageLooksLikeTemplate(message, templateName))) return null;
+    return upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      preparedTemplateSentAt: order.preparedTemplateSentAt || new Date().toISOString(),
+      preparedTemplateAttemptedAt: order.preparedTemplateAttemptedAt || new Date().toISOString(),
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: 'already_seen',
+      preparedTemplateLastError: null
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function resolveExistingChatbyUserNs(order) {
+  if (order.chatbyUserNs) return order.chatbyUserNs;
+  if (!config.chatbyToken || !order.customerPhone) return null;
+
+  const subscriber = await resolveSubscriberForOrder(order)
+    || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  return subscriber?.user_ns || null;
+}
+
+export async function sendPreparedTemplateForOrder(order, store = config.defaultStore) {
+  const templateName = configuredPreparedWhatsappTemplate();
+  if (!templateName) return { order, skipped: true, reason: 'missing_prepared_template_name' };
+  if (!orderNeedsPreparedTemplate(order)) return { order, skipped: true, reason: 'order_not_prepared' };
+
+  const blocked = await applyBlockedCustomerPolicy(order, store, 'prepared_template_send_guard');
+  if (blocked) return { order: blocked.order || order, skipped: true, reason: 'blocked_customer' };
+
+  if (preparedTemplateAlreadyAttempted(order, templateName)) {
+    return { order, skipped: true, reason: 'already_attempted', status: order.preparedTemplateSendStatus };
+  }
+
+  const userNs = await resolveExistingChatbyUserNs(order);
+  if (!userNs) {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: 'skipped_no_chatby_contact',
+      preparedTemplateLastError: 'No existe contacto Chatby enlazado para este pedido.'
+    });
+    return { order: updated, skipped: true, reason: 'missing_chatby_user_ns' };
+  }
+
+  const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
+  if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
+
+  const attemptedAt = new Date().toISOString();
+  upsertOrder(store.id, {
+    ...order,
+    chatbyUserNs: userNs,
+    preparedTemplateAttemptedAt: attemptedAt,
+    preparedTemplateName: templateName,
+    preparedTemplateSendStatus: 'attempted',
+    preparedTemplateLastError: null
+  });
+
+  try {
+    const response = await sendWhatsappTemplate({
+      user_ns: userNs,
+      user_id: order.customerPhone,
+      template_name: templateName,
+      params: preparedTemplateParamsForOrder(order)
+    });
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      preparedTemplateSentAt: new Date().toISOString(),
+      preparedTemplateAttemptedAt: attemptedAt,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: 'sent',
+      preparedTemplateLastError: null,
+      preparedTemplateLastResponse: response
+    });
+    return { order: updated, sent: true, response };
+  } catch (error) {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      preparedTemplateAttemptedAt: attemptedAt,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: 'failed',
+      preparedTemplateLastError: error instanceof Error ? error.message : String(error)
+    });
+    return { order: updated, failed: true, error: updated.preparedTemplateLastError };
+  }
+}
+
+export async function backfillMissingPreparedTemplates({
+  store = config.defaultStore,
+  limit = 100,
+  pages = 2,
+  targetDate = null
+} = {}) {
+  const targetKey = targetDate || todayKey(config.timezone);
+  const orders = await listRecentDropeaOrders({
+    limit,
+    pages,
+    statuses: ['PREPARED', 'IN_TRANSIT']
+  });
+  const results = [];
+
+  for (const order of orders) {
+    const createdKey = dateKeyInTimezone(dropeaCreatedAt(order), config.timezone);
+    if (targetDate && createdKey !== targetKey) continue;
+
+    const existing = findOrder(store.id, order.orderId);
+    const merged = upsertOrder(store.id, {
+      ...(existing || {}),
+      orderId: order.orderId,
+      status: workflowStatusForPolledOrder(existing, order.status),
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      customerEmail: order.customerEmail,
+      orderAmount: order.orderAmount,
+      currencyCode: order.currencyCode,
+      raw: order.raw,
+      chatbyUserNs: existing?.chatbyUserNs || null
+    });
+
+    const outcome = await sendPreparedTemplateForOrder(merged, store);
+    results.push({
+      orderId: order.orderId,
+      status: merged.status,
+      action: outcome.sent ? 'sent' : outcome.failed ? 'failed' : outcome.reason || 'skipped',
+      chatbyUserNs: outcome.order?.chatbyUserNs || null,
+      error: outcome.error || outcome.order?.preparedTemplateLastError || null
+    });
+  }
+
+  const state = { ...loadState() };
+  state.lastPreparedTemplateBackfillAt = new Date().toISOString();
+  saveState(state);
+
+  return {
+    processed: results.length,
+    sent: results.filter((item) => item.action === 'sent').length,
+    failed: results.filter((item) => item.action === 'failed').length,
+    skipped: results.filter((item) => !['sent', 'failed'].includes(item.action)).length,
+    date: targetDate ? targetKey : null,
+    results
+  };
+}
+
 export async function ingestPendingOrders({ store = config.defaultStore, limit = 100, pages = 5 } = {}) {
   const pendingById = new Map();
   for (let page = 1; page <= pages; page += 1) {
@@ -1347,21 +1573,12 @@ export async function backfillTodayMissingInitialTemplates({
       continue;
     }
 
-    const retryableAttempt = retryableTemplateFailure(merged) || staleTemplateAttempt(merged);
-    if (templateAlreadyAttempted(merged, templateName) && !retryableAttempt) {
+    if (templateAlreadyAttempted(merged, templateName)) {
       results.push({ orderId: order.orderId, skipped: true, reason: 'already_attempted', status: merged.chatbyTemplateSendStatus });
       continue;
     }
 
-    const sendCandidate = retryableAttempt
-      ? {
-          ...merged,
-          chatbyTemplateSentAt: null,
-          chatbyTemplateAttemptedAt: null,
-          chatbyTemplateSendStatus: null,
-          chatbyTemplateLastError: null
-        }
-      : merged;
+    const sendCandidate = merged;
 
     let subscriber = null;
     if (config.chatbyToken && merged.customerPhone) {
@@ -1907,10 +2124,12 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     let ingestResult = null;
     let shopifyIngestResult = null;
     let templateBackfillResult = null;
+    let preparedTemplateBackfillResult = null;
     let confirmResult = null;
     let ingestError = null;
     let shopifyIngestError = null;
     let templateBackfillError = null;
+    let preparedTemplateBackfillError = null;
     let confirmError = null;
 
     try {
@@ -1950,6 +2169,25 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     }
 
     try {
+      const state = loadState();
+      const lastBackfillAt = parseDate(state.lastPreparedTemplateBackfillAt);
+      const intervalMinutes = Number(process.env.PREPARED_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 15);
+      const due = !lastBackfillAt || ((Date.now() - lastBackfillAt.getTime()) / 60000) >= intervalMinutes;
+      if (due) {
+        preparedTemplateBackfillResult = await backfillMissingPreparedTemplates({
+          store,
+          limit: Math.max(limit, 100),
+          pages: 2
+        });
+      } else {
+        preparedTemplateBackfillResult = { skipped: true, reason: 'not_due' };
+      }
+    } catch (error) {
+      preparedTemplateBackfillError = error instanceof Error ? error.message : String(error);
+      console.error('[automation_cycle] backfillMissingPreparedTemplates failed:', error);
+    }
+
+    try {
       confirmResult = await runAutoConfirm({ store });
     } catch (error) {
       confirmError = error instanceof Error ? error.message : String(error);
@@ -1961,6 +2199,7 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     state.lastIngestError = ingestError;
     state.lastShopifySyncError = shopifyIngestError;
     state.lastInitialTemplateBackfillError = templateBackfillError;
+    state.lastPreparedTemplateBackfillError = preparedTemplateBackfillError;
     state.lastAutoConfirmError = confirmError;
     saveState(state);
 
@@ -1968,10 +2207,12 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
       ingest: ingestResult,
       shopifyIngest: shopifyIngestResult,
       initialTemplateBackfill: templateBackfillResult,
+      preparedTemplateBackfill: preparedTemplateBackfillResult,
       autoConfirm: confirmResult,
       ingestError,
       shopifyIngestError,
       templateBackfillError,
+      preparedTemplateBackfillError,
       confirmError,
       lastAutomationCycleAt: state.lastAutomationCycleAt
     };
