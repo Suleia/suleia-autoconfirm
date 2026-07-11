@@ -20,6 +20,8 @@ import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cance
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
+import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
+import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
 
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -163,6 +165,13 @@ function isAuthorizedCron(req) {
   return header === `Bearer ${config.cronSecret}`;
 }
 
+function isAuthorizedTelegramWebhook(req) {
+  if (!config.telegramBotToken) return false;
+  if (!config.telegramWebhookSecret) return true;
+  const header = req.headers['x-telegram-bot-api-secret-token'] || '';
+  return safeEqual(header, config.telegramWebhookSecret);
+}
+
 function isAuthorizedDashboardAction(req) {
   return isDashboardAuthenticated(req) || isAuthorizedCron(req);
 }
@@ -297,6 +306,55 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
       return sendJson(res, 200, { ok: true, ...storeSummary() });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/telegram/webhook') {
+      if (!isAuthorizedTelegramWebhook(req)) return sendJson(res, 401, { ok: false, error: 'telegram_unauthorized' });
+      const update = await readBody(req);
+      const result = await handleTelegramUpdate(update, { health: storeSummary() });
+      return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/telegram/setup-webhook') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      if (!config.telegramBotToken) return sendJson(res, 400, { ok: false, error: 'missing_telegram_bot_token' });
+      const body = await readBody(req).catch(() => ({}));
+      const baseUrl = String(body.publicBaseUrl || config.publicBaseUrl || '').replace(/\/+$/, '');
+      const webhookUrl = body.webhookUrl || `${baseUrl}/api/telegram/webhook`;
+      const bot = await getTelegramMe();
+      const webhook = await setTelegramWebhook({
+        url: webhookUrl,
+        secretToken: config.telegramWebhookSecret
+      });
+      return sendJson(res, 200, {
+        ok: true,
+        bot: {
+          id: bot.id,
+          username: bot.username,
+          firstName: bot.first_name
+        },
+        webhook: {
+          url: webhookUrl,
+          result: webhook
+        }
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/telegram/status') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      if (!config.telegramBotToken) return sendJson(res, 200, { ok: false, configured: false });
+      const bot = await getTelegramMe();
+      return sendJson(res, 200, {
+        ok: true,
+        configured: true,
+        bot: {
+          id: bot.id,
+          username: bot.username,
+          firstName: bot.first_name
+        },
+        allowedUsernames: config.telegramAllowedUsernames,
+        allowedChatIdsConfigured: Boolean(config.telegramAllowedChatIds?.length)
+      });
     }
 
     if (req.method === 'GET' && url.pathname === '/dashboard-login') {
