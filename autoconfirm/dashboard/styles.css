@@ -2545,3 +2545,46 @@ th {
   font-size: 11px;
   max-width: 150px;
 }
+
+.incident-stage,
+.incident-intent-detail,
+.incident-template-chip {
+  background: rgba(255, 255, 255, .78);
+  border: 1px solid rgba(13, 139, 143, .14);
+  border-radius: 12px;
+  color: #244053 !important;
+  font-weight: 850;
+  padding: 7px 9px;
+}
+
+.incident-intent-detail {
+  background: linear-gradient(135deg, rgba(196, 244, 232, .72), rgba(255, 255, 255, .86));
+  border-color: rgba(13, 139, 143, .20);
+}
+
+.incident-template-chip {
+  background: rgba(255, 238, 181, .55);
+  border-color: rgba(214, 152, 28, .24);
+  color: #775314 !important;
+}
+
+.incident-resolution-box {
+  background: linear-gradient(135deg, rgba(16, 40, 58, .95), rgba(13, 139, 143, .88));
+  border-radius: 16px;
+  box-shadow: 0 14px 28px rgba(16, 40, 58, .14);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.45;
+  margin-top: 10px;
+  padding: 10px 12px;
+}
+
+.incident-resolution-box b {
+  color: #c9fff3;
+  display: block;
+  font-size: 11px;
+  letter-spacing: .10em;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+}
