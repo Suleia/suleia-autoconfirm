@@ -81,12 +81,18 @@ export async function getAdAccountSummary() {
   });
 }
 
-export async function getCampaigns({ limit = 100 } = {}) {
+export async function getCampaigns({ limit = 100, includeBudgetFields = false } = {}) {
   const adAccountId = normalizeAdAccountId(config.metaAdAccountId);
   if (!adAccountId) throw new Error('Falta META_AD_ACCOUNT_ID.');
 
+  const baseFields = ['id', 'name', 'status', 'effective_status', 'objective', 'created_time', 'updated_time'];
+  const budgetFields = ['daily_budget', 'lifetime_budget', 'budget_remaining', 'spend_cap', 'bid_strategy'];
+
   const result = await metaRequest(`${adAccountId}/campaigns`, {
-    fields: 'id,name,status,effective_status,objective,created_time,updated_time',
+    fields: [
+      ...baseFields,
+      ...(includeBudgetFields ? budgetFields : [])
+    ].join(','),
     limit
   });
 
