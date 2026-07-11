@@ -3,8 +3,10 @@ import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
 import { sendTelegramMessage } from '../clients/telegram.mjs';
 import { buildDashboard, saveAgentChat } from '../dashboard.mjs';
+import { getAdAccountSummary, getCampaignInsights, getCampaigns } from '../clients/meta.mjs';
+import { listDropeaOrders } from '../clients/dropea.mjs';
 import { syncPendingIncidents } from './incidents.mjs';
-import { syncOperationalOrders } from './operational-orders.mjs';
+import { loadOperationalOrdersCache, syncOperationalOrders } from './operational-orders.mjs';
 import { runUnansweredCancellationSweep } from './unanswered-cancellations.mjs';
 import { loadState } from '../storage.mjs';
 
@@ -17,6 +19,22 @@ function normalize(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+function cleanReplyText(value) {
+  return String(value || '')
+    .replace(/\u00c3\u00b1/g, 'n')
+    .replace(/\u00c3\u00a1/g, 'a')
+    .replace(/\u00c3\u00a9/g, 'e')
+    .replace(/\u00c3\u00ad/g, 'i')
+    .replace(/\u00c3\u00b3/g, 'o')
+    .replace(/\u00c3\u00ba/g, 'u')
+    .replace(/\u00c3\u0091/g, 'N')
+    .replace(/\u00c3\u0081/g, 'A')
+    .replace(/\u00c3\u0089/g, 'E')
+    .replace(/\u00c3\u008d/g, 'I')
+    .replace(/\u00c3\u0093/g, 'O')
+    .replace(/\u00c3\u009a/g, 'U');
 }
 
 function messageFromUpdate(update = {}) {
@@ -50,6 +68,12 @@ function formatEuros(value) {
   return `${num.toFixed(2).replace('.', ',')} EUR`;
 }
 
+function moneyFromMetaCents(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num / 100;
+}
+
 function shortDate(value) {
   if (!value) return 'sin fecha';
   const date = new Date(value);
@@ -61,6 +85,49 @@ function shortDate(value) {
     hour: '2-digit',
     minute: '2-digit'
   });
+}
+
+function todayKey(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: config.timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const get = (type) => parts.find((part) => part.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function dateKey(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return todayKey(date);
+}
+
+function orderCreatedAt(order) {
+  return order.raw?.created_at || order.raw?.createdAt || order.createdAt || order.date || null;
+}
+
+function orderStatusLabel(status) {
+  const clean = normalize(status);
+  if (clean.includes('pending')) return 'pendiente';
+  if (clean.includes('incid')) return 'con incidencia';
+  if (clean.includes('confirm')) return 'confirmado';
+  if (clean.includes('cancel') || clean.includes('reject')) return 'cancelado/rechazado';
+  return status || 'sin estado';
+}
+
+function telegramKeyboard() {
+  return {
+    keyboard: [
+      [{ text: 'Estado' }, { text: 'Pedidos de hoy' }],
+      [{ text: 'Incidencias' }, { text: 'Meta hoy' }],
+      [{ text: 'Cancelaciones 36h' }, { text: 'Ideas para escalar' }]
+    ],
+    resize_keyboard: true,
+    one_time_keyboard: false
+  };
 }
 
 async function appendTelegramLog(item) {
@@ -76,14 +143,14 @@ function helpText(chatId) {
   return [
     'Suleia Command Center por Telegram.',
     '',
-    'Puedes escribirme:',
-    '/estado - resumen del sistema',
-    '/pedidos - refresca pedidos operativos',
-    '/incidencias - refresca incidencias pendientes',
-    '/cancelaciones - resumen del automatismo 36h',
-    '/barrido36 - ejecuta ahora el barrido real de 36h',
+    'Puedes hablarme normal. Ejemplos:',
+    'Como va el negocio hoy?',
+    'Cuantos pedidos han entrado hoy?',
+    'Como van las campanas de Meta hoy?',
+    'Que incidencias necesitan accion?',
+    'Ha cancelado algo el automatismo de 36h?',
     '',
-    'Tambien puedes hablar normal conmigo para preguntar, dar feedback o crear reglas.',
+    'Tambien tienes botones rapidos abajo. Si pides una accion critica, la ejecutare solo si la intencion es clara.',
     `Chat ID seguro: ${chatId}`
   ].join('\n');
 }
@@ -150,6 +217,146 @@ function ordersText(result, dashboard) {
   ].join('\n');
 }
 
+async function todayOrdersSummary({ maxPages = 5 } = {}) {
+  const key = todayKey();
+  const byId = new Map();
+  for (let page = 1; page <= maxPages; page += 1) {
+    const orders = await listDropeaOrders({ limit: 100, page });
+    for (const order of orders) {
+      if (dateKey(orderCreatedAt(order)) === key) {
+        byId.set(String(order.orderId), order);
+      }
+    }
+    if (orders.length < 100) break;
+  }
+  const orders = [...byId.values()].sort((a, b) => String(b.orderId).localeCompare(String(a.orderId), undefined, { numeric: true }));
+  const statuses = orders.reduce((acc, order) => {
+    const label = orderStatusLabel(order.status);
+    acc[label] = (acc[label] || 0) + 1;
+    return acc;
+  }, {});
+  return {
+    date: key,
+    count: orders.length,
+    totalAmount: orders.reduce((sum, order) => sum + (Number(order.orderAmount) || 0), 0),
+    statuses,
+    orders
+  };
+}
+
+function todayOrdersText(summary, operational = null) {
+  const statusLines = Object.entries(summary.statuses || {})
+    .map(([status, count]) => `${status}: ${count}`);
+  const top = summary.orders.slice(0, 8).map((order) => `#${order.orderId} / ${order.customerName || '-'} / ${formatEuros(order.orderAmount)} / ${orderStatusLabel(order.status)}`);
+  return [
+    `Pedidos de hoy (${summary.date})`,
+    '',
+    `Total real Dropea hoy: ${summary.count}`,
+    `Importe bruto: ${formatEuros(summary.totalAmount)}`,
+    ...(statusLines.length ? ['Estados:', ...statusLines] : []),
+    '',
+    operational ? `Cola operativa del agente: ${operational.count ?? 0} pedidos pendientes/incidencia` : '',
+    operational ? 'Nota: la cola operativa no es el total de ventas de hoy; son pedidos donde el agente puede actuar.' : '',
+    '',
+    'Ultimos pedidos de hoy:',
+    ...(top.length ? top : ['Todavia no veo pedidos de hoy en Dropea.'])
+  ].filter(Boolean).join('\n');
+}
+
+function campaignBudget(campaign = {}) {
+  const daily = moneyFromMetaCents(campaign.daily_budget);
+  if (daily !== null) return daily;
+  const lifetime = moneyFromMetaCents(campaign.lifetime_budget);
+  if (lifetime !== null) return lifetime;
+  return null;
+}
+
+async function metaTodaySummary() {
+  if (!config.metaDashboardEnabled) {
+    return { ok: false, error: 'Meta no esta configurado en Render.' };
+  }
+  const today = todayKey();
+  const [account, campaignsResult, insights] = await Promise.all([
+    getAdAccountSummary(),
+    getCampaigns({ limit: 200, includeBudgetFields: true })
+      .catch(() => getCampaigns({ limit: 200 })),
+    getCampaignInsights({ since: today, until: today, level: 'campaign', limit: 200 })
+  ]);
+  const campaigns = Array.isArray(campaignsResult) ? campaignsResult : [];
+  const campaignById = new Map(campaigns.map((campaign) => [String(campaign.id), campaign]));
+  const activeCampaigns = campaigns.filter((campaign) => ['ACTIVE', 'IN_PROCESS'].includes(String(campaign.effective_status || campaign.status || '').toUpperCase()));
+  const rows = insights
+    .map((insight) => {
+      const campaign = campaignById.get(String(insight.campaignId)) || {};
+      return {
+        ...insight,
+        status: campaign.effective_status || campaign.status || 'sin estado',
+        budget: campaignBudget(campaign),
+        budgetRemaining: moneyFromMetaCents(campaign.budget_remaining),
+        objective: campaign.objective || ''
+      };
+    })
+    .sort((a, b) => Number(b.spend || 0) - Number(a.spend || 0));
+  return {
+    ok: true,
+    date: today,
+    account,
+    campaigns,
+    activeCampaigns,
+    rows,
+    totals: {
+      spend: rows.reduce((sum, item) => sum + (Number(item.spend) || 0), 0),
+      purchases: rows.reduce((sum, item) => sum + (Number(item.purchases) || 0), 0),
+      purchaseValue: rows.reduce((sum, item) => sum + (Number(item.purchaseValue) || 0), 0)
+    }
+  };
+}
+
+function metaTodayText(summary) {
+  if (!summary.ok) return `No puedo leer Meta ahora mismo: ${summary.error}`;
+  const rows = summary.rows.filter((row) => Number(row.spend || 0) > 0 || ['ACTIVE', 'IN_PROCESS'].includes(String(row.status).toUpperCase()));
+  const top = rows.slice(0, 10).map((row) => {
+    const roas = Number.isFinite(Number(row.roas)) ? `${Number(row.roas).toFixed(2)}x` : '-';
+    const cpa = row.costPerPurchase === null || row.costPerPurchase === undefined ? '-' : formatEuros(row.costPerPurchase);
+    const budget = row.budget === null || row.budget === undefined ? 'sin presupuesto campaña' : `${formatEuros(row.budget)}/dia`;
+    return [
+      row.campaignName,
+      `Estado: ${row.status}`,
+      `Gasto hoy: ${formatEuros(row.spend)} / Presupuesto: ${budget}`,
+      `Compras: ${row.purchases || 0} / ROAS: ${roas} / CPA: ${cpa}`
+    ].join('\n');
+  });
+  const roasTotal = summary.totals.spend ? summary.totals.purchaseValue / summary.totals.spend : 0;
+  return [
+    `Meta Ads hoy (${summary.date})`,
+    '',
+    `Cuenta: ${summary.account?.name || summary.account?.id || '-'}`,
+    `Campanas activas: ${summary.activeCampaigns.length}`,
+    `Gasto total hoy: ${formatEuros(summary.totals.spend)}`,
+    `Compras Meta hoy: ${summary.totals.purchases}`,
+    `ROAS Meta total: ${roasTotal ? `${roasTotal.toFixed(2)}x` : '-'}`,
+    '',
+    'Campanas:',
+    ...(top.length ? top.flatMap((item, index) => [`${index + 1}. ${item}`, '']) : ['Sin gasto ni campañas activas detectadas hoy.'])
+  ].join('\n').trim();
+}
+
+function scalingIdeasText() {
+  return [
+    'Ideas para escalar Suleia',
+    '',
+    '1. Bot Telegram como copiloto diario: resumen automatico cada manana con pedidos, incidencias, Meta y caja.',
+    '2. Alertas proactivas: avisarme si una campana gasta mas de X sin compras o si ROAS cae por debajo de objetivo.',
+    '3. Agente de incidencias: primero propone resolucion, luego con tu aprobacion podra escribir en Dropea.',
+    '4. Base de datos Supabase: guardar historico de pedidos, conversaciones, feedback, decisiones y metricas Meta sin depender de cache de Render.',
+    '5. Panel de rentabilidad por producto: Meta + Dropea + coste producto + incidencias + tasa de confirmacion.',
+    '6. Radar de productos: Meta Ads Library + Alibaba + margen estimado + saturacion del mercado espanol.',
+    '7. Alertas de duplicados/fraude: telefonos repetidos, clientes vetados, patrones de rechazo o no entrega.',
+    '',
+    'Mi recomendacion: siguiente paso, Supabase como fuente historica central. Render ejecuta, Supabase recuerda.'
+  ].join('\n');
+}
+
 function cancellationsText() {
   const state = loadState();
   const summary = state.lastUnansweredCancellationSweepSummary || {};
@@ -188,24 +395,33 @@ async function replyForText(text, health = {}) {
   const clean = normalize(text);
   if (!clean || clean === '/start' || clean === '/ayuda' || clean === '/help') return null;
 
-  if (clean === '/estado' || clean === 'estado' || clean === '/status' || clean.includes('estado del sistema')) {
+  if (clean === '/estado' || clean === 'estado' || clean === '/status' || clean.includes('estado del sistema') || clean.includes('como va el negocio')) {
     const dashboard = await buildSafeDashboard(health);
     return dashboardStatusText(dashboard, health);
   }
 
-  if (clean === '/incidencias' || clean.includes('refresca incidencias') || clean.includes('sincroniza incidencias')) {
+  if (clean === '/incidencias' || clean === 'incidencias' || clean.includes('refresca incidencias') || clean.includes('sincroniza incidencias') || clean.includes('incidencias pendientes')) {
     const result = await syncPendingIncidents();
     const dashboard = await buildSafeDashboard(health);
     return incidentsText(result, dashboard);
   }
 
-  if (clean === '/pedidos' || clean.includes('refresca pedidos') || clean.includes('sincroniza pedidos')) {
+  if (clean === '/pedidos' || clean === 'pedidos' || clean.includes('pedidos de hoy') || clean.includes('cuantos pedidos') || clean.includes('pedido hoy') || clean.includes('han entrado hoy')) {
+    const summary = await todayOrdersSummary();
+    return todayOrdersText(summary, loadOperationalOrdersCache());
+  }
+
+  if (clean.includes('cola operativa') || clean.includes('pendientes de confirmar') || clean.includes('pedidos operativos') || clean.includes('sincroniza pedidos')) {
     const result = await syncOperationalOrders();
     const dashboard = await buildSafeDashboard(health);
     return ordersText(result, dashboard);
   }
 
-  if (clean === '/cancelaciones' || clean.includes('cancelaciones automaticas') || clean.includes('automatismo 36')) {
+  if (clean === '/meta' || clean === 'meta hoy' || clean.includes('campanas') || clean.includes('campañas') || clean.includes('campana activa') || clean.includes('roas') || clean.includes('gasto meta') || clean.includes('presupuesto') || clean.includes('compras meta')) {
+    return metaTodayText(await metaTodaySummary());
+  }
+
+  if (clean === '/cancelaciones' || clean === 'cancelaciones 36h' || clean.includes('cancelaciones automaticas') || clean.includes('automatismo 36')) {
     return cancellationsText();
   }
 
@@ -219,6 +435,10 @@ async function replyForText(text, health = {}) {
       `Cancelados: ${cancelled.length}`,
       ...(cancelled.length ? cancelled.map((item) => `#${item.orderId} / ${item.action}`) : ['No habia pedidos cancelables segun la regla.'])
     ].join('\n');
+  }
+
+  if (clean.includes('ideas') || clean.includes('escalar') || clean.includes('mejoras') || clean.includes('supabase')) {
+    return scalingIdeasText();
   }
 
   const chat = await saveAgentChat(`[Telegram] ${text}`, health);
@@ -266,7 +486,8 @@ export async function handleTelegramUpdate(update, { health = {} } = {}) {
   await sendTelegramMessage({
     chatId,
     replyToMessageId: message.message_id,
-    text: reply || helpText(chatId)
+    text: cleanReplyText(reply || helpText(chatId)),
+    replyMarkup: telegramKeyboard()
   });
 
   return { accepted: true, authorized: true };
