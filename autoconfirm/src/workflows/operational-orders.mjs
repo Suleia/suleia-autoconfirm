@@ -50,6 +50,9 @@ function isCustomerMessage(message = {}) {
 function classifyCustomerMessages(messages = []) {
   const customerMessages = messages.filter(isCustomerMessage);
   const text = normalize(customerMessages.map(messageContent).join(' | '));
+  const lastCustomerMessage = customerMessages.length
+    ? messageContent(customerMessages[customerMessages.length - 1]).replace(/\s+/g, ' ').trim()
+    : '';
 
   if (!customerMessages.length || !text) {
     return {
@@ -57,9 +60,12 @@ function classifyCustomerMessages(messages = []) {
       status: 'PENDING',
       agentAction: 'wait_customer',
       agentIntent: 'NO_RESPONSE',
-      agentConfidence: 0,
+      agentConfidence: 25,
       agentReason: 'Sin respuesta del cliente en Chatby.',
-      customerMessages: 0
+      customerMessages: 0,
+      lastCustomerMessage,
+      customerActionLabel: 'Sin respuesta del cliente',
+      customerActionDetail: 'No veo mensajes entrantes ni botones pulsados por el cliente.'
     };
   }
 
@@ -71,7 +77,10 @@ function classifyCustomerMessages(messages = []) {
       agentIntent: 'ADDRESS_CHANGE_REQUESTED',
       agentConfidence: 100,
       agentReason: 'El cliente pidio cambiar direccion o datos de entrega.',
-      customerMessages: customerMessages.length
+      customerMessages: customerMessages.length,
+      lastCustomerMessage,
+      customerActionLabel: 'Pidio cambiar direccion',
+      customerActionDetail: lastCustomerMessage || 'Respuesta con contexto de cambio de datos de envio.'
     };
   }
 
@@ -83,7 +92,10 @@ function classifyCustomerMessages(messages = []) {
       agentIntent: 'NO_CONFIRM',
       agentConfidence: 100,
       agentReason: 'El cliente rechazo o pidio cancelar el pedido.',
-      customerMessages: customerMessages.length
+      customerMessages: customerMessages.length,
+      lastCustomerMessage,
+      customerActionLabel: 'Pidio cancelar o rechazar',
+      customerActionDetail: lastCustomerMessage || 'Respuesta con contexto de cancelacion o rechazo.'
     };
   }
 
@@ -95,7 +107,10 @@ function classifyCustomerMessages(messages = []) {
       agentIntent: 'CONFIRM',
       agentConfidence: 100,
       agentReason: 'El cliente confirmo el pedido en Chatby.',
-      customerMessages: customerMessages.length
+      customerMessages: customerMessages.length,
+      lastCustomerMessage,
+      customerActionLabel: 'Confirmo el pedido',
+      customerActionDetail: lastCustomerMessage || 'Boton o texto de confirmacion detectado.'
     };
   }
 
@@ -104,9 +119,12 @@ function classifyCustomerMessages(messages = []) {
     status: 'PENDING',
     agentAction: 'manual_review',
     agentIntent: 'UNCLEAR',
-    agentConfidence: 60,
+    agentConfidence: 68,
     agentReason: 'El cliente respondio, pero la intencion no es concluyente.',
-    customerMessages: customerMessages.length
+    customerMessages: customerMessages.length,
+    lastCustomerMessage,
+    customerActionLabel: 'Cliente respondio',
+    customerActionDetail: lastCustomerMessage || 'Hay respuesta, pero no basta para actuar automaticamente.'
   };
 }
 
@@ -161,7 +179,12 @@ async function enrichPendingOrder(order, previous = null) {
           agentIntent: 'CONFIRM',
           agentConfidence: 100,
           agentReason: 'Chatby marca al cliente como confirmado.',
-          customerMessages: Array.isArray(messages) ? messages.filter(isCustomerMessage).length : 0
+          customerMessages: Array.isArray(messages) ? messages.filter(isCustomerMessage).length : 0,
+          lastCustomerMessage: Array.isArray(messages)
+            ? messageContent([...messages].reverse().find(isCustomerMessage) || {}).replace(/\s+/g, ' ').trim()
+            : '',
+          customerActionLabel: 'Confirmado en Chatby',
+          customerActionDetail: 'Chatby tiene etiqueta/estado/campo de confirmacion para este cliente.'
         }
       : classifyCustomerMessages(Array.isArray(messages) ? messages : []);
     chatbyStatus = chatbyUserNs ? 'Chatby revisado' : 'Sin conversacion localizada';
@@ -208,6 +231,9 @@ async function enrichPendingOrder(order, previous = null) {
     customerSignalRaw: signal.signal,
     customerConfirmed: signal.signal === 'CONFIRM',
     customerMessages: signal.customerMessages,
+    lastCustomerMessage: signal.lastCustomerMessage || '',
+    customerActionLabel: signal.customerActionLabel || '',
+    customerActionDetail: signal.customerActionDetail || '',
     chatbyStatus,
     chatbyUserNs,
     chatbyLiveCheckedAt: new Date().toISOString(),
