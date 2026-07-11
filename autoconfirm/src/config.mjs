@@ -130,6 +130,7 @@ export function getAppConfig() {
     chatbyToken: process.env.CHATBY_TOKEN || null,
     chatbyBaseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
     whatsappTemplateName: process.env.WHATSAPP_TEMPLATE_NAME || null,
+    preparedWhatsappTemplateName: process.env.PREPARED_WHATSAPP_TEMPLATE_NAME || 'es_ES dropea_pedido_preparado_v1',
     whatsappProvider: process.env.WHATSAPP_PROVIDER || 'meta',
     metaWhatsappPhoneNumberId: process.env.META_WHATSAPP_PHONE_NUMBER_ID || null,
     metaWhatsappLanguage: process.env.META_WHATSAPP_LANGUAGE || 'es_ES',
