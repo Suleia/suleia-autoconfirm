@@ -12,6 +12,7 @@ import {
   cancelDropeaOrder,
   confirmDropeaOrder,
   getDropeaOrderById,
+  listRecentDropeaOrders,
   listPendingDropeaOrders
 } from '../clients/dropea.mjs';
 import {
@@ -88,6 +89,32 @@ function parseDate(value) {
   if (!value) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function dateKeyInTimezone(value, timezone = config.timezone || 'Europe/Madrid') {
+  const date = parseDate(value);
+  if (!date) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+  const byType = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${byType.year}-${byType.month}-${byType.day}`;
+}
+
+function todayKey(timezone = config.timezone || 'Europe/Madrid') {
+  return dateKeyInTimezone(new Date().toISOString(), timezone);
+}
+
+function dropeaCreatedAt(order) {
+  return order?.createdAt
+    || order?.raw?.created_at
+    || order?.raw?.createdAt
+    || order?.raw?.date
+    || order?.raw?.created
+    || null;
 }
 
 function hoursSince(value) {
@@ -977,6 +1004,17 @@ function templateAlreadyAttempted(order, templateName) {
     && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.chatbyTemplateSendStatus));
 }
 
+function retryableTemplateFailure(order) {
+  const status = normalizeText(order?.chatbyTemplateSendStatus);
+  const error = normalizeText(order?.chatbyTemplateLastError);
+  return status === 'failed'
+    && (
+      error.includes('falta meta_whatsapp_phone_number_id')
+      || error.includes('meta_whatsapp_phone_number_id')
+      || error.includes('missing phone number')
+    );
+}
+
 function messageLooksLikeTemplate(message, templateName) {
   const target = normalizeText(String(templateName || '').split(/\s+/).pop() || templateName);
   if (!target) return false;
@@ -995,11 +1033,48 @@ function messageLooksLikeTemplate(message, templateName) {
   return text.includes(target);
 }
 
+function messageLooksLikeTemplateForOrder(message, templateName, orderId) {
+  if (!messageLooksLikeTemplate(message, templateName)) return false;
+  const targetOrderId = String(orderId || '').replace(/\D/g, '');
+  if (!targetOrderId) return true;
+  const raw = message?.raw || message || {};
+  const text = [
+    message?.content,
+    raw.template_name,
+    raw.templateName,
+    raw.name,
+    raw.content?.name,
+    raw.message,
+    raw.text,
+    raw.title,
+    JSON.stringify(raw)
+  ].filter(Boolean).join(' ');
+  return text.replace(/\D/g, ' ').split(/\s+/).includes(targetOrderId);
+}
+
 async function markTemplateAlreadySeen(order, userNs, store, templateName) {
   if (!userNs) return null;
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
     if (!messages.some((message) => messageLooksLikeTemplate(message, templateName))) return null;
+    return upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      chatbyTemplateSentAt: order.chatbyTemplateSentAt || new Date().toISOString(),
+      chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || new Date().toISOString(),
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: 'already_seen'
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function markTemplateAlreadySeenForOrder(order, userNs, store, templateName) {
+  if (!userNs) return null;
+  try {
+    const messages = normalizeChatMessages(await getChatMessages(userNs));
+    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order.orderId))) return null;
     return upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
@@ -1130,6 +1205,119 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
   saveState(state);
 
   return { processed: processed.length, orders: processed };
+}
+
+export async function backfillTodayMissingInitialTemplates({
+  store = config.defaultStore,
+  limit = 100,
+  pages = 2,
+  statuses = null,
+  targetDate = null
+} = {}) {
+  const templateName = configuredWhatsappTemplate(store);
+  if (!templateName) {
+    return { processed: 0, sent: 0, skipped: 0, failed: 0, reason: 'missing_template_name', results: [] };
+  }
+
+  const targetKey = targetDate || todayKey(config.timezone);
+  const orders = await listRecentDropeaOrders({
+    limit,
+    pages,
+    statuses: statuses || ['PENDING', 'CONFIRMED', 'IN_PREPARATION', 'PREPARED']
+  });
+
+  const results = [];
+
+  for (const order of orders) {
+    const createdKey = dateKeyInTimezone(dropeaCreatedAt(order), config.timezone);
+    if (createdKey !== targetKey) continue;
+
+    const existing = findOrder(store.id, order.orderId);
+    const merged = upsertOrder(store.id, {
+      orderId: order.orderId,
+      status: workflowStatusForPolledOrder(existing, order.status),
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      customerEmail: order.customerEmail,
+      orderAmount: order.orderAmount,
+      currencyCode: order.currencyCode,
+      raw: order.raw,
+      chatbyUserNs: existing?.chatbyUserNs || null,
+      chatbyTemplateSentAt: existing?.chatbyTemplateSentAt || null,
+      chatbyTemplateAttemptedAt: existing?.chatbyTemplateAttemptedAt || null,
+      chatbyTemplateName: existing?.chatbyTemplateName || null,
+      chatbyTemplateSendStatus: existing?.chatbyTemplateSendStatus || null,
+      chatbyTemplateLastError: existing?.chatbyTemplateLastError || null,
+      aiConfidence: existing?.aiConfidence ?? null,
+      aiIntent: existing?.aiIntent || null,
+      operationalNote: existing?.operationalNote || null
+    });
+
+    if (!isAfterCutoff(order, store.activationCutoff)) {
+      results.push({ orderId: order.orderId, skipped: true, reason: 'before_activation_cutoff' });
+      continue;
+    }
+
+    const blocked = await applyBlockedCustomerPolicy(merged, store, 'initial_template_backfill_guard');
+    if (blocked) {
+      results.push({ orderId: order.orderId, action: blocked.action || 'blocked_customer', skipped: Boolean(blocked.skipped) });
+      continue;
+    }
+
+    const retryableFailure = retryableTemplateFailure(merged);
+    if (templateAlreadyAttempted(merged, templateName) && !retryableFailure) {
+      results.push({ orderId: order.orderId, skipped: true, reason: 'already_attempted', status: merged.chatbyTemplateSendStatus });
+      continue;
+    }
+
+    const sendCandidate = retryableFailure
+      ? {
+          ...merged,
+          chatbyTemplateSentAt: null,
+          chatbyTemplateAttemptedAt: null,
+          chatbyTemplateSendStatus: null,
+          chatbyTemplateLastError: null
+        }
+      : merged;
+
+    let subscriber = null;
+    if (config.chatbyToken && merged.customerPhone) {
+      subscriber = await resolveSubscriberForOrder(merged);
+      if (!subscriber) {
+        subscriber = await findSubscriberByPhone({ phone: merged.customerPhone, maxPages: 10 });
+      }
+    }
+
+    if (subscriber?.user_ns) {
+      const alreadySeen = await markTemplateAlreadySeenForOrder(sendCandidate, subscriber.user_ns, store, templateName);
+      if (alreadySeen) {
+        results.push({ orderId: order.orderId, action: 'already_seen', userNs: subscriber.user_ns });
+        continue;
+      }
+    }
+
+    const hydrated = subscriber?.user_ns
+      ? await sendChatbyTemplateForOrder({ ...sendCandidate, chatbyUserNs: subscriber.user_ns }, subscriber.user_ns, store)
+      : await ensureChatbyThread(sendCandidate, store);
+
+    await safeUpsertSheetRow(hydrated, 'initial_template_backfill');
+
+    results.push({
+      orderId: order.orderId,
+      action: hydrated.chatbyTemplateSendStatus === 'sent' ? 'sent' : hydrated.chatbyTemplateSendStatus,
+      status: hydrated.status,
+      error: hydrated.chatbyTemplateLastError || null
+    });
+  }
+
+  const state = { ...loadState() };
+  state.lastInitialTemplateBackfillAt = new Date().toISOString();
+  saveState(state);
+
+  const sent = results.filter((item) => item.action === 'sent').length;
+  const failed = results.filter((item) => item.action === 'failed').length;
+  const skipped = results.filter((item) => item.skipped || ['already_seen', 'already_attempted'].includes(item.action)).length;
+  return { processed: results.length, sent, failed, skipped, date: targetKey, results };
 }
 
 export async function ingestShopifyOrders({ store = config.defaultStore, limit = 100 } = {}) {
@@ -1632,9 +1820,11 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
   try {
     let ingestResult = null;
     let shopifyIngestResult = null;
+    let templateBackfillResult = null;
     let confirmResult = null;
     let ingestError = null;
     let shopifyIngestError = null;
+    let templateBackfillError = null;
     let confirmError = null;
 
     try {
@@ -1655,6 +1845,25 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     }
 
     try {
+      const state = loadState();
+      const lastBackfillAt = parseDate(state.lastInitialTemplateBackfillAt);
+      const intervalMinutes = Number(process.env.INITIAL_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 15);
+      const due = !lastBackfillAt || ((Date.now() - lastBackfillAt.getTime()) / 60000) >= intervalMinutes;
+      if (due) {
+        templateBackfillResult = await backfillTodayMissingInitialTemplates({
+          store,
+          limit: Math.max(limit, 100),
+          pages: 2
+        });
+      } else {
+        templateBackfillResult = { skipped: true, reason: 'not_due' };
+      }
+    } catch (error) {
+      templateBackfillError = error instanceof Error ? error.message : String(error);
+      console.error('[automation_cycle] backfillTodayMissingInitialTemplates failed:', error);
+    }
+
+    try {
       confirmResult = await runAutoConfirm({ store });
     } catch (error) {
       confirmError = error instanceof Error ? error.message : String(error);
@@ -1665,15 +1874,18 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     state.lastAutomationCycleAt = new Date().toISOString();
     state.lastIngestError = ingestError;
     state.lastShopifySyncError = shopifyIngestError;
+    state.lastInitialTemplateBackfillError = templateBackfillError;
     state.lastAutoConfirmError = confirmError;
     saveState(state);
 
     return {
       ingest: ingestResult,
       shopifyIngest: shopifyIngestResult,
+      initialTemplateBackfill: templateBackfillResult,
       autoConfirm: confirmResult,
       ingestError,
       shopifyIngestError,
+      templateBackfillError,
       confirmError,
       lastAutomationCycleAt: state.lastAutomationCycleAt
     };
