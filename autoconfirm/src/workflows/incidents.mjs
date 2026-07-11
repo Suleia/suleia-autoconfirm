@@ -51,6 +51,7 @@ function statusLooksClosed(value) {
 function isPendingIssue(issue) {
   const status = normalize(issueStatus(issue));
   if (!status) return true;
+  if (status === 'solution_send') return true;
   if (statusLooksClosed(status)) return false;
   return status.includes('pending')
     || status.includes('pendiente')
@@ -923,7 +924,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   const rows = [];
   const useDirectIssuesEndpointFirst = false;
   if (useDirectIssuesEndpointFirst) try {
-    for (let page = 1; page <= Math.max(pages, 5); page += 1) {
+    for (let page = 1; page <= Math.max(pages, 30); page += 1) {
       const incidences = await listDropeaIncidences({ limit, page });
       directIncidentsSucceeded = true;
       if (!Array.isArray(incidences) || !incidences.length) break;
@@ -978,7 +979,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   }
   if (directRows.length) return sortRowsByIncidenceDesc(directRows);
 
-  for (let page = 1; page <= Math.max(pages, 10); page += 1) {
+  for (let page = 1; page <= Math.max(pages, 30); page += 1) {
     let orders = [];
     try {
       orders = await listDropeaOrders({ limit, page });
