@@ -327,7 +327,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/dashboard-refresh') {
       if (!requireDashboardAuth(req, res)) return;
-      const dashboard = await buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 30000 });
+      const dashboard = await buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 5000 });
       queueDashboardBackgroundRefresh();
 
       return sendJson(res, 200, {
@@ -590,12 +590,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-incidents') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await syncPendingIncidents();
+      dashboardBuildCacheAt = 0;
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-operational-orders') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await syncOperationalOrders();
+      dashboardBuildCacheAt = 0;
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
