@@ -1125,6 +1125,21 @@ async function resolveOrCreateChatbyUserNsForTemplate(order, userNs) {
 }
 
 async function sendInitialTemplateWithFallback({ order, templateName, params, userNs }) {
+  const preferredProvider = String(config.whatsappProvider || 'meta').toLowerCase();
+  if (preferredProvider === 'chatby') {
+    const chatbyUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
+    if (!chatbyUserNs) {
+      throw new Error('No se pudo resolver o crear contacto en Chatby para enviar plantilla.');
+    }
+    const response = await sendWhatsappTemplate({
+      user_ns: chatbyUserNs,
+      user_id: order.customerPhone,
+      template_name: templateName,
+      params
+    });
+    return { provider: 'chatby', response, userNs: chatbyUserNs };
+  }
+
   try {
     const response = await sendMetaWhatsappTemplate({
       to: order.customerPhone,
