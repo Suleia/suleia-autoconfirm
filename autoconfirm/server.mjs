@@ -243,6 +243,46 @@ async function runAutomationOnly(context = 'automation') {
   return { context, cycle };
 }
 
+let dashboardBuildCache = null;
+let dashboardBuildCacheAt = 0;
+let dashboardBuildInFlight = null;
+
+async function buildDashboardFast({ health = null, forceMeta = false, maxAgeMs = 5000 } = {}) {
+  const now = Date.now();
+  if (!forceMeta && dashboardBuildCache && now - dashboardBuildCacheAt <= maxAgeMs) {
+    return {
+      ...dashboardBuildCache,
+      generatedAt: new Date().toISOString(),
+      cache: { ...(dashboardBuildCache.cache || {}), dashboardBuild: 'memory', ageMs: now - dashboardBuildCacheAt }
+    };
+  }
+  if (!forceMeta && dashboardBuildInFlight) return dashboardBuildInFlight;
+
+  dashboardBuildInFlight = buildDashboard({ health, forceMeta })
+    .then((dashboard) => {
+      dashboardBuildCache = dashboard;
+      dashboardBuildCacheAt = Date.now();
+      return dashboard;
+    })
+    .finally(() => {
+      dashboardBuildInFlight = null;
+    });
+  return dashboardBuildInFlight;
+}
+
+function queueDashboardBackgroundRefresh() {
+  setTimeout(() => {
+    runScheduledOperationalOrdersSync()
+      .then(() => { dashboardBuildCacheAt = 0; })
+      .catch((error) => console.error('Dashboard operational orders refresh error:', error));
+  }, 250);
+  setTimeout(() => {
+    runScheduledIncidentsSync()
+      .then(() => { dashboardBuildCacheAt = 0; })
+      .catch((error) => console.error('Dashboard incidents refresh error:', error));
+  }, 500);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -274,54 +314,46 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/api/dashboard') {
       if (!requireDashboardAuth(req, res)) return;
-      return sendJson(res, 200, { ok: true, dashboard: await buildDashboard({ health: storeSummary() }) });
+      return sendJson(res, 200, { ok: true, dashboard: await buildDashboardFast({ health: storeSummary() }) });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/dashboard-refresh') {
       if (!requireDashboardAuth(req, res)) return;
-      const results = {};
-
-      setTimeout(() => {
-        runAutomationOnly('dashboard_refresh')
-          .then((result) => console.log('Dashboard background refresh processed:', JSON.stringify(result)))
-          .catch((error) => console.error('Dashboard background refresh error:', error));
-      }, 0);
-      results.orders = { queued: true, mode: 'background' };
-
-      setTimeout(() => {
-        runScheduledOperationalOrdersSync()
-          .catch((error) => console.error('Dashboard operational orders refresh error:', error));
-      }, 0);
-      setTimeout(() => {
-        runScheduledIncidentsSync()
-          .catch((error) => console.error('Dashboard incidents refresh error:', error));
-      }, 0);
-      results.operationalOrders = { queued: true, mode: 'background' };
-      results.incidents = { queued: true, mode: 'background' };
+      const dashboard = await buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 30000 });
+      queueDashboardBackgroundRefresh();
 
       return sendJson(res, 200, {
         ok: true,
-        refresh: results,
-        dashboard: await buildDashboard({ health: storeSummary(), forceMeta: false })
+        refresh: {
+          operationalOrders: { queued: true, mode: 'background' },
+          incidents: { queued: true, mode: 'background' }
+        },
+        dashboard
       });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-feedback') {
       if (!requireDashboardAuth(req, res)) return;
       const body = await readBody(req);
-      return sendJson(res, 200, { ok: true, feedback: await saveAgentFeedback(body) });
+      const feedback = await saveAgentFeedback(body);
+      dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: true, feedback });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/incident-feedback') {
       if (!requireDashboardAuth(req, res)) return;
       const body = await readBody(req);
-      return sendJson(res, 200, { ok: true, feedback: await saveIncidentFeedback(body) });
+      const feedback = await saveIncidentFeedback(body);
+      dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: true, feedback });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/finance-settings') {
       if (!requireDashboardAuth(req, res)) return;
       const body = await readBody(req);
-      return sendJson(res, 200, { ok: true, settings: await saveFinanceSettings(body) });
+      const settings = await saveFinanceSettings(body);
+      dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: true, settings });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-chat') {
