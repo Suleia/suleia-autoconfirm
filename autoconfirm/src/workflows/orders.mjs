@@ -25,6 +25,7 @@ import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clients/shopify.mjs';
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
+import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
@@ -324,7 +325,17 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
 
   if (!existing) return remoteStatus;
   if (['CONFIRMED', 'CANCELLED'].includes(remoteStatus)) return remoteStatus;
-  if (['CONFIRMED', 'CANCELLED', 'REJECTED_UNANSWERED', 'REJECTED_AFTER_CONFIRM_CANCEL', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
+  if ([
+    'CONFIRMED',
+    'CANCELLED',
+    'REJECTED_UNANSWERED',
+    'REJECTED_AFTER_CONFIRM_CANCEL',
+    'REJECTED_BLOCKED_CUSTOMER',
+    'BLOCKED_CUSTOMER_NO_DROPEA_ID',
+    'BLOCKED_CUSTOMER_CANCELLATION_FAILED',
+    'MANUAL_REVIEW',
+    'PENDING_ADDRESS_CHANGE'
+  ].includes(localStatus)) return localStatus;
   return remoteStatus;
 }
 
@@ -334,12 +345,28 @@ function isShopifyOrder(order) {
     || String(order?.orderId || '').startsWith('SHOPIFY-');
 }
 
+function isTerminalBlockedCustomerStatus(status) {
+  return [
+    'REJECTED_BLOCKED_CUSTOMER',
+    'BLOCKED_CUSTOMER_NO_DROPEA_ID',
+    'CANCELLED'
+  ].includes(String(status || '').toUpperCase());
+}
+
 function shopifyWorkflowStatusForOrder(order, existing) {
   const localStatus = String(existing?.status || '').toUpperCase();
   const financialStatus = normalizeText(order.financialStatus);
 
   if (order.cancelledAt) return 'CANCELLED';
-  if (['CONFIRMED', 'CANCELLED', 'MANUAL_REVIEW', 'PENDING_ADDRESS_CHANGE'].includes(localStatus)) return localStatus;
+  if ([
+    'CONFIRMED',
+    'CANCELLED',
+    'REJECTED_BLOCKED_CUSTOMER',
+    'BLOCKED_CUSTOMER_NO_DROPEA_ID',
+    'BLOCKED_CUSTOMER_CANCELLATION_FAILED',
+    'MANUAL_REVIEW',
+    'PENDING_ADDRESS_CHANGE'
+  ].includes(localStatus)) return localStatus;
   if (financialStatus.includes('paid') || financialStatus.includes('pagado')) return 'CONFIRMED';
   return 'PENDING';
 }
@@ -425,6 +452,132 @@ function shopifyConfirmationResult(order, store, patch, analysis, source = 'shop
     operationalNote: 'Pedido Shopify confirmado localmente por el agente. No se ejecuta confirmacion en Dropea para pedidos de Shopify.'
   });
   return { action: 'confirmed_shopify_local', analysis, source, order: updated };
+}
+
+async function applyBlockedCustomerPolicy(order, store, source = 'blocked_customer_policy') {
+  if (!isBlockedCustomerOrder(order, store)) return null;
+
+  if (isTerminalBlockedCustomerStatus(order.status) && order.cancelledAt) {
+    return {
+      skipped: true,
+      action: 'blocked_customer_already_handled',
+      source,
+      order
+    };
+  }
+
+  const now = new Date().toISOString();
+  const reason = blockedCustomerReason(order, store);
+  const orderId = String(order.orderId || '');
+  const canCancelInDropea = /^\d+$/.test(orderId);
+  const basePatch = {
+    ...order,
+    aiConfidence: 100,
+    aiIntent: 'BLOCKED_CUSTOMER',
+    chatbyUserNs: order.chatbyUserNs || null,
+    chatbyTemplateSentAt: order.chatbyTemplateSentAt || null,
+    chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || null,
+    chatbyTemplateName: order.chatbyTemplateName || configuredWhatsappTemplate(store) || null,
+    chatbyTemplateSendStatus: 'blocked_customer_no_send',
+    chatbyTemplateLastError: null,
+    operationalNote: reason
+  };
+
+  if (!canCancelInDropea) {
+    const updated = upsertOrder(store.id, {
+      ...basePatch,
+      status: 'BLOCKED_CUSTOMER_NO_DROPEA_ID',
+      blockedCustomerDetectedAt: order.blockedCustomerDetectedAt || now
+    });
+    await safeUpsertSheetRow(updated, 'blocked_customer_policy');
+    return {
+      dryRun: false,
+      action: 'blocked_customer_no_chatby_no_dropea_id',
+      source,
+      analysis: {
+        intent: 'BLOCKED_CUSTOMER',
+        confidence: 100,
+        reason: `${reason} El pedido aun no tiene ID numerico de Dropea para cancelar.`
+      },
+      order: updated
+    };
+  }
+
+  try {
+    const cancellation = await cancelDropeaOrder(orderId);
+    const updated = upsertOrder(store.id, {
+      ...basePatch,
+      status: 'REJECTED_BLOCKED_CUSTOMER',
+      cancelledAt: now,
+      blockedCustomerDetectedAt: order.blockedCustomerDetectedAt || now,
+      raw: {
+        ...(basePatch.raw || {}),
+        automaticBlockedCustomerCancellation: {
+          cancellation,
+          source,
+          cancelledAt: now
+        }
+      }
+    });
+    await safeUpsertSheetRow(updated, 'blocked_customer_policy');
+
+    const state = { ...loadState() };
+    const history = Array.isArray(state.automaticBlockedCustomerCancellations)
+      ? state.automaticBlockedCustomerCancellations
+      : [];
+    state.automaticBlockedCustomerCancellations = [
+      ...history,
+      {
+        orderId,
+        phone: order.customerPhone || null,
+        cancelledAt: now,
+        source
+      }
+    ].slice(-200);
+    saveState(state);
+
+    return {
+      dryRun: false,
+      action: 'cancelled_blocked_customer',
+      source,
+      analysis: {
+        intent: 'BLOCKED_CUSTOMER',
+        confidence: 100,
+        reason
+      },
+      cancellation,
+      order: updated
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const updated = upsertOrder(store.id, {
+      ...basePatch,
+      status: 'BLOCKED_CUSTOMER_CANCELLATION_FAILED',
+      blockedCustomerDetectedAt: order.blockedCustomerDetectedAt || now,
+      cancellationError: message,
+      raw: {
+        ...(basePatch.raw || {}),
+        automaticBlockedCustomerCancellationError: {
+          message,
+          source,
+          failedAt: now
+        }
+      }
+    });
+    await safeUpsertSheetRow(updated, 'blocked_customer_policy');
+    return {
+      skipped: true,
+      action: 'blocked_customer_cancellation_failed',
+      source,
+      error: message,
+      analysis: {
+        intent: 'BLOCKED_CUSTOMER',
+        confidence: 100,
+        reason
+      },
+      order: updated
+    };
+  }
 }
 
 async function storedConfirmationResult(order, store) {
@@ -861,6 +1014,9 @@ async function markTemplateAlreadySeen(order, userNs, store, templateName) {
 }
 
 async function sendChatbyTemplateForOrder(order, userNs, store) {
+  const blocked = await applyBlockedCustomerPolicy(order, store, 'chatby_template_send_guard');
+  if (blocked) return blocked.order || order;
+
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName || !userNs || templateAlreadyAttempted(order, templateName)) return order;
 
@@ -959,8 +1115,13 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
       operationalNote: existing?.operationalNote || null
     });
 
-    await safeUpsertSheetRow(merged);
+    const blocked = await applyBlockedCustomerPolicy(merged, store, 'dropea_pending_ingest');
+    if (blocked) {
+      processed.push(blocked.order || merged);
+      continue;
+    }
 
+    await safeUpsertSheetRow(merged);
     processed.push(merged);
   }
 
@@ -996,6 +1157,12 @@ export async function ingestShopifyOrders({ store = config.defaultStore, limit =
 
     const existing = findOrder(store.id, orderId);
     const merged = upsertOrder(store.id, normalizeShopifyWorkflowOrder(order, existing));
+    const blocked = await applyBlockedCustomerPolicy(merged, store, 'shopify_ingest');
+    if (blocked) {
+      processed.push(blocked.order || merged);
+      continue;
+    }
+
     await safeUpsertSheetRow(merged, 'shopify_ingest');
     processed.push(merged);
   }
@@ -1021,6 +1188,15 @@ export async function handleShopifyWebhook({ store = config.defaultStore, payloa
 
   const existing = findOrder(store.id, orderId);
   const merged = upsertOrder(store.id, normalizeShopifyWorkflowOrder(normalized, existing));
+  const blocked = await applyBlockedCustomerPolicy(merged, store, 'shopify_webhook');
+  if (blocked) {
+    const state = { ...loadState() };
+    state.lastShopifyWebhookAt = new Date().toISOString();
+    state.lastShopifySyncError = null;
+    saveState(state);
+    return { accepted: true, order: blocked.order || merged, blockedCustomer: true, action: blocked.action };
+  }
+
   await safeUpsertSheetRow(merged, 'shopify_webhook');
 
   const state = { ...loadState() };
@@ -1032,6 +1208,9 @@ export async function handleShopifyWebhook({ store = config.defaultStore, payloa
 }
 
 export async function ensureChatbyThread(order, store = config.defaultStore) {
+  const blocked = await applyBlockedCustomerPolicy(order, store, 'ensure_chatby_thread_guard');
+  if (blocked) return blocked.order || order;
+
   const templateName = configuredWhatsappTemplate(store);
   if (templateName && !templateAlreadyAttempted(order, templateName)) {
     const attemptedAt = new Date().toISOString();
@@ -1113,6 +1292,9 @@ async function attachExistingChatbyThread(order, store = config.defaultStore) {
 }
 
 export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultStore) {
+  const blocked = await applyBlockedCustomerPolicy(order, store, 'analyze_order_guard');
+  if (blocked) return blocked;
+
   order = await attachExistingChatbyThread(order, store);
 
   if (order.status !== 'PENDING') {
@@ -1403,6 +1585,16 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
     let hydrated = order;
     let result = null;
     try {
+      const blocked = await applyBlockedCustomerPolicy(order, store, 'auto_confirm_guard');
+      if (blocked) {
+        result = blocked;
+        if (!blocked.skipped) {
+          await recordDecisionAndReturn(blocked.order || order, blocked);
+        }
+        results.push({ orderId: order.orderId, result });
+        continue;
+      }
+
       hydrated = await ensureChatbyThread(order, store);
       result = await analyzeAndMaybeConfirmOrder(hydrated, store);
       if (result && !result.skipped) {
@@ -1544,6 +1736,19 @@ export async function handleDropeaWebhook({ store, payload }) {
         confirmedAt,
         operationalNote: existing?.operationalNote || null
       });
+      const blocked = await applyBlockedCustomerPolicy(updated, store, 'dropea_webhook_lookup');
+      if (blocked) {
+        return {
+          orderUpdated: true,
+          blockedCustomer: true,
+          action: blocked.action,
+          source: 'dropea_lookup',
+          orderId: (blocked.order || updated).orderId,
+          prevStatus,
+          newStatus: (blocked.order || updated).status
+        };
+      }
+
       await safeUpsertSheetRow(updated);
       return { orderUpdated: true, source: 'dropea_lookup', orderId: updated.orderId, prevStatus, newStatus: updated.status };
     }
@@ -1580,6 +1785,19 @@ export async function handleDropeaWebhook({ store, payload }) {
       confirmedAt: existing?.confirmedAt || null,
       operationalNote: existing?.operationalNote || null
     });
+    const blocked = await applyBlockedCustomerPolicy(updated, store, 'dropea_webhook_payload');
+    if (blocked) {
+      return {
+        orderUpdated: true,
+        blockedCustomer: true,
+        action: blocked.action,
+        source: 'webhook_payload',
+        orderId: (blocked.order || updated).orderId,
+        prevStatus,
+        newStatus: (blocked.order || updated).status
+      };
+    }
+
     await safeUpsertSheetRow(updated);
     return {
       orderUpdated: true,
