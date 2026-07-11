@@ -356,6 +356,9 @@ function renderOrders() {
       const orderState = friendlyOrderState(order);
       const evidence = agentEvidence(order);
       const confidence = order.agentUsefulConfidence ?? order.agentConfidence;
+      const customerMessages = Number(order.customerMessages || 0);
+      const customerActionLabel = order.customerActionLabel || (customerMessages > 0 ? 'Cliente respondio' : 'Sin respuesta');
+      const customerActionDetail = order.customerActionDetail || order.lastCustomerMessage || (customerMessages > 0 ? 'Hay mensajes entrantes en Chatby.' : 'No hay mensajes entrantes ni botones detectados.');
       const source = order.liveSource || order.raw?.source || 'Sistema';
       const realActionTone = order.realActionTone || 'neutral';
       const realActionLabel = order.realActionLabel || 'Sin accion real';
@@ -411,6 +414,8 @@ function renderOrders() {
           <td>
             <span class="signal-chip ${evidence.tone}">${escapeHtml(evidence.label)}</span>
             <small>${escapeHtml(evidence.detail)}</small>
+            <small><strong>Chatby:</strong> ${escapeHtml(customerActionLabel)}${customerMessages ? ` (${customerMessages})` : ''}</small>
+            <small>${escapeHtml(customerActionDetail)}</small>
             ${order.agentNextStep ? `<small><strong>Siguiente paso:</strong> ${escapeHtml(order.agentNextStep)}</small>` : ''}
           </td>
           <td>
