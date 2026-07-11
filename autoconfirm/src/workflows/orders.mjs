@@ -1006,13 +1006,7 @@ function templateAlreadyAttempted(order, templateName) {
 
 function retryableTemplateFailure(order) {
   const status = normalizeText(order?.chatbyTemplateSendStatus);
-  const error = normalizeText(order?.chatbyTemplateLastError);
-  return status === 'failed'
-    && (
-      error.includes('falta meta_whatsapp_phone_number_id')
-      || error.includes('meta_whatsapp_phone_number_id')
-      || error.includes('missing phone number')
-    );
+  return status === 'failed';
 }
 
 function staleTemplateAttempt(order) {
