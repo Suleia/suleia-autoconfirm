@@ -6,5 +6,37 @@
     "scope": "incidents",
     "orderId": "1286577",
     "text": "Si en una incidencia por ausente el cliente indica una franja o instruccion clara de entrega, por ejemplo 'entregar por la tarde' y aporta telefono de contacto, la incidencia debe clasificarse como resoluble. La solucion para Dropea debe trasladar literalmente la instruccion del cliente. No cancelar, no tratar como sin respuesta y no ejecutar acciones automaticas sin validacion."
+  },
+  {
+    "id": "incident-rule-address-24h-direction-template",
+    "createdAt": "2026-07-11T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "type": "incident_address_pending_resolution",
+    "text": "En incidencias de direccion incorrecta o faltan datos, esperar a que el cliente envie los datos completos por Chatby. Si pasan 24 horas desde la incidencia y no hay respuesta ni accion del cliente, proponer enviar la plantilla es_ES - dropea_incidencia_direccion_v1. Si el cliente responde con datos, proponer copiarlos en la resolucion de Dropea y aceptar, sin ejecutar acciones automaticas hasta autorizacion."
+  },
+  {
+    "id": "incident-rule-absent-one-extra-reminder",
+    "createdAt": "2026-07-11T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "type": "incident_absent_pending_resolution",
+    "text": "En incidencias por ausente, interpretar respuestas del cliente sobre otro dia, por la tarde, por la manana, a partir de una hora concreta, dia de la semana o telefono de contacto. La propuesta debe trasladar literalmente esa instruccion a Dropea. Si el cliente no responde tras 24 horas, proponer solo un recordatorio extra de ausente; no enviar mas de un aviso recordatorio."
+  },
+  {
+    "id": "incident-rule-rejected-goods-5eur-recovery",
+    "createdAt": "2026-07-11T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "type": "incident_rejected_goods_pending_resolution",
+    "text": "En incidencias de no acepta mercancia, si el cliente dice que no quiere el pedido o cancela, proponer rechazar/cancelar. Si dice que si quiere recibirlo o que el repartidor no paso, proponer solicitar nueva entrega en Dropea. Si pasan 24 horas sin respuesta del cliente, proponer una plantilla de descuento de 5 EUR para recuperar el pedido, sin ejecutar acciones automaticas hasta autorizacion."
+  },
+  {
+    "id": "incident-rule-training-only-no-actions",
+    "createdAt": "2026-07-11T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "type": "incident_training_mode",
+    "text": "La gestion de incidencias esta en modo entrenamiento. El agente puede clasificar, proponer resolucion, sugerir plantilla y aprender del feedback, pero no debe resolver incidencias en Dropea ni enviar plantillas en Chatby hasta que Samuel lo active expresamente."
   }
 ]
