@@ -29,15 +29,77 @@ function issueStatus(issue) {
   return String(issue?.status || issue?.state || issue?.resolution_status || '').toUpperCase();
 }
 
+function statusLooksClosed(value) {
+  const status = normalize(value);
+  if (!status) return false;
+  return status.includes('resolved')
+    || status.includes('resuelto')
+    || status.includes('solucion')
+    || status.includes('closed')
+    || status.includes('cerrad')
+    || status.includes('sent')
+    || status.includes('enviad')
+    || status.includes('delivered')
+    || status.includes('entregad')
+    || status.includes('returned')
+    || status.includes('devuelt')
+    || status.includes('cancel')
+    || status.includes('reject')
+    || status.includes('rechaz');
+}
+
 function isPendingIssue(issue) {
   const status = normalize(issueStatus(issue));
   if (!status) return true;
+  if (statusLooksClosed(status)) return false;
   return status.includes('pending')
     || status.includes('pendiente')
     || status.includes('open')
     || status.includes('abiert')
     || status.includes('unresolved')
     || status.includes('resolver');
+}
+
+function isTrackedIncidentReason(issue) {
+  const code = String(issueReason(issue) || '').trim().toUpperCase();
+  const text = normalize(issueReason(issue));
+  return ['AS', 'NAM', 'MCC', 'DIR', 'DI'].includes(code)
+    || text.includes('ausente')
+    || text.includes('no acepta')
+    || text.includes('direccion')
+    || text.includes('faltan datos');
+}
+
+function isPendingResolutionIssue(issue, order = null) {
+  if (!isPendingIssue(issue)) return false;
+  if (!isTrackedIncidentReason(issue)) return false;
+  const issueOrderStatus = normalize(issue?.orderStatus || issue?.order_status || issue?.raw?.order_status || '');
+  const orderStatus = normalize([
+    order?.status,
+    order?.raw?.status,
+    order?.raw?.order_status,
+    issueOrderStatus
+  ].filter(Boolean).join(' '));
+
+  if (!orderStatus) return true;
+  if (statusLooksClosed(orderStatus)) return false;
+  return orderStatus.includes('incid')
+    || orderStatus.includes('issue')
+    || orderStatus.includes('con incidencia')
+    || orderStatus === 'incidence';
+}
+
+function numericId(value) {
+  const num = Number(String(value || '').replace(/\D/g, ''));
+  return Number.isFinite(num) ? num : 0;
+}
+
+function sortRowsByIncidenceDesc(rows) {
+  return [...rows].sort((a, b) => {
+    const bId = numericId(b?.issue?.id || b?.issue?.incidenceId);
+    const aId = numericId(a?.issue?.id || a?.issue?.incidenceId);
+    return bId - aId;
+  });
 }
 
 function orderLooksLikeIncident(order) {
@@ -128,7 +190,7 @@ function classifyIncident(issue, order) {
   return { ...INCIDENT_TYPES.unknown, code, rawReason };
 }
 
-function typeAwareIncidentSolution(classification, chatby) {
+function legacyTypeAwareIncidentSolution(classification, chatby) {
   const intent = chatby.intent || '';
   const responded = Number(chatby.customerMessages || 0) > 0;
   const last = chatby.lastCustomerMessage ? ` Último mensaje: "${clip(chatby.lastCustomerMessage, 120)}".` : '';
@@ -208,6 +270,281 @@ function typeAwareIncidentSolution(classification, chatby) {
         tone: 'neutral',
         solution: chatby.proposedSolution || 'Sin señal suficiente. Propuesta: revisar Dropea y Chatby antes de resolver.'
       };
+}
+
+function incidentAgeHours(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.max(0, (Date.now() - date.getTime()) / (1000 * 60 * 60));
+}
+
+function rawCustomerTextForDisplay(chatby) {
+  return String(chatby.rawCustomerText || chatby.lastCustomerMessage || '').replace(/\s+/g, ' ').trim();
+}
+
+function extractOperationalDetailsFromText(rawText = '') {
+  const raw = String(rawText || '').replace(/\s+/g, ' ').trim();
+  const text = normalize(raw);
+  const details = {
+    hasAddressData: false,
+    addressSummary: '',
+    deliveryInstruction: '',
+    wantsCancel: false,
+    wantsReceive: false,
+    courierIssue: false,
+    phoneMentioned: '',
+    customerIntentDetail: ''
+  };
+
+  const phoneMatch = raw.match(/(?:\+34\s*)?[67]\d(?:[\s.-]?\d){7}/);
+  if (phoneMatch) details.phoneMentioned = phoneMatch[0].trim();
+
+  const hasAddressKeyword = /direccion|calle|avenida|av\.?|numero|portal|piso|puerta|codigo postal|cp|ciudad|localidad|bloque|escalera/.test(text);
+  if (hasAddressKeyword) {
+    details.hasAddressData = true;
+    details.addressSummary = clip(raw, 180);
+  }
+
+  const instructionParts = [];
+  const hourMatches = [...raw.matchAll(/\b(?:a partir de las|desde las|sobre las|despues de las|antes de las)?\s*([01]?\d|2[0-3])[:.]?([0-5]\d)?\s*(?:h|horas)?\b/gi)]
+    .map((match) => match[0].trim())
+    .filter((item) => /\d/.test(item));
+  if (hourMatches.length) instructionParts.push(`horario indicado: ${unique(hourMatches).slice(0, 2).join(', ')}`);
+  if (text.includes('tarde')) instructionParts.push('entregar por la tarde');
+  if (text.includes('manana')) instructionParts.push('entregar por la manana');
+  if (text.includes('mediodia') || text.includes('medio dia')) instructionParts.push('entregar al mediodia');
+  if (text.includes('noche')) instructionParts.push('entregar por la noche');
+  const dayHits = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'].filter((day) => text.includes(day));
+  if (dayHits.length) instructionParts.push(`dia indicado: ${unique(dayHits).join(', ')}`);
+  if (/otro dia|reprogram|nueva entrega|volver a pasar|que pasen|entregar/.test(text)) instructionParts.push('pide nueva entrega');
+  if (details.phoneMentioned || /llamar|telefono|telf|movil/.test(text)) {
+    instructionParts.push(details.phoneMentioned ? `llamar al ${details.phoneMentioned}` : 'pide llamada telefonica');
+  }
+  details.deliveryInstruction = unique(instructionParts).join(' | ');
+
+  details.wantsCancel = /no lo quiero|no quiero|cancel|anul|rechaz|no acepta|no acepto|no me interesa|devolver|no voy a recibir/.test(text);
+  details.wantsReceive = /si lo quiero|quiero recibir|lo quiero|entregar|que lo traigan|que vuelvan|volver a pasar|confirmo|correcto|ok|vale/.test(text) && !details.wantsCancel;
+  details.courierIssue = /no ha pasado|no paso|repartidor|mensajero|nadie vino|no llamaron|no me llamaron|estaba en casa/.test(text);
+
+  if (details.wantsCancel) details.customerIntentDetail = 'El cliente parece rechazar o cancelar el pedido.';
+  else if (details.deliveryInstruction) details.customerIntentDetail = `El cliente da instrucciones de entrega: ${details.deliveryInstruction}.`;
+  else if (details.hasAddressData) details.customerIntentDetail = 'El cliente aporta o menciona datos de direccion.';
+  else if (details.wantsReceive) details.customerIntentDetail = 'El cliente parece querer recibir el pedido.';
+  else if (raw) details.customerIntentDetail = 'Hay respuesta del cliente, pero necesita lectura manual del contexto.';
+  else details.customerIntentDetail = 'No hay respuesta entrante del cliente.';
+
+  return details;
+}
+
+function detectSentTemplates(messages = [], allText = '') {
+  const source = normalize([
+    allText,
+    ...messages.map((message) => `${messageText(message)} ${JSON.stringify(message || {})}`)
+  ].join(' | '));
+  return {
+    directionReminderSent: source.includes('dropea_incidencia_direccion_v1'),
+    absentReminderSent: source.includes('dropea_incidencia_ausente') || source.includes('suleia_incidencia_ausente'),
+    discountReminderSent: source.includes('descuento') || source.includes('discount') || source.includes('5 eur') || source.includes('5€'),
+    pendingOrderReminderSent: source.includes('dropea_pedido_pendiente') || source.includes('pendiente de confirmacion')
+  };
+}
+
+function recommendationPayload({ action, tone, solution, stage, instruction = '', template = '', intentDetail = '' }) {
+  return {
+    action,
+    tone,
+    solution,
+    resolutionStage: stage,
+    operationalInstruction: instruction,
+    templateRecommendation: template,
+    templateName: template,
+    customerIntentDetail: intentDetail
+  };
+}
+
+function typeAwareIncidentSolution(classification, chatby, issue = null) {
+  const intent = chatby.intent || '';
+  const responded = Number(chatby.customerMessages || 0) > 0;
+  const last = chatby.lastCustomerMessage ? ` Ultimo mensaje: "${clip(chatby.lastCustomerMessage, 120)}".` : '';
+  const ageHours = incidentAgeHours(issue?.created_at || issue?.createdAt || issue?.date || issue?.opened_at || null);
+  const ageText = Number.isFinite(ageHours) ? `${Math.round(ageHours)}h desde la incidencia` : 'antiguedad no disponible';
+  const details = chatby.operationalDetails || extractOperationalDetailsFromText(rawCustomerTextForDisplay(chatby));
+  const sent = chatby.sentTemplates || {};
+  const intentDetail = details.customerIntentDetail || '';
+
+  if (intent === 'reject_or_cancel') {
+    return recommendationPayload({
+      action: 'Rechazar/cancelar incidencia',
+      tone: 'danger',
+      stage: 'Cliente rechaza',
+      intentDetail,
+      instruction: 'No enviar mas recordatorios. Propuesta: rechazar/cancelar la incidencia en Dropea cuando se active modo real.',
+      solution: `El cliente muestra rechazo o cancelacion.${last} Propuesta: rechazar/cancelar en Dropea y registrar el motivo.`
+    });
+  }
+  if (details.deliveryInstruction && (classification.type === 'absent' || classification.type === 'rejected_goods' || intent === 'delivery_instruction' || intent === 'reprogram_delivery')) {
+    return recommendationPayload({
+      action: 'Resolver con instruccion de entrega',
+      tone: 'positive',
+      stage: 'Respuesta accionable',
+      intentDetail,
+      instruction: `Escribir en resolucion de Dropea: "${details.deliveryInstruction}". ${details.phoneMentioned ? `Telefono indicado: ${details.phoneMentioned}.` : ''}`.trim(),
+      solution: `El cliente ha dado una instruccion util.${last} Propuesta: resolver en Dropea trasladando literalmente la franja, telefono o comentario del cliente.`
+    });
+  }
+  if (details.hasAddressData && (classification.type === 'address' || intent === 'address_data')) {
+    return recommendationPayload({
+      action: 'Actualizar datos de entrega',
+      tone: 'positive',
+      stage: 'Datos recibidos',
+      intentDetail,
+      instruction: `Revisar y copiar datos de direccion en Dropea. Texto detectado: "${details.addressSummary || clip(rawCustomerTextForDisplay(chatby), 160)}"`,
+      solution: `El cliente ha enviado o mencionado datos de direccion.${last} Propuesta: actualizar Dropea si estan completos; si falta algo, pedir solo el dato exacto.`
+    });
+  }
+
+  if (classification.type === 'address') {
+    if (responded) {
+      return recommendationPayload({
+        action: 'Revisar dato faltante',
+        tone: 'warning',
+        stage: 'Respuesta incompleta',
+        intentDetail,
+        instruction: 'Pedir solo el dato que falte: calle, numero, piso/puerta, CP, ciudad o telefono.',
+        solution: 'Hay respuesta del cliente, pero no veo datos completos. Propuesta: revisar conversacion y pedir solo el dato que falta antes de resolver.'
+      });
+    }
+    if (Number.isFinite(ageHours) && ageHours >= 24 && !sent.directionReminderSent) {
+      return recommendationPayload({
+        action: 'Enviar recordatorio direccion',
+        tone: 'warning',
+        stage: '24h sin respuesta',
+        template: 'es_ES - dropea_incidencia_direccion_v1',
+        intentDetail,
+        instruction: 'Entrenamiento: si se activa modo real, enviar un recordatorio de direccion y esperar datos del cliente.',
+        solution: `Incidencia de direccion sin respuesta tras ${ageText}. Propuesta: enviar la plantilla es_ES - dropea_incidencia_direccion_v1.`
+      });
+    }
+    return recommendationPayload({
+      action: sent.directionReminderSent ? 'Esperar datos tras recordatorio' : 'Esperar respuesta del cliente',
+      tone: 'warning',
+      stage: sent.directionReminderSent ? 'Recordatorio ya enviado' : 'Esperando cliente',
+      intentDetail,
+      instruction: sent.directionReminderSent
+        ? 'No enviar otro recordatorio de direccion de momento. Esperar datos o revisar manualmente.'
+        : 'Esperar hasta cumplir 24h desde la incidencia antes de enviar recordatorio.',
+      solution: sent.directionReminderSent
+        ? 'Ya consta recordatorio de direccion. Propuesta: esperar respuesta o revisar manualmente si urge.'
+        : 'Incidencia de direccion sin respuesta. Propuesta: esperar a que el cliente envie datos completos.'
+    });
+  }
+
+  if (classification.type === 'rejected_goods') {
+    if (details.wantsReceive || details.courierIssue) {
+      return recommendationPayload({
+        action: 'Solicitar nueva entrega',
+        tone: 'positive',
+        stage: 'Cliente quiere recibirlo',
+        intentDetail,
+        instruction: details.courierIssue
+          ? 'Indicar en Dropea que el cliente afirma que el repartidor no paso o no contacto. Solicitar nuevo intento de entrega.'
+          : 'Indicar en Dropea que el cliente quiere recibir el pedido y solicitar nuevo intento de entrega.',
+        solution: `El cliente parece querer recibir el pedido.${last} Propuesta: resolver en Dropea solicitando nuevo intento de entrega.`
+      });
+    }
+    if (responded) {
+      return recommendationPayload({
+        action: 'Validar intencion del cliente',
+        tone: 'warning',
+        stage: 'Respuesta ambigua',
+        intentDetail,
+        instruction: 'Leer conversacion completa. Si confirma rechazo, rechazar; si quiere recibirlo, pedir nuevo intento de entrega.',
+        solution: 'Incidencia de no acepta mercancia con respuesta, pero no concluyente. Propuesta: revisar contexto antes de actuar.'
+      });
+    }
+    if (Number.isFinite(ageHours) && ageHours >= 24 && !sent.discountReminderSent) {
+      return recommendationPayload({
+        action: 'Ofrecer descuento 5 EUR',
+        tone: 'warning',
+        stage: '24h sin respuesta',
+        template: 'plantilla descuento incidencia no acepta mercancia 5 EUR',
+        intentDetail,
+        instruction: 'Entrenamiento: enviar una sola plantilla de descuento de 5 EUR si no responde tras 24h.',
+        solution: `No acepta mercancia sin respuesta tras ${ageText}. Propuesta: enviar una plantilla con descuento de 5 EUR para recuperar el pedido.`
+      });
+    }
+    return recommendationPayload({
+      action: sent.discountReminderSent ? 'Esperar tras descuento' : 'Esperar respuesta',
+      tone: 'danger',
+      stage: sent.discountReminderSent ? 'Descuento ya ofrecido' : 'Esperando cliente',
+      intentDetail,
+      instruction: sent.discountReminderSent
+        ? 'No enviar mas descuentos. Esperar respuesta o revisar manualmente.'
+        : 'Esperar hasta 24h desde la incidencia antes de ofrecer descuento.',
+      solution: sent.discountReminderSent
+        ? 'Ya consta aviso/descuento. Propuesta: no insistir y esperar decision del cliente.'
+        : 'Incidencia de no aceptacion sin respuesta clara. Propuesta: esperar antes del primer incentivo.'
+    });
+  }
+
+  if (classification.type === 'absent') {
+    if (responded) {
+      return recommendationPayload({
+        action: 'Coordinar nueva entrega',
+        tone: details.deliveryInstruction ? 'positive' : 'warning',
+        stage: details.deliveryInstruction ? 'Instruccion clara' : 'Respuesta a interpretar',
+        intentDetail,
+        instruction: details.deliveryInstruction
+          ? `Escribir en Dropea: "${details.deliveryInstruction}".`
+          : 'Leer si indica dia, franja, tarde/manana, telefono o nueva entrega. Si falta concrecion, pedirla.',
+        solution: details.deliveryInstruction
+          ? 'Incidencia por ausente con instruccion clara. Propuesta: resolver en Dropea copiando la instruccion del cliente.'
+          : 'Incidencia por ausente con respuesta. Propuesta: interpretar la franja/fecha o pedir concrecion antes de resolver.'
+      });
+    }
+    if (Number.isFinite(ageHours) && ageHours >= 24 && !sent.absentReminderSent) {
+      return recommendationPayload({
+        action: 'Enviar unico recordatorio ausente',
+        tone: 'warning',
+        stage: '24h sin respuesta',
+        template: 'suleia_incidencia_ausente_v2',
+        intentDetail,
+        instruction: 'Entrenamiento: enviar un unico aviso extra para coordinar nueva entrega. No enviar mas de un recordatorio.',
+        solution: `Ausente sin respuesta tras ${ageText}. Propuesta: enviar un unico recordatorio de coordinacion de entrega.`
+      });
+    }
+    return recommendationPayload({
+      action: sent.absentReminderSent ? 'Esperar tras aviso ausente' : 'Esperar instruccion',
+      tone: 'warning',
+      stage: sent.absentReminderSent ? 'Recordatorio ya enviado' : 'Esperando cliente',
+      intentDetail,
+      instruction: sent.absentReminderSent
+        ? 'No enviar mas recordatorios de ausente. Esperar respuesta o revisar manualmente.'
+        : 'Esperar hasta 24h desde la incidencia antes del aviso extra.',
+      solution: sent.absentReminderSent
+        ? 'Ya consta recordatorio de ausente. Propuesta: esperar respuesta y no duplicar mensajes.'
+        : 'Incidencia por ausente sin respuesta. Propuesta: esperar instruccion del cliente.'
+    });
+  }
+
+  return responded
+    ? recommendationPayload({
+        action: 'Revision con respuesta',
+        tone: 'warning',
+        stage: 'Tipologia no clasificada',
+        intentDetail,
+        instruction: 'Revisar manualmente y usar feedback para entrenar al agente.',
+        solution: 'Hay respuesta del cliente, pero la tipologia no esta clara. Propuesta: revisar manualmente y dar feedback al agente.'
+      })
+    : recommendationPayload({
+        action: 'Revision manual',
+        tone: 'neutral',
+        stage: 'Sin senal suficiente',
+        intentDetail,
+        instruction: 'Revisar Dropea y Chatby antes de resolver.',
+        solution: chatby.proposedSolution || 'Sin senal suficiente. Propuesta: revisar Dropea y Chatby antes de resolver.'
+      });
 }
 
 function customerSignalForIncident(chatby) {
@@ -330,6 +667,18 @@ function confidenceForIncident({ classification, chatby, recommendation }) {
 
   if (recommendation.tone === 'positive' && messages > 0) score += 5;
   if (recommendation.tone === 'danger' && intent !== 'reject_or_cancel') score -= 6;
+  if (recommendation.resolutionStage) {
+    score += 8;
+    reasons.push(`Etapa operativa: ${recommendation.resolutionStage}`);
+  }
+  if (recommendation.operationalInstruction) {
+    score += 6;
+    reasons.push('Instruccion operativa generada');
+  }
+  if (chatby.operationalDetails?.deliveryInstruction || chatby.operationalDetails?.hasAddressData) {
+    score += 10;
+    reasons.push('Dato accionable extraido de Chatby');
+  }
 
   return {
     score: Math.max(12, Math.min(96, Math.round(score))),
@@ -407,6 +756,9 @@ function evidenceFromConversation(customerText, allText) {
 function baseConversationMeta({ intent, customerMessages, customerText, allText, messages }) {
   const lastCustomerMessage = [...messages].reverse().find(isCustomerMessage);
   const lastMessageText = lastCustomerMessage ? clip(messageText(lastCustomerMessage), 220) : '';
+  const customerMessageItems = messages.filter(isCustomerMessage);
+  const rawCustomerText = customerMessageItems.map(messageText).join(' | ');
+  const rawAllText = messages.map(messageText).join(' | ');
   const confidenceByIntent = {
     reject_or_cancel: 94,
     address_data: 88,
@@ -423,7 +775,11 @@ function baseConversationMeta({ intent, customerMessages, customerText, allText,
     lastCustomerAt: lastCustomerMessage ? messageDate(lastCustomerMessage) : null,
     evidence: evidenceFromConversation(customerText, allText),
     confidence: confidenceByIntent[intent] ?? (customerMessages ? 55 : 30),
-    customerMessages
+    customerMessages,
+    rawCustomerText,
+    rawAllText,
+    operationalDetails: extractOperationalDetailsFromText(rawCustomerText || lastMessageText || customerText),
+    sentTemplates: detectSentTemplates(messages, rawAllText || allText)
   };
 }
 
@@ -555,6 +911,7 @@ async function chatbyContextForPhone(phone) {
 async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   let directIncidentsError = null;
   const directRows = [];
+  let directIncidentsSucceeded = false;
   const fallbackErrors = [];
   const diagnostics = {
     incidenceStatusScanned: 0,
@@ -564,6 +921,26 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     statusRows: {}
   };
   const rows = [];
+  const useDirectIssuesEndpointFirst = false;
+  if (useDirectIssuesEndpointFirst) try {
+    for (let page = 1; page <= Math.max(pages, 5); page += 1) {
+      const incidences = await listDropeaIncidences({ limit, page });
+      directIncidentsSucceeded = true;
+      if (!Array.isArray(incidences) || !incidences.length) break;
+      for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
+        if (!incidence.orderId) continue;
+        const order = await getDropeaOrderById(incidence.orderId).catch(() => null);
+        if (!isPendingResolutionIssue(incidence, order)) continue;
+        directRows.push({ order, issue: incidence });
+      }
+      if (incidences.length < limit) break;
+    }
+  } catch (error) {
+    directIncidentsError = error instanceof Error ? error.message : String(error);
+  }
+  if (directRows.length) return sortRowsByIncidenceDesc(directRows);
+  if (directIncidentsSucceeded) return [];
+
   for (let page = 1; page <= Math.max(pages, 5); page += 1) {
     let orders = [];
     try {
@@ -575,23 +952,23 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     if (!Array.isArray(orders) || !orders.length) break;
     diagnostics.incidenceStatusScanned += orders.length;
     for (const order of orders) {
-      const issues = asArray(order.raw?.issues).filter(isPendingIssue);
+      const issues = asArray(order.raw?.issues).filter((issue) => isPendingResolutionIssue(issue, order));
       for (const issue of issues) {
         rows.push({ order, issue });
       }
     }
     if (orders.length < limit) break;
   }
-  if (rows.length) return rows;
+  if (rows.length) return sortRowsByIncidenceDesc(rows);
 
   try {
     for (let page = 1; page <= Math.max(pages, 5); page += 1) {
       const incidences = await listDropeaIncidences({ limit, page });
       if (!Array.isArray(incidences) || !incidences.length) break;
-      for (const incidence of incidences.filter(isPendingIssue)) {
+      for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
         if (!incidence.orderId) continue;
         const order = await getDropeaOrderById(incidence.orderId).catch(() => null);
-        if (!order || String(order.status || '').toUpperCase() !== 'INCIDENCE') continue;
+        if (!isPendingResolutionIssue(incidence, order)) continue;
         directRows.push({ order, issue: incidence });
       }
       if (incidences.length < limit) break;
@@ -599,7 +976,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   } catch (error) {
     directIncidentsError = error instanceof Error ? error.message : String(error);
   }
-  if (directRows.length) return directRows;
+  if (directRows.length) return sortRowsByIncidenceDesc(directRows);
 
   for (let page = 1; page <= Math.max(pages, 10); page += 1) {
     let orders = [];
@@ -612,19 +989,26 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     if (!Array.isArray(orders) || !orders.length) break;
     diagnostics.ordersWithIssuesScanned += orders.length;
     for (const order of orders) {
-      const issues = asArray(order.raw?.issues).filter(isPendingIssue);
+      const issues = asArray(order.raw?.issues).filter((issue) => isPendingResolutionIssue(issue, order));
       for (const issue of issues) {
         rows.push({ order, issue });
       }
     }
     if (orders.length < limit) break;
   }
-  if (rows.length) return rows;
+  if (rows.length) return sortRowsByIncidenceDesc(rows);
 
   if (!rows.length && directIncidentsError) {
     throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Diagnostico: ${JSON.stringify(diagnostics)}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
   }
-  return rows;
+  return sortRowsByIncidenceDesc(rows);
+}
+
+function incidentDisplayLabel(classification) {
+  if (classification?.type === 'absent') return 'Ausente';
+  if (classification?.type === 'address') return 'Direccion incorrecta o faltan datos';
+  if (classification?.type === 'rejected_goods') return 'No acepta mercancia';
+  return classification?.label || 'Incidencia pendiente';
 }
 
 export function loadIncidentsCache() {
@@ -686,19 +1070,22 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         }
       }
       const classification = classifyIncident(issue, order);
-      const recommendation = typeAwareIncidentSolution(classification, chatby);
+      const cleanLabel = incidentDisplayLabel(classification);
+      const currentIncidenceDate = issueDate(order, issue);
+      const recommendation = typeAwareIncidentSolution(classification, chatby, issue);
       const customerSignal = customerSignalForIncident(chatby);
       const confidence = confidenceForIncident({ classification, chatby, recommendation });
 
       incidents.push({
         orderId,
         incidenceId: issue?.id || issue?.incidenceId ? String(issue.id || issue.incidenceId) : null,
-        incidenceDate: issueDate(order, issue),
-        reason: classification.label,
+        incidenceDate: currentIncidenceDate,
+        incidentAgeHours: incidentAgeHours(currentIncidenceDate),
+        reason: cleanLabel,
         reasonCode: classification.code || null,
         rawReason: classification.rawReason,
         incidentType: classification.type,
-        incidentTypeLabel: classification.label,
+        incidentTypeLabel: cleanLabel,
         incidentTypeTone: classification.tone,
         issueStatus: issue ? (issueStatus(issue) || 'PENDIENTE') : 'PENDIENTE',
         orderStatus: order?.status || issue?.orderStatus || 'CON INCIDENCIA',
@@ -714,6 +1101,11 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         proposedSolution: recommendation.solution,
         actionRecommended: recommendation.action,
         actionTone: recommendation.tone,
+        resolutionStage: recommendation.resolutionStage,
+        operationalInstruction: recommendation.operationalInstruction,
+        templateRecommendation: recommendation.templateRecommendation,
+        templateName: recommendation.templateName,
+        customerIntentDetail: recommendation.customerIntentDetail,
         confidenceReason: confidence.reason,
         recommendedNextStep: recommendation.solution,
         lastCustomerMessage: chatby.lastCustomerMessage || '',
