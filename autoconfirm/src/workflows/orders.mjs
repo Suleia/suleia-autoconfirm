@@ -1701,6 +1701,19 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
 
   const templateName = configuredWhatsappTemplate(store);
   if (templateName && !templateAlreadyAttempted(order, templateName)) {
+    if (config.chatbyToken && order.customerPhone) {
+      const existingSubscriber = await resolveSubscriberForOrder(order)
+        || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+      if (existingSubscriber?.user_ns) {
+        const alreadySeen = await markTemplateAlreadySeenForOrder(order, existingSubscriber.user_ns, store, templateName)
+          || await markTemplateAlreadySeen(order, existingSubscriber.user_ns, store, templateName);
+        if (alreadySeen) {
+          await safeUpsertSheetRow(alreadySeen, 'initial_template_already_seen_guard');
+          return alreadySeen;
+        }
+      }
+    }
+
     const attemptedAt = new Date().toISOString();
     const params = templateParamsForOrder(order);
     upsertOrder(store.id, {
