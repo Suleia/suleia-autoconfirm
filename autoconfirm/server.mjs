@@ -263,8 +263,9 @@ async function runAutomationOnly(context = 'automation') {
 let dashboardBuildCache = null;
 let dashboardBuildCacheAt = 0;
 let dashboardBuildInFlight = null;
+let dashboardBackgroundRefreshInFlight = false;
 
-async function buildDashboardFast({ health = null, forceMeta = false, maxAgeMs = 5000 } = {}) {
+async function buildDashboardFast({ health = null, forceMeta = false, maxAgeMs = 60000 } = {}) {
   const now = Date.now();
   if (!forceMeta && dashboardBuildCache && now - dashboardBuildCacheAt <= maxAgeMs) {
     return {
@@ -288,16 +289,20 @@ async function buildDashboardFast({ health = null, forceMeta = false, maxAgeMs =
 }
 
 function queueDashboardBackgroundRefresh() {
+  if (dashboardBackgroundRefreshInFlight) return;
+  dashboardBackgroundRefreshInFlight = true;
   setTimeout(() => {
-    runScheduledOperationalOrdersSync()
-      .then(() => { dashboardBuildCacheAt = 0; })
-      .catch((error) => console.error('Dashboard operational orders refresh error:', error));
+    Promise.allSettled([
+      runScheduledOperationalOrdersSync()
+        .then(() => { dashboardBuildCacheAt = 0; })
+        .catch((error) => console.error('Dashboard operational orders refresh error:', error)),
+      runScheduledIncidentsSync()
+        .then(() => { dashboardBuildCacheAt = 0; })
+        .catch((error) => console.error('Dashboard incidents refresh error:', error))
+    ]).finally(() => {
+      dashboardBackgroundRefreshInFlight = false;
+    });
   }, 250);
-  setTimeout(() => {
-    runScheduledIncidentsSync()
-      .then(() => { dashboardBuildCacheAt = 0; })
-      .catch((error) => console.error('Dashboard incidents refresh error:', error));
-  }, 500);
 }
 
 const server = http.createServer(async (req, res) => {
@@ -385,14 +390,14 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/dashboard-refresh') {
       if (!requireDashboardAuth(req, res)) return;
-      const dashboard = await buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 5000 });
+      const dashboard = await buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 120000 });
       queueDashboardBackgroundRefresh();
 
       return sendJson(res, 200, {
         ok: true,
         refresh: {
-          operationalOrders: { queued: true, mode: 'background' },
-          incidents: { queued: true, mode: 'background' }
+          operationalOrders: { queued: true, mode: 'background', target: 'cache_rapida' },
+          incidents: { queued: true, mode: 'background', target: 'cache_rapida' }
         },
         dashboard
       });
