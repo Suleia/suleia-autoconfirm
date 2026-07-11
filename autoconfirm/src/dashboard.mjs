@@ -518,12 +518,18 @@ function isManualReview(order) {
 }
 
 function agentCustomerSignal(order) {
+  const customerMessages = Number(order.customerMessages || 0);
+  const lastCustomerMessage = String(order.lastCustomerMessage || order.customerActionDetail || '').trim();
   const text = normalize([
     order.status,
     order.agentIntent,
     order.agentAction,
     order.agentReason,
     order.note,
+    order.customerSignalRaw,
+    order.customerActionLabel,
+    order.customerActionDetail,
+    order.lastCustomerMessage,
     order.feedbackVerdict,
     order.feedbackCorrection,
     order.feedbackNote
@@ -573,7 +579,9 @@ function agentCustomerSignal(order) {
     return {
       code: 'confirmed',
       label: 'Confirmacion clara',
-      detail: 'Hay senal de confirmacion por boton, texto o feedback validado.',
+      detail: lastCustomerMessage
+        ? `Hay senal de confirmacion. Ultimo cliente: "${lastCustomerMessage.slice(0, 140)}"`
+        : 'Hay senal de confirmacion por boton, texto o feedback validado.',
       confidence: Number(order.agentConfidence) || 100,
       tone: 'positive'
     };
@@ -589,11 +597,23 @@ function agentCustomerSignal(order) {
     };
   }
 
+  if (customerMessages > 0) {
+    return {
+      code: 'customer_replied_unclear',
+      label: 'Cliente respondio',
+      detail: lastCustomerMessage
+        ? `Respuesta detectada: "${lastCustomerMessage.slice(0, 140)}"`
+        : 'Hay respuesta entrante en Chatby, pero no es concluyente.',
+      confidence: Number(order.agentConfidence) || 68,
+      tone: 'warning'
+    };
+  }
+
   return {
     code: 'unclear',
     label: 'Sin senal suficiente',
-    detail: 'Todavia no hay una respuesta clara del cliente.',
-    confidence: Number(order.agentConfidence) || 0,
+    detail: 'No veo respuesta ni accion del cliente en Chatby.',
+    confidence: Number(order.agentConfidence) || 25,
     tone: 'neutral'
   };
 }
@@ -688,7 +708,7 @@ function agentRecommendation(order) {
       nextStep: 'Revisar conversacion antes de actuar.',
       explanation: 'No automatizo porque el pedido esta en revision manual o la evidencia no es concluyente.',
       tone: 'warning',
-      confidence: Number(order.agentConfidence) || 60
+      confidence: Number(order.agentConfidence) || (Number(order.customerMessages || 0) > 0 ? 68 : 45)
     };
   }
 
