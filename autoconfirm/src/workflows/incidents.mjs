@@ -52,7 +52,7 @@ function statusLooksClosed(value) {
 function isPendingIssue(issue) {
   const status = normalize(issueStatus(issue));
   if (!status) return true;
-  if (status === 'solution_send') return true;
+  if (status === 'solution_send' || status === 'solution_sent') return false;
   if (statusLooksClosed(status)) return false;
   return status.includes('pending')
     || status.includes('pendiente')
@@ -96,11 +96,25 @@ function numericId(value) {
   return Number.isFinite(num) ? num : 0;
 }
 
-function sortRowsByIncidenceDesc(rows) {
+function sortRowsByOrderDesc(rows) {
   return [...rows].sort((a, b) => {
-    const bId = numericId(b?.issue?.id || b?.issue?.incidenceId);
-    const aId = numericId(a?.issue?.id || a?.issue?.incidenceId);
-    return bId - aId;
+    const bOrderId = numericId(b?.order?.orderId || b?.issue?.orderId);
+    const aOrderId = numericId(a?.order?.orderId || a?.issue?.orderId);
+    if (bOrderId !== aOrderId) return bOrderId - aOrderId;
+    const bIssueId = numericId(b?.issue?.id || b?.issue?.incidenceId);
+    const aIssueId = numericId(a?.issue?.id || a?.issue?.incidenceId);
+    return bIssueId - aIssueId;
+  });
+}
+
+function sortIncidentsByOrderDesc(incidents) {
+  return [...incidents].sort((a, b) => {
+    const bOrderId = numericId(b?.orderId);
+    const aOrderId = numericId(a?.orderId);
+    if (bOrderId !== aOrderId) return bOrderId - aOrderId;
+    const bIssueId = numericId(b?.incidenceId);
+    const aIssueId = numericId(a?.incidenceId);
+    return bIssueId - aIssueId;
   });
 }
 
@@ -926,7 +940,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   const useDirectIssuesEndpointFirst = false;
   if (useDirectIssuesEndpointFirst) try {
     for (let page = 1; page <= Math.max(pages, 30); page += 1) {
-      const incidences = await listDropeaIncidences({ limit, page });
+      const incidences = await listDropeaIncidences({ limit, page, status: 'PENDING', sort: 'ID', direction: 'DESC' });
       directIncidentsSucceeded = true;
       if (!Array.isArray(incidences) || !incidences.length) break;
       for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
@@ -940,7 +954,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   } catch (error) {
     directIncidentsError = error instanceof Error ? error.message : String(error);
   }
-  if (directRows.length) return sortRowsByIncidenceDesc(directRows);
+  if (directRows.length) return sortRowsByOrderDesc(directRows);
   if (directIncidentsSucceeded) return [];
 
   for (let page = 1; page <= Math.max(pages, 5); page += 1) {
@@ -961,11 +975,11 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     }
     if (orders.length < limit) break;
   }
-  if (rows.length) return sortRowsByIncidenceDesc(rows);
+  if (rows.length) return sortRowsByOrderDesc(rows);
 
   try {
     for (let page = 1; page <= Math.max(pages, 5); page += 1) {
-      const incidences = await listDropeaIncidences({ limit, page });
+      const incidences = await listDropeaIncidences({ limit, page, status: 'PENDING', sort: 'ID', direction: 'DESC' });
       if (!Array.isArray(incidences) || !incidences.length) break;
       for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
         if (!incidence.orderId) continue;
@@ -978,7 +992,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
   } catch (error) {
     directIncidentsError = error instanceof Error ? error.message : String(error);
   }
-  if (directRows.length) return sortRowsByIncidenceDesc(directRows);
+  if (directRows.length) return sortRowsByOrderDesc(directRows);
 
   for (let page = 1; page <= Math.max(pages, 30); page += 1) {
     let orders = [];
@@ -998,12 +1012,12 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     }
     if (orders.length < limit) break;
   }
-  if (rows.length) return sortRowsByIncidenceDesc(rows);
+  if (rows.length) return sortRowsByOrderDesc(rows);
 
   if (!rows.length && directIncidentsError) {
     throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Diagnostico: ${JSON.stringify(diagnostics)}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
   }
-  return sortRowsByIncidenceDesc(rows);
+  return sortRowsByOrderDesc(rows);
 }
 
 function incidentDisplayLabel(classification) {
@@ -1122,12 +1136,13 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       });
     }
 
+    const sortedIncidents = sortIncidentsByOrderDesc(incidents);
     const payload = {
       ok: true,
       updatedAt,
       intervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
-      count: incidents.length,
-      incidents,
+      count: sortedIncidents.length,
+      incidents: sortedIncidents,
       error: null
     };
     writeJson(cachePath, payload);
@@ -1137,7 +1152,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
     const state = { ...loadState() };
     state.lastIncidentsSyncAt = updatedAt;
     state.lastIncidentsSyncError = null;
-    state.lastIncidentsSyncCount = incidents.length;
+    state.lastIncidentsSyncCount = sortedIncidents.length;
     saveState(state);
     return payload;
   } catch (error) {
