@@ -715,6 +715,50 @@ function issueDate(order, issue) {
     || null;
 }
 
+function spanishDateTimeToIso(value) {
+  const match = String(value || '').match(/\b(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?\b/);
+  if (!match) return null;
+  const [, day, month, year, hour, minute, second = '00'] = match;
+  const date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}+02:00`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+function transportHistoryFromIssue(issue = {}) {
+  const raw = issue.raw || issue;
+  const sourceParts = [issue.description, raw.description, issue.solutions, raw.solutions]
+    .flatMap((value) => {
+      if (!value) return [];
+      if (typeof value === 'string') {
+        try {
+          const parsed = JSON.parse(value);
+          if (Array.isArray(parsed)) return parsed.map((item) => typeof item === 'string' ? item : JSON.stringify(item));
+        } catch {}
+        return [value];
+      }
+      if (Array.isArray(value)) return value.map((item) => typeof item === 'string' ? item : JSON.stringify(item));
+      return [JSON.stringify(value)];
+    })
+    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+
+  const combined = unique(sourceParts).join(' | ');
+  if (!combined) return [];
+  const dateRegex = /\b\d{2}\/\d{2}\/\d{4}\s+\d{2}:\d{2}(?::\d{2})?\b/g;
+  const matches = [...combined.matchAll(dateRegex)];
+  if (!matches.length) {
+    return [{ eventAt: null, text: clip(combined, 600) }];
+  }
+
+  return matches.map((match, index) => {
+    const start = match.index || 0;
+    const end = index + 1 < matches.length ? matches[index + 1].index : combined.length;
+    return {
+      eventAt: spanishDateTimeToIso(match[0]),
+      text: clip(combined.slice(start, end).replace(/^\s*[|;-]+|\s*[|;-]+$/g, ''), 600)
+    };
+  }).sort((left, right) => new Date(left.eventAt || 0) - new Date(right.eventAt || 0));
+}
+
 function messageText(message) {
   return [
     message?.text,
@@ -937,7 +981,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
     statusRows: {}
   };
   const rows = [];
-  const useDirectIssuesEndpointFirst = false;
+  const useDirectIssuesEndpointFirst = true;
   if (useDirectIssuesEndpointFirst) try {
     for (let page = 1; page <= Math.max(pages, 30); page += 1) {
       const incidences = await listDropeaIncidences({ limit, page, status: 'PENDING', sort: 'ID', direction: 'DESC' });
@@ -1087,7 +1131,9 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       }
       const classification = classifyIncident(issue, order);
       const cleanLabel = incidentDisplayLabel(classification);
-      const currentIncidenceDate = issueDate(order, issue);
+      const transportHistory = transportHistoryFromIssue(issue);
+      const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
+      const currentIncidenceDate = transportHistory[0]?.eventAt || issueDate(order, issue);
       const recommendation = typeAwareIncidentSolution(classification, chatby, issue);
       const customerSignal = customerSignalForIncident(chatby);
       const confidence = confidenceForIncident({ classification, chatby, recommendation });
@@ -1108,6 +1154,15 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         customerName: order?.customerName || order?.raw?.customer?.full_name || issue?.customerName || '',
         phone,
         amount: order?.orderAmount ?? null,
+        carrierCompany: issue?.carrierCompany || issue?.raw?.carrier_company || '',
+        carrierService: issue?.carrierService || issue?.raw?.carrier_service || '',
+        tracking: issue?.tracking || issue?.raw?.tracking || '',
+        trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || '',
+        transportHistory,
+        transportLatestEvent: latestTransportEvent,
+        transportLogAvailable: transportHistory.length > 0,
+        transportLogCompleteness: 'summary_only',
+        transportLogSource: 'Dropea API: description, solutions and tracking fields',
         chatbyIntent: chatby.intent || 'unknown',
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
@@ -1141,6 +1196,10 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       ok: true,
       updatedAt,
       intervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
+      agentName: 'Agente de incidencias',
+      agentMode: 'training_read_only',
+      agentModeLabel: 'Entrenamiento y analisis; sin acciones automaticas',
+      transportHistoryNotice: 'Dropea API expone un resumen del transportista, no el historial completo del modal web.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
       error: null
