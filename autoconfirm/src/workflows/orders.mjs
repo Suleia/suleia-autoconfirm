@@ -29,9 +29,11 @@ import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clients/shopify.mjs';
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
+import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
+const activeInitialTemplateClaims = new Set();
 
 async function safeUpsertSheetRow(order, context = 'sheet_sync') {
   if (!config.googleSheetsEnabled) {
@@ -211,7 +213,77 @@ function customerMessagesAfter(messages, sinceIso) {
   });
 }
 
-function deterministicCustomerIntent(messages) {
+const ADDRESS_CHANGE_PATTERNS = [
+  /\bcambio de direccion\b/,
+  /\bcambiar direccion\b/,
+  /\bcambiar la direccion\b/,
+  /\bmodificar direccion\b/,
+  /\bmodificar la direccion\b/,
+  /\bcambio direccion\b/,
+  /\bdireccion (mal|incorrecta|equivocada)\b/,
+  /\bcambiar datos\b/,
+  /\bmodificar datos\b/,
+  /\bcambiar envio\b/,
+  /\bcambiar el envio\b/,
+  /\bcorregir direccion\b/,
+  /\bcorregir la direccion\b/,
+  /\bmudar morada\b/,
+  /\balterar morada\b/,
+  /\bmudar endereco\b/,
+  /\balterar endereco\b/,
+  /\bendereco (errado|incorreto)\b/,
+  /\bmorada (errada|incorreta)\b/
+];
+
+function normalizedMessageContent(message) {
+  return normalizeText([
+    message?.content,
+    message?.raw?.payload?.title,
+    message?.raw?.payload?.body,
+    message?.raw?.title,
+    message?.raw?.button_text,
+    message?.raw?.buttonText
+  ].filter(Boolean).join(' '));
+}
+
+function requestsAddressChange(text) {
+  return ADDRESS_CHANGE_PATTERNS.some((pattern) => pattern.test(normalizeText(text)));
+}
+
+function looksLikeCompleteDeliveryAddress(text) {
+  const value = normalizeText(text);
+  const hasStreet = /\b(calle|c\/|avenida|avda|paseo|plaza|camino|carretera|ronda|travesia|urbanizacion|poligono|rua|rue|estrada)\b/.test(value);
+  const hasStreetNumber = /(?:^|\s)(?:n(?:umero|um)?\.?\s*)?\d{1,4}(?:\s|,|\.|$)/.test(value);
+  const hasPostalCode = /\b\d{5}\b/.test(value);
+  const hasAddressDetail = /\b(portal|piso|puerta|bloque|escalera|bajo|atico|local|derecha|izquierda|drcha|izda|apartamento)\b/.test(value);
+  const enoughWords = value.split(/\s+/).filter(Boolean).length >= 4;
+  return hasStreet && hasStreetNumber && (hasPostalCode || hasAddressDetail || enoughWords);
+}
+
+function addressChangeWithCompleteAddressIntent(messages) {
+  const texts = messages.map(normalizedMessageContent);
+  let requestIndex = -1;
+  for (let index = texts.length - 1; index >= 0; index -= 1) {
+    if (requestsAddressChange(texts[index])) {
+      requestIndex = index;
+      break;
+    }
+  }
+  if (requestIndex < 0) return null;
+
+  const addressText = texts.slice(requestIndex).join(' ');
+  if (!looksLikeCompleteDeliveryAddress(addressText)) return null;
+
+  return {
+    intent: 'CONFIRM',
+    confidence: 98,
+    reason: 'El cliente pidio cambiar la direccion y aporto una direccion de entrega suficientemente completa. Esta accion cuenta como confirmacion logistica.',
+    source: 'customer_address_change_with_complete_address',
+    customer_message: messages.slice(requestIndex).map((message) => message.content || '').filter(Boolean).join(' | ')
+  };
+}
+
+export function deterministicCustomerIntent(messages) {
   const text = normalizeText(messages.map((message) => [
     message.content,
     message.raw?.payload?.title,
@@ -222,29 +294,10 @@ function deterministicCustomerIntent(messages) {
   ].filter(Boolean).join(' ')).join('\n'));
   if (!text) return null;
 
-  const addressChangePatterns = [
-    /\bcambio de direccion\b/,
-    /\bcambiar direccion\b/,
-    /\bcambiar la direccion\b/,
-    /\bmodificar direccion\b/,
-    /\bmodificar la direccion\b/,
-    /\bcambio direccion\b/,
-    /\bdireccion (mal|incorrecta|equivocada)\b/,
-    /\bcambiar datos\b/,
-    /\bmodificar datos\b/,
-    /\bcambiar envio\b/,
-    /\bcambiar el envio\b/,
-    /\bcorregir direccion\b/,
-    /\bcorregir la direccion\b/,
-    /\bmudar morada\b/,
-    /\balterar morada\b/,
-    /\bmudar endereco\b/,
-    /\balterar endereco\b/,
-    /\bendereco (errado|incorreto)\b/,
-    /\bmorada (errada|incorreta)\b/
-  ];
+  const completedAddressChange = addressChangeWithCompleteAddressIntent(messages);
+  if (completedAddressChange) return completedAddressChange;
 
-  if (addressChangePatterns.some((pattern) => pattern.test(text))) {
+  if (requestsAddressChange(text)) {
     return {
       intent: 'ADDRESS_CHANGE',
       confidence: 100,
@@ -875,6 +928,9 @@ function customerConversationIntentForOrder(messages, order) {
   const orderedMessages = [...messages].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
   const customerOnly = orderedMessages.filter((message) => isCustomerMessage(message));
 
+  const completedAddressChange = addressChangeWithCompleteAddressIntent(customerOnly);
+  if (completedAddressChange) return completedAddressChange;
+
   for (let index = customerOnly.length - 1; index >= 0; index -= 1) {
     const message = customerOnly[index];
     const intent = deterministicCustomerIntent([message]);
@@ -1031,6 +1087,91 @@ function initialTemplateLedgerEntry(order, templateName) {
     if (ledger[key]) return ledger[key];
   }
   return null;
+}
+
+async function acquireInitialTemplateClaim(order, store, templateName, userNs) {
+  const key = initialTemplateLedgerKey(order, templateName);
+  if (activeInitialTemplateClaims.has(key)) {
+    return { acquired: false, reason: 'already_in_flight', key };
+  }
+
+  activeInitialTemplateClaims.add(key);
+  try {
+    const claim = await claimTemplateDelivery({
+      storeId: store.id,
+      orderId: order.orderId,
+      customerPhone: order.customerPhone,
+      templateName,
+      provider: String(config.whatsappProvider || 'chatby'),
+      chatbyUserNs: userNs || order.chatbyUserNs || ''
+    });
+    if (!claim?.acquired) {
+      activeInitialTemplateClaims.delete(key);
+      return { ...claim, key };
+    }
+    return { ...claim, acquired: true, key };
+  } catch (error) {
+    activeInitialTemplateClaims.delete(key);
+    return {
+      acquired: false,
+      reason: 'persistent_dedupe_unavailable',
+      key,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function orderAfterRejectedInitialTemplateClaim(order, store, templateName, claim) {
+  const existing = claim?.existing || {};
+  if (claim?.reason === 'already_claimed') {
+    const attemptedAt = existing.attempted_at || order.chatbyTemplateAttemptedAt || new Date().toISOString();
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyTemplateAttemptedAt: attemptedAt,
+      chatbyTemplateSentAt: existing.sent_at || order.chatbyTemplateSentAt || null,
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: `persistent_${existing.status || 'claimed'}`,
+      chatbyTemplateLastError: null
+    });
+    rememberInitialTemplateAttempt(updated, templateName, {
+      status: existing.status || 'attempted',
+      attemptedAt,
+      sentAt: existing.sent_at || null,
+      provider: existing.provider || null
+    });
+    return updated;
+  }
+
+  return upsertOrder(store.id, {
+    ...order,
+    chatbyTemplateName: templateName,
+    chatbyTemplateSendStatus: claim?.reason || 'dedupe_guard_blocked',
+    chatbyTemplateLastError: claim?.error || null
+  });
+}
+
+async function finalizeInitialTemplateClaim(order, store, templateName, claim, patch = {}) {
+  try {
+    if (claim?.persistent) {
+      await finishTemplateDelivery({
+        storeId: store.id,
+        orderId: order.orderId,
+        customerPhone: order.customerPhone,
+        templateName,
+        provider: patch.provider || String(config.whatsappProvider || 'chatby'),
+        chatbyUserNs: patch.chatbyUserNs || order.chatbyUserNs || '',
+        status: patch.status,
+        attemptedAt: patch.attemptedAt,
+        sentAt: patch.sentAt || null,
+        lastError: patch.lastError || null,
+        raw: patch.raw || null
+      });
+    }
+  } catch (error) {
+    console.error('Supabase template delivery ledger finalize error:', error instanceof Error ? error.message : String(error));
+  } finally {
+    if (claim?.key) activeInitialTemplateClaims.delete(claim.key);
+  }
 }
 
 function trimTemplateLedger(ledger) {
@@ -1319,10 +1460,17 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   if (blocked) return blocked.order || order;
 
   const templateName = configuredWhatsappTemplate(store);
-  if (!templateName || !userNs || templateAlreadyAttempted(order, templateName)) return order;
+  if (!templateName || templateAlreadyAttempted(order, templateName)) return order;
 
-  const alreadySeen = await markTemplateAlreadySeen(order, userNs, store, templateName);
-  if (alreadySeen) return alreadySeen;
+  if (userNs) {
+    const alreadySeen = await markTemplateAlreadySeenForOrder(order, userNs, store, templateName);
+    if (alreadySeen) return alreadySeen;
+  }
+
+  const claim = await acquireInitialTemplateClaim(order, store, templateName, userNs);
+  if (!claim.acquired) {
+    return orderAfterRejectedInitialTemplateClaim(order, store, templateName, claim);
+  }
 
   const params = templateParamsForOrder(order);
   let sendResponse = null;
@@ -1366,6 +1514,13 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       lastError: message,
       provider
     });
+    await finalizeInitialTemplateClaim(failed, store, templateName, claim, {
+      status: 'failed',
+      attemptedAt,
+      lastError: message,
+      provider,
+      chatbyUserNs: userNs
+    });
     return failed;
   }
 
@@ -1389,6 +1544,14 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     attemptedAt,
     sentAt,
     provider: sendResponse.provider || provider
+  });
+  await finalizeInitialTemplateClaim(sent, store, templateName, claim, {
+    status: 'sent',
+    attemptedAt,
+    sentAt,
+    provider: sendResponse.provider || provider,
+    chatbyUserNs: sendResponse.userNs || userNs,
+    raw: sendResponse.response || null
   });
   return sent;
 }
@@ -1690,8 +1853,7 @@ export async function backfillTodayMissingInitialTemplates({
     }
 
     if (subscriber?.user_ns) {
-      const alreadySeen = await markTemplateAlreadySeenForOrder(sendCandidate, subscriber.user_ns, store, templateName)
-        || await markTemplateAlreadySeen(sendCandidate, subscriber.user_ns, store, templateName);
+      const alreadySeen = await markTemplateAlreadySeenForOrder(sendCandidate, subscriber.user_ns, store, templateName);
       if (alreadySeen) {
         results.push({ orderId: order.orderId, action: 'already_seen', userNs: subscriber.user_ns });
         continue;
@@ -1803,81 +1965,22 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
 
   const templateName = configuredWhatsappTemplate(store);
   if (templateName && !templateAlreadyAttempted(order, templateName)) {
+    let userNs = order.chatbyUserNs || null;
     if (config.chatbyToken && order.customerPhone) {
       const existingSubscriber = await resolveSubscriberForOrder(order)
         || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
       if (existingSubscriber?.user_ns) {
-        const alreadySeen = await markTemplateAlreadySeenForOrder(order, existingSubscriber.user_ns, store, templateName)
-          || await markTemplateAlreadySeen(order, existingSubscriber.user_ns, store, templateName);
+        userNs = existingSubscriber.user_ns;
+        const alreadySeen = await markTemplateAlreadySeenForOrder(order, existingSubscriber.user_ns, store, templateName);
         if (alreadySeen) {
           await safeUpsertSheetRow(alreadySeen, 'initial_template_already_seen_guard');
           return alreadySeen;
         }
       }
     }
-
-    const attemptedAt = new Date().toISOString();
-    const params = templateParamsForOrder(order);
-    const attemptedOrder = upsertOrder(store.id, {
-      ...order,
-      chatbyTemplateAttemptedAt: attemptedAt,
-      chatbyTemplateName: templateName,
-      chatbyTemplateSendStatus: 'attempted',
-      chatbyTemplateLastError: null
-    });
-    rememberInitialTemplateAttempt(attemptedOrder, templateName, {
-      status: 'attempted',
-      attemptedAt,
-      provider: 'meta'
-    });
-    try {
-      const sendResponse = await sendInitialTemplateWithFallback({
-        order,
-        templateName,
-        params,
-        userNs: order.chatbyUserNs || null
-      });
-      const sentAt = new Date().toISOString();
-      const updated = upsertOrder(store.id, {
-        ...order,
-        chatbyUserNs: sendResponse.userNs || order.chatbyUserNs || null,
-        chatbyTemplateSentAt: sentAt,
-        chatbyTemplateAttemptedAt: attemptedAt,
-        chatbyTemplateName: templateName,
-        chatbyTemplateSendStatus: 'sent',
-        chatbyTemplateLastError: null,
-        chatbyLastSendResponse: {
-          provider: sendResponse.provider || 'meta',
-          response: sendResponse.response,
-          fallbackReason: sendResponse.fallbackReason || null
-        }
-      });
-      rememberInitialTemplateAttempt(updated, templateName, {
-        status: 'sent',
-        attemptedAt,
-        sentAt,
-        provider: sendResponse.provider || 'meta'
-      });
-      await safeUpsertSheetRow(updated);
-      return updated;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const updated = upsertOrder(store.id, {
-        ...order,
-        chatbyTemplateAttemptedAt: attemptedAt,
-        chatbyTemplateName: templateName,
-        chatbyTemplateSendStatus: 'failed',
-        chatbyTemplateLastError: message
-      });
-      rememberInitialTemplateAttempt(updated, templateName, {
-        status: 'failed',
-        attemptedAt,
-        lastError: message,
-        provider: 'meta'
-      });
-      await safeUpsertSheetRow(updated);
-      return updated;
-    }
+    const updated = await sendChatbyTemplateForOrder({ ...order, chatbyUserNs: userNs }, userNs, store);
+    await safeUpsertSheetRow(updated, 'initial_template_single_delivery');
+    return updated;
   }
 
   if (!config.chatbyToken) return order;
