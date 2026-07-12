@@ -325,6 +325,7 @@ function renderOrdersSummary(orders, visibleOrders) {
 
   const latest = orders[0];
   const cards = [
+    { label: data.agentName || 'Agente de incidencias', value: 'Activo', detail: data.agentModeLabel || 'Entrenamiento; sin acciones automaticas', tone: 'positive' },
     { label: 'Con respuesta', value: orders.filter((order) => Number(order.customerMessages) > 0).length, detail: 'Cliente contesto en Chatby', tone: 'positive' },
     { label: 'Cola operativa', value: orders.length, detail: 'Solo pendientes e incidencias en Dropea', tone: 'neutral' },
     { label: 'Confirmar ahora', value: countOrdersByFilter(orders, 'confirm'), detail: 'Señal clara del cliente', tone: 'positive' },
@@ -570,7 +571,7 @@ function renderIncidents() {
   `).join('');
 
   if (data.error) {
-    table.innerHTML = `<tr><td colspan="7">No se pudo actualizar incidencias: ${escapeHtml(data.error)}</td></tr>`;
+    table.innerHTML = `<tr><td colspan="8">No se pudo actualizar incidencias: ${escapeHtml(data.error)}</td></tr>`;
     return;
   }
 
@@ -615,7 +616,9 @@ function renderIncidents() {
           <small>${escapeHtml(customerSignalDetail)}</small>
           ${incident.resolutionStage ? `<small class="incident-stage">Etapa: ${escapeHtml(incident.resolutionStage)}</small>` : ''}
           <small>${escapeHtml(incident.customerMessages || 0)} mensajes entrantes del cliente</small>
-          ${incident.lastCustomerAt ? `<small>Ultima respuesta: ${escapeHtml(formatDateTime(incident.lastCustomerAt))}</small>` : ''}
+          ${incident.lastCustomerMessage
+            ? `<div class="incident-customer-last"><b>Ultimo mensaje del cliente</b><time>${escapeHtml(formatDateTime(incident.lastCustomerAt))}</time><blockquote>${escapeHtml(incident.lastCustomerMessage)}</blockquote></div>`
+            : '<div class="incident-customer-last is-waiting"><b>Sin respuesta del cliente</b><small>Pendiente de que el cliente conteste en Chatby.</small></div>'}
           ${confidence !== null ? `<span class="signal-chip ${confidenceTone}">Confianza ${escapeHtml(confidenceLabel)} - ${confidence}%</span>` : ''}
           ${incident.confidenceReason ? `<small class="incident-confidence-reason">${escapeHtml(incident.confidenceReason)}</small>` : ''}
           ${hasCustomerResponse ? '<small class="incident-alert">Revisar respuesta del cliente</small>' : ''}
@@ -624,9 +627,20 @@ function renderIncidents() {
           <strong class="incident-mini-title">${escapeHtml(incident.chatbyStatus || 'Sin analizar')}</strong>
           ${incident.customerIntentDetail ? `<small class="incident-intent-detail">${escapeHtml(incident.customerIntentDetail)}</small>` : ''}
           <small>${escapeHtml(incident.chatbySummary || 'Sin resumen')}</small>
-          ${incident.lastCustomerMessage ? `<blockquote class="incident-last-message">${escapeHtml(incident.lastCustomerMessage)}</blockquote>` : ''}
           ${memory}
           ${evidence.length ? `<div class="incident-evidence">${evidence.map((item) => `<span>${escapeHtml(item)}</span>`).join('')}</div>` : ''}
+        </td>
+        <td>
+          <strong class="incident-mini-title">${escapeHtml(incident.carrierCompany || 'Transportista')}</strong>
+          ${incident.carrierService ? `<small>${escapeHtml(incident.carrierService)}</small>` : ''}
+          ${incident.transportLatestEvent?.text
+            ? `<div class="incident-carrier-latest"><b>Ultimo evento</b><time>${escapeHtml(formatDateTime(incident.transportLatestEvent.eventAt))}</time><p>${escapeHtml(incident.transportLatestEvent.text)}</p></div>`
+            : '<small>Sin historial detallado aportado por transporte.</small>'}
+          <small class="incident-source-note">${incident.transportLogCompleteness === 'summary_only' ? 'Resumen disponible en la API de Dropea' : 'Historial de transporte'}</small>
+          ${Array.isArray(incident.transportHistory) && incident.transportHistory.length
+            ? `<details class="incident-carrier-history"><summary>Ver historial (${incident.transportHistory.length})</summary>${incident.transportHistory.map((event) => `<article><time>${escapeHtml(formatDateTime(event.eventAt))}</time><p>${escapeHtml(event.text)}</p></article>`).join('')}</details>`
+            : ''}
+          ${incident.tracking ? `<small>Tracking: ${escapeHtml(incident.tracking)}</small>` : ''}
         </td>
         <td>
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.actionRecommended || 'Revisión manual')}</span>
@@ -644,7 +658,7 @@ function renderIncidents() {
         </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="7">No hay incidencias pendientes para mostrar.</td></tr>';
+  }).join('') || '<tr><td colspan="8">No hay incidencias pendientes para mostrar.</td></tr>';
 }
 
 function renderCampaigns() {
