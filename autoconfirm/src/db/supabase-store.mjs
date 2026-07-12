@@ -299,7 +299,7 @@ export async function syncAgentFeedbackToSupabase(item = {}, scope = 'order') {
 
 export async function syncAgentMemoryRuleToSupabase(rule = {}) {
   if (!isSupabaseEnabled()) return { skipped: true };
-  return insertRows('agent_memory_events', {
+  return upsertRows('agent_memory_events', {
     id: rule.id || bestId('mem'),
     type: cleanText(rule.type || 'memory_rule', 120),
     source: cleanText(rule.source || '', 250),
@@ -307,7 +307,7 @@ export async function syncAgentMemoryRuleToSupabase(rule = {}) {
     content: cleanText(rule.text || rule.content || rule.note || '', 2000),
     raw: safeJson(rule),
     created_at: isoOrNull(rule.createdAt) || nowIso()
-  });
+  }, { onConflict: 'id' });
 }
 
 export async function syncAgentChatToSupabase(message = {}) {
