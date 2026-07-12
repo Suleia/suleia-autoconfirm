@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
-import { readJson } from '../lib/files.mjs';
+import { ensureDir, readJson, writeJson } from '../lib/files.mjs';
 import { insertRows, isSupabaseEnabled, selectRows, supabaseStatus, upsertRows } from '../clients/supabase.mjs';
 
 const config = getAppConfig();
@@ -125,6 +125,87 @@ export async function appendWebhookEventToSupabase(event = {}) {
     payload: safeJson(event),
     created_at: isoOrNull(event.createdAt) || nowIso()
   });
+}
+
+function deliveryKey({ storeId = 'suleia', orderId, templateName }) {
+  const normalizedTemplate = String(templateName || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return `${String(storeId || 'suleia')}|${String(orderId || '')}|${normalizedTemplate}`;
+}
+
+export async function claimTemplateDelivery({
+  storeId = 'suleia',
+  orderId,
+  customerPhone = '',
+  templateName,
+  provider = '',
+  chatbyUserNs = ''
+} = {}) {
+  if (!isSupabaseEnabled()) return { acquired: true, persistent: false, reason: 'supabase_not_configured' };
+  const templateKey = deliveryKey({ storeId, orderId, templateName });
+  const row = {
+    template_key: templateKey,
+    store_id: String(storeId || 'suleia'),
+    order_id: String(orderId || ''),
+    customer_phone: cleanText(customerPhone, 80),
+    template_name: cleanText(templateName, 250),
+    provider: cleanText(provider, 80),
+    chatby_user_ns: cleanText(chatbyUserNs, 120),
+    status: 'claimed',
+    attempted_at: nowIso(),
+    updated_at: nowIso()
+  };
+
+  try {
+    const inserted = await insertRows('template_delivery_ledger', row, { returning: 'representation' });
+    return { acquired: true, persistent: true, templateKey, row: Array.isArray(inserted) ? inserted[0] : inserted };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/409|23505|duplicate key|unique constraint/i.test(message)) {
+      const existing = await selectRows('template_delivery_ledger', {
+        query: { template_key: `eq.${templateKey}`, limit: 1 },
+        limit: 1
+      });
+      return { acquired: false, persistent: true, templateKey, existing: existing[0] || null, reason: 'already_claimed' };
+    }
+    throw error;
+  }
+}
+
+export async function finishTemplateDelivery({
+  storeId = 'suleia',
+  orderId,
+  customerPhone = '',
+  templateName,
+  provider = '',
+  chatbyUserNs = '',
+  status,
+  attemptedAt,
+  sentAt = null,
+  lastError = null,
+  raw = null
+} = {}) {
+  if (!isSupabaseEnabled()) return { skipped: true, reason: 'supabase_not_configured' };
+  const templateKey = deliveryKey({ storeId, orderId, templateName });
+  return upsertRows('template_delivery_ledger', {
+    template_key: templateKey,
+    store_id: String(storeId || 'suleia'),
+    order_id: String(orderId || ''),
+    customer_phone: cleanText(customerPhone, 80),
+    template_name: cleanText(templateName, 250),
+    provider: cleanText(provider, 80),
+    chatby_user_ns: cleanText(chatbyUserNs, 120),
+    status: cleanText(status || 'attempted', 80),
+    attempted_at: isoOrNull(attemptedAt) || nowIso(),
+    sent_at: isoOrNull(sentAt),
+    last_error: cleanText(lastError || '', 1400) || null,
+    raw: safeJson(raw),
+    updated_at: nowIso()
+  }, { onConflict: 'template_key' });
 }
 
 function operationalOrderRow(order = {}) {
@@ -312,6 +393,25 @@ export async function backfillSupabaseFromLocal() {
     const orders = readJson(config.ordersPath, []);
     await syncOrdersToSupabase(Array.isArray(orders) ? orders : []);
     result.mirrored.orders = Array.isArray(orders) ? orders.length : 0;
+    let templateDeliveries = 0;
+    for (const order of Array.isArray(orders) ? orders : []) {
+      if (!order?.orderId || !order?.chatbyTemplateName || !order?.chatbyTemplateAttemptedAt) continue;
+      await finishTemplateDelivery({
+        storeId: order.storeId || config.defaultStore.id || 'suleia',
+        orderId: order.orderId,
+        customerPhone: order.customerPhone || '',
+        templateName: order.chatbyTemplateName,
+        provider: order.chatbyLastSendResponse?.provider || '',
+        chatbyUserNs: order.chatbyUserNs || '',
+        status: order.chatbyTemplateSendStatus || (order.chatbyTemplateSentAt ? 'sent' : 'attempted'),
+        attemptedAt: order.chatbyTemplateAttemptedAt,
+        sentAt: order.chatbyTemplateSentAt || null,
+        lastError: order.chatbyTemplateLastError || null,
+        raw: order.chatbyLastSendResponse || null
+      });
+      templateDeliveries += 1;
+    }
+    result.mirrored.templateDeliveries = templateDeliveries;
   } catch (error) {
     logSupabaseMirrorError('backfill_orders', error);
     result.mirrored.ordersError = error instanceof Error ? error.message : String(error);
@@ -364,6 +464,106 @@ export async function backfillSupabaseFromLocal() {
   } catch (error) {
     logSupabaseMirrorError('backfill_incident_feedback', error);
     result.mirrored.incidentFeedbackError = error instanceof Error ? error.message : String(error);
+  }
+
+  try {
+    const memory = readJson(path.join(dashboardDir, 'agent-memory.json'), []);
+    for (const item of Array.isArray(memory) ? memory : []) {
+      await syncAgentMemoryRuleToSupabase(item);
+    }
+    result.mirrored.agentMemory = Array.isArray(memory) ? memory.length : 0;
+  } catch (error) {
+    logSupabaseMirrorError('backfill_agent_memory', error);
+    result.mirrored.agentMemoryError = error instanceof Error ? error.message : String(error);
+  }
+
+  result.finishedAt = nowIso();
+  return result;
+}
+
+function rowRaw(row, fallback = {}) {
+  return row?.raw && typeof row.raw === 'object' ? row.raw : fallback;
+}
+
+function mergeById(localRows, remoteRows, idOf) {
+  const merged = new Map();
+  for (const row of Array.isArray(localRows) ? localRows : []) {
+    const id = idOf(row);
+    if (id) merged.set(String(id), row);
+  }
+  for (const row of Array.isArray(remoteRows) ? remoteRows : []) {
+    const id = idOf(row);
+    if (id) merged.set(String(id), row);
+  }
+  return [...merged.values()];
+}
+
+export async function hydrateLocalStateFromSupabase() {
+  if (!isSupabaseEnabled()) return { ok: false, skipped: true, status: supabaseStatus() };
+
+  const dashboardDir = path.join(config.dataDir, 'dashboard');
+  ensureDir(dashboardDir);
+  const result = { ok: true, startedAt: nowIso(), restored: {} };
+
+  const [orderRows, stateRows, feedbackRows, memoryRows] = await Promise.all([
+    selectRows('orders', { query: { order: 'updated_at.asc' }, limit: 5000 }),
+    selectRows('app_state', { limit: 20 }),
+    selectRows('agent_feedback', { query: { order: 'created_at.asc' }, limit: 5000 }),
+    selectRows('agent_memory_events', { query: { order: 'created_at.asc' }, limit: 5000 })
+  ]);
+
+  if (orderRows.length) {
+    const localOrders = readJson(config.ordersPath, []);
+    const remoteOrders = orderRows.map((row) => ({
+      ...rowRaw(row),
+      orderId: String(row.order_id || rowRaw(row).orderId || ''),
+      storeId: row.store_id || rowRaw(row).storeId || config.defaultStore.id,
+      status: row.status || rowRaw(row).status || 'PENDING',
+      customerName: row.customer_name || rowRaw(row).customerName || null,
+      customerPhone: row.customer_phone || rowRaw(row).customerPhone || null,
+      customerEmail: row.customer_email || rowRaw(row).customerEmail || null,
+      chatbyUserNs: row.chatby_user_ns || rowRaw(row).chatbyUserNs || null
+    }));
+    const mergedOrders = mergeById(localOrders, remoteOrders, (item) => item.orderId);
+    writeJson(config.ordersPath, mergedOrders);
+    result.restored.orders = mergedOrders.length;
+  }
+
+  const stateByKey = new Map(stateRows.map((row) => [String(row.key), row.value]));
+  const remoteRuntimeState = stateByKey.get('runtime_state');
+  if (remoteRuntimeState && typeof remoteRuntimeState === 'object') {
+    const localState = readJson(config.statePath, {});
+    writeJson(config.statePath, { ...localState, ...remoteRuntimeState, hydratedFromSupabaseAt: nowIso() });
+    result.restored.runtimeState = true;
+  }
+
+  for (const [key, filename] of [
+    ['operational_orders_cache', 'operational-orders-cache.json'],
+    ['incidents_cache', 'incidents-cache.json']
+  ]) {
+    const value = stateByKey.get(key);
+    if (!value || typeof value !== 'object') continue;
+    writeJson(path.join(dashboardDir, filename), value);
+    result.restored[key] = true;
+  }
+
+  if (feedbackRows.length) {
+    const orderFeedback = feedbackRows.filter((row) => row.scope === 'order').map((row) => rowRaw(row, row));
+    const incidentFeedback = feedbackRows.filter((row) => row.scope === 'incident').map((row) => rowRaw(row, row));
+    writeJson(path.join(dashboardDir, 'agent-feedback.json'), orderFeedback);
+    writeJson(path.join(dashboardDir, 'incident-feedback.json'), incidentFeedback);
+    result.restored.orderFeedback = orderFeedback.length;
+    result.restored.incidentFeedback = incidentFeedback.length;
+  }
+
+  const learnedMemory = memoryRows
+    .filter((row) => String(row.type || '') !== 'agent_chat')
+    .map((row) => rowRaw(row, row));
+  if (learnedMemory.length) {
+    const localMemory = readJson(path.join(dashboardDir, 'agent-memory.json'), []);
+    const mergedMemory = mergeById(localMemory, learnedMemory, (item) => item.id);
+    writeJson(path.join(dashboardDir, 'agent-memory.json'), mergedMemory);
+    result.restored.agentMemory = mergedMemory.length;
   }
 
   result.finishedAt = nowIso();
