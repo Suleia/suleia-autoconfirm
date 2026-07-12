@@ -4,6 +4,7 @@ import { readJson, writeJson } from '../lib/files.mjs';
 import { getDropeaOrderById, listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatus, listDropeaOrdersByStatusBasic, listDropeaOrderStateValues } from '../clients/dropea.mjs';
 import { findSubscriberByPhone, getChatMessages } from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
+import { syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -1130,6 +1131,9 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       error: null
     };
     writeJson(cachePath, payload);
+    await syncIncidentsCacheToSupabase(payload).catch((error) => {
+      console.error('Supabase incidents mirror error:', error instanceof Error ? error.message : String(error));
+    });
     const state = { ...loadState() };
     state.lastIncidentsSyncAt = updatedAt;
     state.lastIncidentsSyncError = null;
@@ -1146,6 +1150,9 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       error: message
     };
     writeJson(cachePath, payload);
+    await syncIncidentsCacheToSupabase(payload).catch((mirrorError) => {
+      console.error('Supabase incidents error mirror failed:', mirrorError instanceof Error ? mirrorError.message : String(mirrorError));
+    });
     const state = { ...loadState() };
     state.lastIncidentsSyncAt = updatedAt;
     state.lastIncidentsSyncError = message;
