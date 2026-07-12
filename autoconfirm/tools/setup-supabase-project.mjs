@@ -148,6 +148,16 @@ async function createProject(supabaseToken, organization) {
   throw lastError;
 }
 
+async function findExistingProject(supabaseToken, organization) {
+  const name = getEnv('SUPABASE_PROJECT_NAME', 'suleia-command-center');
+  const projects = asArray(await request('GET', `${SUPABASE_API}/projects`, { token: supabaseToken }));
+  return projects.find((project) => {
+    if (String(project.name || '').toLowerCase() !== name.toLowerCase()) return false;
+    const projectOrg = String(project.organization_id || project.organization?.id || project.org_id || '');
+    return !projectOrg || !organization?.id || projectOrg === String(organization.id);
+  }) || null;
+}
+
 async function waitForProject(supabaseToken, ref, name) {
   const deadline = Date.now() + 15 * 60 * 1000;
   while (Date.now() < deadline) {
@@ -346,16 +356,20 @@ async function main() {
     name: organization.name || null
   });
 
-  log('2/8 Creando proyecto Supabase...');
-  const { project, dbPassword } = await createProject(supabaseToken, organization);
+  log('2/8 Localizando o creando proyecto Supabase...');
+  const existingProject = await findExistingProject(supabaseToken, organization);
+  const created = existingProject
+    ? { project: existingProject, dbPassword: null }
+    : await createProject(supabaseToken, organization);
+  const { project, dbPassword } = created;
   const ref = projectRef(project);
   if (!ref) {
     throw new Error(`Supabase creo el proyecto, pero no devolvio ref/id reconocible: ${JSON.stringify(project)}`);
   }
-  log('Proyecto creado:', {
+  log(existingProject ? 'Proyecto existente reutilizado:' : 'Proyecto creado:', {
     ref,
     name: project.name || getEnv('SUPABASE_PROJECT_NAME', 'suleia-command-center'),
-    dbPassword: mask(dbPassword)
+    dbPassword: dbPassword ? mask(dbPassword) : '[existing-project]'
   });
 
   log('3/8 Esperando a que Supabase termine de preparar el proyecto...');
