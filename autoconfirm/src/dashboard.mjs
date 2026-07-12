@@ -1684,9 +1684,12 @@ function latestIncidentMemoryByKey(memory = []) {
   const map = new Map();
   for (const item of memory) {
     if (item.scope && item.scope !== 'incidents') continue;
-    if (!item.orderId && !item.incidenceId) continue;
-    const key = `${item.orderId || ''}:${item.incidenceId || ''}`;
-    const fallbackKey = `${item.orderId || ''}:`;
+    const sourceOrderMatch = String(item.source || '').match(/feedback_incident_(\d+)/);
+    const memoryOrderId = item.orderId || sourceOrderMatch?.[1] || '';
+    const memoryIncidenceId = item.incidenceId || '';
+    if (!memoryOrderId && !memoryIncidenceId) continue;
+    const key = `${memoryOrderId}:${memoryIncidenceId}`;
+    const fallbackKey = `${memoryOrderId}:`;
     for (const candidate of [key, fallbackKey]) {
       if (!candidate || candidate === ':') continue;
       const current = map.get(candidate);
@@ -1780,6 +1783,10 @@ function learnedRuleFromIncidentFeedback(item) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'incident_delivery_instruction',
+      scope: 'incidents',
+      orderId: item.orderId,
+      incidenceId: item.incidenceId,
+      issueType: item.issueType,
       text: 'En incidencias, si el cliente indica franja, horario, teléfono o instrucción de entrega, proponer resolver en Dropea copiando esa instrucción y no tratarlo como falta de respuesta.',
       source: `feedback_incident_${item.orderId}`,
       createdAt: new Date().toISOString()
@@ -1789,6 +1796,10 @@ function learnedRuleFromIncidentFeedback(item) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'incident_address_data',
+      scope: 'incidents',
+      orderId: item.orderId,
+      incidenceId: item.incidenceId,
+      issueType: item.issueType,
       text: 'En incidencias de dirección o datos incompletos, no cerrar la incidencia hasta tener calle, número, piso/puerta si aplica, CP, ciudad y teléfono válido.',
       source: `feedback_incident_${item.orderId}`,
       createdAt: new Date().toISOString()
@@ -1798,6 +1809,10 @@ function learnedRuleFromIncidentFeedback(item) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'incident_reject_goods',
+      scope: 'incidents',
+      orderId: item.orderId,
+      incidenceId: item.incidenceId,
+      issueType: item.issueType,
       text: 'En incidencias de no acepta mercancía, si el cliente confirma rechazo o cancelación, proponer rechazar/cancelar en Dropea y no insistir con nuevas confirmaciones.',
       source: `feedback_incident_${item.orderId}`,
       createdAt: new Date().toISOString()
@@ -1807,6 +1822,10 @@ function learnedRuleFromIncidentFeedback(item) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'incident_absent_followup',
+      scope: 'incidents',
+      orderId: item.orderId,
+      incidenceId: item.incidenceId,
+      issueType: item.issueType,
       text: 'En incidencias por ausente, si no hay respuesta del cliente, proponer coordinar nueva entrega por Chatby; si responde, extraer fecha/franja/teléfono y resolver en Dropea.',
       source: `feedback_incident_${item.orderId}`,
       createdAt: new Date().toISOString()
@@ -1816,6 +1835,10 @@ function learnedRuleFromIncidentFeedback(item) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'incident_customer_response_resolves',
+      scope: 'incidents',
+      orderId: item.orderId,
+      incidenceId: item.incidenceId,
+      issueType: item.issueType,
       text: 'En incidencias, cuando el cliente responde con una instrucción accionable o confirma cómo resolver, marcar como incidencia accionable y proponer resolución concreta en Dropea.',
       source: `feedback_incident_${item.orderId}`,
       createdAt: new Date().toISOString()
@@ -1825,6 +1848,10 @@ function learnedRuleFromIncidentFeedback(item) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'incident_wait_more_context',
+      scope: 'incidents',
+      orderId: item.orderId,
+      incidenceId: item.incidenceId,
+      issueType: item.issueType,
       text: 'En incidencias con respuesta ambigua o incompleta, no resolver automáticamente: pedir el dato exacto que falta o esperar más contexto antes de actuar en Dropea.',
       source: `feedback_incident_${item.orderId}`,
       createdAt: new Date().toISOString()
@@ -1834,6 +1861,10 @@ function learnedRuleFromIncidentFeedback(item) {
     return {
       id: `lesson_incident_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       type: 'incident_feedback_rule',
+      scope: 'incidents',
+      orderId: item.orderId,
+      incidenceId: item.incidenceId,
+      issueType: item.issueType,
       text: [item.correction, item.note].filter(Boolean).join(' | '),
       source: `feedback_incident_${item.orderId}`,
       createdAt: new Date().toISOString()
