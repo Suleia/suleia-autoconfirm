@@ -20,6 +20,7 @@ import {
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
   getChatMessages,
+  sendTextMessage,
   sendWhatsappTemplate,
   subscriberConfirmsOrderRobust as subscriberConfirmsOrder
 } from '../clients/chatby.mjs';
@@ -283,6 +284,41 @@ function addressChangeWithCompleteAddressIntent(messages) {
   };
 }
 
+function productPurchaseUrl(order) {
+  const text = normalizeText(JSON.stringify(order?.raw || order || {}));
+  if (text.includes('colla') || text.includes('gum')) {
+    return 'https://suleia.com/products/polvo-dental-de-colageno-colla-gum';
+  }
+  if (text.includes('tira') || text.includes('v34') || text.includes('whitebro')) {
+    return 'https://suleia.com/products/tiras-blanqueadoras-dentales-v34';
+  }
+  if (text.includes('nida')) {
+    return 'https://suleia.com/products/nida-piel-mas-firme-suave-y-radiante-cada-dia';
+  }
+  return 'https://suleia.com/collections/frontpage';
+}
+
+function promotionChangeMessage(order) {
+  const name = firstName(order?.customerName);
+  const greeting = name ? `Hola ${name}, ` : 'Hola, ';
+  return `${greeting}hemos cancelado este pedido para que puedas elegir la oferta correcta. Realiza de nuevo la compra desde este enlace: ${productPurchaseUrl(order)}`;
+}
+
+function requestsPromotionChange(text) {
+  const value = normalizeText(text);
+  return [
+    /\botra oferta\b/,
+    /\botra promocion\b/,
+    /\bcambiar (la )?(oferta|promocion|pack)\b/,
+    /\bquiero (la|el|una|un) (oferta|promocion|pack)\b/,
+    /\bprefiero (la|el|una|un) (oferta|promocion|pack)\b/,
+    /\bme he equivocado (de|con) (oferta|promocion|pack)\b/,
+    /\bhe comprado (la|el) (oferta|promocion|pack) (equivocada|equivocado)\b/,
+    /\bpack de [123]\b/,
+    /\boferta de [123]\b/
+  ].some((pattern) => pattern.test(value));
+}
+
 export function deterministicCustomerIntent(messages) {
   const text = normalizeText(messages.map((message) => [
     message.content,
@@ -302,6 +338,14 @@ export function deterministicCustomerIntent(messages) {
       intent: 'ADDRESS_CHANGE',
       confidence: 100,
       reason: 'El cliente pide cambiar o corregir datos de entrega; no se debe confirmar hasta revisar direccion.'
+    };
+  }
+
+  if (requestsPromotionChange(text)) {
+    return {
+      intent: 'PROMOTION_CHANGE',
+      confidence: 98,
+      reason: 'El cliente quiere sustituir el pedido confirmado por otra oferta o promocion.'
     };
   }
 
@@ -754,6 +798,51 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
       },
       cancellation,
       source: latestIntent.source || 'customer_cancel_after_confirmation'
+    };
+  }
+
+  if (latestIntent?.intent === 'PROMOTION_CHANGE') {
+    const cancellation = await cancelDropeaOrder(order.orderId);
+    const replyText = promotionChangeMessage(order);
+    let chatbyReply = null;
+    let chatbyReplyError = null;
+    if (order.chatbyUserNs) {
+      try {
+        chatbyReply = await sendTextMessage({ user_ns: order.chatbyUserNs, content: replyText });
+      } catch (error) {
+        chatbyReplyError = error instanceof Error ? error.message : String(error);
+      }
+    } else {
+      chatbyReplyError = 'Pedido sin conversacion Chatby enlazada.';
+    }
+
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'REJECTED_PROMOTION_CHANGE',
+      aiConfidence: Number(latestIntent.confidence ?? 98),
+      aiIntent: 'PROMOTION_CHANGE_AFTER_CONFIRMATION',
+      cancelledAt: new Date().toISOString(),
+      customerReplyRequired: Boolean(chatbyReplyError),
+      customerReplyText: replyText,
+      customerReplySentAt: chatbyReplyError ? null : new Date().toISOString(),
+      customerReplyError: chatbyReplyError,
+      operationalNote: chatbyReplyError
+        ? `Cliente pidio otra oferta. Pedido cancelado en Dropea. Respuesta pendiente: ${replyText}. Error Chatby: ${chatbyReplyError}`
+        : 'Cliente pidio otra oferta. Pedido cancelado en Dropea y enlace de recompra enviado por Chatby.'
+    });
+    await safeUpsertSheetRow(updated);
+    return {
+      action: 'rejected_promotion_change',
+      dryRun: false,
+      analysis: {
+        ...latestIntent,
+        reason: latestIntent.reason || 'El cliente pidio cambiar la oferta despues de confirmar.'
+      },
+      cancellation,
+      chatbyReply,
+      chatbyReplyError,
+      productUrl: productPurchaseUrl(order),
+      source: latestIntent.source || 'customer_promotion_change_after_confirmation'
     };
   }
 
