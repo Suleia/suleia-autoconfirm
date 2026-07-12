@@ -2,6 +2,7 @@ import { getAppConfig } from '../config.mjs';
 import { getAdAccountSummary, getCampaignInsights, getCampaigns } from '../clients/meta.mjs';
 import { getSheetRows, replaceSheetValues } from '../clients/sheets.mjs';
 import { listOrders, loadState, saveState } from '../storage.mjs';
+import { syncMetaInsightsToSupabase } from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
 let dashboardRunning = false;
@@ -369,6 +370,9 @@ export async function syncMetaDashboard({ store = config.defaultStore } = {}) {
       lastMetaDashboardError: null
     };
     saveState(state);
+    syncMetaInsightsToSupabase({ account, campaigns, insights }).catch((error) => {
+      console.error('Supabase Meta mirror error:', error instanceof Error ? error.message : String(error));
+    });
 
     return {
       ok: true,
