@@ -22,6 +22,7 @@ import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
+import { backfillSupabaseFromLocal, getSupabaseMirrorStatus, testSupabaseConnection } from './src/db/supabase-store.mjs';
 
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -242,6 +243,7 @@ function storeSummary() {
     metaDashboardIntervalMinutes: config.metaDashboardIntervalMinutes,
     lastMetaDashboardAt: state.lastMetaDashboardAt,
     lastMetaDashboardError: state.lastMetaDashboardError,
+    supabase: getSupabaseMirrorStatus(),
     orders: {
       total: listOrders({ storeId: config.defaultStore.id }).length,
       pending: listOrders({ storeId: config.defaultStore.id, status: 'PENDING' }).length
@@ -661,6 +663,18 @@ const server = http.createServer(async (req, res) => {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await syncOperationalOrders();
       dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/cron/supabase-status') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await testSupabaseConnection();
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cron/supabase-backfill') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await backfillSupabaseFromLocal();
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
