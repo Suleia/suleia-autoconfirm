@@ -11,6 +11,7 @@
     "send-chatby-template-orders": "node tools/send-chatby-template-orders.mjs",
     "confirm": "node tools/auto-confirm.mjs",
     "cancel-unanswered": "node tools/unanswered-cancellations.mjs",
-    "health": "node tools/healthcheck.mjs"
+    "health": "node tools/healthcheck.mjs",
+    "supabase:backfill": "node tools/supabase-backfill.mjs"
   }
 }
