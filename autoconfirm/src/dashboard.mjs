@@ -2121,6 +2121,8 @@ export async function saveIncidentFeedback({ orderId, incidenceId = '', issueTyp
   const memory = await readJson(memoryPath, []);
   const item = {
     id: `ifb_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    agentName: 'Agente de incidencias',
+    agentMode: 'training_read_only',
     orderId: String(orderId),
     incidenceId: String(incidenceId || ''),
     issueType: String(issueType || ''),
@@ -2145,7 +2147,7 @@ export async function saveIncidentFeedback({ orderId, incidenceId = '', issueTyp
     try {
       await appendAgentMemoryRule(lesson);
     } catch {
-      // La memoria local del Command Center sigue siendo la fuente operativa.
+      // Supabase and local memory remain available if Sheets is temporarily unavailable.
     }
   }
 
