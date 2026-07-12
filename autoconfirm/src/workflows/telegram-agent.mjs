@@ -10,6 +10,7 @@ import { syncPendingIncidents } from './incidents.mjs';
 import { loadOperationalOrdersCache, syncOperationalOrders } from './operational-orders.mjs';
 import { runUnansweredCancellationSweep } from './unanswered-cancellations.mjs';
 import { loadState } from '../storage.mjs';
+import { syncTelegramLogToSupabase } from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
 const telegramLogPath = path.join(config.dataDir, 'dashboard', 'telegram-agent-log.json');
@@ -135,11 +136,15 @@ function telegramKeyboard() {
 
 async function appendTelegramLog(item) {
   const log = await readJson(telegramLogPath, []);
-  log.push({
+  const entry = {
     ...item,
     createdAt: new Date().toISOString()
-  });
+  };
+  log.push(entry);
   await writeJson(telegramLogPath, log.slice(-500));
+  await syncTelegramLogToSupabase(entry).catch((error) => {
+    console.error('Supabase telegram mirror error:', error instanceof Error ? error.message : String(error));
+  });
 }
 
 function helpText(chatId) {
