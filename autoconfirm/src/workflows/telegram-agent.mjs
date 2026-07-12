@@ -4,7 +4,8 @@ import { readJson, writeJson } from '../lib/files.mjs';
 import { sendTelegramMessage } from '../clients/telegram.mjs';
 import { buildDashboard, saveAgentChat } from '../dashboard.mjs';
 import { getAdAccountSummary, getCampaignInsights, getCampaigns } from '../clients/meta.mjs';
-import { listDropeaOrders } from '../clients/dropea.mjs';
+import { listRecentDropeaOrders } from '../clients/dropea.mjs';
+import { listRecentShopifyOrders } from '../clients/shopify.mjs';
 import { syncPendingIncidents } from './incidents.mjs';
 import { loadOperationalOrdersCache, syncOperationalOrders } from './operational-orders.mjs';
 import { runUnansweredCancellationSweep } from './unanswered-cancellations.mjs';
@@ -106,7 +107,7 @@ function dateKey(value) {
 }
 
 function orderCreatedAt(order) {
-  return order.raw?.created_at || order.raw?.createdAt || order.createdAt || order.date || null;
+  return order.raw?.created_at || order.raw?.createdAt || order.createdAt || order.created_at || order.date || order.updatedAt || null;
 }
 
 function orderStatusLabel(status) {
@@ -114,6 +115,8 @@ function orderStatusLabel(status) {
   if (clean.includes('pending')) return 'pendiente';
   if (clean.includes('incid')) return 'con incidencia';
   if (clean.includes('confirm')) return 'confirmado';
+  if (clean.includes('paid') || clean.includes('pagado')) return 'pagado';
+  if (clean.includes('fulfilled')) return 'preparado/enviado';
   if (clean.includes('cancel') || clean.includes('reject')) return 'cancelado/rechazado';
   return status || 'sin estado';
 }
@@ -217,19 +220,49 @@ function ordersText(result, dashboard) {
   ].join('\n');
 }
 
-async function todayOrdersSummary({ maxPages = 5 } = {}) {
-  const key = todayKey();
+function normalizeInternalOrder(order = {}) {
+  return {
+    orderId: String(order.orderId || order.name || order.id || ''),
+    status: order.status || order.financialStatus || order.dropeaStatus || 'sin estado',
+    orderAmount: Number(order.orderAmount ?? order.totalAmount ?? order.amount ?? 0) || null,
+    customerName: order.customerName || order.customer || '',
+    createdAt: order.createdAt || order.raw?.created_at || order.updatedAt || null,
+    source: order.raw?.source || order.source || 'Historico interno',
+    raw: order.raw || order
+  };
+}
+
+function normalizeShopifyTodayOrder(order = {}) {
+  return {
+    orderId: String(order.name || order.id || ''),
+    status: order.financialStatus || order.fulfillmentStatus || 'Shopify',
+    orderAmount: Number(order.totalAmount ?? 0) || null,
+    customerName: order.customerName || '',
+    createdAt: order.createdAt || null,
+    source: 'Shopify',
+    raw: order.raw || order
+  };
+}
+
+function normalizeDropeaTodayOrder(order = {}) {
+  return {
+    ...order,
+    source: 'Dropea'
+  };
+}
+
+function filterTodayOrders(orders = [], key = todayKey()) {
   const byId = new Map();
-  for (let page = 1; page <= maxPages; page += 1) {
-    const orders = await listDropeaOrders({ limit: 100, page });
-    for (const order of orders) {
-      if (dateKey(orderCreatedAt(order)) === key) {
-        byId.set(String(order.orderId), order);
-      }
+  for (const order of orders) {
+    if (dateKey(orderCreatedAt(order)) === key && order.orderId) {
+      byId.set(String(order.orderId), order);
     }
-    if (orders.length < 100) break;
   }
-  const orders = [...byId.values()].sort((a, b) => String(b.orderId).localeCompare(String(a.orderId), undefined, { numeric: true }));
+  return [...byId.values()]
+    .sort((a, b) => String(b.orderId).localeCompare(String(a.orderId), undefined, { numeric: true }));
+}
+
+function buildTodayOrdersSummaryPayload({ key, orders, sources, primarySource }) {
   const statuses = orders.reduce((acc, order) => {
     const label = orderStatusLabel(order.status);
     acc[label] = (acc[label] || 0) + 1;
@@ -240,26 +273,71 @@ async function todayOrdersSummary({ maxPages = 5 } = {}) {
     count: orders.length,
     totalAmount: orders.reduce((sum, order) => sum + (Number(order.orderAmount) || 0), 0),
     statuses,
-    orders
+    orders,
+    sources,
+    primarySource
   };
+}
+
+async function todayOrdersSummary({ maxPages = 4 } = {}) {
+  const key = todayKey();
+  const sources = [];
+
+  try {
+    const rows = await listRecentShopifyOrders({ first: 100 });
+    const shopifyOrders = filterTodayOrders(rows.map(normalizeShopifyTodayOrder), key);
+    sources.push({ name: 'Shopify', ok: true, count: shopifyOrders.length });
+    if (shopifyOrders.length) {
+      return buildTodayOrdersSummaryPayload({ key, orders: shopifyOrders, sources, primarySource: 'Shopify' });
+    }
+  } catch (error) {
+    sources.push({ name: 'Shopify', ok: false, count: null, error: error instanceof Error ? error.message : String(error) });
+  }
+
+  try {
+    const rows = readJson(config.ordersPath, []);
+    const internalOrders = filterTodayOrders((Array.isArray(rows) ? rows : []).map(normalizeInternalOrder), key);
+    sources.push({ name: 'Historico interno', ok: true, count: internalOrders.length });
+    if (internalOrders.length) {
+      return buildTodayOrdersSummaryPayload({ key, orders: internalOrders, sources, primarySource: 'Historico interno' });
+    }
+  } catch (error) {
+    sources.push({ name: 'Historico interno', ok: false, count: null, error: error instanceof Error ? error.message : String(error) });
+  }
+
+  try {
+    const rows = await listRecentDropeaOrders({ limit: 100, pages: maxPages });
+    const dropeaOrders = filterTodayOrders(rows.map(normalizeDropeaTodayOrder), key);
+    sources.push({ name: 'Dropea por estados', ok: true, count: dropeaOrders.length });
+    return buildTodayOrdersSummaryPayload({ key, orders: dropeaOrders, sources, primarySource: 'Dropea por estados' });
+  } catch (error) {
+    sources.push({ name: 'Dropea por estados', ok: false, count: null, error: error instanceof Error ? error.message : String(error) });
+    return buildTodayOrdersSummaryPayload({ key, orders: [], sources, primarySource: 'sin fuente disponible' });
+  }
 }
 
 function todayOrdersText(summary, operational = null) {
   const statusLines = Object.entries(summary.statuses || {})
     .map(([status, count]) => `${status}: ${count}`);
-  const top = summary.orders.slice(0, 8).map((order) => `#${order.orderId} / ${order.customerName || '-'} / ${formatEuros(order.orderAmount)} / ${orderStatusLabel(order.status)}`);
+  const sourceLines = (summary.sources || []).map((source) => {
+    if (source.ok) return `${source.name}: ${source.count}`;
+    return `${source.name}: no disponible`;
+  });
+  const top = summary.orders.slice(0, 8).map((order) => `#${order.orderId} / ${order.customerName || '-'} / ${formatEuros(order.orderAmount)} / ${orderStatusLabel(order.status)} / ${order.source || summary.primarySource}`);
   return [
     `Pedidos de hoy (${summary.date})`,
     '',
-    `Total real Dropea hoy: ${summary.count}`,
+    `Total ventas hoy: ${summary.count}`,
+    `Fuente usada: ${summary.primarySource}`,
     `Importe bruto: ${formatEuros(summary.totalAmount)}`,
+    ...(sourceLines.length ? ['Fuentes revisadas:', ...sourceLines] : []),
     ...(statusLines.length ? ['Estados:', ...statusLines] : []),
     '',
     operational ? `Cola operativa del agente: ${operational.count ?? 0} pedidos pendientes/incidencia` : '',
     operational ? 'Nota: la cola operativa no es el total de ventas de hoy; son pedidos donde el agente puede actuar.' : '',
     '',
     'Ultimos pedidos de hoy:',
-    ...(top.length ? top : ['Todavia no veo pedidos de hoy en Dropea.'])
+    ...(top.length ? top : ['Todavia no veo pedidos de hoy en las fuentes conectadas.'])
   ].filter(Boolean).join('\n');
 }
 
@@ -406,7 +484,7 @@ async function replyForText(text, health = {}) {
     return incidentsText(result, dashboard);
   }
 
-  if (clean === '/pedidos' || clean === 'pedidos' || clean.includes('pedidos de hoy') || clean.includes('cuantos pedidos') || clean.includes('pedido hoy') || clean.includes('han entrado hoy')) {
+  if (clean === '/pedidos' || clean === 'pedidos' || clean.includes('pedidos de hoy') || clean.includes('cuantos pedidos') || clean.includes('pedido hoy') || clean.includes('han entrado hoy') || clean.includes('ventas hoy') || clean.includes('ventas de hoy') || clean.includes('hasta ahora')) {
     const summary = await todayOrdersSummary();
     return todayOrdersText(summary, loadOperationalOrdersCache());
   }
@@ -417,7 +495,7 @@ async function replyForText(text, health = {}) {
     return ordersText(result, dashboard);
   }
 
-  if (clean === '/meta' || clean === 'meta hoy' || clean.includes('campanas') || clean.includes('campañas') || clean.includes('campana activa') || clean.includes('roas') || clean.includes('gasto meta') || clean.includes('presupuesto') || clean.includes('compras meta')) {
+  if (clean === '/meta' || clean === 'meta hoy' || clean.includes('campanas') || clean.includes('campaña') || clean.includes('campana activa') || clean.includes('campanas activas') || clean.includes('roas') || clean.includes('gasto meta') || clean.includes('presupuesto') || clean.includes('compras meta')) {
     return metaTodayText(await metaTodaySummary());
   }
 
