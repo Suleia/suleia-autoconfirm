@@ -311,19 +311,20 @@ export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses 
   return [...byId.values()];
 }
 
-export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
+export async function listDropeaIncidences({ limit = 100, page = 1, status = null, sort = 'ID', direction = 'DESC' } = {}) {
   const richIssuesQuery = `
-    query DropeaIssuesRich($limit: Int!, $page: Int!) {
-      issues(limit: $limit, page: $page) {
+    query DropeaIssuesRich($limit: Int!, $page: Int!, $status: IssueStateEnum, $sort: OrderSortEnum, $direction: FilterDirectionEnum) {
+      issues(limit: $limit, page: $page, incidence_status: $status, sort: $sort, direction: $direction) {
         data {
           id
           incidence_code
           status
-          created_at
-          last_response_at
+          description
+          solutions
           order {
             id
             status
+            created_at
             customer { full_name phone email }
           }
         }
@@ -331,7 +332,7 @@ export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
     }
   `;
   try {
-    const result = await requestGraphQL(richIssuesQuery, { limit, page });
+    const result = await requestGraphQL(richIssuesQuery, { limit, page, status, sort, direction });
     const items = result?.issues?.data ?? [];
     if (Array.isArray(items)) {
       return items.map((item) => ({
@@ -344,8 +345,8 @@ export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
   }
 
   const minimalIssuesQuery = `
-    query DropeaIssues($limit: Int!, $page: Int!) {
-      issues(limit: $limit, page: $page) {
+    query DropeaIssues($limit: Int!, $page: Int!, $status: IssueStateEnum, $sort: OrderSortEnum, $direction: FilterDirectionEnum) {
+      issues(limit: $limit, page: $page, incidence_status: $status, sort: $sort, direction: $direction) {
         data {
           id
           incidence_code
@@ -358,7 +359,7 @@ export async function listDropeaIncidences({ limit = 100, page = 1 } = {}) {
     }
   `;
   try {
-    const result = await requestGraphQL(minimalIssuesQuery, { limit, page });
+    const result = await requestGraphQL(minimalIssuesQuery, { limit, page, status, sort, direction });
     const items = result?.issues?.data ?? [];
     if (Array.isArray(items)) {
       return items.map((item) => ({
