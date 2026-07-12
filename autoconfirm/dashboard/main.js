@@ -535,9 +535,12 @@ function renderIncidents() {
     incident.feedbackCorrection,
     incident.feedbackNote
   ])).filter(incidentMatchesFilter).sort((a, b) => {
-    const bId = Number(String(b.incidenceId || '').replace(/\D/g, '')) || 0;
-    const aId = Number(String(a.incidenceId || '').replace(/\D/g, '')) || 0;
-    return bId - aId;
+    const bOrderId = Number(String(b.orderId || '').replace(/\D/g, '')) || 0;
+    const aOrderId = Number(String(a.orderId || '').replace(/\D/g, '')) || 0;
+    if (bOrderId !== aOrderId) return bOrderId - aOrderId;
+    const bIncidenceId = Number(String(b.incidenceId || '').replace(/\D/g, '')) || 0;
+    const aIncidenceId = Number(String(a.incidenceId || '').replace(/\D/g, '')) || 0;
+    return bIncidenceId - aIncidenceId;
   });
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
