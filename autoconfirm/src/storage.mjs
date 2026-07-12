@@ -12,7 +12,8 @@ function defaultState() {
     lastSheetSyncAt: null,
     lastAutomationCycleAt: null,
     lastWebhookAt: null,
-    lastWebhookError: null
+    lastWebhookError: null,
+    chatbyInitialTemplateLedger: {}
   };
 }
 
@@ -65,7 +66,7 @@ export function upsertOrder(storeId, order, extras = {}) {
     customerEmail: order.customerEmail || null,
     orderAmount: order.orderAmount ?? null,
     currencyCode: order.currencyCode || 'EUR',
-    chatbyUserNs: order.chatbyUserNs || null,
+    chatbyUserNs: order.chatbyUserNs || previous.chatbyUserNs || null,
     aiConfidence: order.aiConfidence ?? null,
     aiIntent: order.aiIntent || null,
     confirmationDelayStartedAt: order.confirmationDelayStartedAt || null,
@@ -77,12 +78,12 @@ export function upsertOrder(storeId, order, extras = {}) {
     timeoutCancellationEvaluatedAt: order.timeoutCancellationEvaluatedAt || null,
     lastAgentErrorAt: order.lastAgentErrorAt || null,
     lastAgentError: order.lastAgentError || null,
-    chatbyTemplateSentAt: order.chatbyTemplateSentAt || null,
-    chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || null,
-    chatbyTemplateName: order.chatbyTemplateName || null,
-    chatbyTemplateSendStatus: order.chatbyTemplateSendStatus || null,
-    chatbyTemplateLastError: order.chatbyTemplateLastError || null,
-    chatbyLastSendResponse: order.chatbyLastSendResponse || null,
+    chatbyTemplateSentAt: order.chatbyTemplateSentAt || previous.chatbyTemplateSentAt || null,
+    chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || previous.chatbyTemplateAttemptedAt || null,
+    chatbyTemplateName: order.chatbyTemplateName || previous.chatbyTemplateName || null,
+    chatbyTemplateSendStatus: order.chatbyTemplateSendStatus || previous.chatbyTemplateSendStatus || null,
+    chatbyTemplateLastError: order.chatbyTemplateLastError || previous.chatbyTemplateLastError || null,
+    chatbyLastSendResponse: order.chatbyLastSendResponse || previous.chatbyLastSendResponse || null,
     preparedTemplateSentAt: order.preparedTemplateSentAt || previous.preparedTemplateSentAt || null,
     preparedTemplateAttemptedAt: order.preparedTemplateAttemptedAt || previous.preparedTemplateAttemptedAt || null,
     preparedTemplateName: order.preparedTemplateName || previous.preparedTemplateName || null,
