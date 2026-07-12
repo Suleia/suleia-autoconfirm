@@ -4,7 +4,7 @@ import { readJson, writeJson } from '../lib/files.mjs';
 import { sendTelegramMessage } from '../clients/telegram.mjs';
 import { buildDashboard, saveAgentChat } from '../dashboard.mjs';
 import { getAdAccountSummary, getCampaignInsights, getCampaigns } from '../clients/meta.mjs';
-import { listRecentDropeaOrders } from '../clients/dropea.mjs';
+import { listDropeaOrdersByStatusWithPagination } from '../clients/dropea.mjs';
 import { listRecentShopifyOrders } from '../clients/shopify.mjs';
 import { syncPendingIncidents } from './incidents.mjs';
 import { loadOperationalOrdersCache, syncOperationalOrders } from './operational-orders.mjs';
@@ -251,6 +251,20 @@ function normalizeDropeaTodayOrder(order = {}) {
   };
 }
 
+const todayDropeaStatuses = [
+  'PENDING',
+  'REVIEW',
+  'CONFIRMED',
+  'PREPARING',
+  'PREPARED',
+  'CHARGED',
+  'INCIDENCE',
+  'TRANSIT',
+  'SHIPPED',
+  'CANCELLED',
+  'REJECTED'
+];
+
 function filterTodayOrders(orders = [], key = todayKey()) {
   const byId = new Map();
   for (const order of orders) {
@@ -258,6 +272,33 @@ function filterTodayOrders(orders = [], key = todayKey()) {
       byId.set(String(order.orderId), order);
     }
   }
+  return [...byId.values()]
+    .sort((a, b) => String(b.orderId).localeCompare(String(a.orderId), undefined, { numeric: true }));
+}
+
+async function collectTodayDropeaOrders({ key, limit = 100 } = {}) {
+  const byId = new Map();
+
+  for (const status of todayDropeaStatuses) {
+    try {
+      const firstPage = await listDropeaOrdersByStatusWithPagination({ status, limit, page: 1 });
+      const pages = new Set([1]);
+      const lastPage = Number(firstPage.pagination?.lastPage || 1);
+      for (let page = Math.max(1, lastPage - 2); page <= lastPage; page += 1) {
+        pages.add(page);
+      }
+
+      for (const page of pages) {
+        const payload = page === 1 ? firstPage : await listDropeaOrdersByStatusWithPagination({ status, limit, page });
+        for (const order of filterTodayOrders(payload.orders.map(normalizeDropeaTodayOrder), key)) {
+          byId.set(String(order.orderId), order);
+        }
+      }
+    } catch {
+      // Dropea may hide empty/unused states depending on the account. Other states remain useful.
+    }
+  }
+
   return [...byId.values()]
     .sort((a, b) => String(b.orderId).localeCompare(String(a.orderId), undefined, { numeric: true }));
 }
@@ -306,8 +347,7 @@ async function todayOrdersSummary({ maxPages = 4 } = {}) {
   }
 
   try {
-    const rows = await listRecentDropeaOrders({ limit: 100, pages: maxPages });
-    const dropeaOrders = filterTodayOrders(rows.map(normalizeDropeaTodayOrder), key);
+    const dropeaOrders = await collectTodayDropeaOrders({ key, limit: 100, maxPages });
     sources.push({ name: 'Dropea por estados', ok: true, count: dropeaOrders.length });
     return buildTodayOrdersSummaryPayload({ key, orders: dropeaOrders, sources, primarySource: 'Dropea por estados' });
   } catch (error) {
