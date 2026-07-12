@@ -77,6 +77,13 @@ function normalizeIncidence(incidence) {
     lastResponseAt: incidence.last_response_at || incidence.lastResponseAt || incidence.last_response || null,
     customerName: customer.full_name || customer.fullName || customer.name || incidence.customer_name || incidence.customerName || null,
     customerPhone: customer.phone || customer.mobile || incidence.phone || incidence.customer_phone || incidence.customerPhone || null,
+    carrierCompany: incidence.carrier_company || incidence.carrierCompany || null,
+    carrierService: incidence.carrier_service || incidence.carrierService || null,
+    description: incidence.description || null,
+    solutions: incidence.solutions || null,
+    distance: incidence.distance || null,
+    tracking: incidence.tracking || null,
+    trackingUrl: incidence.tracking_url || incidence.trackingUrl || null,
     raw: incidence
   };
 }
@@ -321,6 +328,11 @@ export async function listDropeaIncidences({ limit = 100, page = 1, status = nul
           status
           description
           solutions
+          carrier_company
+          carrier_service
+          tracking
+          tracking_url
+          distance
           order {
             id
             status
