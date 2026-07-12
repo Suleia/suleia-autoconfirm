@@ -113,6 +113,12 @@ function projectStatus(project) {
   return String(project?.status || project?.state || project?.db?.status || '').toLowerCase();
 }
 
+function projectIsReady(status) {
+  return !status
+    || ['active', 'active_healthy', 'healthy', 'available', 'running'].includes(status)
+    || status.startsWith('active_');
+}
+
 async function createProject(supabaseToken, organization) {
   const name = getEnv('SUPABASE_PROJECT_NAME', 'suleia-command-center');
   const region = getEnv('SUPABASE_PROJECT_REGION', 'eu-west-1');
@@ -167,7 +173,7 @@ async function waitForProject(supabaseToken, ref, name) {
       });
       const status = projectStatus(project);
       log('Estado Supabase:', { ref, status: status || 'unknown' });
-      if (!status || ['active', 'healthy', 'available', 'running'].includes(status)) {
+      if (projectIsReady(status)) {
         return project;
       }
       if (['inactive', 'failed', 'errored'].includes(status)) {
@@ -177,7 +183,7 @@ async function waitForProject(supabaseToken, ref, name) {
       // Some accounts briefly return 404 while the project is being provisioned.
       const projects = asArray(await request('GET', `${SUPABASE_API}/projects`, { token: supabaseToken }));
       const listed = projects.find((item) => projectRef(item) === ref || item.name === name);
-      if (listed && ['active', 'healthy', 'available', 'running', ''].includes(projectStatus(listed))) {
+      if (listed && projectIsReady(projectStatus(listed))) {
         return listed;
       }
     }
