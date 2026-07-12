@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { readJson, writeJson } from './lib/files.mjs';
 import { getAppConfig } from './config.mjs';
+import { appendWebhookEventToSupabase, syncAppStateToSupabase, syncOrdersToSupabase } from './db/supabase-store.mjs';
 
 const config = getAppConfig();
 
@@ -21,6 +22,9 @@ export function loadState() {
 
 export function saveState(state) {
   writeJson(config.statePath, state);
+  syncAppStateToSupabase(state).catch((error) => {
+    console.error('Supabase state mirror error:', error instanceof Error ? error.message : String(error));
+  });
 }
 
 export function loadWebhookEvents() {
@@ -37,6 +41,9 @@ export function loadOrders() {
 
 export function saveOrders(orders) {
   writeJson(config.ordersPath, orders);
+  syncOrdersToSupabase(orders).catch((error) => {
+    console.error('Supabase orders mirror error:', error instanceof Error ? error.message : String(error));
+  });
 }
 
 export function getStoreByWebhookToken(token) {
@@ -134,6 +141,9 @@ export function recordWebhookEvent(storeId, dedupeKey, outcome) {
   };
   events.push(event);
   saveWebhookEvents(events);
+  appendWebhookEventToSupabase(event).catch((error) => {
+    console.error('Supabase webhook mirror error:', error instanceof Error ? error.message : String(error));
+  });
   return event;
 }
 
