@@ -11,6 +11,14 @@ The current app keeps JSON files as a local safety backup, and mirrors the impor
 
 Setup:
 
+Automatic setup:
+
+1. Generate a Supabase Personal Access Token in the Supabase dashboard.
+2. Run `npm run supabase:setup-project` with `SUPABASE_ACCESS_TOKEN` and `RENDER_API_KEY` in the environment.
+3. The setup tool creates the Supabase project, runs `supabase/schema.sql`, adds Render variables, deploys Render and launches `/api/cron/supabase-backfill`.
+
+Manual fallback:
+
 1. Create a Supabase project.
 2. Open SQL Editor.
 3. Run `autoconfirm/supabase/schema.sql`.
