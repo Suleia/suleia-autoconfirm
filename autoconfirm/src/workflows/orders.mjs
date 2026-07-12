@@ -1003,6 +1003,70 @@ function configuredPreparedWhatsappTemplate() {
   return config.preparedWhatsappTemplateName || 'es_ES dropea_pedido_preparado_v1';
 }
 
+function digits(value) {
+  return String(value || '').replace(/\D/g, '');
+}
+
+function initialTemplateLedgerKey(order, templateName) {
+  const templatePart = normalizeText(templateName || 'initial_template');
+  const orderPart = String(order?.orderId || '').trim() || 'no-order';
+  const phonePart = digits(order?.customerPhone).slice(-9) || 'no-phone';
+  return `${templatePart}|${orderPart}|${phonePart}`;
+}
+
+function initialTemplateLedgerKeys(order, templateName) {
+  const templatePart = normalizeText(templateName || 'initial_template');
+  const orderPart = String(order?.orderId || '').trim();
+  const phonePart = digits(order?.customerPhone).slice(-9);
+  return [
+    initialTemplateLedgerKey(order, templateName),
+    orderPart ? `${templatePart}|${orderPart}|no-phone` : null,
+    phonePart ? `${templatePart}|no-order|${phonePart}` : null
+  ].filter(Boolean);
+}
+
+function initialTemplateLedgerEntry(order, templateName) {
+  const ledger = loadState().chatbyInitialTemplateLedger || {};
+  for (const key of initialTemplateLedgerKeys(order, templateName)) {
+    if (ledger[key]) return ledger[key];
+  }
+  return null;
+}
+
+function trimTemplateLedger(ledger) {
+  const entries = Object.entries(ledger || {});
+  if (entries.length <= 2500) return ledger;
+  return Object.fromEntries(
+    entries
+      .sort((left, right) => String(right[1]?.updatedAt || '').localeCompare(String(left[1]?.updatedAt || '')))
+      .slice(0, 2500)
+  );
+}
+
+function rememberInitialTemplateAttempt(order, templateName, patch = {}) {
+  if (!order?.orderId && !order?.customerPhone) return null;
+  const state = { ...loadState() };
+  const ledger = { ...(state.chatbyInitialTemplateLedger || {}) };
+  const key = initialTemplateLedgerKey(order, templateName);
+  const previous = ledger[key] || {};
+  const now = new Date().toISOString();
+  ledger[key] = {
+    ...previous,
+    orderId: String(order.orderId || previous.orderId || ''),
+    phoneLast9: digits(order.customerPhone || previous.phoneLast9).slice(-9),
+    templateName: templateName || previous.templateName || '',
+    status: patch.status || previous.status || 'attempted',
+    attemptedAt: patch.attemptedAt || previous.attemptedAt || now,
+    sentAt: patch.sentAt || previous.sentAt || null,
+    lastError: patch.lastError ?? previous.lastError ?? null,
+    provider: patch.provider || previous.provider || null,
+    updatedAt: now
+  };
+  state.chatbyInitialTemplateLedger = trimTemplateLedger(ledger);
+  saveState(state);
+  return ledger[key];
+}
+
 function firstExisting(...values) {
   return values.find((value) => value !== null && value !== undefined && String(value).trim() !== '') || null;
 }
@@ -1066,6 +1130,9 @@ function preparedTemplateParamsForOrder(order) {
 function templateAlreadyAttempted(order, templateName) {
   if (order.chatbyTemplateAttemptedAt || order.chatbyTemplateSentAt) return true;
   if (!templateName) return false;
+  const ledgerEntry = initialTemplateLedgerEntry(order, templateName);
+  if (ledgerEntry?.attemptedAt || ledgerEntry?.sentAt) return true;
+  if (['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(ledgerEntry?.status))) return true;
   return normalizeText(order.chatbyTemplateName) === normalizeText(templateName)
     && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.chatbyTemplateSendStatus));
 }
@@ -1126,14 +1193,21 @@ async function markTemplateAlreadySeen(order, userNs, store, templateName) {
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
     if (!messages.some((message) => messageLooksLikeTemplate(message, templateName))) return null;
-    return upsertOrder(store.id, {
+    const markedAt = new Date().toISOString();
+    const updated = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
-      chatbyTemplateSentAt: order.chatbyTemplateSentAt || new Date().toISOString(),
-      chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || new Date().toISOString(),
+      chatbyTemplateSentAt: order.chatbyTemplateSentAt || markedAt,
+      chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || markedAt,
       chatbyTemplateName: templateName,
       chatbyTemplateSendStatus: 'already_seen'
     });
+    rememberInitialTemplateAttempt(updated, templateName, {
+      status: 'already_seen',
+      attemptedAt: updated.chatbyTemplateAttemptedAt,
+      sentAt: updated.chatbyTemplateSentAt
+    });
+    return updated;
   } catch {
     return null;
   }
@@ -1144,14 +1218,21 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
     if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order.orderId))) return null;
-    return upsertOrder(store.id, {
+    const markedAt = new Date().toISOString();
+    const updated = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
-      chatbyTemplateSentAt: order.chatbyTemplateSentAt || new Date().toISOString(),
-      chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || new Date().toISOString(),
+      chatbyTemplateSentAt: order.chatbyTemplateSentAt || markedAt,
+      chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || markedAt,
       chatbyTemplateName: templateName,
       chatbyTemplateSendStatus: 'already_seen'
     });
+    rememberInitialTemplateAttempt(updated, templateName, {
+      status: 'already_seen',
+      attemptedAt: updated.chatbyTemplateAttemptedAt,
+      sentAt: updated.chatbyTemplateSentAt
+    });
+    return updated;
   } catch {
     return null;
   }
@@ -1248,13 +1329,18 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   const provider = 'meta';
   const attemptedAt = new Date().toISOString();
 
-  upsertOrder(store.id, {
+  const attemptedOrder = upsertOrder(store.id, {
     ...order,
     chatbyUserNs: userNs,
     chatbyTemplateAttemptedAt: attemptedAt,
     chatbyTemplateName: templateName,
     chatbyTemplateSendStatus: 'attempted',
     chatbyTemplateLastError: null
+  });
+  rememberInitialTemplateAttempt(attemptedOrder, templateName, {
+    status: 'attempted',
+    attemptedAt,
+    provider
   });
 
   try {
@@ -1266,7 +1352,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return upsertOrder(store.id, {
+    const failed = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
       chatbyTemplateAttemptedAt: attemptedAt,
@@ -1274,12 +1360,20 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       chatbyTemplateSendStatus: 'failed',
       chatbyTemplateLastError: message
     });
+    rememberInitialTemplateAttempt(failed, templateName, {
+      status: 'failed',
+      attemptedAt,
+      lastError: message,
+      provider
+    });
+    return failed;
   }
 
-  return upsertOrder(store.id, {
+  const sentAt = new Date().toISOString();
+  const sent = upsertOrder(store.id, {
     ...order,
     chatbyUserNs: sendResponse.userNs || userNs,
-    chatbyTemplateSentAt: new Date().toISOString(),
+    chatbyTemplateSentAt: sentAt,
     chatbyTemplateAttemptedAt: attemptedAt,
     chatbyTemplateName: templateName,
     chatbyTemplateSendStatus: 'sent',
@@ -1290,6 +1384,13 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       fallbackReason: sendResponse.fallbackReason || null
     }
   });
+  rememberInitialTemplateAttempt(sent, templateName, {
+    status: 'sent',
+    attemptedAt,
+    sentAt,
+    provider: sendResponse.provider || provider
+  });
+  return sent;
 }
 
 function preparedTemplateAlreadyAttempted(order, templateName) {
@@ -1717,12 +1818,17 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
 
     const attemptedAt = new Date().toISOString();
     const params = templateParamsForOrder(order);
-    upsertOrder(store.id, {
+    const attemptedOrder = upsertOrder(store.id, {
       ...order,
       chatbyTemplateAttemptedAt: attemptedAt,
       chatbyTemplateName: templateName,
       chatbyTemplateSendStatus: 'attempted',
       chatbyTemplateLastError: null
+    });
+    rememberInitialTemplateAttempt(attemptedOrder, templateName, {
+      status: 'attempted',
+      attemptedAt,
+      provider: 'meta'
     });
     try {
       const sendResponse = await sendInitialTemplateWithFallback({
@@ -1731,10 +1837,11 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
         params,
         userNs: order.chatbyUserNs || null
       });
+      const sentAt = new Date().toISOString();
       const updated = upsertOrder(store.id, {
         ...order,
         chatbyUserNs: sendResponse.userNs || order.chatbyUserNs || null,
-        chatbyTemplateSentAt: new Date().toISOString(),
+        chatbyTemplateSentAt: sentAt,
         chatbyTemplateAttemptedAt: attemptedAt,
         chatbyTemplateName: templateName,
         chatbyTemplateSendStatus: 'sent',
@@ -1745,15 +1852,28 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
           fallbackReason: sendResponse.fallbackReason || null
         }
       });
+      rememberInitialTemplateAttempt(updated, templateName, {
+        status: 'sent',
+        attemptedAt,
+        sentAt,
+        provider: sendResponse.provider || 'meta'
+      });
       await safeUpsertSheetRow(updated);
       return updated;
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
       const updated = upsertOrder(store.id, {
         ...order,
         chatbyTemplateAttemptedAt: attemptedAt,
         chatbyTemplateName: templateName,
         chatbyTemplateSendStatus: 'failed',
-        chatbyTemplateLastError: error instanceof Error ? error.message : String(error)
+        chatbyTemplateLastError: message
+      });
+      rememberInitialTemplateAttempt(updated, templateName, {
+        status: 'failed',
+        attemptedAt,
+        lastError: message,
+        provider: 'meta'
       });
       await safeUpsertSheetRow(updated);
       return updated;
