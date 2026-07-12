@@ -74,6 +74,16 @@ export async function sendWhatsappTemplate(payload) {
   });
 }
 
+export async function sendTextMessage({ user_ns, content }) {
+  if (!user_ns || !String(content || '').trim()) {
+    throw new Error('Chatby send-text requiere user_ns y content.');
+  }
+  return request('/subscriber/send-text', {
+    method: 'POST',
+    body: JSON.stringify({ user_ns, content: String(content).trim() })
+  });
+}
+
 export async function listWhatsappTemplates() {
   const response = await request('/whatsapp-template/list', {
     method: 'POST',
