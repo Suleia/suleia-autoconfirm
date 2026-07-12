@@ -22,7 +22,7 @@ import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
-import { backfillSupabaseFromLocal, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
+import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -832,6 +832,8 @@ server.listen(config.port, async () => {
   try {
     const hydration = await hydrateLocalStateFromSupabase();
     if (!hydration?.skipped) console.log('Supabase startup hydration:', JSON.stringify(hydration.restored || {}));
+    const coreMemory = await ensureCoreAgentMemory();
+    if (!coreMemory?.skipped) console.log(`Core agent memory ready (${coreMemory.count} rules).`);
   } catch (error) {
     console.error('Supabase startup hydration error:', error instanceof Error ? error.message : String(error));
   }
