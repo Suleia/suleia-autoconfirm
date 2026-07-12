@@ -36,4 +36,7 @@ What is mirrored:
 - Feedback and learned rules.
 - Telegram bot interactions.
 - Webhook dedupe events.
+- Atomic WhatsApp template delivery ledger, preventing duplicate sends across deploys and concurrent events.
 - Meta campaign insight snapshots.
+
+On startup, Render restores orders, runtime state, operational caches, feedback and learned agent memory from Supabase. Local JSON files remain only as a fast operational cache and emergency fallback.
