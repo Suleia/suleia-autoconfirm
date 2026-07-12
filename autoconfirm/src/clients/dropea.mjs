@@ -165,6 +165,45 @@ export async function listDropeaOrdersByStatusBasic({ status = 'PENDING', limit 
   }));
 }
 
+export async function listDropeaOrdersByStatusWithPagination({ status = 'PENDING', limit = 100, page = 1 } = {}) {
+  const query = `
+    query OrdersByStatusWithPagination($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
+      orders(status: $status, limit: $limit, page: $page) {
+        total
+        per_page
+        current_page
+        last_page
+        has_more_pages
+        data {
+          id
+          status
+          customer { full_name phone email }
+          total_amount
+          created_at
+        }
+      }
+    }
+  `;
+
+  const result = await requestGraphQL(query, { status, limit, page });
+  const payload = result?.orders || {};
+  const items = payload?.data ?? [];
+  return {
+    orders: items.map((order) => ({
+      ...normalizeOrder(order),
+      ...normalizeCustomer(order.customer),
+      raw: order
+    })),
+    pagination: {
+      total: payload.total ?? items.length,
+      perPage: payload.per_page ?? limit,
+      currentPage: payload.current_page ?? page,
+      lastPage: payload.last_page ?? page,
+      hasMorePages: Boolean(payload.has_more_pages)
+    }
+  };
+}
+
 export async function listDropeaOrders({ limit = 100, page = 1 } = {}) {
   const query = `
     query Orders($limit: Int!, $page: Int!) {
