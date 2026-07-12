@@ -11,6 +11,7 @@ import { chatWithOperationsAgent } from './clients/openai.mjs';
 import { appendAgentMemoryRule, getAgentMemoryRules, getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
 import { loadIncidentsCache } from './workflows/incidents.mjs';
 import { loadOperationalOrdersCache } from './workflows/operational-orders.mjs';
+import { syncAgentChatToSupabase, syncAgentFeedbackToSupabase, syncAgentMemoryRuleToSupabase } from './db/supabase-store.mjs';
 
 const config = getAppConfig();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -2045,10 +2046,16 @@ export async function saveAgentFeedback({ orderId, verdict = 'manual_review', co
   };
   feedback.push(item);
   await writeJson(feedbackPath, feedback);
+  await syncAgentFeedbackToSupabase(item, 'order').catch((error) => {
+    console.error('Supabase agent feedback mirror error:', error instanceof Error ? error.message : String(error));
+  });
   const lesson = learnedRuleFromFeedback(item);
   if (lesson && !memory.some((existing) => normalize(existing.text) === normalize(lesson.text))) {
     memory.push(lesson);
     await writeJson(memoryPath, memory);
+    await syncAgentMemoryRuleToSupabase(lesson).catch((error) => {
+      console.error('Supabase agent memory mirror error:', error instanceof Error ? error.message : String(error));
+    });
     try {
       await appendAgentMemoryRule(lesson);
     } catch {
@@ -2093,11 +2100,17 @@ export async function saveIncidentFeedback({ orderId, incidenceId = '', issueTyp
   };
   feedback.push(item);
   await writeJson(feedbackPath, feedback.slice(-500));
+  await syncAgentFeedbackToSupabase(item, 'incident').catch((error) => {
+    console.error('Supabase incident feedback mirror error:', error instanceof Error ? error.message : String(error));
+  });
 
   const lesson = learnedRuleFromIncidentFeedback(item);
   if (lesson && !memory.some((existing) => normalize(existing.text) === normalize(lesson.text))) {
     memory.push(lesson);
     await writeJson(memoryPath, memory);
+    await syncAgentMemoryRuleToSupabase(lesson).catch((error) => {
+      console.error('Supabase incident memory mirror error:', error instanceof Error ? error.message : String(error));
+    });
     try {
       await appendAgentMemoryRule(lesson);
     } catch {
@@ -2146,9 +2159,16 @@ export async function saveAgentChat(message, health) {
   };
   chat.push(userMessage, agentMessage);
   await writeJson(chatPath, chat);
+  await Promise.allSettled([
+    syncAgentChatToSupabase(userMessage),
+    syncAgentChatToSupabase(agentMessage)
+  ]);
   if (lesson) {
     memory.push(lesson);
     await writeJson(memoryPath, memory);
+    await syncAgentMemoryRuleToSupabase(lesson).catch((error) => {
+      console.error('Supabase chat memory mirror error:', error instanceof Error ? error.message : String(error));
+    });
     try {
       await appendAgentMemoryRule(lesson);
     } catch {
