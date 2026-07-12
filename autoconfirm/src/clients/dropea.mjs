@@ -234,12 +234,22 @@ export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses 
   const targetStatuses = statuses || [
     'PENDING',
     'CONFIRMED',
-    'CANCELLED',
-    'REJECTED',
-    'IN_PREPARATION',
     'PREPARED',
-    'IN_TRANSIT',
-    'DELIVERED'
+    'SHIPPED',
+    'DELIVERED',
+    'CANCELLED',
+    'ERROR',
+    'TRANSIT',
+    'INCIDENCE',
+    'REJECTED',
+    'RECLAIM',
+    'RETURNED',
+    'INDEMNIFIED',
+    'CHARGED',
+    'REVIEW',
+    'PREPARING',
+    'LOST',
+    'DAMAGED'
   ];
   const byId = new Map();
 
