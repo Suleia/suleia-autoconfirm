@@ -4,6 +4,7 @@ import { readJson, writeJson } from '../lib/files.mjs';
 import { listDropeaOrdersByStatus } from '../clients/dropea.mjs';
 import { findSubscriberForOrderRobust, getChatMessages, subscriberConfirmsOrderRobust } from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
+import { syncOperationalOrdersCacheToSupabase } from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'operational-orders-cache.json');
@@ -275,6 +276,9 @@ export async function syncOperationalOrders({ limit = 100, pages = 10 } = {}) {
       error: null
     };
     writeJson(cachePath, payload);
+    await syncOperationalOrdersCacheToSupabase(payload).catch((error) => {
+      console.error('Supabase operational orders mirror error:', error instanceof Error ? error.message : String(error));
+    });
 
     const state = { ...loadState() };
     state.lastOperationalOrdersSyncAt = updatedAt;
@@ -293,6 +297,9 @@ export async function syncOperationalOrders({ limit = 100, pages = 10 } = {}) {
       error: message
     };
     writeJson(cachePath, payload);
+    await syncOperationalOrdersCacheToSupabase(payload).catch((mirrorError) => {
+      console.error('Supabase operational orders error mirror failed:', mirrorError instanceof Error ? mirrorError.message : String(mirrorError));
+    });
 
     const state = { ...loadState() };
     state.lastOperationalOrdersSyncAt = updatedAt;
