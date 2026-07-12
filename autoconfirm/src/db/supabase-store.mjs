@@ -310,6 +310,40 @@ export async function syncAgentMemoryRuleToSupabase(rule = {}) {
   }, { onConflict: 'id' });
 }
 
+const coreAgentMemoryRules = [
+  {
+    id: 'core_order_post_confirmation_cancel',
+    type: 'order_operational_rule',
+    source: 'suleia_core_logic',
+    content: 'Una confirmacion inicial no prevalece si despues el cliente comunica que no quiere el pedido, quiere cancelarlo, anularlo o que se equivoco. Durante la espera operativa se debe cancelar en Dropea.'
+  },
+  {
+    id: 'core_order_post_confirmation_promotion_change',
+    type: 'order_operational_rule',
+    source: 'suleia_core_logic',
+    content: 'Si despues de confirmar el cliente solicita otra oferta, promocion o pack, se cancela el pedido actual y se le indica que realice una nueva compra mediante la URL del producto correspondiente.'
+  },
+  {
+    id: 'core_incident_agent_training_only',
+    type: 'incident_agent_guardrail',
+    source: 'suleia_core_logic',
+    content: 'El Agente de incidencias esta en modo entrenamiento y solo analiza Chatby, datos de Dropea, transportista y feedback. No resuelve incidencias ni envia mensajes automaticamente hasta autorizacion expresa.'
+  }
+];
+
+export async function ensureCoreAgentMemory() {
+  if (!isSupabaseEnabled()) return { skipped: true };
+  const createdAt = nowIso();
+  const rows = coreAgentMemoryRules.map((rule) => ({
+    ...rule,
+    entity_id: '',
+    raw: rule,
+    created_at: createdAt
+  }));
+  await upsertRows('agent_memory_events', rows, { onConflict: 'id' });
+  return { ok: true, count: rows.length };
+}
+
 export async function syncAgentChatToSupabase(message = {}) {
   if (!isSupabaseEnabled()) return { skipped: true };
   return insertRows('agent_memory_events', {
