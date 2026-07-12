@@ -22,7 +22,7 @@ import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
-import { backfillSupabaseFromLocal, getSupabaseMirrorStatus, testSupabaseConnection } from './src/db/supabase-store.mjs';
+import { backfillSupabaseFromLocal, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -825,10 +825,16 @@ function startMetaDashboardSync() {
   }, 45000);
 }
 
-server.listen(config.port, () => {
+server.listen(config.port, async () => {
   console.log(`AutoConfirm listening on http://localhost:${config.port}`);
   console.log(`Webhook: /api/webhooks/dropea/${config.defaultStore.webhookToken}`);
   console.log(`Shopify webhook: /api/webhooks/shopify/${config.defaultStore.webhookToken}`);
+  try {
+    const hydration = await hydrateLocalStateFromSupabase();
+    if (!hydration?.skipped) console.log('Supabase startup hydration:', JSON.stringify(hydration.restored || {}));
+  } catch (error) {
+    console.error('Supabase startup hydration error:', error instanceof Error ? error.message : String(error));
+  }
   startBackgroundPoller();
   startUnansweredCancellationScheduler();
   startOperationalOrdersScheduler();
