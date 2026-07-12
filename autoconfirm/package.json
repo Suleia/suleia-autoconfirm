@@ -12,6 +12,7 @@
     "confirm": "node tools/auto-confirm.mjs",
     "cancel-unanswered": "node tools/unanswered-cancellations.mjs",
     "health": "node tools/healthcheck.mjs",
-    "supabase:backfill": "node tools/supabase-backfill.mjs"
+    "supabase:backfill": "node tools/supabase-backfill.mjs",
+    "supabase:setup-project": "node tools/setup-supabase-project.mjs"
   }
 }
