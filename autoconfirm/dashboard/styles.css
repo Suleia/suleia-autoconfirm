@@ -2447,6 +2447,60 @@ th {
   font-weight: 900;
 }
 
+.incident-customer-last,
+.incident-carrier-latest {
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(23, 69, 77, .14);
+  border-radius: 14px;
+  background: rgba(223, 248, 242, .7);
+  display: grid;
+  gap: 5px;
+}
+
+.incident-customer-last.is-waiting {
+  background: rgba(248, 240, 218, .62);
+}
+
+.incident-customer-last time,
+.incident-carrier-latest time,
+.incident-carrier-history time {
+  color: #64727a;
+  font-size: 11px;
+}
+
+.incident-customer-last blockquote,
+.incident-carrier-latest p,
+.incident-carrier-history p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.incident-carrier-history {
+  margin-top: 10px;
+  border-top: 1px solid rgba(23, 69, 77, .12);
+  padding-top: 8px;
+}
+
+.incident-carrier-history summary {
+  cursor: pointer;
+  font-weight: 800;
+  color: #17454d;
+}
+
+.incident-carrier-history article {
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(23, 69, 77, .08);
+}
+
+.incident-source-note {
+  display: block;
+  margin-top: 8px;
+  color: #71808b;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
 .incident-mini-title {
   color: var(--navy);
   display: block;
