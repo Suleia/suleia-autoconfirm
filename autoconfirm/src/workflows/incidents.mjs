@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
-import { getDropeaOrderById, listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatus, listDropeaOrdersByStatusBasic, listDropeaOrderStateValues } from '../clients/dropea.mjs';
-import { findSubscriberByPhone, getChatMessages } from '../clients/chatby.mjs';
+import { listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatus, listDropeaOrdersByStatusBasic, listDropeaOrderStateValues } from '../clients/dropea.mjs';
+import { findSubscriberInIndexByPhone, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
+import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import { syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
 
@@ -759,6 +760,41 @@ function transportHistoryFromIssue(issue = {}) {
   }).sort((left, right) => new Date(left.eventAt || 0) - new Date(right.eventAt || 0));
 }
 
+function issueTransportDetail(issue = {}) {
+  const raw = issue.raw || issue;
+  return unique([issue.description, raw.description, issue.solutions, raw.solutions]
+    .flatMap((value) => {
+      if (!value) return [];
+      if (Array.isArray(value)) return value;
+      if (typeof value === 'object') return [JSON.stringify(value)];
+      return [value];
+    })
+    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean))
+    .join(' | ');
+}
+
+function mergeOfficialTransportHistory(glsTracking, issue, fallbackHistory = []) {
+  if (!glsTracking?.history?.length) {
+    return {
+      history: fallbackHistory,
+      incidenceEvent: fallbackHistory[fallbackHistory.length - 1] || null
+    };
+  }
+
+  const detail = issueTransportDetail(issue);
+  const incidenceEvent = glsTracking.incidence
+    ? { ...glsTracking.incidence, text: detail || glsTracking.incidence.text }
+    : null;
+  const history = glsTracking.history.map((event) => {
+    if (!incidenceEvent?.eventAt || !event?.eventAt) return event;
+    const distance = Math.abs(new Date(event.eventAt).getTime() - new Date(incidenceEvent.eventAt).getTime());
+    return distance <= 120000 ? { ...event, text: detail || event.text } : event;
+  });
+
+  return { history, incidenceEvent };
+}
+
 function messageText(message) {
   return [
     message?.text,
@@ -777,8 +813,12 @@ function messageDate(message) {
     || message?.timestamp
     || message?.sent_at
     || message?.sentAt
+    || message?.ts
     || null;
-  const date = value ? new Date(value) : null;
+  const numeric = Number(value);
+  const date = Number.isFinite(numeric) && numeric > 0
+    ? new Date(numeric > 1e12 ? numeric : numeric * 1000)
+    : value ? new Date(value) : null;
   return date && !Number.isNaN(date.getTime()) ? date.toISOString() : null;
 }
 
@@ -789,11 +829,29 @@ function clip(value, max = 180) {
 }
 
 function isCustomerMessage(message) {
-  const raw = JSON.stringify(message || {});
-  const from = normalize(message?.from || message?.sender || message?.role || message?.type || message?.direction || '');
+  const rawMessage = message?.raw || message || {};
+  const raw = JSON.stringify(rawMessage);
+  const from = normalize(message?.from || message?.sender || message?.role || message?.type || message?.direction || rawMessage?.direction || '');
   if (from.includes('customer') || from.includes('user') || from.includes('cliente') || from.includes('inbound')) return true;
   if (from.includes('bot') || from.includes('agent') || from.includes('admin') || from.includes('outbound')) return false;
+  if (rawMessage.is_from_customer === true || rawMessage.isFromCustomer === true || rawMessage.from_customer === true) return true;
+  if (rawMessage.from_me === false || rawMessage.fromMe === false || rawMessage.incoming === true || rawMessage.is_incoming === true) return true;
+  if (rawMessage.from_me === true || rawMessage.fromMe === true || rawMessage.outgoing === true || rawMessage.is_outgoing === true) return false;
   return raw.includes('"is_bot":false') || raw.includes('"from_me":false') || raw.includes('"incoming"');
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const output = new Array(items.length);
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      output[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return output;
 }
 
 function evidenceFromConversation(customerText, allText) {
@@ -932,7 +990,7 @@ function summarizeConversation(messages = []) {
   };
 }
 
-async function chatbyContextForPhone(phone) {
+async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = new Map(), { since = null } = {}) {
   if (!digits(phone)) {
     return {
       ok: false,
@@ -945,7 +1003,7 @@ async function chatbyContextForPhone(phone) {
     };
   }
 
-  const subscriber = await findSubscriberByPhone({ phone, maxPages: 20 });
+  const subscriber = findSubscriberInIndexByPhone(subscriberIndex, { phone });
   if (!subscriber) {
     return {
       ok: false,
@@ -959,12 +1017,36 @@ async function chatbyContextForPhone(phone) {
   }
 
   const userNs = subscriber.user_ns || subscriber.ns || subscriber.id || null;
-  const messages = userNs ? await getChatMessages(userNs) : [];
+  if (userNs && !messagesByUserNs.has(userNs)) {
+    messagesByUserNs.set(userNs, getChatMessages(userNs));
+  }
+  const allMessages = userNs ? await messagesByUserNs.get(userNs) : [];
+  const sinceTime = since ? new Date(since).getTime() : Number.NaN;
+  const messages = Number.isFinite(sinceTime)
+    ? (Array.isArray(allMessages) ? allMessages : []).filter((message) => {
+        const timestamp = messageDate(message);
+        return timestamp ? new Date(timestamp).getTime() >= sinceTime - (60 * 60 * 1000) : true;
+      })
+    : allMessages;
   return {
     ok: true,
     userNs,
     subscriberName: subscriber.name || subscriber.full_name || null,
     ...summarizeConversation(Array.isArray(messages) ? messages : [])
+  };
+}
+
+function orderFromIncidence(incidence = {}) {
+  const rawOrder = incidence?.raw?.order || incidence?.order || {};
+  return {
+    orderId: String(incidence.orderId || rawOrder.id || ''),
+    status: incidence.orderStatus || rawOrder.status || 'INCIDENCE',
+    customerName: incidence.customerName || rawOrder.customer?.full_name || '',
+    customerPhone: incidence.customerPhone || rawOrder.customer?.phone || '',
+    customerEmail: incidence.customerEmail || rawOrder.customer?.email || '',
+    orderAmount: Number(rawOrder.total_amount || 0) || null,
+    createdAt: rawOrder.created_at || null,
+    raw: rawOrder
   };
 }
 
@@ -989,7 +1071,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
       if (!Array.isArray(incidences) || !incidences.length) break;
       for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
         if (!incidence.orderId) continue;
-        const order = await getDropeaOrderById(incidence.orderId).catch(() => null);
+        const order = orderFromIncidence(incidence);
         if (!isPendingResolutionIssue(incidence, order)) continue;
         directRows.push({ order, issue: incidence });
       }
@@ -1027,7 +1109,7 @@ async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
       if (!Array.isArray(incidences) || !incidences.length) break;
       for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
         if (!incidence.orderId) continue;
-        const order = await getDropeaOrderById(incidence.orderId).catch(() => null);
+        const order = orderFromIncidence(incidence);
         if (!isPendingResolutionIssue(incidence, order)) continue;
         directRows.push({ order, issue: incidence });
       }
@@ -1088,19 +1170,23 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
     const previousCache = loadIncidentsCache();
     const previousByOrderId = new Map((previousCache.incidents || []).map((incident) => [String(incident.orderId), incident]));
     const chatbyByPhone = new Map();
+    const messagesByUserNs = new Map();
     const pending = await collectPendingIncidents({ limit, pages });
-    for (const { order, issue } of pending) {
+    const subscriberIndex = await loadSubscriberIndex({ maxPages: 10, limit: 100 });
+    const analyzed = await mapWithConcurrency(pending, 12, async ({ order, issue }) => {
       const orderId = String(order?.orderId || issue?.orderId || '');
       const phone = order?.customerPhone || order?.raw?.customer?.phone || issue?.customerPhone || '';
+      const fallbackTransportHistory = transportHistoryFromIssue(issue);
+      const incidentStartedAt = fallbackTransportHistory[0]?.eventAt || issueDate(order, issue);
       let chatby;
       try {
-        const phoneKey = digits(phone).slice(-9) || `order:${orderId}`;
-        if (chatbyByPhone.has(phoneKey)) {
-          chatby = chatbyByPhone.get(phoneKey);
-        } else {
-          chatby = await chatbyContextForPhone(phone);
-          chatbyByPhone.set(phoneKey, chatby);
+        const phoneKey = `${digits(phone).slice(-9) || `order:${orderId}`}|${issue?.id || incidentStartedAt || ''}`;
+        if (!chatbyByPhone.has(phoneKey)) {
+          chatbyByPhone.set(phoneKey, chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs, {
+            since: incidentStartedAt
+          }));
         }
+        chatby = await chatbyByPhone.get(phoneKey);
       } catch (error) {
         chatby = {
           ok: false,
@@ -1131,14 +1217,19 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       }
       const classification = classifyIncident(issue, order);
       const cleanLabel = incidentDisplayLabel(classification);
-      const transportHistory = transportHistoryFromIssue(issue);
+      const glsTracking = await getGlsTrackingHistory({
+        trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || issue?.raw?.order?.tracking_url,
+        tracking: issue?.tracking || issue?.raw?.tracking || issue?.raw?.order?.tracking_code
+      }).catch(() => null);
+      const mergedTransport = mergeOfficialTransportHistory(glsTracking, issue, fallbackTransportHistory);
+      const transportHistory = mergedTransport.history;
       const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
-      const currentIncidenceDate = transportHistory[0]?.eventAt || issueDate(order, issue);
+      const currentIncidenceDate = mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
       const recommendation = typeAwareIncidentSolution(classification, chatby, issue);
       const customerSignal = customerSignalForIncident(chatby);
       const confidence = confidenceForIncident({ classification, chatby, recommendation });
 
-      incidents.push({
+      return {
         orderId,
         incidenceId: issue?.id || issue?.incidenceId ? String(issue.id || issue.incidenceId) : null,
         incidenceDate: currentIncidenceDate,
@@ -1154,15 +1245,16 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         customerName: order?.customerName || order?.raw?.customer?.full_name || issue?.customerName || '',
         phone,
         amount: order?.orderAmount ?? null,
-        carrierCompany: issue?.carrierCompany || issue?.raw?.carrier_company || '',
-        carrierService: issue?.carrierService || issue?.raw?.carrier_service || '',
-        tracking: issue?.tracking || issue?.raw?.tracking || '',
-        trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || '',
+        carrierCompany: issue?.carrierCompany || issue?.raw?.carrier_company || issue?.raw?.order?.carrier_company || '',
+        carrierService: issue?.carrierService || issue?.raw?.carrier_service || issue?.raw?.order?.carrier_service || '',
+        tracking: issue?.tracking || issue?.raw?.tracking || issue?.raw?.order?.tracking_code || '',
+        trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || issue?.raw?.order?.tracking_url || '',
         transportHistory,
         transportLatestEvent: latestTransportEvent,
+        transportIncidenceEvent: mergedTransport.incidenceEvent,
         transportLogAvailable: transportHistory.length > 0,
-        transportLogCompleteness: 'summary_only',
-        transportLogSource: 'Dropea API: description, solutions and tracking fields',
+        transportLogCompleteness: glsTracking?.history?.length ? 'official_tracking' : 'summary_only',
+        transportLogSource: glsTracking?.source || 'Dropea API: description, solutions and tracking fields',
         chatbyIntent: chatby.intent || 'unknown',
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
@@ -1188,8 +1280,9 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         customerResponded: Number(chatby.customerMessages || 0) > 0,
         alertLevel: Number(chatby.customerMessages || 0) > 0 ? 'customer_response' : 'no_response',
         chatbyUserNs: chatby.userNs || null
-      });
-    }
+      };
+    });
+    incidents.push(...analyzed);
 
     const sortedIncidents = sortIncidentsByOrderDesc(incidents);
     const payload = {
@@ -1199,7 +1292,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       agentName: 'Agente de incidencias',
       agentMode: 'training_read_only',
       agentModeLabel: 'Entrenamiento y analisis; sin acciones automaticas',
-      transportHistoryNotice: 'Dropea API expone un resumen del transportista, no el historial completo del modal web.',
+      transportHistoryNotice: 'Historial oficial de GLS cuando hay tracking disponible; detalle de Dropea como respaldo.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
       error: null
