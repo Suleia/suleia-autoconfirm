@@ -2131,19 +2131,15 @@ export async function saveIncidentFeedback({ orderId, incidenceId = '', issueTyp
     note: String(note || ''),
     createdAt: new Date().toISOString()
   };
+  const feedbackMirror = await syncAgentFeedbackToSupabase(item, 'incident');
   feedback.push(item);
   await writeJson(feedbackPath, feedback.slice(-500));
-  await syncAgentFeedbackToSupabase(item, 'incident').catch((error) => {
-    console.error('Supabase incident feedback mirror error:', error instanceof Error ? error.message : String(error));
-  });
 
   const lesson = learnedRuleFromIncidentFeedback(item);
   if (lesson && !memory.some((existing) => normalize(existing.text) === normalize(lesson.text))) {
+    await syncAgentMemoryRuleToSupabase(lesson);
     memory.push(lesson);
     await writeJson(memoryPath, memory);
-    await syncAgentMemoryRuleToSupabase(lesson).catch((error) => {
-      console.error('Supabase incident memory mirror error:', error instanceof Error ? error.message : String(error));
-    });
     try {
       await appendAgentMemoryRule(lesson);
     } catch {
@@ -2151,7 +2147,7 @@ export async function saveIncidentFeedback({ orderId, incidenceId = '', issueTyp
     }
   }
 
-  return { ...item, learnedRule: lesson };
+  return { ...item, learnedRule: lesson, persistent: !feedbackMirror?.skipped };
 }
 
 export async function saveFinanceSettings({ dropeaProfit, note = '' }) {
