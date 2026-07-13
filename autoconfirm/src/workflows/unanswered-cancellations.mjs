@@ -44,7 +44,12 @@ function messageContent(message) {
 }
 
 function messageDate(message) {
-  return parseDate(message?.created_at || message?.createdAt || message?.timestamp || message?.time);
+  const value = message?.created_at || message?.createdAt || message?.timestamp || message?.time || message?.ts;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return new Date(numeric > 1e12 ? numeric : numeric * 1000);
+  }
+  return parseDate(value);
 }
 
 function compactStringList(values) {
