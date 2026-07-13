@@ -1148,6 +1148,10 @@ function configuredPreparedWhatsappTemplate() {
   return config.preparedWhatsappTemplateName || 'es_ES dropea_pedido_preparado_v1';
 }
 
+function initialTemplateProvider() {
+  return config.chatbyToken ? 'chatby' : String(config.whatsappProvider || 'meta').toLowerCase();
+}
+
 function digits(value) {
   return String(value || '').replace(/\D/g, '');
 }
@@ -1191,7 +1195,7 @@ async function acquireInitialTemplateClaim(order, store, templateName, userNs) {
       orderId: order.orderId,
       customerPhone: order.customerPhone,
       templateName,
-      provider: String(config.whatsappProvider || 'chatby'),
+      provider: initialTemplateProvider(),
       chatbyUserNs: userNs || order.chatbyUserNs || ''
     });
     if (!claim?.acquired) {
@@ -1247,7 +1251,7 @@ async function finalizeInitialTemplateClaim(order, store, templateName, claim, p
         orderId: order.orderId,
         customerPhone: order.customerPhone,
         templateName,
-        provider: patch.provider || String(config.whatsappProvider || 'chatby'),
+        provider: patch.provider || initialTemplateProvider(),
         chatbyUserNs: patch.chatbyUserNs || order.chatbyUserNs || '',
         status: patch.status,
         attemptedAt: patch.attemptedAt,
@@ -1399,10 +1403,9 @@ function messageLooksLikeTemplate(message, templateName) {
   return text.includes(target);
 }
 
-function messageLooksLikeTemplateForOrder(message, templateName, orderId) {
+function messageLooksLikeTemplateForOrder(message, templateName, order) {
   if (!messageLooksLikeTemplate(message, templateName)) return false;
-  const targetOrderId = String(orderId || '').replace(/\D/g, '');
-  if (!targetOrderId) return true;
+  const targetOrderId = String(order?.orderId || '').replace(/\D/g, '');
   const raw = message?.raw || message || {};
   const text = [
     message?.content,
@@ -1415,7 +1418,11 @@ function messageLooksLikeTemplateForOrder(message, templateName, orderId) {
     raw.title,
     JSON.stringify(raw)
   ].filter(Boolean).join(' ');
-  return text.replace(/\D/g, ' ').split(/\s+/).includes(targetOrderId);
+  if (targetOrderId && text.replace(/\D/g, ' ').split(/\s+/).includes(targetOrderId)) return true;
+
+  const createdAt = parseDate(order?.raw?.created_at || order?.raw?.createdAt || order?.createdAt);
+  const sentAt = messageTimestamp(message);
+  return Boolean(createdAt && sentAt && sentAt >= createdAt.getTime() - (15 * 60 * 1000));
 }
 
 async function markTemplateAlreadySeen(order, userNs, store, templateName) {
@@ -1447,7 +1454,7 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
   if (!userNs) return null;
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
-    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order.orderId))) return null;
+    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order))) return null;
     const markedAt = new Date().toISOString();
     const updated = upsertOrder(store.id, {
       ...order,
@@ -1500,7 +1507,11 @@ async function resolveOrCreateChatbyUserNsForTemplate(order, userNs) {
 }
 
 async function sendInitialTemplateWithFallback({ order, templateName, params, userNs }) {
-  const preferredProvider = String(config.whatsappProvider || 'meta').toLowerCase();
+  // Chatby is the source of truth for this flow. Sending directly through Meta
+  // creates a second conversation event that Chatby can attempt to deliver again.
+  const preferredProvider = config.chatbyToken
+    ? 'chatby'
+    : String(config.whatsappProvider || 'meta').toLowerCase();
   if (preferredProvider === 'chatby') {
     const chatbyUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
     if (!chatbyUserNs) {
@@ -1551,24 +1562,25 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName || templateAlreadyAttempted(order, templateName)) return order;
 
-  if (userNs) {
-    const alreadySeen = await markTemplateAlreadySeenForOrder(order, userNs, store, templateName);
+  const resolvedUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
+  if (resolvedUserNs) {
+    const alreadySeen = await markTemplateAlreadySeenForOrder(order, resolvedUserNs, store, templateName);
     if (alreadySeen) return alreadySeen;
   }
 
-  const claim = await acquireInitialTemplateClaim(order, store, templateName, userNs);
+  const claim = await acquireInitialTemplateClaim(order, store, templateName, resolvedUserNs);
   if (!claim.acquired) {
     return orderAfterRejectedInitialTemplateClaim(order, store, templateName, claim);
   }
 
   const params = templateParamsForOrder(order);
   let sendResponse = null;
-  const provider = 'meta';
+  const provider = initialTemplateProvider();
   const attemptedAt = new Date().toISOString();
 
   const attemptedOrder = upsertOrder(store.id, {
     ...order,
-    chatbyUserNs: userNs,
+    chatbyUserNs: resolvedUserNs,
     chatbyTemplateAttemptedAt: attemptedAt,
     chatbyTemplateName: templateName,
     chatbyTemplateSendStatus: 'attempted',
@@ -1585,13 +1597,13 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       order,
       templateName,
       params,
-      userNs
+      userNs: resolvedUserNs
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const failed = upsertOrder(store.id, {
       ...order,
-      chatbyUserNs: userNs,
+      chatbyUserNs: resolvedUserNs,
       chatbyTemplateAttemptedAt: attemptedAt,
       chatbyTemplateName: templateName,
       chatbyTemplateSendStatus: 'failed',
@@ -1608,7 +1620,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       attemptedAt,
       lastError: message,
       provider,
-      chatbyUserNs: userNs
+      chatbyUserNs: resolvedUserNs
     });
     return failed;
   }
@@ -1616,7 +1628,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   const sentAt = new Date().toISOString();
   const sent = upsertOrder(store.id, {
     ...order,
-    chatbyUserNs: sendResponse.userNs || userNs,
+    chatbyUserNs: sendResponse.userNs || resolvedUserNs,
     chatbyTemplateSentAt: sentAt,
     chatbyTemplateAttemptedAt: attemptedAt,
     chatbyTemplateName: templateName,
@@ -1639,7 +1651,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     attemptedAt,
     sentAt,
     provider: sendResponse.provider || provider,
-    chatbyUserNs: sendResponse.userNs || userNs,
+    chatbyUserNs: sendResponse.userNs || resolvedUserNs,
     raw: sendResponse.response || null
   });
   return sent;
