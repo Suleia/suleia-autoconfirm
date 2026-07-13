@@ -644,6 +644,53 @@ th {
   box-shadow: inset 5px 0 0 rgba(31, 171, 117, .84);
 }
 
+.order-row.has-prior-order {
+  background: linear-gradient(90deg, rgba(207, 67, 52, .18), rgba(255, 247, 244, .76) 62%);
+}
+
+.order-row.has-prior-order td:first-child {
+  box-shadow: inset 5px 0 0 rgba(190, 48, 37, .92);
+}
+
+.order-prior-warning {
+  display: grid;
+  gap: 4px;
+  margin-top: 9px;
+  padding: 11px 12px;
+  border: 1px solid rgba(190, 48, 37, .28);
+  border-radius: 14px;
+  color: #7d2018;
+  background: rgba(255, 239, 235, .92);
+}
+
+.order-prior-warning strong {
+  font-size: 12px;
+}
+
+.order-prior-warning span,
+.order-prior-warning small {
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.incident-carrier-incidence {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0;
+  padding: 10px 11px;
+  border-left: 4px solid #d9733f;
+  border-radius: 10px;
+  background: rgba(255, 242, 229, .82);
+}
+
+.incident-carrier-incidence b,
+.incident-carrier-incidence time,
+.incident-carrier-incidence p {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .customer-response-badge {
   display: inline-flex;
   width: fit-content;
