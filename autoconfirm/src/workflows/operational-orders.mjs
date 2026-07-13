@@ -2,7 +2,13 @@ import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
 import { listDropeaOrdersByStatus } from '../clients/dropea.mjs';
-import { findSubscriberForOrderRobust, getChatMessages, subscriberConfirmsOrderRobust } from '../clients/chatby.mjs';
+import {
+  findSubscriberInIndexByPhone,
+  findSubscriberInIndexForOrder,
+  getChatMessages,
+  loadSubscriberIndex,
+  subscriberConfirmsOrderRobust
+} from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import { syncOperationalOrdersCacheToSupabase } from '../db/supabase-store.mjs';
 
@@ -42,10 +48,87 @@ function isCustomerMessage(message = {}) {
   const text = normalize(messageContent(message));
   if (['in', 'inbound', 'incoming', 'received', 'customer', 'subscriber', 'user', 'client', 'cliente'].includes(role)) return true;
   if (raw.is_from_customer === true || raw.isFromCustomer === true || raw.from_customer === true) return true;
+  if (raw.from_me === false || raw.fromMe === false || raw.incoming === true || raw.is_incoming === true) return true;
   if (raw.is_echo === true || raw.isEcho === true) return false;
+  if (raw.from_me === true || raw.fromMe === true || raw.outgoing === true || raw.is_outgoing === true) return false;
   if (['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system'].includes(role)) return false;
-  if (/dropea_pedido_nuevo|pedido_nuevo_v|plantilla|template/.test(text)) return false;
-  return Boolean(text);
+  if (/dropea_pedido_|pedido_nuevo_v|pedido_preparado_v|plantilla|template/.test(text)) return false;
+  return false;
+}
+
+function messageDate(message = {}) {
+  const raw = message.raw || message;
+  const value = message.created_at
+    || message.createdAt
+    || message.timestamp
+    || message.sent_at
+    || message.sentAt
+    || message.ts
+    || raw.created_at
+    || raw.createdAt
+    || raw.timestamp
+    || raw.ts
+    || null;
+  const numeric = Number(value);
+  const parsed = Number.isFinite(numeric) && numeric > 0
+    ? new Date(numeric > 1e12 ? numeric : numeric * 1000)
+    : value ? new Date(value) : null;
+  return parsed && !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function messagesForCurrentOrder(messages = [], createdAt) {
+  const created = createdAt ? new Date(createdAt).getTime() : Number.NaN;
+  if (!Number.isFinite(created)) return messages;
+  const threshold = created - (15 * 60 * 1000);
+  return messages.filter((message) => {
+    const timestamp = messageDate(message);
+    if (!timestamp) return true;
+    return new Date(timestamp).getTime() >= threshold;
+  });
+}
+
+function priorOrderEvidence(messages = [], createdAt = null) {
+  const created = createdAt ? new Date(createdAt).getTime() : Number.NaN;
+  const priorMessages = Number.isFinite(created)
+    ? messages.filter((message) => {
+        const timestamp = messageDate(message);
+        return timestamp ? new Date(timestamp).getTime() < created : true;
+      })
+    : messages;
+  const prepared = priorMessages.filter((message) => /dropea_pedido_preparado_v1|pedido_preparado_v1/.test(normalize(messageContent(message))));
+  const rejected = priorMessages.filter((message) => /dropea_pedido_(?:rechazado|cancelado)|pedido_(?:rechazado|cancelado)|pedido cancelado|pedido rechazado/.test(normalize(messageContent(message))));
+  if (!prepared.length && !rejected.length) {
+    return {
+      priorOrderDetected: false,
+      priorOrderState: '',
+      priorOrderWarning: '',
+      priorPreparedAt: null
+    };
+  }
+
+  const lastPrepared = prepared[prepared.length - 1] || null;
+  const lastRejected = rejected[rejected.length - 1] || null;
+  const state = lastRejected ? 'Pedido anterior rechazado o cancelado' : 'Pedido anterior preparado o en transito';
+  return {
+    priorOrderDetected: true,
+    priorOrderState: state,
+    priorOrderWarning: `${state}. Hay una plantilla dropea_pedido_preparado_v1 previa en la conversacion; revisar duplicidad antes de actuar.`,
+    priorPreparedAt: messageDate(lastPrepared || lastRejected)
+  };
+}
+
+async function mapWithConcurrency(items, concurrency, worker) {
+  const output = new Array(items.length);
+  let nextIndex = 0;
+  const runners = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      output[index] = await worker(items[index], index);
+    }
+  });
+  await Promise.all(runners);
+  return output;
 }
 
 function classifyCustomerMessages(messages = []) {
@@ -148,8 +231,9 @@ async function collectPendingOrders({ limit = 100, pages = 10 } = {}) {
   return orders;
 }
 
-async function enrichPendingOrder(order, previous = null) {
+async function enrichPendingOrder(order, previous = null, subscriberIndex = null, messagesByUserNs = new Map()) {
   let subscriber = null;
+  let conversationSubscriber = null;
   let messages = [];
   let chatbyStatus = 'Sin Chatby';
   let chatbyUserNs = null;
@@ -165,13 +249,25 @@ async function enrichPendingOrder(order, previous = null) {
   };
 
   try {
-    subscriber = await findSubscriberForOrderRobust({
+    subscriber = findSubscriberInIndexForOrder(subscriberIndex, {
       phone: order.customerPhone,
       orderId: order.orderId,
-      maxPages: 8
+      allowConfirmedPhoneFallback: false
     });
-    chatbyUserNs = subscriber?.user_ns || subscriber?.userNs || subscriber?.ns || null;
-    messages = chatbyUserNs ? await getChatMessages(chatbyUserNs) : [];
+    conversationSubscriber = subscriber || findSubscriberInIndexByPhone(subscriberIndex, {
+      phone: order.customerPhone
+    });
+    chatbyUserNs = conversationSubscriber?.user_ns || conversationSubscriber?.userNs || conversationSubscriber?.ns || null;
+    if (chatbyUserNs && !messagesByUserNs.has(chatbyUserNs)) {
+      messagesByUserNs.set(chatbyUserNs, getChatMessages(chatbyUserNs));
+    }
+    messages = chatbyUserNs ? await messagesByUserNs.get(chatbyUserNs) : [];
+    const currentMessages = messagesForCurrentOrder(
+      Array.isArray(messages) ? messages : [],
+      order.raw?.created_at || order.raw?.createdAt
+    );
+    // Only the subscriber matched to this order can confirm the current order.
+    // The phone fallback is used exclusively to inspect prior-order history.
     signal = subscriberConfirmsOrderRobust(subscriber)
       ? {
           signal: 'CONFIRM',
@@ -180,14 +276,14 @@ async function enrichPendingOrder(order, previous = null) {
           agentIntent: 'CONFIRM',
           agentConfidence: 100,
           agentReason: 'Chatby marca al cliente como confirmado.',
-          customerMessages: Array.isArray(messages) ? messages.filter(isCustomerMessage).length : 0,
-          lastCustomerMessage: Array.isArray(messages)
-            ? messageContent([...messages].reverse().find(isCustomerMessage) || {}).replace(/\s+/g, ' ').trim()
+          customerMessages: currentMessages.filter(isCustomerMessage).length,
+          lastCustomerMessage: currentMessages.length
+            ? messageContent([...currentMessages].reverse().find(isCustomerMessage) || {}).replace(/\s+/g, ' ').trim()
             : '',
           customerActionLabel: 'Confirmado en Chatby',
           customerActionDetail: 'Chatby tiene etiqueta/estado/campo de confirmacion para este cliente.'
         }
-      : classifyCustomerMessages(Array.isArray(messages) ? messages : []);
+      : classifyCustomerMessages(currentMessages);
     chatbyStatus = chatbyUserNs ? 'Chatby revisado' : 'Sin conversacion localizada';
   } catch (error) {
     chatbyError = error instanceof Error ? error.message : String(error);
@@ -210,6 +306,10 @@ async function enrichPendingOrder(order, previous = null) {
     }
   }
 
+  const priorOrder = priorOrderEvidence(
+    Array.isArray(messages) ? messages : [],
+    order.raw?.created_at || order.raw?.createdAt
+  );
   return {
     orderId: String(order.orderId || ''),
     customer: order.customerName || '',
@@ -239,6 +339,7 @@ async function enrichPendingOrder(order, previous = null) {
     chatbyUserNs,
     chatbyLiveCheckedAt: new Date().toISOString(),
     chatbyError,
+    ...priorOrder,
     raw: order.raw || {}
   };
 }
@@ -260,10 +361,11 @@ export async function syncOperationalOrders({ limit = 100, pages = 10 } = {}) {
     const previousCache = loadOperationalOrdersCache();
     const previousByOrderId = new Map((previousCache.orders || []).map((order) => [String(order.orderId), order]));
     const pending = await collectPendingOrders({ limit, pages });
-    const orders = [];
-    for (const order of pending) {
-      orders.push(await enrichPendingOrder(order, previousByOrderId.get(String(order.orderId))));
-    }
+    const subscriberIndex = await loadSubscriberIndex({ maxPages: 10, limit: 100 });
+    const messagesByUserNs = new Map();
+    const orders = await mapWithConcurrency(pending, 12, (order) => (
+      enrichPendingOrder(order, previousByOrderId.get(String(order.orderId)), subscriberIndex, messagesByUserNs)
+    ));
 
     const payload = {
       ok: true,
