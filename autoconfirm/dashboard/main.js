@@ -327,6 +327,7 @@ function renderOrdersSummary(orders, visibleOrders) {
   const cards = [
     { label: data.agentName || 'Agente de incidencias', value: 'Activo', detail: data.agentModeLabel || 'Entrenamiento; sin acciones automaticas', tone: 'positive' },
     { label: 'Con respuesta', value: orders.filter((order) => Number(order.customerMessages) > 0).length, detail: 'Cliente contesto en Chatby', tone: 'positive' },
+    { label: 'Pedido previo', value: orders.filter((order) => order.priorOrderDetected).length, detail: 'Posible duplicidad a revisar', tone: 'danger' },
     { label: 'Cola operativa', value: orders.length, detail: 'Solo pendientes e incidencias en Dropea', tone: 'neutral' },
     { label: 'Confirmar ahora', value: countOrdersByFilter(orders, 'confirm'), detail: 'Señal clara del cliente', tone: 'positive' },
     { label: 'Dirección', value: countOrdersByFilter(orders, 'address'), detail: 'No confirmar hasta corregir', tone: 'warning' },
@@ -367,9 +368,11 @@ function renderOrders() {
       const intent = normalize(order.agentIntent || order.status || '');
       const isScheduled = intent.includes('confirm_delay_pending') || intent.includes('confirm_delay');
       const isConfirmedByCustomer = hasAgentConfirmation(order);
+      const hasPriorOrder = Boolean(order.priorOrderDetected);
       const rowClasses = ['order-row'];
       if (isScheduled) rowClasses.push('is-scheduled');
       if (isConfirmedByCustomer) rowClasses.push('is-confirmed');
+      if (hasPriorOrder) rowClasses.push('has-prior-order');
       const timeline = Array.isArray(order.timeline) ? order.timeline : [];
       const timelineHtml = timeline.length ? `
         <div class="order-timeline" aria-label="Historial del pedido">
@@ -384,6 +387,13 @@ function renderOrders() {
       const scheduledAlert = isScheduled ? `
         <div class="order-alert">
           Confirmacion programada: revisar Chatby antes de actuar${order.confirmationDueAt ? ` · ${escapeHtml(formatDateTime(order.confirmationDueAt))}` : ''}
+        </div>
+      ` : '';
+      const priorOrderAlert = hasPriorOrder ? `
+        <div class="order-prior-warning" role="alert">
+          <strong>Atencion: posible pedido anterior</strong>
+          <span>${escapeHtml(order.priorOrderWarning || order.priorOrderState || 'Hay actividad de un pedido anterior en esta conversacion.')}</span>
+          ${order.priorPreparedAt ? `<small>Señal previa: ${escapeHtml(formatDateTime(order.priorPreparedAt))}</small>` : ''}
         </div>
       ` : '';
       return `
@@ -410,6 +420,7 @@ function renderOrders() {
               <strong>${escapeHtml(realActionDetail)}</strong>
             </div>
             ${scheduledAlert}
+            ${priorOrderAlert}
             ${timelineHtml}
           </td>
           <td>
@@ -633,12 +644,15 @@ function renderIncidents() {
         <td>
           <strong class="incident-mini-title">${escapeHtml(incident.carrierCompany || 'Transportista')}</strong>
           ${incident.carrierService ? `<small>${escapeHtml(incident.carrierService)}</small>` : ''}
+          ${incident.transportIncidenceEvent?.text
+            ? `<div class="incident-carrier-incidence"><b>Registro de la incidencia</b><time>${escapeHtml(incident.transportIncidenceEvent.displayAt || formatDateTime(incident.transportIncidenceEvent.eventAt))}</time><p>${escapeHtml(incident.transportIncidenceEvent.text)}</p></div>`
+            : ''}
           ${incident.transportLatestEvent?.text
-            ? `<div class="incident-carrier-latest"><b>Ultimo evento</b><time>${escapeHtml(formatDateTime(incident.transportLatestEvent.eventAt))}</time><p>${escapeHtml(incident.transportLatestEvent.text)}</p></div>`
+            ? `<div class="incident-carrier-latest"><b>Ultimo evento del transporte</b><time>${escapeHtml(incident.transportLatestEvent.displayAt || formatDateTime(incident.transportLatestEvent.eventAt))}</time><p>${escapeHtml(incident.transportLatestEvent.text)}</p></div>`
             : '<small>Sin historial detallado aportado por transporte.</small>'}
-          <small class="incident-source-note">${incident.transportLogCompleteness === 'summary_only' ? 'Resumen disponible en la API de Dropea' : 'Historial de transporte'}</small>
+          <small class="incident-source-note">${escapeHtml(incident.transportLogSource || (incident.transportLogCompleteness === 'summary_only' ? 'Resumen disponible en Dropea' : 'Historial oficial del transporte'))}</small>
           ${Array.isArray(incident.transportHistory) && incident.transportHistory.length
-            ? `<details class="incident-carrier-history"><summary>Ver historial (${incident.transportHistory.length})</summary>${incident.transportHistory.map((event) => `<article><time>${escapeHtml(formatDateTime(event.eventAt))}</time><p>${escapeHtml(event.text)}</p></article>`).join('')}</details>`
+            ? `<details class="incident-carrier-history"><summary>Ver historial (${incident.transportHistory.length})</summary>${incident.transportHistory.map((event) => `<article><time>${escapeHtml(event.displayAt || formatDateTime(event.eventAt))}</time><p>${escapeHtml(event.text)}</p></article>`).join('')}</details>`
             : ''}
           ${incident.tracking ? `<small>Tracking: ${escapeHtml(incident.tracking)}</small>` : ''}
         </td>
@@ -1448,10 +1462,10 @@ function render() {
   }
 }
 
-async function loadDashboard() {
-  state.loading = true;
+async function loadDashboard({ silent = false } = {}) {
+  if (!silent) state.loading = true;
   state.error = null;
-  render();
+  if (!silent) render();
 
   try {
     const response = await fetch('/api/dashboard');
@@ -1461,13 +1475,14 @@ async function loadDashboard() {
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
   } finally {
-    state.loading = false;
+    if (!silent) state.loading = false;
     render();
   }
 }
 
 async function refreshDashboardNow() {
-  state.loading = true;
+  const hasDashboard = Boolean(state.dashboard);
+  state.loading = !hasDashboard;
   state.error = null;
   render();
 
@@ -1478,7 +1493,7 @@ async function refreshDashboardNow() {
     state.dashboard = payload.dashboard;
     if (payload.refresh) {
       window.setTimeout(() => {
-        loadDashboard().catch(() => {});
+        loadDashboard({ silent: true }).catch(() => {});
       }, 5000);
     }
   } catch (error) {
