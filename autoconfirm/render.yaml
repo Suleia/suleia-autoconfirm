@@ -46,7 +46,7 @@ services:
       - key: CHATBY_TOKEN
         sync: false
       - key: WHATSAPP_PROVIDER
-        value: meta
+        value: chatby
       - key: WHATSAPP_TEMPLATE_NAME
         value: es_ES dropea_pedido_nuevo_v1
       - key: META_WHATSAPP_PHONE_NUMBER_ID
@@ -100,7 +100,7 @@ services:
       - key: CHATBY_TOKEN
         sync: false
       - key: WHATSAPP_PROVIDER
-        value: meta
+        value: chatby
       - key: WHATSAPP_TEMPLATE_NAME
         value: es_ES dropea_pedido_nuevo_v1
       - key: META_WHATSAPP_PHONE_NUMBER_ID
