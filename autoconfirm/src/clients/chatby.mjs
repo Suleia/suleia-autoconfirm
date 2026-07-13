@@ -147,6 +147,27 @@ export async function listSubscribers({ page = 1, limit = 100 } = {}) {
   return response?.data ?? response;
 }
 
+export async function loadSubscriberIndex({ maxPages = 20, limit = 100 } = {}) {
+  const subscribers = [];
+  const byPhone = new Map();
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const rows = await listSubscribers({ page, limit });
+    if (!Array.isArray(rows) || !rows.length) break;
+    subscribers.push(...rows);
+    for (const subscriber of rows) {
+      const phoneKey = digits(subscriber.phone || subscriber.user_id).slice(-9);
+      if (!phoneKey) continue;
+      const matches = byPhone.get(phoneKey) || [];
+      matches.push(subscriber);
+      byPhone.set(phoneKey, matches);
+    }
+    if (rows.length < limit) break;
+  }
+
+  return { subscribers, byPhone };
+}
+
 function digits(value) {
   return String(value || '').replace(/\D/g, '');
 }
@@ -198,6 +219,27 @@ function withSyntheticOrderField(subscriber, orderId) {
   };
 }
 
+export function findSubscriberInIndexForOrder(index, { phone, orderId, allowConfirmedPhoneFallback = true } = {}) {
+  const phoneKey = digits(phone).slice(-9);
+  const samePhoneSubscribers = phoneKey ? (index?.byPhone?.get(phoneKey) || []) : [];
+
+  for (const subscriber of samePhoneSubscribers) {
+    if (String(dropeaOrderFieldValue(subscriber) || '') === String(orderId)) return subscriber;
+    if (subscriberContainsOrderId(subscriber, orderId)) return withSyntheticOrderField(subscriber, orderId);
+  }
+
+  const confirmedSamePhone = allowConfirmedPhoneFallback
+    ? samePhoneSubscribers.filter((subscriber) => subscriberConfirmsOrderRobust(subscriber))
+    : [];
+  if (confirmedSamePhone.length === 1) return withSyntheticOrderField(confirmedSamePhone[0], orderId);
+  return null;
+}
+
+export function findSubscriberInIndexByPhone(index, { phone } = {}) {
+  const phoneKey = digits(phone).slice(-9);
+  return phoneKey ? (index?.byPhone?.get(phoneKey) || [])[0] || null : null;
+}
+
 function confirmationFieldValue(subscriber) {
   const field = (subscriber.user_fields || []).find((item) => normalizeText(item.name).includes('confirm'));
   return field?.value ?? null;
@@ -236,50 +278,13 @@ export function subscriberConfirmsOrder(subscriber) {
 }
 
 export async function findSubscriberForOrderRobust({ phone, orderId, maxPages = 10 } = {}) {
-  const phoneDigits = digits(phone);
-  const samePhoneSubscribers = [];
-
-  for (let page = 1; page <= maxPages; page += 1) {
-    const subscribers = await listSubscribers({ page, limit: 100 });
-    if (!Array.isArray(subscribers) || !subscribers.length) break;
-
-    for (const subscriber of subscribers) {
-      const samePhone = phoneDigits && digits(subscriber.phone || subscriber.user_id).endsWith(phoneDigits.slice(-9));
-      if (!samePhone) continue;
-      samePhoneSubscribers.push(subscriber);
-
-      const sameOrder = String(dropeaOrderFieldValue(subscriber) || '') === String(orderId);
-      if (sameOrder) return subscriber;
-
-      if (subscriberContainsOrderId(subscriber, orderId)) {
-        return withSyntheticOrderField(subscriber, orderId);
-      }
-    }
-  }
-
-  const confirmedSamePhone = samePhoneSubscribers.filter((subscriber) => subscriberConfirmsOrderRobust(subscriber));
-  if (confirmedSamePhone.length === 1) {
-    return withSyntheticOrderField(confirmedSamePhone[0], orderId);
-  }
-
-  return null;
+  const index = await loadSubscriberIndex({ maxPages, limit: 100 });
+  return findSubscriberInIndexForOrder(index, { phone, orderId });
 }
 
 export async function findSubscriberByPhone({ phone, maxPages = 20 } = {}) {
-  const phoneDigits = digits(phone);
-  if (!phoneDigits) return null;
-
-  for (let page = 1; page <= maxPages; page += 1) {
-    const subscribers = await listSubscribers({ page, limit: 100 });
-    if (!Array.isArray(subscribers) || !subscribers.length) break;
-
-    const found = subscribers.find((subscriber) => {
-      return digits(subscriber.phone || subscriber.user_id).endsWith(phoneDigits.slice(-9));
-    });
-
-    if (found) return found;
-  }
-  return null;
+  const index = await loadSubscriberIndex({ maxPages, limit: 100 });
+  return findSubscriberInIndexByPhone(index, { phone });
 }
 
 export function subscriberConfirmsOrderRobust(subscriber) {
