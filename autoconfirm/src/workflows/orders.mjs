@@ -1451,11 +1451,44 @@ function messageLooksLikeTemplateForOrder(message, templateName, order) {
   return Boolean(createdAt && sentAt && sentAt >= createdAt.getTime() - (15 * 60 * 1000));
 }
 
+function messageAcceptedByWhatsapp(message) {
+  const raw = message?.raw || message || {};
+  const mid = String(message?.mid || raw?.mid || raw?.payload?.mid || '');
+  return mid.startsWith('wamid.');
+}
+
+async function waitForWhatsappTemplateAcceptance({ userNs, templateName, order, sinceMs = Date.now() - 5000 }) {
+  if (!userNs) return { accepted: false, reason: 'missing_chatby_user_ns' };
+  const attempts = Math.max(1, Number(process.env.CHATBY_WHATSAPP_VERIFY_ATTEMPTS || 6));
+  const delayMs = Math.max(250, Number(process.env.CHATBY_WHATSAPP_VERIFY_DELAY_MS || 2000));
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const messages = normalizeChatMessages(await getChatMessages(userNs).catch(() => []));
+    const accepted = messages.find((message) => {
+      if (!messageAcceptedByWhatsapp(message)) return false;
+      if (!messageLooksLikeTemplateForOrder(message, templateName, order)) return false;
+      const timestamp = messageTimestamp(message);
+      return !timestamp || timestamp >= sinceMs;
+    });
+    if (accepted) {
+      const raw = accepted.raw || accepted || {};
+      return {
+        accepted: true,
+        mid: accepted.mid || raw.mid || null,
+        acceptedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  return { accepted: false, reason: 'missing_whatsapp_message_id' };
+}
+
 async function markTemplateAlreadySeen(order, userNs, store, templateName) {
   if (!userNs) return null;
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
-    if (!messages.some((message) => messageLooksLikeTemplate(message, templateName))) return null;
+    if (!messages.some((message) => messageLooksLikeTemplate(message, templateName) && messageAcceptedByWhatsapp(message))) return null;
     const markedAt = new Date().toISOString();
     const updated = upsertOrder(store.id, {
       ...order,
@@ -1480,7 +1513,7 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
   if (!userNs) return null;
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
-    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order))) return null;
+    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order) && messageAcceptedByWhatsapp(message))) return null;
     const markedAt = new Date().toISOString();
     const updated = upsertOrder(store.id, {
       ...order,
@@ -1586,7 +1619,18 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   if (blocked) return blocked.order || order;
 
   const templateName = configuredWhatsappTemplate(store);
-  if (!templateName || templateAlreadyAttempted(order, templateName)) return order;
+  if (!templateName) return order;
+  if (templateAlreadyAttempted(order, templateName)) {
+    const status = normalizeText(order.chatbyTemplateSendStatus);
+    if (!order.chatbyTemplateSentAt && ['attempted', 'delivery_unverified'].includes(status)) {
+      const reconciliationUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
+      const accepted = reconciliationUserNs
+        ? await markTemplateAlreadySeenForOrder(order, reconciliationUserNs, store, templateName)
+        : null;
+      if (accepted) return accepted;
+    }
+    return order;
+  }
 
   const resolvedUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
   if (resolvedUserNs) {
@@ -1666,6 +1710,48 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     return failed;
   }
 
+  const verification = sendResponse.provider === 'chatby'
+    ? await waitForWhatsappTemplateAcceptance({
+      userNs: sendResponse.userNs || resolvedUserNs,
+      templateName,
+      order,
+      sinceMs: new Date(attemptedAt).getTime() - 5000
+    })
+    : { accepted: true, reason: 'provider_acknowledged' };
+
+  if (!verification.accepted) {
+    const message = 'Chatby acepto la solicitud, pero WhatsApp no devolvio wamid. No se reintentara automaticamente para evitar duplicados.';
+    const unverified = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: sendResponse.userNs || resolvedUserNs,
+      chatbyTemplateAttemptedAt: attemptedAt,
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: 'delivery_unverified',
+      chatbyTemplateLastError: message,
+      chatbyLastSendResponse: {
+        provider: sendResponse.provider || provider,
+        response: sendResponse.response,
+        verification,
+        fallbackReason: sendResponse.fallbackReason || null
+      }
+    });
+    rememberInitialTemplateAttempt(unverified, templateName, {
+      status: 'delivery_unverified',
+      attemptedAt,
+      lastError: message,
+      provider: sendResponse.provider || provider
+    });
+    await finalizeInitialTemplateClaim(unverified, store, templateName, claim, {
+      status: 'delivery_unverified',
+      attemptedAt,
+      lastError: message,
+      provider: sendResponse.provider || provider,
+      chatbyUserNs: sendResponse.userNs || resolvedUserNs,
+      raw: { response: sendResponse.response || null, verification }
+    });
+    return unverified;
+  }
+
   const sentAt = new Date().toISOString();
   const sent = upsertOrder(store.id, {
     ...order,
@@ -1678,6 +1764,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     chatbyLastSendResponse: {
       provider: sendResponse.provider || provider,
       response: sendResponse.response,
+      verification,
       fallbackReason: sendResponse.fallbackReason || null
     }
   });
@@ -1693,7 +1780,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     sentAt,
     provider: sendResponse.provider || provider,
     chatbyUserNs: sendResponse.userNs || resolvedUserNs,
-    raw: sendResponse.response || null
+    raw: { response: sendResponse.response || null, verification }
   });
   return sent;
 }
@@ -1773,7 +1860,7 @@ async function markPreparedTemplateAlreadySeen(order, userNs, store, templateNam
   if (!userNs) return null;
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
-    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order))) return null;
+    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order) && messageAcceptedByWhatsapp(message))) return null;
     return upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
@@ -1864,6 +1951,32 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
       template_name: templateName,
       params: preparedTemplateParamsForOrder(order)
     });
+    const verification = await waitForWhatsappTemplateAcceptance({
+      userNs,
+      templateName,
+      order,
+      sinceMs: new Date(attemptedAt).getTime() - 5000
+    });
+    if (!verification.accepted) {
+      const message = 'Chatby acepto la solicitud preparada, pero WhatsApp no devolvio wamid. No se reintentara automaticamente para evitar duplicados.';
+      const updated = upsertOrder(store.id, {
+        ...order,
+        chatbyUserNs: userNs,
+        preparedTemplateAttemptedAt: attemptedAt,
+        preparedTemplateName: templateName,
+        preparedTemplateSendStatus: 'delivery_unverified',
+        preparedTemplateLastError: message,
+        preparedTemplateLastResponse: { response, verification }
+      });
+      await finishPreparedTemplateClaim(updated, store, templateName, claim, {
+        status: 'delivery_unverified',
+        attemptedAt,
+        lastError: message,
+        chatbyUserNs: userNs,
+        raw: { response, verification }
+      });
+      return { order: updated, failed: true, unverified: true, error: message };
+    }
     const updated = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
@@ -1872,14 +1985,14 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
       preparedTemplateName: templateName,
       preparedTemplateSendStatus: 'sent',
       preparedTemplateLastError: null,
-      preparedTemplateLastResponse: response
+      preparedTemplateLastResponse: { response, verification }
     });
     await finishPreparedTemplateClaim(updated, store, templateName, claim, {
       status: 'sent',
       attemptedAt,
       sentAt: updated.preparedTemplateSentAt,
       chatbyUserNs: userNs,
-      raw: response
+      raw: { response, verification }
     });
     return { order: updated, sent: true, response };
   } catch (error) {
