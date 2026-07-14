@@ -51,6 +51,27 @@ export function getStoreByWebhookToken(token) {
   return config.stores.find((store) => store.webhookToken === token) || null;
 }
 
+function isPlainRecord(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function mergeRawRecords(previous, incoming) {
+  if (incoming === undefined || incoming === null) return previous ?? null;
+  if (!isPlainRecord(previous) || !isPlainRecord(incoming)) return incoming;
+
+  const merged = { ...previous };
+  for (const [key, value] of Object.entries(incoming)) {
+    if (value === undefined || value === null || value === '') {
+      if (!(key in merged)) merged[key] = value;
+      continue;
+    }
+    merged[key] = isPlainRecord(value) && isPlainRecord(previous[key])
+      ? mergeRawRecords(previous[key], value)
+      : value;
+  }
+  return merged;
+}
+
 export function upsertOrder(storeId, order, extras = {}) {
   const orders = loadOrders();
   const index = orders.findIndex((item) => item.storeId === storeId && item.orderId === order.orderId);
@@ -60,12 +81,12 @@ export function upsertOrder(storeId, order, extras = {}) {
     id: index >= 0 ? orders[index].id : `order_${Math.random().toString(36).slice(2, 10)}`,
     storeId,
     orderId: order.orderId,
-    status: order.status || 'PENDING',
-    customerName: order.customerName || null,
-    customerPhone: order.customerPhone || null,
-    customerEmail: order.customerEmail || null,
-    orderAmount: order.orderAmount ?? null,
-    currencyCode: order.currencyCode || 'EUR',
+    status: order.status || previous.status || 'PENDING',
+    customerName: order.customerName || previous.customerName || null,
+    customerPhone: order.customerPhone || previous.customerPhone || null,
+    customerEmail: order.customerEmail || previous.customerEmail || null,
+    orderAmount: order.orderAmount ?? previous.orderAmount ?? null,
+    currencyCode: order.currencyCode || previous.currencyCode || 'EUR',
     chatbyUserNs: order.chatbyUserNs || previous.chatbyUserNs || null,
     aiConfidence: order.aiConfidence ?? null,
     aiIntent: order.aiIntent || null,
@@ -91,7 +112,7 @@ export function upsertOrder(storeId, order, extras = {}) {
     preparedTemplateLastError: order.preparedTemplateLastError || previous.preparedTemplateLastError || null,
     preparedTemplateLastResponse: order.preparedTemplateLastResponse || previous.preparedTemplateLastResponse || null,
     operationalNote: order.operationalNote || null,
-    raw: order.raw || null,
+    raw: mergeRawRecords(previous.raw, order.raw),
     updatedAt: now,
     createdAt: index >= 0 ? orders[index].createdAt : now,
     ...extras
