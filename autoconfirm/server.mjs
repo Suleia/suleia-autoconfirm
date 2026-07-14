@@ -296,12 +296,15 @@ function queueDashboardBackgroundRefresh() {
   setTimeout(() => {
     Promise.allSettled([
       runScheduledOperationalOrdersSync()
-        .then(() => { dashboardBuildCacheAt = 0; })
         .catch((error) => console.error('Dashboard operational orders refresh error:', error)),
       runScheduledIncidentsSync()
-        .then(() => { dashboardBuildCacheAt = 0; })
         .catch((error) => console.error('Dashboard incidents refresh error:', error))
-    ]).finally(() => {
+    ]).then(async () => {
+      dashboardBuildCacheAt = 0;
+      await buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 0 });
+    }).catch((error) => {
+      console.error('Dashboard cache rebuild error:', error);
+    }).finally(() => {
       dashboardBackgroundRefreshInFlight = false;
     });
   }, 250);
@@ -837,6 +840,8 @@ server.listen(config.port, async () => {
   } catch (error) {
     console.error('Supabase startup hydration error:', error instanceof Error ? error.message : String(error));
   }
+  buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 0 })
+    .catch((error) => console.error('Dashboard startup cache error:', error));
   startBackgroundPoller();
   startUnansweredCancellationScheduler();
   startOperationalOrdersScheduler();
