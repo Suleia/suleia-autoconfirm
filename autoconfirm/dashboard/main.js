@@ -325,7 +325,6 @@ function renderOrdersSummary(orders, visibleOrders) {
 
   const latest = orders[0];
   const cards = [
-    { label: data.agentName || 'Agente de incidencias', value: 'Activo', detail: data.agentModeLabel || 'Entrenamiento; sin acciones automaticas', tone: 'positive' },
     { label: 'Con respuesta', value: orders.filter((order) => Number(order.customerMessages) > 0).length, detail: 'Cliente contesto en Chatby', tone: 'positive' },
     { label: 'Pedido previo', value: orders.filter((order) => order.priorOrderDetected).length, detail: 'Posible duplicidad a revisar', tone: 'danger' },
     { label: 'Cola operativa', value: orders.length, detail: 'Solo pendientes e incidencias en Dropea', tone: 'neutral' },
@@ -1492,9 +1491,11 @@ async function refreshDashboardNow() {
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     state.dashboard = payload.dashboard;
     if (payload.refresh) {
-      window.setTimeout(() => {
-        loadDashboard({ silent: true }).catch(() => {});
-      }, 5000);
+      [5000, 10000].forEach((delay) => {
+        window.setTimeout(() => {
+          loadDashboard({ silent: true }).catch(() => {});
+        }, delay);
+      });
     }
   } catch (error) {
     state.error = error instanceof Error ? error.message : String(error);
