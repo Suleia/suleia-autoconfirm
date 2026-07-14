@@ -1130,15 +1130,40 @@ function isExcludedNewSheetStatus(status) {
 }
 
 function templateParamsForOrder(order) {
-  const address = order.raw?.shipping_address || order.raw?.shippingAddress || order.raw?.address || {};
+  const raw = order.raw || {};
+  const address = raw.shipping_address || raw.shippingAddress || raw.customer || raw.address || {};
+  const street = firstExisting(
+    address.address1,
+    address.address,
+    rawValueByKeys(raw, ['address1', 'shipping_address_1', 'street', 'street_address', 'address'])
+  );
+  const addressExtra = firstExisting(
+    address.address2,
+    address.alternative_address,
+    rawValueByKeys(raw, ['address2', 'alternative_address', 'shipping_address_2'])
+  );
+  const city = firstExisting(address.city, rawValueByKeys(raw, ['city', 'locality', 'town']));
+  const postalCode = firstExisting(
+    address.zip,
+    address.postal_code,
+    address.postalCode,
+    rawValueByKeys(raw, ['zip', 'postal_code', 'postalCode', 'postcode'])
+  );
+  const amount = Number(order.orderAmount);
   return {
     'BODY_{{1}}': `${firstName(order.customerName)}!`,
-    'BODY_{{2}}': order.raw?.product_name || order.raw?.productName || `Pedido ${order.orderId}`,
-    'BODY_{{3}}': `${order.orderAmount ?? ''}â‚¬`,
-    'BODY_{{4}}': [address.address1, address.address2].filter(Boolean).join(' ') || '',
-    'BODY_{{5}}': address.city || '',
-    'BODY_{{6}}': address.province || address.zip || ''
+    'BODY_{{2}}': productNameForOrder(order),
+    'BODY_{{3}}': Number.isFinite(amount) ? `${amount.toFixed(2).replace('.', ',')} EUR` : '',
+    'BODY_{{4}}': [street, addressExtra].filter(Boolean).join(' '),
+    'BODY_{{5}}': city || '',
+    'BODY_{{6}}': postalCode || ''
   };
+}
+
+function missingInitialTemplateFields(params) {
+  return Object.entries(params)
+    .filter(([, value]) => !String(value || '').trim())
+    .map(([key]) => key);
 }
 
 function configuredWhatsappTemplate(store) {
@@ -1569,12 +1594,27 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     if (alreadySeen) return alreadySeen;
   }
 
+  const params = templateParamsForOrder(order);
+  const missingFields = missingInitialTemplateFields(params);
+  if (missingFields.length) {
+    const message = `Plantilla inicial no enviada: faltan datos obligatorios ${missingFields.join(', ')}.`;
+    const blockedOrder = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: resolvedUserNs,
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: 'blocked_incomplete_data',
+      chatbyTemplateLastError: message,
+      lastAgentErrorAt: new Date().toISOString(),
+      lastAgentError: message
+    });
+    return blockedOrder;
+  }
+
   const claim = await acquireInitialTemplateClaim(order, store, templateName, resolvedUserNs);
   if (!claim.acquired) {
     return orderAfterRejectedInitialTemplateClaim(order, store, templateName, claim);
   }
 
-  const params = templateParamsForOrder(order);
   let sendResponse = null;
   const provider = initialTemplateProvider();
   const attemptedAt = new Date().toISOString();
