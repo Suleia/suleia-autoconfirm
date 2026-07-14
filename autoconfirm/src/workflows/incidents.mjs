@@ -774,17 +774,40 @@ function issueTransportDetail(issue = {}) {
     .join(' | ');
 }
 
-function mergeOfficialTransportHistory(glsTracking, issue, fallbackHistory = []) {
+function transportEventMatchesType(event, classification) {
+  const text = normalize(`${event?.text || ''} ${event?.code || ''}`);
+  if (!text) return false;
+  if (classification?.type === 'absent') return /ausente|no habia nadie|no estaba/.test(text);
+  if (classification?.type === 'address') return /direccion incorrecta|faltan datos|datos incompletos|direccion incompleta/.test(text);
+  if (classification?.type === 'rejected_goods') return /no acepta|rechaz|rehus|mercancia/.test(text);
+  return normalize(event?.code) === 'incidence' && !/shippingservice|shipping service/.test(text);
+}
+
+function selectTransportIncidenceEvent(history = [], classification = null, explicitIncidence = null) {
+  const matching = history.filter((event) => transportEventMatchesType(event, classification));
+  if (matching.length) return matching[matching.length - 1];
+  if (explicitIncidence && transportEventMatchesType(explicitIncidence, classification)) return explicitIncidence;
+  const operationalIncidences = history.filter((event) => (
+    normalize(event?.code) === 'incidence'
+    && !/shippingservice|shipping service/.test(normalize(event?.text))
+  ));
+  return operationalIncidences[operationalIncidences.length - 1] || explicitIncidence || null;
+}
+
+function mergeOfficialTransportHistory(glsTracking, issue, fallbackHistory = [], classification = null) {
   if (!glsTracking?.history?.length) {
+    const fallbackIncidence = selectTransportIncidenceEvent(fallbackHistory, classification);
     return {
       history: fallbackHistory,
-      incidenceEvent: fallbackHistory[fallbackHistory.length - 1] || null
+      incidenceEvent: fallbackIncidence || fallbackHistory[fallbackHistory.length - 1] || null
     };
   }
 
   const detail = issueTransportDetail(issue);
-  const incidenceEvent = glsTracking.incidence
-    ? { ...glsTracking.incidence, text: detail || glsTracking.incidence.text }
+  const selected = selectTransportIncidenceEvent(glsTracking.history, classification, glsTracking.incidence);
+  const detailMatchesType = transportEventMatchesType({ text: detail }, classification);
+  const incidenceEvent = selected
+    ? { ...selected, text: detailMatchesType ? detail : selected.text }
     : null;
   const history = glsTracking.history.map((event) => {
     if (!incidenceEvent?.eventAt || !event?.eventAt) return event;
@@ -1221,7 +1244,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || issue?.raw?.order?.tracking_url,
         tracking: issue?.tracking || issue?.raw?.tracking || issue?.raw?.order?.tracking_code
       }).catch(() => null);
-      const mergedTransport = mergeOfficialTransportHistory(glsTracking, issue, fallbackTransportHistory);
+      const mergedTransport = mergeOfficialTransportHistory(glsTracking, issue, fallbackTransportHistory, classification);
       const transportHistory = mergedTransport.history;
       const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
       const currentIncidenceDate = mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
