@@ -35,6 +35,7 @@ import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-st
 const config = getAppConfig();
 let automationCycleRunning = false;
 const activeInitialTemplateClaims = new Set();
+const activePreparedTemplateClaims = new Set();
 
 async function safeUpsertSheetRow(order, context = 'sheet_sync') {
   if (!config.googleSheetsEnabled) {
@@ -1657,11 +1658,70 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   return sent;
 }
 
-function preparedTemplateAlreadyAttempted(order, templateName) {
-  if (order.preparedTemplateAttemptedAt || order.preparedTemplateSentAt) return true;
+function preparedTemplateIsTerminal(order, templateName) {
+  if (order.preparedTemplateSentAt) return true;
   if (!templateName) return false;
   return normalizeText(order.preparedTemplateName) === normalizeText(templateName)
-    && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.preparedTemplateSendStatus));
+    && ['sent', 'already_seen'].includes(normalizeText(order.preparedTemplateSendStatus));
+}
+
+function preparedTemplateAttemptIsFresh(order) {
+  if (normalizeText(order?.preparedTemplateSendStatus) !== 'attempted') return false;
+  const attemptedAt = parseDate(order?.preparedTemplateAttemptedAt);
+  if (!attemptedAt) return false;
+  const staleAfterMinutes = Number(process.env.PREPARED_TEMPLATE_STALE_ATTEMPT_MINUTES || 10);
+  return (Date.now() - attemptedAt.getTime()) / 60000 < staleAfterMinutes;
+}
+
+async function acquirePreparedTemplateClaim(order, store, templateName, userNs) {
+  const key = initialTemplateLedgerKey(order, templateName);
+  if (activePreparedTemplateClaims.has(key)) {
+    return { acquired: false, reason: 'already_in_flight', key };
+  }
+
+  activePreparedTemplateClaims.add(key);
+  try {
+    const claim = await claimTemplateDelivery({
+      storeId: store.id,
+      orderId: order.orderId,
+      customerPhone: order.customerPhone,
+      templateName,
+      provider: 'chatby',
+      chatbyUserNs: userNs || order.chatbyUserNs || ''
+    });
+    if (!claim?.acquired) activePreparedTemplateClaims.delete(key);
+    return { ...claim, key };
+  } catch (error) {
+    activePreparedTemplateClaims.delete(key);
+    return {
+      acquired: false,
+      reason: 'persistent_dedupe_unavailable',
+      key,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function finishPreparedTemplateClaim(order, store, templateName, claim, patch = {}) {
+  try {
+    if (claim?.persistent) {
+      await finishTemplateDelivery({
+        storeId: store.id,
+        orderId: order.orderId,
+        customerPhone: order.customerPhone,
+        templateName,
+        provider: 'chatby',
+        chatbyUserNs: patch.chatbyUserNs || order.chatbyUserNs || '',
+        status: patch.status,
+        attemptedAt: patch.attemptedAt,
+        sentAt: patch.sentAt || null,
+        lastError: patch.lastError || null,
+        raw: patch.raw || null
+      });
+    }
+  } finally {
+    if (claim?.key) activePreparedTemplateClaims.delete(claim.key);
+  }
 }
 
 function orderNeedsPreparedTemplate(order) {
@@ -1705,8 +1765,12 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   const blocked = await applyBlockedCustomerPolicy(order, store, 'prepared_template_send_guard');
   if (blocked) return { order: blocked.order || order, skipped: true, reason: 'blocked_customer' };
 
-  if (preparedTemplateAlreadyAttempted(order, templateName)) {
-    return { order, skipped: true, reason: 'already_attempted', status: order.preparedTemplateSendStatus };
+  if (preparedTemplateIsTerminal(order, templateName)) {
+    return { order, skipped: true, reason: 'already_sent', status: order.preparedTemplateSendStatus };
+  }
+
+  if (preparedTemplateAttemptIsFresh(order)) {
+    return { order, skipped: true, reason: 'attempt_in_flight', status: order.preparedTemplateSendStatus };
   }
 
   const userNs = await resolveExistingChatbyUserNs(order);
@@ -1722,6 +1786,26 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
 
   const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
   if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
+
+  const claim = await acquirePreparedTemplateClaim(order, store, templateName, userNs);
+  if (!claim.acquired) {
+    const existingStatus = normalizeText(claim?.existing?.status);
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: existingStatus
+        ? `persistent_${existingStatus}`
+        : claim.reason || 'dedupe_guard_blocked',
+      preparedTemplateLastError: claim.error || null
+    });
+    return {
+      order: updated,
+      skipped: true,
+      reason: claim.reason || 'dedupe_guard_blocked',
+      status: existingStatus || null
+    };
+  }
 
   const attemptedAt = new Date().toISOString();
   upsertOrder(store.id, {
@@ -1750,15 +1834,29 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
       preparedTemplateLastError: null,
       preparedTemplateLastResponse: response
     });
+    await finishPreparedTemplateClaim(updated, store, templateName, claim, {
+      status: 'sent',
+      attemptedAt,
+      sentAt: updated.preparedTemplateSentAt,
+      chatbyUserNs: userNs,
+      raw: response
+    });
     return { order: updated, sent: true, response };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     const updated = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
       preparedTemplateAttemptedAt: attemptedAt,
       preparedTemplateName: templateName,
       preparedTemplateSendStatus: 'failed',
-      preparedTemplateLastError: error instanceof Error ? error.message : String(error)
+      preparedTemplateLastError: message
+    });
+    await finishPreparedTemplateClaim(updated, store, templateName, claim, {
+      status: 'failed',
+      attemptedAt,
+      lastError: message,
+      chatbyUserNs: userNs
     });
     return { order: updated, failed: true, error: updated.preparedTemplateLastError };
   }
