@@ -1665,14 +1665,15 @@ function preparedTemplateAlreadyAttempted(order, templateName) {
 }
 
 function orderNeedsPreparedTemplate(order) {
-  return ['PREPARED', 'IN_TRANSIT', 'DELIVERED'].includes(String(order?.status || '').toUpperCase());
+  return ['CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT', 'DELIVERED']
+    .includes(String(order?.status || '').toUpperCase());
 }
 
 async function markPreparedTemplateAlreadySeen(order, userNs, store, templateName) {
   if (!userNs) return null;
   try {
     const messages = normalizeChatMessages(await getChatMessages(userNs));
-    if (!messages.some((message) => messageLooksLikeTemplate(message, templateName))) return null;
+    if (!messages.some((message) => messageLooksLikeTemplateForOrder(message, templateName, order))) return null;
     return upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs,
@@ -1773,7 +1774,7 @@ export async function backfillMissingPreparedTemplates({
   const orders = await listRecentDropeaOrders({
     limit,
     pages,
-    statuses: ['PREPARED', 'IN_TRANSIT']
+    statuses: ['CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT']
   });
   const results = [];
 
