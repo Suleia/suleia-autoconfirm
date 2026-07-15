@@ -969,11 +969,11 @@ server.listen(config.port, async () => {
   }
   buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 0 })
     .catch((error) => console.error('Dashboard startup cache error:', error));
+  startChatbyHealthMonitor();
   startBackgroundPoller();
   startUnansweredCancellationScheduler();
   startOperationalOrdersScheduler();
   startIncidentsScheduler();
   startIncidentNotificationsScheduler();
   startMetaDashboardSync();
-  startChatbyHealthMonitor();
 });
