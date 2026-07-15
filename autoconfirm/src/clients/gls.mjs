@@ -38,16 +38,27 @@ export async function getGlsTrackingHistory({ trackingUrl, tracking } = {}) {
   if (!reference || !postalCode) return null;
 
   const path = '/expeditions/find';
-  const response = await fetch(`${BASE_URL}${path}`, {
-    method: 'POST',
-    headers: signedHeaders(path),
-    body: JSON.stringify({
-      find: {
-        reference,
-        destination: { address: { postalCode } }
-      }
-    })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10000);
+  let response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: signedHeaders(path),
+      body: JSON.stringify({
+        find: {
+          reference,
+          destination: { address: { postalCode } }
+        }
+      })
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('GLS tracking no respondio en 10000 ms.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(`GLS tracking respondio ${response.status}: ${JSON.stringify(payload)}`);
