@@ -2071,6 +2071,83 @@ export async function backfillMissingPreparedTemplates({
   };
 }
 
+export async function reconcileCriticalOrderTemplates({
+  store = config.defaultStore,
+  limit = 100,
+  pages = 1,
+  lookbackHours = 48
+} = {}) {
+  const orders = await listRecentDropeaOrders({
+    limit,
+    pages,
+    statuses: ['PENDING', 'CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT']
+  });
+  const today = todayKey(config.timezone);
+  const cutoffMs = Date.now() - (Math.max(1, Number(lookbackHours || 48)) * 60 * 60 * 1000);
+  const results = [];
+
+  for (const order of orders) {
+    const createdAt = parseDate(dropeaCreatedAt(order));
+    if (createdAt && createdAt.getTime() < cutoffMs) continue;
+
+    const existing = findOrder(store.id, order.orderId);
+    let current = upsertOrder(store.id, {
+      ...(existing || {}),
+      orderId: order.orderId,
+      status: workflowStatusForPolledOrder(existing, order.status),
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      customerEmail: order.customerEmail,
+      orderAmount: order.orderAmount,
+      currencyCode: order.currencyCode,
+      raw: order.raw,
+      chatbyUserNs: existing?.chatbyUserNs || null
+    });
+
+    const blocked = await applyBlockedCustomerPolicy(current, store, 'critical_template_delivery_guard');
+    if (blocked) {
+      current = blocked.order || current;
+      results.push({ orderId: order.orderId, initial: 'blocked_customer', prepared: 'blocked_customer' });
+      continue;
+    }
+
+    let initialAction = 'not_due';
+    if (dateKeyInTimezone(dropeaCreatedAt(order), config.timezone) === today) {
+      const beforeStatus = current.chatbyTemplateSendStatus || null;
+      current = await ensureChatbyThread(current, store);
+      initialAction = current.chatbyTemplateSendStatus || beforeStatus || 'skipped';
+    }
+
+    let preparedAction = 'not_due';
+    if (orderNeedsPreparedTemplate(current)) {
+      const outcome = await sendPreparedTemplateForOrder(current, store);
+      current = outcome.order || current;
+      preparedAction = outcome.sent ? 'sent' : outcome.failed ? 'failed' : outcome.reason || 'skipped';
+    }
+
+    results.push({
+      orderId: order.orderId,
+      initial: initialAction,
+      prepared: preparedAction,
+      initialError: current.chatbyTemplateLastError || null,
+      preparedError: current.preparedTemplateLastError || null
+    });
+  }
+
+  const state = { ...loadState() };
+  state.lastCriticalTemplateDeliveryAt = new Date().toISOString();
+  state.lastCriticalTemplateDeliveryCount = results.length;
+  saveState(state);
+
+  return {
+    processed: results.length,
+    initialSent: results.filter((item) => item.initial === 'sent').length,
+    preparedSent: results.filter((item) => item.prepared === 'sent').length,
+    failed: results.filter((item) => item.initial === 'failed' || item.prepared === 'failed').length,
+    results
+  };
+}
+
 export async function ingestPendingOrders({ store = config.defaultStore, limit = 100, pages = 5 } = {}) {
   const pendingById = new Map();
   for (let page = 1; page <= pages; page += 1) {
@@ -2742,7 +2819,7 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     try {
       const state = loadState();
       const lastBackfillAt = parseDate(state.lastInitialTemplateBackfillAt);
-      const intervalMinutes = Number(process.env.INITIAL_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 5);
+      const intervalMinutes = Number(process.env.INITIAL_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 30);
       const due = !lastBackfillAt || ((Date.now() - lastBackfillAt.getTime()) / 60000) >= intervalMinutes;
       if (due) {
         templateBackfillResult = await backfillTodayMissingInitialTemplates({
@@ -2761,7 +2838,7 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     try {
       const state = loadState();
       const lastBackfillAt = parseDate(state.lastPreparedTemplateBackfillAt);
-      const intervalMinutes = Number(process.env.PREPARED_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 5);
+      const intervalMinutes = Number(process.env.PREPARED_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 30);
       const due = !lastBackfillAt || ((Date.now() - lastBackfillAt.getTime()) / 60000) >= intervalMinutes;
       if (due) {
         preparedTemplateBackfillResult = await backfillMissingPreparedTemplates({
