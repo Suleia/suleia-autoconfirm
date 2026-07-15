@@ -47,6 +47,14 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
+function webhookLooksLikeIncident(payload) {
+  const text = JSON.stringify(payload || {}).toLowerCase();
+  return text.includes('incidence_code')
+    || text.includes('incidence')
+    || text.includes('incidencia')
+    || text.includes('"issues"');
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -530,6 +538,10 @@ const server = http.createServer(async (req, res) => {
 
         runScheduledOperationalOrdersSync()
           .catch((error) => console.error('Operational orders sync after Dropea webhook error:', error));
+        if (webhookLooksLikeIncident(payload)) {
+          runScheduledIncidentsSync()
+            .catch((error) => console.error('Incidents sync after Dropea webhook error:', error));
+        }
       });
       return;
     }
@@ -696,6 +708,7 @@ let metaDashboardTimer = null;
 let unansweredCancellationTimer = null;
 let unansweredCancellationRunning = false;
 let incidentsSyncTimer = null;
+let incidentNotificationsTimer = null;
 let incidentsSyncRunning = false;
 let operationalOrdersSyncTimer = null;
 let operationalOrdersSyncRunning = false;
@@ -780,6 +793,18 @@ function startIncidentsScheduler() {
   }, 60000);
 }
 
+function startIncidentNotificationsScheduler() {
+  if (!config.defaultStore.incidentNotificationsEnabled) return;
+  const intervalMinutes = config.defaultStore.incidentNotificationIntervalMinutes || 30;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    runScheduledIncidentsSync();
+    incidentNotificationsTimer = setInterval(runScheduledIncidentsSync, intervalMs);
+  }, 90000);
+}
+
 async function runScheduledOperationalOrdersSync() {
   if (operationalOrdersSyncRunning) return;
   operationalOrdersSyncRunning = true;
@@ -846,5 +871,6 @@ server.listen(config.port, async () => {
   startUnansweredCancellationScheduler();
   startOperationalOrdersScheduler();
   startIncidentsScheduler();
+  startIncidentNotificationsScheduler();
   startMetaDashboardSync();
 });
