@@ -10,6 +10,7 @@ import {
   backfillTodayMissingInitialTemplates,
   backfillMissingPreparedTemplates,
   ingestPendingOrders,
+  reconcileCriticalOrderTemplates,
   runAutoConfirm,
   handleDropeaWebhook,
   handleShopifyWebhook,
@@ -225,6 +226,8 @@ function storeSummary() {
     lastPollAt: state.lastPollAt,
     lastAutoConfirmAt: state.lastAutoConfirmAt,
     lastAutomationCycleAt: state.lastAutomationCycleAt,
+    lastCriticalTemplateDeliveryAt: state.lastCriticalTemplateDeliveryAt,
+    lastCriticalTemplateDeliveryCount: state.lastCriticalTemplateDeliveryCount,
     lastWebhookAt: state.lastWebhookAt,
     lastWebhookError: state.lastWebhookError,
     lastSheetSyncAt: state.lastSheetSyncAt,
@@ -276,34 +279,19 @@ async function runCriticalTemplateDeliverySweep(context = 'template_delivery') {
   if (criticalTemplateDeliveryInFlight) return criticalTemplateDeliveryInFlight;
 
   const sweep = (async () => {
-    let initial = null;
-    let prepared = null;
-    let initialError = null;
-    let preparedError = null;
-
     try {
-      initial = await backfillTodayMissingInitialTemplates({
+      const delivery = await reconcileCriticalOrderTemplates({
         store: config.defaultStore,
         limit: 100,
-        pages: 2
+        pages: 1,
+        lookbackHours: 48
       });
+      return { context, delivery, error: null };
     } catch (error) {
-      initialError = error instanceof Error ? error.message : String(error);
-      console.error(`[${context}] Critical initial template sweep failed:`, error);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[${context}] Critical template sweep failed:`, error);
+      return { context, delivery: null, error: message };
     }
-
-    try {
-      prepared = await backfillMissingPreparedTemplates({
-        store: config.defaultStore,
-        limit: 100,
-        pages: 2
-      });
-    } catch (error) {
-      preparedError = error instanceof Error ? error.message : String(error);
-      console.error(`[${context}] Critical prepared template sweep failed:`, error);
-    }
-
-    return { context, initial, prepared, initialError, preparedError };
   })();
 
   criticalTemplateDeliveryInFlight = sweep;
@@ -654,6 +642,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/template-delivery') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await runCriticalTemplateDeliverySweep('cron_template_delivery');
+      return sendJson(res, 200, { ok: true, result });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/auto-confirm') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const autoConfirm = await runAutoConfirm({ store: config.defaultStore });
@@ -770,7 +764,7 @@ async function runBackgroundPoll() {
   pollRunning = true;
   try {
     const templates = await runCriticalTemplateDeliverySweep('background_poll');
-    const sent = Number(templates?.initial?.sent || 0) + Number(templates?.prepared?.sent || 0);
+    const sent = Number(templates?.delivery?.initialSent || 0) + Number(templates?.delivery?.preparedSent || 0);
     if (sent) {
       console.log(`Background template sweep sent ${sent} templates.`);
     }
