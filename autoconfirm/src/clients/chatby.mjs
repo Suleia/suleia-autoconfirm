@@ -2,8 +2,35 @@ import { getAppConfig } from '../config.mjs';
 
 const config = getAppConfig();
 
+const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 120000));
+const requestMinIntervalMs = Math.max(0, Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || 100));
+let subscriberIndexCache = null;
+let subscriberIndexInFlight = null;
+let requestQueue = Promise.resolve();
+let nextRequestAt = 0;
+let rateLimitedUntil = 0;
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function scheduleRequest(task) {
+  const previous = requestQueue;
+  let release;
+  requestQueue = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  await previous.catch(() => {});
+  const waitMs = Math.max(0, nextRequestAt - Date.now(), rateLimitedUntil - Date.now());
+  if (waitMs) await sleep(waitMs);
+
+  try {
+    return await task();
+  } finally {
+    nextRequestAt = Date.now() + requestMinIntervalMs;
+    release();
+  }
 }
 
 async function request(path, options = {}) {
@@ -24,7 +51,7 @@ async function request(path, options = {}) {
     const controller = providedSignal ? null : new AbortController();
     const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
-      response = await fetch(`${config.chatbyBaseUrl}${path}`, {
+      response = await scheduleRequest(() => fetch(`${config.chatbyBaseUrl}${path}`, {
         ...requestOptions,
         signal: providedSignal || controller.signal,
         headers: {
@@ -32,7 +59,7 @@ async function request(path, options = {}) {
           'Content-Type': 'application/json',
           ...(requestOptions.headers || {})
         }
-      });
+      }));
     } catch (error) {
       if (error?.name === 'AbortError') {
         throw new Error(`Chatby no respondio en ${timeoutMs} ms para ${path}.`);
@@ -51,7 +78,11 @@ async function request(path, options = {}) {
 
     if (response.status !== 429 || attempt === maxAttempts) break;
     const retryAfter = Number(response.headers.get('retry-after'));
-    await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 750 * attempt);
+    const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
+      ? retryAfter * 1000
+      : Math.min(30000, 2500 * (2 ** (attempt - 1)));
+    rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
+    await sleep(backoffMs);
   }
 
   if (!response.ok) {
@@ -76,10 +107,12 @@ function assertNoChatbyError(data) {
 }
 
 export async function createSubscriber(payload) {
-  return request('/subscriber/create', {
+  const created = await request('/subscriber/create', {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+  invalidateSubscriberIndexCache();
+  return created;
 }
 
 export async function sendWhatsappTemplate(payload) {
@@ -109,6 +142,20 @@ export async function listWhatsappTemplates() {
     body: JSON.stringify({ page: 1, limit: 200 })
   });
   return response?.data ?? response;
+}
+
+export async function checkChatbyConnection() {
+  const response = await request('/whatsapp-template/list', {
+    method: 'POST',
+    body: JSON.stringify({ page: 1, limit: 1 }),
+    maxAttempts: 2,
+    timeoutMs: 10000
+  });
+  const rows = response?.data ?? response;
+  return {
+    ok: true,
+    templateCount: Array.isArray(rows) ? rows.length : null
+  };
 }
 
 function parseTemplateName(templateName) {
@@ -172,25 +219,53 @@ export async function listSubscribers({ page = 1, limit = 100 } = {}) {
   return response?.data ?? response;
 }
 
-export async function loadSubscriberIndex({ maxPages = 20, limit = 100 } = {}) {
-  const subscribers = [];
-  const byPhone = new Map();
+export function invalidateSubscriberIndexCache() {
+  subscriberIndexCache = null;
+}
 
-  for (let page = 1; page <= maxPages; page += 1) {
-    const rows = await listSubscribers({ page, limit });
-    if (!Array.isArray(rows) || !rows.length) break;
-    subscribers.push(...rows);
-    for (const subscriber of rows) {
-      const phoneKey = digits(subscriber.phone || subscriber.user_id).slice(-9);
-      if (!phoneKey) continue;
-      const matches = byPhone.get(phoneKey) || [];
-      matches.push(subscriber);
-      byPhone.set(phoneKey, matches);
-    }
-    if (rows.length < limit) break;
+export async function loadSubscriberIndex({ maxPages = 20, limit = 100, force = false } = {}) {
+  const now = Date.now();
+  const cacheCanCoverRequest = subscriberIndexCache
+    && subscriberIndexCache.limit === limit
+    && subscriberIndexCache.maxPages >= maxPages;
+  if (!force && cacheCanCoverRequest && now - subscriberIndexCache.loadedAt < subscriberIndexCacheMs) {
+    return subscriberIndexCache.value;
   }
+  if (!force && subscriberIndexInFlight) return subscriberIndexInFlight;
 
-  return { subscribers, byPhone };
+  subscriberIndexInFlight = (async () => {
+    const subscribers = [];
+    const byPhone = new Map();
+
+    for (let page = 1; page <= maxPages; page += 1) {
+      const rows = await listSubscribers({ page, limit });
+      if (!Array.isArray(rows) || !rows.length) break;
+      subscribers.push(...rows);
+      for (const subscriber of rows) {
+        const phoneKey = digits(subscriber.phone || subscriber.user_id).slice(-9);
+        if (!phoneKey) continue;
+        const matches = byPhone.get(phoneKey) || [];
+        matches.push(subscriber);
+        byPhone.set(phoneKey, matches);
+      }
+      if (rows.length < limit) break;
+    }
+
+    const value = { subscribers, byPhone };
+    subscriberIndexCache = {
+      value,
+      loadedAt: Date.now(),
+      maxPages,
+      limit
+    };
+    return value;
+  })();
+
+  try {
+    return await subscriberIndexInFlight;
+  } finally {
+    subscriberIndexInFlight = null;
+  }
 }
 
 function digits(value) {
