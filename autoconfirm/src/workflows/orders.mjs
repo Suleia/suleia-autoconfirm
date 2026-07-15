@@ -2742,7 +2742,7 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     try {
       const state = loadState();
       const lastBackfillAt = parseDate(state.lastInitialTemplateBackfillAt);
-      const intervalMinutes = Number(process.env.INITIAL_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 15);
+      const intervalMinutes = Number(process.env.INITIAL_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 5);
       const due = !lastBackfillAt || ((Date.now() - lastBackfillAt.getTime()) / 60000) >= intervalMinutes;
       if (due) {
         templateBackfillResult = await backfillTodayMissingInitialTemplates({
@@ -2761,7 +2761,7 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     try {
       const state = loadState();
       const lastBackfillAt = parseDate(state.lastPreparedTemplateBackfillAt);
-      const intervalMinutes = Number(process.env.PREPARED_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 15);
+      const intervalMinutes = Number(process.env.PREPARED_TEMPLATE_BACKFILL_INTERVAL_MINUTES || 5);
       const due = !lastBackfillAt || ((Date.now() - lastBackfillAt.getTime()) / 60000) >= intervalMinutes;
       if (due) {
         preparedTemplateBackfillResult = await backfillMissingPreparedTemplates({
