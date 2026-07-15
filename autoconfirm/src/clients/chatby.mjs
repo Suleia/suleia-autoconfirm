@@ -8,20 +8,39 @@ function sleep(ms) {
 
 async function request(path, options = {}) {
   if (!config.chatbyToken) throw new Error('Falta CHATBY_TOKEN.');
-  const maxAttempts = Number(options.maxAttempts || 3);
+  const {
+    maxAttempts: configuredAttempts = 3,
+    timeoutMs: configuredTimeout = 20000,
+    signal: providedSignal,
+    ...requestOptions
+  } = options;
+  const maxAttempts = Number(configuredAttempts || 3);
+  const timeoutMs = Math.max(1000, Number(configuredTimeout || 20000));
   let response;
   let text = '';
   let data = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    response = await fetch(`${config.chatbyBaseUrl}${path}`, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${config.chatbyToken}`,
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
+    const controller = providedSignal ? null : new AbortController();
+    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      response = await fetch(`${config.chatbyBaseUrl}${path}`, {
+        ...requestOptions,
+        signal: providedSignal || controller.signal,
+        headers: {
+          Authorization: `Bearer ${config.chatbyToken}`,
+          'Content-Type': 'application/json',
+          ...(requestOptions.headers || {})
+        }
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new Error(`Chatby no respondio en ${timeoutMs} ms para ${path}.`);
       }
-    });
+      throw error;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
 
     text = await response.text();
     try {
@@ -135,7 +154,8 @@ async function buildWhatsappTemplatePayload(payload) {
 
 export async function getChatMessages(userNs) {
   const response = await request(`/subscriber/chat-messages?user_ns=${encodeURIComponent(userNs)}`, {
-    method: 'GET'
+    method: 'GET',
+    timeoutMs: 12000
   });
   const messages = response?.data ?? response;
   if (!Array.isArray(messages)) {
@@ -146,7 +166,8 @@ export async function getChatMessages(userNs) {
 
 export async function listSubscribers({ page = 1, limit = 100 } = {}) {
   const response = await request(`/subscribers?limit=${limit}&page=${page}`, {
-    method: 'GET'
+    method: 'GET',
+    timeoutMs: 12000
   });
   return response?.data ?? response;
 }
