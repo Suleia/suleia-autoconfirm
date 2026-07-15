@@ -6,14 +6,25 @@ const BASE_URL = 'https://api.dropea.com/graphql/dropshippers';
 async function requestGraphQL(query, variables = {}) {
   if (!config.dropeaApiKey) throw new Error('Falta DROPEA_API_KEY.');
 
-  const response = await fetch(BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': config.dropeaApiKey
-    },
-    body: JSON.stringify({ query, variables })
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let response;
+  try {
+    response = await fetch(BASE_URL, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': config.dropeaApiKey
+      },
+      body: JSON.stringify({ query, variables })
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('Dropea no respondio en 20000 ms.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = await response.json().catch(() => null);
   if (!response.ok) {
