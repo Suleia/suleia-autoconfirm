@@ -270,6 +270,50 @@ async function runAutomationOnly(context = 'automation') {
   return { context, cycle };
 }
 
+let criticalTemplateDeliveryInFlight = null;
+
+async function runCriticalTemplateDeliverySweep(context = 'template_delivery') {
+  if (criticalTemplateDeliveryInFlight) return criticalTemplateDeliveryInFlight;
+
+  const sweep = (async () => {
+    let initial = null;
+    let prepared = null;
+    let initialError = null;
+    let preparedError = null;
+
+    try {
+      initial = await backfillTodayMissingInitialTemplates({
+        store: config.defaultStore,
+        limit: 100,
+        pages: 2
+      });
+    } catch (error) {
+      initialError = error instanceof Error ? error.message : String(error);
+      console.error(`[${context}] Critical initial template sweep failed:`, error);
+    }
+
+    try {
+      prepared = await backfillMissingPreparedTemplates({
+        store: config.defaultStore,
+        limit: 100,
+        pages: 2
+      });
+    } catch (error) {
+      preparedError = error instanceof Error ? error.message : String(error);
+      console.error(`[${context}] Critical prepared template sweep failed:`, error);
+    }
+
+    return { context, initial, prepared, initialError, preparedError };
+  })();
+
+  criticalTemplateDeliveryInFlight = sweep;
+  try {
+    return await sweep;
+  } finally {
+    if (criticalTemplateDeliveryInFlight === sweep) criticalTemplateDeliveryInFlight = null;
+  }
+}
+
 let dashboardBuildCache = null;
 let dashboardBuildCacheAt = 0;
 let dashboardBuildInFlight = null;
@@ -530,6 +574,13 @@ const server = http.createServer(async (req, res) => {
         }
 
         try {
+          const templateResult = await runCriticalTemplateDeliverySweep('dropea_webhook');
+          console.log('Critical template delivery processed:', JSON.stringify(templateResult));
+        } catch (error) {
+          console.error('Critical template delivery error:', error);
+        }
+
+        try {
           const cycleResult = await runAutomationOnly('dropea_webhook');
           console.log('Automation cycle processed:', JSON.stringify(cycleResult));
         } catch (error) {
@@ -597,8 +648,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/cron/poll-orders') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const poll = await ingestPendingOrders({ store: config.defaultStore });
+      const templates = await runCriticalTemplateDeliverySweep('cron_poll_orders');
       const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
-      const result = { poll, unanswered };
+      const result = { poll, templates, unanswered };
       return sendJson(res, 200, { ok: true, result });
     }
 
@@ -717,16 +769,23 @@ async function runBackgroundPoll() {
   if (pollRunning) return;
   pollRunning = true;
   try {
-    const result = await runAutomationOnly('background_poll');
-    const processed = result?.cycle?.ingest?.processed ?? 0;
-    if (processed) {
-      console.log(`Background poll processed ${processed} orders.`);
+    const templates = await runCriticalTemplateDeliverySweep('background_poll');
+    const sent = Number(templates?.initial?.sent || 0) + Number(templates?.prepared?.sent || 0);
+    if (sent) {
+      console.log(`Background template sweep sent ${sent} templates.`);
     }
   } catch (error) {
-    console.error('Background poll error:', error);
+    console.error('Background critical template sweep error:', error);
   } finally {
     pollRunning = false;
   }
+
+  runAutomationOnly('background_poll')
+    .then((result) => {
+      const processed = result?.cycle?.ingest?.processed ?? 0;
+      if (processed) console.log(`Background automation processed ${processed} orders.`);
+    })
+    .catch((error) => console.error('Background automation error:', error));
 }
 
 function startBackgroundPoller() {
