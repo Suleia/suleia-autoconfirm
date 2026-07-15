@@ -1634,11 +1634,6 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   }
 
   const resolvedUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
-  if (resolvedUserNs) {
-    const alreadySeen = await markTemplateAlreadySeenForOrder(order, resolvedUserNs, store, templateName);
-    if (alreadySeen) return alreadySeen;
-  }
-
   const params = templateParamsForOrder(order);
   const missingFields = missingInitialTemplateFields(params);
   if (missingFields.length) {
@@ -1658,6 +1653,32 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   const claim = await acquireInitialTemplateClaim(order, store, templateName, resolvedUserNs);
   if (!claim.acquired) {
     return orderAfterRejectedInitialTemplateClaim(order, store, templateName, claim);
+  }
+
+  if (resolvedUserNs) {
+    try {
+      const alreadySeen = await markTemplateAlreadySeenForOrder(order, resolvedUserNs, store, templateName);
+      if (alreadySeen) {
+        await finalizeInitialTemplateClaim(alreadySeen, store, templateName, claim, {
+          status: 'already_seen',
+          attemptedAt: alreadySeen.chatbyTemplateAttemptedAt,
+          sentAt: alreadySeen.chatbyTemplateSentAt,
+          provider: 'chatby',
+          chatbyUserNs: resolvedUserNs
+        });
+        return alreadySeen;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await finalizeInitialTemplateClaim(order, store, templateName, claim, {
+        status: 'verification_failed',
+        attemptedAt: new Date().toISOString(),
+        lastError: message,
+        provider: 'chatby',
+        chatbyUserNs: resolvedUserNs
+      });
+      throw error;
+    }
   }
 
   let sendResponse = null;
@@ -1913,9 +1934,6 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
     return { order: updated, skipped: true, reason: 'missing_chatby_user_ns' };
   }
 
-  const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
-  if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
-
   const claim = await acquirePreparedTemplateClaim(order, store, templateName, userNs);
   if (!claim.acquired) {
     const existingStatus = normalizeText(claim?.existing?.status);
@@ -1934,6 +1952,28 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
       reason: claim.reason || 'dedupe_guard_blocked',
       status: existingStatus || null
     };
+  }
+
+  try {
+    const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
+    if (alreadySeen) {
+      await finishPreparedTemplateClaim(alreadySeen, store, templateName, claim, {
+        status: 'already_seen',
+        attemptedAt: alreadySeen.preparedTemplateAttemptedAt,
+        sentAt: alreadySeen.preparedTemplateSentAt,
+        chatbyUserNs: userNs
+      });
+      return { order: alreadySeen, skipped: true, reason: 'already_seen' };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await finishPreparedTemplateClaim(order, store, templateName, claim, {
+      status: 'verification_failed',
+      attemptedAt: new Date().toISOString(),
+      lastError: message,
+      chatbyUserNs: userNs
+    });
+    throw error;
   }
 
   const attemptedAt = new Date().toISOString();
@@ -2426,11 +2466,6 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
         || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
       if (existingSubscriber?.user_ns) {
         userNs = existingSubscriber.user_ns;
-        const alreadySeen = await markTemplateAlreadySeenForOrder(order, existingSubscriber.user_ns, store, templateName);
-        if (alreadySeen) {
-          await safeUpsertSheetRow(alreadySeen, 'initial_template_already_seen_guard');
-          return alreadySeen;
-        }
       }
     }
     const updated = await sendChatbyTemplateForOrder({ ...order, chatbyUserNs: userNs }, userNs, store);
