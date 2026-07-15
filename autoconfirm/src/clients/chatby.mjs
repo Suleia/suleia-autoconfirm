@@ -137,7 +137,11 @@ export async function getChatMessages(userNs) {
   const response = await request(`/subscriber/chat-messages?user_ns=${encodeURIComponent(userNs)}`, {
     method: 'GET'
   });
-  return response?.data ?? response;
+  const messages = response?.data ?? response;
+  if (!Array.isArray(messages)) {
+    throw new Error(`Chatby devolvio una respuesta no valida al leer mensajes: ${JSON.stringify(messages)}`);
+  }
+  return messages;
 }
 
 export async function listSubscribers({ page = 1, limit = 100 } = {}) {
