@@ -150,6 +150,16 @@ export function customerRespondedAfterIncident(messages = [], incidentDate = nul
   });
 }
 
+export function acceptedOutboundAfterIncident(messages = [], incidentDate = null) {
+  const sinceMs = parseDateMs(incidentDate);
+  return (Array.isArray(messages) ? messages : []).some((message) => {
+    if (isCustomerMessage(message) || !extractWamid(message)) return false;
+    const timestamp = messageTimestamp(message);
+    if (!Number.isFinite(sinceMs) || !Number.isFinite(timestamp)) return true;
+    return timestamp >= sinceMs - (5 * 60 * 1000);
+  });
+}
+
 export function incidentTemplateNameForType(type) {
   return INCIDENT_TEMPLATES[String(type || '')] || null;
 }
@@ -192,6 +202,10 @@ export function incidentNotificationPolicy({ incident, messages = [], now = Date
   }
   if (postIncidentMessages.length || incident?.customerResponded === true) {
     return { eligible: false, reason: 'customer_already_responded', templateName };
+  }
+
+  if (acceptedOutboundAfterIncident(messages, incident?.incidenceDate)) {
+    return { eligible: false, reason: 'accepted_outbound_already_exists', templateName };
   }
 
   if (incident?.chatbyReadVerified === false) {
