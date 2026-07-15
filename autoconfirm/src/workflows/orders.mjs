@@ -2118,8 +2118,19 @@ export async function reconcileCriticalOrderTemplates({
       let initialAction = 'not_due';
       if (dateKeyInTimezone(dropeaCreatedAt(order), config.timezone) === today) {
         const beforeStatus = current.chatbyTemplateSendStatus || null;
+        const beforeAttemptedAt = current.chatbyTemplateAttemptedAt || null;
         current = await ensureChatbyThread(current, store);
-        initialAction = current.chatbyTemplateSendStatus || beforeStatus || 'skipped';
+        const afterStatus = current.chatbyTemplateSendStatus || beforeStatus || null;
+        const afterAttemptedAt = current.chatbyTemplateAttemptedAt || null;
+        if (afterStatus === 'sent' && afterAttemptedAt && afterAttemptedAt !== beforeAttemptedAt) {
+          initialAction = 'sent';
+        } else if (afterStatus === 'already_seen') {
+          initialAction = 'already_seen';
+        } else if (beforeStatus || beforeAttemptedAt) {
+          initialAction = 'already_recorded';
+        } else {
+          initialAction = afterStatus || 'skipped';
+        }
       }
 
       let preparedAction = 'not_due';
