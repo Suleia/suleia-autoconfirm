@@ -22,6 +22,7 @@ import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
+import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
 import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 
@@ -30,6 +31,40 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.join(__dirname, 'dashboard');
 const dashboardPassword = process.env.DASHBOARD_PASSWORD || '';
 const dashboardSessionSecret = process.env.DASHBOARD_SESSION_SECRET || process.env.CRON_SECRET || 'suleia-dashboard-dev-secret';
+const chatbyHealth = {
+  provider: String(config.whatsappProvider || 'chatby').toLowerCase(),
+  configured: Boolean(config.chatbyToken),
+  ready: false,
+  status: config.chatbyToken ? 'pending' : 'missing_credential',
+  checkedAt: null,
+  error: config.chatbyToken ? null : 'CHATBY_TOKEN is not configured'
+};
+
+async function refreshChatbyHealth() {
+  chatbyHealth.provider = String(config.whatsappProvider || 'chatby').toLowerCase();
+  chatbyHealth.configured = Boolean(config.chatbyToken);
+  chatbyHealth.checkedAt = new Date().toISOString();
+
+  if (!config.chatbyToken) {
+    chatbyHealth.ready = false;
+    chatbyHealth.status = 'missing_credential';
+    chatbyHealth.error = 'CHATBY_TOKEN is not configured';
+    return chatbyHealth;
+  }
+
+  try {
+    await checkChatbyConnection();
+    chatbyHealth.ready = true;
+    chatbyHealth.status = 'connected';
+    chatbyHealth.error = null;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    chatbyHealth.ready = false;
+    chatbyHealth.status = /429|too many requests/i.test(message) ? 'rate_limited' : 'unavailable';
+    chatbyHealth.error = message.slice(0, 300);
+  }
+  return chatbyHealth;
+}
 
 const staticTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -355,7 +390,12 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
-      return sendJson(res, 200, { ok: true, ...storeSummary() });
+      return sendJson(res, 200, {
+        ok: true,
+        operational: chatbyHealth.ready,
+        integrations: { chatby: { ...chatbyHealth } },
+        ...storeSummary()
+      });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/telegram/webhook') {
@@ -758,6 +798,15 @@ let incidentNotificationsTimer = null;
 let incidentsSyncRunning = false;
 let operationalOrdersSyncTimer = null;
 let operationalOrdersSyncRunning = false;
+let chatbyHealthTimer = null;
+
+function startChatbyHealthMonitor() {
+  refreshChatbyHealth().catch((error) => console.error('Chatby health check error:', error));
+  chatbyHealthTimer = setInterval(() => {
+    refreshChatbyHealth().catch((error) => console.error('Chatby health check error:', error));
+  }, 10 * 60 * 1000);
+  chatbyHealthTimer.unref?.();
+}
 
 async function runBackgroundPoll() {
   if (pollRunning) return;
@@ -926,4 +975,5 @@ server.listen(config.port, async () => {
   startIncidentsScheduler();
   startIncidentNotificationsScheduler();
   startMetaDashboardSync();
+  startChatbyHealthMonitor();
 });
