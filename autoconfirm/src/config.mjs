@@ -47,6 +47,9 @@ function defaultStoreFromEnv() {
     unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, true),
     unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, 300),
     incidentsSyncIntervalMinutes: int(process.env.INCIDENTS_SYNC_INTERVAL_MINUTES, 360),
+    incidentNotificationsEnabled: bool(process.env.INCIDENT_NOTIFICATIONS_ENABLED, true),
+    incidentNotificationDelayHours: int(process.env.INCIDENT_NOTIFICATION_DELAY_HOURS, 0),
+    incidentNotificationIntervalMinutes: int(process.env.INCIDENT_NOTIFICATION_INTERVAL_MINUTES, 30),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, 240),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '671405901'),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
@@ -72,6 +75,9 @@ function withEnvOverrides(store) {
     unansweredRejectRealEnabled: bool(process.env.UNANSWERED_REJECT_REAL_ENABLED, store.unansweredRejectRealEnabled ?? envStore.unansweredRejectRealEnabled),
     unansweredCancellationIntervalMinutes: int(process.env.UNANSWERED_CANCELLATION_INTERVAL_MINUTES, store.unansweredCancellationIntervalMinutes ?? envStore.unansweredCancellationIntervalMinutes),
     incidentsSyncIntervalMinutes: int(process.env.INCIDENTS_SYNC_INTERVAL_MINUTES, store.incidentsSyncIntervalMinutes ?? envStore.incidentsSyncIntervalMinutes),
+    incidentNotificationsEnabled: bool(process.env.INCIDENT_NOTIFICATIONS_ENABLED, store.incidentNotificationsEnabled ?? envStore.incidentNotificationsEnabled),
+    incidentNotificationDelayHours: int(process.env.INCIDENT_NOTIFICATION_DELAY_HOURS, store.incidentNotificationDelayHours ?? envStore.incidentNotificationDelayHours),
+    incidentNotificationIntervalMinutes: int(process.env.INCIDENT_NOTIFICATION_INTERVAL_MINUTES, store.incidentNotificationIntervalMinutes ?? envStore.incidentNotificationIntervalMinutes),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, store.operationalDashboardIntervalMinutes ?? envStore.operationalDashboardIntervalMinutes),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '').length
       ? csv(process.env.BLOCKED_CUSTOMER_PHONES)
