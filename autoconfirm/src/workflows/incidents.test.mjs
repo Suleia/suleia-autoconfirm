@@ -73,6 +73,22 @@ test('uses the exact new day communicated by an absent customer', () => {
   assert.match(decision.text, /691289011/);
 });
 
+test('accepts a confirmed afternoon slot with the order phone and never returns it', () => {
+  const decision = incidentOperationalDecision({
+    classification: { type: 'absent' },
+    chatby: chatby('He elegido por la tarde y confirmo que prefiero recibirlo por la tarde.'),
+    transportHistory: [{ text: 'AUSENTE SEGUNDA VEZ' }],
+    incidentDate: '2026-07-12T12:00:00.000Z',
+    phone: '34687510419',
+    now
+  });
+  assert.equal(decision.action, 'accept_solution');
+  assert.equal(decision.ruleId, 'core_incident_confirmed_delivery_slot_accept');
+  assert.equal(decision.confidence, 99);
+  assert.equal(decision.text, 'Realizar nueva entrega por la tarde. Llamar antes al 687510419.');
+  assert.notEqual(decision.action, 'return_to_origin');
+});
+
 test('keeps purchase intent when the customer asks to pay by card', () => {
   const decision = incidentOperationalDecision({
     classification: { type: 'rejected_goods' },

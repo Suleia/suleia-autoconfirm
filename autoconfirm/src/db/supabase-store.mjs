@@ -336,6 +336,12 @@ const coreAgentMemoryRules = [
     content: 'Si el cliente comunica claramente un dia u horario para recibir el pedido, redactar una solucion fiel y breve, anadir el telefono del cliente, pulsar Aceptar y verificar que la incidencia deja Pendientes de resolver y pasa a Soluciones enviadas.'
   },
   {
+    id: 'core_incident_confirmed_delivery_slot_accept',
+    type: 'incident_operational_rule',
+    source: 'feedback_real_case_1297482',
+    content: 'Si el cliente selecciona y confirma una franja de entrega, prevalece la franja indicada. Solicitar una nueva entrega en esa franja, pedir llamada previa al telefono asociado al pedido, pulsar Aceptar y verificar Soluciones enviadas. Nunca devolver al origen porque mantiene intencion clara de recibirlo.'
+  },
+  {
     id: 'core_incident_pickup_at_depot',
     type: 'incident_operational_rule',
     source: 'feedback_real_case_1299749',

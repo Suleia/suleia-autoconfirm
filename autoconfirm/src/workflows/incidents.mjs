@@ -613,20 +613,21 @@ function ageHoursAt(value, now = Date.now()) {
 }
 
 function conciseDeliverySolution(details, phone) {
-  const contact = phoneLast9(details.phoneMentioned || phone);
+  // The order phone is the authoritative contact; use a number mentioned in chat only as fallback.
+  const contact = phoneLast9(phone || details.phoneMentioned);
   let instruction = '';
-  if (details.deliveryTomorrow && details.deliveryAfternoon) instruction = 'Realizar entrega manana por la tarde.';
-  else if (details.deliveryTomorrow) instruction = 'Realizar entrega manana.';
+  if (details.deliveryTomorrow && details.deliveryAfternoon) instruction = 'Realizar nueva entrega manana por la tarde.';
+  else if (details.deliveryTomorrow) instruction = 'Realizar nueva entrega manana.';
   else if (details.deliveryBeforeTime) instruction = `Ultimo intento antes de las ${details.deliveryBeforeTime}.`;
-  else if (details.deliveryAfterTime) instruction = `Entregar a partir de las ${details.deliveryAfterTime}.`;
-  else if (details.deliveryDay) instruction = `Realizar entrega el ${details.deliveryDay}.`;
-  else if (details.deliveryAfternoon) instruction = 'Realizar entrega por la tarde.';
-  else if (details.deliveryMorning) instruction = 'Realizar entrega por la manana.';
+  else if (details.deliveryAfterTime) instruction = `Realizar nueva entrega a partir de las ${details.deliveryAfterTime}.`;
+  else if (details.deliveryDay) instruction = `Realizar nueva entrega el ${details.deliveryDay}.`;
+  else if (details.deliveryAfternoon) instruction = 'Realizar nueva entrega por la tarde.';
+  else if (details.deliveryMorning) instruction = 'Realizar nueva entrega por la manana.';
   if (!instruction) return '';
 
-  const withPhone = contact ? `${instruction} Llamar al telefono ${contact}.` : instruction;
+  const withPhone = contact ? `${instruction} Llamar antes al ${contact}.` : instruction;
   if (withPhone.length <= 80) return withPhone;
-  const shorter = contact ? `${instruction} Llamar al ${contact}.` : instruction;
+  const shorter = contact ? `${instruction} Llamar ${contact}.` : instruction;
   return shorter.length <= 80 ? shorter : shorter.slice(0, 80).trim();
 }
 
@@ -706,12 +707,15 @@ export function incidentOperationalDecision({
 
   const deliveryText = conciseDeliverySolution(details, phone);
   if (deliveryText && (classification?.type === 'absent' || classification?.type === 'rejected_goods')) {
+    const confirmedSlot = details.deliveryAfternoon || details.deliveryMorning;
     return {
       eligible: true,
       action: 'accept_solution',
       text: deliveryText,
-      confidence: details.deliveryBeforeTime || details.deliveryAfterTime || details.deliveryTomorrow || details.deliveryDay ? 97 : 93,
-      ruleId: 'core_incident_exact_availability_accept',
+      confidence: confirmedSlot ? 99 : details.deliveryBeforeTime || details.deliveryAfterTime || details.deliveryTomorrow || details.deliveryDay ? 97 : 93,
+      ruleId: confirmedSlot
+        ? 'core_incident_confirmed_delivery_slot_accept'
+        : 'core_incident_exact_availability_accept',
       reason: `El cliente comunica una disponibilidad concreta: ${clip(normalizedCustomerText, 140)}.`
     };
   }
