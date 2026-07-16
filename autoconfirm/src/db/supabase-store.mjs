@@ -327,7 +327,37 @@ const coreAgentMemoryRules = [
     id: 'core_incident_agent_training_only',
     type: 'incident_agent_guardrail',
     source: 'suleia_core_logic',
-    content: 'El Agente de incidencias esta en modo entrenamiento y solo analiza Chatby, datos de Dropea, transportista y feedback. No resuelve incidencias ni envia mensajes automaticamente hasta autorizacion expresa.'
+    content: 'El Agente de incidencias puede ejecutar en real solo reglas operativas de alta confianza, con idempotencia, auditoria y verificacion posterior en Dropea. Los casos ambiguos siguen en revision y nunca deben simular una accion.'
+  },
+  {
+    id: 'core_incident_exact_availability_accept',
+    type: 'incident_operational_rule',
+    source: 'feedback_real_cases_2026_07_16',
+    content: 'Si el cliente comunica claramente un dia u horario para recibir el pedido, redactar una solucion fiel y breve, anadir el telefono del cliente, pulsar Aceptar y verificar que la incidencia deja Pendientes de resolver y pasa a Soluciones enviadas.'
+  },
+  {
+    id: 'core_incident_pickup_at_depot',
+    type: 'incident_operational_rule',
+    source: 'feedback_real_case_1299749',
+    content: 'Si el historial de incidencias indica que el cliente pasara a recoger en agencia, ejecutar Recoger en agencia sin escribir ni enviar otra solucion.'
+  },
+  {
+    id: 'core_incident_return_after_rejection_72h',
+    type: 'incident_operational_rule',
+    source: 'feedback_real_case_1291159',
+    content: 'Si el transportista registra rechazo por falta de dinero y transcurren mas de 72 horas sin nueva respuesta del cliente, ejecutar Devolver al origen.'
+  },
+  {
+    id: 'core_incident_rejected_goods_template_required',
+    type: 'incident_notification_rule',
+    source: 'feedback_real_case_1298695',
+    content: 'Toda incidencia pendiente de no acepta mercancia debe recibir una unica vez la plantilla aprobada es_ES dropea_incidencia_mercancia_v1, aunque exista otra respuesta o mensaje. Solo se omite si esa misma plantilla ya tiene un envio WhatsApp verificado o una reclamacion idempotente previa.'
+  },
+  {
+    id: 'core_incident_payment_method_delivery',
+    type: 'incident_operational_rule',
+    source: 'feedback_real_case_1299610',
+    content: 'Si el cliente pregunta por pagar con tarjeta o efectivo y mantiene la intencion de compra, tratarlo como incidencia solucionable: solicitar nueva entrega con el metodo indicado, anadir su telefono, aceptar y verificar.'
   }
 ];
 

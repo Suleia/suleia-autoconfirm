@@ -50,6 +50,7 @@ function defaultStoreFromEnv() {
     incidentNotificationsEnabled: bool(process.env.INCIDENT_NOTIFICATIONS_ENABLED, true),
     incidentNotificationDelayHours: int(process.env.INCIDENT_NOTIFICATION_DELAY_HOURS, 0),
     incidentNotificationIntervalMinutes: int(process.env.INCIDENT_NOTIFICATION_INTERVAL_MINUTES, 30),
+    incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, true),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, 240),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '671405901'),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
@@ -78,6 +79,7 @@ function withEnvOverrides(store) {
     incidentNotificationsEnabled: bool(process.env.INCIDENT_NOTIFICATIONS_ENABLED, store.incidentNotificationsEnabled ?? envStore.incidentNotificationsEnabled),
     incidentNotificationDelayHours: int(process.env.INCIDENT_NOTIFICATION_DELAY_HOURS, store.incidentNotificationDelayHours ?? envStore.incidentNotificationDelayHours),
     incidentNotificationIntervalMinutes: int(process.env.INCIDENT_NOTIFICATION_INTERVAL_MINUTES, store.incidentNotificationIntervalMinutes ?? envStore.incidentNotificationIntervalMinutes),
+    incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, store.incidentResolutionRealEnabled ?? envStore.incidentResolutionRealEnabled),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, store.operationalDashboardIntervalMinutes ?? envStore.operationalDashboardIntervalMinutes),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '').length
       ? csv(process.env.BLOCKED_CUSTOMER_PHONES)
@@ -139,6 +141,7 @@ export function getAppConfig() {
       .map((item) => item.replace(/^@/, '').toLowerCase()),
     telegramAllowedChatIds: csv(process.env.TELEGRAM_ALLOWED_CHAT_IDS || process.env.TELEGRAM_ALLOWED_CHAT_ID || ''),
     dropeaApiKey: process.env.DROPEA_API_KEY || null,
+    dropeaAccessToken: process.env.DROPEA_ACCESS_TOKEN || null,
     chatbyToken: process.env.CHATBY_TOKEN || null,
     chatbyBaseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
     whatsappTemplateName: process.env.WHATSAPP_TEMPLATE_NAME || null,

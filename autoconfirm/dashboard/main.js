@@ -546,12 +546,12 @@ function renderIncidents() {
     incident.feedbackCorrection,
     incident.feedbackNote
   ])).filter(incidentMatchesFilter).sort((a, b) => {
-    const bOrderId = Number(String(b.orderId || '').replace(/\D/g, '')) || 0;
-    const aOrderId = Number(String(a.orderId || '').replace(/\D/g, '')) || 0;
-    if (bOrderId !== aOrderId) return bOrderId - aOrderId;
     const bIncidenceId = Number(String(b.incidenceId || '').replace(/\D/g, '')) || 0;
     const aIncidenceId = Number(String(a.incidenceId || '').replace(/\D/g, '')) || 0;
-    return bIncidenceId - aIncidenceId;
+    if (bIncidenceId !== aIncidenceId) return bIncidenceId - aIncidenceId;
+    const bOrderId = Number(String(b.orderId || '').replace(/\D/g, '')) || 0;
+    const aOrderId = Number(String(a.orderId || '').replace(/\D/g, '')) || 0;
+    return bOrderId - aOrderId;
   });
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
@@ -659,6 +659,10 @@ function renderIncidents() {
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.actionRecommended || 'Revisión manual')}</span>
           <small>${escapeHtml(incident.recommendedNextStep || incident.proposedSolution || 'Revision manual')}</small>
           ${incident.operationalInstruction ? `<div class="incident-resolution-box"><b>Que haria:</b> ${escapeHtml(incident.operationalInstruction)}</div>` : ''}
+          ${incident.operationalDecisionEligible ? `<small class="incident-template-chip">Regla: ${escapeHtml(incident.operationalDecisionRuleId || 'alta confianza')} · ${escapeHtml(incident.operationalDecisionConfidence || 0)}%</small>` : ''}
+          ${incident.operationalActionStatus && !['not_applicable', 'verified', 'already_verified'].includes(incident.operationalActionStatus)
+            ? `<small class="incident-alert">Estado operativo: ${escapeHtml(incident.operationalActionStatus)}${incident.operationalActionError ? ` · ${escapeHtml(incident.operationalActionError)}` : ''}</small>`
+            : ''}
           ${incident.templateRecommendation ? `<small class="incident-template-chip">Plantilla sugerida: ${escapeHtml(incident.templateRecommendation)}</small>` : ''}
           ${incident.chatbyUserNs ? `<small>Chatby: ${escapeHtml(incident.chatbyUserNs)}</small>` : ''}
         </td>

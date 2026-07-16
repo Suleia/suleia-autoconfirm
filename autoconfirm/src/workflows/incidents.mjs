@@ -1,11 +1,23 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
-import { listDropeaIncidences, listDropeaOrders, listDropeaOrdersBasic, listDropeaOrdersByStatus, listDropeaOrdersByStatusBasic, listDropeaOrderStateValues } from '../clients/dropea.mjs';
+import {
+  getDropeaOrderById,
+  listDropeaIncidences,
+  listDropeaIncidencesByIds,
+  listDropeaOrders,
+  listDropeaOrdersBasic,
+  listDropeaOrdersByStatus,
+  listDropeaOrdersByStatusBasic,
+  listDropeaOrderStateValues,
+  pickupDropeaIssueAtDepot,
+  resolveDropeaIssue,
+  returnDropeaIssueToOrigin
+} from '../clients/dropea.mjs';
 import { findSubscriberInIndexByPhone, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
-import { syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
+import { syncAgentMemoryRuleToSupabase, syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
 import { processIncidentNotification } from './incident-notifications.mjs';
 
 const config = getAppConfig();
@@ -67,7 +79,7 @@ function isPendingIssue(issue) {
 function isTrackedIncidentReason(issue) {
   const code = String(issueReason(issue) || '').trim().toUpperCase();
   const text = normalize(issueReason(issue));
-  return ['AS', 'NAM', 'MCC', 'DIR', 'DI'].includes(code)
+  return ['AS', 'C', 'DO', 'DI', 'FD', 'MC', 'MCC', 'NAM', 'RD', 'DIR'].includes(code)
     || text.includes('ausente')
     || text.includes('no acepta')
     || text.includes('direccion')
@@ -100,23 +112,23 @@ function numericId(value) {
 
 function sortRowsByOrderDesc(rows) {
   return [...rows].sort((a, b) => {
-    const bOrderId = numericId(b?.order?.orderId || b?.issue?.orderId);
-    const aOrderId = numericId(a?.order?.orderId || a?.issue?.orderId);
-    if (bOrderId !== aOrderId) return bOrderId - aOrderId;
     const bIssueId = numericId(b?.issue?.id || b?.issue?.incidenceId);
     const aIssueId = numericId(a?.issue?.id || a?.issue?.incidenceId);
-    return bIssueId - aIssueId;
+    if (bIssueId !== aIssueId) return bIssueId - aIssueId;
+    const bOrderId = numericId(b?.order?.orderId || b?.issue?.orderId);
+    const aOrderId = numericId(a?.order?.orderId || a?.issue?.orderId);
+    return bOrderId - aOrderId;
   });
 }
 
-function sortIncidentsByOrderDesc(incidents) {
+export function sortIncidentsByIncidenceDesc(incidents) {
   return [...incidents].sort((a, b) => {
-    const bOrderId = numericId(b?.orderId);
-    const aOrderId = numericId(a?.orderId);
-    if (bOrderId !== aOrderId) return bOrderId - aOrderId;
     const bIssueId = numericId(b?.incidenceId);
     const aIssueId = numericId(a?.incidenceId);
-    return bIssueId - aIssueId;
+    if (bIssueId !== aIssueId) return bIssueId - aIssueId;
+    const bOrderId = numericId(b?.orderId);
+    const aOrderId = numericId(a?.orderId);
+    return bOrderId - aOrderId;
   });
 }
 
@@ -168,7 +180,7 @@ const INCIDENT_TYPES = {
   unknown: { type: 'unknown', label: 'Incidencia pendiente', tone: 'neutral' }
 };
 
-function classifyIncident(issue, order) {
+export function classifyIncident(issue, order) {
   const rawReason = issue ? issueReason(issue) : 'Pedido con incidencia';
   const code = String(rawReason || '').trim().toUpperCase();
   const text = normalize([
@@ -193,6 +205,7 @@ function classifyIncident(issue, order) {
   }
   if (
     code === 'MCC'
+    || code === 'FD'
     || code === 'DIR'
     || code === 'DI'
     || text.includes('direccion')
@@ -312,6 +325,14 @@ function extractOperationalDetailsFromText(rawText = '') {
     wantsReceive: false,
     courierIssue: false,
     phoneMentioned: '',
+    deliveryTomorrow: false,
+    deliveryMorning: false,
+    deliveryAfternoon: false,
+    deliveryBeforeTime: '',
+    deliveryAfterTime: '',
+    deliveryDay: '',
+    paymentMethod: '',
+    paymentQuestion: false,
     customerIntentDetail: ''
   };
 
@@ -329,12 +350,23 @@ function extractOperationalDetailsFromText(rawText = '') {
     .map((match) => match[0].trim())
     .filter((item) => /\d/.test(item));
   if (hourMatches.length) instructionParts.push(`horario indicado: ${unique(hourMatches).slice(0, 2).join(', ')}`);
-  if (text.includes('tarde')) instructionParts.push('entregar por la tarde');
-  if (text.includes('manana')) instructionParts.push('entregar por la manana');
+  const beforeMatch = text.match(/antes de las\s*([01]?\d|2[0-3])(?::([0-5]\d))?/);
+  const afterMatch = text.match(/(?:a partir de las|desde las|despues de las)\s*([01]?\d|2[0-3])(?::([0-5]\d))?/);
+  if (beforeMatch) details.deliveryBeforeTime = `${beforeMatch[1].padStart(2, '0')}:${beforeMatch[2] || '00'}`;
+  if (afterMatch) details.deliveryAfterTime = `${afterMatch[1].padStart(2, '0')}:${afterMatch[2] || '00'}`;
+  details.deliveryTomorrow = /\bmanana\b/.test(text) && !/(?:por|durante) la manana/.test(text);
+  details.deliveryMorning = /(?:por|durante) la manana/.test(text);
+  details.deliveryAfternoon = text.includes('tarde');
+  if (details.deliveryTomorrow) instructionParts.push('entregar manana');
+  if (details.deliveryAfternoon) instructionParts.push('entregar por la tarde');
+  if (details.deliveryMorning) instructionParts.push('entregar por la manana');
   if (text.includes('mediodia') || text.includes('medio dia')) instructionParts.push('entregar al mediodia');
   if (text.includes('noche')) instructionParts.push('entregar por la noche');
   const dayHits = ['lunes', 'martes', 'miercoles', 'jueves', 'viernes', 'sabado', 'domingo'].filter((day) => text.includes(day));
-  if (dayHits.length) instructionParts.push(`dia indicado: ${unique(dayHits).join(', ')}`);
+  if (dayHits.length) {
+    details.deliveryDay = dayHits[0];
+    instructionParts.push(`dia indicado: ${unique(dayHits).join(', ')}`);
+  }
   if (/otro dia|reprogram|nueva entrega|volver a pasar|que pasen|entregar/.test(text)) instructionParts.push('pide nueva entrega');
   if (details.phoneMentioned || /llamar|telefono|telf|movil/.test(text)) {
     instructionParts.push(details.phoneMentioned ? `llamar al ${details.phoneMentioned}` : 'pide llamada telefonica');
@@ -344,8 +376,12 @@ function extractOperationalDetailsFromText(rawText = '') {
   details.wantsCancel = /no lo quiero|no quiero|cancel|anul|rechaz|no acepta|no acepto|no me interesa|devolver|no voy a recibir/.test(text);
   details.wantsReceive = /si lo quiero|quiero recibir|lo quiero|entregar|que lo traigan|que vuelvan|volver a pasar|confirmo|correcto|ok|vale/.test(text) && !details.wantsCancel;
   details.courierIssue = /no ha pasado|no paso|repartidor|mensajero|nadie vino|no llamaron|no me llamaron|estaba en casa/.test(text);
+  details.paymentQuestion = /(?:puedo|podria|se puede|aceptan|pagar|pago).{0,35}(?:tarjeta|efectivo)|(?:tarjeta|efectivo).{0,35}(?:pagar|pago)/.test(text);
+  if (text.includes('tarjeta')) details.paymentMethod = 'tarjeta';
+  else if (text.includes('efectivo')) details.paymentMethod = 'efectivo';
 
   if (details.wantsCancel) details.customerIntentDetail = 'El cliente parece rechazar o cancelar el pedido.';
+  else if (details.paymentQuestion && details.paymentMethod) details.customerIntentDetail = `El cliente mantiene interes y pregunta por pagar con ${details.paymentMethod}.`;
   else if (details.deliveryInstruction) details.customerIntentDetail = `El cliente da instrucciones de entrega: ${details.deliveryInstruction}.`;
   else if (details.hasAddressData) details.customerIntentDetail = 'El cliente aporta o menciona datos de direccion.';
   else if (details.wantsReceive) details.customerIntentDetail = 'El cliente parece querer recibir el pedido.';
@@ -563,6 +599,273 @@ function typeAwareIncidentSolution(classification, chatby, issue = null) {
         instruction: 'Revisar Dropea y Chatby antes de resolver.',
         solution: chatby.proposedSolution || 'Sin senal suficiente. Propuesta: revisar Dropea y Chatby antes de resolver.'
       });
+}
+
+function phoneLast9(value) {
+  return digits(value).slice(-9);
+}
+
+function ageHoursAt(value, now = Date.now()) {
+  if (!value) return null;
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return null;
+  return Math.max(0, (Number(now) - timestamp) / 3600000);
+}
+
+function conciseDeliverySolution(details, phone) {
+  const contact = phoneLast9(details.phoneMentioned || phone);
+  let instruction = '';
+  if (details.deliveryTomorrow && details.deliveryAfternoon) instruction = 'Realizar entrega manana por la tarde.';
+  else if (details.deliveryTomorrow) instruction = 'Realizar entrega manana.';
+  else if (details.deliveryBeforeTime) instruction = `Ultimo intento antes de las ${details.deliveryBeforeTime}.`;
+  else if (details.deliveryAfterTime) instruction = `Entregar a partir de las ${details.deliveryAfterTime}.`;
+  else if (details.deliveryDay) instruction = `Realizar entrega el ${details.deliveryDay}.`;
+  else if (details.deliveryAfternoon) instruction = 'Realizar entrega por la tarde.';
+  else if (details.deliveryMorning) instruction = 'Realizar entrega por la manana.';
+  if (!instruction) return '';
+
+  const withPhone = contact ? `${instruction} Llamar al telefono ${contact}.` : instruction;
+  if (withPhone.length <= 80) return withPhone;
+  const shorter = contact ? `${instruction} Llamar al ${contact}.` : instruction;
+  return shorter.length <= 80 ? shorter : shorter.slice(0, 80).trim();
+}
+
+export function incidentOperationalDecision({
+  classification,
+  chatby = {},
+  transportHistory = [],
+  phone = '',
+  incidentDate = null,
+  now = Date.now()
+} = {}) {
+  const transportText = normalize((Array.isArray(transportHistory) ? transportHistory : [])
+    .map((event) => event?.text || '')
+    .join(' | '));
+  // Operational actions must be grounded in the latest inbound customer message.
+  // Older buttons/templates remain useful context, but cannot trigger a new delivery action.
+  const customerText = String(chatby.lastCustomerMessage || '').replace(/\s+/g, ' ').trim();
+  const normalizedCustomerText = normalize(customerText);
+  const details = extractOperationalDetailsFromText(customerText);
+  const customerResponded = Number(chatby.customerMessages || 0) > 0;
+  const ageHours = ageHoursAt(incidentDate, now);
+
+  if (/pasaran a recoger en agencia|pasara a recoger en agencia|recoger en agencia|recogida en agencia/.test(transportText)) {
+    return {
+      eligible: true,
+      action: 'pickup_at_depot',
+      text: '',
+      confidence: 99,
+      ruleId: 'core_incident_pickup_at_depot',
+      reason: 'El historial de Dropea indica expresamente que el cliente recogera en agencia.'
+    };
+  }
+
+  if (
+    classification?.type === 'rejected_goods'
+    && /no tiene dinero|sin dinero|no dispone de dinero|no llevaba dinero/.test(transportText)
+    && Number.isFinite(ageHours)
+    && ageHours >= 72
+    && !customerResponded
+  ) {
+    return {
+      eligible: true,
+      action: 'return_to_origin',
+      text: '',
+      confidence: 98,
+      ruleId: 'core_incident_return_after_rejection_72h',
+      reason: `Rechazo por falta de dinero, ${Math.floor(ageHours)}h sin respuesta posterior del cliente.`
+    };
+  }
+
+  if (!customerResponded || chatby.chatbyReadVerified !== true || details.wantsCancel) {
+    return {
+      eligible: false,
+      action: 'none',
+      text: '',
+      confidence: 0,
+      ruleId: null,
+      reason: details.wantsCancel
+        ? 'El cliente expresa cancelacion; esta regla no debe aceptar una nueva entrega.'
+        : 'No hay una respuesta de cliente verificada y accionable.'
+    };
+  }
+
+  if (details.paymentQuestion && details.paymentMethod && !details.wantsCancel) {
+    const contact = phoneLast9(details.phoneMentioned || phone);
+    const base = `Realizar entrega para pago con ${details.paymentMethod}.`;
+    const text = contact ? `${base} Llamar al telefono ${contact}.` : base;
+    return {
+      eligible: true,
+      action: 'accept_solution',
+      text: text.length <= 80 ? text : `${base} Llamar al ${contact}.`,
+      confidence: 96,
+      ruleId: 'core_incident_payment_method_delivery',
+      reason: `El cliente pregunta por pago con ${details.paymentMethod} y mantiene la intencion de recibir el pedido.`
+    };
+  }
+
+  const deliveryText = conciseDeliverySolution(details, phone);
+  if (deliveryText && (classification?.type === 'absent' || classification?.type === 'rejected_goods')) {
+    return {
+      eligible: true,
+      action: 'accept_solution',
+      text: deliveryText,
+      confidence: details.deliveryBeforeTime || details.deliveryAfterTime || details.deliveryTomorrow || details.deliveryDay ? 97 : 93,
+      ruleId: 'core_incident_exact_availability_accept',
+      reason: `El cliente comunica una disponibilidad concreta: ${clip(normalizedCustomerText, 140)}.`
+    };
+  }
+
+  return {
+    eligible: false,
+    action: 'none',
+    text: '',
+    confidence: 0,
+    ruleId: null,
+    reason: 'La conversacion necesita revision humana antes de actuar en Dropea.'
+  };
+}
+
+function recommendationWithOperationalDecision(recommendation, decision) {
+  if (!decision?.eligible || decision.action === 'none') return recommendation;
+  const labels = {
+    accept_solution: 'Aceptar solucion',
+    pickup_at_depot: 'Recoger en agencia',
+    return_to_origin: 'Devolver al origen'
+  };
+  const action = labels[decision.action] || 'Revision manual';
+  const instruction = decision.text || action;
+  return {
+    ...recommendation,
+    action,
+    tone: decision.action === 'return_to_origin' ? 'danger' : 'positive',
+    solution: decision.reason,
+    resolutionStage: 'Decision operativa de alta confianza',
+    operationalInstruction: instruction,
+    customerIntentDetail: decision.reason
+  };
+}
+
+function issueList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (Array.isArray(value.data)) return value.data;
+  return [value];
+}
+
+function incidentActionLedgerEntry(incidenceId) {
+  return loadState().incidentActionLedger?.[String(incidenceId || '')] || null;
+}
+
+function rememberIncidentAction(incident, decision, patch = {}) {
+  const state = { ...loadState() };
+  const ledger = { ...(state.incidentActionLedger || {}) };
+  const key = String(incident.incidenceId || '');
+  const previous = ledger[key] || {};
+  const now = new Date().toISOString();
+  ledger[key] = {
+    ...previous,
+    incidenceId: key,
+    orderId: String(incident.orderId || ''),
+    action: decision.action,
+    text: decision.text || '',
+    ruleId: decision.ruleId || null,
+    confidence: decision.confidence || 0,
+    reason: decision.reason || '',
+    status: patch.status || previous.status || 'attempted',
+    attemptedAt: patch.attemptedAt || previous.attemptedAt || now,
+    completedAt: patch.completedAt || previous.completedAt || null,
+    verifiedAt: patch.verifiedAt || previous.verifiedAt || null,
+    error: patch.error ?? previous.error ?? null,
+    response: patch.response ?? previous.response ?? null,
+    updatedAt: now
+  };
+  state.incidentActionLedger = Object.fromEntries(Object.entries(ledger)
+    .sort((left, right) => String(right[1]?.updatedAt || '').localeCompare(String(left[1]?.updatedAt || '')))
+    .slice(0, 2500));
+  saveState(state);
+  return ledger[key];
+}
+
+async function verifyIncidentLeftPending(incident, attempts = 3) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+    const order = await getDropeaOrderById(incident.orderId).catch(() => null);
+    if (!order) continue;
+    const issue = issueList(order?.raw?.issues).find((item) => String(item?.id || '') === String(incident.incidenceId));
+    if (!issue || !isPendingIssue(issue)) {
+      return { verified: true, issueStatus: issue ? issueStatus(issue) : 'NOT_PENDING' };
+    }
+  }
+  return { verified: false, issueStatus: 'PENDING' };
+}
+
+async function auditIncidentAction(incident, decision, result) {
+  const timestamp = result.verifiedAt || result.completedAt || result.attemptedAt || new Date().toISOString();
+  await syncAgentMemoryRuleToSupabase({
+    id: `incident_action_${incident.incidenceId}_${decision.action}`,
+    type: 'incident_action_audit',
+    source: 'suleia_incident_agent',
+    incidenceId: incident.incidenceId,
+    orderId: incident.orderId,
+    text: `${decision.action}: ${result.status}. ${decision.reason}`,
+    createdAt: timestamp,
+    raw: { incident, decision, result }
+  }).catch((error) => {
+    console.error('Supabase incident action audit error:', error instanceof Error ? error.message : String(error));
+  });
+}
+
+async function executeIncidentOperationalDecision(incident, decision) {
+  if (!decision?.eligible || decision.action === 'none') {
+    return { status: 'not_applicable', verified: false, reason: decision?.reason || 'Sin accion automatica.' };
+  }
+  if (!config.defaultStore.incidentResolutionRealEnabled) {
+    return { status: 'would_execute', verified: false, reason: 'Resolucion real desactivada por configuracion.' };
+  }
+  if (!incident.incidenceId || !incident.orderId) {
+    return { status: 'blocked_missing_identifiers', verified: false, reason: 'Falta ID de incidencia o pedido.' };
+  }
+
+  const previous = incidentActionLedgerEntry(incident.incidenceId);
+  if (previous && ['verified', 'applied_unverified'].includes(previous.status)) {
+    return {
+      ...previous,
+      status: previous.status === 'verified' ? 'already_verified' : previous.status,
+      verified: previous.status === 'verified'
+    };
+  }
+
+  const attemptedAt = new Date().toISOString();
+  rememberIncidentAction(incident, decision, { status: 'attempted', attemptedAt, error: null });
+  try {
+    let response;
+    if (decision.action === 'accept_solution') response = await resolveDropeaIssue(incident.incidenceId, decision.text);
+    else if (decision.action === 'pickup_at_depot') response = await pickupDropeaIssueAtDepot(incident.incidenceId);
+    else if (decision.action === 'return_to_origin') response = await returnDropeaIssueToOrigin(incident.incidenceId);
+    else throw new Error(`Accion de incidencia no soportada: ${decision.action}`);
+
+    const completedAt = new Date().toISOString();
+    const verification = await verifyIncidentLeftPending(incident);
+    const status = verification.verified ? 'verified' : 'applied_unverified';
+    const result = rememberIncidentAction(incident, decision, {
+      status,
+      completedAt,
+      verifiedAt: verification.verified ? new Date().toISOString() : null,
+      response,
+      error: verification.verified ? null : `Dropea acepto la accion, pero la incidencia sigue ${verification.issueStatus}.`
+    });
+    await auditIncidentAction(incident, decision, result);
+    return { ...result, verified: verification.verified };
+  } catch (error) {
+    const missingCredential = error?.code === 'DROPEA_ACCESS_TOKEN_MISSING';
+    const result = rememberIncidentAction(incident, decision, {
+      status: missingCredential ? 'blocked_missing_credential' : 'failed',
+      error: error instanceof Error ? error.message : String(error)
+    });
+    await auditIncidentAction(incident, decision, result);
+    return { ...result, verified: false };
+  }
 }
 
 function customerSignalForIncident(chatby) {
@@ -1102,99 +1405,66 @@ function orderFromIncidence(incidence = {}) {
 }
 
 async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
-  let directIncidentsError = null;
-  const directRows = [];
-  let directIncidentsSucceeded = false;
-  const fallbackErrors = [];
-  const diagnostics = {
-    incidenceStatusScanned: 0,
-    ordersWithIssuesScanned: 0,
-    ordersBasicScanned: 0,
-    statusCandidatesTried: [],
-    statusRows: {}
-  };
   const rows = [];
-  const useDirectIssuesEndpointFirst = true;
-  if (useDirectIssuesEndpointFirst) try {
+  const errors = [];
+
+  // This is the same operational population shown by Dropea under "Pendientes de resolver":
+  // orders currently in INCIDENCE with an issue that is still pending.
+  try {
+    for (let page = 1; page <= Math.max(pages, 10); page += 1) {
+      const orders = await listDropeaOrdersByStatus({ status: 'INCIDENCE', limit, page });
+      if (!Array.isArray(orders) || !orders.length) break;
+      for (const order of orders) {
+        for (const issue of asArray(order.raw?.issues).filter(isPendingIssue)) {
+          if (!issue?.id) continue;
+          rows.push({ order, issue });
+        }
+      }
+      if (orders.length < limit) break;
+    }
+  } catch (error) {
+    errors.push(`orders_status_INCIDENCE: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  if (rows.length) {
+    const richById = new Map();
+    const ids = unique(rows.map((row) => row.issue?.id));
+    for (let offset = 0; offset < ids.length; offset += 100) {
+      try {
+        const richIssues = await listDropeaIncidencesByIds(ids.slice(offset, offset + 100));
+        for (const issue of richIssues) richById.set(String(issue.id || issue.incidenceId), issue);
+      } catch (error) {
+        errors.push(`issues_by_ids: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return sortRowsByOrderDesc(rows.map(({ order, issue }) => {
+      const rich = richById.get(String(issue.id));
+      return { order, issue: rich ? { ...issue, ...rich } : issue };
+    }));
+  }
+
+  // Safe fallback for temporary failures of the status query. Closed/charged/rejected orders
+  // returned by the generic issues endpoint are intentionally excluded.
+  const directRows = [];
+  try {
     for (let page = 1; page <= Math.max(pages, 30); page += 1) {
       const incidences = await listDropeaIncidences({ limit, page, status: 'PENDING', sort: 'ID', direction: 'DESC' });
-      directIncidentsSucceeded = true;
       if (!Array.isArray(incidences) || !incidences.length) break;
-      for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
-        if (!incidence.orderId) continue;
+      for (const incidence of incidences) {
+        if (!incidence.orderId || !isPendingIssue(incidence)) continue;
         const order = orderFromIncidence(incidence);
-        if (!isPendingResolutionIssue(incidence, order)) continue;
+        if (!orderLooksLikeIncident(order)) continue;
         directRows.push({ order, issue: incidence });
       }
       if (incidences.length < limit) break;
     }
   } catch (error) {
-    directIncidentsError = error instanceof Error ? error.message : String(error);
-  }
-  if (directRows.length) return sortRowsByOrderDesc(directRows);
-  if (directIncidentsSucceeded) return [];
-
-  for (let page = 1; page <= Math.max(pages, 5); page += 1) {
-    let orders = [];
-    try {
-      orders = await listDropeaOrdersByStatus({ status: 'INCIDENCE', limit, page });
-    } catch (error) {
-      fallbackErrors.push(`orders_status_INCIDENCE_page_${page}: ${error instanceof Error ? error.message : String(error)}`);
-      break;
-    }
-    if (!Array.isArray(orders) || !orders.length) break;
-    diagnostics.incidenceStatusScanned += orders.length;
-    for (const order of orders) {
-      const issues = asArray(order.raw?.issues).filter((issue) => isPendingResolutionIssue(issue, order));
-      for (const issue of issues) {
-        rows.push({ order, issue });
-      }
-    }
-    if (orders.length < limit) break;
-  }
-  if (rows.length) return sortRowsByOrderDesc(rows);
-
-  try {
-    for (let page = 1; page <= Math.max(pages, 5); page += 1) {
-      const incidences = await listDropeaIncidences({ limit, page, status: 'PENDING', sort: 'ID', direction: 'DESC' });
-      if (!Array.isArray(incidences) || !incidences.length) break;
-      for (const incidence of incidences.filter((item) => isPendingResolutionIssue(item))) {
-        if (!incidence.orderId) continue;
-        const order = orderFromIncidence(incidence);
-        if (!isPendingResolutionIssue(incidence, order)) continue;
-        directRows.push({ order, issue: incidence });
-      }
-      if (incidences.length < limit) break;
-    }
-  } catch (error) {
-    directIncidentsError = error instanceof Error ? error.message : String(error);
+    errors.push(`issues_pending: ${error instanceof Error ? error.message : String(error)}`);
   }
   if (directRows.length) return sortRowsByOrderDesc(directRows);
 
-  for (let page = 1; page <= Math.max(pages, 30); page += 1) {
-    let orders = [];
-    try {
-      orders = await listDropeaOrders({ limit, page });
-    } catch (error) {
-      fallbackErrors.push(`orders_with_issues_page_${page}: ${error instanceof Error ? error.message : String(error)}`);
-      break;
-    }
-    if (!Array.isArray(orders) || !orders.length) break;
-    diagnostics.ordersWithIssuesScanned += orders.length;
-    for (const order of orders) {
-      const issues = asArray(order.raw?.issues).filter((issue) => isPendingResolutionIssue(issue, order));
-      for (const issue of issues) {
-        rows.push({ order, issue });
-      }
-    }
-    if (orders.length < limit) break;
-  }
-  if (rows.length) return sortRowsByOrderDesc(rows);
-
-  if (!rows.length && directIncidentsError) {
-    throw new Error(`No se encontraron incidencias. Endpoint directo fallo: ${directIncidentsError}. Diagnostico: ${JSON.stringify(diagnostics)}. Fallbacks: ${fallbackErrors.join(' | ') || 'sin errores; no habia filas con issues/status incidencia'}`);
-  }
-  return sortRowsByOrderDesc(rows);
+  if (errors.length) throw new Error(`No se pudo cargar Pendientes de resolver de Dropea. ${errors.join(' | ')}`);
+  return [];
 }
 
 function incidentDisplayLabel(classification) {
@@ -1279,7 +1549,15 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
       const transportHistory = mergedTransport.history;
       const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
       const currentIncidenceDate = mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
-      const recommendation = typeAwareIncidentSolution(classification, chatby, issue);
+      const baseRecommendation = typeAwareIncidentSolution(classification, chatby, issue);
+      const operationalDecision = incidentOperationalDecision({
+        classification,
+        chatby,
+        transportHistory,
+        phone,
+        incidentDate: currentIncidenceDate
+      });
+      const recommendation = recommendationWithOperationalDecision(baseRecommendation, operationalDecision);
       const customerSignal = customerSignalForIncident(chatby);
       const confidence = confidenceForIncident({ classification, chatby, recommendation });
 
@@ -1335,12 +1613,19 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         alertLevel: Number(chatby.customerMessages || 0) > 0 ? 'customer_response' : 'no_response',
         chatbyUserNs: chatby.userNs || null,
         chatbyReadVerified: chatby.chatbyReadVerified === true,
-        chatbyReadAttempts: Number(chatby.chatbyReadAttempts || 0)
+        chatbyReadAttempts: Number(chatby.chatbyReadAttempts || 0),
+        operationalDecisionAction: operationalDecision.action,
+        operationalDecisionEligible: operationalDecision.eligible,
+        operationalDecisionConfidence: operationalDecision.confidence,
+        operationalDecisionReason: operationalDecision.reason,
+        operationalDecisionRuleId: operationalDecision.ruleId,
+        operationalDecisionText: operationalDecision.text
       };
       return {
         incident,
         order,
-        messages: Array.isArray(chatby.messagesForNotification) ? chatby.messagesForNotification : []
+        messages: Array.isArray(chatby.messagesForNotification) ? chatby.messagesForNotification : [],
+        operationalDecision
       };
     });
     for (const item of analyzed) {
@@ -1350,7 +1635,14 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         messages: item.messages,
         dryRun: notificationDryRun
       });
-      incidents.push({
+      const actionResult = notificationDryRun
+        ? {
+            status: item.operationalDecision?.eligible ? 'would_execute' : 'not_applicable',
+            verified: false,
+            reason: 'Sincronizacion ejecutada en modo de prueba.'
+          }
+        : await executeIncidentOperationalDecision(item.incident, item.operationalDecision);
+      const enrichedIncident = {
         ...item.incident,
         incidentNotification: notification,
         incidentNotificationStatus: notification.status,
@@ -1358,21 +1650,30 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         incidentNotificationReason: notification.reason,
         incidentNotificationVerified: notification.verified,
         incidentNotificationSentAt: notification.sentAt,
-        incidentNotificationError: notification.error
-      });
+        incidentNotificationError: notification.error,
+        operationalActionStatus: actionResult.status,
+        operationalActionVerified: actionResult.verified === true,
+        operationalActionError: actionResult.error || null,
+        operationalActionAttemptedAt: actionResult.attemptedAt || null,
+        operationalActionCompletedAt: actionResult.completedAt || null,
+        operationalActionVerifiedAt: actionResult.verifiedAt || null
+      };
+      if (!['verified', 'already_verified'].includes(actionResult.status)) incidents.push(enrichedIncident);
     }
 
-    const sortedIncidents = sortIncidentsByOrderDesc(incidents);
+    const sortedIncidents = sortIncidentsByIncidenceDesc(incidents);
     const payload = {
       ok: true,
       updatedAt,
       intervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
       agentName: 'Agente de incidencias',
-      agentMode: 'training_read_only',
-      agentModeLabel: 'Entrenamiento y analisis; sin acciones automaticas',
+      agentMode: config.defaultStore.incidentResolutionRealEnabled ? 'operational_high_confidence' : 'training_read_only',
+      agentModeLabel: config.defaultStore.incidentResolutionRealEnabled
+        ? 'Operativo solo para reglas de alta confianza; casos ambiguos en revision'
+        : 'Entrenamiento y analisis; sin acciones automaticas',
       notificationMode: config.defaultStore.incidentNotificationsEnabled ? 'active_verified' : 'disabled',
       notificationModeLabel: config.defaultStore.incidentNotificationsEnabled
-        ? 'Avisos de incidencia activos; resolucion de Dropea en entrenamiento'
+        ? 'Avisos de incidencia activos y verificados contra Chatby'
         : 'Avisos de incidencia desactivados',
       transportHistoryNotice: 'Historial oficial de GLS cuando hay tracking disponible; detalle de Dropea como respaldo.',
       count: sortedIncidents.length,

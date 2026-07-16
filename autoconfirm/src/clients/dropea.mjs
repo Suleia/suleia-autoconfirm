@@ -2,6 +2,7 @@ import { getAppConfig } from '../config.mjs';
 
 const config = getAppConfig();
 const BASE_URL = 'https://api.dropea.com/graphql/dropshippers';
+const REST_BASE_URL = 'https://api.dropea.com/api';
 
 async function requestGraphQL(query, variables = {}) {
   if (!config.dropeaApiKey) throw new Error('Falta DROPEA_API_KEY.');
@@ -34,6 +35,43 @@ async function requestGraphQL(query, variables = {}) {
     throw new Error(`Dropea errors: ${JSON.stringify(data.errors)}`);
   }
   return data?.data ?? data;
+}
+
+async function requestDropeaRest(path, { method = 'GET', body = undefined } = {}) {
+  if (!config.dropeaAccessToken) {
+    const error = new Error('Falta DROPEA_ACCESS_TOKEN para esta accion especial de incidencias.');
+    error.code = 'DROPEA_ACCESS_TOKEN_MISSING';
+    throw error;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let response;
+  try {
+    response = await fetch(`${REST_BASE_URL}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        Authorization: `Bearer ${config.dropeaAccessToken}`,
+        ...(body === undefined ? {} : { 'Content-Type': 'application/json' })
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) })
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') throw new Error('Dropea REST no respondio en 20000 ms.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const raw = await response.text();
+  let payload = null;
+  try { payload = raw ? JSON.parse(raw) : null; } catch { payload = raw; }
+  if (!response.ok) {
+    throw new Error(`Dropea REST respondio ${response.status}: ${typeof payload === 'string' ? payload : JSON.stringify(payload)}`);
+  }
+  return payload;
 }
 
 function normalizeCustomer(customer) {
@@ -506,6 +544,48 @@ export async function listDropeaIncidences({ limit = 100, page = 1, status = nul
   throw new Error(`No se pudo leer listado de incidencias en Dropea. Endpoints vacios: ${emptySuccesses.join(', ') || 'ninguno'}. Errores: ${errors.join(' | ')}`);
 }
 
+export async function listDropeaIncidencesByIds(ids = []) {
+  const normalizedIds = [...new Set((Array.isArray(ids) ? ids : [ids])
+    .map((value) => Number(value))
+    .filter(Number.isFinite))];
+  if (!normalizedIds.length) return [];
+
+  const query = `
+    query DropeaIssuesByIds($ids: [Int]) {
+      issues(ids: $ids) {
+        data {
+          id
+          incidence_code
+          status
+          description
+          solutions
+          carrier_company
+          carrier_service
+          tracking
+          tracking_url
+          distance
+          order {
+            id
+            status
+            created_at
+            updated_at
+            tracking_code
+            tracking_url
+            carrier_company
+            carrier_service
+            customer { full_name phone email }
+          }
+        }
+      }
+    }
+  `;
+  const result = await requestGraphQL(query, { ids: normalizedIds });
+  return (result?.issues?.data || []).map((item) => ({
+    ...normalizeIncidence(item),
+    source: 'issues_by_ids'
+  }));
+}
+
 export async function getDropeaOrderById(orderId) {
   const query = `
     query OrderById($ids: [Int]) {
@@ -556,4 +636,35 @@ export async function cancelDropeaOrder(orderId) {
     }
   `;
   return requestGraphQL(mutation, { id: orderId });
+}
+
+export async function resolveDropeaIssue(issueId, text) {
+  const mutation = `
+    mutation ResolveIssue($id: ID!, $text: String) {
+      issueResolve(id: $id, text: $text) {
+        status
+        message
+      }
+    }
+  `;
+  const result = await requestGraphQL(mutation, { id: issueId, text: String(text || '').trim() });
+  const response = result?.issueResolve || result;
+  if (response?.status !== true) {
+    throw new Error(`Dropea no acepto la solucion: ${response?.message || 'respuesta sin confirmacion'}`);
+  }
+  return response;
+}
+
+export async function returnDropeaIssueToOrigin(issueId) {
+  return requestDropeaRest(`/shipping/incidences/${encodeURIComponent(issueId)}/status-solution-send`, {
+    method: 'POST',
+    body: { text: '', return_to_origin: true }
+  });
+}
+
+export async function pickupDropeaIssueAtDepot(issueId) {
+  return requestDropeaRest(`/shipping/incidences/${encodeURIComponent(issueId)}/pickup-at-depot`, {
+    method: 'POST',
+    body: {}
+  });
 }

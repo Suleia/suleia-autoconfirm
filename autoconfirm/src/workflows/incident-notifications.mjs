@@ -181,6 +181,7 @@ function cancellationIntent(value) {
 export function incidentNotificationPolicy({ incident, messages = [], now = Date.now(), minAgeHours = null } = {}) {
   const templateName = incidentTemplateNameForType(incident?.incidentType);
   if (!templateName) return { eligible: false, reason: 'unsupported_incident_type', templateName: null };
+  const rejectedGoodsMandatory = incident?.incidentType === 'rejected_goods';
   if (!statusIsPending(incident?.issueStatus || 'PENDING')) {
     return { eligible: false, reason: 'incident_not_pending', templateName };
   }
@@ -197,14 +198,14 @@ export function incidentNotificationPolicy({ incident, messages = [], now = Date
     .filter(isCustomerMessage)
     .map(messageText)
     .join(' | ');
-  if (cancellationIntent(`${incident?.chatbyIntent || ''} ${incident?.lastCustomerMessage || ''} ${responseText} ${allCustomerText}`)) {
+  if (!rejectedGoodsMandatory && cancellationIntent(`${incident?.chatbyIntent || ''} ${incident?.lastCustomerMessage || ''} ${responseText} ${allCustomerText}`)) {
     return { eligible: false, reason: 'customer_requests_cancellation', templateName };
   }
-  if (postIncidentMessages.length || incident?.customerResponded === true) {
+  if (!rejectedGoodsMandatory && (postIncidentMessages.length || incident?.customerResponded === true)) {
     return { eligible: false, reason: 'customer_already_responded', templateName };
   }
 
-  if (acceptedOutboundAfterIncident(messages, incident?.incidenceDate)) {
+  if (!rejectedGoodsMandatory && acceptedOutboundAfterIncident(messages, incident?.incidenceDate)) {
     return { eligible: false, reason: 'accepted_outbound_already_exists', templateName };
   }
 
