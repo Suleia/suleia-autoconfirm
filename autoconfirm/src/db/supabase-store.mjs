@@ -468,8 +468,11 @@ export async function ensureCoreAgentMemory() {
   if (!isSupabaseEnabled()) return { skipped: true };
   const createdAt = nowIso();
   const rows = coreAgentMemoryRules.map((rule) => ({
-    ...rule,
+    id: rule.id,
+    type: rule.type,
+    source: rule.source,
     entity_id: '',
+    content: rule.content,
     raw: rule,
     created_at: createdAt
   }));
