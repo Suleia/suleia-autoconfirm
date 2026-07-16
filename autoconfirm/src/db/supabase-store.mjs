@@ -364,6 +364,18 @@ const coreAgentMemoryRules = [
     type: 'incident_operational_rule',
     source: 'feedback_real_case_1299610',
     content: 'Si el cliente pregunta por pagar con tarjeta o efectivo y mantiene la intencion de compra, tratarlo como incidencia solucionable: solicitar nueva entrega con el metodo indicado, anadir su telefono, aceptar y verificar.'
+  },
+  {
+    id: 'core_incident_discount_rejected_return',
+    type: 'incident_operational_rule',
+    source: 'feedback_real_case_1296373',
+    content: 'Si el cliente rechazo el pedido por precio, se le ofrecio despues el descuento autorizado de 5 EUR y su respuesta posterior rechaza expresamente la oferta o el pedido, ejecutar Devolver al origen. No insistir con nuevas ofertas.'
+  },
+  {
+    id: 'core_incident_discount_accepted_requires_price_update',
+    type: 'incident_operational_rule',
+    source: 'feedback_real_case_1296373',
+    content: 'Si el cliente acepta el descuento autorizado de 5 EUR, mantener el pedido activo, actualizar y verificar el importe de reembolso por el canal habilitado y solo despues gestionar una nueva entrega. No devolver al origen ni afirmar que el precio cambio sin verificarlo.'
   }
 ];
 

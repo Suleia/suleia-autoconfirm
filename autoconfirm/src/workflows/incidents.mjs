@@ -649,6 +649,7 @@ export function incidentOperationalDecision({
   const details = extractOperationalDetailsFromText(customerText);
   const customerResponded = Number(chatby.customerMessages || 0) > 0;
   const ageHours = ageHoursAt(incidentDate, now);
+  const discountExchange = findDiscountRecoveryExchange(chatby.messagesForNotification, incidentDate);
 
   if (/pasaran a recoger en agencia|pasara a recoger en agencia|recoger en agencia|recogida en agencia/.test(transportText)) {
     return {
@@ -675,6 +676,40 @@ export function incidentOperationalDecision({
       confidence: 98,
       ruleId: 'core_incident_return_after_rejection_72h',
       reason: `Rechazo por falta de dinero, ${Math.floor(ageHours)}h sin respuesta posterior del cliente.`
+    };
+  }
+
+  if (
+    classification?.type === 'rejected_goods'
+    && customerResponded
+    && chatby.chatbyReadVerified === true
+    && discountExchange.offerVerified
+    && discountExchange.latestReplyRejectsOffer
+  ) {
+    return {
+      eligible: true,
+      action: 'return_to_origin',
+      text: '',
+      confidence: 99,
+      ruleId: 'core_incident_discount_rejected_return',
+      reason: 'El cliente rechazo expresamente la oferta autorizada de 5 EUR enviada despues de abrirse la incidencia.'
+    };
+  }
+
+  if (
+    classification?.type === 'rejected_goods'
+    && customerResponded
+    && chatby.chatbyReadVerified === true
+    && discountExchange.offerVerified
+    && discountExchange.latestReplyAcceptsOffer
+  ) {
+    return {
+      eligible: false,
+      action: 'none',
+      text: '',
+      confidence: 96,
+      ruleId: 'core_incident_discount_accepted_requires_price_update',
+      reason: 'El cliente acepta el descuento de 5 EUR. Mantener activo y actualizar el importe antes de solicitar una nueva entrega.'
     };
   }
 
@@ -1154,6 +1189,91 @@ function messageDate(message) {
   return date && !Number.isNaN(date.getTime()) ? date.toISOString() : null;
 }
 
+function messageSequence(message) {
+  const date = messageDate(message);
+  if (date) return { value: new Date(date).getTime(), timestamp: new Date(date).getTime(), reliable: true };
+  const numericId = Number(message?.id || message?.message_id || message?.messageId || message?.mid);
+  if (Number.isFinite(numericId) && numericId > 0) return { value: numericId, timestamp: null, reliable: true };
+  return { value: null, timestamp: null, reliable: false };
+}
+
+function orderedMessagesChronologically(messages = []) {
+  const rows = (Array.isArray(messages) ? messages : []).map((message, index) => ({
+    message,
+    index,
+    sequence: messageSequence(message)
+  }));
+  if (!rows.length || rows.some((row) => !row.sequence.reliable)) return rows.map((row) => row.message);
+  return rows
+    .sort((left, right) => left.sequence.value - right.sequence.value || left.index - right.index)
+    .map((row) => row.message);
+}
+
+function isAgentMessage(message) {
+  const rawMessage = message?.raw || message || {};
+  const from = normalize(message?.from || message?.sender || message?.role || message?.type || message?.direction || rawMessage?.direction || '');
+  if (['out', 'outgoing', 'outbound', 'agent', 'bot', 'admin'].includes(from)) return true;
+  if (from.includes('bot') || from.includes('agent') || from.includes('admin') || from.includes('outbound')) return true;
+  return rawMessage.from_me === true
+    || rawMessage.fromMe === true
+    || rawMessage.outgoing === true
+    || rawMessage.is_outgoing === true;
+}
+
+function isAuthorizedFiveEuroDiscountOffer(text) {
+  const source = normalize(text).replace(/\s+/g, ' ');
+  if (!/descuento|rebaja|descontar|aplicarle/.test(source)) return false;
+  return /(?:^|\D)5\s*(?:€|eur|euros?)?(?:\D|$)/i.test(String(text || ''))
+    || /cinco\s+euros?/.test(source);
+}
+
+function isExplicitDiscountRejection(text) {
+  const source = normalize(text).replace(/\s+/g, ' ');
+  return /no muchas gracias|no,? gracias|no (?:estoy|estamos) interesad|no me interesa|no nos interesa|no lo quiero|no quiero (?:el|este|ese) pedido|quiero cancelar|cancelar (?:el )?pedido|anular (?:el )?pedido|rechazo (?:el )?pedido/.test(source);
+}
+
+function isExplicitDiscountAcceptance(text) {
+  const source = normalize(text).replace(/\s+/g, ' ');
+  return /(?:^|\b)(?:si|acepto|de acuerdo|vale|adelante)(?:\b|$)/.test(source)
+    && !isExplicitDiscountRejection(text);
+}
+
+function findDiscountRecoveryExchange(messages = [], incidentDate = null) {
+  const ordered = orderedMessagesChronologically(messages);
+  const records = ordered.map((message) => ({
+    message,
+    text: messageText(message),
+    sequence: messageSequence(message)
+  })).filter((record) => record.sequence.reliable);
+  const latestCustomer = [...records].reverse().find((record) => isCustomerMessage(record.message));
+  if (!latestCustomer) return { offerVerified: false, latestReplyRejectsOffer: false, latestReplyAcceptsOffer: false };
+
+  const incidentTimestamp = incidentDate ? new Date(incidentDate).getTime() : Number.NaN;
+  const earliestOfferTimestamp = Number.isFinite(incidentTimestamp)
+    ? incidentTimestamp - (60 * 60 * 1000)
+    : null;
+  const offer = [...records].reverse().find((record) => {
+    if (!isAgentMessage(record.message) || !isAuthorizedFiveEuroDiscountOffer(record.text)) return false;
+    if (record.sequence.value >= latestCustomer.sequence.value) return false;
+    if (earliestOfferTimestamp !== null) {
+      if (!Number.isFinite(record.sequence.timestamp)) return false;
+      if (record.sequence.timestamp < earliestOfferTimestamp) return false;
+    }
+    return true;
+  });
+  if (!offer) return { offerVerified: false, latestReplyRejectsOffer: false, latestReplyAcceptsOffer: false };
+
+  return {
+    offerVerified: true,
+    offerAt: messageDate(offer.message),
+    offerText: clip(offer.text, 220),
+    latestReplyAt: messageDate(latestCustomer.message),
+    latestReplyText: clip(latestCustomer.text, 220),
+    latestReplyRejectsOffer: isExplicitDiscountRejection(latestCustomer.text),
+    latestReplyAcceptsOffer: isExplicitDiscountAcceptance(latestCustomer.text)
+  };
+}
+
 function clip(value, max = 180) {
   const text = String(value || '').replace(/\s+/g, ' ').trim();
   if (text.length <= max) return text;
@@ -1206,11 +1326,12 @@ function evidenceFromConversation(customerText, allText) {
 }
 
 function baseConversationMeta({ intent, customerMessages, customerText, allText, messages }) {
-  const lastCustomerMessage = [...messages].reverse().find(isCustomerMessage);
+  const orderedMessages = orderedMessagesChronologically(messages);
+  const lastCustomerMessage = [...orderedMessages].reverse().find(isCustomerMessage);
   const lastMessageText = lastCustomerMessage ? clip(messageText(lastCustomerMessage), 220) : '';
-  const customerMessageItems = messages.filter(isCustomerMessage);
+  const customerMessageItems = orderedMessages.filter(isCustomerMessage);
   const rawCustomerText = customerMessageItems.map(messageText).join(' | ');
-  const rawAllText = messages.map(messageText).join(' | ');
+  const rawAllText = orderedMessages.map(messageText).join(' | ');
   const confidenceByIntent = {
     reject_or_cancel: 94,
     address_data: 88,
