@@ -376,6 +376,91 @@ const coreAgentMemoryRules = [
     type: 'incident_operational_rule',
     source: 'feedback_real_case_1296373',
     content: 'Si el cliente acepta el descuento autorizado de 5 EUR, mantener el pedido activo, actualizar y verificar el importe de reembolso por el canal habilitado y solo despues gestionar una nueva entrega. No devolver al origen ni afirmar que el precio cambio sin verificarlo.'
+  },
+  {
+    id: 'training_incident_policy_guardrail_20260716',
+    type: 'incident_training_guardrail',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    requiresExplicitActivation: true,
+    content: 'SOLO APRENDIZAJE. Estas reglas sirven para analizar, explicar y proponer. No deben enviar plantillas, aceptar soluciones, recoger en agencia ni devolver al origen hasta que el usuario autorice expresamente su activacion operativa.'
+  },
+  {
+    id: 'training_incident_full_context_priority_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Antes de proponer, leer historial completo de incidencias, conversacion completa, ultima respuesta y fecha, telefono, motivo, plantillas previas y estado actual de Dropea. Prioridad ante contradicciones: ultima respuesta explicita del cliente, ultima anotacion valida del transportista, historial reciente, estado actual y por ultimo informacion antigua. No decidir por palabras aisladas.'
+  },
+  {
+    id: 'training_incident_response_and_72h_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Distinguir de forma visible si el cliente respondio, que dijo exactamente, cuando respondio y cuantos dias u horas han pasado desde el ultimo contacto. Sin respuesta durante menos de 72 horas, proponer mantener pendiente. Con 72 horas completas sin respuesta, proponer Devolver al origen y no repetir mensajes indefinidamente. Esta regla queda solo como propuesta hasta activacion expresa.'
+  },
+  {
+    id: 'training_incident_delivery_intent_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Si el cliente mantiene intencion de compra y comunica dia, franja, hora o llamada previa, proponer una nueva entrega adaptada exactamente a su disponibilidad. Formato breve: Realizar nueva entrega [dia o franja]. Llamar antes al [telefono real del pedido]. No inventar fechas, horas, telefonos ni condiciones.'
+  },
+  {
+    id: 'training_incident_absence_pickup_payment_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Si el cliente afirma que estaba en casa y el repartidor no fue, y aporta nueva disponibilidad, proponer nueva entrega y no devolucion. Si el historial confirma recogida en agencia o delegacion, proponer solo Recoger en agencia. Una pregunta sobre pago con tarjeta o efectivo indica interes: proponer nueva entrega con el metodo solicitado salvo rechazo expreso.'
+  },
+  {
+    id: 'training_incident_price_discount_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Ante rechazo por precio, proponer una unica oferta con el descuento comercial autorizado y esperar respuesta. Si acepta, mantener activo, verificar el nuevo importe y proponer nueva entrega. Si rechaza la oferta, proponer Devolver al origen sin insistir. Si no responde, esperar 72 horas desde el ultimo mensaje y despues proponer devolucion.'
+  },
+  {
+    id: 'training_incident_no_money_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Ante rechazo por falta de dinero, comprobar si propone otra fecha. Con fecha concreta y viable, proponer nueva entrega; sin alternativa, aplicar el contacto comercial definido. Si rechaza expresamente o pasan 72 horas sin respuesta, proponer Devolver al origen. Evitar intentos de entrega repetidos sin confirmacion.'
+  },
+  {
+    id: 'training_incident_rejected_goods_template_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'En no acepta mercancia o rechazo de entrega, comprobar si ya consta la plantilla es_ES dropea_incidencia_mercancia_v1. Si falta, proponer su envio una sola vez antes del flujo de recuperacion o devolucion. Si ya existe un envio verificado, no duplicarlo. Esta memoria no autoriza el envio real.'
+  },
+  {
+    id: 'training_incident_definitive_rejection_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Considerar rechazo definitivo si el cliente dice que no quiere el pedido, pide cancelar, rechaza el descuento, mantiene su negativa tras una alternativa razonable o no responde durante 72 horas desde el ultimo intento. Proponer Devolver al origen, no nueva entrega, no mas ofertas y registrar el motivo.'
+  },
+  {
+    id: 'training_incident_solution_verification_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'La solucion propuesta debe ser breve y ejecutable: accion, disponibilidad, pago si aplica, llamada previa y telefono real. No incluir explicaciones internas ni datos no confirmados. Una futura accion solo se considerara completada tras verificar que Dropea cambia a Soluciones enviadas; si no cambia, registrar error y evitar reintentos ciegos.'
+  },
+  {
+    id: 'training_incident_idempotency_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'Antes de proponer o, en el futuro, ejecutar, comprobar el historial. No duplicar plantillas, descuentos, nuevas entregas ni botones. No devolver tras confirmar una nueva entrega ni pedir entrega si ya hay recogida en agencia. Cada incidencia debe tener una unica accion coherente con su estado mas reciente.'
+  },
+  {
+    id: 'training_incident_panel_feedback_20260716',
+    type: 'incident_training_policy',
+    source: 'user_training_policy_2026_07_16',
+    executionEnabled: false,
+    content: 'El panel debe usar el conjunto completo de pendientes de resolver, sin omisiones por paginacion o filtros, y ordenar por ID INCID descendente. Guardar por caso: contexto, intencion, regla propuesta, texto, plantilla, estados anterior y posterior, resultado y correccion del usuario. Generalizar el feedback por situacion, no memorizar solo el pedido.'
   }
 ];
 
