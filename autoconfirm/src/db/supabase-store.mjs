@@ -461,6 +461,29 @@ const coreAgentMemoryRules = [
     source: 'user_training_policy_2026_07_16',
     executionEnabled: false,
     content: 'El panel debe usar el conjunto completo de pendientes de resolver, sin omisiones por paginacion o filtros, y ordenar por ID INCID descendente. Guardar por caso: contexto, intencion, regla propuesta, texto, plantilla, estados anterior y posterior, resultado y correccion del usuario. Generalizar el feedback por situacion, no memorizar solo el pedido.'
+  },
+  {
+    id: 'training_incident_absent_new_availability_20260717',
+    type: 'incident_training_policy',
+    source: 'user_training_rules_2026_07_17',
+    executionEnabled: false,
+    exampleOrderIds: ['1300491'],
+    content: 'En una incidencia AUSENTE, revisar siempre la conversacion posterior. Si el cliente facilita una nueva fecha, dia, hora o franja, esa respuesta prevalece sobre la anotacion AUSENTE y confirma que mantiene intencion de compra. Proponer: Realizar nueva entrega [disponibilidad exacta]. Llamar antes al [telefono real del pedido]. En una futura ejecucion autorizada, introducir la solucion, pulsar Aceptar y verificar Soluciones enviadas. Ejemplo aprendido 1300491: lunes por la tarde, telefono 654007160. Esta regla no autoriza ninguna accion real.'
+  },
+  {
+    id: 'training_incident_wrong_address_workflow_20260717',
+    type: 'incident_training_policy',
+    source: 'user_training_rules_2026_07_17',
+    executionEnabled: false,
+    exampleOrderIds: ['1300310'],
+    content: 'Si la direccion es incorrecta, incompleta, inexistente o impide la entrega, comprobar primero si consta un envio verificado de es_ES dropea_incidencia_direccion_v1. Si no consta, proponer enviarla una sola vez y pasar internamente a Esperando respuesta del cliente. No proponer nueva entrega ni devolucion antes de recibir datos validos o de cumplir 72 horas completas desde el envio verificado. Si responde con los datos necesarios, validar y actualizar la direccion si el sistema lo permite, proponer nueva entrega, y en una futura ejecucion autorizada aceptar y verificar Soluciones enviadas. Si no responde tras 72 horas completas, proponer Devolver al origen. Ejemplo aprendido 1300310. Esta memoria no autoriza el envio ni la devolucion real.'
+  },
+  {
+    id: 'training_incident_absent_address_decision_tree_20260717',
+    type: 'incident_training_policy',
+    source: 'user_training_rules_2026_07_17',
+    executionEnabled: false,
+    content: 'Arbol de decision aprendido. AUSENTE sin respuesta: menos de 72 horas, esperar; 72 horas completas o mas, proponer Devolver al origen. AUSENTE con nueva disponibilidad: proponer nueva entrega exacta con llamada previa y telefono real. DIRECCION INCORRECTA: enviar o proponer una sola vez la plantilla de direccion si no existe envio verificado; si ya existe, no duplicar y esperar. Con direccion correcta aportada, validar, actualizar y proponer nueva entrega. Sin respuesta durante 72 horas completas desde la plantilla, proponer devolucion. La ultima respuesta explicita del cliente prevalece sobre anotaciones anteriores del transportista.'
   }
 ];
 
