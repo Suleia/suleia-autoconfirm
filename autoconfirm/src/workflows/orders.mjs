@@ -40,7 +40,9 @@ let automationCycleRunning = false;
 const activeInitialTemplateClaims = new Set();
 const activePreparedTemplateClaims = new Set();
 const DROPEA_REPAIR_BACKOFF_MS = 15 * 60 * 1000;
+const DROPEA_REPAIR_BLOCKED_BACKOFF_MS = 6 * 60 * 60 * 1000;
 const DROPEA_REPAIR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+const DROPEA_GRAPHQL_RECOVERY_MAX_ATTEMPTS = 1;
 const DROPEA_UNRESOLVED_STATUSES = new Set(['ERROR', 'REVIEW']);
 const DROPEA_OPERATIONAL_STATUSES = new Set(['CONFIRMED', 'PREPARING', 'PREPARED', 'TRANSIT', 'DELIVERED']);
 
@@ -52,7 +54,34 @@ function recentAgentConfirmation(order) {
 
 function repairBackoffElapsed(order) {
   const attemptedAt = new Date(order?.raw?.dropeaRepairAttemptedAt || 0).getTime();
-  return !Number.isFinite(attemptedAt) || attemptedAt <= Date.now() - DROPEA_REPAIR_BACKOFF_MS;
+  const backoff = order?.raw?.dropeaRepairBlockedReason === 'missing_dropea_access_token'
+    ? DROPEA_REPAIR_BLOCKED_BACKOFF_MS
+    : DROPEA_REPAIR_BACKOFF_MS;
+  return !Number.isFinite(attemptedAt) || attemptedAt <= Date.now() - backoff;
+}
+
+function dropeaTrackingCode(order) {
+  return String(
+    order?.raw?.tracking_code
+      || order?.raw?.trackingCode
+      || order?.raw?.tracking
+      || ''
+  ).trim();
+}
+
+function dropeaGraphqlRecoveryAttempts(order) {
+  const attempts = Number(order?.raw?.dropeaGraphqlRecoveryAttempts || 0);
+  return Number.isFinite(attempts) && attempts > 0 ? Math.floor(attempts) : 0;
+}
+
+async function pollDropeaOrder(orderId, { attempts = 5, delayMs = 5000 } = {}) {
+  let dropeaOrder = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    dropeaOrder = await getDropeaOrderById(orderId);
+    if (DROPEA_OPERATIONAL_STATUSES.has(dropeaOrder?.status)) break;
+  }
+  return dropeaOrder;
 }
 
 async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}) {
@@ -69,7 +98,7 @@ async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}
   }
 
   const attemptedAt = new Date().toISOString();
-  const marked = upsertOrder(order.storeId || config.defaultStore.id, {
+  let marked = upsertOrder(order.storeId || config.defaultStore.id, {
     ...order,
     raw: {
       ...(order.raw || {}),
@@ -79,9 +108,107 @@ async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}
     operationalNote: 'Dropea acepto la confirmacion, pero genero Error/Revisar. Recuperacion logistica oficial iniciada automaticamente.'
   });
 
+  let after = dropeaOrder;
+  let graphqlRecovery = null;
+  const previousGraphqlAttempts = dropeaGraphqlRecoveryAttempts(marked);
+  const canRetryConfirmation = dropeaOrder.status === 'ERROR'
+    && !dropeaTrackingCode(dropeaOrder)
+    && previousGraphqlAttempts < DROPEA_GRAPHQL_RECOVERY_MAX_ATTEMPTS;
+
+  if (canRetryConfirmation) {
+    marked = upsertOrder(marked.storeId, {
+      ...marked,
+      raw: {
+        ...(marked.raw || {}),
+        dropeaGraphqlRecoveryAttempts: previousGraphqlAttempts + 1,
+        dropeaGraphqlRecoveryAttemptedAt: new Date().toISOString()
+      },
+      operationalNote: 'Dropea genero Error al crear el envio. Reintento unico y seguro de confirmacion iniciado automaticamente.'
+    });
+
+    try {
+      graphqlRecovery = await confirmDropeaOrder(order.orderId);
+      after = await pollDropeaOrder(order.orderId);
+    } catch (error) {
+      graphqlRecovery = {
+        error: error instanceof Error ? error.message : String(error)
+      };
+      after = await getDropeaOrderById(order.orderId).catch(() => dropeaOrder);
+    }
+
+    if (DROPEA_OPERATIONAL_STATUSES.has(after?.status)) {
+      const recovered = upsertOrder(marked.storeId, {
+        ...marked,
+        status: after.status,
+        raw: {
+          ...(marked.raw || {}),
+          dropeaGraphqlRecoveryResponse: graphqlRecovery,
+          dropeaStatusAfterRepair: after.status,
+          dropeaRepairCompletedAt: new Date().toISOString()
+        },
+        operationalNote: `Pedido recuperado automaticamente tras un error transitorio de Dropea/transportista. Estado final: ${after.status}.`
+      });
+      await safeUpsertSheetRow(recovered, 'dropea_graphql_recovery');
+      return {
+        orderId: order.orderId,
+        statusBefore: dropeaOrder.status,
+        statusAfter: after.status,
+        repaired: true,
+        recoveryMethod: 'graphql_confirmation_retry_once',
+        graphqlRecovery
+      };
+    }
+  }
+
+  if (!DROPEA_UNRESOLVED_STATUSES.has(after?.status)) {
+    const unresolved = upsertOrder(marked.storeId, {
+      ...marked,
+      raw: {
+        ...(marked.raw || {}),
+        dropeaGraphqlRecoveryResponse: graphqlRecovery,
+        dropeaStatusAfterRepair: after?.status || null,
+        dropeaRepairCompletedAt: new Date().toISOString()
+      },
+      operationalNote: `Dropea dejo el pedido en ${after?.status || 'un estado desconocido'} tras el reintento. No se repetira automaticamente para evitar duplicados.`
+    });
+    await safeUpsertSheetRow(unresolved, 'dropea_graphql_recovery_unresolved');
+    return {
+      orderId: order.orderId,
+      statusBefore: dropeaOrder.status,
+      statusAfter: after?.status || null,
+      repaired: false,
+      recoveryMethod: canRetryConfirmation ? 'graphql_confirmation_retry_once' : null,
+      graphqlRecovery
+    };
+  }
+
+  if (!config.dropeaAccessToken) {
+    const blocked = upsertOrder(marked.storeId, {
+      ...marked,
+      raw: {
+        ...(marked.raw || {}),
+        dropeaGraphqlRecoveryResponse: graphqlRecovery,
+        dropeaStatusAfterRepair: after?.status || null,
+        dropeaRepairBlockedReason: 'missing_dropea_access_token',
+        dropeaRepairCompletedAt: new Date().toISOString()
+      },
+      operationalNote: `Dropea mantuvo el pedido en ${after?.status || 'Error/Revisar'}. El reintento seguro ya se agoto y la reparacion especial requiere DROPEA_ACCESS_TOKEN.`
+    });
+    await safeUpsertSheetRow(blocked, 'dropea_error_repair_blocked');
+    return {
+      orderId: order.orderId,
+      statusBefore: dropeaOrder.status,
+      statusAfter: after?.status || null,
+      repaired: false,
+      blocked: true,
+      reason: 'missing_dropea_access_token',
+      graphqlRecovery
+    };
+  }
+
   const repair = await repairDropeaErrorReviewOrders([order.orderId]);
   await new Promise((resolve) => setTimeout(resolve, 5000));
-  let after = await getDropeaOrderById(order.orderId);
+  after = await getDropeaOrderById(order.orderId);
   let shippingRefresh = null;
   if (DROPEA_UNRESOLVED_STATUSES.has(after?.status)) {
     shippingRefresh = await refreshDropeaOrderShipping(order.orderId);
@@ -93,6 +220,7 @@ async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}
     ...marked,
     raw: {
       ...(marked.raw || {}),
+      dropeaGraphqlRecoveryResponse: graphqlRecovery,
       dropeaRepairResponse: repair,
       dropeaShippingRefreshResponse: shippingRefresh,
       dropeaStatusAfterRepair: after?.status || null,

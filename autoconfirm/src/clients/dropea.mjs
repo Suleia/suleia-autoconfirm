@@ -184,6 +184,11 @@ export async function listDropeaOrdersByStatus({ status = 'PENDING', limit = 100
           items { sku title shopify_name_item unit_price quantity total_value }
           total_amount
           created_at
+          updated_at
+          tracking_code
+          tracking_url
+          carrier_company
+          carrier_service
           issues { id incidence_code status }
         }
       }
@@ -273,6 +278,11 @@ export async function listDropeaOrders({ limit = 100, page = 1 } = {}) {
           items { sku title shopify_name_item unit_price quantity total_value }
           total_amount
           created_at
+          updated_at
+          tracking_code
+          tracking_url
+          carrier_company
+          carrier_service
           issues { id incidence_code status }
         }
       }
@@ -597,6 +607,11 @@ export async function getDropeaOrderById(orderId) {
           items { sku title shopify_name_item unit_price quantity total_value }
           total_amount
           created_at
+          updated_at
+          tracking_code
+          tracking_url
+          carrier_company
+          carrier_service
           issues { id incidence_code status }
         }
       }
