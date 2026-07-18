@@ -15,7 +15,8 @@ import {
   getDropeaOrderById,
   listRecentDropeaOrders,
   listPendingDropeaOrders,
-  repairDropeaErrorReviewOrders
+  repairDropeaErrorReviewOrders,
+  refreshDropeaOrderShipping
 } from '../clients/dropea.mjs';
 import {
   createSubscriber,
@@ -38,8 +39,10 @@ const config = getAppConfig();
 let automationCycleRunning = false;
 const activeInitialTemplateClaims = new Set();
 const activePreparedTemplateClaims = new Set();
-const DROPEA_REPAIR_BACKOFF_MS = 6 * 60 * 60 * 1000;
+const DROPEA_REPAIR_BACKOFF_MS = 15 * 60 * 1000;
 const DROPEA_REPAIR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+const DROPEA_UNRESOLVED_STATUSES = new Set(['ERROR', 'REVIEW']);
+const DROPEA_OPERATIONAL_STATUSES = new Set(['CONFIRMED', 'PREPARING', 'PREPARED', 'TRANSIT', 'DELIVERED']);
 
 function recentAgentConfirmation(order) {
   if (String(order?.aiIntent || '').toUpperCase() !== 'CONFIRM') return false;
@@ -58,10 +61,10 @@ async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 5000));
     dropeaOrder = await getDropeaOrderById(order.orderId);
-    if (dropeaOrder?.status === 'ERROR' || dropeaOrder?.status === 'PREPARED') break;
+    if (DROPEA_UNRESOLVED_STATUSES.has(dropeaOrder?.status) || DROPEA_OPERATIONAL_STATUSES.has(dropeaOrder?.status)) break;
   }
 
-  if (dropeaOrder?.status !== 'ERROR') {
+  if (!DROPEA_UNRESOLVED_STATUSES.has(dropeaOrder?.status)) {
     return { orderId: order.orderId, status: dropeaOrder?.status || null, repaired: false };
   }
 
@@ -78,19 +81,26 @@ async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}
 
   const repair = await repairDropeaErrorReviewOrders([order.orderId]);
   await new Promise((resolve) => setTimeout(resolve, 5000));
-  const after = await getDropeaOrderById(order.orderId);
-  const recovered = after?.status !== 'ERROR';
+  let after = await getDropeaOrderById(order.orderId);
+  let shippingRefresh = null;
+  if (DROPEA_UNRESOLVED_STATUSES.has(after?.status)) {
+    shippingRefresh = await refreshDropeaOrderShipping(order.orderId);
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    after = await getDropeaOrderById(order.orderId);
+  }
+  const recovered = DROPEA_OPERATIONAL_STATUSES.has(after?.status);
   const updated = upsertOrder(marked.storeId, {
     ...marked,
     raw: {
       ...(marked.raw || {}),
       dropeaRepairResponse: repair,
+      dropeaShippingRefreshResponse: shippingRefresh,
       dropeaStatusAfterRepair: after?.status || null,
       dropeaRepairCompletedAt: new Date().toISOString()
     },
     operationalNote: recovered
       ? `Pedido confirmado y recuperado automaticamente de Error/Revisar en Dropea. Estado final: ${after?.status || 'sin dato'}.`
-      : 'Dropea mantuvo el pedido en Error/Revisar tras su recuperacion oficial. Requiere revision del soporte logistico.'
+      : `Dropea mantuvo el pedido en ${after?.status || 'Error/Revisar'} tras reparar y actualizar el envio. Requiere revision del soporte logistico.`
   });
   await safeUpsertSheetRow(updated, 'dropea_error_repair');
   return {
@@ -98,7 +108,8 @@ async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}
     statusBefore: dropeaOrder.status,
     statusAfter: after?.status || null,
     repaired: recovered,
-    repair
+    repair,
+    shippingRefresh
   };
 }
 
@@ -112,7 +123,7 @@ async function repairRecentConfirmedDropeaErrors(store) {
   for (const order of candidates) {
     try {
       const result = await inspectAndRepairConfirmedDropeaOrder(order);
-      if (result.status === 'ERROR' || result.statusBefore === 'ERROR') results.push(result);
+      if (DROPEA_UNRESOLVED_STATUSES.has(result.status) || DROPEA_UNRESOLVED_STATUSES.has(result.statusBefore)) results.push(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[dropea_error_repair] Order ${order.orderId} failed:`, error);

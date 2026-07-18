@@ -649,6 +649,15 @@ export async function repairDropeaErrorReviewOrders(orderIds = []) {
   });
 }
 
+export async function refreshDropeaOrderShipping(orderId) {
+  const normalizedId = Number(orderId);
+  if (!Number.isFinite(normalizedId)) {
+    return { skipped: true, reason: 'invalid_order_id' };
+  }
+  // This is the same read/repair action exposed by Dropea as "Actualizar envio".
+  return requestDropeaRest(`/order/update-shippnig/${normalizedId}`);
+}
+
 export async function resolveDropeaIssue(issueId, text) {
   const mutation = `
     mutation ResolveIssue($id: ID!, $text: String) {
