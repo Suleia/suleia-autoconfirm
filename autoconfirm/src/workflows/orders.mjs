@@ -2,6 +2,7 @@
 import {
   findOrder,
   hasRecentWebhookEvent,
+  listOrders,
   listPendingOrders,
   loadState,
   recordWebhookEvent,
@@ -13,7 +14,8 @@ import {
   confirmDropeaOrder,
   getDropeaOrderById,
   listRecentDropeaOrders,
-  listPendingDropeaOrders
+  listPendingDropeaOrders,
+  repairDropeaErrorReviewOrders
 } from '../clients/dropea.mjs';
 import {
   createSubscriber,
@@ -36,6 +38,89 @@ const config = getAppConfig();
 let automationCycleRunning = false;
 const activeInitialTemplateClaims = new Set();
 const activePreparedTemplateClaims = new Set();
+const DROPEA_REPAIR_BACKOFF_MS = 6 * 60 * 60 * 1000;
+const DROPEA_REPAIR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function recentAgentConfirmation(order) {
+  if (String(order?.aiIntent || '').toUpperCase() !== 'CONFIRM') return false;
+  const confirmedAt = new Date(order?.confirmedAt || 0).getTime();
+  return Number.isFinite(confirmedAt) && confirmedAt > Date.now() - DROPEA_REPAIR_LOOKBACK_MS;
+}
+
+function repairBackoffElapsed(order) {
+  const attemptedAt = new Date(order?.raw?.dropeaRepairAttemptedAt || 0).getTime();
+  return !Number.isFinite(attemptedAt) || attemptedAt <= Date.now() - DROPEA_REPAIR_BACKOFF_MS;
+}
+
+async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}) {
+  const attempts = poll ? 4 : 1;
+  let dropeaOrder = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 5000));
+    dropeaOrder = await getDropeaOrderById(order.orderId);
+    if (dropeaOrder?.status === 'ERROR' || dropeaOrder?.status === 'PREPARED') break;
+  }
+
+  if (dropeaOrder?.status !== 'ERROR') {
+    return { orderId: order.orderId, status: dropeaOrder?.status || null, repaired: false };
+  }
+
+  const attemptedAt = new Date().toISOString();
+  const marked = upsertOrder(order.storeId || config.defaultStore.id, {
+    ...order,
+    raw: {
+      ...(order.raw || {}),
+      dropeaRepairAttemptedAt: attemptedAt,
+      dropeaStatusBeforeRepair: dropeaOrder.status
+    },
+    operationalNote: 'Dropea acepto la confirmacion, pero genero Error/Revisar. Recuperacion logistica oficial iniciada automaticamente.'
+  });
+
+  const repair = await repairDropeaErrorReviewOrders([order.orderId]);
+  await new Promise((resolve) => setTimeout(resolve, 5000));
+  const after = await getDropeaOrderById(order.orderId);
+  const recovered = after?.status !== 'ERROR';
+  const updated = upsertOrder(marked.storeId, {
+    ...marked,
+    raw: {
+      ...(marked.raw || {}),
+      dropeaRepairResponse: repair,
+      dropeaStatusAfterRepair: after?.status || null,
+      dropeaRepairCompletedAt: new Date().toISOString()
+    },
+    operationalNote: recovered
+      ? `Pedido confirmado y recuperado automaticamente de Error/Revisar en Dropea. Estado final: ${after?.status || 'sin dato'}.`
+      : 'Dropea mantuvo el pedido en Error/Revisar tras su recuperacion oficial. Requiere revision del soporte logistico.'
+  });
+  await safeUpsertSheetRow(updated, 'dropea_error_repair');
+  return {
+    orderId: order.orderId,
+    statusBefore: dropeaOrder.status,
+    statusAfter: after?.status || null,
+    repaired: recovered,
+    repair
+  };
+}
+
+async function repairRecentConfirmedDropeaErrors(store) {
+  const candidates = listOrders({ storeId: store.id })
+    .filter(recentAgentConfirmation)
+    .filter(repairBackoffElapsed)
+    .sort((left, right) => new Date(right.confirmedAt || 0) - new Date(left.confirmedAt || 0))
+    .slice(0, 25);
+  const results = [];
+  for (const order of candidates) {
+    try {
+      const result = await inspectAndRepairConfirmedDropeaOrder(order);
+      if (result.status === 'ERROR' || result.statusBefore === 'ERROR') results.push(result);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`[dropea_error_repair] Order ${order.orderId} failed:`, error);
+      results.push({ orderId: order.orderId, repaired: false, error: message });
+    }
+  }
+  return { checked: candidates.length, results };
+}
 
 async function safeUpsertSheetRow(order, context = 'sheet_sync') {
   if (!config.googleSheetsEnabled) {
@@ -916,6 +1001,13 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
     operationalNote: 'Confirmacion ejecutada en Dropea tras esperar 1h y comprobar que no hubo cancelacion posterior en Chatby.'
   });
   await safeUpsertSheetRow(updated);
+  let dropeaRecovery = null;
+  try {
+    dropeaRecovery = await inspectAndRepairConfirmedDropeaOrder(updated, { poll: true });
+  } catch (error) {
+    dropeaRecovery = { repaired: false, error: error instanceof Error ? error.message : String(error) };
+    console.error(`[dropea_post_confirm] Order ${order.orderId} verification failed:`, error);
+  }
   return {
     action: 'confirmed_after_delay',
     dryRun: false,
@@ -925,6 +1017,7 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
       reason: 'Pasada la espera de 1h tras la confirmacion, no se detecto cancelacion posterior en Chatby.'
     },
     confirmation,
+    dropeaRecovery,
     source: order.confirmationSource || 'delayed_confirmation'
   };
 }
@@ -2811,6 +2904,11 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
 }
 
 export async function runAutoConfirm({ store = config.defaultStore } = {}) {
+  const dropeaRecovery = await repairRecentConfirmedDropeaErrors(store).catch((error) => ({
+    checked: 0,
+    results: [],
+    error: error instanceof Error ? error.message : String(error)
+  }));
   const orders = listPendingOrders(store.id);
   const results = [];
 
@@ -2853,7 +2951,7 @@ export async function runAutoConfirm({ store = config.defaultStore } = {}) {
   state.lastAutoConfirmAt = new Date().toISOString();
   saveState(state);
 
-  return { processed: results.length, results };
+  return { processed: results.length, results, dropeaRecovery };
 }
 
 export async function runStoreAutomationCycle({ store = config.defaultStore, limit = 50 } = {}) {

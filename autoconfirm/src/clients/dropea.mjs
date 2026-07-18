@@ -638,6 +638,17 @@ export async function cancelDropeaOrder(orderId) {
   return requestGraphQL(mutation, { id: orderId });
 }
 
+export async function repairDropeaErrorReviewOrders(orderIds = []) {
+  const normalizedIds = [...new Set((Array.isArray(orderIds) ? orderIds : [orderIds])
+    .map((id) => Number(id))
+    .filter(Number.isFinite))];
+  if (!normalizedIds.length) return { skipped: true, reason: 'no_order_ids' };
+  return requestDropeaRest('/orders/bulk-fix-error-review', {
+    method: 'POST',
+    body: { orders_ids: normalizedIds }
+  });
+}
+
 export async function resolveDropeaIssue(issueId, text) {
   const mutation = `
     mutation ResolveIssue($id: ID!, $text: String) {
