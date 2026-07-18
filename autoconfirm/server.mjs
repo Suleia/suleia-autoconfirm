@@ -572,6 +572,44 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/logistics/repair-delayed-confirmation-timer') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      const orderId = String(body.orderId || body.order_id || '').trim();
+      const startedAt = new Date(body.startedAt || body.started_at || '');
+      if (!/^\d+$/.test(orderId)) return sendJson(res, 400, { ok: false, error: 'invalid_order_id' });
+      if (Number.isNaN(startedAt.getTime())) return sendJson(res, 400, { ok: false, error: 'invalid_started_at' });
+
+      const existing = findOrder(config.defaultStore.id, orderId);
+      if (!existing) return sendJson(res, 404, { ok: false, error: 'order_not_found' });
+      if (String(existing.aiIntent || '').toUpperCase() !== 'CONFIRM_DELAY_PENDING') {
+        return sendJson(res, 409, { ok: false, error: 'order_not_waiting_for_delayed_confirmation' });
+      }
+
+      const delayHours = Number(config.defaultStore.confirmationDelayHours || 1) || 1;
+      const dueAt = new Date(startedAt.getTime() + delayHours * 60 * 60 * 1000);
+      const repaired = upsertOrder(config.defaultStore.id, {
+        ...existing,
+        confirmationDelayStartedAt: startedAt.toISOString(),
+        confirmationDueAt: dueAt.toISOString(),
+        confirmationSource: existing.confirmationSource || 'chatby_customer_confirmation',
+        operationalNote: 'Temporizador de confirmacion reconstruido tras corregir la persistencia. La decision se vuelve a validar en Chatby antes de actuar.'
+      });
+
+      const autoConfirm = await runAutoConfirm({ store: config.defaultStore });
+      const order = findOrder(config.defaultStore.id, orderId);
+      return sendJson(res, 200, {
+        ok: true,
+        repaired: {
+          orderId,
+          startedAt: repaired.confirmationDelayStartedAt,
+          dueAt: repaired.confirmationDueAt
+        },
+        autoConfirm,
+        order
+      });
+    }
+
     if (req.method === 'POST' && url.pathname.startsWith('/api/webhooks/dropea/')) {
       const token = url.pathname.split('/').pop();
       if (token !== config.defaultStore.webhookToken) {
