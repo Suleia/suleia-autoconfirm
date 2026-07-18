@@ -254,6 +254,8 @@ function storeSummary() {
     webhookTokenSuffix: config.defaultStore.webhookToken?.slice(-6) || null,
     agentEnabled: config.defaultStore.agentEnabled,
     agentDryRun: config.defaultStore.agentDryRun,
+    delayedConfirmRealEnabled: config.defaultStore.delayedConfirmRealEnabled,
+    confirmationDelayHours: config.defaultStore.confirmationDelayHours,
     autoPollEnabled: config.defaultStore.autoPollEnabled,
     autoPollIntervalMinutes: config.defaultStore.autoPollIntervalMinutes,
     confidenceThreshold: config.defaultStore.confidenceThreshold,
