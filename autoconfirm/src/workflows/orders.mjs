@@ -201,7 +201,20 @@ function messageTimestamp(message) {
 }
 
 function messageDate(message) {
-  return parseDate(message?.raw?.created_at || message?.raw?.createdAt || message?.created_at || message?.createdAt || message?.timestamp);
+  const raw = message?.raw || {};
+  const numeric = Number(raw.ts || raw.timestamp || raw.created || raw.time);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return new Date(numeric > 1e12 ? numeric : numeric * 1000);
+  }
+  return parseDate(raw.created_at || raw.createdAt || message?.created_at || message?.createdAt || message?.timestamp);
+}
+
+function latestConfirmationMessageAt(messages) {
+  const customerOnly = customerMessages(messages)
+    .filter((message) => deterministicCustomerIntent([message])?.intent === 'CONFIRM')
+    .sort((left, right) => messageTimestamp(left) - messageTimestamp(right));
+  const latest = customerOnly.at(-1);
+  return latest ? messageDate(latest) : null;
 }
 
 function customerMessagesAfter(messages, sinceIso) {
@@ -2540,8 +2553,9 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   const validFrom = unansweredTimeoutStart(order);
   const inboundCustomerMessages = customerMessagesAfter(messages, validFrom);
   const latestInboundCustomerMessageAt = inboundCustomerMessages.length
-    ? parseDate(inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.created_at || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.raw?.createdAt || inboundCustomerMessages[inboundCustomerMessages.length - 1]?.createdAt)
+    ? messageDate(inboundCustomerMessages[inboundCustomerMessages.length - 1])
     : null;
+  const latestConfirmationAt = latestConfirmationMessageAt(inboundCustomerMessages);
 
   const delayedConfirmationResult = await processDelayedConfirmation(order, store, inboundCustomerMessages);
   if (delayedConfirmationResult) return delayedConfirmationResult;
@@ -2613,7 +2627,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       store,
       analysis,
       immediateCustomerIntent.source || 'customer_message',
-      latestInboundCustomerMessageAt?.toISOString() || new Date().toISOString(),
+      latestConfirmationAt?.toISOString() || latestInboundCustomerMessageAt?.toISOString() || new Date().toISOString(),
       inboundCustomerMessages
     );
   }
@@ -2659,7 +2673,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       store,
       analysis,
       'chatby_button',
-      subscriberConfirmationTimestamp(subscriber)?.toISOString()
+      latestConfirmationAt?.toISOString()
+        || subscriberConfirmationTimestamp(subscriber)?.toISOString()
         || latestInboundCustomerMessageAt?.toISOString()
         || new Date().toISOString(),
       inboundCustomerMessages
@@ -2769,7 +2784,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
       store,
       analysis,
       analysis.source || 'classified_customer_message',
-      lastMessageAt?.toISOString() || new Date().toISOString(),
+      latestConfirmationAt?.toISOString() || lastMessageAt?.toISOString() || new Date().toISOString(),
       inboundCustomerMessages
     );
   }
