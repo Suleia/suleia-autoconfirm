@@ -347,6 +347,22 @@ function dropeaCreatedAt(order) {
     || null;
 }
 
+export function preparedTemplateRecoveryWaitMs(
+  order,
+  nowMs = Date.now(),
+  graceSeconds = Number(process.env.PREPARED_TEMPLATE_RECOVERY_GRACE_SECONDS || 120)
+) {
+  const updatedAt = parseDate(
+    order?.raw?.updated_at
+      || order?.raw?.updatedAt
+      || order?.statusUpdatedAt
+      || order?.updatedAt
+  );
+  const graceMs = Math.max(0, Number(graceSeconds) || 0) * 1000;
+  if (!updatedAt || graceMs === 0) return 0;
+  return Math.max(0, (updatedAt.getTime() + graceMs) - Number(nowMs || Date.now()));
+}
+
 function hoursSince(value) {
   const date = parseDate(value);
   if (!date) return null;
@@ -2166,6 +2182,18 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
 
   if (preparedTemplateAttemptIsFresh(order)) {
     return { order, skipped: true, reason: 'attempt_in_flight', status: order.preparedTemplateSendStatus };
+  }
+
+  // Chatby remains the primary sender. The recovery path waits briefly and then
+  // re-reads the conversation so it cannot race the normal prepared-order flow.
+  const recoveryWaitMs = preparedTemplateRecoveryWaitMs(order);
+  if (recoveryWaitMs > 0) {
+    return {
+      order,
+      skipped: true,
+      reason: 'awaiting_primary_prepared_flow',
+      retryAfterMs: recoveryWaitMs
+    };
   }
 
   const userNs = await resolveExistingChatbyUserNs(order);
