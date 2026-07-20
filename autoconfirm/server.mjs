@@ -29,6 +29,11 @@ import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStat
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.join(__dirname, 'dashboard');
+const dashboardDirs = [...new Set([
+  dashboardDir,
+  path.resolve(process.cwd(), 'autoconfirm', 'dashboard'),
+  path.resolve(process.cwd(), 'dashboard')
+])];
 const dashboardPassword = process.env.DASHBOARD_PASSWORD || '';
 const dashboardSessionSecret = process.env.DASHBOARD_SESSION_SECRET || process.env.CRON_SECRET || 'suleia-dashboard-dev-secret';
 const chatbyHealth = {
@@ -221,30 +226,43 @@ function isAuthorizedDashboardAction(req) {
   return isDashboardAuthenticated(req) || isAuthorizedCron(req);
 }
 
-function dashboardFilePath(urlPath) {
+function dashboardRelativePath(urlPath) {
   const cleanPath = decodeURIComponent(urlPath.split('?')[0]);
-  const relativePath = cleanPath === '/dashboard' || cleanPath === '/dashboard/'
+  return cleanPath === '/dashboard' || cleanPath === '/dashboard/'
     ? 'index.html'
     : cleanPath.replace(/^\/dashboard\/?/, '');
-  const resolved = path.normalize(path.join(dashboardDir, relativePath || 'index.html'));
-  return resolved.startsWith(dashboardDir) ? resolved : null;
 }
 
 async function sendDashboardFile(res, reqUrl) {
-  const filePath = dashboardFilePath(reqUrl);
-  if (!filePath) return sendJson(res, 403, { ok: false, error: 'forbidden' });
-  try {
-    const data = await fs.readFile(filePath);
-    const ext = path.extname(filePath);
-    res.writeHead(200, {
-      'Content-Type': staticTypes[ext] || 'application/octet-stream',
-      'Cache-Control': 'no-store'
-    });
-    res.end(data);
-    return true;
-  } catch {
-    return sendJson(res, 404, { ok: false, error: 'not_found' });
+  const relativePath = dashboardRelativePath(reqUrl) || 'index.html';
+  if (path.isAbsolute(relativePath) || relativePath.split(/[\\/]+/).includes('..')) {
+    return sendJson(res, 403, { ok: false, error: 'forbidden' });
   }
+
+  const attempted = [];
+  for (const baseDir of dashboardDirs) {
+    const filePath = path.resolve(baseDir, relativePath);
+    const relativeToBase = path.relative(baseDir, filePath);
+    if (relativeToBase.startsWith('..') || path.isAbsolute(relativeToBase)) continue;
+    attempted.push(filePath);
+    try {
+      const data = await fs.readFile(filePath);
+      const ext = path.extname(filePath);
+      res.writeHead(200, {
+        'Content-Type': staticTypes[ext] || 'application/octet-stream',
+        'Cache-Control': 'no-store'
+      });
+      res.end(data);
+      return true;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') {
+        console.error(`Dashboard asset read error (${filePath}):`, error);
+      }
+    }
+  }
+
+  console.error(`Dashboard asset not found (${relativePath}). Tried: ${attempted.join(', ')}`);
+  return sendJson(res, 404, { ok: false, error: 'not_found' });
 }
 
 function storeSummary() {
