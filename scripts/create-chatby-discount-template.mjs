@@ -23,6 +23,10 @@ async function request(path, body) {
 }
 
 const template = incidentDiscountTemplatePayload();
+function normalizedTemplateName(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+}
+
 function templateItems(result) {
   const found = [];
   const visited = new Set();
@@ -45,7 +49,7 @@ let existing = null;
 for (let page = 1; page <= 10 && !existing; page += 1) {
   const result = await request('/whatsapp-template/list', { page, limit: 200 });
   const items = templateItems(result);
-  existing = items.find((item) => item?.name === template.name) || null;
+  existing = items.find((item) => normalizedTemplateName(item?.name) === normalizedTemplateName(template.name)) || null;
   if (items.length === 0) break;
 }
 
