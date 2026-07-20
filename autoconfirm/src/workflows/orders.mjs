@@ -3070,13 +3070,18 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   return { action: 'unclear', analysis };
 }
 
-export async function runAutoConfirm({ store = config.defaultStore } = {}) {
+export async function runAutoConfirm({ store = config.defaultStore, candidateOrders = null } = {}) {
   const dropeaRecovery = await repairRecentConfirmedDropeaErrors(store).catch((error) => ({
     checked: 0,
     results: [],
     error: error instanceof Error ? error.message : String(error)
   }));
-  const orders = listPendingOrders(store.id);
+  // A polling cycle must evaluate only orders that Dropea still reports as
+  // pending. Historical local rows can remain PENDING after external changes
+  // and would otherwise make each cycle progressively slower.
+  const orders = Array.isArray(candidateOrders)
+    ? candidateOrders
+    : listPendingOrders(store.id);
   const results = [];
 
   for (const order of orders) {
@@ -3195,7 +3200,9 @@ export async function runStoreAutomationCycle({ store = config.defaultStore, lim
     }
 
     try {
-      confirmResult = await runAutoConfirm({ store });
+      confirmResult = ingestError
+        ? { skipped: true, reason: 'pending_orders_ingest_failed', processed: 0, results: [] }
+        : await runAutoConfirm({ store, candidateOrders: ingestResult?.orders || [] });
     } catch (error) {
       confirmError = error instanceof Error ? error.message : String(error);
       console.error('[automation_cycle] runAutoConfirm failed:', error);
