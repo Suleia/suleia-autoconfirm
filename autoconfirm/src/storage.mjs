@@ -1,7 +1,12 @@
 import path from 'node:path';
 import { readJson, writeJson } from './lib/files.mjs';
 import { getAppConfig } from './config.mjs';
-import { appendWebhookEventToSupabase, syncAppStateToSupabase, syncOrdersToSupabase } from './db/supabase-store.mjs';
+import {
+  appendWebhookEventToSupabase,
+  syncAppStateToSupabase,
+  syncOrderToSupabase,
+  syncOrdersToSupabase
+} from './db/supabase-store.mjs';
 
 const config = getAppConfig();
 
@@ -124,7 +129,13 @@ export function upsertOrder(storeId, order, extras = {}) {
     orders.push(next);
   }
 
-  saveOrders(orders);
+  // Persist the local source of truth immediately, but mirror only the changed
+  // order. Re-uploading the full order history on every update can block the
+  // logistics cycle when Supabase is under load.
+  writeJson(config.ordersPath, orders);
+  syncOrderToSupabase(next).catch((error) => {
+    console.error('Supabase order mirror error:', error instanceof Error ? error.message : String(error));
+  });
   return next;
 }
 
