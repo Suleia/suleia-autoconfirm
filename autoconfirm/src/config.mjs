@@ -50,6 +50,7 @@ function defaultStoreFromEnv() {
     incidentNotificationsEnabled: bool(process.env.INCIDENT_NOTIFICATIONS_ENABLED, true),
     incidentNotificationDelayHours: int(process.env.INCIDENT_NOTIFICATION_DELAY_HOURS, 0),
     incidentNotificationIntervalMinutes: int(process.env.INCIDENT_NOTIFICATION_INTERVAL_MINUTES, 30),
+    incidentResponseTimeoutHours: int(process.env.INCIDENT_RESPONSE_TIMEOUT_HOURS, 48),
     incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, true),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, 240),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '671405901'),
@@ -79,6 +80,7 @@ function withEnvOverrides(store) {
     incidentNotificationsEnabled: bool(process.env.INCIDENT_NOTIFICATIONS_ENABLED, store.incidentNotificationsEnabled ?? envStore.incidentNotificationsEnabled),
     incidentNotificationDelayHours: int(process.env.INCIDENT_NOTIFICATION_DELAY_HOURS, store.incidentNotificationDelayHours ?? envStore.incidentNotificationDelayHours),
     incidentNotificationIntervalMinutes: int(process.env.INCIDENT_NOTIFICATION_INTERVAL_MINUTES, store.incidentNotificationIntervalMinutes ?? envStore.incidentNotificationIntervalMinutes),
+    incidentResponseTimeoutHours: int(process.env.INCIDENT_RESPONSE_TIMEOUT_HOURS, store.incidentResponseTimeoutHours ?? envStore.incidentResponseTimeoutHours),
     incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, store.incidentResolutionRealEnabled ?? envStore.incidentResolutionRealEnabled),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, store.operationalDashboardIntervalMinutes ?? envStore.operationalDashboardIntervalMinutes),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '').length

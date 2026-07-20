@@ -543,6 +543,11 @@ function renderIncidents() {
     ...(incident.evidence || []),
     incident.proposedSolution,
     incident.actionRecommended,
+    incident.incidentResponseState,
+    incident.incidentResponsePendingDecision,
+    incident.incidentResponseLatestInbound,
+    incident.incidentResponseLatestValid,
+    incident.incidentResponseEvidence,
     incident.feedbackCorrection,
     incident.feedbackNote
   ])).filter(incidentMatchesFilter).sort((a, b) => {
@@ -602,6 +607,24 @@ function renderIncidents() {
       : '';
     const feedback = incident.feedbackVerdict
       ? `<small class="incident-feedback-saved">Feedback: ${escapeHtml(incident.feedbackVerdict)} · ${escapeHtml(formatDateTime(incident.feedbackAt))}</small>`
+      : '';
+    const responseWaitApplies = incident.incidentResponseState === 'WAITING_CUSTOMER_INCIDENT_RESPONSE';
+    const remainingHours = Number(incident.incidentResponseRemainingHours);
+    const responseWait = responseWaitApplies
+      ? `<div class="incident-response-wait ${incident.incidentResponseExpired ? 'is-expired' : ''}">
+          <div class="incident-response-wait__header"><b>Espera por incidencia: 48h</b><span>Solo entrenamiento</span></div>
+          <small>Inicio: ${escapeHtml(formatDateTime(incident.incidentResponseStartedAt))}</small>
+          <small>Limite: ${escapeHtml(formatDateTime(incident.incidentResponseDeadlineAt))}</small>
+          <strong>${incident.incidentResponseExpired
+            ? 'Plazo cumplido'
+            : Number.isFinite(remainingHours) ? `${Math.ceil(remainingHours)}h restantes` : 'Tiempo pendiente de verificar'}</strong>
+          <small>Respuesta valida posterior: ${incident.incidentResponseValid ? 'Si' : 'No'}</small>
+          ${incident.incidentResponseLatestInbound
+            ? `<blockquote>${escapeHtml(incident.incidentResponseLatestInbound)}</blockquote>`
+            : '<small>No hay mensaje entrante posterior a la incidencia vigente.</small>'}
+          <small>Decision: ${escapeHtml(incident.incidentResponsePendingDecision || 'WAIT_FOR_CUSTOMER')} | comprobaciones: ${escapeHtml(incident.incidentResponseChecks || 0)}</small>
+          <small>${escapeHtml(incident.incidentResponseEvidence || '')}</small>
+        </div>`
       : '';
     return `
       <tr class="incident-row ${hasCustomerResponse ? 'customer-responded' : ''}">
@@ -666,6 +689,7 @@ function renderIncidents() {
           <span class="signal-chip ${statusTone}">${escapeHtml(incident.actionRecommended || 'Revisión manual')}</span>
           <small>${escapeHtml(incident.recommendedNextStep || incident.proposedSolution || 'Revision manual')}</small>
           ${incident.operationalInstruction ? `<div class="incident-resolution-box"><b>Que haria:</b> ${escapeHtml(incident.operationalInstruction)}</div>` : ''}
+          ${responseWait}
           ${incident.operationalDecisionEligible ? `<small class="incident-template-chip">Regla: ${escapeHtml(incident.operationalDecisionRuleId || 'alta confianza')} · ${escapeHtml(incident.operationalDecisionConfidence || 0)}%</small>` : ''}
           ${incident.operationalActionStatus && !['not_applicable', 'verified', 'already_verified'].includes(incident.operationalActionStatus)
             ? `<small class="incident-alert">Estado operativo: ${escapeHtml(incident.operationalActionStatus)}${incident.operationalActionError ? ` · ${escapeHtml(incident.operationalActionError)}` : ''}</small>`

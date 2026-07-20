@@ -38,5 +38,49 @@
     "scope": "incidents",
     "type": "incident_training_mode",
     "text": "La gestion de incidencias esta en modo entrenamiento. El agente puede clasificar, proponer resolucion, sugerir plantilla y aprender del feedback, pero no debe resolver incidencias en Dropea ni enviar plantillas en Chatby hasta que Samuel lo active expresamente."
+  },
+  {
+    "id": "incident-training-20260719-transport-evidence",
+    "createdAt": "2026-07-19T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "type": "incident_transport_evidence",
+    "text": "Recuperar y mostrar integramente motivo, anotaciones, observaciones, historial, fechas y comentarios operativos del transportista. La decision debe separar evidencia de Dropea, respuesta de Chatby y regla aplicada para que sea auditable."
+  },
+  {
+    "id": "incident-training-1300404-explicit-refusal",
+    "createdAt": "2026-07-19T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "orderId": "1300404",
+    "type": "incident_explicit_rejection",
+    "text": "Si el cliente responde de forma inequivoca que ya no quiere el producto, no clasificar como sin respuesta, no ofrecer descuento ni nueva entrega. Proponer devolver al origen con confianza alta, pero mantener la accion real bloqueada durante el entrenamiento."
+  },
+  {
+    "id": "incident-training-1301413-future-discount",
+    "createdAt": "2026-07-19T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "orderId": "1301413",
+    "type": "incident_rejected_goods_no_contact",
+    "text": "Si el transportista anota NO ACEPTA EXPEDICION y el cliente no responde, esperar 24 horas desde el primer contacto. Despues preparar una unica oferta de 5 EUR. La plantilla aun no existe: no enviar ni ejecutar hasta que sea creada, aprobada y activada expresamente."
+  },
+  {
+    "id": "incident-training-1300310-incomplete-address",
+    "createdAt": "2026-07-19T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "orderId": "1300310",
+    "type": "incident_incomplete_address",
+    "text": "FALTAN DATOS, piso ausente o telefono incorrecto se clasifican como direccion incompleta. Proponer es_ES_dropea_incidencia_direccion_v1 sin duplicarla y revisar Chatby durante 48 horas desde la incidencia vigente mas reciente. Solo cuenta una respuesta entrante util posterior a esa incidencia. Si aporta direccion valida, proponer entregar en esa direccion. Si no responde al terminar el plazo, proponer devolver al origen unicamente en entrenamiento y tras comprobacion final."
+  },
+  {
+    "id": "incident-training-1300093-explicit-date",
+    "createdAt": "2026-07-19T00:00:00.000Z",
+    "source": "manual_feedback",
+    "scope": "incidents",
+    "orderId": "1300093",
+    "type": "incident_delivery_date_change",
+    "text": "Si el cliente mantiene la compra y solicita una fecha concreta, por ejemplo 29 de julio, interpretar cambio de fecha, no cancelacion. Proponer entrega en la fecha exacta y llamada previa al telefono del pedido. La nueva regla de fecha concreta permanece en entrenamiento hasta autorizacion."
   }
 ]

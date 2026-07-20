@@ -43,6 +43,8 @@ services:
         value: true
       - key: INCIDENTS_SYNC_INTERVAL_MINUTES
         value: 480
+      - key: INCIDENT_RESPONSE_TIMEOUT_HOURS
+        value: 48
       - key: CHATBY_TOKEN
         sync: false
       - key: WHATSAPP_PROVIDER

@@ -53,6 +53,24 @@ create table if not exists public.incidents (
   customer_name text,
   customer_phone text,
   created_at_source timestamptz,
+  response_state text,
+  response_started_at timestamptz,
+  response_deadline_at timestamptz,
+  response_timeout_hours numeric,
+  response_elapsed_hours numeric,
+  response_remaining_hours numeric,
+  response_expired boolean,
+  response_valid boolean,
+  response_latest_inbound text,
+  response_latest_inbound_at timestamptz,
+  response_latest_valid text,
+  response_latest_valid_at timestamptz,
+  response_pending_decision text,
+  response_checks integer not null default 0,
+  response_verification_status text,
+  response_final_verification_ready boolean,
+  response_evidence text,
+  response_training_only boolean not null default true,
   last_response_at timestamptz,
   customer_responded boolean,
   customer_messages integer not null default 0,
@@ -80,6 +98,24 @@ alter table public.incidents add column if not exists carrier_observation text;
 alter table public.incidents add column if not exists carrier_last_updated_at timestamptz;
 alter table public.incidents add column if not exists carrier_incidence_id text;
 alter table public.incidents add column if not exists carrier_source text;
+alter table public.incidents add column if not exists response_state text;
+alter table public.incidents add column if not exists response_started_at timestamptz;
+alter table public.incidents add column if not exists response_deadline_at timestamptz;
+alter table public.incidents add column if not exists response_timeout_hours numeric;
+alter table public.incidents add column if not exists response_elapsed_hours numeric;
+alter table public.incidents add column if not exists response_remaining_hours numeric;
+alter table public.incidents add column if not exists response_expired boolean;
+alter table public.incidents add column if not exists response_valid boolean;
+alter table public.incidents add column if not exists response_latest_inbound text;
+alter table public.incidents add column if not exists response_latest_inbound_at timestamptz;
+alter table public.incidents add column if not exists response_latest_valid text;
+alter table public.incidents add column if not exists response_latest_valid_at timestamptz;
+alter table public.incidents add column if not exists response_pending_decision text;
+alter table public.incidents add column if not exists response_checks integer not null default 0;
+alter table public.incidents add column if not exists response_verification_status text;
+alter table public.incidents add column if not exists response_final_verification_ready boolean;
+alter table public.incidents add column if not exists response_evidence text;
+alter table public.incidents add column if not exists response_training_only boolean not null default true;
 
 create table if not exists public.incident_carrier_history (
   history_id text primary key,

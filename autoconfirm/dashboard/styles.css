@@ -2689,3 +2689,42 @@ th {
   margin-bottom: 4px;
   text-transform: uppercase;
 }
+
+.incident-response-wait {
+  background: linear-gradient(145deg, rgba(236, 250, 247, .98), rgba(248, 244, 226, .92));
+  border: 1px solid rgba(13, 139, 143, .24);
+  border-radius: 16px;
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 12px;
+}
+
+.incident-response-wait.is-expired {
+  background: linear-gradient(145deg, rgba(255, 241, 235, .98), rgba(250, 245, 231, .94));
+  border-color: rgba(190, 76, 45, .30);
+}
+
+.incident-response-wait__header {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.incident-response-wait__header span {
+  background: #243d50;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .06em;
+  padding: 4px 8px;
+  text-transform: uppercase;
+}
+
+.incident-response-wait blockquote {
+  border-left: 3px solid #0d8b8f;
+  margin: 4px 0;
+  padding-left: 8px;
+}

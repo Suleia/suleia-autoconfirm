@@ -20,6 +20,7 @@ import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import { syncAgentMemoryRuleToSupabase, syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
 import { processIncidentNotification } from './incident-notifications.mjs';
+import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
 import {
   carrierIncidentDisplay,
   parseDropeaCarrierHistory,
@@ -436,7 +437,7 @@ function detectSentTemplates(messages = [], allText = '') {
   };
 }
 
-function recommendationPayload({ action, tone, solution, stage, instruction = '', template = '', intentDetail = '', trainingOnly = false, automationReady = true }) {
+function recommendationPayload({ action, tone, solution, stage, instruction = '', template = '', intentDetail = '', trainingOnly = false, automationReady = true, responseWait = null }) {
   return {
     action,
     tone,
@@ -447,11 +448,71 @@ function recommendationPayload({ action, tone, solution, stage, instruction = ''
     templateName: template,
     customerIntentDetail: intentDetail,
     trainingOnly,
-    automationReady
+    automationReady,
+    responseWait
   };
 }
 
-function typeAwareIncidentSolution(classification, chatby, issue = null) {
+function responseWaitRecommendation(responseWait, { template = '', reminderPending = false } = {}) {
+  if (!responseWait?.applies) return null;
+  const deadline = responseWait.deadlineAt || 'fecha no disponible';
+  const remaining = Number.isFinite(responseWait.remainingHours)
+    ? `${Math.ceil(responseWait.remainingHours)}h restantes`
+    : 'tiempo restante no disponible';
+
+  if (responseWait.pendingDecision === 'PROCESS_CUSTOMER_RESPONSE') {
+    return recommendationPayload({
+      action: 'Interpretar respuesta del cliente',
+      tone: 'positive',
+      stage: 'Respuesta valida posterior a la incidencia',
+      intentDetail: responseWait.latestValidMessage || '',
+      trainingOnly: true,
+      responseWait,
+      instruction: 'Entrenamiento: analizar la respuesta posterior a la incidencia vigente y proponer una solucion adaptada. No ejecutar acciones reales.',
+      solution: `El cliente ha respondido despues de la incidencia vigente: "${clip(responseWait.latestValidMessage, 160)}". Propuesta: interpretar el contexto y preparar la resolucion; no ejecutar.`
+    });
+  }
+
+  if (responseWait.pendingDecision === 'MANUAL_REVIEW') {
+    return recommendationPayload({
+      action: 'Revision manual obligatoria',
+      tone: 'danger',
+      stage: 'Verificacion final incompleta',
+      trainingOnly: true,
+      automationReady: false,
+      responseWait,
+      instruction: 'No proponer ni ejecutar devolucion: falta una lectura final fiable de Chatby, de la incidencia vigente o del estado pendiente en Dropea.',
+      solution: `Comprobacion cerrada por seguridad. ${responseWait.evidence} Estado de verificacion: ${responseWait.verificationStatus}.`
+    });
+  }
+
+  if (responseWait.pendingDecision === 'RETURN_TO_ORIGIN_TRAINING') {
+    return recommendationPayload({
+      action: 'Devolver al origen (entrenamiento)',
+      tone: 'danger',
+      stage: '48h sin respuesta valida',
+      trainingOnly: true,
+      responseWait,
+      instruction: 'Entrenamiento: registrar que se propondria Devolver al origen. No pulsar el boton ni ejecutar ninguna accion real en Dropea.',
+      solution: `Han transcurrido 48h desde la incidencia vigente sin respuesta valida posterior. Verificacion final superada en lectura, pero la accion permanece bloqueada en entrenamiento. Fecha limite: ${deadline}.`
+    });
+  }
+
+  return recommendationPayload({
+    action: reminderPending ? 'Preparar recordatorio (entrenamiento)' : 'Esperar respuesta del cliente',
+    tone: 'warning',
+    stage: `Esperando cliente - ${remaining}`,
+    template,
+    trainingOnly: true,
+    responseWait,
+    instruction: reminderPending
+      ? 'Entrenamiento: dejar preparado un unico recordatorio, sin enviarlo desde esta regla. Mantener la espera desde la incidencia vigente.'
+      : 'No ejecutar ninguna accion. Revisar unicamente mensajes posteriores a la incidencia vigente hasta completar 48 horas.',
+    solution: `Incidencia vigente en espera hasta ${deadline}. ${responseWait.evidence}`
+  });
+}
+
+function typeAwareIncidentSolution(classification, chatby, issue = null, responseWait = null) {
   const intent = chatby.intent || '';
   const responded = Number(chatby.customerMessages || 0) > 0;
   const last = chatby.lastCustomerMessage ? ` Ultimo mensaje: "${clip(chatby.lastCustomerMessage, 120)}".` : '';
@@ -504,38 +565,20 @@ function typeAwareIncidentSolution(classification, chatby, issue = null) {
         solution: 'Hay respuesta del cliente, pero no veo datos completos. Propuesta: revisar conversacion y pedir solo el dato que falta antes de resolver.'
       });
     }
-    if (!sent.directionReminderSent) {
-      return recommendationPayload({
-        action: 'Preparar plantilla de direccion',
-        tone: 'warning',
-        stage: 'Direccion incompleta',
-        template: 'es_ES - dropea_incidencia_direccion_v1',
-        intentDetail,
-        trainingOnly: true,
-        instruction: 'Entrenamiento: proponer la plantilla de direccion y, despues de su envio futuro, esperar 36 horas. No enviar ahora.',
-        solution: `Direccion incompleta y cliente sin respuesta. Propuesta futura: es_ES - dropea_incidencia_direccion_v1 y esperar 36h. No ejecutar.`
-      });
-    }
-    const hoursSinceDirectionReminder = ageHoursAt(sent.directionReminderSentAt);
-    if (Number.isFinite(hoursSinceDirectionReminder) && hoursSinceDirectionReminder >= 36) {
-      return recommendationPayload({
-        action: 'Devolver al origen (entrenamiento)',
-        tone: 'danger',
-        stage: '36h tras plantilla sin respuesta',
-        intentDetail,
-        trainingOnly: true,
-        instruction: 'Proponer devolver al origen porque han pasado 36 horas desde la plantilla de direccion sin respuesta. No ejecutar ahora.',
-        solution: 'La plantilla de direccion fue enviada y han pasado 36h sin respuesta. Resolucion propuesta: devolver al origen, solo entrenamiento.'
-      });
-    }
+    const waitRecommendation = responseWaitRecommendation(responseWait, {
+      template: sent.directionReminderSent ? '' : 'es_ES - dropea_incidencia_direccion_v1',
+      reminderPending: !sent.directionReminderSent
+    });
+    if (waitRecommendation) return waitRecommendation;
     return recommendationPayload({
-      action: 'Esperar datos tras plantilla',
+      action: 'Revision manual de direccion',
       tone: 'warning',
-      stage: Number.isFinite(hoursSinceDirectionReminder) ? `${Math.round(hoursSinceDirectionReminder)}h de 36h` : 'Plantilla ya enviada',
+      stage: 'Sin reloj verificable',
       intentDetail,
       trainingOnly: true,
-      instruction: 'No duplicar la plantilla. Revisar Chatby y esperar hasta completar 36 horas desde su envio.',
-      solution: 'Ya consta la plantilla de direccion. Esperar la direccion correcta del cliente hasta completar el plazo de 36h.'
+      automationReady: false,
+      instruction: 'No actuar hasta verificar la fecha de la incidencia vigente y volver a leer Chatby.',
+      solution: 'No se ha podido construir de forma fiable la espera de 48h desde la incidencia vigente.'
     });
   }
 
@@ -604,30 +647,28 @@ function typeAwareIncidentSolution(classification, chatby, issue = null) {
           : 'Incidencia por ausente con respuesta. Propuesta: interpretar la franja/fecha o pedir concrecion antes de resolver.'
       });
     }
-    if (Number.isFinite(ageHours) && ageHours >= 24 && !sent.absentReminderSent) {
-      return recommendationPayload({
-        action: 'Enviar unico recordatorio ausente',
-        tone: 'warning',
-        stage: '24h sin respuesta',
-        template: 'suleia_incidencia_ausente_v2',
-        intentDetail,
-        instruction: 'Entrenamiento: enviar un unico aviso extra para coordinar nueva entrega. No enviar mas de un recordatorio.',
-        solution: `Ausente sin respuesta tras ${ageText}. Propuesta: enviar un unico recordatorio de coordinacion de entrega.`
-      });
-    }
+    const reminderPending = Number.isFinite(responseWait?.elapsedHours)
+      && responseWait.elapsedHours >= 24
+      && !sent.absentReminderSent;
+    const waitRecommendation = responseWaitRecommendation(responseWait, {
+      template: reminderPending ? 'suleia_incidencia_ausente_v2' : '',
+      reminderPending
+    });
+    if (waitRecommendation) return waitRecommendation;
     return recommendationPayload({
-      action: sent.absentReminderSent ? 'Esperar tras aviso ausente' : 'Esperar instruccion',
+      action: 'Revision manual de ausencia',
       tone: 'warning',
-      stage: sent.absentReminderSent ? 'Recordatorio ya enviado' : 'Esperando cliente',
+      stage: 'Sin reloj verificable',
       intentDetail,
-      instruction: sent.absentReminderSent
-        ? 'No enviar mas recordatorios de ausente. Esperar respuesta o revisar manualmente.'
-        : 'Esperar hasta 24h desde la incidencia antes del aviso extra.',
-      solution: sent.absentReminderSent
-        ? 'Ya consta recordatorio de ausente. Propuesta: esperar respuesta y no duplicar mensajes.'
-        : 'Incidencia por ausente sin respuesta. Propuesta: esperar instruccion del cliente.'
+      trainingOnly: true,
+      automationReady: false,
+      instruction: 'No actuar hasta verificar la fecha de la incidencia vigente y volver a leer Chatby.',
+      solution: 'No se ha podido construir de forma fiable la espera de 48h desde la incidencia vigente.'
     });
   }
+
+  const genericResponseWait = responseWaitRecommendation(responseWait);
+  if (genericResponseWait) return genericResponseWait;
 
   return responded
     ? recommendationPayload({
@@ -1587,6 +1628,21 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
   };
 }
 
+function scopeChatbyToCurrentIncident(chatby, incidentAt) {
+  const allMessages = Array.isArray(chatby?.messagesForNotification)
+    ? chatby.messagesForNotification
+    : [];
+  const scopedMessages = messagesAfterCurrentIncident(allMessages, incidentAt)
+    .map((entry) => entry.message);
+  return {
+    ...chatby,
+    messagesForNotification: allMessages,
+    messagesAfterCurrentIncident: scopedMessages,
+    incidentConversationStartAt: incidentAt || null,
+    ...summarizeConversation(scopedMessages)
+  };
+}
+
 function orderFromIncidence(incidence = {}) {
   const rawOrder = incidence?.raw?.order || incidence?.order || {};
   return {
@@ -1757,7 +1813,32 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
       const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
       const carrierIncident = carrierIncidentDisplay(dropeaCarrierCurrent);
       const currentIncidenceDate = carrierIncident?.annotatedAt || mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
-      const baseRecommendation = typeAwareIncidentSolution(classification, chatby, issue);
+      chatby = scopeChatbyToCurrentIncident(chatby, currentIncidenceDate);
+      const previous = previousByOrderId.get(orderId);
+      const sameIncidentAsPrevious = previous
+        && String(previous.incidenceId || '') === String(issue?.id || issue?.incidenceId || '');
+      const currentIncidentVerified = Boolean(
+        currentIncidenceDate
+        && !dropeaCarrierHistoryError
+        && (carrierIncident || mergedTransport.incidenceEvent)
+      );
+      const dropeaStillPending = isPendingIssue(issue);
+      const responseWait = evaluateIncidentResponseWait({
+        orderId,
+        incidenceId: issue?.id || issue?.incidenceId || '',
+        incidentType: classification.type,
+        reason: cleanLabel,
+        observation: carrierIncident?.observation || mergedTransport.incidenceEvent?.text || classification.rawReason,
+        incidentAt: currentIncidenceDate,
+        messages: chatby.messagesForNotification,
+        chatbyReadVerified: chatby.chatbyReadVerified === true,
+        currentIncidentVerified,
+        dropeaStillPending,
+        dropeaStatus: issueStatus(issue) || order?.status || 'PENDIENTE',
+        checks: sameIncidentAsPrevious ? Number(previous?.incidentResponseChecks || 0) : 0,
+        timeoutHours: config.defaultStore.incidentResponseTimeoutHours
+      });
+      const baseRecommendation = typeAwareIncidentSolution(classification, chatby, issue, responseWait);
       const operationalDecision = incidentOperationalDecision({
         classification,
         chatby,
@@ -1774,6 +1855,24 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         incidenceId: issue?.id || issue?.incidenceId ? String(issue.id || issue.incidenceId) : null,
         incidenceDate: currentIncidenceDate,
         incidentAgeHours: incidentAgeHours(currentIncidenceDate),
+        incidentResponseState: responseWait.state,
+        incidentResponseStartedAt: responseWait.incidentAt,
+        incidentResponseDeadlineAt: responseWait.deadlineAt,
+        incidentResponseTimeoutHours: responseWait.timeoutHours,
+        incidentResponseElapsedHours: responseWait.elapsedHours,
+        incidentResponseRemainingHours: responseWait.remainingHours,
+        incidentResponseExpired: responseWait.expired,
+        incidentResponseValid: responseWait.validResponse,
+        incidentResponseLatestInbound: responseWait.latestInboundMessage,
+        incidentResponseLatestInboundAt: responseWait.latestInboundAt,
+        incidentResponseLatestValid: responseWait.latestValidMessage,
+        incidentResponseLatestValidAt: responseWait.latestValidAt,
+        incidentResponsePendingDecision: responseWait.pendingDecision,
+        incidentResponseChecks: responseWait.checks,
+        incidentResponseVerificationStatus: responseWait.verificationStatus,
+        incidentResponseFinalVerificationReady: responseWait.finalVerificationReady,
+        incidentResponseEvidence: responseWait.evidence,
+        incidentResponseTrainingOnly: true,
         reason: cleanLabel,
         reasonCode: classification.code || null,
         rawReason: classification.rawReason,
@@ -1854,6 +1953,19 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
             lastCustomerMessage: chatby.lastCustomerMessage || '',
             lastCustomerAt: chatby.lastCustomerAt || null,
             intent: chatby.intent || 'unknown'
+          },
+          incidentResponseWait: {
+            state: responseWait.state,
+            startedAt: responseWait.incidentAt,
+            deadlineAt: responseWait.deadlineAt,
+            validResponse: responseWait.validResponse,
+            latestValidMessage: responseWait.latestValidMessage,
+            latestValidAt: responseWait.latestValidAt,
+            pendingDecision: responseWait.pendingDecision,
+            checks: responseWait.checks,
+            verificationStatus: responseWait.verificationStatus,
+            finalVerificationReady: responseWait.finalVerificationReady,
+            trainingOnly: true
           },
           rule: {
             id: operationalDecision.ruleId || 'manual_review',

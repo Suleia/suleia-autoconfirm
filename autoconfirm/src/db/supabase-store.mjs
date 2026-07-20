@@ -252,6 +252,24 @@ function incidentRow(incident = {}) {
     customer_name: cleanText(incident.customerName || '', 250),
     customer_phone: cleanText(incident.phone || '', 80),
     created_at_source: isoOrNull(incident.incidenceDate),
+    response_state: cleanText(incident.incidentResponseState || '', 120),
+    response_started_at: isoOrNull(incident.incidentResponseStartedAt),
+    response_deadline_at: isoOrNull(incident.incidentResponseDeadlineAt),
+    response_timeout_hours: numberOrNull(incident.incidentResponseTimeoutHours),
+    response_elapsed_hours: numberOrNull(incident.incidentResponseElapsedHours),
+    response_remaining_hours: numberOrNull(incident.incidentResponseRemainingHours),
+    response_expired: boolOrNull(incident.incidentResponseExpired),
+    response_valid: boolOrNull(incident.incidentResponseValid),
+    response_latest_inbound: cleanText(incident.incidentResponseLatestInbound || '', 1400),
+    response_latest_inbound_at: isoOrNull(incident.incidentResponseLatestInboundAt),
+    response_latest_valid: cleanText(incident.incidentResponseLatestValid || '', 1400),
+    response_latest_valid_at: isoOrNull(incident.incidentResponseLatestValidAt),
+    response_pending_decision: cleanText(incident.incidentResponsePendingDecision || '', 120),
+    response_checks: numberOrNull(incident.incidentResponseChecks) || 0,
+    response_verification_status: cleanText(incident.incidentResponseVerificationStatus || '', 160),
+    response_final_verification_ready: boolOrNull(incident.incidentResponseFinalVerificationReady),
+    response_evidence: cleanText(incident.incidentResponseEvidence || '', 1800),
+    response_training_only: true,
     last_response_at: isoOrNull(incident.lastCustomerAt),
     customer_responded: boolOrNull(incident.customerResponded),
     customer_messages: numberOrNull(incident.customerMessages) || 0,
@@ -322,6 +340,24 @@ export async function syncIncidentsCacheToSupabase(payload = {}) {
         carrier_last_updated_at,
         carrier_incidence_id,
         carrier_source,
+        response_state,
+        response_started_at,
+        response_deadline_at,
+        response_timeout_hours,
+        response_elapsed_hours,
+        response_remaining_hours,
+        response_expired,
+        response_valid,
+        response_latest_inbound,
+        response_latest_inbound_at,
+        response_latest_valid,
+        response_latest_valid_at,
+        response_pending_decision,
+        response_checks,
+        response_verification_status,
+        response_final_verification_ready,
+        response_evidence,
+        response_training_only,
         ...legacy
       } = row;
       return legacy;
@@ -456,7 +492,7 @@ const coreAgentMemoryRules = [
     type: 'incident_training_policy',
     source: 'user_training_policy_2026_07_16',
     executionEnabled: false,
-    content: 'Distinguir de forma visible si el cliente respondio, que dijo exactamente, cuando respondio y cuantos dias u horas han pasado desde el ultimo contacto. Sin respuesta durante menos de 72 horas, proponer mantener pendiente. Con 72 horas completas sin respuesta, proponer Devolver al origen y no repetir mensajes indefinidamente. Esta regla queda solo como propuesta hasta activacion expresa.'
+    content: 'Regla actualizada y sustitutiva: para AUSENTE, DIRECCION INCORRECTA, FALTAN DATOS o falta de respuesta, iniciar un plazo de 48 horas desde la fecha de la incidencia vigente mas reciente. Solo cuentan respuestas entrantes utiles posteriores a esa incidencia. Una incidencia nueva reinicia el plazo completo y conserva la anterior en historial. Antes del limite, esperar; despues, solo proponer Devolver al origen en entrenamiento tras releer Chatby y verificar que la incidencia sigue pendiente. Nunca ejecutar esta devolucion de forma real.'
   },
   {
     id: 'training_incident_delivery_intent_20260716',
@@ -535,14 +571,14 @@ const coreAgentMemoryRules = [
     source: 'user_training_rules_2026_07_17',
     executionEnabled: false,
     exampleOrderIds: ['1300310'],
-    content: 'Si la direccion es incorrecta, incompleta, inexistente o impide la entrega, comprobar primero si consta un envio verificado de es_ES dropea_incidencia_direccion_v1. Si no consta, proponer enviarla una sola vez y pasar internamente a Esperando respuesta del cliente. No proponer nueva entrega ni devolucion antes de recibir datos validos o de cumplir 72 horas completas desde el envio verificado. Si responde con los datos necesarios, validar y actualizar la direccion si el sistema lo permite, proponer nueva entrega, y en una futura ejecucion autorizada aceptar y verificar Soluciones enviadas. Si no responde tras 72 horas completas, proponer Devolver al origen. Ejemplo aprendido 1300310. Esta memoria no autoriza el envio ni la devolucion real.'
+    content: 'Si la direccion es incorrecta, incompleta, inexistente o impide la entrega, comprobar primero si consta un envio verificado de es_ES dropea_incidencia_direccion_v1 y no duplicarlo. El plazo de respuesta es de 48 horas desde la incidencia vigente mas reciente, nunca desde la plantilla ni desde una incidencia historica. Si responde despues con datos validos, validar y proponer nueva entrega. Si no responde al terminar el plazo, solo proponer Devolver al origen en entrenamiento tras comprobacion final en vivo. Ejemplo 1300310: incidencia vigente FALTAN DATOS del 20/07/2026 09:22:21 y limite 22/07/2026 09:22:21. Esta memoria no autoriza envio, aceptacion ni devolucion real.'
   },
   {
     id: 'training_incident_absent_address_decision_tree_20260717',
     type: 'incident_training_policy',
     source: 'user_training_rules_2026_07_17',
     executionEnabled: false,
-    content: 'Arbol de decision aprendido. AUSENTE sin respuesta: menos de 72 horas, esperar; 72 horas completas o mas, proponer Devolver al origen. AUSENTE con nueva disponibilidad: proponer nueva entrega exacta con llamada previa y telefono real. DIRECCION INCORRECTA: enviar o proponer una sola vez la plantilla de direccion si no existe envio verificado; si ya existe, no duplicar y esperar. Con direccion correcta aportada, validar, actualizar y proponer nueva entrega. Sin respuesta durante 72 horas completas desde la plantilla, proponer devolucion. La ultima respuesta explicita del cliente prevalece sobre anotaciones anteriores del transportista.'
+    content: 'Arbol actualizado. AUSENTE o DIRECCION/DATOS sin respuesta: menos de 48 horas desde la incidencia vigente, esperar; 48 horas completas o mas, proponer Devolver al origen solo en entrenamiento y con comprobacion final. Una incidencia posterior reinicia el plazo. Solo cuenta una respuesta entrante util posterior a la incidencia actual. Con nueva disponibilidad o direccion correcta, procesar la respuesta y cancelar la propuesta de devolucion. La ultima respuesta explicita del cliente prevalece sobre anotaciones anteriores del transportista.'
   }
 ];
 
