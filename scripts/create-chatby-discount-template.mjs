@@ -24,18 +24,21 @@ async function request(path, body) {
 
 const template = incidentDiscountTemplatePayload();
 function templateItems(result) {
-  for (const candidate of [
-    result,
-    result?.data,
-    result?.data?.data,
-    result?.items,
-    result?.data?.items,
-    result?.rows,
-    result?.data?.rows
-  ]) {
-    if (Array.isArray(candidate)) return candidate;
+  const found = [];
+  const visited = new Set();
+
+  function visit(value, depth = 0) {
+    if (!value || typeof value !== 'object' || depth > 8 || visited.has(value)) return;
+    visited.add(value);
+
+    if (!Array.isArray(value) && typeof value.name === 'string') found.push(value);
+    for (const child of Array.isArray(value) ? value : Object.values(value)) {
+      visit(child, depth + 1);
+    }
   }
-  return [];
+
+  visit(result);
+  return found;
 }
 
 let existing = null;
@@ -43,7 +46,7 @@ for (let page = 1; page <= 10 && !existing; page += 1) {
   const result = await request('/whatsapp-template/list', { page, limit: 200 });
   const items = templateItems(result);
   existing = items.find((item) => item?.name === template.name) || null;
-  if (items.length < 200) break;
+  if (items.length === 0) break;
 }
 
 if (existing) {

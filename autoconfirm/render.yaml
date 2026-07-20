@@ -45,6 +45,8 @@ services:
         value: 480
       - key: INCIDENT_RESPONSE_TIMEOUT_HOURS
         value: 48
+      - key: ENABLE_INCIDENT_DISCOUNT_TEMPLATE
+        value: false
       - key: CHATBY_TOKEN
         sync: false
       - key: WHATSAPP_PROVIDER
@@ -54,6 +56,8 @@ services:
       - key: META_WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: DROPEA_API_KEY
+        sync: false
+      - key: DROPEA_ACCESS_TOKEN
         sync: false
   - type: cron
     name: suleia-unanswered-cancellations
@@ -99,6 +103,10 @@ services:
         value: true
       - key: INCIDENTS_SYNC_INTERVAL_MINUTES
         value: 480
+      - key: INCIDENT_RESPONSE_TIMEOUT_HOURS
+        value: 48
+      - key: ENABLE_INCIDENT_DISCOUNT_TEMPLATE
+        value: false
       - key: CHATBY_TOKEN
         sync: false
       - key: WHATSAPP_PROVIDER
@@ -108,4 +116,6 @@ services:
       - key: META_WHATSAPP_PHONE_NUMBER_ID
         sync: false
       - key: DROPEA_API_KEY
+        sync: false
+      - key: DROPEA_ACCESS_TOKEN
         sync: false

@@ -6,7 +6,17 @@ export const INCIDENT_DISCOUNT_BUTTONS = Object.freeze({
 
 function numericMoney(value) {
   if (typeof value === 'string') {
-    const normalized = value.replace(/\s/g, '').replace(',', '.');
+    let normalized = value.replace(/\s/g, '').replace(/[^\d,.-]/g, '');
+    if (!/\d/.test(normalized)) return null;
+    const comma = normalized.lastIndexOf(',');
+    const dot = normalized.lastIndexOf('.');
+    if (comma >= 0 && dot >= 0) {
+      const decimal = comma > dot ? ',' : '.';
+      const grouping = decimal === ',' ? /\./g : /,/g;
+      normalized = normalized.replace(grouping, '').replace(decimal, '.');
+    } else if (comma >= 0) {
+      normalized = normalized.replace(',', '.');
+    }
     const parsed = Number(normalized);
     return Number.isFinite(parsed) ? parsed : null;
   }
@@ -26,6 +36,11 @@ export function formatSpanishMoney(value, currency = 'EUR') {
 }
 
 export function calculateIncidentDiscount(order, discountAmount = 5) {
+  if (order?.incidentDiscountApplied === true || order?.incidentDiscount5Applied === true) {
+    const error = new Error('El descuento de incidencia ya estaba aplicado al pedido.');
+    error.code = 'INCIDENT_DISCOUNT_ALREADY_APPLIED';
+    throw error;
+  }
   const originalAmount = numericMoney(order?.totalAmount ?? order?.orderAmount ?? order?.amount);
   const discount = numericMoney(discountAmount);
   if (originalAmount === null || originalAmount < 0) {
@@ -62,7 +77,8 @@ export function incidentDiscountTemplateData({ order, customerName, productSumma
     finalPrice: pricing.finalFormatted,
     buttonActions: INCIDENT_DISCOUNT_BUTTONS,
     discountApplied: 5,
-    sourceAmount: 'Shopify order total'
+    sourceAmount: 'Shopify order total',
+    dedupeKey: `${String(order?.orderId || order?.id || 'unknown')}|${INCIDENT_DISCOUNT_TEMPLATE_NAME}`
   };
 }
 

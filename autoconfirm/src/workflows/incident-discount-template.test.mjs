@@ -23,6 +23,18 @@ test('fails closed when Shopify has no valid amount', () => {
   assert.throws(() => calculateIncidentDiscount({ totalAmount: 'invalid' }), { code: 'SHOPIFY_ORDER_AMOUNT_INVALID' });
 });
 
+test('accepts a localized Shopify amount and never produces a negative final price', () => {
+  assert.equal(calculateIncidentDiscount({ totalAmount: '29,99 EUR' }).finalAmount, 24.99);
+  assert.equal(calculateIncidentDiscount({ totalAmount: 3 }).finalAmount, 0);
+});
+
+test('rejects an already discounted order to prevent a duplicate discount', () => {
+  assert.throws(
+    () => calculateIncidentDiscount({ totalAmount: 29.99, incidentDiscountApplied: true }),
+    { code: 'INCIDENT_DISCOUNT_ALREADY_APPLIED' }
+  );
+});
+
 test('builds three ordered variables and stable internal button actions', () => {
   const data = incidentDiscountTemplateData({
     order: { totalAmount: 29.99, currencyCode: 'EUR', customerName: 'Ana', products: [{ title: 'NIDA premium' }] }
@@ -30,6 +42,7 @@ test('builds three ordered variables and stable internal button actions', () => 
   assert.equal(data.variables.length, 3);
   assert.equal(data.buttonActions.ACCEPT, 'ACCEPT_DISCOUNT_5');
   assert.equal(data.buttonActions.REJECT, 'REJECT_ORDER');
+  assert.match(data.dedupeKey, /es_ES_dropea_incidencia_descuento_5_v1$/);
 });
 
 test('keeps the feature disabled and validates the isolated Meta payload', () => {
@@ -37,4 +50,8 @@ test('keeps the feature disabled and validates the isolated Meta payload', () =>
   const payload = incidentDiscountTemplatePayload();
   assert.equal(payload.category, 'MARKETING');
   assert.equal(payload.components[1].buttons.length, 2);
+  assert.deepEqual(payload.components[1].buttons.map((button) => button.text), [
+    'Quiero el descuento',
+    'No quiero el pedido'
+  ]);
 });

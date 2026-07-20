@@ -1,9 +1,42 @@
 const SPANISH_DATE_TIME = /^(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}):(\d{2})(?::(\d{2}))?$/;
+const DROPEA_TIMEZONE = 'Europe/Madrid';
 
 function textOrNull(value) {
   if (value === null || value === undefined) return null;
   const text = String(value).replace(/\s+/g, ' ').trim();
   return text || null;
+}
+
+function timezoneOffsetMs(date, timeZone = DROPEA_TIMEZONE) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const representedAsUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second)
+  );
+  return representedAsUtc - date.getTime();
+}
+
+function madridLocalToIso({ day, month, year, hour, minute, second }) {
+  const localAsUtc = Date.UTC(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute), Number(second));
+  let instant = new Date(localAsUtc);
+  instant = new Date(localAsUtc - timezoneOffsetMs(instant));
+  // Re-evaluate once around DST boundaries.
+  instant = new Date(localAsUtc - timezoneOffsetMs(instant));
+  return instant.toISOString();
 }
 
 function isoDate(value) {
@@ -12,10 +45,44 @@ function isoDate(value) {
   const spanish = raw.match(SPANISH_DATE_TIME);
   if (spanish) {
     const [, day, month, year, hour, minute, second = '00'] = spanish;
-    return `${year}-${month}-${day}T${hour}:${minute}:${second}`;
+    return madridLocalToIso({ day, month, year, hour, minute, second });
   }
   const parsed = new Date(raw);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function looksLikeIncident(value) {
+  return Boolean(value && typeof value === 'object' && (
+    value.I_ID !== undefined
+    || value.incidence_id !== undefined
+    || value.V_COD_TIPO_INC !== undefined
+    || value.V_DES_TIPO_INC !== undefined
+    || value.incidence_code !== undefined
+  ));
+}
+
+function incidentRows(payload) {
+  const queue = [payload];
+  const visited = new Set();
+  const rows = [];
+
+  while (queue.length) {
+    const value = queue.shift();
+    if (!value || typeof value !== 'object' || visited.has(value)) continue;
+    visited.add(value);
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (looksLikeIncident(item)) rows.push(item);
+        else if (item && typeof item === 'object') queue.push(item);
+      }
+      continue;
+    }
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') queue.push(child);
+    }
+  }
+
+  return rows;
 }
 
 function timestamp(value) {
@@ -69,10 +136,7 @@ export function normalizeDropeaCarrierIncident(incident = {}) {
 }
 
 export function parseDropeaCarrierHistory(payload) {
-  const source = Array.isArray(payload)
-    ? payload
-    : payload?.incidences || payload?.data?.incidences || payload?.data || [];
-  return (Array.isArray(source) ? source : [])
+  return incidentRows(payload)
     .map(normalizeDropeaCarrierIncident)
     .filter((incident) => incident.incidenceId || incident.reason || incident.annotatedAt)
     .sort((left, right) => {
@@ -85,12 +149,13 @@ export function parseDropeaCarrierHistory(payload) {
 export function selectCurrentDropeaCarrierIncident(history = [], activeIncidenceId = null) {
   const rows = Array.isArray(history) ? history : [];
   if (!rows.length) return null;
+  const pending = rows.filter((row) => row.resolved === false);
+  if (pending.length) return pending[pending.length - 1] || null;
   if (activeIncidenceId !== null && activeIncidenceId !== undefined) {
     const exact = rows.find((row) => String(row.incidenceId) === String(activeIncidenceId));
     if (exact) return exact;
   }
-  const pending = rows.filter((row) => row.resolved === false);
-  return (pending.length ? pending : rows)[(pending.length ? pending : rows).length - 1] || null;
+  return rows[rows.length - 1] || null;
 }
 
 export function carrierIncidentDisplay(incident) {

@@ -241,7 +241,7 @@ export async function syncOperationalOrdersCacheToSupabase(payload = {}) {
   return upsertRows('operational_orders', rows, { onConflict: 'order_id' });
 }
 
-function incidentRow(incident = {}) {
+export function incidentRowForSupabase(incident = {}) {
   return {
     incidence_id: String(incident.incidenceId || `${incident.orderId || 'order'}_${incident.reasonCode || incident.reason || 'incident'}`).trim(),
     order_id: String(incident.orderId || '').trim(),
@@ -291,7 +291,7 @@ function incidentRow(incident = {}) {
   };
 }
 
-function incidentHistoryRows(incident = {}) {
+export function incidentHistoryRowsForSupabase(incident = {}) {
   const orderId = String(incident.orderId || '').trim();
   return (Array.isArray(incident.carrierIncidentHistory) ? incident.carrierIncidentHistory : [])
     .map((entry, index) => ({
@@ -313,10 +313,10 @@ function incidentHistoryRows(incident = {}) {
 export async function syncIncidentsCacheToSupabase(payload = {}) {
   if (!isSupabaseEnabled()) return { skipped: true };
   const rows = (Array.isArray(payload.incidents) ? payload.incidents : [])
-    .map(incidentRow)
+    .map(incidentRowForSupabase)
     .filter((row) => row.incidence_id && row.order_id);
   const historyRows = (Array.isArray(payload.incidents) ? payload.incidents : [])
-    .flatMap(incidentHistoryRows);
+    .flatMap(incidentHistoryRowsForSupabase);
   const appState = upsertRows('app_state', {
     key: 'incidents_cache',
     value: safeJson(payload),
