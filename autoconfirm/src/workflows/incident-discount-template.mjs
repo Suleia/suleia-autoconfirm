@@ -1,0 +1,96 @@
+export const INCIDENT_DISCOUNT_TEMPLATE_NAME = 'es_ES_dropea_incidencia_descuento_5_v1';
+export const INCIDENT_DISCOUNT_BUTTONS = Object.freeze({
+  ACCEPT: 'ACCEPT_DISCOUNT_5',
+  REJECT: 'REJECT_ORDER'
+});
+
+function numericMoney(value) {
+  if (typeof value === 'string') {
+    const normalized = value.replace(/\s/g, '').replace(',', '.');
+    const parsed = Number(normalized);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function formatSpanishMoney(value, currency = 'EUR') {
+  const amount = numericMoney(value);
+  if (amount === null) throw new Error('El importe no es numerico.');
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(amount);
+}
+
+export function calculateIncidentDiscount(order, discountAmount = 5) {
+  const originalAmount = numericMoney(order?.totalAmount ?? order?.orderAmount ?? order?.amount);
+  const discount = numericMoney(discountAmount);
+  if (originalAmount === null || originalAmount < 0) {
+    const error = new Error('Shopify no devolvio un importe valido para el pedido.');
+    error.code = 'SHOPIFY_ORDER_AMOUNT_INVALID';
+    throw error;
+  }
+  if (discount === null || discount < 0) throw new Error('El descuento no es valido.');
+  const finalAmount = Math.max(0, Math.round((originalAmount - discount + Number.EPSILON) * 100) / 100);
+  return {
+    originalAmount,
+    discountAmount: discount,
+    finalAmount,
+    currencyCode: order?.currencyCode || 'EUR',
+    originalFormatted: formatSpanishMoney(originalAmount, order?.currencyCode || 'EUR'),
+    finalFormatted: formatSpanishMoney(finalAmount, order?.currencyCode || 'EUR')
+  };
+}
+
+export function incidentDiscountTemplateData({ order, customerName, productSummary }) {
+  const pricing = calculateIncidentDiscount(order, 5);
+  const name = String(customerName || order?.customerName || '').trim();
+  const product = String(productSummary || order?.products?.map((item) => item.title).filter(Boolean).join(', ') || '').trim();
+  if (!name || !product) {
+    const error = new Error('Faltan nombre o producto para construir la plantilla de descuento.');
+    error.code = 'INCIDENT_DISCOUNT_TEMPLATE_DATA_INVALID';
+    throw error;
+  }
+  return {
+    templateName: INCIDENT_DISCOUNT_TEMPLATE_NAME,
+    language: 'es_ES',
+    variables: [name, product, pricing.finalFormatted],
+    originalPrice: pricing.originalFormatted,
+    finalPrice: pricing.finalFormatted,
+    buttonActions: INCIDENT_DISCOUNT_BUTTONS,
+    discountApplied: 5,
+    sourceAmount: 'Shopify order total'
+  };
+}
+
+export function incidentDiscountTemplatePayload() {
+  return {
+    name: INCIDENT_DISCOUNT_TEMPLATE_NAME,
+    category: 'MARKETING',
+    language: 'es_ES',
+    components: [
+      {
+        type: 'BODY',
+        text: '👋 Hola, {{1}}.\n\nTenemos todo preparado para realizar la entrega de tu pedido.\n\nHemos visto que finalmente no pudiste aceptar el pedido y queremos ofrecerte una última oportunidad para que puedas disfrutar de tu compra.\n\n🎁 Queremos aplicarte un descuento inmediato de 5 € en tu pedido de {{2}}.\n\nEl importe final de tu pedido sería de {{3}}.\n\nSi decides aprovechar el descuento, gestionaremos de nuevo la entrega lo antes posible.\n\nSelecciona una de las siguientes opciones:',
+        example: { body_text: [['Ana', 'NIDA premium', '24,99 €']] }
+      },
+      {
+        type: 'BUTTONS',
+        buttons: [
+          { type: 'QUICK_REPLY', text: 'Quiero el descuento' },
+          { type: 'QUICK_REPLY', text: 'No quiero el pedido' }
+        ]
+      }
+    ]
+  };
+}
+
+export function assertIncidentDiscountTemplateDisabled(config) {
+  if (config?.enableIncidentDiscountTemplate === true) {
+    throw new Error('La plantilla de descuento no puede activarse durante esta tarea.');
+  }
+  return true;
+}

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
 import {
+  getDropeaIncidenceHistory,
   getDropeaOrderById,
   listDropeaIncidences,
   listDropeaIncidencesByIds,
@@ -19,6 +20,11 @@ import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import { syncAgentMemoryRuleToSupabase, syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
 import { processIncidentNotification } from './incident-notifications.mjs';
+import {
+  carrierIncidentDisplay,
+  parseDropeaCarrierHistory,
+  selectCurrentDropeaCarrierIncident
+} from './incident-carrier-history.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -78,12 +84,23 @@ function isPendingIssue(issue) {
 
 function isTrackedIncidentReason(issue) {
   const code = String(issueReason(issue) || '').trim().toUpperCase();
-  const text = normalize(issueReason(issue));
+  const text = normalize([
+    issueReason(issue),
+    issue?.description,
+    issue?.observations,
+    issue?.annotations,
+    issue?.history,
+    issue?.raw?.description,
+    issue?.raw?.observations,
+    issue?.raw?.annotations,
+    issue?.raw?.history
+  ].filter(Boolean).map((value) => typeof value === 'string' ? value : JSON.stringify(value)).join(' '));
   return ['AS', 'C', 'DO', 'DI', 'FD', 'MC', 'MCC', 'NAM', 'RD', 'DIR'].includes(code)
     || text.includes('ausente')
     || text.includes('no acepta')
     || text.includes('direccion')
-    || text.includes('faltan datos');
+    || text.includes('faltan datos')
+    || text.includes('telefono incorrecto');
 }
 
 function isPendingResolutionIssue(issue, order = null) {
@@ -187,6 +204,9 @@ export function classifyIncident(issue, order) {
     rawReason,
     issue?.title,
     issue?.description,
+    issue?.observations,
+    issue?.annotations,
+    issue?.history,
     issue?.incidence,
     issue?.incidence_type,
     issue?.incidenceType,
@@ -212,6 +232,7 @@ export function classifyIncident(issue, order) {
     || text.includes('dirección')
     || text.includes('faltan datos')
     || text.includes('datos incompletos')
+    || text.includes('telefono incorrecto')
     || text.includes('codigo postal')
     || text.includes('cp')
   ) {
@@ -331,6 +352,7 @@ function extractOperationalDetailsFromText(rawText = '') {
     deliveryBeforeTime: '',
     deliveryAfterTime: '',
     deliveryDay: '',
+    deliveryDateLabel: '',
     paymentMethod: '',
     paymentQuestion: false,
     customerIntentDetail: ''
@@ -367,6 +389,12 @@ function extractOperationalDetailsFromText(rawText = '') {
     details.deliveryDay = dayHits[0];
     instructionParts.push(`dia indicado: ${unique(dayHits).join(', ')}`);
   }
+  const monthNames = 'enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre';
+  const explicitDate = text.match(new RegExp(`(?:el\\s+)?([0-3]?\\d)\\s+de\\s+(${monthNames})\\b`));
+  if (explicitDate) {
+    details.deliveryDateLabel = `${Number(explicitDate[1])} de ${explicitDate[2]}`;
+    instructionParts.push(`fecha indicada: ${details.deliveryDateLabel}`);
+  }
   if (/otro dia|reprogram|nueva entrega|volver a pasar|que pasen|entregar/.test(text)) instructionParts.push('pide nueva entrega');
   if (details.phoneMentioned || /llamar|telefono|telf|movil/.test(text)) {
     instructionParts.push(details.phoneMentioned ? `llamar al ${details.phoneMentioned}` : 'pide llamada telefonica');
@@ -396,15 +424,19 @@ function detectSentTemplates(messages = [], allText = '') {
     allText,
     ...messages.map((message) => `${messageText(message)} ${JSON.stringify(message || {})}`)
   ].join(' | '));
+  const directionMessage = [...orderedMessagesChronologically(messages)].reverse().find((message) => (
+    normalize(`${messageText(message)} ${JSON.stringify(message || {})}`).includes('dropea_incidencia_direccion_v1')
+  ));
   return {
     directionReminderSent: source.includes('dropea_incidencia_direccion_v1'),
+    directionReminderSentAt: directionMessage ? messageDate(directionMessage) : null,
     absentReminderSent: source.includes('dropea_incidencia_ausente') || source.includes('suleia_incidencia_ausente'),
     discountReminderSent: source.includes('descuento') || source.includes('discount') || source.includes('5 eur') || source.includes('5€'),
     pendingOrderReminderSent: source.includes('dropea_pedido_pendiente') || source.includes('pendiente de confirmacion')
   };
 }
 
-function recommendationPayload({ action, tone, solution, stage, instruction = '', template = '', intentDetail = '' }) {
+function recommendationPayload({ action, tone, solution, stage, instruction = '', template = '', intentDetail = '', trainingOnly = false, automationReady = true }) {
   return {
     action,
     tone,
@@ -413,7 +445,9 @@ function recommendationPayload({ action, tone, solution, stage, instruction = ''
     operationalInstruction: instruction,
     templateRecommendation: template,
     templateName: template,
-    customerIntentDetail: intentDetail
+    customerIntentDetail: intentDetail,
+    trainingOnly,
+    automationReady
   };
 }
 
@@ -429,12 +463,13 @@ function typeAwareIncidentSolution(classification, chatby, issue = null) {
 
   if (intent === 'reject_or_cancel') {
     return recommendationPayload({
-      action: 'Rechazar/cancelar incidencia',
+      action: 'Devolver al origen (entrenamiento)',
       tone: 'danger',
       stage: 'Cliente rechaza',
       intentDetail,
-      instruction: 'No enviar mas recordatorios. Propuesta: rechazar/cancelar la incidencia en Dropea cuando se active modo real.',
-      solution: `El cliente muestra rechazo o cancelacion.${last} Propuesta: rechazar/cancelar en Dropea y registrar el motivo.`
+      trainingOnly: true,
+      instruction: 'No enviar ofertas, descuentos ni nuevas entregas. Proponer devolver al origen; no ejecutar durante el entrenamiento.',
+      solution: `El cliente rechaza expresamente el pedido.${last} Resolucion propuesta: devolver al origen. Accion real bloqueada durante el entrenamiento.`
     });
   }
   if (details.deliveryInstruction && (classification.type === 'absent' || classification.type === 'rejected_goods' || intent === 'delivery_instruction' || intent === 'reprogram_delivery')) {
@@ -469,28 +504,38 @@ function typeAwareIncidentSolution(classification, chatby, issue = null) {
         solution: 'Hay respuesta del cliente, pero no veo datos completos. Propuesta: revisar conversacion y pedir solo el dato que falta antes de resolver.'
       });
     }
-    if (Number.isFinite(ageHours) && ageHours >= 24 && !sent.directionReminderSent) {
+    if (!sent.directionReminderSent) {
       return recommendationPayload({
-        action: 'Enviar recordatorio direccion',
+        action: 'Preparar plantilla de direccion',
         tone: 'warning',
-        stage: '24h sin respuesta',
+        stage: 'Direccion incompleta',
         template: 'es_ES - dropea_incidencia_direccion_v1',
         intentDetail,
-        instruction: 'Entrenamiento: si se activa modo real, enviar un recordatorio de direccion y esperar datos del cliente.',
-        solution: `Incidencia de direccion sin respuesta tras ${ageText}. Propuesta: enviar la plantilla es_ES - dropea_incidencia_direccion_v1.`
+        trainingOnly: true,
+        instruction: 'Entrenamiento: proponer la plantilla de direccion y, despues de su envio futuro, esperar 36 horas. No enviar ahora.',
+        solution: `Direccion incompleta y cliente sin respuesta. Propuesta futura: es_ES - dropea_incidencia_direccion_v1 y esperar 36h. No ejecutar.`
+      });
+    }
+    const hoursSinceDirectionReminder = ageHoursAt(sent.directionReminderSentAt);
+    if (Number.isFinite(hoursSinceDirectionReminder) && hoursSinceDirectionReminder >= 36) {
+      return recommendationPayload({
+        action: 'Devolver al origen (entrenamiento)',
+        tone: 'danger',
+        stage: '36h tras plantilla sin respuesta',
+        intentDetail,
+        trainingOnly: true,
+        instruction: 'Proponer devolver al origen porque han pasado 36 horas desde la plantilla de direccion sin respuesta. No ejecutar ahora.',
+        solution: 'La plantilla de direccion fue enviada y han pasado 36h sin respuesta. Resolucion propuesta: devolver al origen, solo entrenamiento.'
       });
     }
     return recommendationPayload({
-      action: sent.directionReminderSent ? 'Esperar datos tras recordatorio' : 'Esperar respuesta del cliente',
+      action: 'Esperar datos tras plantilla',
       tone: 'warning',
-      stage: sent.directionReminderSent ? 'Recordatorio ya enviado' : 'Esperando cliente',
+      stage: Number.isFinite(hoursSinceDirectionReminder) ? `${Math.round(hoursSinceDirectionReminder)}h de 36h` : 'Plantilla ya enviada',
       intentDetail,
-      instruction: sent.directionReminderSent
-        ? 'No enviar otro recordatorio de direccion de momento. Esperar datos o revisar manualmente.'
-        : 'Esperar hasta cumplir 24h desde la incidencia antes de enviar recordatorio.',
-      solution: sent.directionReminderSent
-        ? 'Ya consta recordatorio de direccion. Propuesta: esperar respuesta o revisar manualmente si urge.'
-        : 'Incidencia de direccion sin respuesta. Propuesta: esperar a que el cliente envie datos completos.'
+      trainingOnly: true,
+      instruction: 'No duplicar la plantilla. Revisar Chatby y esperar hasta completar 36 horas desde su envio.',
+      solution: 'Ya consta la plantilla de direccion. Esperar la direccion correcta del cliente hasta completar el plazo de 36h.'
     });
   }
 
@@ -519,13 +564,15 @@ function typeAwareIncidentSolution(classification, chatby, issue = null) {
     }
     if (Number.isFinite(ageHours) && ageHours >= 24 && !sent.discountReminderSent) {
       return recommendationPayload({
-        action: 'Ofrecer descuento 5 EUR',
+        action: 'Preparar oferta de 5 EUR',
         tone: 'warning',
         stage: '24h sin respuesta',
-        template: 'plantilla descuento incidencia no acepta mercancia 5 EUR',
+        template: '',
         intentDetail,
-        instruction: 'Entrenamiento: enviar una sola plantilla de descuento de 5 EUR si no responde tras 24h.',
-        solution: `No acepta mercancia sin respuesta tras ${ageText}. Propuesta: enviar una plantilla con descuento de 5 EUR para recuperar el pedido.`
+        trainingOnly: true,
+        automationReady: false,
+        instruction: 'Entrenamiento: preparar una unica oferta de 5 EUR. No enviar nada hasta que exista y se apruebe la plantilla correspondiente.',
+        solution: `No acepta expedicion y sigue sin respuesta tras ${ageText}. Siguiente paso futuro: ofrecer 5 EUR una sola vez. La plantilla aun no existe; no ejecutar.`
       });
     }
     return recommendationPayload({
@@ -616,7 +663,8 @@ function conciseDeliverySolution(details, phone) {
   // The order phone is the authoritative contact; use a number mentioned in chat only as fallback.
   const contact = phoneLast9(phone || details.phoneMentioned);
   let instruction = '';
-  if (details.deliveryTomorrow && details.deliveryAfternoon) instruction = 'Realizar nueva entrega manana por la tarde.';
+  if (details.deliveryDateLabel) instruction = `Entregar el ${details.deliveryDateLabel}.`;
+  else if (details.deliveryTomorrow && details.deliveryAfternoon) instruction = 'Realizar nueva entrega manana por la tarde.';
   else if (details.deliveryTomorrow) instruction = 'Realizar nueva entrega manana.';
   else if (details.deliveryBeforeTime) instruction = `Ultimo intento antes de las ${details.deliveryBeforeTime}.`;
   else if (details.deliveryAfterTime) instruction = `Realizar nueva entrega a partir de las ${details.deliveryAfterTime}.`;
@@ -625,7 +673,11 @@ function conciseDeliverySolution(details, phone) {
   else if (details.deliveryMorning) instruction = 'Realizar nueva entrega por la manana.';
   if (!instruction) return '';
 
-  const withPhone = contact ? `${instruction} Llamar antes al ${contact}.` : instruction;
+  const withPhone = contact
+    ? details.deliveryDateLabel
+      ? `${instruction} Contactar previamente con el ${contact}.`
+      : `${instruction} Llamar antes al ${contact}.`
+    : instruction;
   if (withPhone.length <= 80) return withPhone;
   const shorter = contact ? `${instruction} Llamar ${contact}.` : instruction;
   return shorter.length <= 80 ? shorter : shorter.slice(0, 80).trim();
@@ -718,10 +770,13 @@ export function incidentOperationalDecision({
       eligible: false,
       action: 'none',
       text: '',
-      confidence: 0,
-      ruleId: null,
+      confidence: details.wantsCancel && customerResponded && chatby.chatbyReadVerified === true ? 99 : 0,
+      ruleId: details.wantsCancel && customerResponded && chatby.chatbyReadVerified === true
+        ? 'core_incident_explicit_rejection_training'
+        : null,
+      trainingOnly: details.wantsCancel === true,
       reason: details.wantsCancel
-        ? 'El cliente expresa cancelacion; esta regla no debe aceptar una nueva entrega.'
+        ? `El cliente expresa un rechazo inequivoco: "${clip(customerText, 140)}". No ofrecer descuento ni nueva entrega; proponer devolver al origen en entrenamiento.`
         : 'No hay una respuesta de cliente verificada y accionable.'
     };
   }
@@ -751,6 +806,7 @@ export function incidentOperationalDecision({
       ruleId: confirmedSlot
         ? 'core_incident_confirmed_delivery_slot_accept'
         : 'core_incident_exact_availability_accept',
+      trainingOnly: Boolean(details.deliveryDateLabel),
       reason: `El cliente comunica una disponibilidad concreta: ${clip(normalizedCustomerText, 140)}.`
     };
   }
@@ -858,6 +914,9 @@ async function auditIncidentAction(incident, decision, result) {
 async function executeIncidentOperationalDecision(incident, decision) {
   if (!decision?.eligible || decision.action === 'none') {
     return { status: 'not_applicable', verified: false, reason: decision?.reason || 'Sin accion automatica.' };
+  }
+  if (decision.trainingOnly === true) {
+    return { status: 'would_execute', verified: false, reason: 'Regla nueva guardada exclusivamente para entrenamiento; ejecucion real bloqueada.' };
   }
   if (!config.defaultStore.incidentResolutionRealEnabled) {
     return { status: 'would_execute', verified: false, reason: 'Resolucion real desactivada por configuracion.' };
@@ -1067,23 +1126,46 @@ function spanishDateTimeToIso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
-function transportHistoryFromIssue(issue = {}) {
+const TRANSPORT_CONTEXT_KEYS = /description|solution|observation|observacion|note|nota|comment|comentario|history|historial|annotation|anotacion|incident|incidenc|reason|motivo|carrier|transport|logistic|event|evento/i;
+
+function transportContextValues(value, key = '', depth = 0, seen = new Set()) {
+  if (value === null || value === undefined || depth > 6) return [];
+  if (typeof value === 'string' || typeof value === 'number') {
+    return TRANSPORT_CONTEXT_KEYS.test(key) ? [String(value)] : [];
+  }
+  if (typeof value !== 'object' || seen.has(value)) return [];
+  seen.add(value);
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => transportContextValues(item, key, depth + 1, seen));
+  }
+  return Object.entries(value).flatMap(([childKey, childValue]) => {
+    const nextKey = `${key}.${childKey}`;
+    if (typeof childValue === 'string' || typeof childValue === 'number') {
+      return TRANSPORT_CONTEXT_KEYS.test(nextKey) ? [String(childValue)] : [];
+    }
+    return transportContextValues(childValue, nextKey, depth + 1, seen);
+  });
+}
+
+function transportSourceParts(issue = {}) {
   const raw = issue.raw || issue;
-  const sourceParts = [issue.description, raw.description, issue.solutions, raw.solutions]
-    .flatMap((value) => {
-      if (!value) return [];
-      if (typeof value === 'string') {
-        try {
-          const parsed = JSON.parse(value);
-          if (Array.isArray(parsed)) return parsed.map((item) => typeof item === 'string' ? item : JSON.stringify(item));
-        } catch {}
-        return [value];
-      }
-      if (Array.isArray(value)) return value.map((item) => typeof item === 'string' ? item : JSON.stringify(item));
-      return [JSON.stringify(value)];
-    })
-    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
+  return unique([
+    ...transportContextValues(issue),
+    ...transportContextValues(raw),
+    issue.description,
+    raw.description,
+    issue.solutions,
+    raw.solutions
+  ].flatMap((value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'object') return [JSON.stringify(value)];
+    return [value];
+  }).map((value) => String(value || '').replace(/\s+/g, ' ').trim()).filter(Boolean));
+}
+
+export function transportHistoryFromIssue(issue = {}) {
+  const sourceParts = transportSourceParts(issue);
 
   const combined = unique(sourceParts).join(' | ');
   if (!combined) return [];
@@ -1104,17 +1186,7 @@ function transportHistoryFromIssue(issue = {}) {
 }
 
 function issueTransportDetail(issue = {}) {
-  const raw = issue.raw || issue;
-  return unique([issue.description, raw.description, issue.solutions, raw.solutions]
-    .flatMap((value) => {
-      if (!value) return [];
-      if (Array.isArray(value)) return value;
-      if (typeof value === 'object') return [JSON.stringify(value)];
-      return [value];
-    })
-    .map((value) => String(value || '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean))
-    .join(' | ');
+  return transportSourceParts(issue).join(' | ');
 }
 
 function transportEventMatchesType(event, classification) {
@@ -1666,6 +1738,16 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
       }
       const classification = classifyIncident(issue, order);
       const cleanLabel = incidentDisplayLabel(classification);
+      let dropeaCarrierHistory = [];
+      let dropeaCarrierCurrent = null;
+      let dropeaCarrierHistoryError = null;
+      try {
+        const payload = await getDropeaIncidenceHistory(orderId);
+        dropeaCarrierHistory = parseDropeaCarrierHistory(payload);
+        dropeaCarrierCurrent = selectCurrentDropeaCarrierIncident(dropeaCarrierHistory, issue?.id || issue?.incidenceId);
+      } catch (error) {
+        dropeaCarrierHistoryError = error instanceof Error ? error.message : String(error);
+      }
       const glsTracking = await getGlsTrackingHistory({
         trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || issue?.raw?.order?.tracking_url,
         tracking: issue?.tracking || issue?.raw?.tracking || issue?.raw?.order?.tracking_code
@@ -1673,7 +1755,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
       const mergedTransport = mergeOfficialTransportHistory(glsTracking, issue, fallbackTransportHistory, classification);
       const transportHistory = mergedTransport.history;
       const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
-      const currentIncidenceDate = mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
+      const carrierIncident = carrierIncidentDisplay(dropeaCarrierCurrent);
+      const currentIncidenceDate = carrierIncident?.annotatedAt || mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
       const baseRecommendation = typeAwareIncidentSolution(classification, chatby, issue);
       const operationalDecision = incidentOperationalDecision({
         classification,
@@ -1706,12 +1789,21 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         carrierService: issue?.carrierService || issue?.raw?.carrier_service || issue?.raw?.order?.carrier_service || '',
         tracking: issue?.tracking || issue?.raw?.tracking || issue?.raw?.order?.tracking_code || '',
         trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || issue?.raw?.order?.tracking_url || '',
+        carrierIncident,
+        carrierReason: carrierIncident?.reason || null,
+        carrierReasonCode: carrierIncident?.reasonCode || null,
+        carrierAnnotatedAt: carrierIncident?.annotatedAt || null,
+        carrierObservation: carrierIncident?.observation || null,
+        carrierLastUpdatedAt: carrierIncident?.lastUpdatedAt || null,
+        carrierIncidenceId: carrierIncident?.incidenceId || null,
+        carrierIncidentHistory: dropeaCarrierHistory,
+        carrierIncidentHistoryError: dropeaCarrierHistoryError,
         transportHistory,
         transportLatestEvent: latestTransportEvent,
         transportIncidenceEvent: mergedTransport.incidenceEvent,
         transportLogAvailable: transportHistory.length > 0,
-        transportLogCompleteness: glsTracking?.history?.length ? 'official_tracking' : 'summary_only',
-        transportLogSource: glsTracking?.source || 'Dropea API: description, solutions and tracking fields',
+        transportLogCompleteness: carrierIncident ? 'dropea_incidence_history' : glsTracking?.history?.length ? 'official_tracking' : 'summary_only',
+        transportLogSource: carrierIncident?.source || glsTracking?.source || 'Dropea GraphQL: resumen de incidencia sin observacion REST',
         chatbyIntent: chatby.intent || 'unknown',
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
@@ -1726,6 +1818,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         templateRecommendation: recommendation.templateRecommendation,
         templateName: recommendation.templateName,
         customerIntentDetail: recommendation.customerIntentDetail,
+        recommendationTrainingOnly: recommendation.trainingOnly === true,
+        recommendationAutomationReady: recommendation.automationReady !== false,
         confidenceReason: confidence.reason,
         recommendedNextStep: recommendation.solution,
         lastCustomerMessage: chatby.lastCustomerMessage || '',
@@ -1744,7 +1838,30 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         operationalDecisionConfidence: operationalDecision.confidence,
         operationalDecisionReason: operationalDecision.reason,
         operationalDecisionRuleId: operationalDecision.ruleId,
-        operationalDecisionText: operationalDecision.text
+        operationalDecisionText: operationalDecision.text,
+        operationalDecisionTrainingOnly: operationalDecision.trainingOnly === true,
+        decisionTrace: {
+          dropea: {
+            reason: cleanLabel,
+            reasonCode: classification.code || null,
+            status: issue ? (issueStatus(issue) || 'PENDIENTE') : 'PENDIENTE',
+            selectedTransportEvent: mergedTransport.incidenceEvent?.text || '',
+            historyEvents: transportHistory.map((event) => event?.text || '').filter(Boolean)
+          },
+          chatby: {
+            readVerified: chatby.chatbyReadVerified === true,
+            customerMessages: Number(chatby.customerMessages || 0),
+            lastCustomerMessage: chatby.lastCustomerMessage || '',
+            lastCustomerAt: chatby.lastCustomerAt || null,
+            intent: chatby.intent || 'unknown'
+          },
+          rule: {
+            id: operationalDecision.ruleId || 'manual_review',
+            reason: operationalDecision.reason || recommendation.solution,
+            confidence: operationalDecision.confidence || confidence.score,
+            trainingOnly: operationalDecision.trainingOnly === true
+          }
+        }
       };
       return {
         incident,

@@ -130,6 +130,9 @@ function normalizeIncidence(incidence) {
     carrierService: incidence.carrier_service || incidence.carrierService || order.carrier_service || null,
     description: incidence.description || null,
     solutions: incidence.solutions || null,
+    observations: incidence.observations || incidence.observation || incidence.notes || incidence.comments || null,
+    history: incidence.history || incidence.histories || incidence.incidence_history || incidence.incident_history || null,
+    annotations: incidence.annotations || incidence.annotation || incidence.carrier_notes || incidence.logistics_notes || null,
     distance: incidence.distance || null,
     tracking: incidence.tracking || order.tracking_code || null,
     trackingUrl: incidence.tracking_url || incidence.trackingUrl || order.tracking_url || null,
@@ -594,6 +597,14 @@ export async function listDropeaIncidencesByIds(ids = []) {
     ...normalizeIncidence(item),
     source: 'issues_by_ids'
   }));
+}
+
+export async function getDropeaIncidenceHistory(orderId) {
+  const normalizedId = Number(orderId);
+  if (!Number.isFinite(normalizedId)) {
+    return { skipped: true, reason: 'invalid_order_id', incidences: [] };
+  }
+  return requestDropeaRest(`/shipping/incidences-history/${normalizedId}`);
 }
 
 export async function getDropeaOrderById(orderId) {

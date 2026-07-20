@@ -643,15 +643,22 @@ function renderIncidents() {
         <td>
           <strong class="incident-mini-title">${escapeHtml(incident.carrierCompany || 'Transportista')}</strong>
           ${incident.carrierService ? `<small>${escapeHtml(incident.carrierService)}</small>` : ''}
-          ${incident.transportIncidenceEvent?.text
-            ? `<div class="incident-carrier-incidence"><b>Registro de la incidencia</b><time>${escapeHtml(incident.transportIncidenceEvent.displayAt || formatDateTime(incident.transportIncidenceEvent.eventAt))}</time><p>${escapeHtml(incident.transportIncidenceEvent.text)}</p></div>`
-            : ''}
+          ${incident.carrierReason
+            ? `<div class="incident-carrier-incidence">
+                <b>Motivo del transportista</b>
+                <p>${escapeHtml(incident.carrierReason)}</p>
+                <time>Anotado: ${escapeHtml(formatDateTime(incident.carrierAnnotatedAt))}</time>
+                ${incident.carrierObservation ? `<p><b>Observacion:</b> ${escapeHtml(incident.carrierObservation)}</p>` : ''}
+                ${incident.carrierLastUpdatedAt ? `<small>Ultima actualizacion: ${escapeHtml(formatDateTime(incident.carrierLastUpdatedAt))}</small>` : ''}
+                ${incident.carrierIncidenceId ? `<small>ID incidencia Dropea: ${escapeHtml(incident.carrierIncidenceId)}</small>` : ''}
+              </div>`
+            : `<div class="incident-carrier-incidence is-unavailable"><b>Motivo del transportista no disponible</b><small>El historial REST de Dropea no esta autenticado; no se sustituye por un evento generico.</small></div>`}
           ${incident.transportLatestEvent?.text
-            ? `<div class="incident-carrier-latest"><b>Ultimo evento del transporte</b><time>${escapeHtml(incident.transportLatestEvent.displayAt || formatDateTime(incident.transportLatestEvent.eventAt))}</time><p>${escapeHtml(incident.transportLatestEvent.text)}</p></div>`
+            ? `<div class="incident-carrier-latest"><b>Seguimiento GLS</b><time>${escapeHtml(incident.transportLatestEvent.displayAt || formatDateTime(incident.transportLatestEvent.eventAt))}</time><p>${escapeHtml(incident.transportLatestEvent.text)}</p></div>`
             : '<small>Sin historial detallado aportado por transporte.</small>'}
           <small class="incident-source-note">${escapeHtml(incident.transportLogSource || (incident.transportLogCompleteness === 'summary_only' ? 'Resumen disponible en Dropea' : 'Historial oficial del transporte'))}</small>
-          ${Array.isArray(incident.transportHistory) && incident.transportHistory.length
-            ? `<details class="incident-carrier-history"><summary>Ver historial (${incident.transportHistory.length})</summary>${incident.transportHistory.map((event) => `<article><time>${escapeHtml(event.displayAt || formatDateTime(event.eventAt))}</time><p>${escapeHtml(event.text)}</p></article>`).join('')}</details>`
+          ${Array.isArray(incident.carrierIncidentHistory) && incident.carrierIncidentHistory.length
+            ? `<details class="incident-carrier-history"><summary>Historial de incidencias Dropea (${incident.carrierIncidentHistory.length})</summary>${incident.carrierIncidentHistory.map((event) => `<article><time>${escapeHtml(formatDateTime(event.annotatedAt))}</time><p><b>${escapeHtml(event.reason || event.reasonCode || 'Incidencia')}</b>${event.observation ? ` - ${escapeHtml(event.observation)}` : ''}</p></article>`).join('')}</details>`
             : ''}
           ${incident.tracking ? `<small>Tracking: ${escapeHtml(incident.tracking)}</small>` : ''}
         </td>
@@ -664,6 +671,11 @@ function renderIncidents() {
             ? `<small class="incident-alert">Estado operativo: ${escapeHtml(incident.operationalActionStatus)}${incident.operationalActionError ? ` · ${escapeHtml(incident.operationalActionError)}` : ''}</small>`
             : ''}
           ${incident.templateRecommendation ? `<small class="incident-template-chip">Plantilla sugerida: ${escapeHtml(incident.templateRecommendation)}</small>` : ''}
+          ${incident.decisionTrace ? `<details class="incident-carrier-history"><summary>Auditar decision</summary>
+            <article><b>Dropea</b><p>${escapeHtml(incident.decisionTrace.dropea?.selectedTransportEvent || incident.decisionTrace.dropea?.reason || 'Sin evidencia logistica detallada')}</p></article>
+            <article><b>Chatby</b><p>${escapeHtml(incident.decisionTrace.chatby?.lastCustomerMessage || 'Sin respuesta entrante verificada del cliente')}</p></article>
+            <article><b>Regla aplicada</b><p>${escapeHtml(incident.decisionTrace.rule?.reason || 'Revision manual')}</p></article>
+          </details>` : ''}
           ${incident.chatbyUserNs ? `<small>Chatby: ${escapeHtml(incident.chatbyUserNs)}</small>` : ''}
         </td>
         <td>

@@ -261,9 +261,35 @@ function incidentRow(incident = {}) {
     confidence: numberOrNull(incident.contextConfidence),
     priority: cleanText(incident.priority || '', 80),
     chatby_user_ns: cleanText(incident.chatbyUserNs || '', 120),
+    carrier_reason: cleanText(incident.carrierReason || '', 300),
+    carrier_reason_code: cleanText(incident.carrierReasonCode || '', 120),
+    carrier_annotated_at: isoOrNull(incident.carrierAnnotatedAt),
+    carrier_observation: cleanText(incident.carrierObservation || '', 2000),
+    carrier_last_updated_at: isoOrNull(incident.carrierLastUpdatedAt),
+    carrier_incidence_id: cleanText(incident.carrierIncidenceId || '', 120),
+    carrier_source: cleanText(incident.transportLogSource || '', 250),
     raw: safeJson(incident),
     updated_at: nowIso()
   };
+}
+
+function incidentHistoryRows(incident = {}) {
+  const orderId = String(incident.orderId || '').trim();
+  return (Array.isArray(incident.carrierIncidentHistory) ? incident.carrierIncidentHistory : [])
+    .map((entry, index) => ({
+      history_id: `${orderId}|${entry.incidenceId || index}|${entry.annotatedAt || 'unknown'}`,
+      order_id: orderId,
+      incidence_id: cleanText(entry.incidenceId || '', 120),
+      reason_code: cleanText(entry.reasonCode || '', 120),
+      reason: cleanText(entry.reason || '', 300),
+      annotated_at: isoOrNull(entry.annotatedAt),
+      observation: cleanText(entry.observation || '', 2000),
+      resolved: boolOrNull(entry.resolved),
+      last_updated_at: isoOrNull(entry.lastUpdatedAt),
+      raw: safeJson(entry),
+      synced_at: nowIso()
+    }))
+    .filter((row) => row.order_id && (row.incidence_id || row.reason));
 }
 
 export async function syncIncidentsCacheToSupabase(payload = {}) {
@@ -271,6 +297,8 @@ export async function syncIncidentsCacheToSupabase(payload = {}) {
   const rows = (Array.isArray(payload.incidents) ? payload.incidents : [])
     .map(incidentRow)
     .filter((row) => row.incidence_id && row.order_id);
+  const historyRows = (Array.isArray(payload.incidents) ? payload.incidents : [])
+    .flatMap(incidentHistoryRows);
   const appState = upsertRows('app_state', {
     key: 'incidents_cache',
     value: safeJson(payload),
@@ -278,7 +306,38 @@ export async function syncIncidentsCacheToSupabase(payload = {}) {
   }, { onConflict: 'key' });
   if (!rows.length) return appState;
   await appState;
-  return upsertRows('incidents', rows, { onConflict: 'incidence_id' });
+  let enhancedSchema = true;
+  try {
+    await upsertRows('incidents', rows, { onConflict: 'incidence_id' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!/carrier_|schema cache|column|PGRST204/i.test(message)) throw error;
+    enhancedSchema = false;
+    const legacyRows = rows.map((row) => {
+      const {
+        carrier_reason,
+        carrier_reason_code,
+        carrier_annotated_at,
+        carrier_observation,
+        carrier_last_updated_at,
+        carrier_incidence_id,
+        carrier_source,
+        ...legacy
+      } = row;
+      return legacy;
+    });
+    await upsertRows('incidents', legacyRows, { onConflict: 'incidence_id' });
+  }
+  if (historyRows.length) {
+    try {
+      await upsertRows('incident_carrier_history', historyRows, { onConflict: 'history_id' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/incident_carrier_history|schema cache|relation|PGRST/i.test(message)) throw error;
+      enhancedSchema = false;
+    }
+  }
+  return { ok: true, incidents: rows.length, carrierHistory: enhancedSchema ? historyRows.length : 0, enhancedSchema };
 }
 
 export async function syncAgentFeedbackToSupabase(item = {}, scope = 'order') {

@@ -62,8 +62,37 @@ create table if not exists public.incidents (
   confidence numeric,
   priority text,
   chatby_user_ns text,
+  carrier_reason text,
+  carrier_reason_code text,
+  carrier_annotated_at timestamptz,
+  carrier_observation text,
+  carrier_last_updated_at timestamptz,
+  carrier_incidence_id text,
+  carrier_source text,
   raw jsonb,
   updated_at timestamptz not null default now()
+);
+
+alter table public.incidents add column if not exists carrier_reason text;
+alter table public.incidents add column if not exists carrier_reason_code text;
+alter table public.incidents add column if not exists carrier_annotated_at timestamptz;
+alter table public.incidents add column if not exists carrier_observation text;
+alter table public.incidents add column if not exists carrier_last_updated_at timestamptz;
+alter table public.incidents add column if not exists carrier_incidence_id text;
+alter table public.incidents add column if not exists carrier_source text;
+
+create table if not exists public.incident_carrier_history (
+  history_id text primary key,
+  order_id text not null,
+  incidence_id text,
+  reason_code text,
+  reason text,
+  annotated_at timestamptz,
+  observation text,
+  resolved boolean,
+  last_updated_at timestamptz,
+  raw jsonb,
+  synced_at timestamptz not null default now()
 );
 
 create table if not exists public.agent_feedback (
@@ -151,6 +180,8 @@ create index if not exists idx_operational_orders_created_at_source on public.op
 create index if not exists idx_incidents_order_id on public.incidents (order_id);
 create index if not exists idx_incidents_created_at_source on public.incidents (created_at_source desc);
 create index if not exists idx_incidents_customer_phone on public.incidents (customer_phone);
+create index if not exists idx_incidents_carrier_annotated_at on public.incidents (carrier_annotated_at desc);
+create index if not exists idx_incident_carrier_history_order on public.incident_carrier_history (order_id, annotated_at desc);
 create index if not exists idx_agent_feedback_scope_entity on public.agent_feedback (scope, entity_id);
 create index if not exists idx_telegram_messages_created_at on public.telegram_messages (created_at desc);
 create index if not exists idx_meta_campaign_insights_date on public.meta_campaign_insights (date_start desc);
@@ -162,6 +193,7 @@ alter table public.app_state enable row level security;
 alter table public.orders enable row level security;
 alter table public.operational_orders enable row level security;
 alter table public.incidents enable row level security;
+alter table public.incident_carrier_history enable row level security;
 alter table public.agent_feedback enable row level security;
 alter table public.agent_memory_events enable row level security;
 alter table public.telegram_messages enable row level security;
