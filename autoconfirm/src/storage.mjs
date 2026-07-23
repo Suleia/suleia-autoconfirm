@@ -110,6 +110,8 @@ export function upsertOrder(storeId, order, extras = {}) {
     chatbyTemplateSendStatus: order.chatbyTemplateSendStatus || previous.chatbyTemplateSendStatus || null,
     chatbyTemplateLastError: order.chatbyTemplateLastError || previous.chatbyTemplateLastError || null,
     chatbyLastSendResponse: order.chatbyLastSendResponse || previous.chatbyLastSendResponse || null,
+    chatbyConfirmationStateResetAt: order.chatbyConfirmationStateResetAt || previous.chatbyConfirmationStateResetAt || null,
+    chatbyConfirmationStateResetError: order.chatbyConfirmationStateResetError ?? previous.chatbyConfirmationStateResetError ?? null,
     preparedTemplateSentAt: order.preparedTemplateSentAt || previous.preparedTemplateSentAt || null,
     preparedTemplateAttemptedAt: order.preparedTemplateAttemptedAt || previous.preparedTemplateAttemptedAt || null,
     preparedTemplateName: order.preparedTemplateName || previous.preparedTemplateName || null,

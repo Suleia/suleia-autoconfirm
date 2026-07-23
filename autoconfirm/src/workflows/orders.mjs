@@ -19,6 +19,7 @@ import {
   refreshDropeaOrderShipping
 } from '../clients/dropea.mjs';
 import {
+  clearSubscriberOrderConfirmationState,
   createSubscriber,
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
@@ -1258,21 +1259,28 @@ function subscriberConfirmationTimestamp(subscriber) {
   if (!subscriberConfirmsOrder(subscriber)) return null;
 
   const fields = subscriber?.user_fields || [];
-  const confirmationField = fields.find((item) => {
+  const confirmationField = fields.find((item) => normalizeText(item.name) === 'p. confirmado')
+    || fields.find((item) => {
     const name = normalizeText(item.name);
     return name.includes('confirm');
   });
   const fieldDate = parseDate(confirmationField?.value);
   if (fieldDate) return fieldDate;
 
-  return parseDate(
-    subscriber?.confirmed_at
-    || subscriber?.confirmedAt
-    || subscriber?.lead_status_updated_at
-    || subscriber?.leadStatusUpdatedAt
-    || subscriber?.updated_at
-    || subscriber?.updatedAt
-  );
+  return null;
+}
+
+export function subscriberConfirmationIsCurrent(subscriber, order, inboundConfirmationAt = null) {
+  if (!subscriberConfirmsOrder(subscriber)) return false;
+
+  const validFrom = parseDate(unansweredTimeoutStart(order));
+  if (!validFrom) return false;
+
+  const inboundAt = parseDate(inboundConfirmationAt);
+  if (inboundAt && inboundAt >= validFrom) return true;
+
+  const subscriberAt = subscriberConfirmationTimestamp(subscriber);
+  return Boolean(subscriberAt && subscriberAt >= validFrom);
 }
 
 function customerConversationIntentForOrder(messages, order) {
@@ -1827,6 +1835,46 @@ async function resolveOrCreateChatbyUserNsForTemplate(order, userNs) {
   return createdChatbyUserNs(created);
 }
 
+async function clearStaleChatbyConfirmationBeforeInitialTemplate(order, userNs, store) {
+  if (!userNs || order.chatbyConfirmationStateResetAt) {
+    return { safe: true, order };
+  }
+
+  const subscriber = await resolveSubscriberForOrder({ ...order, chatbyUserNs: userNs })
+    || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  if (!subscriber || !subscriberConfirmsOrder(subscriber)) {
+    return { safe: true, order };
+  }
+
+  if (subscriberConfirmationIsCurrent(subscriber, order)) {
+    return { safe: true, order };
+  }
+
+  try {
+    await clearSubscriberOrderConfirmationState(userNs);
+    const resetAt = new Date().toISOString();
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      chatbyConfirmationStateResetAt: resetAt,
+      chatbyConfirmationStateResetError: null,
+      operationalNote: 'Se limpiaron señales antiguas de confirmación de Chatby antes de iniciar el pedido actual.'
+    });
+    return { safe: true, order: updated };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs,
+      chatbyConfirmationStateResetError: message,
+      chatbyTemplateSendStatus: 'blocked_stale_confirmation_state',
+      chatbyTemplateLastError: message,
+      operationalNote: 'Pedido protegido: no se inicia el flujo hasta retirar la confirmación heredada de un pedido anterior.'
+    });
+    return { safe: false, order: updated };
+  }
+}
+
 async function sendInitialTemplateWithFallback({ order, templateName, params, userNs }) {
   // Chatby is the source of truth for this flow. Sending directly through Meta
   // creates a second conversation event that Chatby can attempt to deliver again.
@@ -1895,6 +1943,14 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   }
 
   const resolvedUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
+  const staleConfirmationReset = await clearStaleChatbyConfirmationBeforeInitialTemplate(
+    order,
+    resolvedUserNs,
+    store
+  );
+  if (!staleConfirmationReset.safe) return staleConfirmationReset.order;
+  order = staleConfirmationReset.order;
+
   const params = templateParamsForOrder(order);
   const missingFields = missingInitialTemplateFields(params);
   if (missingFields.length) {
@@ -2893,7 +2949,10 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   const subscriberOrderId = currentSubscriberOrderId(subscriber);
-  if (sameOrderId(subscriberOrderId, order.orderId) && subscriberConfirmsOrder(subscriber)) {
+  if (
+    sameOrderId(subscriberOrderId, order.orderId)
+    && subscriberConfirmationIsCurrent(subscriber, order, latestConfirmationAt)
+  ) {
     const analysis = {
       intent: 'CONFIRM',
       confidence: 100,

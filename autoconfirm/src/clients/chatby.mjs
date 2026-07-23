@@ -136,6 +136,58 @@ export async function sendTextMessage({ user_ns, content }) {
   });
 }
 
+export async function clearSubscriberOrderConfirmationState(userNs) {
+  if (!userNs) throw new Error('Chatby requiere user_ns para limpiar la confirmacion anterior.');
+
+  const operations = [
+    {
+      name: 'confirmation_field',
+      run: () => request('/subscriber/clear-user-field-by-name', {
+        method: 'DELETE',
+        body: JSON.stringify({ user_ns: userNs, field_name: 'P. Confirmado' })
+      })
+    },
+    {
+      name: 'confirmation_tag',
+      run: () => request('/subscriber/remove-tag-by-name', {
+        method: 'DELETE',
+        body: JSON.stringify({ user_ns: userNs, tag_name: 'PED-Confirmado' })
+      })
+    },
+    {
+      name: 'confirmation_label',
+      run: () => request('/subscriber/remove-labels-by-name', {
+        method: 'DELETE',
+        body: JSON.stringify({
+          user_ns: userNs,
+          data: [{ label_name: 'CONFIRMADO' }]
+        })
+      })
+    }
+  ];
+
+  const results = [];
+  for (const operation of operations) {
+    try {
+      const response = await operation.run();
+      results.push({ name: operation.name, ok: true, response });
+    } catch (error) {
+      results.push({
+        name: operation.name,
+        ok: false,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  invalidateSubscriberIndexCache();
+  const failures = results.filter((result) => !result.ok);
+  if (failures.length) {
+    throw new Error(`No se pudo limpiar por completo la confirmacion anterior en Chatby: ${JSON.stringify(failures)}`);
+  }
+  return { ok: true, results };
+}
+
 export async function listWhatsappTemplates() {
   const response = await request('/whatsapp-template/list', {
     method: 'POST',
