@@ -14,6 +14,31 @@ const ORDER_MIRROR_DEBOUNCE_MS = 300;
 const ORDER_MIRROR_RETRY_MS = 5000;
 let orderMirrorTimer = null;
 let orderMirrorRunning = false;
+let ordersMemory = null;
+let ordersPersistTimer = null;
+let ordersPersistDirty = false;
+
+function ensureOrdersMemory() {
+  if (!Array.isArray(ordersMemory)) {
+    const stored = readJson(config.ordersPath, []);
+    ordersMemory = Array.isArray(stored) ? stored : [];
+  }
+  return ordersMemory;
+}
+
+function flushOrdersToDisk() {
+  ordersPersistTimer = null;
+  if (!ordersPersistDirty || !Array.isArray(ordersMemory)) return;
+  ordersPersistDirty = false;
+  writeJson(config.ordersPath, ordersMemory);
+}
+
+function scheduleOrdersPersist(delayMs = 300) {
+  ordersPersistDirty = true;
+  if (ordersPersistTimer) return;
+  ordersPersistTimer = setTimeout(flushOrdersToDisk, delayMs);
+  ordersPersistTimer.unref?.();
+}
 
 function orderMirrorKey(order = {}) {
   return `${String(order.storeId || config.defaultStore.id || 'suleia')}|${String(order.orderId || '')}`;
@@ -96,12 +121,18 @@ export function saveWebhookEvents(events) {
 }
 
 export function loadOrders() {
-  return readJson(config.ordersPath, []);
+  return ensureOrdersMemory();
 }
 
 export function saveOrders(orders) {
-  writeJson(config.ordersPath, orders);
-  syncOrdersToSupabase(orders).catch((error) => {
+  ordersMemory = Array.isArray(orders) ? orders : [];
+  writeJson(config.ordersPath, ordersMemory);
+  ordersPersistDirty = false;
+  if (ordersPersistTimer) {
+    clearTimeout(ordersPersistTimer);
+    ordersPersistTimer = null;
+  }
+  syncOrdersToSupabase(ordersMemory).catch((error) => {
     console.error('Supabase orders mirror error:', error instanceof Error ? error.message : String(error));
   });
 }
@@ -185,9 +216,10 @@ export function upsertOrder(storeId, order, extras = {}) {
     orders.push(next);
   }
 
-  // Persist locally immediately. Supabase mirrors are coalesced in small
-  // batches so a large sync cannot exhaust Render's outbound connections.
-  writeJson(config.ordersPath, orders);
+  // Keep the live process state immediately consistent while coalescing disk
+  // and Supabase writes. Rewriting 500+ orders for every single upsert can
+  // block Render's health endpoint during large reconciliation sweeps.
+  scheduleOrdersPersist();
   queueOrderMirror(next);
   return next;
 }

@@ -8,7 +8,7 @@ const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suleia-storage-'));
 process.env.ORDERS_PATH = path.join(testDir, 'orders.json');
 process.env.SUPABASE_ENABLED = 'false';
 
-const { upsertOrder } = await import('./storage.mjs');
+const { findOrder, upsertOrder } = await import('./storage.mjs');
 
 test('preserva el temporizador de confirmacion en sincronizaciones posteriores', () => {
   const startedAt = '2026-07-18T12:00:00.000Z';
@@ -37,6 +37,24 @@ test('preserva el temporizador de confirmacion en sincronizaciones posteriores',
   assert.equal(updated.confirmationSource, 'customer_confirmation');
 });
 
-test.after(() => {
+test('mantiene el pedido visible y agrupa la persistencia local', async () => {
+  upsertOrder('suleia', {
+    orderId: 'storage-batch-test',
+    status: 'PENDING',
+    customerName: 'Persistencia agrupada'
+  });
+
+  assert.equal(findOrder('suleia', 'storage-batch-test')?.customerName, 'Persistencia agrupada');
+
+  await new Promise((resolve) => setTimeout(resolve, 450));
+  const persisted = JSON.parse(fs.readFileSync(process.env.ORDERS_PATH, 'utf8'));
+  assert.equal(
+    persisted.find((order) => order.orderId === 'storage-batch-test')?.customerName,
+    'Persistencia agrupada'
+  );
+});
+
+test.after(async () => {
+  await new Promise((resolve) => setTimeout(resolve, 450));
   fs.rmSync(testDir, { recursive: true, force: true });
 });
