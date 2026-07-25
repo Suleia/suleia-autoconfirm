@@ -7,6 +7,15 @@ import { syncMetaInsightsToSupabase } from '../db/supabase-store.mjs';
 const config = getAppConfig();
 let dashboardRunning = false;
 
+async function runStage(name, task) {
+  try {
+    return await task();
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`${name}: ${detail}`, { cause: error });
+  }
+}
+
 function isoDate(daysAgo = 0) {
   const date = new Date();
   date.setDate(date.getDate() - daysAgo);
@@ -344,12 +353,13 @@ export async function syncMetaDashboard({ store = config.defaultStore } = {}) {
     const warnings = [];
 
     const [account, campaigns, insights] = await Promise.all([
-      getAdAccountSummary(),
-      getCampaigns(),
-      getCampaignInsights({ since, until })
+      runStage('Meta cuenta publicitaria', () => getAdAccountSummary()),
+      runStage('Meta campanas', () => getCampaigns()),
+      runStage('Meta metricas', () => getCampaignInsights({ since, until }))
     ]);
 
-    const orders = (await loadDashboardOrders(store)).filter((order) => {
+    const dashboardOrders = await runStage('Pedidos del dashboard', () => loadDashboardOrders(store));
+    const orders = dashboardOrders.filter((order) => {
       const createdAt = orderCreatedAt(order);
       return createdAt ? createdAt >= sinceDate : true;
     });
@@ -360,9 +370,9 @@ export async function syncMetaDashboard({ store = config.defaultStore } = {}) {
 
     const prefix = config.metaDashboardSheetPrefix || 'Meta';
     const sheetResults = [];
-    sheetResults.push(await replaceSheetValues(`${prefix} Dashboard`, dashboardRows({ account, insights, orders, since, until, generatedAt }), { frozenRows: 4 }));
-    sheetResults.push(await replaceSheetValues(`${prefix} Campanas`, campaignRows({ campaigns, insights, orders }), { frozenRows: 1 }));
-    sheetResults.push(await replaceSheetValues(`${prefix} Diagnostico`, diagnosticRows({ account, campaigns, insights, orders, since, until, generatedAt, warnings }), { frozenRows: 1 }));
+    sheetResults.push(await runStage('Google Sheets dashboard', () => replaceSheetValues(`${prefix} Dashboard`, dashboardRows({ account, insights, orders, since, until, generatedAt }), { frozenRows: 4 })));
+    sheetResults.push(await runStage('Google Sheets campanas', () => replaceSheetValues(`${prefix} Campanas`, campaignRows({ campaigns, insights, orders }), { frozenRows: 1 })));
+    sheetResults.push(await runStage('Google Sheets diagnostico', () => replaceSheetValues(`${prefix} Diagnostico`, diagnosticRows({ account, campaigns, insights, orders, since, until, generatedAt, warnings }), { frozenRows: 1 })));
 
     const state = {
       ...loadState(),

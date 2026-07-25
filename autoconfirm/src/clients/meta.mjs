@@ -18,18 +18,72 @@ function graphUrl(path, params = {}) {
   return url;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function retryableStatus(status) {
+  return [408, 425, 429, 500, 502, 503, 504].includes(Number(status));
+}
+
+function retryDelayMs(response, attempt) {
+  const retryAfter = Number(response?.headers?.get?.('retry-after'));
+  if (Number.isFinite(retryAfter) && retryAfter > 0) {
+    return Math.min(30000, retryAfter * 1000);
+  }
+  return Math.min(8000, 750 * (2 ** (attempt - 1)));
+}
+
+function networkErrorDetail(error) {
+  const codes = new Set();
+  const pending = [error, error?.cause, ...(Array.isArray(error?.cause?.errors) ? error.cause.errors : [])];
+  for (const item of pending) {
+    if (item?.code) codes.add(String(item.code));
+  }
+  if (codes.size) return [...codes].join(',');
+  return error?.name || 'network_error';
+}
+
 async function metaRequest(path, params = {}) {
   if (!config.metaAccessToken) throw new Error('Falta META_ACCESS_TOKEN.');
 
   const url = graphUrl(path, { ...params, access_token: config.metaAccessToken });
-  const response = await fetch(url);
-  const data = await response.json().catch(() => null);
+  const maxAttempts = Math.max(1, Number(config.metaRequestMaxAttempts || 3));
+  const timeoutMs = Math.max(1000, Number(config.metaRequestTimeoutMs || 15000));
 
-  if (!response.ok || data?.error) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' }
+      });
+    } catch (error) {
+      if (attempt < maxAttempts) {
+        await sleep(retryDelayMs(null, attempt));
+        continue;
+      }
+      const detail = error?.name === 'AbortError'
+        ? `timeout_${timeoutMs}ms`
+        : networkErrorDetail(error);
+      throw new Error(`Meta no respondio tras ${maxAttempts} intentos (${detail}).`, { cause: error });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    const data = await response.json().catch(() => null);
+    if (response.ok && !data?.error) return data;
+
+    if (retryableStatus(response.status) && attempt < maxAttempts) {
+      await sleep(retryDelayMs(response, attempt));
+      continue;
+    }
     throw new Error(`Meta respondio ${response.status}: ${JSON.stringify(data?.error || data)}`);
   }
 
-  return data;
+  throw new Error('Meta no pudo completar la solicitud.');
 }
 
 function actionValue(actions, actionType) {

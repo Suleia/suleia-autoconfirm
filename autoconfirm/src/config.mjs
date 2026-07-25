@@ -51,7 +51,7 @@ function defaultStoreFromEnv() {
     incidentNotificationDelayHours: int(process.env.INCIDENT_NOTIFICATION_DELAY_HOURS, 0),
     incidentNotificationIntervalMinutes: int(process.env.INCIDENT_NOTIFICATION_INTERVAL_MINUTES, 30),
     incidentResponseTimeoutHours: int(process.env.INCIDENT_RESPONSE_TIMEOUT_HOURS, 48),
-    incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, true),
+    incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, false),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, 240),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '671405901'),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
@@ -175,6 +175,8 @@ export function getAppConfig() {
     metaDashboardIntervalMinutes: int(process.env.META_DASHBOARD_INTERVAL_MINUTES, 720),
     metaDashboardLookbackDays: int(process.env.META_DASHBOARD_LOOKBACK_DAYS, 30),
     metaDashboardSheetPrefix: process.env.META_DASHBOARD_SHEET_PREFIX || 'Meta',
+    metaRequestTimeoutMs: int(process.env.META_REQUEST_TIMEOUT_MS, 15000),
+    metaRequestMaxAttempts: int(process.env.META_REQUEST_MAX_ATTEMPTS, 3),
     metaAttributionFields: csv(process.env.META_ATTRIBUTION_FIELDS || 'utm_campaign,campaign_id,fb_campaign_id,campaign_name,meta_campaign_id'),
     defaultStore: primaryStore,
     stores
