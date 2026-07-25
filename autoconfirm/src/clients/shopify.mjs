@@ -1,4 +1,5 @@
 import { getAppConfig } from '../config.mjs';
+import { fetchWithRetry } from '../fetch-with-retry.mjs';
 
 const config = getAppConfig();
 let cachedAccessToken = null;
@@ -11,7 +12,7 @@ async function getAdminAccessToken() {
     throw new Error('Faltan credenciales de Shopify para verificar pedidos.');
   }
 
-  const response = await fetch(`https://${config.shopifyDomain}/admin/oauth/access_token`, {
+  const response = await fetchWithRetry(`https://${config.shopifyDomain}/admin/oauth/access_token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -38,7 +39,7 @@ async function shopifyGraphql(query, variables = {}) {
   const token = await getAdminAccessToken();
   if (!config.shopifyDomain) throw new Error('Falta SHOPIFY_DOMAIN.');
 
-  const response = await fetch(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/graphql.json`, {
+  const response = await fetchWithRetry(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/graphql.json`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -133,7 +134,7 @@ export async function listRecentShopifyOrders({ first = 100, query = null } = {}
 
 export async function getShopifyOrderFinancialStatus(orderId) {
   const token = await getAdminAccessToken();
-  const response = await fetch(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/orders/${orderId}.json`, {
+  const response = await fetchWithRetry(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/orders/${orderId}.json`, {
     headers: {
       Authorization: `Bearer ${token}`,
       'X-Shopify-Access-Token': token

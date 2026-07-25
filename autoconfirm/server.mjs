@@ -1,5 +1,7 @@
 import http from 'node:http';
+import dns from 'node:dns';
 import fs from 'node:fs/promises';
+import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
@@ -28,6 +30,8 @@ import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStat
 import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
 
 const config = getAppConfig();
+dns.setDefaultResultOrder('ipv4first');
+net.setDefaultAutoSelectFamily(false);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const dashboardDir = path.join(__dirname, 'dashboard');
 const dashboardDirs = [...new Set([
