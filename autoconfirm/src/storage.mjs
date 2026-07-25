@@ -4,11 +4,65 @@ import { getAppConfig } from './config.mjs';
 import {
   appendWebhookEventToSupabase,
   syncAppStateToSupabase,
-  syncOrderToSupabase,
   syncOrdersToSupabase
 } from './db/supabase-store.mjs';
 
 const config = getAppConfig();
+const orderMirrorQueue = new Map();
+const ORDER_MIRROR_BATCH_SIZE = 50;
+const ORDER_MIRROR_DEBOUNCE_MS = 300;
+const ORDER_MIRROR_RETRY_MS = 5000;
+let orderMirrorTimer = null;
+let orderMirrorRunning = false;
+
+function orderMirrorKey(order = {}) {
+  return `${String(order.storeId || config.defaultStore.id || 'suleia')}|${String(order.orderId || '')}`;
+}
+
+function scheduleOrderMirrorFlush(delayMs = ORDER_MIRROR_DEBOUNCE_MS) {
+  if (orderMirrorTimer || orderMirrorRunning || !orderMirrorQueue.size) return;
+  orderMirrorTimer = setTimeout(() => {
+    orderMirrorTimer = null;
+    flushOrderMirrorQueue().catch((error) => {
+      console.error('Supabase order mirror queue error:', error instanceof Error ? error.message : String(error));
+    });
+  }, delayMs);
+  orderMirrorTimer.unref?.();
+}
+
+async function flushOrderMirrorQueue() {
+  if (orderMirrorRunning || !orderMirrorQueue.size) return;
+  orderMirrorRunning = true;
+
+  const batch = [...orderMirrorQueue.entries()].slice(0, ORDER_MIRROR_BATCH_SIZE);
+  for (const [key] of batch) orderMirrorQueue.delete(key);
+
+  try {
+    await syncOrdersToSupabase(batch.map(([, order]) => order));
+  } catch (error) {
+    // Keep a newer queued version if the same order changed while this batch
+    // was in flight. Otherwise restore the failed version for a later retry.
+    for (const [key, order] of batch) {
+      if (!orderMirrorQueue.has(key)) orderMirrorQueue.set(key, order);
+    }
+    console.error(
+      `Supabase order mirror batch error (${batch.length} orders):`,
+      error instanceof Error ? error.message : String(error)
+    );
+    orderMirrorRunning = false;
+    scheduleOrderMirrorFlush(ORDER_MIRROR_RETRY_MS);
+    return;
+  }
+
+  orderMirrorRunning = false;
+  scheduleOrderMirrorFlush(orderMirrorQueue.size ? 25 : ORDER_MIRROR_DEBOUNCE_MS);
+}
+
+function queueOrderMirror(order) {
+  if (!order?.orderId) return;
+  orderMirrorQueue.set(orderMirrorKey(order), order);
+  scheduleOrderMirrorFlush();
+}
 
 function defaultState() {
   return {
@@ -131,13 +185,10 @@ export function upsertOrder(storeId, order, extras = {}) {
     orders.push(next);
   }
 
-  // Persist the local source of truth immediately, but mirror only the changed
-  // order. Re-uploading the full order history on every update can block the
-  // logistics cycle when Supabase is under load.
+  // Persist locally immediately. Supabase mirrors are coalesced in small
+  // batches so a large sync cannot exhaust Render's outbound connections.
   writeJson(config.ordersPath, orders);
-  syncOrderToSupabase(next).catch((error) => {
-    console.error('Supabase order mirror error:', error instanceof Error ? error.message : String(error));
-  });
+  queueOrderMirror(next);
   return next;
 }
 
