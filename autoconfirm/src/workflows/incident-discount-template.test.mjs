@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   assertIncidentDiscountTemplateDisabled,
   calculateIncidentDiscount,
+  INCIDENT_DISCOUNT_FIELD_NAME,
+  INCIDENT_DISCOUNT_TEMPLATE_BINDINGS,
   incidentDiscountTemplateData,
   incidentDiscountTemplatePayload
 } from './incident-discount-template.mjs';
@@ -35,14 +37,43 @@ test('rejects an already discounted order to prevent a duplicate discount', () =
   );
 });
 
-test('builds three ordered variables and stable internal button actions', () => {
+test('builds three ordered dynamic body values and stable internal button actions', () => {
   const data = incidentDiscountTemplateData({
-    order: { totalAmount: 29.99, currencyCode: 'EUR', customerName: 'Ana', products: [{ title: 'NIDA premium' }] }
+    order: {
+      totalAmount: 29.99,
+      currencyCode: 'EUR',
+      customerName: 'Ana Garcia',
+      products: [{ title: 'NIDA premium' }]
+    }
   });
   assert.equal(data.variables.length, 3);
+  assert.deepEqual(data.variables.slice(0, 2), ['Ana', 'NIDA premium']);
+  assert.equal(data.params['BODY_{{1}}'], 'Ana');
+  assert.equal(data.params['BODY_{{2}}'], 'NIDA premium');
+  assert.match(data.params['BODY_{{3}}'], /24,99/);
+  assert.equal(data.subscriberField.name, INCIDENT_DISCOUNT_FIELD_NAME);
+  assert.equal(data.subscriberField.value, data.finalPrice);
+  assert.equal(data.defaultBindings['BODY_{{1}}'], '{{first_name}}');
+  assert.equal(data.defaultBindings['BODY_{{2}}'], '{{f273883v13996841}}');
+  assert.equal(data.defaultBindings['BODY_{{3}}'], INCIDENT_DISCOUNT_TEMPLATE_BINDINGS['BODY_{{3}}']);
   assert.equal(data.buttonActions.ACCEPT, 'ACCEPT_DISCOUNT_5');
   assert.equal(data.buttonActions.REJECT, 'REJECT_ORDER');
   assert.match(data.dedupeKey, /es_ES_dropea_incidencia_descuento_5_v1$/);
+});
+
+test('extracts the product from a raw Dropea order when products is absent', () => {
+  const data = incidentDiscountTemplateData({
+    order: {
+      totalAmount: '34,99 EUR',
+      customerName: 'Maria Luisa',
+      raw: {
+        items: [{ product_name: 'Polvo Dental de Colageno Colla Gum' }]
+      }
+    }
+  });
+  assert.equal(data.params['BODY_{{1}}'], 'Maria');
+  assert.equal(data.params['BODY_{{2}}'], 'Polvo Dental de Colageno Colla Gum');
+  assert.match(data.params['BODY_{{3}}'], /29,99/);
 });
 
 test('keeps the feature disabled and validates the isolated Meta payload', () => {

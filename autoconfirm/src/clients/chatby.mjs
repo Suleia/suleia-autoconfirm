@@ -136,6 +136,22 @@ export async function sendTextMessage({ user_ns, content }) {
   });
 }
 
+export async function setSubscriberUserFieldByName({ user_ns, field_name, value }) {
+  if (!user_ns || !String(field_name || '').trim()) {
+    throw new Error('Chatby set-user-field requiere user_ns y field_name.');
+  }
+  const response = await request('/subscriber/set-user-field-by-name', {
+    method: 'PUT',
+    body: JSON.stringify({
+      user_ns,
+      field_name: String(field_name).trim(),
+      value: value == null ? '' : String(value)
+    })
+  });
+  invalidateSubscriberIndexCache();
+  return response;
+}
+
 export async function clearSubscriberOrderConfirmationState(userNs) {
   if (!userNs) throw new Error('Chatby requiere user_ns para limpiar la confirmacion anterior.');
 

@@ -1,4 +1,13 @@
+import { setSubscriberUserFieldByName } from '../clients/chatby.mjs';
+
 export const INCIDENT_DISCOUNT_TEMPLATE_NAME = 'es_ES_dropea_incidencia_descuento_5_v1';
+export const INCIDENT_DISCOUNT_FIELD_NAME = 'Dropea: Valor Total - 5 EUR';
+export const INCIDENT_DISCOUNT_FIELD_NS = 'f273883v15902977';
+export const INCIDENT_DISCOUNT_TEMPLATE_BINDINGS = Object.freeze({
+  'BODY_{{1}}': '{{first_name}}',
+  'BODY_{{2}}': '{{f273883v13996841}}',
+  'BODY_{{3}}': `{{${INCIDENT_DISCOUNT_FIELD_NS}}}`
+});
 export const INCIDENT_DISCOUNT_BUTTONS = Object.freeze({
   ACCEPT: 'ACCEPT_DISCOUNT_5',
   REJECT: 'REJECT_ORDER'
@@ -60,10 +69,56 @@ export function calculateIncidentDiscount(order, discountAmount = 5) {
   };
 }
 
+function firstName(value) {
+  return String(value || '').trim().split(/\s+/)[0] || '';
+}
+
+function productTitle(item) {
+  return String(
+    item?.title
+    || item?.name
+    || item?.product_name
+    || item?.productName
+    || item?.shopify_name_item
+    || item?.product?.title
+    || item?.product?.name
+    || ''
+  ).trim();
+}
+
+function productSummaryFromOrder(order) {
+  const raw = order?.raw && typeof order.raw === 'object' ? order.raw : {};
+  const candidates = [
+    order?.products,
+    order?.items,
+    order?.lines,
+    raw?.products,
+    raw?.items,
+    raw?.lines,
+    raw?.line_items
+  ];
+
+  for (const items of candidates) {
+    if (!Array.isArray(items)) continue;
+    const titles = items.map(productTitle).filter(Boolean);
+    if (titles.length) return titles.join(', ');
+  }
+
+  return String(
+    order?.productSummary
+    || order?.productName
+    || order?.product
+    || raw?.productSummary
+    || raw?.productName
+    || raw?.product
+    || ''
+  ).trim();
+}
+
 export function incidentDiscountTemplateData({ order, customerName, productSummary }) {
   const pricing = calculateIncidentDiscount(order, 5);
-  const name = String(customerName || order?.customerName || '').trim();
-  const product = String(productSummary || order?.products?.map((item) => item.title).filter(Boolean).join(', ') || '').trim();
+  const name = firstName(customerName || order?.firstName || order?.customerName || order?.raw?.customerName);
+  const product = String(productSummary || productSummaryFromOrder(order)).trim();
   if (!name || !product) {
     const error = new Error('Faltan nombre o producto para construir la plantilla de descuento.');
     error.code = 'INCIDENT_DISCOUNT_TEMPLATE_DATA_INVALID';
@@ -73,6 +128,16 @@ export function incidentDiscountTemplateData({ order, customerName, productSumma
     templateName: INCIDENT_DISCOUNT_TEMPLATE_NAME,
     language: 'es_ES',
     variables: [name, product, pricing.finalFormatted],
+    params: {
+      'BODY_{{1}}': name,
+      'BODY_{{2}}': product,
+      'BODY_{{3}}': pricing.finalFormatted
+    },
+    defaultBindings: INCIDENT_DISCOUNT_TEMPLATE_BINDINGS,
+    subscriberField: {
+      name: INCIDENT_DISCOUNT_FIELD_NAME,
+      value: pricing.finalFormatted
+    },
     originalPrice: pricing.originalFormatted,
     finalPrice: pricing.finalFormatted,
     buttonActions: INCIDENT_DISCOUNT_BUTTONS,
@@ -80,6 +145,22 @@ export function incidentDiscountTemplateData({ order, customerName, productSumma
     sourceAmount: 'Shopify order total',
     dedupeKey: `${String(order?.orderId || order?.id || 'unknown')}|${INCIDENT_DISCOUNT_TEMPLATE_NAME}`
   };
+}
+
+export async function prepareIncidentDiscountTemplateRecipient({
+  userNs,
+  order,
+  customerName,
+  productSummary
+}) {
+  if (!userNs) throw new Error('Falta user_ns para preparar la plantilla de descuento.');
+  const data = incidentDiscountTemplateData({ order, customerName, productSummary });
+  await setSubscriberUserFieldByName({
+    user_ns: userNs,
+    field_name: data.subscriberField.name,
+    value: data.subscriberField.value
+  });
+  return data;
 }
 
 export function incidentDiscountTemplatePayload() {
