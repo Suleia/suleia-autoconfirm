@@ -25,6 +25,7 @@ import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
 import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
+import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
 
 const config = getAppConfig();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -857,11 +858,24 @@ let incidentsSyncRunning = false;
 let operationalOrdersSyncTimer = null;
 let operationalOrdersSyncRunning = false;
 let chatbyHealthTimer = null;
+const scheduledNetworkJobs = createScheduledJobQueue({
+  onEvent(event) {
+    if (event.type === 'skipped') {
+      console.log(`Scheduled network job skipped because it is already pending: ${event.name}`);
+    } else if (event.type === 'failed') {
+      console.error(`Scheduled network job failed (${event.name}):`, event.error);
+    }
+  }
+});
+
+function scheduleNetworkJob(name, work) {
+  return scheduledNetworkJobs.schedule(name, work).catch(() => null);
+}
 
 function startChatbyHealthMonitor() {
-  refreshChatbyHealth().catch((error) => console.error('Chatby health check error:', error));
+  scheduleNetworkJob('chatby_health', refreshChatbyHealth);
   chatbyHealthTimer = setInterval(() => {
-    refreshChatbyHealth().catch((error) => console.error('Chatby health check error:', error));
+    scheduleNetworkJob('chatby_health', refreshChatbyHealth);
   }, 10 * 60 * 1000);
   chatbyHealthTimer.unref?.();
 }
@@ -881,12 +895,13 @@ async function runBackgroundPoll() {
     pollRunning = false;
   }
 
-  runAutomationOnly('background_poll')
-    .then((result) => {
-      const processed = result?.cycle?.ingest?.processed ?? 0;
-      if (processed) console.log(`Background automation processed ${processed} orders.`);
-    })
-    .catch((error) => console.error('Background automation error:', error));
+  try {
+    const result = await runAutomationOnly('background_poll');
+    const processed = result?.cycle?.ingest?.processed ?? 0;
+    if (processed) console.log(`Background automation processed ${processed} orders.`);
+  } catch (error) {
+    console.error('Background automation error:', error);
+  }
 }
 
 function startBackgroundPoller() {
@@ -896,8 +911,11 @@ function startBackgroundPoller() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    runBackgroundPoll();
-    pollTimer = setInterval(runBackgroundPoll, intervalMs);
+    scheduleNetworkJob('background_poll', runBackgroundPoll);
+    pollTimer = setInterval(
+      () => scheduleNetworkJob('background_poll', runBackgroundPoll),
+      intervalMs
+    );
   }, 15000);
 }
 
@@ -924,8 +942,11 @@ function startUnansweredCancellationScheduler() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    runScheduledUnansweredCancellationSweep();
-    unansweredCancellationTimer = setInterval(runScheduledUnansweredCancellationSweep, intervalMs);
+    scheduleNetworkJob('unanswered_cancellations', runScheduledUnansweredCancellationSweep);
+    unansweredCancellationTimer = setInterval(
+      () => scheduleNetworkJob('unanswered_cancellations', runScheduledUnansweredCancellationSweep),
+      intervalMs
+    );
   }, 30000);
 }
 
@@ -948,8 +969,11 @@ function startIncidentsScheduler() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    runScheduledIncidentsSync();
-    incidentsSyncTimer = setInterval(runScheduledIncidentsSync, intervalMs);
+    scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync);
+    incidentsSyncTimer = setInterval(
+      () => scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync),
+      intervalMs
+    );
   }, 60000);
 }
 
@@ -960,8 +984,11 @@ function startIncidentNotificationsScheduler() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    runScheduledIncidentsSync();
-    incidentNotificationsTimer = setInterval(runScheduledIncidentsSync, intervalMs);
+    scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync);
+    incidentNotificationsTimer = setInterval(
+      () => scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync),
+      intervalMs
+    );
   }, 90000);
 }
 
@@ -984,9 +1011,18 @@ function startOperationalOrdersScheduler() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    runScheduledOperationalOrdersSync();
-    operationalOrdersSyncTimer = setInterval(runScheduledOperationalOrdersSync, intervalMs);
+    scheduleNetworkJob('operational_orders', runScheduledOperationalOrdersSync);
+    operationalOrdersSyncTimer = setInterval(
+      () => scheduleNetworkJob('operational_orders', runScheduledOperationalOrdersSync),
+      intervalMs
+    );
   }, 20000);
+}
+
+async function runScheduledMetaDashboardSync() {
+  const result = await syncMetaDashboard({ store: config.defaultStore });
+  if (result?.ok) console.log(`Meta dashboard synced (${result.insights} campaign insights).`);
+  if (result?.error) console.error('Meta dashboard sync error:', result.error);
 }
 
 function startMetaDashboardSync() {
@@ -996,19 +1032,9 @@ function startMetaDashboardSync() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    syncMetaDashboard({ store: config.defaultStore })
-      .then((result) => {
-        if (result?.ok) console.log(`Meta dashboard synced (${result.insights} campaign insights).`);
-        if (result?.error) console.error('Meta dashboard sync error:', result.error);
-      })
-      .catch((error) => console.error('Meta dashboard sync error:', error));
+    scheduleNetworkJob('meta_dashboard', runScheduledMetaDashboardSync);
     metaDashboardTimer = setInterval(() => {
-      syncMetaDashboard({ store: config.defaultStore })
-        .then((result) => {
-          if (result?.ok) console.log(`Meta dashboard synced (${result.insights} campaign insights).`);
-          if (result?.error) console.error('Meta dashboard sync error:', result.error);
-        })
-        .catch((error) => console.error('Meta dashboard sync error:', error));
+      scheduleNetworkJob('meta_dashboard', runScheduledMetaDashboardSync);
     }, intervalMs);
   }, 45000);
 }
