@@ -1055,8 +1055,8 @@ server.listen(config.port, async () => {
   } catch (error) {
     console.error('Supabase startup hydration error:', error instanceof Error ? error.message : String(error));
   }
-  buildDashboardFast({ health: storeSummary(), forceMeta: false, maxAgeMs: 0 })
-    .catch((error) => console.error('Dashboard startup cache error:', error));
+  // Keep startup lightweight so Render health checks stay responsive. Dashboard
+  // caches are hydrated from Supabase above and refreshed by the scheduled jobs.
   startChatbyHealthMonitor();
   startBackgroundPoller();
   startUnansweredCancellationScheduler();
