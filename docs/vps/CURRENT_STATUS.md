@@ -20,6 +20,14 @@ Date: 2026-07-26
 - Authentication options and OAuth acceptance gates.
 - Local validation: 62 current-system tests, 15 MCP tests, 8 platform-core tests and 25 fixtures passed.
 - Static secret, syntax and staging-safety scans passed.
+- UNKNOWN cases at 72 hours remain `UNKNOWN`, create an administrative alert,
+  route to `HUMAN_REVIEW` and execute no action.
+- The MCP contract now exposes exactly the eight authorized read/simulation
+  tools, including `preview_order_decision` and
+  `list_orders_needing_ai_review`.
+- A pre-purchase VPS comparison is complete. The recommended option is a
+  Hetzner CX33 staging server at an estimated EUR 17.32/month including
+  Spanish VAT.
 
 ## Explicitly not done
 
@@ -35,6 +43,11 @@ Date: 2026-07-26
 Docker is not installed on this workstation. Compose has therefore been inspected statically but has not yet completed a real container start.
 
 PostgreSQL is not installed locally, so the SQL migrations have not yet been executed by a database engine. Static checks and application tests do not replace that integration gate.
+
+## Current authorization gate
+
+The next step is provider and monthly-cost confirmation. No account creation,
+purchase, payment or provisioning may occur before that confirmation.
 
 ## Safety invariant
 
