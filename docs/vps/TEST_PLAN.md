@@ -22,7 +22,7 @@ Twenty-five fictitious orders cover:
 - legacy 36-hour comparison;
 - duplicate action proposals;
 - critical-risk blocking.
-- UNKNOWN 72-hour escalation to human review without automatic cancellation.
+- UNKNOWN 72-hour preservation with administrative alert, `HUMAN_REVIEW`, `NO_ACTION` and zero execution.
 - ingestion source allowlisting and source-record deduplication.
 
 ## Integration

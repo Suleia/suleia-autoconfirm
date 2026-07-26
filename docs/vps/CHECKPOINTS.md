@@ -36,7 +36,7 @@ Status: complete for static and application-level gates.
 - Bearer authentication is local/private only; OAuth remains mandatory before shared staging.
 - Action Executor disabled and fail-closed.
 - Every simulation reports `actions_executed = 0` and `run_mode = SIMULATION`.
-- Critical risk is blocked and UNKNOWN cases move to human review after 72 hours without automatic cancellation.
+- Critical risk is blocked. UNKNOWN cases remain `UNKNOWN` after 72 hours, emit an administrative alert, move to human review and execute no action.
 
 ## Checkpoints D-G
 

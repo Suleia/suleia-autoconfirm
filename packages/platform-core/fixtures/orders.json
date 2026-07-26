@@ -205,7 +205,7 @@
       {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"20a","payload":{"status":"PENDING"}},
       {"event_type":"TIMER_STARTED","occurred_at":"2026-07-25T09:00:00.000Z","source":"decision-engine","source_record_id":"20b","payload":{"timer_id":"unknown-20","workflow":"UNKNOWN_72H","deadline_at":"2026-07-28T09:00:00.000Z"}}
     ],
-    "expected":{"action":"PROPOSE_UNKNOWN_POLICY_REVIEW","route":"HUMAN_REVIEW"}
+    "expected":{"action":"NO_ACTION","route":"HUMAN_REVIEW"}
   },
   {
     "id": "delivered",

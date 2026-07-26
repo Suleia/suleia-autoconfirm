@@ -113,8 +113,11 @@ test('UNKNOWN cases reaching 72 hours require human review without execution', (
   for (const event of fixture.events) store.append({ ...event, order_id: fixture.order_id });
   const twin = new OrderDigitalTwinBuilder(store).buildCurrentTwin(fixture.order_id, new Date(fixture.now));
   const decision = new DeterministicDecisionEngine().simulate(twin);
-  assert.equal(decision.proposed_action, 'PROPOSE_UNKNOWN_POLICY_REVIEW');
+  assert.equal(decision.proposed_action, 'NO_ACTION');
   assert.equal(decision.route, 'HUMAN_REVIEW');
+  assert.equal(decision.policy_state, 'UNKNOWN');
+  assert.equal(decision.administrative_alert.required, true);
+  assert.equal(decision.administrative_alert.type, 'UNKNOWN_72H_REVIEW');
   assert.equal(decision.actions_executed, 0);
   assert.equal(decision.run_mode, 'SIMULATION');
 });

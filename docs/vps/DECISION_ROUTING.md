@@ -11,7 +11,7 @@
 
 - HIGH risk always requires human review.
 - CRITICAL risk is always blocked before any review or execution route.
-- UNKNOWN cases cannot be cancelled automatically before or after 72 hours; at 72 hours they enter human review.
+- UNKNOWN cases remain `UNKNOWN` at and after 72 hours, emit an administrative alert, route to `HUMAN_REVIEW` and propose `NO_ACTION`.
 - Stale critical sources block.
 - Contradictory customer intent blocks.
 - Duplicate action proposals block.

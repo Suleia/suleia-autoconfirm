@@ -43,10 +43,15 @@ function propose(twin, policy) {
   }
   if (hasExpired(twin, 'UNKNOWN_72H')) {
     return {
-      action: 'PROPOSE_UNKNOWN_POLICY_REVIEW',
+      action: 'NO_ACTION',
       confidence: 0.90,
-      reason: 'El caso UNKNOWN superó 72 horas y requiere revisión humana; no se autoriza cancelación automática.',
-      reasonCode: 'UNKNOWN_72H_HUMAN_REVIEW',
+      reason: 'El caso mantiene estado UNKNOWN tras 72 horas. Se genera una alerta administrativa y se deriva a revisión humana sin ejecutar ninguna acción.',
+      reasonCode: 'UNKNOWN_72H_ADMIN_ALERT',
+      policyState: 'UNKNOWN',
+      administrativeAlert: {
+        required: true,
+        type: 'UNKNOWN_72H_REVIEW'
+      },
       risk: 'HIGH'
     };
   }
@@ -85,6 +90,8 @@ export class DeterministicDecisionEngine {
       workflow: twin.incident.active ? `INCIDENT_${twin.incident.type}` : 'ORDER_CONFIRMATION',
       route,
       proposed_action: proposal.action,
+      policy_state: proposal.policyState || null,
+      administrative_alert: proposal.administrativeAlert || null,
       reason_codes: [proposal.reasonCode],
       confidence_breakdown: {
         policy_match: proposal.confidence,

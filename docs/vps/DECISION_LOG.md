@@ -20,9 +20,9 @@ Events are immutable. Corrections append a superseding event. Updates and delete
 
 MCP can query masked staging data and run simulations. It has no write tools, receives a read-only database role and audits every call.
 
-## D-006: 36-hour rule is comparison-only
+## D-006: 36-hour rule is comparison-only and UNKNOWN is non-actionable
 
-The historic 36-hour cancellation rule is retained only as `COMPARE_LEGACY_36H_ONLY`. Incident workflows use 48-hour review semantics. UNKNOWN cases do not auto-cancel before 72 hours.
+The historic 36-hour cancellation rule is retained only as `COMPARE_LEGACY_36H_ONLY`. Incident workflows use 48-hour review semantics. At and after 72 hours, UNKNOWN cases remain `UNKNOWN`, generate an administrative alert, route to `HUMAN_REVIEW` and return `NO_ACTION`.
 
 ## D-007: Preliminary VPS candidate
 
