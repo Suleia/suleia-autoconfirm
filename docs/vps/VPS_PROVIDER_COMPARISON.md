@@ -4,136 +4,89 @@ Checked against official provider information on 2026-07-26. No purchase,
 provisioning, public deployment or production connection has been made.
 All checkout totals must be revalidated immediately before ordering.
 
-## Shortlist
+## Current shortlist
 
-The staging workload needs PostgreSQL, the application services, the read-only
-MCP server, Caddy, monitoring and enough headroom to run integration tests.
-The two viable options below use x86-64 to avoid introducing ARM image
-compatibility risk.
+The staging workload needs PostgreSQL, application services, a read-only MCP
+server, Caddy, monitoring and enough capacity for integration and restore
+tests.
 
 | Item | Economic | Recommended |
 | --- | --- | --- |
-| Provider | Hetzner Cloud | Hetzner Cloud |
-| Region | Nuremberg, Germany (`nbg1`) | Nuremberg, Germany (`nbg1`) |
-| Server | CX23 | CX33 |
-| Compute | 2 shared vCPU, 4 GB RAM | 4 shared vCPU, 8 GB RAM |
-| Local disk | 40 GB | 80 GB |
-| Additional volume | 40 GB | 80 GB |
-| Total provisioned storage | About 80 GB | About 160 GB |
-| Included traffic | 20 TB EU outbound allowance; inbound/internal free | 20 TB EU outbound allowance; inbound/internal free |
-| Public network | Primary IPv4 plus free IPv6 | Primary IPv4 plus free IPv6 |
-| Provider backups | Seven rotating server backup slots | Seven rotating server backup slots |
-| Monthly server, ex VAT | EUR 5.49 | EUR 8.49 |
-| Additional volume, ex VAT | EUR 1.76 | EUR 3.52 |
-| Primary IPv4, ex VAT | EUR 0.60 | EUR 0.60 |
-| Provider backup, ex VAT | EUR 1.10 | EUR 1.70 |
-| Monthly total, ex VAT | EUR 8.95 | EUR 14.31 |
-| Spanish VAT (21%) | EUR 1.88 | EUR 3.01 |
-| **Estimated monthly total, VAT included** | **EUR 10.83** | **EUR 17.32** |
-
-The volume calculation uses the current published/calculator rate of
-EUR 0.044 per GB-month. The provider backup is 20% of the server price and
-provides seven slots. Totals are rounded to cents and do not include a domain,
-because no DNS change is authorized.
+| Provider | Contabo | Contabo |
+| Product | Cloud VPS 4 | Cloud VPS 6 |
+| Contract | One month | One month |
+| Region | European Union | European Union |
+| Compute | 4 vCPU, 8 GB RAM | 6 vCPU, 12 GB RAM |
+| Included storage | 100 GB SSD | 200 GB SSD |
+| Public network | IPv4, 200 Mbit/s | IPv4, 300 Mbit/s |
+| Provider snapshots | 1 | 2 |
+| Auto Backup | Daily, 10 versions | Daily, 10 versions |
+| Server, ex VAT | EUR 5.50 | EUR 7.50 |
+| Auto Backup, ex VAT | EUR 1.65 | EUR 3.35 |
+| Monthly total, ex VAT | EUR 7.15 | EUR 10.85 |
+| Spanish VAT (21%) | EUR 1.50 | EUR 2.28 |
+| **Estimated total, VAT included** | **EUR 8.65** | **EUR 13.13** |
 
 ## Recommendation
 
-Choose the **Hetzner CX33 recommended option at an estimated EUR 17.32/month
-including Spanish VAT**.
+Choose **Contabo Cloud VPS 6** on a one-month contract with Auto Backup.
 
 Reasons:
 
-1. Four vCPU and 8 GB RAM give the database, MCP server, monitoring and test
-   workloads enough headroom without approaching the EUR 25/month ceiling.
-2. x86-64 avoids an unnecessary ARM compatibility gate.
-3. About 160 GB provisioned storage matches the requested recommended range.
-4. The project can be rescaled later and the attached volume can be expanded
-   in 1 GB increments.
-5. The expected total leaves about EUR 7.68/month of budget margin.
+1. Twelve GB RAM gives PostgreSQL, Docker and restore drills useful headroom.
+2. Six vCPU supports parallel container builds and integration tests.
+3. The included 200 GB SSD avoids a separate block-volume dependency.
+4. The one-month term limits commitment while staging is validated.
+5. The estimated total remains well below the EUR 25 monthly ceiling.
+6. Compared with Cloud VPS 4, the incremental cost is small relative to the
+   additional memory, compute and storage.
 
-The economic CX23 option is acceptable for a short proof of deployment, but
-4 GB RAM gives less safety during migrations, restore drills and concurrent
-container starts. Upgrading later is possible, but the recommended option
-reduces the risk of diagnosing resource pressure as an application defect.
+Cloud VPS 4 remains viable for a minimal proof, but its lower capacity would
+increase the chance of resource pressure during database restores and
+concurrent container starts.
 
-## Backup and snapshot policy
+## Previous target
 
-Provider backups and application backups serve different purposes:
+Hetzner CX33 was the earlier recommendation. The owner could not complete the
+presented onboarding flow without a VAT ID, so it is no longer the active
+purchase target. No Hetzner resource was purchased.
 
-- Enable Hetzner's seven-slot rotating backups for the server disk.
-- Keep PostgreSQL data on the local server disk so those backups include the
-  database files.
-- Use the attached volume for encrypted logical PostgreSQL backups, validation
-  artefacts and restore drills.
-- Generate a daily encrypted `pg_dump`, retain seven daily copies and verify
-  the newest dump after creation.
-- Take a manual provider snapshot before operating-system upgrades, Docker
-  upgrades or database migration rehearsals. Snapshots are usage-based and
-  are not included in the monthly estimate.
-- Delete temporary snapshots after the change has been validated.
+## Backup policy
 
-Important limitation: Hetzner server backups and snapshots do not include
-attached volumes. The volume is triple-replicated for hardware resilience, but
-replication is not a backup. Before any real masked-data import, an independent
-off-site encrypted backup target must be separately authorized.
+Provider backup and application backup serve different purposes:
+
+- Enable Contabo Auto Backup for daily host-level recovery with ten retained
+  versions.
+- Generate an encrypted daily logical PostgreSQL backup.
+- Verify the newest logical dump after creation.
+- Run a weekly restore drill in an isolated database.
+- Do not treat provider snapshots as the only database backup.
+- Before masked real-data import, separately authorize an encrypted off-site
+  backup target.
 
 ## Limits and scalability
 
-- CX shared-vCPU plans are intended for development, testing and low-to-medium
-  sustained load, not continuous CPU-intensive production processing.
-- Volumes can be expanded but not shrunk.
-- A volume can attach to only one server at a time.
-- Up to 16 volumes and 10 TB total volume capacity are supported per server.
-- Server backup cost rises with the selected server plan.
-- Resources continue to be billed while they exist, even when powered off.
-- Cost alerts are notifications, not a hard spending cap.
-
-## Other providers reviewed
-
-### OVHcloud
-
-OVHcloud is a sound fallback and includes a daily one-day backup, anti-DDoS and
-unlimited traffic. Current Spain pricing is:
-
-- VPS-1: 2 vCore, 4 GB, 40 GB NVMe, EUR 4.61/month VAT included.
-- VPS-2: 4 vCore, 8 GB, 75 GB NVMe, EUR 8.72/month VAT included.
-- VPS-3: 6 vCore, 12 GB, 100 GB NVMe, EUR 12.58/month VAT included.
-- VPS-4: 8 vCore, 24 GB, 200 GB NVMe, EUR 24.15/month VAT included.
-
-The plans do not match the requested 80 GB and 120-160 GB targets as closely.
-VPS-4 also leaves effectively no room under the EUR 25 ceiling once an
-optional seven-day backup is added.
-
-### Scaleway
-
-Scaleway DEV1-M is about EUR 14.74/month before VAT for 3 vCPU and 4 GB RAM,
-with storage and public IPv4 charged separately. DEV1-L exceeds the budget
-once VAT and storage are included. It is therefore not recommended for this
-checkpoint.
+- Shared-vCPU VPS plans are appropriate for staging, not guaranteed
+  CPU-intensive production workloads.
+- A powered-off server may remain billable until cancelled.
+- Provider backup does not replace database-level consistency checks.
+- Currency, taxes and promotional pricing can change at checkout.
+- No DNS, public endpoint or production connector is authorized by the VPS
+  purchase.
 
 ## Official references
 
-- Hetzner 2026 cloud prices:
-  https://docs.hetzner.com/general/infrastructure-and-availability/price-adjustment/
-- Hetzner cloud features and regions:
-  https://www.hetzner.com/cloud/
-- Hetzner block storage:
-  https://www.hetzner.com/cloud/block-storage/
-- Hetzner volume limits and backup exclusion:
-  https://docs.hetzner.com/cloud/volumes/overview/
-- Hetzner backup billing:
-  https://docs.hetzner.com/cloud/billing/faq/
-- Hetzner Primary IPv4 pricing:
-  https://docs.hetzner.com/general/infrastructure-and-availability/ipv4-pricing/
-- OVHcloud Spain VPS prices and included services:
-  https://www.ovhcloud.com/es-es/vps/
-- OVHcloud backup and snapshot options:
-  https://www.ovhcloud.com/es-es/vps/options/
-- Scaleway virtual instance pricing:
-  https://www.scaleway.com/en/pricing/virtual-instances/
+- Contabo Cloud VPS plans:
+  https://contabo.com/es/vps/
+- Contabo Cloud VPS 6 configuration:
+  https://contabo.com/es/vps/cloud-vps-core-6
+- Contabo ordering guide:
+  https://help.contabo.com/es/support/solutions/articles/103000394299-c%C3%B3mo-hacer-un-pedido
+- Contabo account types:
+  https://help.contabo.com/es/support/solutions/articles/103000365847--c%C3%B3mo-puedes-cambiar-tu-tipo-de-cuenta-
 
 ## Authorization boundary
 
-The next action is a purchasing decision. Do not create an account, contract a
-server, enter payment details, provision infrastructure or expose an endpoint
-until the owner explicitly confirms the provider and monthly cost.
+The next action is a purchase and payment decision. Do not submit customer
+details, payment details or the final order until the owner explicitly confirms
+the final checkout total and the Contabo purchase.

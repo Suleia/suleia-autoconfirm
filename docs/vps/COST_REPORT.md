@@ -6,29 +6,27 @@ No infrastructure has been purchased.
 
 ## Economic option
 
-Hetzner CX23 in Nuremberg:
+Contabo Cloud VPS 4 on a one-month contract:
 
-- 2 shared vCPU, 4 GB RAM, 40 GB local disk.
-- 40 GB additional volume.
-- Primary IPv4 and free IPv6.
-- Seven provider backup slots.
-- Estimated total before VAT: EUR 8.95/month.
-- Spanish VAT at 21%: EUR 1.88/month.
-- **Estimated total including VAT: EUR 10.83/month.**
+- 4 vCPU, 8 GB RAM and 100 GB included SSD.
+- Included IPv4 and 200 Mbit/s port.
+- Auto Backup.
+- Estimated total before VAT: EUR 7.15/month.
+- Spanish VAT at 21%: EUR 1.50/month.
+- **Estimated total including VAT: EUR 8.65/month.**
 
 ## Recommended option
 
-Hetzner CX33 in Nuremberg:
+Contabo Cloud VPS 6 on a one-month contract:
 
-- 4 shared vCPU, 8 GB RAM, 80 GB local disk.
-- 80 GB additional volume.
-- Primary IPv4 and free IPv6.
-- Seven provider backup slots.
-- Estimated total before VAT: EUR 14.31/month.
-- Spanish VAT at 21%: EUR 3.01/month.
-- **Estimated total including VAT: EUR 17.32/month.**
+- 6 vCPU, 12 GB RAM and 200 GB included SSD.
+- Included IPv4 and 300 Mbit/s port.
+- Auto Backup.
+- Estimated total before VAT: EUR 10.85/month.
+- Spanish VAT at 21%: EUR 2.28/month.
+- **Estimated total including VAT: EUR 13.13/month.**
 
-This is the recommended staging configuration. It remains EUR 7.68 below the
+This is the recommended staging configuration. It remains EUR 11.87 below the
 authorized EUR 25/month ceiling.
 
 ## Not included
@@ -48,9 +46,8 @@ Uptime Kuma have no license cost for this deployment.
 
 ## Billing caveats
 
-- Prices are hourly with a monthly cap.
-- A powered-off resource is still billed until deleted.
-- Attached volumes are not covered by server backups or snapshots.
-- Volume size can grow but cannot shrink.
-- Final checkout must be verified before purchase because provider pricing and
-  VAT handling can change.
+- The one-month contract avoids a 12- or 24-month commitment during staging.
+- Auto Backup is a provider add-on and must be visible in the final summary.
+- A powered-off resource may remain billable until the service is cancelled.
+- The final checkout must be verified before purchase because provider pricing,
+  currency and VAT handling can change.

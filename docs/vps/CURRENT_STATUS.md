@@ -25,9 +25,12 @@ Date: 2026-07-26
 - The MCP contract now exposes exactly the eight authorized read/simulation
   tools, including `preview_order_decision` and
   `list_orders_needing_ai_review`.
-- A pre-purchase VPS comparison is complete. The recommended option is a
-  Hetzner CX33 staging server at an estimated EUR 17.32/month including
-  Spanish VAT.
+- A pre-purchase VPS comparison is complete. Hetzner onboarding could not be
+  completed by the owner without a VAT ID in the presented flow.
+- The replacement recommendation is Contabo Cloud VPS 6 on a one-month
+  contract with Auto Backup, estimated at EUR 13.13/month including Spanish
+  VAT.
+- A two-phase, lockout-safe Contabo host bootstrap is prepared.
 
 ## Explicitly not done
 
@@ -46,8 +49,9 @@ PostgreSQL is not installed locally, so the SQL migrations have not yet been exe
 
 ## Current authorization gate
 
-The next step is provider and monthly-cost confirmation. No account creation,
-purchase, payment or provisioning may occur before that confirmation.
+The next step is final Contabo checkout review and explicit payment
+confirmation. No purchase, payment or provisioning may occur before that
+confirmation.
 
 ## Safety invariant
 

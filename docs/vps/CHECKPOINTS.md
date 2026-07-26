@@ -40,7 +40,8 @@ Status: complete for static and application-level gates.
 
 ## Checkpoints D-G
 
-Status: provider research complete; purchase confirmation required before D.
+Status: provider research and Contabo host preparation complete; final checkout
+confirmation required before D.
 
 - D: VPS staging, hardening, HTTPS, identity provider, backups and monitoring.
 - E: one real masked order.
@@ -49,6 +50,6 @@ Status: provider research complete; purchase confirmation required before D.
 
 No step beyond Checkpoint C may start without explicit authorization.
 
-The proposed Checkpoint D target is Hetzner CX33 in Nuremberg, approximately
-EUR 17.32/month including Spanish VAT. No VPS has been purchased or
-provisioned.
+The proposed Checkpoint D target is Contabo Cloud VPS 6 in the European Union,
+on a one-month contract with Auto Backup, approximately EUR 13.13/month
+including Spanish VAT. No VPS has been purchased or provisioned.
