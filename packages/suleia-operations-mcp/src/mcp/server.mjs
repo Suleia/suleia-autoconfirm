@@ -150,8 +150,8 @@ export function createMcpServer({ service, audit, authContext }) {
 
   registerReadTool({
     ...common,
-    name: 'simulate_order_decision',
-    title: 'Simulate order decision',
+    name: 'preview_order_decision',
+    title: 'Preview order decision',
     description: 'Runs a side-effect-free decision simulation. actions_executed is always zero.',
     inputSchema: { order_id: orderId, as_of: asOf },
     scopes: [SCOPES.READ, SCOPES.SIMULATE],
@@ -170,7 +170,7 @@ export function createMcpServer({ service, audit, authContext }) {
 
   registerReadTool({
     ...common,
-    name: 'list_orders_requiring_review',
+    name: 'list_orders_needing_ai_review',
     title: 'List staging orders requiring review',
     description: 'Lists masked staging orders that require human review.',
     inputSchema: {
@@ -193,7 +193,7 @@ export const MCP_TOOL_NAMES = Object.freeze([
   'get_data_freshness',
   'get_active_timers',
   'get_agent_decisions',
-  'simulate_order_decision',
+  'preview_order_decision',
   'compare_simulation_with_current_system',
-  'list_orders_requiring_review'
+  'list_orders_needing_ai_review'
 ]);

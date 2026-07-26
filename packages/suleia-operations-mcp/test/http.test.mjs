@@ -41,7 +41,7 @@ test('Streamable HTTP requires bearer auth and serves tools when authorized', as
     const tools = await client.listTools();
     assert.equal(tools.tools.length, 8);
     const simulation = await client.callTool({
-      name: 'simulate_order_decision',
+      name: 'preview_order_decision',
       arguments: { order_id: 'STG-ORDER-0001' }
     });
     assert.equal(simulation.structuredContent.result.data.actions_executed, 0);

@@ -23,9 +23,9 @@ for (const tool of toolList.tools) {
     get_data_freshness: {},
     get_active_timers: { order_id: 'STG-ORDER-0001' },
     get_agent_decisions: { order_id: 'STG-ORDER-0001' },
-    simulate_order_decision: { order_id: 'STG-ORDER-0001' },
+    preview_order_decision: { order_id: 'STG-ORDER-0001' },
     compare_simulation_with_current_system: { order_id: 'STG-ORDER-0001' },
-    list_orders_requiring_review: {}
+    list_orders_needing_ai_review: {}
   }[tool.name];
   results[tool.name] = await client.callTool({ name: tool.name, arguments: args });
 }

@@ -49,8 +49,8 @@ The token is for staging preflight only. ChatGPT registration should use OAuth
 3. `get_data_freshness`
 4. `get_active_timers`
 5. `get_agent_decisions`
-6. `simulate_order_decision`
+6. `preview_order_decision`
 7. `compare_simulation_with_current_system`
-8. `list_orders_requiring_review`
+8. `list_orders_needing_ai_review`
 
 All tools are declared read-only, non-destructive and idempotent.

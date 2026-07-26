@@ -53,8 +53,8 @@ test('tool surface is frozen to the eight approved read and simulation tools', (
     'get_data_freshness',
     'get_active_timers',
     'get_agent_decisions',
-    'simulate_order_decision',
+    'preview_order_decision',
     'compare_simulation_with_current_system',
-    'list_orders_requiring_review'
+    'list_orders_needing_ai_review'
   ]);
 });

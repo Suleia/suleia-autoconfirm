@@ -49,9 +49,9 @@ test('all tools run against one masked order and never execute actions', async (
     ['get_data_freshness', {}],
     ['get_active_timers', { order_id: 'STG-ORDER-0001' }],
     ['get_agent_decisions', { order_id: 'STG-ORDER-0001' }],
-    ['simulate_order_decision', { order_id: 'STG-ORDER-0001', as_of: '2026-07-26T12:00:00Z' }],
+    ['preview_order_decision', { order_id: 'STG-ORDER-0001', as_of: '2026-07-26T12:00:00Z' }],
     ['compare_simulation_with_current_system', { order_id: 'STG-ORDER-0001', as_of: '2026-07-26T12:00:00Z' }],
-    ['list_orders_requiring_review', {}]
+    ['list_orders_needing_ai_review', {}]
   ];
 
   for (const [name, args] of calls) {
@@ -76,7 +76,7 @@ test('all tools run against one masked order and never execute actions', async (
 test('simulation scope is enforced', async () => {
   const { client, server, lines } = await createHarness(['orders:read']);
   const result = await client.callTool({
-    name: 'simulate_order_decision',
+    name: 'preview_order_decision',
     arguments: { order_id: 'STG-ORDER-0001' }
   });
   assert.equal(result.isError, true);
