@@ -1,0 +1,58 @@
+export const RUN_MODE = 'SIMULATION';
+
+export const ROUTES = Object.freeze({
+  DETERMINISTIC: 'DETERMINISTIC',
+  HUMAN_REVIEW: 'HUMAN_REVIEW',
+  AI_REVIEW: 'AI_REVIEW',
+  BLOCKED: 'BLOCKED'
+});
+
+export const EVENT_TYPES = Object.freeze([
+  'ORDER_CREATED',
+  'ORDER_UPDATED',
+  'ORDER_STATUS_CHANGED',
+  'CUSTOMER_CONFIRMED',
+  'CUSTOMER_CANCELLED',
+  'CUSTOMER_REPLIED',
+  'CUSTOMER_CHANGED_MIND',
+  'CUSTOMER_PROVIDED_ADDRESS',
+  'CHATBY_MESSAGE_RECEIVED',
+  'CHATBY_BUTTON_CLICKED',
+  'INCIDENT_OPENED',
+  'INCIDENT_UPDATED',
+  'INCIDENT_RESOLVED',
+  'GLS_STATUS_UPDATED',
+  'GLS_ABSENT',
+  'GLS_DELIVERY_ATTEMPT',
+  'GLS_PICKUP_AVAILABLE',
+  'GLS_DELIVERED',
+  'GLS_RETURNED',
+  'TIMER_STARTED',
+  'TIMER_PAUSED',
+  'TIMER_RESUMED',
+  'TIMER_EXPIRED',
+  'TIMER_CANCELLED',
+  'DECISION_REQUESTED',
+  'DECISION_PROPOSED',
+  'DECISION_BLOCKED',
+  'SIMULATION_STARTED',
+  'SIMULATION_COMPLETED',
+  'REVIEW_REQUESTED',
+  'REVIEW_STARTED',
+  'REVIEW_COMPLETED',
+  'ACTION_PROPOSED',
+  'ACTION_AUTHORIZED',
+  'ACTION_EXECUTED',
+  'ACTION_FAILED',
+  'ACTION_VERIFIED'
+]);
+
+export function assertSimulationSafety(result) {
+  if (result.run_mode !== RUN_MODE) throw new Error('Only SIMULATION run mode is allowed');
+  if (result.actions_executed !== 0) throw new Error('Simulation cannot execute actions');
+  return result;
+}
+
+export function unknown(value) {
+  return value === undefined || value === null || value === '' ? 'UNKNOWN' : value;
+}

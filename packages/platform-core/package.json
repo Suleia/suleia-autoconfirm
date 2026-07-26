@@ -1,0 +1,9 @@
+{
+  "name": "@suleia/platform-core",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "validate": "node scripts/validate-fixtures.mjs"
+  }
+}

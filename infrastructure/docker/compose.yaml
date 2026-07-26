@@ -1,0 +1,232 @@
+name: suleia-operations-staging
+
+x-safety-environment: &safety-environment
+  APP_ENV: ${APP_ENV:-staging}
+  RUN_MODE: ${RUN_MODE:-SIMULATION}
+  SIMULATION_ONLY: ${SIMULATION_ONLY:-true}
+  PRODUCTION_WRITES_ENABLED: ${PRODUCTION_WRITES_ENABLED:-false}
+  ACTION_EXECUTOR_ENABLED: ${ACTION_EXECUTOR_ENABLED:-false}
+  MCP_WRITE_TOOLS_ENABLED: ${MCP_WRITE_TOOLS_ENABLED:-false}
+  OPENAI_API_ENABLED: ${OPENAI_API_ENABLED:-false}
+  OPENAI_API_AUTOMATION_ENABLED: ${OPENAI_API_AUTOMATION_ENABLED:-false}
+  EXTERNAL_LLM_CALLS_ENABLED: ${EXTERNAL_LLM_CALLS_ENABLED:-false}
+  LIVE_WEBHOOKS_ENABLED: ${LIVE_WEBHOOKS_ENABLED:-false}
+  LIVE_CRON_ENABLED: ${LIVE_CRON_ENABLED:-false}
+  LIVE_POLLING_ENABLED: ${LIVE_POLLING_ENABLED:-false}
+  PII_MASKING_ENABLED: ${PII_MASKING_ENABLED:-true}
+  AUDIT_LOGGING_ENABLED: ${AUDIT_LOGGING_ENABLED:-true}
+  DETERMINISTIC_AUTO_ROUTE_CONFIDENCE: ${DETERMINISTIC_AUTO_ROUTE_CONFIDENCE:-0.95}
+  AI_REVIEW_ROUTE_MIN_CONFIDENCE: ${AI_REVIEW_ROUTE_MIN_CONFIDENCE:-0.60}
+  HUMAN_REVIEW_REQUIRED_RISK: ${HUMAN_REVIEW_REQUIRED_RISK:-HIGH}
+  CRITICAL_ALWAYS_BLOCKED: ${CRITICAL_ALWAYS_BLOCKED:-true}
+
+x-node-service: &node-service
+  build:
+    context: ../..
+    dockerfile: infrastructure/docker/Dockerfile.node
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:size=32m,noexec,nosuid
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+  deploy:
+    resources:
+      limits:
+        cpus: "0.50"
+        memory: 384M
+
+services:
+  reverse-proxy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      OPS_STAGING_HOST: ${OPS_STAGING_HOST:-ops-staging.localhost}
+      API_STAGING_HOST: ${API_STAGING_HOST:-api-staging.localhost}
+      MCP_STAGING_HOST: ${MCP_STAGING_HOST:-mcp-staging.localhost}
+    volumes:
+      - ../reverse-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - reverse_proxy_data:/data
+      - reverse_proxy_config:/config
+    networks:
+      - public_network
+      - application_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  api:
+    <<: *node-service
+    command: ["node", "apps/api/server.mjs"]
+    environment:
+      <<: *safety-environment
+      PORT: 3200
+    networks:
+      - application_network
+      - database_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3200/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  mcp-server:
+    <<: *node-service
+    command: ["node", "packages/suleia-operations-mcp/src/transports/http.mjs"]
+    environment:
+      <<: *safety-environment
+      NODE_ENV: production
+      PORT: 3100
+      READ_ONLY: "true"
+      MCP_DATA_MODE: fixture
+      MCP_AUTH_MODE: bearer
+      MCP_STAGING_BEARER_TOKEN: ${MCP_STAGING_BEARER_TOKEN}
+      MCP_GRANTED_SCOPES: orders:read,orders:simulate
+      MCP_RATE_LIMIT_PER_MINUTE: 60
+      MCP_AUDIT_MODE: stderr
+    networks:
+      - application_network
+      - database_network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3100/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  decision-engine:
+    <<: *node-service
+    command: ["node", "services/process-runner.mjs", "decision-engine"]
+    environment:
+      <<: *safety-environment
+      PORT: 3301
+    networks:
+      - application_network
+      - database_network
+
+  ingestion-worker:
+    <<: *node-service
+    command: ["node", "services/process-runner.mjs", "ingestion-worker"]
+    environment:
+      <<: *safety-environment
+      PORT: 3302
+    networks:
+      - application_network
+      - database_network
+
+  scheduler:
+    <<: *node-service
+    command: ["node", "services/process-runner.mjs", "scheduler"]
+    environment:
+      <<: *safety-environment
+      PORT: 3303
+    networks:
+      - application_network
+      - database_network
+
+  review-panel:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:size=16m
+      - /var/run:size=4m
+    volumes:
+      - ../../apps/review-panel:/usr/share/nginx/html:ro
+    networks:
+      - application_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+      - NET_BIND_SERVICE
+
+  postgres:
+    image: postgres:17.5-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-suleia_staging}
+      POSTGRES_USER: suleia_admin
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../../migrations:/docker-entrypoint-initdb.d:ro
+    networks:
+      - database_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U suleia_admin -d ${POSTGRES_DB:-suleia_staging}"]
+      interval: 10s
+      timeout: 5s
+      retries: 8
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 1536M
+
+  backup:
+    image: postgres:17.5-alpine
+    restart: "no"
+    profiles: ["maintenance"]
+    environment:
+      PGHOST: postgres
+      PGDATABASE: ${POSTGRES_DB:-suleia_staging}
+      PGUSER: suleia_backup
+      PGPASSWORD: ${SULEIA_BACKUP_PASSWORD}
+    volumes:
+      - ../backup:/opt/suleia/backup:ro
+      - backup_data:/backups
+    command: ["/bin/sh", "/opt/suleia/backup/backup.sh"]
+    networks:
+      - database_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  monitoring:
+    image: louislam/uptime-kuma:1.23.16-alpine
+    restart: unless-stopped
+    volumes:
+      - monitoring_data:/app/data
+    networks:
+      - application_network
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  public_network:
+  application_network:
+    internal: true
+  database_network:
+    internal: true
+
+volumes:
+  postgres_data:
+  backup_data:
+  application_logs:
+  reverse_proxy_data:
+  reverse_proxy_config:
+  monitoring_data:

@@ -1,0 +1,266 @@
+[
+  {
+    "id": "normal-order",
+    "order_id": "fixture-001",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-26T10:00:00.000Z","source":"shopify","source_record_id":"1","payload":{"status":"PENDING"}}
+    ],
+    "expected":{"action":"WAIT_FOR_EVIDENCE","route":"AI_REVIEW"}
+  },
+  {
+    "id": "explicit-confirmation-waiting",
+    "order_id": "fixture-002",
+    "now": "2026-07-26T10:30:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-26T09:00:00.000Z","source":"shopify","source_record_id":"2a","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T10:00:00.000Z","source":"chatby","source_record_id":"2b","payload":{}},
+      {"event_type":"TIMER_STARTED","occurred_at":"2026-07-26T10:00:00.000Z","source":"decision-engine","source_record_id":"2c","payload":{"timer_id":"confirm-2","workflow":"CONFIRMATION_WAIT_1H","deadline_at":"2026-07-26T11:00:00.000Z"}}
+    ],
+    "expected":{"action":"WAIT_CONFIRMATION_WINDOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "explicit-confirmation-after-hour",
+    "order_id": "fixture-003",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-26T09:00:00.000Z","source":"shopify","source_record_id":"3a","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T10:00:00.000Z","source":"chatby","source_record_id":"3b","payload":{}},
+      {"event_type":"TIMER_STARTED","occurred_at":"2026-07-26T10:00:00.000Z","source":"decision-engine","source_record_id":"3c","payload":{"timer_id":"confirm-3","workflow":"CONFIRMATION_WAIT_1H","deadline_at":"2026-07-26T11:00:00.000Z"}},
+      {"event_type":"TIMER_EXPIRED","occurred_at":"2026-07-26T11:00:00.000Z","source":"scheduler","source_record_id":"3d","payload":{"timer_id":"confirm-3"}}
+    ],
+    "expected":{"action":"PROPOSE_CONFIRM","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "changed-mind-within-hour",
+    "order_id": "fixture-004",
+    "now": "2026-07-26T10:45:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-26T09:00:00.000Z","source":"shopify","source_record_id":"4a","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T10:00:00.000Z","source":"chatby","source_record_id":"4b","payload":{}},
+      {"event_type":"CUSTOMER_CHANGED_MIND","occurred_at":"2026-07-26T10:20:00.000Z","source":"chatby","source_record_id":"4c","payload":{}}
+    ],
+    "expected":{"action":"PROPOSE_CANCEL","route":"BLOCKED"}
+  },
+  {
+    "id": "explicit-cancellation",
+    "order_id": "fixture-005",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-26T09:00:00.000Z","source":"shopify","source_record_id":"5a","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_CANCELLED","occurred_at":"2026-07-26T10:00:00.000Z","source":"chatby","source_record_id":"5b","payload":{}}
+    ],
+    "expected":{"action":"PROPOSE_CANCEL","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "ambiguous-confirmation",
+    "order_id": "fixture-006",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-26T09:00:00.000Z","source":"shopify","source_record_id":"6a","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_REPLIED","occurred_at":"2026-07-26T10:00:00.000Z","source":"chatby","source_record_id":"6b","payload":{"text":"quizá"}}
+    ],
+    "expected":{"action":"WAIT_FOR_EVIDENCE","route":"AI_REVIEW"}
+  },
+  {
+    "id": "absent-active",
+    "order_id": "fixture-007",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"7a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"7b","payload":{"type":"AUSENTE"}},
+      {"event_type":"TIMER_STARTED","occurred_at":"2026-07-25T10:00:00.000Z","source":"decision-engine","source_record_id":"7c","payload":{"timer_id":"incident-7","workflow":"INCIDENT_RESPONSE_48H","deadline_at":"2026-07-27T10:00:00.000Z"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "missing-data-active",
+    "order_id": "fixture-008",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"8a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"8b","payload":{"type":"FALTAN_DATOS"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "wrong-address-active",
+    "order_id": "fixture-009",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"9a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"9b","payload":{"type":"DIRECCION_INCORRECTA"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "no-response-active",
+    "order_id": "fixture-010",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"10a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"10b","payload":{"type":"NO_RESPONDE"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "refuses-goods-active",
+    "order_id": "fixture-011",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"11a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"11b","payload":{"type":"NO_ACEPTA_EXPEDICION"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "discount-accepted",
+    "order_id": "fixture-012",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"12a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"12b","payload":{"type":"NO_ACEPTA_EXPEDICION"}},
+      {"event_type":"CUSTOMER_REPLIED","occurred_at":"2026-07-26T09:00:00.000Z","source":"chatby","source_record_id":"12c","payload":{"text":"acepto el descuento"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "discount-rejected",
+    "order_id": "fixture-013",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"13a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"CUSTOMER_CANCELLED","occurred_at":"2026-07-26T09:00:00.000Z","source":"chatby","source_record_id":"13b","payload":{"reason":"discount_rejected"}}
+    ],
+    "expected":{"action":"PROPOSE_CANCEL","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "pickup-accredited",
+    "order_id": "fixture-014",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"14a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"14b","payload":{"type":"PICKUP"}},
+      {"event_type":"GLS_PICKUP_AVAILABLE","occurred_at":"2026-07-26T09:00:00.000Z","source":"gls","source_record_id":"14c","payload":{}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "pickup-not-accredited",
+    "order_id": "fixture-015",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"15a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"15b","payload":{"type":"PICKUP_REQUEST"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "incident-expired-48h",
+    "order_id": "fixture-016",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"16a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"16b","payload":{"type":"AUSENTE"}},
+      {"event_type":"TIMER_STARTED","occurred_at":"2026-07-25T10:00:00.000Z","source":"decision-engine","source_record_id":"16c","payload":{"timer_id":"incident-16","workflow":"INCIDENT_RESPONSE_48H","deadline_at":"2026-07-27T10:00:00.000Z"}},
+      {"event_type":"TIMER_EXPIRED","occurred_at":"2026-07-27T10:00:00.000Z","source":"scheduler","source_record_id":"16d","payload":{"timer_id":"incident-16"}}
+    ],
+    "expected":{"action":"PROPOSE_INCIDENT_POLICY_REVIEW","route":"HUMAN_REVIEW"}
+  },
+  {
+    "id": "stale-source",
+    "order_id": "fixture-017",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-20T09:00:00.000Z","source":"dropea","source_record_id":"17a","freshness_status":"STALE","payload":{"status":"PENDING"}}
+    ],
+    "expected":{"action":"WAIT_FOR_EVIDENCE","route":"BLOCKED"}
+  },
+  {
+    "id": "gls-policy-unknown",
+    "order_id": "fixture-018",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"18a","payload":{"status":"WITH_ISSUE"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"18b","payload":{"type":"GLS_UNKNOWN"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "legacy-36h",
+    "order_id": "fixture-019",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"19a","payload":{"status":"PENDING"}},
+      {"event_type":"TIMER_STARTED","occurred_at":"2026-07-25T09:00:00.000Z","source":"decision-engine","source_record_id":"19b","payload":{"timer_id":"legacy-19","workflow":"LEGACY_UNANSWERED_36H","deadline_at":"2026-07-26T21:00:00.000Z"}},
+      {"event_type":"TIMER_EXPIRED","occurred_at":"2026-07-26T21:00:00.000Z","source":"scheduler","source_record_id":"19c","payload":{"timer_id":"legacy-19"}}
+    ],
+    "expected":{"action":"COMPARE_LEGACY_36H_ONLY","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "unknown-72h",
+    "order_id": "fixture-020",
+    "now": "2026-07-29T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"20a","payload":{"status":"PENDING"}},
+      {"event_type":"TIMER_STARTED","occurred_at":"2026-07-25T09:00:00.000Z","source":"decision-engine","source_record_id":"20b","payload":{"timer_id":"unknown-20","workflow":"UNKNOWN_72H","deadline_at":"2026-07-28T09:00:00.000Z"}}
+    ],
+    "expected":{"action":"PROPOSE_UNKNOWN_POLICY_REVIEW","route":"HUMAN_REVIEW"}
+  },
+  {
+    "id": "delivered",
+    "order_id": "fixture-021",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-20T09:00:00.000Z","source":"shopify","source_record_id":"21a","payload":{"status":"PENDING"}},
+      {"event_type":"ORDER_STATUS_CHANGED","occurred_at":"2026-07-25T09:00:00.000Z","source":"dropea","source_record_id":"21b","payload":{"status":"DELIVERED"}},
+      {"event_type":"GLS_DELIVERED","occurred_at":"2026-07-25T09:00:00.000Z","source":"gls","source_record_id":"21c","payload":{}}
+    ],
+    "expected":{"action":"NO_ACTION","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "contradictory-messages",
+    "order_id": "fixture-022",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"shopify","source_record_id":"22a","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T09:00:00.000Z","source":"chatby","source_record_id":"22b","payload":{}},
+      {"event_type":"CUSTOMER_CANCELLED","occurred_at":"2026-07-26T09:10:00.000Z","source":"chatby","source_record_id":"22c","payload":{}}
+    ],
+    "expected":{"action":"PROPOSE_CANCEL","route":"BLOCKED"}
+  },
+  {
+    "id": "possible-wrong-customer",
+    "order_id": "fixture-023",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"shopify","source_record_id":"23a","trust_level":"LOW","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_REPLIED","occurred_at":"2026-07-26T09:00:00.000Z","source":"chatby","source_record_id":"23b","trust_level":"LOW","payload":{"association":"uncertain"}}
+    ],
+    "expected":{"action":"WAIT_FOR_EVIDENCE","route":"AI_REVIEW"}
+  },
+  {
+    "id": "duplicate-action",
+    "order_id": "fixture-024",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"shopify","source_record_id":"24a","payload":{"status":"PENDING"}},
+      {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-25T10:00:00.000Z","source":"chatby","source_record_id":"24b","payload":{}},
+      {"event_type":"TIMER_STARTED","occurred_at":"2026-07-25T10:00:00.000Z","source":"decision-engine","source_record_id":"24c","payload":{"timer_id":"confirm-24","workflow":"CONFIRMATION_WAIT_1H","deadline_at":"2026-07-25T11:00:00.000Z"}},
+      {"event_type":"TIMER_EXPIRED","occurred_at":"2026-07-25T11:00:00.000Z","source":"scheduler","source_record_id":"24d","payload":{"timer_id":"confirm-24"}},
+      {"event_type":"ACTION_PROPOSED","occurred_at":"2026-07-25T11:01:00.000Z","source":"decision-engine","source_record_id":"24e","payload":{"action":"CONFIRM"}},
+      {"event_type":"ACTION_PROPOSED","occurred_at":"2026-07-25T11:02:00.000Z","source":"decision-engine","source_record_id":"24f","payload":{"action":"CONFIRM"}}
+    ],
+    "expected":{"action":"PROPOSE_CONFIRM","route":"BLOCKED"}
+  },
+  {
+    "id": "critical-risk",
+    "order_id": "fixture-025",
+    "now": "2026-07-26T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-25T09:00:00.000Z","source":"shopify","source_record_id":"25a","freshness_status":"STALE","payload":{"status":"DELIVERED"}},
+      {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T09:00:00.000Z","source":"chatby","source_record_id":"25b","payload":{}}
+    ],
+    "expected":{"action":"NO_ACTION","route":"BLOCKED"}
+  }
+]

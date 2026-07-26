@@ -4,5 +4,10 @@
 *.log
 data/*.json
 !data/.gitkeep
+autoconfirm/data/*.json
+!autoconfirm/data/.gitkeep
+backups/
+*.dump
+*.sha256
 node_modules/
 autoconfirm-sync.log

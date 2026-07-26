@@ -1,0 +1,46 @@
+{
+  email off
+  admin off
+  servers {
+    timeouts {
+      read_body 10s
+      read_header 5s
+      write 30s
+      idle 2m
+    }
+    max_header_size 32kb
+  }
+}
+
+(security_headers) {
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Content-Security-Policy "default-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    -Server
+  }
+  request_body {
+    max_size 256KB
+  }
+}
+
+{$OPS_STAGING_HOST} {
+  import security_headers
+  reverse_proxy review-panel:80
+}
+
+{$API_STAGING_HOST} {
+  import security_headers
+  reverse_proxy api:3200
+}
+
+{$MCP_STAGING_HOST} {
+  import security_headers
+  @mcp path /mcp /health
+  handle @mcp {
+    reverse_proxy mcp-server:3100
+  }
+  respond 404
+}

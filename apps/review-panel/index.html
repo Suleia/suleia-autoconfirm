@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Suleia Operations Staging</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <p class="eyebrow">SULEIA OPERATIONS</p>
+    <h1>Centro de revisión</h1>
+    <p class="lede">Prototipo local con datos ficticios, decisiones simuladas y cero acciones externas.</p>
+  </header>
+  <main>
+    <section class="status">
+      <article><span>Entorno</span><strong>STAGING</strong></article>
+      <article><span>Modo</span><strong>SIMULATION</strong></article>
+      <article><span>Acciones ejecutadas</span><strong>0</strong></article>
+      <article><span>PII</span><strong>ENMASCARADA</strong></article>
+    </section>
+    <section class="board">
+      <div>
+        <p class="eyebrow">COLAS</p>
+        <h2>Revisión controlada</h2>
+        <p>Los casos se separan en deterministas, revisión humana, revisión interactiva y bloqueados.</p>
+      </div>
+      <div class="lanes">
+        <article class="lane green"><b>DETERMINISTIC</b><span>Regla aprobada y evidencia suficiente</span></article>
+        <article class="lane amber"><b>HUMAN_REVIEW</b><span>Riesgo o decisión empresarial</span></article>
+        <article class="lane blue"><b>AI_REVIEW</b><span>Ambigüedad para revisión interactiva</span></article>
+        <article class="lane red"><b>BLOCKED</b><span>Datos stale, contradicción o duplicado</span></article>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
