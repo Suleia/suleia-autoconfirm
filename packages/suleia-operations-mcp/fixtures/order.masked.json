@@ -1,0 +1,67 @@
+{
+  "order": {
+    "order_id": "STG-ORDER-0001",
+    "store_id": "suleia-staging",
+    "status": "PENDING_CONFIRMATION",
+    "product_family": "masked_product",
+    "amount_bucket": "25_50_EUR",
+    "customer_ref": "customer_hash_6e4f2a",
+    "customer_display": "Cliente enmascarado",
+    "phone_token": "phone_hash_91c2f8",
+    "email_token": "email_hash_b1a7d3",
+    "created_offset_minutes": -50,
+    "source_updated_offset_minutes": -2,
+    "requires_review": false,
+    "review_reason": null
+  },
+  "timeline": [
+    {
+      "event_id": "evt_001",
+      "event_type": "order_created",
+      "offset_minutes": -50,
+      "summary": "Pedido creado en staging."
+    },
+    {
+      "event_id": "evt_002",
+      "event_type": "confirmation_requested",
+      "offset_minutes": -48,
+      "summary": "Solicitud de confirmacion registrada."
+    },
+    {
+      "event_id": "evt_003",
+      "event_type": "customer_confirmed",
+      "offset_minutes": -45,
+      "summary": "Senal de confirmacion enmascarada detectada."
+    },
+    {
+      "event_id": "evt_004",
+      "event_type": "confirmation_timer_started",
+      "offset_minutes": -45,
+      "summary": "Temporizador de espera de una hora iniciado."
+    }
+  ],
+  "timers": [
+    {
+      "timer_id": "timer_confirmation_001",
+      "timer_type": "confirmation_wait",
+      "started_offset_minutes": -45,
+      "due_offset_minutes": 15,
+      "status": "ACTIVE"
+    }
+  ],
+  "agent_decisions": [
+    {
+      "decision_id": "decision_current_001",
+      "system": "current",
+      "decision": "CONFIRM_AFTER_DELAY",
+      "confidence": 0.97,
+      "reason_codes": [
+        "CUSTOMER_CONFIRMED",
+        "NO_LATER_CANCELLATION",
+        "WAITING_PERIOD_ACTIVE"
+      ],
+      "offset_minutes": -44,
+      "actions_executed": 0
+    }
+  ]
+}
