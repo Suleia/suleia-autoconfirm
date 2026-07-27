@@ -36,12 +36,14 @@ async function scheduleRequest(task) {
 async function request(path, options = {}) {
   if (!config.chatbyToken) throw new Error('Falta CHATBY_TOKEN.');
   const {
-    maxAttempts: configuredAttempts = 3,
+    maxAttempts: configuredAttempts,
     timeoutMs: configuredTimeout = 20000,
     signal: providedSignal,
     ...requestOptions
   } = options;
-  const maxAttempts = Number(configuredAttempts || 3);
+  const method = String(requestOptions.method || 'GET').toUpperCase();
+  const methodIsReadOnly = method === 'GET' || method === 'HEAD';
+  const maxAttempts = Math.max(1, Number(configuredAttempts ?? (methodIsReadOnly ? 3 : 1)));
   const timeoutMs = Math.max(1000, Number(configuredTimeout || 20000));
   let response;
   let text = '';
@@ -207,7 +209,9 @@ export async function clearSubscriberOrderConfirmationState(userNs) {
 export async function listWhatsappTemplates() {
   const response = await request('/whatsapp-template/list', {
     method: 'POST',
-    body: JSON.stringify({ page: 1, limit: 200 })
+    body: JSON.stringify({ page: 1, limit: 200 }),
+    // This POST is a read-only listing operation and is safe to retry.
+    maxAttempts: 3
   });
   return response?.data ?? response;
 }
@@ -216,6 +220,7 @@ export async function checkChatbyConnection() {
   const response = await request('/whatsapp-template/list', {
     method: 'POST',
     body: JSON.stringify({ page: 1, limit: 1 }),
+    // This POST is a read-only health query and is safe to retry.
     maxAttempts: 2,
     timeoutMs: 10000
   });
