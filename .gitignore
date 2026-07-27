@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.vps.example
 *.log
 data/*.json
 !data/.gitkeep

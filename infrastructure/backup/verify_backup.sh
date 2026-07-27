@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck shell=sh
 set -eu
 test -n "${1:-}" || { echo "Usage: verify_backup.sh /backups/file.dump"; exit 1; }
 sha256sum -c "${1}.sha256"

@@ -34,6 +34,11 @@ if ! id "${ADMIN_USER}" >/dev/null 2>&1; then
 fi
 
 usermod -aG sudo "${ADMIN_USER}"
+printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "${ADMIN_USER}" \
+  > "/etc/sudoers.d/90-${ADMIN_USER}"
+chmod 0440 "/etc/sudoers.d/90-${ADMIN_USER}"
+visudo -cf "/etc/sudoers.d/90-${ADMIN_USER}"
+
 install -d -m 700 -o "${ADMIN_USER}" -g "${ADMIN_USER}" \
   "/home/${ADMIN_USER}/.ssh"
 printf '%s\n' "${PUBLIC_KEY}" \
@@ -103,4 +108,3 @@ Next:
 
 Ports 80 and 443 remain closed.
 EOF
-

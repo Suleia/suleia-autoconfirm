@@ -48,8 +48,8 @@ services:
     image: caddy:2.10-alpine
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
     environment:
       OPS_STAGING_HOST: ${OPS_STAGING_HOST:-ops-staging.localhost}
       API_STAGING_HOST: ${API_STAGING_HOST:-api-staging.localhost}
@@ -194,7 +194,7 @@ services:
     environment:
       PGHOST: postgres
       PGDATABASE: ${POSTGRES_DB:-suleia_staging}
-      PGUSER: suleia_backup
+      PGUSER: suleia_backup_login
       PGPASSWORD: ${SULEIA_BACKUP_PASSWORD}
     volumes:
       - ../backup:/opt/suleia/backup:ro

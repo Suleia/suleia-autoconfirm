@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck shell=sh
 set -eu
 umask 077
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"

@@ -20,7 +20,10 @@ if [[ ! -s "${AUTHORIZED_KEYS}" ]]; then
   exit 1
 fi
 
-cat > /etc/ssh/sshd_config.d/99-suleia-hardening.conf <<'EOF'
+HARDENING_CONFIG="/etc/ssh/sshd_config.d/00-suleia-hardening.conf"
+LEGACY_HARDENING_CONFIG="/etc/ssh/sshd_config.d/99-suleia-hardening.conf"
+
+cat > "${HARDENING_CONFIG}" <<'EOF'
 PermitRootLogin no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
@@ -32,8 +35,15 @@ MaxAuthTries 3
 LoginGraceTime 30
 EOF
 
+rm -f "${LEGACY_HARDENING_CONFIG}"
 sshd -t
 systemctl reload ssh
 
-echo "SSH hardening completed. Root and password login are disabled."
+if [[ "$(sshd -T | awk '/^permitrootlogin / {print $2}')" != "no" ]] \
+  || [[ "$(sshd -T | awk '/^passwordauthentication / {print $2}')" != "no" ]] \
+  || [[ "$(sshd -T | awk '/^kbdinteractiveauthentication / {print $2}')" != "no" ]]; then
+  echo "SSH hardening validation failed." >&2
+  exit 1
+fi
 
+echo "SSH hardening completed and validated."
