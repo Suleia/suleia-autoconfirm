@@ -31,3 +31,16 @@ OVHcloud VPS-2 is the preliminary cost/value candidate because it currently adve
 ## D-008: No OpenAI API dependency
 
 The new platform does not call OpenAI or another paid LLM API. Interactive ChatGPT access is through the read-only MCP endpoint only.
+
+## D-009: Fail closed when Shopify cannot be read with GET only
+
+The daily real-order batch treats Shopify as the authoritative source for the
+set of orders created today. A current-system cache cannot prove completeness.
+
+On 2026-07-27 the mandatory preview found no Shopify Admin access token or shop
+domain in the target Render service. Only client credentials were present and
+their token exchange requires `POST`, which the checkpoint prohibits.
+
+The batch therefore stopped before reading orders or querying dependent
+sources. It must remain `ABORTED` until a pre-existing GET-compatible Shopify
+credential is available without changing production.

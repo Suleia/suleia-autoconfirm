@@ -1,6 +1,6 @@
 # Current status
 
-Date: 2026-07-26
+Updated: 2026-07-27
 
 ## Completed locally
 
@@ -34,24 +34,24 @@ Date: 2026-07-26
 
 ## Explicitly not done
 
-- No VPS has been purchased.
 - No DNS has been changed.
 - Nothing has been deployed publicly.
 - No production data or credentials have been imported.
 - No live webhook, cron, polling or external write has been enabled.
 - Render and Supabase production remain untouched.
 
-## Local limitation
+## Runtime validation
 
-Docker is not installed on this workstation. Compose has therefore been inspected statically but has not yet completed a real container start.
-
-PostgreSQL is not installed locally, so the SQL migrations have not yet been executed by a database engine. Static checks and application tests do not replace that integration gate.
+Docker and PostgreSQL are not installed on the workstation. The corresponding
+runtime checks were instead completed on the private Contabo VPS: the Compose
+stack is healthy, database roles were inspected, and backup plus isolated
+restore passed.
 
 ## Current authorization gate
 
-The next step is final Contabo checkout review and explicit payment
-confirmation. No purchase, payment or provisioning may occur before that
-confirmation.
+The all-orders-today batch cannot proceed until a pre-existing GET-compatible
+Shopify Admin access token and shop domain are available to the runner without
+modifying production. No token exchange using `POST` is permitted.
 
 ## Safety invariant
 
@@ -62,4 +62,24 @@ Every staging decision must contain:
   "run_mode": "SIMULATION",
   "actions_executed": 0
 }
+```
+
+## VPS and daily real-order checkpoint
+
+The Contabo staging platform is now deployed privately and verified. Nine
+containers are healthy, backup and restore were rehearsed, and public
+application ingress remains disabled.
+
+The GET-only all-orders-today pipeline is implemented and tested. Its
+2026-07-27 live preview stopped safely with
+`SHOPIFY_GET_CREDENTIALS_MISSING`: Render exposes Shopify client credentials
+but not an Admin access token or shop domain. Token exchange would require a
+forbidden `POST`.
+
+No orders were read, no masked real batch was persisted, Render and Supabase
+were not modified, and the result remains:
+
+```text
+ACTIONS_EXECUTED=0
+PII_PERSISTED_COUNT=0
 ```

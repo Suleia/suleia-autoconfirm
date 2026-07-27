@@ -1,6 +1,6 @@
 # Execution checkpoints
 
-Date: 2026-07-26
+Updated: 2026-07-27
 
 ## Checkpoint A - Audit
 
@@ -38,18 +38,29 @@ Status: complete for static and application-level gates.
 - Every simulation reports `actions_executed = 0` and `run_mode = SIMULATION`.
 - Critical risk is blocked. UNKNOWN cases remain `UNKNOWN` after 72 hours, emit an administrative alert, move to human review and execute no action.
 
-## Checkpoints D-G
+## Checkpoint D - Private VPS staging
 
-Status: provider research and Contabo host preparation complete; final checkout
-confirmation required before D.
+Status: complete and verified.
 
-- D: VPS staging, hardening, HTTPS, identity provider, backups and monitoring.
-- E: one real masked order.
-- F: masked batch of 5-10 orders.
-- G: parallel comparison with the current system.
+- Contabo VPS provisioned and hardened with key-only SSH.
+- Root and password SSH logins disabled.
+- Application ingress remains private; Caddy binds to loopback.
+- Nine containers healthy.
+- PostgreSQL is isolated from public networks.
+- Backup and isolated restore drill passed.
+- Twenty-five fixture simulations and fifteen MCP tests passed.
 
-No step beyond Checkpoint C may start without explicit authorization.
+## Checkpoint E-G replacement - All orders created today
 
-The proposed Checkpoint D target is Contabo Cloud VPS 6 in the European Union,
-on a one-month contract with Auto Backup, approximately EUR 13.13/month
-including Spanish VAT. No VPS has been purchased or provisioned.
+Status: `ABORTED` at the mandatory preview gate on 2026-07-27.
+
+The owner replaced the former one-order and small-batch limits with a single
+authorized scope: every order created on the Europe/Madrid business date. The
+GET-only pipeline and safety tests are complete.
+
+The live preview could not consult Shopify because the Render service lacks a
+Shopify Admin access token and shop domain. Client-credential exchange would
+require prohibited `POST`. No orders were read, no real batch was persisted,
+and no production action occurred.
+
+Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.
