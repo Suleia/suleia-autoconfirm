@@ -5,6 +5,8 @@ param(
   [string]$OutputPath = '',
   [string]$RenderServiceId = 'srv-d8dkdrf40ujc73cpskag',
   [string]$RenderTokenSecureFile = 'C:\Users\samue\OneDrive\Documentos\Suleia\private-secrets\render-token.secure.txt',
+  [string]$RenderTokenBridgeKeyFile = '',
+  [switch]$DeleteTokenBridge,
   [string]$NodeExecutable = 'C:\Users\samue\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
 )
 
@@ -19,6 +21,7 @@ $sensitiveNames = @(
 )
 $bstr = [IntPtr]::Zero
 $renderToken = $null
+$bridgeKey = $null
 
 function Set-BatchEnvironment {
   param([hashtable]$RenderEnvironment)
@@ -102,7 +105,12 @@ try {
   $renderEnvironment = @{}
   if ($Mode -ne 'preflight') {
     $encrypted = (Get-Content -Raw -LiteralPath $RenderTokenSecureFile).Trim()
-    $secureToken = ConvertTo-SecureString $encrypted
+    $secureToken = if ($RenderTokenBridgeKeyFile) {
+      $bridgeKey = [IO.File]::ReadAllBytes($RenderTokenBridgeKeyFile)
+      ConvertTo-SecureString $encrypted -Key $bridgeKey
+    } else {
+      ConvertTo-SecureString $encrypted
+    }
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
     $renderToken = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     $headers = @{
@@ -130,5 +138,12 @@ try {
   $renderToken = $null
   if ($bstr -ne [IntPtr]::Zero) {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  }
+  if ($null -ne $bridgeKey) {
+    [Array]::Clear($bridgeKey, 0, $bridgeKey.Length)
+  }
+  if ($DeleteTokenBridge -and $RenderTokenBridgeKeyFile) {
+    Remove-Item -LiteralPath $RenderTokenSecureFile -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $RenderTokenBridgeKeyFile -Force -ErrorAction SilentlyContinue
   }
 }
