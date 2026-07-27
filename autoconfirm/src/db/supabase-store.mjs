@@ -145,7 +145,14 @@ export async function claimTemplateDelivery({
   provider = '',
   chatbyUserNs = ''
 } = {}) {
-  if (!isSupabaseEnabled()) return { acquired: true, persistent: false, reason: 'supabase_not_configured' };
+  if (!isSupabaseEnabled()) {
+    return {
+      acquired: false,
+      persistent: false,
+      reason: 'persistent_dedupe_unavailable',
+      error: 'Supabase template delivery ledger is not configured.'
+    };
+  }
   const templateKey = deliveryKey({ storeId, orderId, templateName });
   const row = {
     template_key: templateKey,

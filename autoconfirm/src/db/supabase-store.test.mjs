@@ -1,9 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  claimTemplateDelivery,
   incidentHistoryRowsForSupabase,
   incidentRowForSupabase
 } from './supabase-store.mjs';
+
+test('fails closed when the persistent template delivery ledger is unavailable', async () => {
+  const claim = await claimTemplateDelivery({
+    storeId: 'suleia',
+    orderId: 'test-order',
+    customerPhone: 'test-phone',
+    templateName: 'es_ES dropea_pedido_nuevo_v1',
+    provider: 'chatby',
+    chatbyUserNs: 'test-user'
+  });
+
+  assert.equal(claim.acquired, false);
+  assert.equal(claim.persistent, false);
+  assert.equal(claim.reason, 'persistent_dedupe_unavailable');
+});
 
 test('maps the current carrier incident and preserves its complete history', () => {
   const incident = {

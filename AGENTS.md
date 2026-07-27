@@ -23,6 +23,10 @@ Before proposing or changing anything, read:
 
 ## Safety rules
 
+- Never open, launch or control a web browser for this project. Do not use the
+  Browser plugin, browser automation or interactive browser sessions. Use
+  non-browser alternatives such as approved connectors, APIs or CLI tools; if
+  a task has no safe non-browser path, stop and ask the user for direction.
 - Never commit, print or request plaintext credentials.
 - Secrets belong only in trusted local secret storage, Render environment
   variables or another approved secret manager.
