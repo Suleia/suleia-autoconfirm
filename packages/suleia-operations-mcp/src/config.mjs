@@ -29,11 +29,23 @@ export function loadConfig(overrides = {}) {
     fixturePath: path.join(packageRoot, 'fixtures', 'order.masked.json'),
     authMode: process.env.MCP_AUTH_MODE || 'bearer',
     bearerToken: process.env.MCP_STAGING_BEARER_TOKEN || '',
-    grantedScopes: list('MCP_GRANTED_SCOPES', ['orders:read', 'orders:simulate']),
+    grantedScopes: list('MCP_GRANTED_SCOPES', [
+      'orders:read',
+      'timelines:read',
+      'decisions:read',
+      'reviews:read',
+      'orders:simulate'
+    ]),
     allowedOrigins: list('MCP_ALLOWED_ORIGINS'),
-    rateLimitPerMinute: integer('MCP_RATE_LIMIT_PER_MINUTE', 60),
+    rateLimitPerMinute: integer('MCP_RATE_LIMIT_PER_MINUTE', 30),
+    requestBodyLimit: process.env.MCP_REQUEST_BODY_LIMIT || '64kb',
+    toolTimeoutMs: integer('MCP_TOOL_TIMEOUT_MS', 10_000),
+    maxResponseBytes: integer('MCP_MAX_RESPONSE_BYTES', 51_200),
+    publicEndpointEnabled: bool('MCP_PUBLIC_ENDPOINT_ENABLED', false),
     auditMode: process.env.MCP_AUDIT_MODE || 'stderr',
     auditLogPath: process.env.MCP_AUDIT_LOG_PATH || '',
+    auditPolicyVersion: process.env.MCP_AUDIT_POLICY_VERSION || '2026-07-28',
+    maskingPolicyVersion: process.env.MCP_MASKING_POLICY_VERSION || '2026-07-28',
     supabaseUrl: process.env.SUPABASE_STAGING_URL || '',
     supabaseReaderToken: process.env.SUPABASE_STAGING_READER_TOKEN || '',
     supabaseSchema: process.env.SUPABASE_STAGING_SCHEMA || 'mcp_read',
@@ -44,6 +56,15 @@ export function loadConfig(overrides = {}) {
     productionWritesEnabled: bool('PRODUCTION_WRITES_ENABLED', false),
     actionExecutorEnabled: bool('ACTION_EXECUTOR_ENABLED', false),
     writeToolsEnabled: bool('MCP_WRITE_TOOLS_ENABLED', false),
+    openAiApiEnabled: bool('OPENAI_API_ENABLED', false),
+    openAiApiAutomationEnabled: bool('OPENAI_API_AUTOMATION_ENABLED', false),
+    openAiResponsesApiEnabled: bool('OPENAI_RESPONSES_API_ENABLED', false),
+    openAiAssistantsApiEnabled: bool('OPENAI_ASSISTANTS_API_ENABLED', false),
+    openAiChatCompletionsEnabled: bool('OPENAI_CHAT_COMPLETIONS_ENABLED', false),
+    externalLlmCallsEnabled: bool('EXTERNAL_LLM_CALLS_ENABLED', false),
+    localLlmEnabled: bool('LOCAL_LLM_ENABLED', false),
+    realDataWriteEnabled: bool('REAL_DATA_WRITE_ENABLED', false),
+    connectorWriteEnabled: bool('CONNECTOR_WRITE_ENABLED', false),
     ...overrides
   };
 
@@ -58,6 +79,31 @@ export function assertSafetyInvariants(config) {
   if (config.productionWritesEnabled) violations.push('PRODUCTION_WRITES_ENABLED must be false');
   if (config.actionExecutorEnabled) violations.push('ACTION_EXECUTOR_ENABLED must be false');
   if (config.writeToolsEnabled) violations.push('MCP_WRITE_TOOLS_ENABLED must be false');
+  if (config.openAiApiEnabled) violations.push('OPENAI_API_ENABLED must be false');
+  if (config.openAiApiAutomationEnabled) violations.push('OPENAI_API_AUTOMATION_ENABLED must be false');
+  if (config.openAiResponsesApiEnabled) violations.push('OPENAI_RESPONSES_API_ENABLED must be false');
+  if (config.openAiAssistantsApiEnabled) violations.push('OPENAI_ASSISTANTS_API_ENABLED must be false');
+  if (config.openAiChatCompletionsEnabled) violations.push('OPENAI_CHAT_COMPLETIONS_ENABLED must be false');
+  if (config.externalLlmCallsEnabled) violations.push('EXTERNAL_LLM_CALLS_ENABLED must be false');
+  if (config.localLlmEnabled) violations.push('LOCAL_LLM_ENABLED must be false');
+  if (config.realDataWriteEnabled) violations.push('REAL_DATA_WRITE_ENABLED must be false');
+  if (config.connectorWriteEnabled) violations.push('CONNECTOR_WRITE_ENABLED must be false');
+  if (process.env.OPENAI_API_KEY) violations.push('OPENAI_API_KEY must not be present');
+  if (config.publicEndpointEnabled && config.authMode !== 'oauth') {
+    violations.push('Public MCP endpoints require OAuth');
+  }
+  if (config.authMode !== 'bearer') {
+    violations.push('Only private bearer mode is implemented; OAuth must be added and verified before public exposure');
+  }
+  if (config.rateLimitPerMinute < 1 || config.rateLimitPerMinute > 30) {
+    violations.push('MCP_RATE_LIMIT_PER_MINUTE must be between 1 and 30');
+  }
+  if (config.toolTimeoutMs < 100 || config.toolTimeoutMs > 30_000) {
+    violations.push('MCP_TOOL_TIMEOUT_MS must be between 100 and 30000');
+  }
+  if (config.maxResponseBytes < 1_024 || config.maxResponseBytes > 51_200) {
+    violations.push('MCP_MAX_RESPONSE_BYTES must be between 1024 and 51200');
+  }
   if (!['fixture', 'supabase'].includes(config.dataMode)) violations.push('MCP_DATA_MODE must be fixture or supabase');
   if (config.dataMode === 'supabase') {
     if (!config.supabaseUrl || !config.supabaseReaderToken) {

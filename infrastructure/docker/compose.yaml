@@ -9,7 +9,13 @@ x-safety-environment: &safety-environment
   MCP_WRITE_TOOLS_ENABLED: ${MCP_WRITE_TOOLS_ENABLED:-false}
   OPENAI_API_ENABLED: ${OPENAI_API_ENABLED:-false}
   OPENAI_API_AUTOMATION_ENABLED: ${OPENAI_API_AUTOMATION_ENABLED:-false}
+  OPENAI_RESPONSES_API_ENABLED: ${OPENAI_RESPONSES_API_ENABLED:-false}
+  OPENAI_ASSISTANTS_API_ENABLED: ${OPENAI_ASSISTANTS_API_ENABLED:-false}
+  OPENAI_CHAT_COMPLETIONS_ENABLED: ${OPENAI_CHAT_COMPLETIONS_ENABLED:-false}
   EXTERNAL_LLM_CALLS_ENABLED: ${EXTERNAL_LLM_CALLS_ENABLED:-false}
+  LOCAL_LLM_ENABLED: ${LOCAL_LLM_ENABLED:-false}
+  REAL_DATA_WRITE_ENABLED: ${REAL_DATA_WRITE_ENABLED:-false}
+  CONNECTOR_WRITE_ENABLED: ${CONNECTOR_WRITE_ENABLED:-false}
   LIVE_WEBHOOKS_ENABLED: ${LIVE_WEBHOOKS_ENABLED:-false}
   LIVE_CRON_ENABLED: ${LIVE_CRON_ENABLED:-false}
   LIVE_POLLING_ENABLED: ${LIVE_POLLING_ENABLED:-false}
@@ -32,6 +38,7 @@ x-node-service: &node-service
     - no-new-privileges:true
   cap_drop:
     - ALL
+  pids_limit: 128
   logging:
     driver: json-file
     options:
@@ -98,9 +105,13 @@ services:
       READ_ONLY: "true"
       MCP_DATA_MODE: fixture
       MCP_AUTH_MODE: bearer
+      MCP_PUBLIC_ENDPOINT_ENABLED: "false"
       MCP_STAGING_BEARER_TOKEN: ${MCP_STAGING_BEARER_TOKEN}
-      MCP_GRANTED_SCOPES: orders:read,orders:simulate
-      MCP_RATE_LIMIT_PER_MINUTE: 60
+      MCP_GRANTED_SCOPES: orders:read,timelines:read,decisions:read,reviews:read,orders:simulate
+      MCP_RATE_LIMIT_PER_MINUTE: 30
+      MCP_REQUEST_BODY_LIMIT: 64kb
+      MCP_TOOL_TIMEOUT_MS: 10000
+      MCP_MAX_RESPONSE_BYTES: 51200
       MCP_AUDIT_MODE: stderr
     networks:
       - application_network

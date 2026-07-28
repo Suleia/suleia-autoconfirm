@@ -19,7 +19,12 @@ for (const unsafe of [
   { simulationOnly: false },
   { productionWritesEnabled: true },
   { actionExecutorEnabled: true },
-  { writeToolsEnabled: true }
+  { writeToolsEnabled: true },
+  { openAiApiEnabled: true },
+  { externalLlmCallsEnabled: true },
+  { realDataWriteEnabled: true },
+  { connectorWriteEnabled: true },
+  { publicEndpointEnabled: true }
 ]) {
   test(`unsafe configuration is rejected: ${Object.keys(unsafe)[0]}`, () => {
     assert.throws(() => assertSafetyInvariants({
@@ -29,6 +34,10 @@ for (const unsafe of [
       productionWritesEnabled: false,
       actionExecutorEnabled: false,
       writeToolsEnabled: false,
+      authMode: 'bearer',
+      rateLimitPerMinute: 30,
+      toolTimeoutMs: 10_000,
+      maxResponseBytes: 51_200,
       ...unsafe
     }), /Unsafe MCP configuration/);
   });

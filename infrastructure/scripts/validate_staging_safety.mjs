@@ -36,7 +36,13 @@ const requiredValues = new Map([
   ['MCP_WRITE_TOOLS_ENABLED', 'false'],
   ['OPENAI_API_ENABLED', 'false'],
   ['OPENAI_API_AUTOMATION_ENABLED', 'false'],
+  ['OPENAI_RESPONSES_API_ENABLED', 'false'],
+  ['OPENAI_ASSISTANTS_API_ENABLED', 'false'],
+  ['OPENAI_CHAT_COMPLETIONS_ENABLED', 'false'],
   ['EXTERNAL_LLM_CALLS_ENABLED', 'false'],
+  ['LOCAL_LLM_ENABLED', 'false'],
+  ['REAL_DATA_WRITE_ENABLED', 'false'],
+  ['CONNECTOR_WRITE_ENABLED', 'false'],
   ['LIVE_WEBHOOKS_ENABLED', 'false'],
   ['LIVE_CRON_ENABLED', 'false'],
   ['LIVE_POLLING_ENABLED', 'false'],
@@ -86,6 +92,9 @@ requireMatch(eventStore, /Object\.freeze/, 'Event Store must freeze accepted eve
 requireMatch(decisionEngine, /actions_executed:\s*0/, 'Decision engine must return actions_executed=0');
 requireMatch(mcpConfig, /MCP_WRITE_TOOLS_ENABLED must be false/, 'MCP must reject write tools');
 requireMatch(mcpConfig, /PRODUCTION_WRITES_ENABLED must be false/, 'MCP must reject production writes');
+requireMatch(mcpConfig, /OPENAI_API_KEY must not be present/, 'MCP must reject an OpenAI API key');
+requireMatch(compose, /MCP_PUBLIC_ENDPOINT_ENABLED: "false"/, 'MCP public endpoint must remain disabled');
+requireMatch(compose, /MCP_RATE_LIMIT_PER_MINUTE: 30/, 'MCP must enforce the 30 requests per minute limit');
 requireMatch(
   mcpViews,
   /REVOKE ALL ON ALL TABLES IN SCHEMA core, events, decisions, configuration/,
