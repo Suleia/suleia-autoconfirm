@@ -1,6 +1,6 @@
 # Incident return-to-origin policy
 
-Version: `vps-staging-v1`  
+Version: `vps-staging-v1`
 Mode: `SIMULATION`
 
 ## Deterministic rule

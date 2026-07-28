@@ -1,6 +1,6 @@
 # Incident agency-pickup policy
 
-Version: `vps-staging-v1`  
+Version: `vps-staging-v1`
 Mode: `SIMULATION`
 
 `MARK_AGENCY_PICKUP` is proposed only when current independent carrier or
