@@ -61,3 +61,63 @@ test('keeps bounded retries for read-only Chatby requests', async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+test('blocks every repository path for Chatby-owned lifecycle templates', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  let calls = 0;
+  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  try {
+    for (const name of [
+      'dropea_pedido_nuevo_v1',
+      'dropea_pedido_preparado_v1',
+      'dropea_incidencia_mercancia_v1'
+    ]) {
+      await assert.rejects(
+        sendWhatsappTemplate({
+          user_ns: 'test-user',
+          user_id: 'test-recipient',
+          content: { name, lang: 'es_ES', params: {} }
+        }),
+        (error) => error?.code === 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER'
+      );
+    }
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
+
+test('does not block unrelated templates when Chatby owns lifecycle sends', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  let calls = 0;
+  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true, mid: 'wamid.allowed' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    await sendWhatsappTemplate({
+      user_ns: 'test-user',
+      user_id: 'test-recipient',
+      content: { name: 'suleia_otro_aviso_v1', lang: 'es_ES', params: {} }
+    });
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});

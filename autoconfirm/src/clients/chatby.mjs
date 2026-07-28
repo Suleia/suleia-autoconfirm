@@ -10,6 +10,37 @@ let requestQueue = Promise.resolve();
 let nextRequestAt = 0;
 let rateLimitedUntil = 0;
 
+const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
+  'dropea_pedido_nuevo_v1',
+  'dropea_pedido_preparado_v1',
+  'dropea_incidencia_mercancia_v1'
+]);
+
+function templateSlug(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/^[a-z]{2}_[a-z]{2}\s+/, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function assertRepositoryOwnsTemplate(payload) {
+  const owner = String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository')
+    .trim()
+    .toLowerCase();
+  const name = payload?.template_name
+    || payload?.templateName
+    || payload?.content?.name
+    || payload?.content?.template_name;
+  if (owner !== 'chatby_native' || !CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(name))) return;
+
+  const error = new Error('Lifecycle template blocked: Chatby native automation is the configured single sender.');
+  error.code = 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER';
+  throw error;
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -118,9 +149,11 @@ export async function createSubscriber(payload) {
 }
 
 export async function sendWhatsappTemplate(payload) {
+  assertRepositoryOwnsTemplate(payload);
   if (!payload.content) {
     payload = await buildWhatsappTemplatePayload(payload);
   }
+  assertRepositoryOwnsTemplate(payload);
 
   return request('/subscriber/send-whatsapp-template', {
     method: 'POST',
