@@ -28,6 +28,10 @@ import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
 import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
+import {
+  previewIncidentDiscountTest,
+  sendAuthorizedIncidentDiscountTest
+} from './src/workflows/incident-discount-service.mjs';
 
 const config = getAppConfig();
 dns.setDefaultResultOrder('ipv4first');
@@ -511,6 +515,24 @@ const server = http.createServer(async (req, res) => {
         },
         dashboard
       });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/incident-discounts/preview-test') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      const result = await previewIncidentDiscountTest({ phone: body.phone });
+      return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/incident-discounts/send-test') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      const result = await sendAuthorizedIncidentDiscountTest({
+        phone: body.phone,
+        authorization: body.authorization
+      });
+      dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: true, result });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-feedback') {

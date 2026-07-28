@@ -215,6 +215,14 @@ export async function finishTemplateDelivery({
   }, { onConflict: 'template_key' });
 }
 
+export async function listTemplateDeliveries({ limit = 200 } = {}) {
+  if (!isSupabaseEnabled()) return [];
+  return selectRows('template_delivery_ledger', {
+    query: { order: 'updated_at.desc' },
+    limit: Math.max(1, Math.min(500, Number(limit) || 200))
+  });
+}
+
 function operationalOrderRow(order = {}) {
   return {
     order_id: String(order.orderId || '').trim(),

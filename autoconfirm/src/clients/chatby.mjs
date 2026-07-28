@@ -239,10 +239,10 @@ export async function clearSubscriberOrderConfirmationState(userNs) {
   return { ok: true, results };
 }
 
-export async function listWhatsappTemplates() {
+export async function listWhatsappTemplates({ page = 1, limit = 200 } = {}) {
   const response = await request('/whatsapp-template/list', {
     method: 'POST',
-    body: JSON.stringify({ page: 1, limit: 200 }),
+    body: JSON.stringify({ page, limit }),
     // This POST is a read-only listing operation and is safe to retry.
     maxAttempts: 3
   });

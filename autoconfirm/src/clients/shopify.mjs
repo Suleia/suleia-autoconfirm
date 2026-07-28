@@ -73,7 +73,7 @@ function normalizeShopifyOrder(node) {
     currencyCode: total.currencyCode || 'EUR',
     customerName: customer.displayName || billingAddress.name || '',
     customerEmail: customer.email || node?.email || '',
-    customerPhone: customer.phone || node?.phone || billingAddress.phone || '',
+    customerPhone: customer.defaultPhoneNumber?.phoneNumber || node?.phone || billingAddress.phone || '',
     products: lineItems.map((item) => ({
       title: item?.product?.title || item?.name || '',
       handle: item?.product?.handle || '',
@@ -108,7 +108,9 @@ export async function listRecentShopifyOrders({ first = 100, query = null } = {}
           customer {
             displayName
             email
-            phone
+            defaultPhoneNumber {
+              phoneNumber
+            }
           }
           billingAddress {
             name

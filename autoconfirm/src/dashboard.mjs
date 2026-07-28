@@ -11,7 +11,13 @@ import { chatWithOperationsAgent } from './clients/openai.mjs';
 import { appendAgentMemoryRule, getAgentMemoryRules, getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
 import { loadIncidentsCache } from './workflows/incidents.mjs';
 import { loadOperationalOrdersCache } from './workflows/operational-orders.mjs';
-import { syncAgentChatToSupabase, syncAgentFeedbackToSupabase, syncAgentMemoryRuleToSupabase } from './db/supabase-store.mjs';
+import {
+  listTemplateDeliveries,
+  syncAgentChatToSupabase,
+  syncAgentFeedbackToSupabase,
+  syncAgentMemoryRuleToSupabase
+} from './db/supabase-store.mjs';
+import { classifyIncidentDiscountResponse } from './workflows/incident-discount-policy.mjs';
 
 const config = getAppConfig();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +43,65 @@ function normalize(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+function safeObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isDiscountTemplate(value) {
+  return normalize(value).replace(/[^a-z0-9]+/g, '_').includes('dropea_incidencia_descuento_5');
+}
+
+async function buildIncidentDiscountRows(orders = []) {
+  let ledgerRows = [];
+  try {
+    ledgerRows = (await listTemplateDeliveries({ limit: 200 }))
+      .filter((row) => isDiscountTemplate(row.template_name))
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
+
+  const byOrderId = new Map((Array.isArray(orders) ? orders : []).map((order) => [String(order.orderId), order]));
+  const rows = [];
+  for (const ledger of ledgerRows) {
+    const order = byOrderId.get(String(ledger.order_id)) || {};
+    const raw = safeObject(ledger.raw);
+    let response = { status: String(ledger.status || '').toUpperCase() || 'UNKNOWN', respondedAt: null };
+    if (ledger.chatby_user_ns && ['sent', 'already_seen'].includes(String(ledger.status || '').toLowerCase())) {
+      try {
+        response = classifyIncidentDiscountResponse(
+          await getChatMessages(ledger.chatby_user_ns),
+          ledger.template_name
+        );
+      } catch {
+        response = { status: 'STATUS_UNAVAILABLE', respondedAt: null };
+      }
+    }
+    const phone = String(order.phone || ledger.customer_phone || '').replace(/\D/g, '');
+    rows.push({
+      orderId: String(ledger.order_id || ''),
+      customer: order.customer || (phone ? `Cliente ***${phone.slice(-3)}` : 'Cliente'),
+      product: order.product || 'Producto',
+      originalAmount: raw.originalAmount || order.amount || null,
+      finalAmount: raw.finalAmount || (Number.isFinite(Number(order.amount)) ? Math.max(0, Number(order.amount) - 5) : null),
+      discountAmount: 5,
+      sentAt: ledger.sent_at || ledger.attempted_at || null,
+      deliveryStatus: String(ledger.status || '').toUpperCase(),
+      responseStatus: response.status,
+      respondedAt: response.respondedAt,
+      mode: raw.mode || 'AUTOMATION'
+    });
+  }
+  return rows;
 }
 
 function numberFrom(value) {
@@ -1945,6 +2010,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
   };
   const orders = mergedOrders
     .map(enrichOrderForAgent);
+  const discounts = await buildIncidentDiscountRows(orders);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
   const manualReview = orders.filter(isManualReview);
@@ -1994,6 +2060,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
     },
     finance,
     orders: sortOrdersRecentFirst(orders),
+    discounts,
     decisions: latest(decisions, 'date', 40),
     feedback: latest(feedback, 'createdAt', 40),
     incidentFeedback: latest(incidentFeedback, 'createdAt', 40),

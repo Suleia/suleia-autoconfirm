@@ -12,6 +12,7 @@ const titles = {
   overview: 'Vista general',
   orders: 'Pedidos',
   incidents: 'Incidencias',
+  discounts: 'Descuentos',
   agent: 'Control del agente',
   meta: 'Meta Ads',
   products: 'Productos',
@@ -712,6 +713,53 @@ function renderIncidents() {
       </tr>
     `;
   }).join('') || '<tr><td colspan="8">No hay incidencias pendientes para mostrar.</td></tr>';
+}
+
+function discountStatusLabel(status) {
+  const value = String(status || '').toUpperCase();
+  if (value === 'DISCOUNT_ACCEPTED') return ['Quiere el descuento', 'positive'];
+  if (value === 'DISCOUNT_REJECTED') return ['No quiere el pedido', 'danger'];
+  if (value === 'NO_RESPONSE') return ['Sin respuesta', 'warning'];
+  if (value === 'OTHER_RESPONSE') return ['Otra respuesta', 'warning'];
+  if (value === 'STATUS_UNAVAILABLE') return ['Pendiente de verificar', 'neutral'];
+  return [value || 'Pendiente', 'neutral'];
+}
+
+function renderDiscounts() {
+  const rows = (state.dashboard?.discounts || []).filter((item) => matchesQuery([
+    item.orderId,
+    item.customer,
+    item.product,
+    item.responseStatus
+  ]));
+  const accepted = rows.filter((item) => item.responseStatus === 'DISCOUNT_ACCEPTED').length;
+  const rejected = rows.filter((item) => item.responseStatus === 'DISCOUNT_REJECTED').length;
+  const unanswered = rows.filter((item) => item.responseStatus === 'NO_RESPONSE').length;
+  const summary = document.querySelector('#discounts-summary');
+  const table = document.querySelector('#discounts-table');
+  if (summary) {
+    summary.innerHTML = `
+      <article class="order-summary-card neutral"><span>Enviadas</span><strong>${rows.length}</strong><small>Plantillas verificadas</small></article>
+      <article class="order-summary-card positive"><span>Quieren descuento</span><strong>${accepted}</strong><small>BotÃ³n afirmativo</small></article>
+      <article class="order-summary-card danger"><span>No quieren pedido</span><strong>${rejected}</strong><small>BotÃ³n de rechazo</small></article>
+      <article class="order-summary-card warning"><span>Sin respuesta</span><strong>${unanswered}</strong><small>Sin mensaje ni acciÃ³n</small></article>
+    `;
+  }
+  if (!table) return;
+  table.innerHTML = rows.length ? rows.map((item) => {
+    const [label, tone] = discountStatusLabel(item.responseStatus);
+    return `
+      <tr>
+        <td><strong>#${escapeHtml(item.orderId)}</strong><small>${escapeHtml(item.mode === 'AUTHORIZED_SINGLE_TEST' ? 'Prueba autorizada' : 'AutomÃ¡tico')}</small></td>
+        <td>${escapeHtml(item.customer)}</td>
+        <td>${escapeHtml(item.product)}</td>
+        <td>${money(item.originalAmount)}</td>
+        <td><strong>${money(item.finalAmount)}</strong><small>Descuento: 5 â‚¬</small></td>
+        <td>${formatDateTime(item.sentAt)}</td>
+        <td><span class="pill ${tone}">${escapeHtml(label)}</span>${item.respondedAt ? `<small>${formatDateTime(item.respondedAt)}</small>` : ''}</td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="7"><div class="empty-state">TodavÃ­a no hay descuentos enviados.</div></td></tr>';
 }
 
 function renderCampaigns() {
@@ -1460,6 +1508,11 @@ function render() {
 
   if (state.section === 'incidents') {
     renderIncidents();
+    return;
+  }
+
+  if (state.section === 'discounts') {
+    renderDiscounts();
     return;
   }
 

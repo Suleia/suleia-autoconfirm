@@ -21,6 +21,7 @@
           <button class="nav-item is-active" data-section="overview">Vista general</button>
           <button class="nav-item" data-section="orders">Pedidos</button>
           <button class="nav-item" data-section="incidents">Incidencias</button>
+          <button class="nav-item" data-section="discounts">Descuentos</button>
           <button class="nav-item" data-section="agent">Agente</button>
           <button class="nav-item" data-section="meta">Meta Ads</button>
           <button class="nav-item" data-section="products">Productos</button>
@@ -166,6 +167,33 @@
                   </tr>
                 </thead>
                 <tbody id="incidents-table"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel span-12 discounts-panel" data-panel="discounts">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">RecuperaciÃ³n de pedidos</p>
+                <h3>Descuentos de 5 â‚¬</h3>
+              </div>
+              <span class="chip">MÃ¡ximo estricto Â· 5 â‚¬</span>
+            </div>
+            <div id="discounts-summary" class="orders-summary"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Cliente</th>
+                    <th>Producto</th>
+                    <th>Precio original</th>
+                    <th>Precio con descuento</th>
+                    <th>Enviado</th>
+                    <th>Respuesta</th>
+                  </tr>
+                </thead>
+                <tbody id="discounts-table"></tbody>
               </table>
             </div>
           </article>
