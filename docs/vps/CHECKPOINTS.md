@@ -108,3 +108,12 @@ Status: executed as `INCOMPLETE`.
 - Masked report persisted privately on the VPS with mode `0600`.
 
 Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.
+# ChatGPT private MCP checkpoint — prepared, not activated
+
+- Secure MCP Tunnel rejected because it requires an OpenAI Platform API key
+  and calls to `api.openai.com`.
+- Private MCP hardened to eight strict read/simulation tools.
+- Public MCP endpoint remains disabled.
+- OAuth and ChatGPT-plan compatibility are mandatory pending gates.
+- Discount automation remains disabled and no template send is authorized.
+- Required steady state: `run_mode=SIMULATION`, `actions_executed=0`.

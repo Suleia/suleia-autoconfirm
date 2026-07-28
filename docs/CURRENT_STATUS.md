@@ -40,3 +40,12 @@ message and logistics actions disabled.
 Thirty-two anonymized fixtures pass, including seven new conflict and
 supersession cases. Explicit current return intent strictly blocks discount
 and commercial-recovery proposals.
+# Current status — ChatGPT MCP preparation
+
+The VPS MCP is being prepared for private ChatGPT access but is not connected
+or publicly exposed. It remains fixture-backed, read-only and simulation-only.
+Secure MCP Tunnel is incompatible with the zero-OpenAI-API rule because the
+official tunnel requires a Platform API key and `api.openai.com`.
+
+No discount-template automation is active and no further template sends are
+authorized in this checkpoint.

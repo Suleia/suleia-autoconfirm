@@ -70,3 +70,13 @@ commercial-recovery proposals are disabled. If current carrier evidence also
 reports `SHIPMENT_NOT_ACCEPTED`, the simulator selects
 `RETURN_TO_ORIGIN`. Missing or contradictory carrier evidence produces
 `NO_ACTION / HUMAN_REVIEW`.
+# 2026-07-28 — ChatGPT MCP zero-API connection
+
+- Rejected Secure MCP Tunnel under the current policy because its official
+  control plane requires an OpenAI API key and `api.openai.com`.
+- Selected a future dedicated HTTPS MCP endpoint with OAuth 2.1 as the only
+  acceptable connection path.
+- Kept the endpoint private and bearer-only for VPS-local verification.
+- Added a fail-closed rule: a public endpoint cannot use bearer auth.
+- Kept all eight tools read-only/simulation-only and all operational actions
+  unavailable.
