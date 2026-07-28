@@ -19,6 +19,7 @@ import {
   extractWamid,
   findVerifiedTemplateDelivery
 } from './incident-discount-policy.mjs';
+import { selectIncidentDiscountOrderPair } from './incident-discount-order-match.mjs';
 
 const config = getAppConfig();
 const activeTestSends = new Set();
@@ -91,21 +92,21 @@ async function findTemplate() {
   };
 }
 
-async function findDropeaOrder(phone) {
+async function findDropeaOrders(phone) {
   const target = digits(phone).slice(-9);
+  const matches = [];
   for (let page = 1; page <= 10; page += 1) {
     const orders = await listDropeaOrders({ limit: 100, page });
-    const found = orders.find((order) => digits(order.customerPhone).endsWith(target));
-    if (found) return found;
+    matches.push(...orders.filter((order) => digits(order.customerPhone).endsWith(target)));
     if (orders.length < 100) break;
   }
-  return null;
+  return matches;
 }
 
-async function findShopifyOrder(phone) {
+async function findShopifyOrders(phone) {
   const target = digits(phone).slice(-9);
   const orders = await listRecentShopifyOrders({ first: 100 });
-  return orders.find((order) => digits(order.customerPhone).endsWith(target)) || null;
+  return orders.filter((order) => digits(order.customerPhone).endsWith(target));
 }
 
 async function buildContext(phone) {
@@ -116,17 +117,17 @@ async function buildContext(phone) {
     throw error;
   }
 
-  const [dropeaOrder, shopifyOrder, template] = await Promise.all([
-    findDropeaOrder(normalizedPhone),
-    findShopifyOrder(normalizedPhone),
+  const [dropeaOrders, shopifyOrders, template] = await Promise.all([
+    findDropeaOrders(normalizedPhone),
+    findShopifyOrders(normalizedPhone),
     findTemplate()
   ]);
-  if (!dropeaOrder) {
+  if (!dropeaOrders.length) {
     const error = new Error('No se encontro un pedido reciente de Dropea para el telefono autorizado.');
     error.code = 'DROPEA_ORDER_NOT_FOUND';
     throw error;
   }
-  if (!shopifyOrder) {
+  if (!shopifyOrders.length) {
     const error = new Error('No se encontro el pedido reciente equivalente en Shopify.');
     error.code = 'SHOPIFY_ORDER_NOT_FOUND';
     throw error;
@@ -137,17 +138,13 @@ async function buildContext(phone) {
     throw error;
   }
 
-  const dropeaCreatedAt = Date.parse(dropeaOrder.raw?.created_at || dropeaOrder.createdAt || '');
-  const shopifyCreatedAt = Date.parse(shopifyOrder.createdAt || '');
-  if (
-    Number.isFinite(dropeaCreatedAt)
-    && Number.isFinite(shopifyCreatedAt)
-    && Math.abs(dropeaCreatedAt - shopifyCreatedAt) > 48 * 3_600_000
-  ) {
+  const orderPair = selectIncidentDiscountOrderPair({ dropeaOrders, shopifyOrders });
+  if (!orderPair) {
     const error = new Error('Shopify y Dropea no identifican el mismo pedido reciente con suficiente seguridad.');
     error.code = 'CROSS_SOURCE_ORDER_MISMATCH';
     throw error;
   }
+  const { dropeaOrder, shopifyOrder } = orderPair;
 
   const subscriber = await findSubscriberForOrderRobust({
     phone: normalizedPhone,
