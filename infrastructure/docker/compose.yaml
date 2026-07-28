@@ -38,7 +38,6 @@ x-node-service: &node-service
     - no-new-privileges:true
   cap_drop:
     - ALL
-  pids_limit: 128
   logging:
     driver: json-file
     options:
@@ -49,6 +48,7 @@ x-node-service: &node-service
       limits:
         cpus: "0.50"
         memory: 384M
+        pids: 128
 
 services:
   reverse-proxy:
