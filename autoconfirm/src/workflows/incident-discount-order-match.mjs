@@ -1,4 +1,5 @@
 export const INCIDENT_DISCOUNT_ORDER_MATCH_WINDOW_MS = 48 * 3_600_000;
+export const INCIDENT_DISCOUNT_SHOPIFY_TEST_MAX_AGE_MS = 48 * 3_600_000;
 
 function timestamp(value) {
   const parsed = Date.parse(String(value || ''));
@@ -14,10 +15,11 @@ export function selectIncidentDiscountOrderPair({
   shopifyOrders = [],
   maxDifferenceMs = INCIDENT_DISCOUNT_ORDER_MATCH_WINDOW_MS
 } = {}) {
-  const newestShopify = [...shopifyOrders]
-    .map((order) => ({ order, createdAtMs: timestamp(order?.createdAt) }))
-    .filter((entry) => Number.isFinite(entry.createdAtMs))
-    .sort((left, right) => right.createdAtMs - left.createdAtMs)[0];
+  const newestShopifyOrder = selectNewestShopifyOrder(shopifyOrders);
+  const newestShopify = newestShopifyOrder && {
+    order: newestShopifyOrder,
+    createdAtMs: timestamp(newestShopifyOrder.createdAt)
+  };
   if (!newestShopify) return null;
 
   const closestDropea = [...dropeaOrders]
@@ -41,4 +43,26 @@ export function selectIncidentDiscountOrderPair({
     shopifyOrder: newestShopify.order,
     differenceMs: closestDropea.differenceMs
   };
+}
+
+export function selectNewestShopifyOrder(shopifyOrders = []) {
+  return [...shopifyOrders]
+    .map((order) => ({ order, createdAtMs: timestamp(order?.createdAt) }))
+    .filter((entry) => Number.isFinite(entry.createdAtMs))
+    .sort((left, right) => right.createdAtMs - left.createdAtMs)[0]?.order || null;
+}
+
+export function selectRecentShopifyOnlyTestOrder(
+  shopifyOrders = [],
+  {
+    now = Date.now(),
+    maxAgeMs = INCIDENT_DISCOUNT_SHOPIFY_TEST_MAX_AGE_MS
+  } = {}
+) {
+  const order = selectNewestShopifyOrder(shopifyOrders);
+  if (!order) return null;
+  const createdAtMs = timestamp(order.createdAt);
+  const ageMs = Number(now) - createdAtMs;
+  if (!Number.isFinite(ageMs) || ageMs < -60 * 60 * 1000 || ageMs > maxAgeMs) return null;
+  return { order, ageMs };
 }

@@ -19,7 +19,10 @@ import {
   extractWamid,
   findVerifiedTemplateDelivery
 } from './incident-discount-policy.mjs';
-import { selectIncidentDiscountOrderPair } from './incident-discount-order-match.mjs';
+import {
+  selectIncidentDiscountOrderPair,
+  selectRecentShopifyOnlyTestOrder
+} from './incident-discount-order-match.mjs';
 
 const config = getAppConfig();
 const activeTestSends = new Set();
@@ -109,7 +112,7 @@ async function findShopifyOrders(phone) {
   return orders.filter((order) => digits(order.customerPhone).endsWith(target));
 }
 
-async function buildContext(phone) {
+async function buildContext(phone, { allowShopifyOnlyTest = false } = {}) {
   const normalizedPhone = digits(phone);
   if (normalizedPhone.length < 9 || normalizedPhone.length > 15) {
     const error = new Error('Telefono de prueba no valido.');
@@ -139,18 +142,28 @@ async function buildContext(phone) {
   }
 
   const orderPair = selectIncidentDiscountOrderPair({ dropeaOrders, shopifyOrders });
-  if (!orderPair) {
+  const shopifyOnlyTest = !orderPair && allowShopifyOnlyTest
+    ? selectRecentShopifyOnlyTestOrder(shopifyOrders)
+    : null;
+  if (!orderPair && !shopifyOnlyTest) {
     const error = new Error('Shopify y Dropea no identifican el mismo pedido reciente con suficiente seguridad.');
     error.code = 'CROSS_SOURCE_ORDER_MISMATCH';
     throw error;
   }
-  const { dropeaOrder, shopifyOrder } = orderPair;
+  const dropeaOrder = orderPair?.dropeaOrder || null;
+  const shopifyOrder = orderPair?.shopifyOrder || shopifyOnlyTest.order;
+  const sourceMode = orderPair ? 'dropea_shopify_verified' : 'shopify_only_authorized_test';
+  const orderKey = orderPair
+    ? String(dropeaOrder.orderId)
+    : `shopify-test:${shopifyOrder.id}`;
 
-  const subscriber = await findSubscriberForOrderRobust({
-    phone: normalizedPhone,
-    orderId: dropeaOrder.orderId,
-    maxPages: 30
-  }) || await findSubscriberByPhone({ phone: normalizedPhone, maxPages: 30 });
+  const subscriber = orderPair
+    ? await findSubscriberForOrderRobust({
+        phone: normalizedPhone,
+        orderId: dropeaOrder.orderId,
+        maxPages: 30
+      }) || await findSubscriberByPhone({ phone: normalizedPhone, maxPages: 30 })
+    : await findSubscriberByPhone({ phone: normalizedPhone, maxPages: 30 });
   if (!subscriber?.user_ns) {
     const error = new Error('No se encontro la conversacion Chatby del pedido.');
     error.code = 'CHATBY_CONVERSATION_NOT_FOUND';
@@ -172,8 +185,11 @@ async function buildContext(phone) {
       ...templateData,
       templateName: template.name,
       language: template.language,
-      dedupeKey: `${dropeaOrder.orderId}|${template.name}`
+      dedupeKey: `${orderKey}|${template.name}`
     },
+    orderKey,
+    sourceMode,
+    crossSourceVerified: Boolean(orderPair),
     existingDelivery,
     responseState
   };
@@ -182,10 +198,11 @@ async function buildContext(phone) {
 function publicPreview(context) {
   return {
     candidateFound: true,
-    orderReference: maskOrderId(context.dropeaOrder.orderId),
-    orderFingerprint: fingerprint(context.dropeaOrder.orderId),
+    orderReference: maskOrderId(context.dropeaOrder?.orderId || context.shopifyOrder.name || context.shopifyOrder.id),
+    orderFingerprint: fingerprint(context.orderKey),
     shopifyOrderReference: maskOrderId(context.shopifyOrder.name || context.shopifyOrder.id),
-    crossSourceVerified: true,
+    crossSourceVerified: context.crossSourceVerified,
+    sourceMode: context.sourceMode,
     conversationFound: true,
     template: {
       name: context.template.name,
@@ -204,12 +221,14 @@ function publicPreview(context) {
     existingDelivery: Boolean(context.existingDelivery),
     responseStatus: context.responseState.status,
     automationEnabled: false,
-    mode: 'AUTHORIZED_SINGLE_TEST_PREVIEW'
+    mode: context.crossSourceVerified
+      ? 'AUTHORIZED_SINGLE_TEST_PREVIEW'
+      : 'AUTHORIZED_SINGLE_TEST_PREVIEW_SHOPIFY_ONLY'
   };
 }
 
 export async function previewIncidentDiscountTest({ phone } = {}) {
-  return publicPreview(await buildContext(phone));
+  return publicPreview(await buildContext(phone, { allowShopifyOnlyTest: true }));
 }
 
 async function waitForVerifiedDelivery(userNs, templateName, startedAt) {
@@ -232,7 +251,7 @@ export async function sendAuthorizedIncidentDiscountTest({
     throw error;
   }
 
-  const context = await buildContext(phone);
+  const context = await buildContext(phone, { allowShopifyOnlyTest: true });
   if (context.template.status !== 'APPROVED') {
     const error = new Error('La plantilla no esta aprobada en Chatby.');
     error.code = 'DISCOUNT_TEMPLATE_NOT_APPROVED';
@@ -253,7 +272,7 @@ export async function sendAuthorizedIncidentDiscountTest({
   try {
     claim = await claimTemplateDelivery({
       storeId: config.defaultStore.id,
-      orderId: context.dropeaOrder.orderId,
+      orderId: context.orderKey,
       customerPhone: context.phone,
       templateName: context.template.name,
       provider: 'chatby',
@@ -288,7 +307,7 @@ export async function sendAuthorizedIncidentDiscountTest({
     const sentAt = delivery?.sentAt || null;
     await finishTemplateDelivery({
       storeId: config.defaultStore.id,
-      orderId: context.dropeaOrder.orderId,
+      orderId: context.orderKey,
       customerPhone: context.phone,
       templateName: context.template.name,
       provider: 'chatby',
@@ -299,6 +318,7 @@ export async function sendAuthorizedIncidentDiscountTest({
       lastError: delivery ? null : 'Chatby no devolvio un wamid verificable; no se reintentara automaticamente.',
       raw: {
         mode: 'AUTHORIZED_SINGLE_TEST',
+        sourceMode: context.sourceMode,
         dynamicFieldsVerified: true,
         discountAmountEur: 5,
         originalAmount: context.templateData.originalAmount,
@@ -317,7 +337,7 @@ export async function sendAuthorizedIncidentDiscountTest({
     if (claim?.acquired) {
       await finishTemplateDelivery({
         storeId: config.defaultStore.id,
-        orderId: context.dropeaOrder.orderId,
+        orderId: context.orderKey,
         customerPhone: context.phone,
         templateName: context.template.name,
         provider: 'chatby',
@@ -325,7 +345,7 @@ export async function sendAuthorizedIncidentDiscountTest({
         status: 'failed',
         attemptedAt,
         lastError: error instanceof Error ? error.message : String(error),
-        raw: { mode: 'AUTHORIZED_SINGLE_TEST' }
+        raw: { mode: 'AUTHORIZED_SINGLE_TEST', sourceMode: context.sourceMode }
       }).catch(() => null);
     }
     throw error;
