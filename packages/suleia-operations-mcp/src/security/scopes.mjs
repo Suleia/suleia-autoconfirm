@@ -1,5 +1,8 @@
 export const SCOPES = Object.freeze({
-  READ: 'orders:read',
+  ORDERS_READ: 'orders:read',
+  TIMELINES_READ: 'timelines:read',
+  DECISIONS_READ: 'decisions:read',
+  REVIEWS_READ: 'reviews:read',
   SIMULATE: 'orders:simulate'
 });
 

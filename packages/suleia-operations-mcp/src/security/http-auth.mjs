@@ -6,12 +6,18 @@ function safeEqual(left, right) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-export function createBearerAuth(config) {
+export function createBearerAuth(config, audit = null) {
   return function bearerAuth(req, res, next) {
     const header = String(req.headers.authorization || '');
     const [scheme, token] = header.split(/\s+/, 2);
     if (scheme !== 'Bearer' || !token || !safeEqual(token, config.bearerToken)) {
-      res.set('WWW-Authenticate', 'Bearer realm="suleia-staging", scope="orders:read orders:simulate"');
+      audit?.security({
+        event: 'mcp_auth_failure',
+        requestId: req.correlationId,
+        outcome: 'blocked',
+        errorCode: 'UNAUTHORIZED'
+      });
+      res.set('WWW-Authenticate', `Bearer realm="suleia-private-staging", scope="${config.grantedScopes.join(' ')}"`);
       res.status(401).json({ ok: false, error: 'unauthorized' });
       return;
     }
@@ -23,7 +29,7 @@ export function createBearerAuth(config) {
   };
 }
 
-export function createRateLimiter(config) {
+export function createRateLimiter(config, audit = null) {
   const windows = new Map();
   return function rateLimit(req, res, next) {
     const key = req.ip || req.socket.remoteAddress || 'unknown';
@@ -36,6 +42,13 @@ export function createRateLimiter(config) {
     }
     current.count += 1;
     if (current.count > config.rateLimitPerMinute) {
+      audit?.security({
+        event: 'mcp_rate_limit',
+        requestId: req.correlationId,
+        outcome: 'blocked',
+        errorCode: 'RATE_LIMITED'
+      });
+      res.set('Retry-After', String(Math.max(1, Math.ceil((60_000 - (now - current.startedAt)) / 1000))));
       res.status(429).json({ ok: false, error: 'rate_limited' });
       return;
     }

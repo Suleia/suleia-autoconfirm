@@ -1,4 +1,5 @@
 import express from 'express';
+import crypto from 'node:crypto';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createRepository } from './data/repository.mjs';
 import { createOperationsService } from './domain/service.mjs';
@@ -11,11 +12,13 @@ export function createHttpApp(config, options = {}) {
   const repository = options.repository || createRepository(config);
   const service = options.service || createOperationsService(repository);
   const audit = options.audit || createAuditLogger(config);
-  const auth = options.auth || createBearerAuth(config);
+  const auth = options.auth || createBearerAuth(config, audit);
 
   app.disable('x-powered-by');
-  app.use(express.json({ limit: '256kb', strict: true }));
+  app.use(express.json({ limit: config.requestBodyLimit, strict: true }));
   app.use((req, res, next) => {
+    req.correlationId = crypto.randomUUID();
+    res.set('X-Correlation-Id', req.correlationId);
     res.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy': "default-src 'none'",
@@ -42,11 +45,12 @@ export function createHttpApp(config, options = {}) {
     });
   });
 
-  app.post('/mcp', createRateLimiter(config), auth, async (req, res) => {
+  app.post('/mcp', createRateLimiter(config, audit), auth, async (req, res) => {
     const server = createMcpServer({
       service,
       audit,
-      authContext: req.authContext
+      authContext: req.authContext,
+      config
     });
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
