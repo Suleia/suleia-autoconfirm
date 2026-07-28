@@ -7,6 +7,8 @@ param(
   [string]$RenderTokenSecureFile = 'C:\Users\samue\OneDrive\Documentos\Suleia\private-secrets\render-token.secure.txt',
   [string]$RenderTokenBridgeKeyFile = '',
   [switch]$DeleteTokenBridge,
+  [string]$ShopifyCredentialFile = 'C:\Users\samue\OneDrive\Documentos\Suleia\.env',
+  [switch]$AllowShopifyClientCredentialExchange,
   [string]$NodeExecutable = 'C:\Users\samue\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
 )
 
@@ -16,12 +18,36 @@ $runner = Join-Path $repositoryRoot 'services\today-batch-runner.mjs'
 $sensitiveNames = @(
   'SHOPIFY_ADMIN_ACCESS_TOKEN',
   'SHOPIFY_ACCESS_TOKEN',
+  'SHOPIFY_CLIENT_ID',
+  'SHOPIFY_CLIENT_SECRET',
   'CHATBY_TOKEN',
   'DASHBOARD_SESSION_SECRET'
 )
 $bstr = [IntPtr]::Zero
 $renderToken = $null
 $bridgeKey = $null
+$renderEnvironment = @{}
+$localShopify = @{}
+$shopifyTokenResponse = $null
+
+function Read-AllowlistedEnvironmentFile {
+  param(
+    [string]$Path,
+    [string[]]$AllowedNames
+  )
+
+  $result = @{}
+  if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return $result }
+  foreach ($line in Get-Content -LiteralPath $Path) {
+    if ($line -notmatch '^\s*([^#][A-Z0-9_]+)\s*=\s*(.*)$') { continue }
+    $name = [string]$Matches[1]
+    if ($AllowedNames -notcontains $name) { continue }
+    $value = [string]$Matches[2]
+    $value = $value.Trim().Trim('"').Trim("'")
+    if ($value) { $result[$name] = $value }
+  }
+  return $result
+}
 
 function Set-BatchEnvironment {
   param([hashtable]$RenderEnvironment)
@@ -102,7 +128,6 @@ try {
   if (-not (Test-Path -LiteralPath $NodeExecutable)) {
     throw 'Bundled Node.js runtime was not found.'
   }
-  $renderEnvironment = @{}
   if ($Mode -ne 'preflight') {
     $encrypted = (Get-Content -Raw -LiteralPath $RenderTokenSecureFile).Trim()
     $secureToken = if ($RenderTokenBridgeKeyFile) {
@@ -127,7 +152,60 @@ try {
       if ($item.key) { $renderEnvironment[[string]$item.key] = [string]$item.value }
     }
   }
+
+  $shopifyCredentialBootstrap = if ($AllowShopifyClientCredentialExchange) {
+    'CLIENT_CREDENTIALS_EXCHANGE_IN_MEMORY_AUTHORIZED'
+  } else {
+    'PREEXISTING_ACCESS_TOKEN'
+  }
+  if ($AllowShopifyClientCredentialExchange) {
+    $localShopify = Read-AllowlistedEnvironmentFile -Path $ShopifyCredentialFile -AllowedNames @(
+      'SHOPIFY_DOMAIN',
+      'SHOPIFY_SHOP',
+      'SHOPIFY_API_VERSION',
+      'SHOPIFY_CLIENT_ID',
+      'SHOPIFY_CLIENT_SECRET'
+    )
+    foreach ($entry in $localShopify.GetEnumerator()) {
+      if (-not $renderEnvironment.ContainsKey($entry.Key) -or -not $renderEnvironment[$entry.Key]) {
+        $renderEnvironment[$entry.Key] = $entry.Value
+      }
+    }
+
+    $hasAccessToken = $renderEnvironment['SHOPIFY_ADMIN_ACCESS_TOKEN'] -or $renderEnvironment['SHOPIFY_ACCESS_TOKEN']
+    if (-not $hasAccessToken -and $Mode -ne 'preflight') {
+      $shopHost = if ($renderEnvironment['SHOPIFY_DOMAIN']) {
+        [string]$renderEnvironment['SHOPIFY_DOMAIN']
+      } else {
+        [string]$renderEnvironment['SHOPIFY_SHOP']
+      }
+      $shopHost = $shopHost.Replace('https://', '').Replace('http://', '').Trim().TrimEnd('/')
+      if ($shopHost -notmatch '^[a-z0-9][a-z0-9-]*\.myshopify\.com$') {
+        throw 'Shopify shop domain is missing or is not an allowlisted myshopify.com host.'
+      }
+      if (-not $renderEnvironment['SHOPIFY_CLIENT_ID'] -or -not $renderEnvironment['SHOPIFY_CLIENT_SECRET']) {
+        throw 'Shopify client credentials are missing.'
+      }
+      $shopifyTokenResponse = Invoke-RestMethod `
+        -Method Post `
+        -Uri "https://$shopHost/admin/oauth/access_token" `
+        -ContentType 'application/x-www-form-urlencoded' `
+        -Body @{
+          grant_type = 'client_credentials'
+          client_id = [string]$renderEnvironment['SHOPIFY_CLIENT_ID']
+          client_secret = [string]$renderEnvironment['SHOPIFY_CLIENT_SECRET']
+        }
+      if (-not $shopifyTokenResponse.access_token) {
+        throw 'Shopify OAuth response did not contain an access token.'
+      }
+      $renderEnvironment['SHOPIFY_DOMAIN'] = $shopHost
+      $renderEnvironment['SHOPIFY_ADMIN_ACCESS_TOKEN'] = [string]$shopifyTokenResponse.access_token
+      $shopifyCredentialBootstrap = 'CLIENT_CREDENTIALS_EXCHANGE_IN_MEMORY_COMPLETED'
+    }
+  }
+
   Set-BatchEnvironment -RenderEnvironment $renderEnvironment
+  [Environment]::SetEnvironmentVariable('SHOPIFY_CREDENTIAL_BOOTSTRAP', $shopifyCredentialBootstrap, 'Process')
   & $NodeExecutable $runner "--mode=$Mode"
   exit $LASTEXITCODE
 } finally {
@@ -135,6 +213,10 @@ try {
     [Environment]::SetEnvironmentVariable($name, $null, 'Process')
   }
   [Environment]::SetEnvironmentVariable('CRON_SECRET', $null, 'Process')
+  [Environment]::SetEnvironmentVariable('SHOPIFY_CREDENTIAL_BOOTSTRAP', $null, 'Process')
+  $shopifyTokenResponse = $null
+  if ($null -ne $localShopify) { $localShopify.Clear() }
+  if ($null -ne $renderEnvironment) { $renderEnvironment.Clear() }
   $renderToken = $null
   if ($bstr -ne [IntPtr]::Zero) {
     [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)

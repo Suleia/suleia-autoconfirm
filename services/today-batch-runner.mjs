@@ -100,6 +100,7 @@ export function buildPreflight({ env = process.env, now = new Date() } = {}) {
       gls: 'BLOCKED_DIRECT_READ_REQUIRES_POST',
       current_system: 'GET_ONLY_NON_AUTHORITATIVE_CACHE'
     },
+    shopify_credential_bootstrap: env.SHOPIFY_CREDENTIAL_BOOTSTRAP || 'PREEXISTING_ACCESS_TOKEN',
     raw_payload_persistence: false,
     masking_before_persistence: true,
     actions_executed: 0,
