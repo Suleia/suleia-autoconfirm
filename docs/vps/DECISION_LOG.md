@@ -44,3 +44,13 @@ their token exchange requires `POST`, which the checkpoint prohibits.
 The batch therefore stopped before reading orders or querying dependent
 sources. It must remain `ABORTED` until a pre-existing GET-compatible Shopify
 credential is available without changing production.
+
+## D-010: One exact OAuth bootstrap POST, then GET-only Shopify reads
+
+The owner authorized recovering the existing Shopify shop and application
+credentials on 2026-07-28. One exact client-credentials request may issue an
+ephemeral token held only in memory. The business-source connector remains
+GET-only and cannot mutate Shopify.
+
+This exception does not extend to Dropea, GLS, messaging, order changes or any
+other external write.

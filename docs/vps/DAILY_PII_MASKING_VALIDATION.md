@@ -1,20 +1,18 @@
 # Daily PII masking validation
 
-Date: 2026-07-27
+Date: 2026-07-28
 
 The masking layer covers names, telephone numbers, email addresses, postal
 addresses, DNI/NIE, IBAN, card-like values, private links, tokens, notes and
-conversation text. Technical identifiers are pseudonymized and are excluded
-from false-positive direct-PII checks.
+conversation text. Raw source responses existed only in memory.
 
-The final write path performs a direct-PII scan before creating the report and
-writes with restrictive file permissions. Raw responses remain in memory and
-are not logged, cached or written to temporary files.
+The final report passed the direct-PII gate before persistence:
 
-Validation tests passed before the preview. The live preview stopped before
-reading customer data, therefore:
+- source orders processed: 12;
+- PII elements detected and redacted: 39;
+- masked order entries persisted: 12;
+- direct PII logged: 0;
+- `PII_PERSISTED_COUNT=0`;
+- report file mode on the VPS: `0600`.
 
-- direct PII read: none;
-- direct PII logged: none;
-- direct PII persisted: none;
-- `PII_PERSISTED_COUNT=0`.
+No raw payload, temporary plaintext export or identifier mapping was written.

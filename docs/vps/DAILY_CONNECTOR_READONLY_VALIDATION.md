@@ -1,30 +1,34 @@
 # Daily connector read-only validation
 
-Date: 2026-07-27
+Date: 2026-07-28
 
-## Controls verified
+## Controls
 
-- A shared transport allowlists source hosts.
-- Only `GET` and `HEAD` can reach the network.
-- Requests with bodies are rejected.
-- `POST`, `PUT`, `PATCH` and `DELETE` are rejected before `fetch`.
-- Pagination detects repeated cursors, maximum pages and runtime exhaustion.
-- Retries are bounded.
-- Shopify uses the REST Orders endpoint with `created_at_min`,
-  `created_at_max`, `status=any` and cursor pagination.
-- Chatby association uses exact order references, never name, phone or address.
-- The current-system dashboard is marked non-authoritative for completeness.
-- Dropea and GLS are marked unavailable because their existing reads require
-  `POST`; the runner does not bypass this restriction.
+- Business-source transport accepts only `GET` and `HEAD`.
+- Requests with bodies and all source `POST`, `PUT`, `PATCH` and `DELETE`
+  operations fail before network access.
+- Pagination has bounded retries, repeated-cursor detection, maximum pages and
+  runtime exhaustion controls.
+- Shopify uses the REST Orders endpoint with the exact `created_at` interval.
+- Chatby association requires an exact order reference and never uses name,
+  telephone or address similarity.
+- Dropea and GLS remained blocked because their existing query integrations
+  require `POST`.
+- The current-system cache remained unavailable and was not treated as
+  authoritative.
 
-## Live preview
+## Credential bootstrap
 
-The Render API was consulted using `GET` only. Only variable names and
-presence were inspected during diagnosis; values were neither logged nor
-persisted. The target service has Chatby credentials and Shopify client
-credentials, but lacks the two values required by the GET-only Shopify reader:
-an Admin access token and shop domain.
+The existing Shopify shop domain and client credentials were recovered from
+approved local configuration without logging their values. One exact OAuth
+client-credentials `POST` issued an ephemeral token. This authentication call
+did not read or modify orders and was the only non-GET request in the run.
+The token existed only in memory and was cleared at process exit.
 
-Result: `ABORTED / SHOPIFY_GET_CREDENTIALS_MISSING`.
+## Live result
 
-No connector write method was called and no source payload was persisted.
+- Shopify: complete, 1 page and 12 orders.
+- Chatby: complete, 9 pages.
+- Orders outside the interval: 0.
+- Business-source writes: 0.
+- Operational actions: 0.

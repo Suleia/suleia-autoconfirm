@@ -1,6 +1,6 @@
 # Current status
 
-Updated: 2026-07-27
+Updated: 2026-07-28
 
 ## Completed locally
 
@@ -83,3 +83,17 @@ were not modified, and the result remains:
 ACTIONS_EXECUTED=0
 PII_PERSISTED_COUNT=0
 ```
+
+## 2026-07-28 masked real-order batch
+
+The existing Shopify application credentials were recovered from approved
+local configuration. An ephemeral access token was issued in memory and all
+12 orders created in the current Europe/Madrid business day were retrieved
+with complete Shopify pagination.
+
+The batch masked and simulated all 12 orders. It remains `INCOMPLETE` and
+routes every order to `BLOCKED` because Dropea, GLS and the current-system
+comparison were unavailable. The masked report is stored privately on the VPS
+with mode `0600`.
+
+`ACTIONS_EXECUTED=0` and `PII_PERSISTED_COUNT=0`.

@@ -64,3 +64,17 @@ require prohibited `POST`. No orders were read, no real batch was persisted,
 and no production action occurred.
 
 Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.
+
+## Checkpoint E-G continuation - 2026-07-28
+
+Status: executed as `INCOMPLETE`.
+
+- Exact Europe/Madrid interval applied.
+- Shopify pagination complete: 12 orders in one page.
+- Chatby pagination complete: nine pages.
+- Twelve orders masked and simulated.
+- Dropea, GLS and current-system comparison remained unavailable.
+- All twelve decisions routed to `BLOCKED`.
+- Masked report persisted privately on the VPS with mode `0600`.
+
+Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.

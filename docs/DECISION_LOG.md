@@ -21,3 +21,19 @@ This decision preserves the checkpoint invariants:
 - incomplete pagination is never presented as complete;
 - `ACTIONS_EXECUTED=0`;
 - `PII_PERSISTED_COUNT=0`.
+
+## D-010: Allow one exact in-memory Shopify OAuth exchange
+
+Date: 2026-07-28
+
+The owner confirmed that the existing Shopify application credentials and shop
+domain should be recovered and used to continue the private-VPS checkpoint.
+
+The runner may perform one `POST` only to the allowlisted Shopify OAuth
+client-credentials endpoint. The resulting access token is kept only in
+process memory and cleared at exit. All order reads continue through the
+method-enforced GET-only connector.
+
+This narrow authentication exception does not authorize Shopify mutations,
+Dropea or GLS POST queries, production actions, messages or raw-data
+persistence.

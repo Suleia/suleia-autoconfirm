@@ -1,11 +1,14 @@
 # Daily batch resource usage
 
-Date: 2026-07-27
+Date: 2026-07-28
 
-The real simulation did not start because the source preview was aborted before
-order ingestion. CPU and RAM measurements for order processing are therefore
-not applicable and are not estimated.
+- User CPU: 484 ms
+- System CPU: 125 ms
+- Initial RSS: 44,888,064 bytes
+- Final RSS: 88,690,688 bytes
+- Deterministic simulation duration after ingestion: 24 ms
+- Source orders processed: 12
+- Failed orders: 0
+- External actions: 0
 
-The preview completed without persistence, external writes or background
-workers. A future successful execution records user CPU time, system CPU time,
-initial RSS and final RSS in the masked batch report.
+The workload stayed within the conservative pagination and concurrency limits.
