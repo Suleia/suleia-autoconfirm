@@ -143,7 +143,7 @@
       {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-25T10:00:00.000Z","source":"dropea","source_record_id":"14b","payload":{"type":"PICKUP"}},
       {"event_type":"GLS_PICKUP_AVAILABLE","occurred_at":"2026-07-26T09:00:00.000Z","source":"gls","source_record_id":"14c","payload":{}}
     ],
-    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+    "expected":{"action":"MARK_AGENCY_PICKUP","route":"DETERMINISTIC"}
   },
   {
     "id": "pickup-not-accredited",
@@ -262,5 +262,88 @@
       {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T09:00:00.000Z","source":"chatby","source_record_id":"25b","payload":{}}
     ],
     "expected":{"action":"NO_ACTION","route":"BLOCKED"}
+  },
+  {
+    "id": "incident-return-aligned",
+    "order_id": "fixture-026",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-28T08:00:00.000Z","source":"shopify","source_record_id":"26a","payload":{"status":"SHIPPED"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-28T09:00:00.000Z","source":"dropea","source_record_id":"26b","payload":{"type":"SHIPMENT_NOT_ACCEPTED"}},
+      {"event_type":"CARRIER_SHIPMENT_NOT_ACCEPTED","occurred_at":"2026-07-28T09:05:00.000Z","source":"gls","source_record_id":"26c","trust_level":"HIGH","payload":{"state":"SHIPMENT_NOT_ACCEPTED"}},
+      {"event_type":"CUSTOMER_RETURN_REQUESTED","occurred_at":"2026-07-28T09:10:00.000Z","source":"chatby","source_record_id":"26d","trust_level":"HIGH","payload":{"intent":"RETURN"}}
+    ],
+    "expected":{"action":"RETURN_TO_ORIGIN","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "incident-return-revoked",
+    "order_id": "fixture-027",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-28T08:00:00.000Z","source":"shopify","source_record_id":"27a","payload":{"status":"SHIPPED"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-28T09:00:00.000Z","source":"dropea","source_record_id":"27b","payload":{"type":"SHIPMENT_NOT_ACCEPTED"}},
+      {"event_type":"CARRIER_SHIPMENT_NOT_ACCEPTED","occurred_at":"2026-07-28T09:05:00.000Z","source":"gls","source_record_id":"27c","trust_level":"HIGH","payload":{"state":"SHIPMENT_NOT_ACCEPTED"}},
+      {"event_type":"CUSTOMER_RETURN_REQUESTED","occurred_at":"2026-07-28T09:10:00.000Z","source":"chatby","source_record_id":"27d","trust_level":"HIGH","payload":{"intent":"RETURN"}},
+      {"event_type":"CUSTOMER_DELIVERY_RECONFIRMED","occurred_at":"2026-07-28T09:30:00.000Z","source":"chatby","source_record_id":"27e","trust_level":"HIGH","payload":{"intent":"RECEIVE"}}
+    ],
+    "expected":{"action":"NO_ACTION","route":"HUMAN_REVIEW"}
+  },
+  {
+    "id": "agency-pickup-confirmed",
+    "order_id": "fixture-028",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-28T08:00:00.000Z","source":"shopify","source_record_id":"28a","payload":{"status":"SHIPPED"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-28T09:00:00.000Z","source":"dropea","source_record_id":"28b","payload":{"type":"AGENCY_PICKUP"}},
+      {"event_type":"CARRIER_AGENCY_PICKUP_CONFIRMED","occurred_at":"2026-07-28T09:10:00.000Z","source":"gls","source_record_id":"28c","trust_level":"HIGH","payload":{"state":"AGENCY_PICKUP_CONFIRMED"}}
+    ],
+    "expected":{"action":"MARK_AGENCY_PICKUP","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "agency-pickup-unconfirmed",
+    "order_id": "fixture-029",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-28T08:00:00.000Z","source":"shopify","source_record_id":"29a","payload":{"status":"SHIPPED"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-28T09:00:00.000Z","source":"dropea","source_record_id":"29b","payload":{"type":"AGENCY_PICKUP_REQUEST"}},
+      {"event_type":"CUSTOMER_AGENCY_PICKUP_REQUESTED","occurred_at":"2026-07-28T09:10:00.000Z","source":"chatby","source_record_id":"29c","trust_level":"HIGH","payload":{"intent":"AGENCY_PICKUP"}}
+    ],
+    "expected":{"action":"VERIFY_AGENCY_PICKUP","route":"HUMAN_REVIEW"}
+  },
+  {
+    "id": "agency-pickup-superseded-returned",
+    "order_id": "fixture-030",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-28T08:00:00.000Z","source":"shopify","source_record_id":"30a","payload":{"status":"SHIPPED"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-28T09:00:00.000Z","source":"dropea","source_record_id":"30b","payload":{"type":"AGENCY_PICKUP"}},
+      {"event_type":"CARRIER_AGENCY_PICKUP_CONFIRMED","occurred_at":"2026-07-28T09:10:00.000Z","source":"gls","source_record_id":"30c","trust_level":"HIGH","payload":{"state":"AGENCY_PICKUP_CONFIRMED"}},
+      {"event_type":"GLS_RETURNED","occurred_at":"2026-07-28T10:00:00.000Z","source":"gls","source_record_id":"30d","trust_level":"HIGH","payload":{"state":"RETURNED_TO_ORIGIN"}}
+    ],
+    "expected":{"action":"NO_ACTION","route":"HUMAN_REVIEW"}
+  },
+  {
+    "id": "absent-tomorrow-retry",
+    "order_id": "fixture-031",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-28T08:00:00.000Z","source":"shopify","source_record_id":"31a","payload":{"status":"SHIPPED"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-28T09:00:00.000Z","source":"dropea","source_record_id":"31b","payload":{"type":"AUSENTE"}},
+      {"event_type":"CUSTOMER_REPLIED","occurred_at":"2026-07-28T09:10:00.000Z","source":"chatby","source_record_id":"31c","payload":{"intent":"AMBIGUOUS_RETRY"}}
+    ],
+    "expected":{"action":"WAIT_INCIDENT_WORKFLOW","route":"DETERMINISTIC"}
+  },
+  {
+    "id": "return-blocks-discount",
+    "order_id": "fixture-032",
+    "now": "2026-07-28T12:00:00.000Z",
+    "events": [
+      {"event_type":"ORDER_CREATED","occurred_at":"2026-07-28T08:00:00.000Z","source":"shopify","source_record_id":"32a","payload":{"status":"SHIPPED"}},
+      {"event_type":"INCIDENT_OPENED","occurred_at":"2026-07-28T09:00:00.000Z","source":"dropea","source_record_id":"32b","payload":{"type":"SHIPMENT_NOT_ACCEPTED"}},
+      {"event_type":"CARRIER_SHIPMENT_NOT_ACCEPTED","occurred_at":"2026-07-28T09:05:00.000Z","source":"gls","source_record_id":"32c","trust_level":"HIGH","payload":{"state":"SHIPMENT_NOT_ACCEPTED"}},
+      {"event_type":"CUSTOMER_RETURN_REQUESTED","occurred_at":"2026-07-28T09:10:00.000Z","source":"chatby","source_record_id":"32d","trust_level":"HIGH","payload":{"intent":"RETURN"}},
+      {"event_type":"ACTION_PROPOSED","occurred_at":"2026-07-28T09:15:00.000Z","source":"decision-engine","source_record_id":"32e","payload":{"action":"OFFER_DISCOUNT_5"}}
+    ],
+    "expected":{"action":"RETURN_TO_ORIGIN","route":"DETERMINISTIC"}
   }
 ]

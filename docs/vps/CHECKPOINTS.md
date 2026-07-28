@@ -22,7 +22,7 @@ Status: implemented; container/database runtime validation pending.
 - AI_REVIEW and HUMAN_REVIEW queue contracts.
 - Read-only MCP over stdio and Streamable HTTP.
 - Internal review panel prototype.
-- Twenty-five fictitious, masked fixtures.
+- Thirty-two fictitious, masked fixtures.
 
 Docker and PostgreSQL are unavailable on this workstation. Therefore, container startup and SQL-engine execution are not marked complete.
 
@@ -48,7 +48,7 @@ Status: complete and verified.
 - Nine containers healthy.
 - PostgreSQL is isolated from public networks.
 - Backup and isolated restore drill passed.
-- Twenty-five fixture simulations and fifteen MCP tests passed.
+- Thirty-two fixture simulations and fifteen MCP tests passed.
 
 ## Checkpoint E-G replacement - All orders created today
 
@@ -64,6 +64,20 @@ require prohibited `POST`. No orders were read, no real batch was persisted,
 and no production action occurred.
 
 Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.
+
+## Checkpoint H - Incident evidence workflows
+
+Status: implemented and validated in simulation.
+
+- Direct return requires aligned current customer and carrier evidence.
+- Agency pickup requires current carrier or incident-history confirmation.
+- Later incompatible evidence supersedes earlier evidence and routes to human
+  review.
+- The agency message is proposed only; it is never sent.
+- Explicit current return intent blocks discounts and commercial recovery.
+- Seven new anonymized fixtures pass, for 32 total.
+
+Final invariant: `ACTIONS_EXECUTED=0`.
 
 ## Checkpoint E-G authorized read continuation - 2026-07-28
 

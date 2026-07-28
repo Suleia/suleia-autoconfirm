@@ -20,7 +20,7 @@ test('event store is idempotent and does not expose mutable events', () => {
 });
 
 test('all fixture decisions remain simulation-only', () => {
-  assert.equal(fixtures.length, 25);
+  assert.equal(fixtures.length, 32);
   for (const fixture of fixtures) {
     const store = new InMemoryEventStore();
     for (const event of fixture.events) store.append({ ...event, order_id: fixture.order_id });
@@ -31,6 +31,75 @@ test('all fixture decisions remain simulation-only', () => {
     assert.equal(decision.proposed_action, fixture.expected.action, fixture.id);
     assert.equal(decision.route, fixture.expected.route, fixture.id);
   }
+});
+
+function simulateFixture(id) {
+  const fixture = fixtures.find((item) => item.id === id);
+  const store = new InMemoryEventStore();
+  for (const event of fixture.events) store.append({ ...event, order_id: fixture.order_id });
+  const twin = new OrderDigitalTwinBuilder(store).buildCurrentTwin(fixture.order_id, new Date(fixture.now));
+  return new DeterministicDecisionEngine().simulate(twin);
+}
+
+test('aligned return evidence selects return to origin and strictly blocks discounts', () => {
+  const decision = simulateFixture('incident-return-aligned');
+  assert.equal(decision.workflow, 'INCIDENT_RETURN_TO_ORIGIN');
+  assert.equal(decision.customer_intent, 'RETURN');
+  assert.equal(decision.carrier_state, 'SHIPMENT_NOT_ACCEPTED');
+  assert.equal(decision.proposed_action, 'RETURN_TO_ORIGIN');
+  assert.equal(decision.route, 'DETERMINISTIC');
+  assert.equal(decision.discount_offer_allowed, false);
+  assert.equal(decision.commercial_recovery_allowed, false);
+  assert.equal(decision.actions_executed, 0);
+});
+
+test('a later receive intent revokes return and requires human review', () => {
+  const decision = simulateFixture('incident-return-revoked');
+  assert.equal(decision.proposed_action, 'NO_ACTION');
+  assert.equal(decision.route, 'HUMAN_REVIEW');
+  assert.ok(decision.conflicting_evidence.includes('CUSTOMER_RETURN_REVOKED'));
+});
+
+test('carrier-confirmed agency pickup is deterministic and only proposes a safe message', () => {
+  const decision = simulateFixture('agency-pickup-confirmed');
+  assert.equal(decision.workflow, 'INCIDENT_AGENCY_PICKUP');
+  assert.equal(decision.proposed_action, 'MARK_AGENCY_PICKUP');
+  assert.equal(decision.customer_message_required, true);
+  assert.equal(decision.customer_message_proposed, true);
+  assert.equal(decision.customer_message_sent, false);
+  assert.match(decision.customer_message_template, /recogida en la agencia/i);
+  assert.equal(decision.discount_offer_allowed, false);
+  assert.equal(decision.commercial_recovery_allowed, false);
+  assert.equal(decision.actions_executed, 0);
+});
+
+test('customer pickup preference alone never replaces carrier evidence', () => {
+  const decision = simulateFixture('agency-pickup-unconfirmed');
+  assert.equal(decision.proposed_action, 'VERIFY_AGENCY_PICKUP');
+  assert.equal(decision.route, 'HUMAN_REVIEW');
+  assert.equal(decision.customer_message_sent, false);
+});
+
+test('later return evidence supersedes agency pickup and blocks action', () => {
+  const decision = simulateFixture('agency-pickup-superseded-returned');
+  assert.equal(decision.proposed_action, 'NO_ACTION');
+  assert.equal(decision.route, 'HUMAN_REVIEW');
+  assert.ok(decision.conflicting_evidence.includes('AGENCY_PICKUP_SUPERSEDED_BY_RETURN'));
+});
+
+test('an ambiguous absence reply does not become a return intent', () => {
+  const decision = simulateFixture('absent-tomorrow-retry');
+  assert.equal(decision.workflow, 'INCIDENT_AUSENTE');
+  assert.equal(decision.proposed_action, 'WAIT_INCIDENT_WORKFLOW');
+  assert.notEqual(decision.customer_intent, 'RETURN');
+});
+
+test('an attempted discount proposal cannot override an explicit aligned return', () => {
+  const decision = simulateFixture('return-blocks-discount');
+  assert.equal(decision.proposed_action, 'RETURN_TO_ORIGIN');
+  assert.equal(decision.discount_offer_allowed, false);
+  assert.equal(decision.commercial_recovery_allowed, false);
+  assert.equal(decision.actions_executed, 0);
 });
 
 test('masking redacts contact and secret data', () => {

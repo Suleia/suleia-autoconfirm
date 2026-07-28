@@ -29,3 +29,14 @@ Current safety result:
 ACTIONS_EXECUTED=0
 PII_PERSISTED_COUNT=0
 ```
+
+## Incident evidence extension
+
+The simulation engine now includes return-to-origin and agency-pickup
+workflows. It independently records customer and carrier evidence, applies
+latest-event precedence, exposes conflicts to risk and QA gates, and keeps all
+message and logistics actions disabled.
+
+Thirty-two anonymized fixtures pass, including seven new conflict and
+supersession cases. Explicit current return intent strictly blocks discount
+and commercial-recovery proposals.

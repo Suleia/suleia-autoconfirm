@@ -51,3 +51,22 @@ The current-system login endpoint may exchange the managed dashboard password
 for an in-memory session cookie followed by a single GET read. Exact identities
 may include explicit Dropea-tag references from Shopify, but fuzzy matching on
 customer data remains forbidden.
+
+## D-012: Separate customer intent from carrier evidence
+
+Date: 2026-07-28
+
+Return-to-origin and agency-pickup decisions require independent, current
+evidence domains. Customer preference cannot manufacture a carrier state, and
+carrier history cannot manufacture customer intent. A newer incompatible event
+is recorded as a conflict and routes to human review without action.
+
+## D-013: A current explicit return blocks commercial recovery
+
+Date: 2026-07-28
+
+When the latest explicit customer intent is `RETURN`, discount and
+commercial-recovery proposals are disabled. If current carrier evidence also
+reports `SHIPMENT_NOT_ACCEPTED`, the simulator selects
+`RETURN_TO_ORIGIN`. Missing or contradictory carrier evidence produces
+`NO_ACTION / HUMAN_REVIEW`.
