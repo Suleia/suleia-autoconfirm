@@ -37,3 +37,17 @@ method-enforced GET-only connector.
 This narrow authentication exception does not authorize Shopify mutations,
 Dropea or GLS POST queries, production actions, messages or raw-data
 persistence.
+
+## D-011: Authorize constrained Dropea and GLS semantic reads
+
+Date: 2026-07-28
+
+The owner authorized the existing Dropea GraphQL and GLS tracking operations
+strictly for reading. Their HTTPS hosts, paths and body shapes are allowlisted;
+no mutation, customer action, template delivery or logistics change is
+permitted.
+
+The current-system login endpoint may exchange the managed dashboard password
+for an in-memory session cookie followed by a single GET read. Exact identities
+may include explicit Dropea-tag references from Shopify, but fuzzy matching on
+customer data remains forbidden.

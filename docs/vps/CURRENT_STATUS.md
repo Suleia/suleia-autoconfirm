@@ -91,9 +91,15 @@ local configuration. An ephemeral access token was issued in memory and all
 12 orders created in the current Europe/Madrid business day were retrieved
 with complete Shopify pagination.
 
-The batch masked and simulated all 12 orders. It remains `INCOMPLETE` and
-routes every order to `BLOCKED` because Dropea, GLS and the current-system
-comparison were unavailable. The masked report is stored privately on the VPS
+The owner subsequently authorized exact semantic read-only `POST` queries.
+Dropea completed one page, GLS completed five tracking lookups, and the
+current-system cache authenticated successfully. Exact Dropea-tag references
+allowed three partial comparisons; nine orders still lacked a shared exact
+reference.
+
+The batch remains conservatively `INCOMPLETE` and routes every order to
+`BLOCKED` because the current-system cache declares itself non-authoritative
+for completeness. The updated masked report is stored privately on the VPS
 with mode `0600`.
 
 `ACTIONS_EXECUTED=0` and `PII_PERSISTED_COUNT=0`.

@@ -65,6 +65,22 @@ and no production action occurred.
 
 Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.
 
+## Checkpoint E-G authorized read continuation - 2026-07-28
+
+Status: executed as safe `INCOMPLETE`.
+
+- Owner authorized semantic read-only `POST` queries for Dropea and GLS.
+- Dropea completed one page and returned zero orders created in the interval.
+- GLS completed five of five tracking queries.
+- The current-system cache authenticated and returned 12 records.
+- Exact Dropea-tag references produced three `PARTIAL_MATCH` comparisons;
+  nine remained `INSUFFICIENT_DATA`.
+- All twelve routes remain `BLOCKED` because the current-system cache is
+  explicitly non-authoritative for completeness.
+- No fuzzy identity matching, customer action or external write occurred.
+
+Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.
+
 ## Checkpoint E-G continuation - 2026-07-28
 
 Status: executed as `INCOMPLETE`.

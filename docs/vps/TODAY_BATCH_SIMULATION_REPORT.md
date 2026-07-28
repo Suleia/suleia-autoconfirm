@@ -23,9 +23,10 @@ Batch status: `INCOMPLETE`
 - Failed: 0
 - Masked: 12
 - Simulated: 12
-- Compared with authoritative current-system data: 0
+- Compared with current-system cache data: 3
 - Route `BLOCKED`: 12
-- Comparison `INSUFFICIENT_DATA`: 12
+- Comparison `PARTIAL_MATCH`: 3
+- Comparison `INSUFFICIENT_DATA`: 9
 - Orders outside the interval: 0
 - PII elements detected and redacted: 39
 - `PII_PERSISTED_COUNT=0`
@@ -40,26 +41,29 @@ Chatby conversation and no verified incident. These are aggregate counts only.
 | --- | --- | --- |
 | Shopify | Complete, GET-only order reads | 1 page, 12 orders |
 | Chatby | Complete subscriber pagination; no exact order-reference matches | 9 pages |
-| Dropea | Incomplete; existing read requires prohibited POST | Not queried |
-| GLS | Incomplete; existing read requires prohibited POST | Not queried |
-| Current system | Incomplete; session secret unavailable | Not queried |
+| Dropea | Complete allowlisted GraphQL read; no interval records | 1 page |
+| GLS | Complete allowlisted tracking reads | 5 queries, 5 records |
+| Current system | Consultable; cache explicitly non-authoritative | 1 page, 12 records |
 
 The Shopify access token was issued once through the exact OAuth
 client-credentials endpoint, held only in process memory and cleared after the
-run. No order, customer, template, incident or logistics write was performed.
+run. The current-system session was created through the exact login endpoint
+and held only in memory. Shopify identities were linked only through explicit
+Dropea-tagged technical references; fuzzy customer matching was not used. No
+order, customer, template, incident or logistics write was performed.
 
 ## Persistence
 
 Only the masked report was copied to the private VPS:
 
 ```text
-/opt/suleia-operations/private-data/today-batches/2026-07-28.json
+/opt/suleia-operations/private-data/today-batches/2026-07-28-authorized-read-posts.json
 ```
 
-The file is mode `0600`, 41,638 bytes, and its SHA-256 is:
+The file is mode `0600`, 56,933 bytes, and its SHA-256 is:
 
 ```text
-64f49a794296307754c84df86ef83e822894c61036533ad5caa1fd0d55257778
+d495209cd8df914b191ed10eedc5e43273706afe4a76613f7a530a3439294d43
 ```
 
 No raw payload, credential, order mapping or direct identifier is present in

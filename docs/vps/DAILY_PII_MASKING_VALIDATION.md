@@ -15,4 +15,9 @@ The final report passed the direct-PII gate before persistence:
 - `PII_PERSISTED_COUNT=0`;
 - report file mode on the VPS: `0600`.
 
+An intermediate execution was rejected before persistence when a free-form
+current-system logistics value matched the direct-PII detector. The connector
+now maps that field to a closed logistics-state vocabulary; the repeated final
+execution passed the gate.
+
 No raw payload, temporary plaintext export or identifier mapping was written.

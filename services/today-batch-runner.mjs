@@ -5,7 +5,8 @@ import { businessDayBounds, isWithinBusinessDay } from '../packages/platform-cor
 import { containsDirectPii } from '../packages/platform-core/src/masking.mjs';
 import { runTodayBatch } from '../packages/platform-core/src/today-batch.mjs';
 import {
-  POST_ONLY_SOURCE_STATUS,
+  readDropeaOrdersToday,
+  readGlsTrackingToday,
   readChatbySignals,
   readCurrentSystemDashboard,
   readShopifyOrdersToday
@@ -28,6 +29,8 @@ const REQUIRED_FLAGS = Object.freeze({
   AUDIT_LOGGING_ENABLED: 'true',
   REAL_DATA_READ_ENABLED: 'true',
   REAL_DATA_WRITE_ENABLED: 'false',
+  DROPEA_READONLY_POST_AUTHORIZED: 'true',
+  GLS_READONLY_POST_AUTHORIZED: 'true',
   MASK_BEFORE_PERSISTENCE: 'true',
   RAW_REAL_PAYLOAD_PERSISTENCE: 'false',
   CONNECTOR_READ_ONLY_ENFORCED: 'true',
@@ -65,12 +68,12 @@ function mergeCurrentSemantics(orders, currentOrders) {
   });
 }
 
-function safeSourceStatus(shopify, chatby, currentSystem) {
+function safeSourceStatus(shopify, chatby, dropea, gls, currentSystem) {
   return {
     shopify,
     chatby,
-    dropea: POST_ONLY_SOURCE_STATUS.dropea,
-    gls: POST_ONLY_SOURCE_STATUS.gls,
+    dropea,
+    gls,
     current_system: currentSystem
   };
 }
@@ -92,12 +95,19 @@ export function buildPreflight({ env = process.env, now = new Date() } = {}) {
     utc_start: bounds.utc_start,
     utc_end_exclusive: bounds.utc_end_exclusive,
     order_date_field: 'created_at',
-    write_methods_blocked: ['POST', 'PUT', 'PATCH', 'DELETE'],
+    write_methods_blocked: ['PUT', 'PATCH', 'DELETE'],
+    semantic_read_posts_allowlisted: [
+      'POST https://api.dropea.com/graphql/dropshippers',
+      'POST https://api.consignee.gls-spain.es/api/v5/expeditions/find'
+    ],
+    authentication_posts_allowlisted: [
+      'POST https://suleia-autoconfirm.onrender.com/api/dashboard-login'
+    ],
     source_capabilities: {
       shopify: 'GET_ONLY_IF_ADMIN_ACCESS_TOKEN_PRESENT',
       chatby: 'GET_ONLY',
-      dropea: 'BLOCKED_DIRECT_READ_REQUIRES_POST',
-      gls: 'BLOCKED_DIRECT_READ_REQUIRES_POST',
+      dropea: 'ALLOWLISTED_GRAPHQL_QUERY_POST_ONLY',
+      gls: 'ALLOWLISTED_TRACKING_QUERY_POST_ONLY',
       current_system: 'GET_ONLY_NON_AUTHORITATIVE_CACHE'
     },
     shopify_credential_bootstrap: env.SHOPIFY_CREDENTIAL_BOOTSTRAP || 'PREEXISTING_ACCESS_TOKEN',
@@ -142,7 +152,14 @@ export async function executeTodayBatch({
       source_status: safeSourceStatus(
         shopify.status,
         { consultable: Boolean(env.CHATBY_TOKEN), complete: false, error: 'NOT_QUERIED_AFTER_SHOPIFY_ABORT', page_count: 0 },
-        { consultable: Boolean(env.DASHBOARD_SESSION_SECRET), complete: false, error: 'NOT_QUERIED_AFTER_SHOPIFY_ABORT', page_count: 0 }
+        { consultable: Boolean(env.DROPEA_API_KEY), complete: false, error: 'NOT_QUERIED_AFTER_SHOPIFY_ABORT', page_count: 0 },
+        { consultable: true, complete: false, error: 'NOT_QUERIED_AFTER_SHOPIFY_ABORT', page_count: 0 },
+        {
+          consultable: Boolean(env.DASHBOARD_SESSION_SECRET || env.DASHBOARD_PASSWORD),
+          complete: false,
+          error: 'NOT_QUERIED_AFTER_SHOPIFY_ABORT',
+          page_count: 0
+        }
       ),
       actions_executed: 0,
       pii_persisted_count: 0
@@ -151,10 +168,11 @@ export async function executeTodayBatch({
   const outside = shopify.orders.filter((order) => !isWithinBusinessDay(order.created_at, bounds));
   if (outside.length) throw new Error('Shopify returned orders outside the exact business-day interval');
 
-  const [currentSystem, chatby] = await Promise.all([
+  const [currentSystem, chatby, dropea] = await Promise.all([
     readCurrentSystemDashboard({
       baseUrl: env.CURRENT_SYSTEM_BASE_URL || 'https://suleia-autoconfirm.onrender.com',
       sessionSecret: env.DASHBOARD_SESSION_SECRET,
+      dashboardPassword: env.DASHBOARD_PASSWORD,
       fetchImpl
     }),
     readChatbySignals({
@@ -163,10 +181,40 @@ export async function executeTodayBatch({
       orders: shopify.orders,
       maxPages: Number(env.MAX_PAGES_PER_SOURCE || 200),
       fetchImpl
+    }),
+    readDropeaOrdersToday({
+      apiKey: env.DROPEA_API_KEY,
+      bounds,
+      orders: shopify.orders,
+      maxPages: Number(env.MAX_PAGES_PER_SOURCE || 200),
+      maxRuntimeMs: Number(env.MAX_BATCH_RUNTIME || 600_000),
+      fetchImpl
     })
   ]);
-  const orders = mergeCurrentSemantics(chatby.orders, currentSystem.orders);
-  const sourceStatus = safeSourceStatus(shopify.status, chatby.status, currentSystem.status);
+  const chatbyByIdentity = new Map(chatby.orders.map((order) => [order.identity_key, order]));
+  const combined = dropea.orders.map((order) => {
+    const chatbyOrder = chatbyByIdentity.get(order.identity_key) || {};
+    return {
+      ...order,
+      chatby_signal: chatbyOrder.chatby_signal,
+      chatby_has_conversation: chatbyOrder.chatby_has_conversation,
+      chatby_match_count: chatbyOrder.chatby_match_count,
+      identity_mismatch: order.identity_mismatch || chatbyOrder.identity_mismatch
+    };
+  });
+  const gls = await readGlsTrackingToday({
+    orders: combined,
+    signingSecret: env.GLS_TRACKING_SECRET || 'gls',
+    fetchImpl
+  });
+  const orders = mergeCurrentSemantics(gls.orders, currentSystem.orders);
+  const sourceStatus = safeSourceStatus(
+    shopify.status,
+    chatby.status,
+    dropea.status,
+    gls.status,
+    currentSystem.status
+  );
   const report = runTodayBatch({
     sourceOrders: orders,
     currentSystemOrders: currentSystem.orders,

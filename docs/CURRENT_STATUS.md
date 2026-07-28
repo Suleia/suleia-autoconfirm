@@ -13,10 +13,15 @@ The 2026-07-28 real-data checkpoint recovered the existing Shopify application
 credentials securely, issued an ephemeral token in memory and processed all 12
 orders created inside the exact Europe/Madrid business-day interval.
 
-All 12 orders were masked and simulated. The batch is `INCOMPLETE`, with every
-route blocked, because Dropea, GLS and the current-system comparison were not
-consultable under the current safety constraints. The masked report is stored
-privately on the VPS with mode `0600`.
+All 12 orders were masked and simulated. Authorized semantic reads made
+Dropea, GLS and the current-system cache consultable. GLS returned five
+complete tracking records; exact technical references enabled three partial
+current-system comparisons, while nine remained without sufficient exact
+identity evidence.
+
+The batch remains `INCOMPLETE` with every route blocked because the
+current-system cache is non-authoritative for completeness. The updated masked
+report is stored privately on the VPS with mode `0600`.
 
 Current safety result:
 

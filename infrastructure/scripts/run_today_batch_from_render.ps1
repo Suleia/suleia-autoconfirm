@@ -8,6 +8,7 @@ param(
   [string]$RenderTokenBridgeKeyFile = '',
   [switch]$DeleteTokenBridge,
   [string]$ShopifyCredentialFile = 'C:\Users\samue\OneDrive\Documentos\Suleia\.env',
+  [string]$DashboardCredentialFile = 'C:\Users\samue\OneDrive\Documentos\Suleia\autoconfirm\.env',
   [switch]$AllowShopifyClientCredentialExchange,
   [string]$NodeExecutable = 'C:\Users\samue\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
 )
@@ -21,6 +22,9 @@ $sensitiveNames = @(
   'SHOPIFY_CLIENT_ID',
   'SHOPIFY_CLIENT_SECRET',
   'CHATBY_TOKEN',
+  'DROPEA_API_KEY',
+  'GLS_TRACKING_SECRET',
+  'DASHBOARD_PASSWORD',
   'DASHBOARD_SESSION_SECRET'
 )
 $bstr = [IntPtr]::Zero
@@ -28,6 +32,7 @@ $renderToken = $null
 $bridgeKey = $null
 $renderEnvironment = @{}
 $localShopify = @{}
+$localDashboard = @{}
 $shopifyTokenResponse = $null
 
 function Read-AllowlistedEnvironmentFile {
@@ -69,6 +74,8 @@ function Set-BatchEnvironment {
     AUDIT_LOGGING_ENABLED = 'true'
     REAL_DATA_READ_ENABLED = 'true'
     REAL_DATA_WRITE_ENABLED = 'false'
+    DROPEA_READONLY_POST_AUTHORIZED = 'true'
+    GLS_READONLY_POST_AUTHORIZED = 'true'
     MASK_BEFORE_PERSISTENCE = 'true'
     RAW_REAL_PAYLOAD_PERSISTENCE = 'false'
     CONNECTOR_READ_ONLY_ENFORCED = 'true'
@@ -100,6 +107,9 @@ function Set-BatchEnvironment {
     'SHOPIFY_ACCESS_TOKEN',
     'CHATBY_TOKEN',
     'CHATBY_BASE_URL',
+    'DROPEA_API_KEY',
+    'GLS_TRACKING_SECRET',
+    'DASHBOARD_PASSWORD',
     'DASHBOARD_SESSION_SECRET',
     'CRON_SECRET',
     'PUBLIC_BASE_URL',
@@ -204,6 +214,16 @@ try {
     }
   }
 
+  $localDashboard = Read-AllowlistedEnvironmentFile -Path $DashboardCredentialFile -AllowedNames @(
+    'DASHBOARD_SESSION_SECRET',
+    'CRON_SECRET'
+  )
+  foreach ($entry in $localDashboard.GetEnumerator()) {
+    if (-not $renderEnvironment.ContainsKey($entry.Key) -or -not $renderEnvironment[$entry.Key]) {
+      $renderEnvironment[$entry.Key] = $entry.Value
+    }
+  }
+
   Set-BatchEnvironment -RenderEnvironment $renderEnvironment
   [Environment]::SetEnvironmentVariable('SHOPIFY_CREDENTIAL_BOOTSTRAP', $shopifyCredentialBootstrap, 'Process')
   & $NodeExecutable $runner "--mode=$Mode"
@@ -216,6 +236,7 @@ try {
   [Environment]::SetEnvironmentVariable('SHOPIFY_CREDENTIAL_BOOTSTRAP', $null, 'Process')
   $shopifyTokenResponse = $null
   if ($null -ne $localShopify) { $localShopify.Clear() }
+  if ($null -ne $localDashboard) { $localDashboard.Clear() }
   if ($null -ne $renderEnvironment) { $renderEnvironment.Clear() }
   $renderToken = $null
   if ($bstr -ne [IntPtr]::Zero) {

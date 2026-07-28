@@ -54,3 +54,16 @@ GET-only and cannot mutate Shopify.
 
 This exception does not extend to Dropea, GLS, messaging, order changes or any
 other external write.
+
+## D-011: Allow exact semantic read POSTs for Dropea and GLS
+
+The owner explicitly authorized Dropea and GLS access on 2026-07-28. Only the
+fixed Dropea GraphQL query endpoint and fixed GLS tracking lookup endpoint may
+use `POST`. Request bodies are predetermined read shapes, redirects are
+blocked, and every mutation remains prohibited.
+
+Current-system authentication may use its exact login endpoint to obtain an
+ephemeral cookie. No dashboard refresh or write endpoint is authorized.
+Technical identities may be linked only through exact Shopify references or
+explicit Dropea-tagged identifiers; names, phones and addresses are forbidden
+for matching.

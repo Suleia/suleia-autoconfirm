@@ -28,9 +28,22 @@ function nextLink(response) {
 function normalizeShopifyOrder(order) {
   const id = String(order.id || '');
   const name = String(order.name || '');
+  const tags = Array.isArray(order.tags) ? order.tags : String(order.tags || '').split(',');
+  const dropeaReferences = tags.flatMap((tag) => {
+    if (!/dropea/i.test(String(tag))) return [];
+    return String(tag).match(/\b\d{4,12}\b/g) || [];
+  });
+  const fulfillment = Array.isArray(order.fulfillments)
+    ? order.fulfillments.find((item) => item?.tracking_number || item?.tracking_url)
+    : null;
   return {
     identity_key: `SHOPIFY:${id}`,
-    identity_references: [id, name, name.replace(/^#/, '')].filter(Boolean),
+    identity_references: [...new Set([
+      id,
+      name,
+      name.replace(/^#/, ''),
+      ...dropeaReferences
+    ].filter(Boolean))],
     created_at: order.created_at,
     updated_at: order.updated_at || order.created_at,
     cancelled_at: order.cancelled_at || null,
@@ -42,7 +55,250 @@ function normalizeShopifyOrder(order) {
       ? order.line_items.reduce((total, item) => total + Number(item.quantity || 0), 0)
       : 0,
     tracking_present: Boolean(order.fulfillments?.some((item) => item.tracking_number || item.tracking_url)),
+    tracking_reference_ephemeral: fulfillment?.tracking_number || null,
+    tracking_url_ephemeral: fulfillment?.tracking_url || null,
     raw_ephemeral: order
+  };
+}
+
+async function semanticPostJson({
+  url,
+  allowedHost,
+  allowedPath,
+  headers,
+  body,
+  source,
+  fetchImpl = globalThis.fetch,
+  timeoutMs = 20_000
+}) {
+  const target = new URL(url);
+  if (target.protocol !== 'https:' || target.hostname !== allowedHost || target.pathname !== allowedPath) {
+    throw new Error(`${source} semantic POST target is not allowlisted`);
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetchImpl(target, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+      redirect: 'error'
+    });
+    return responseJson(response, source);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function exactReferences(order) {
+  return new Set((order.identity_references || [])
+    .map((item) => String(item).replace(/^#/, '').trim())
+    .filter(Boolean));
+}
+
+export async function readDropeaOrdersToday({
+  apiKey,
+  bounds,
+  orders,
+  maxPages = 200,
+  maxRuntimeMs = 10 * 60_000,
+  fetchImpl = globalThis.fetch
+}) {
+  if (!apiKey) {
+    return {
+      orders,
+      status: { consultable: false, complete: false, error: 'DROPEA_API_KEY_MISSING', page_count: 0 }
+    };
+  }
+  const query = `
+    query TodayOrdersReadOnly($limit: Int!, $page: Int!) {
+      orders(limit: $limit, page: $page) {
+        data {
+          id
+          status
+          created_at
+          updated_at
+          tracking_code
+          tracking_url
+          issues { id incidence_code status }
+        }
+      }
+    }
+  `;
+  const startedAt = Date.now();
+  const rows = [];
+  let pageCount = 0;
+  let complete = false;
+  for (let page = 1; page <= maxPages; page += 1) {
+    if (Date.now() - startedAt >= maxRuntimeMs) break;
+    const payload = await semanticPostJson({
+      url: 'https://api.dropea.com/graphql/dropshippers',
+      allowedHost: 'api.dropea.com',
+      allowedPath: '/graphql/dropshippers',
+      headers: { 'x-api-key': apiKey },
+      body: { query, variables: { limit: 100, page } },
+      source: 'dropea',
+      fetchImpl
+    });
+    if (Array.isArray(payload?.errors) && payload.errors.length) {
+      const error = new Error('Dropea read-only GraphQL query returned errors');
+      error.code = 'DROPEA_GRAPHQL_READ_ERROR';
+      throw error;
+    }
+    const pageRows = payload?.data?.orders?.data ?? payload?.orders?.data ?? [];
+    if (!Array.isArray(pageRows)) throw new Error('Dropea read-only response has an unexpected shape');
+    rows.push(...pageRows);
+    pageCount += 1;
+    if (pageRows.length < 100) {
+      complete = true;
+      break;
+    }
+  }
+  const todayRows = rows.filter((row) => isWithinBounds(row.created_at, bounds));
+  const enriched = orders.map((order) => {
+    const references = exactReferences(order);
+    const matches = todayRows.filter((row) => references.has(String(row.id || '').trim()));
+    if (matches.length !== 1) {
+      return { ...order, identity_mismatch: order.identity_mismatch || matches.length > 1 };
+    }
+    const match = matches[0];
+    const issues = Array.isArray(match.issues) ? match.issues : [];
+    const incident = issues.find((item) => String(item?.status || '').toUpperCase() !== 'RESOLVED') || issues[0];
+    return {
+      ...order,
+      dropea_status: String(match.status || 'UNKNOWN').toUpperCase(),
+      incident_present: Boolean(incident),
+      incident_type: incident?.incidence_code || 'UNKNOWN',
+      incident_at: match.updated_at || match.created_at,
+      tracking_present: order.tracking_present || Boolean(match.tracking_code || match.tracking_url),
+      tracking_reference_ephemeral: match.tracking_code || order.tracking_reference_ephemeral,
+      tracking_url_ephemeral: match.tracking_url || order.tracking_url_ephemeral,
+      direct_dropea_read: true
+    };
+  });
+  return {
+    orders: enriched,
+    status: {
+      consultable: true,
+      complete,
+      error: complete ? null : 'DROPEA_PAGINATION_INCOMPLETE',
+      page_count: pageCount,
+      records: todayRows.length,
+      exact_matches: enriched.filter((order) => order.direct_dropea_read).length
+    }
+  };
+}
+
+function isWithinBounds(value, bounds) {
+  const timestamp = new Date(value || 0).getTime();
+  return Number.isFinite(timestamp)
+    && timestamp >= new Date(bounds.utc_start).getTime()
+    && timestamp < new Date(bounds.utc_end_exclusive).getTime();
+}
+
+function glsCoordinates(order) {
+  const url = String(order.tracking_url_ephemeral || '');
+  const match = url.match(/\/e\/(\d+)\/([0-9A-Za-z-]+)(?:\/|$)/i);
+  return {
+    reference: match?.[1] || null,
+    postalCode: match?.[2] || null
+  };
+}
+
+function glsSignedHeaders(path, secret, now = new Date()) {
+  const timestamp = now.toISOString();
+  const signature = crypto.createHmac('sha256', secret || 'gls')
+    .update(`POST\n${path}\n${timestamp}`)
+    .digest('hex');
+  return {
+    'MyGls-Agent': 'pwa',
+    'X-Timestamp': timestamp,
+    'X-Signature': signature
+  };
+}
+
+function glsState(found) {
+  const latest = Array.isArray(found?.tracking) ? found.tracking.at(-1) : null;
+  const text = `${found?.state?.code || ''} ${found?.state?.reason || ''} ${latest?.code || ''} ${latest?.description || ''}`
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  if (/DELIVERED|ENTREGAD/.test(text)) return 'DELIVERED';
+  if (/RETURN|DEVUELT/.test(text)) return 'RETURNED';
+  if (/INCID|ABSENT|AUSENTE/.test(text)) return 'INCIDENCE';
+  return found?.state?.code || latest?.code || 'UNKNOWN';
+}
+
+function canonicalLogisticsState(value) {
+  const text = String(value || '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toUpperCase();
+  if (/DELIVERED|ENTREGAD/.test(text)) return 'DELIVERED';
+  if (/RETURN|DEVUELT/.test(text)) return 'RETURNED';
+  if (/INCID|ABSENT|AUSENTE|REJECT|RECHAZ/.test(text)) return 'INCIDENCE';
+  if (/TRANSIT|TRANSITO|SHIPPED|ENVIADO|REPARTO/.test(text)) return 'IN_TRANSIT';
+  if (/PREPARED|PREPARADO/.test(text)) return 'PREPARED';
+  if (/PENDING|PENDIENTE/.test(text)) return 'PENDING';
+  return 'UNKNOWN';
+}
+
+export async function readGlsTrackingToday({
+  orders,
+  signingSecret = 'gls',
+  fetchImpl = globalThis.fetch
+}) {
+  let pageCount = 0;
+  let missingCoordinates = 0;
+  let failed = 0;
+  const enriched = await mapLimited(orders, 2, async (order) => {
+    if (!order.tracking_present) return order;
+    const { reference, postalCode } = glsCoordinates(order);
+    if (!reference || !postalCode) {
+      missingCoordinates += 1;
+      return order;
+    }
+    const path = '/api/v5/expeditions/find';
+    const signaturePath = '/expeditions/find';
+    try {
+      const payload = await semanticPostJson({
+        url: `https://api.consignee.gls-spain.es${path}`,
+        allowedHost: 'api.consignee.gls-spain.es',
+        allowedPath: path,
+        headers: glsSignedHeaders(signaturePath, signingSecret),
+        body: { find: { reference, destination: { address: { postalCode } } } },
+        source: 'gls',
+        fetchImpl,
+        timeoutMs: 10_000
+      });
+      pageCount += 1;
+      const found = payload?.found || null;
+      if (!found) return { ...order, direct_gls_read: true };
+      const tracking = Array.isArray(found.tracking) ? found.tracking : [];
+      const latest = tracking.at(-1) || null;
+      return {
+        ...order,
+        logistics_state: glsState(found),
+        logistics_at: latest?.at || found?.state?.incidenceDatetime || order.updated_at,
+        direct_gls_read: true
+      };
+    } catch {
+      failed += 1;
+      return order;
+    }
+  });
+  const complete = failed === 0 && missingCoordinates === 0;
+  return {
+    orders: enriched,
+    status: {
+      consultable: true,
+      complete,
+      error: failed
+        ? 'GLS_READ_FAILED'
+        : missingCoordinates ? 'GLS_TRACKING_COORDINATES_MISSING' : null,
+      page_count: pageCount,
+      records: enriched.filter((order) => order.direct_gls_read).length,
+      missing_coordinates: missingCoordinates,
+      failed
+    }
   };
 }
 
@@ -254,22 +510,55 @@ export async function readChatbySignals({
 export async function readCurrentSystemDashboard({
   baseUrl = 'https://suleia-autoconfirm.onrender.com',
   sessionSecret,
+  dashboardPassword,
   fetchImpl = globalThis.fetch
 }) {
-  if (!sessionSecret) {
+  if (!sessionSecret && !dashboardPassword) {
     return {
       orders: [],
-      status: { consultable: false, complete: false, error: 'DASHBOARD_SESSION_SECRET_MISSING', page_count: 0 }
+      status: { consultable: false, complete: false, error: 'DASHBOARD_AUTH_CREDENTIAL_MISSING', page_count: 0 }
     };
   }
   const base = new URL(baseUrl);
+  if (base.protocol !== 'https:' || base.hostname !== 'suleia-autoconfirm.onrender.com') {
+    throw new Error('Current-system host is not allowlisted');
+  }
   const transport = createReadOnlyTransport({ fetchImpl, allowedHosts: [base.hostname], maxRetries: 2 });
-  const value = `suleia:${Date.now()}`;
-  const signature = crypto.createHmac('sha256', sessionSecret).update(value).digest('hex');
-  const cookie = `suleia_dashboard=${encodeURIComponent(`${value}.${signature}`)}`;
-  const response = await transport(new URL('/api/dashboard', base.origin), {
-    headers: { Accept: 'application/json', Cookie: cookie }
-  });
+  let cookie = null;
+  if (sessionSecret) {
+    const value = `suleia:${Date.now()}`;
+    const signature = crypto.createHmac('sha256', sessionSecret).update(value).digest('hex');
+    cookie = `suleia_dashboard=${encodeURIComponent(`${value}.${signature}`)}`;
+  }
+  let response = cookie
+    ? await transport(new URL('/api/dashboard', base.origin), {
+        headers: { Accept: 'application/json', Cookie: cookie }
+      })
+    : null;
+  if ((!response || response.status === 401) && dashboardPassword) {
+    const loginUrl = new URL('/api/dashboard-login', base.origin);
+    if (loginUrl.protocol !== 'https:') throw new Error('Current-system login requires HTTPS');
+    const login = await fetchImpl(loginUrl, {
+      method: 'POST',
+      headers: {
+        Accept: 'text/html',
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({ password: dashboardPassword }).toString(),
+      redirect: 'manual'
+    });
+    if (login.status !== 303) {
+      const error = new Error(`current_system authentication failed with HTTP ${login.status}`);
+      error.code = `CURRENT_SYSTEM_AUTH_HTTP_${login.status}`;
+      throw error;
+    }
+    const setCookie = login.headers.get('set-cookie') || '';
+    cookie = setCookie.split(';', 1)[0];
+    if (!cookie.startsWith('suleia_dashboard=')) throw new Error('Current-system authentication returned no session');
+    response = await transport(new URL('/api/dashboard', base.origin), {
+      headers: { Accept: 'application/json', Cookie: cookie }
+    });
+  }
   const payload = await responseJson(response, 'current_system');
   const rows = Array.isArray(payload?.dashboard?.orders) ? payload.dashboard.orders : [];
   return {
@@ -284,7 +573,7 @@ export async function readCurrentSystemDashboard({
       intent: order.agentIntent || 'UNKNOWN',
       incident_present: String(order.issue || '').toLowerCase() === 'si' || Boolean(order.issueCode),
       tracking_present: Boolean(order.raw?.tracking_code || order.raw?.tracking),
-      logistics_state: order.raw?.delivery_status || order.raw?.status || 'UNKNOWN',
+      logistics_state: canonicalLogisticsState(order.raw?.delivery_status || order.raw?.status),
       created_at: order.createdAt || null
     })),
     status: {
@@ -292,22 +581,8 @@ export async function readCurrentSystemDashboard({
       complete: false,
       error: 'CURRENT_SYSTEM_CACHE_NOT_AUTHORITATIVE_FOR_COMPLETENESS',
       page_count: 1,
-      records: rows.length
+      records: rows.length,
+      authenticated: true
     }
   };
 }
-
-export const POST_ONLY_SOURCE_STATUS = Object.freeze({
-  dropea: {
-    consultable: false,
-    complete: false,
-    error: 'DIRECT_READ_REQUIRES_POST_BLOCKED_BY_CHECKPOINT',
-    page_count: 0
-  },
-  gls: {
-    consultable: false,
-    complete: false,
-    error: 'DIRECT_READ_REQUIRES_POST_BLOCKED_BY_CHECKPOINT',
-    page_count: 0
-  }
-});

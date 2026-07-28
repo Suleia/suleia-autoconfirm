@@ -2,12 +2,13 @@
 
 Date: 2026-07-28
 
-Status: `INSUFFICIENT_DATA`.
+Status: safe `INCOMPLETE`.
 
-The current-system dashboard could not be queried because the required session
-secret was unavailable to the batch runner. It was not replaced with inferred
-or stale data.
+The current-system dashboard authenticated through an ephemeral API session
+and returned 12 cache records. Explicit Dropea-tagged Shopify references
+created three exact identity links.
 
-All 12 masked orders therefore have comparison result
-`INSUFFICIENT_DATA`. No difference was classified as a match, bug or policy
-change, and no production rule was modified.
+Three masked orders produced `PARTIAL_MATCH`; nine remain
+`INSUFFICIENT_DATA`. The cache is explicitly non-authoritative for
+completeness, so all routes remain `BLOCKED`. No fuzzy identity match was used
+and no production rule was modified.
