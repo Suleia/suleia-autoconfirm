@@ -49,3 +49,8 @@ official tunnel requires a Platform API key and `api.openai.com`.
 
 No discount-template automation is active and no further template sends are
 authorized in this checkpoint.
+
+The hardened build is deployed privately: all nine containers are healthy,
+24 MCP tests pass in the VPS container, the PostgreSQL write attempt is
+blocked and only SSH is publicly listening. ChatGPT connection remains gated
+on subscription compatibility and verified OAuth 2.1.

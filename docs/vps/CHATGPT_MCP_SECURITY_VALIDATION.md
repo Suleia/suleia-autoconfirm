@@ -2,6 +2,9 @@
 
 ## Current result
 
+- VPS deployment: 9/9 containers healthy on 2026-07-28.
+- MCP test suite: 24/24 passing locally and in the deployed container.
+- Staging safety validator: passed with `actions_executed=0`.
 - Public endpoint: disabled.
 - Authentication: private bearer for local/VPS tests; not approved publicly.
 - OAuth: required before any public connection; not yet configured.
@@ -18,6 +21,12 @@
   headers.
 - Container: non-root, read-only filesystem, no host network, no Docker socket,
   all capabilities dropped, PID/CPU/RAM limits and rotated logs.
+- Network exposure: SSH only; HTTP and HTTPS remain bound to loopback.
+- PostgreSQL: `suleia_mcp_readonly` has no role-escalation or database-create
+  flags, no direct `core.orders` privileges, can select the masked MCP view and
+  fails a real INSERT attempt.
+- Runtime OpenAI audit: no API key in active containers, no runtime imports and
+  no OpenAI cron or systemd references.
 
 ## Mandatory pending checks
 
@@ -27,4 +36,3 @@
 - Verify the remote scan from ChatGPT after the endpoint is authorized.
 
 These are connection blockers, not waived risks.
-
