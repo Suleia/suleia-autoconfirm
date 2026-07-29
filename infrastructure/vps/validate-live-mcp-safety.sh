@@ -6,7 +6,12 @@ COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
 ENV_FILE="${INSTALL_ROOT}/.env"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/validate-mcp-db-readonly.sh"
-node "${INSTALL_ROOT}/infrastructure/scripts/validate_staging_safety.mjs"
+
+docker compose \
+  --env-file "${ENV_FILE}" \
+  --file "${COMPOSE_FILE}" \
+  exec --no-TTY mcp-server \
+  node infrastructure/scripts/validate_staging_safety.mjs
 
 docker compose \
   --env-file "${ENV_FILE}" \
