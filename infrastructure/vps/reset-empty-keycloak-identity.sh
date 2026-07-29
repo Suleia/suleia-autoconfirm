@@ -8,6 +8,7 @@ ENV_FILE="${INSTALL_ROOT}/.env"
 BACKUP_ROOT="/home/suleiaops/suleia-backups"
 IDENTITY_DATABASE="suleia_identity"
 IDENTITY_OWNER="suleia_keycloak"
+POSTGRES_ADMIN_USER="suleia_admin"
 
 if [[ "${INSTALL_ROOT}" != "${EXPECTED_INSTALL_ROOT}" ]]; then
   echo "Refusing identity reset outside ${EXPECTED_INSTALL_ROOT}." >&2
@@ -32,7 +33,7 @@ docker compose \
   --file "${COMPOSE_FILE}" \
   exec --no-TTY postgres \
   pg_dump \
-  --username "${POSTGRES_USER}" \
+  --username "${POSTGRES_ADMIN_USER}" \
   --format custom \
   --file "/tmp/keycloak-identity-pre-reset.dump" \
   "${IDENTITY_DATABASE}"
@@ -53,7 +54,7 @@ docker compose \
   --file "${COMPOSE_FILE}" \
   exec --no-TTY postgres \
   psql \
-  --username "${POSTGRES_USER}" \
+  --username "${POSTGRES_ADMIN_USER}" \
   --dbname postgres \
   --set ON_ERROR_STOP=1 \
   --command "REVOKE CONNECT ON DATABASE ${IDENTITY_DATABASE} FROM public;" \
