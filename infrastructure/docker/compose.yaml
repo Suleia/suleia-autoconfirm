@@ -55,8 +55,8 @@ services:
     image: caddy:2.10-alpine
     restart: unless-stopped
     ports:
-      - "127.0.0.1:80:80"
-      - "127.0.0.1:443:443"
+      - "127.0.0.1:8080:80"
+      - "127.0.0.1:8443:443"
     environment:
       OPS_STAGING_HOST: ${OPS_STAGING_HOST:-ops-staging.localhost}
       API_STAGING_HOST: ${API_STAGING_HOST:-api-staging.localhost}
@@ -68,6 +68,34 @@ services:
     networks:
       - public_network
       - application_network
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    healthcheck:
+      test: ["CMD", "caddy", "version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  mcp-edge:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      MCP_PUBLIC_HOST: ${MCP_PUBLIC_HOST:-mcp.suleia.com}
+    volumes:
+      - ../reverse-proxy/McpEdgeCaddyfile:/etc/caddy/Caddyfile:ro
+      - mcp_edge_data:/data
+      - mcp_edge_config:/config
+    networks:
+      - public_network
+      - application_network
+      - identity_network
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -104,9 +132,13 @@ services:
       PORT: 3100
       READ_ONLY: "true"
       MCP_DATA_MODE: fixture
-      MCP_AUTH_MODE: bearer
-      MCP_PUBLIC_ENDPOINT_ENABLED: "false"
-      MCP_STAGING_BEARER_TOKEN: ${MCP_STAGING_BEARER_TOKEN}
+      MCP_AUTH_MODE: oauth
+      MCP_PUBLIC_ENDPOINT_ENABLED: "true"
+      MCP_PUBLIC_BASE_URL: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}
+      MCP_OAUTH_ISSUER: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}/auth/realms/suleia
+      MCP_OAUTH_AUDIENCE: suleia-mcp
+      MCP_OAUTH_JWKS_URL: http://keycloak:8080/auth/realms/suleia/protocol/openid-connect/certs
+      MCP_OAUTH_REQUIRED_ROLE: mcp_reader
       MCP_GRANTED_SCOPES: orders:read,timelines:read,decisions:read,reviews:read,orders:simulate
       MCP_RATE_LIMIT_PER_MINUTE: 30
       MCP_REQUEST_BODY_LIMIT: 64kb
@@ -116,6 +148,7 @@ services:
     networks:
       - application_network
       - database_network
+      - identity_network
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3100/health"]
       interval: 20s
@@ -198,6 +231,42 @@ services:
           cpus: "1.50"
           memory: 1536M
 
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.7.0
+    restart: unless-stopped
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/suleia_identity
+      KC_DB_USERNAME: suleia_keycloak
+      KC_DB_PASSWORD: ${SULEIA_KEYCLOAK_DB_PASSWORD}
+      KC_HOSTNAME: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}/auth
+      KC_HTTP_ENABLED: "true"
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      KC_METRICS_ENABLED: "false"
+      KC_BOOTSTRAP_ADMIN_USERNAME: suleia-bootstrap-admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
+    volumes:
+      - ../identity/suleia-realm.json:/opt/keycloak/data/import/suleia-realm.json:ro
+    networks:
+      - identity_network
+      - database_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 1024M
+          pids: 256
+
   backup:
     image: postgres:17.5-alpine
     restart: "no"
@@ -233,6 +302,8 @@ networks:
     internal: true
   database_network:
     internal: true
+  identity_network:
+    internal: true
 
 volumes:
   postgres_data:
@@ -240,4 +311,6 @@ volumes:
   application_logs:
   reverse_proxy_data:
   reverse_proxy_config:
+  mcp_edge_data:
+  mcp_edge_config:
   monitoring_data:

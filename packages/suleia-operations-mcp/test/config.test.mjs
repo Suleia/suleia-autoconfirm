@@ -57,3 +57,25 @@ test('supabase mode rejects a production or unknown project ref', () => {
     writeToolsEnabled: false
   }), /approved staging project/);
 });
+
+test('public OAuth configuration is accepted only with complete HTTPS identity metadata', () => {
+  const config = loadConfig({
+    environment: 'test',
+    authMode: 'oauth',
+    publicEndpointEnabled: true,
+    publicBaseUrl: 'https://mcp.suleia.com',
+    oauthIssuer: 'https://mcp.suleia.com/auth/realms/suleia',
+    oauthAudience: 'suleia-mcp',
+    oauthJwksUrl: 'http://keycloak:8080/auth/realms/suleia/protocol/openid-connect/certs',
+    oauthRequiredRole: 'mcp_reader'
+  });
+  assert.equal(config.authMode, 'oauth');
+});
+
+test('incomplete public OAuth configuration fails closed', () => {
+  assert.throws(() => loadConfig({
+    environment: 'test',
+    authMode: 'oauth',
+    publicEndpointEnabled: true
+  }), /HTTPS MCP_PUBLIC_BASE_URL/);
+});

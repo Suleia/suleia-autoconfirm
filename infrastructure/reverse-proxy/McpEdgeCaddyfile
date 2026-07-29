@@ -1,0 +1,42 @@
+{
+  email off
+  admin off
+  servers {
+    timeouts {
+      read_body 10s
+      read_header 5s
+      write 30s
+      idle 2m
+    }
+    max_header_size 32kb
+  }
+}
+
+(edge_security_headers) {
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "no-referrer"
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    -Server
+  }
+  request_body {
+    max_size 64KB
+  }
+}
+
+{$MCP_PUBLIC_HOST} {
+  import edge_security_headers
+
+  @mcp path /mcp /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp
+  handle @mcp {
+    reverse_proxy mcp-server:3100
+  }
+
+  @identity path /auth/realms/suleia/* /auth/resources/*
+  handle @identity {
+    reverse_proxy keycloak:8080
+  }
+
+  respond 404
+}

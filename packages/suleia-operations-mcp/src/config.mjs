@@ -29,6 +29,11 @@ export function loadConfig(overrides = {}) {
     fixturePath: path.join(packageRoot, 'fixtures', 'order.masked.json'),
     authMode: process.env.MCP_AUTH_MODE || 'bearer',
     bearerToken: process.env.MCP_STAGING_BEARER_TOKEN || '',
+    publicBaseUrl: process.env.MCP_PUBLIC_BASE_URL || '',
+    oauthIssuer: process.env.MCP_OAUTH_ISSUER || '',
+    oauthAudience: process.env.MCP_OAUTH_AUDIENCE || '',
+    oauthJwksUrl: process.env.MCP_OAUTH_JWKS_URL || '',
+    oauthRequiredRole: process.env.MCP_OAUTH_REQUIRED_ROLE || 'mcp_reader',
     grantedScopes: list('MCP_GRANTED_SCOPES', [
       'orders:read',
       'timelines:read',
@@ -92,8 +97,16 @@ export function assertSafetyInvariants(config) {
   if (config.publicEndpointEnabled && config.authMode !== 'oauth') {
     violations.push('Public MCP endpoints require OAuth');
   }
-  if (config.authMode !== 'bearer') {
-    violations.push('Only private bearer mode is implemented; OAuth must be added and verified before public exposure');
+  if (!['bearer', 'oauth'].includes(config.authMode)) {
+    violations.push('MCP_AUTH_MODE must be bearer or oauth');
+  }
+  if (config.authMode === 'oauth') {
+    if (!config.publicEndpointEnabled) violations.push('OAuth mode requires MCP_PUBLIC_ENDPOINT_ENABLED=true');
+    if (!config.publicBaseUrl?.startsWith('https://')) violations.push('OAuth mode requires an HTTPS MCP_PUBLIC_BASE_URL');
+    if (!config.oauthIssuer?.startsWith('https://')) violations.push('OAuth mode requires an HTTPS MCP_OAUTH_ISSUER');
+    if (!config.oauthAudience) violations.push('OAuth mode requires MCP_OAUTH_AUDIENCE');
+    if (!config.oauthJwksUrl) violations.push('OAuth mode requires MCP_OAUTH_JWKS_URL');
+    if (!config.oauthRequiredRole) violations.push('OAuth mode requires MCP_OAUTH_REQUIRED_ROLE');
   }
   if (config.rateLimitPerMinute < 1 || config.rateLimitPerMinute > 30) {
     violations.push('MCP_RATE_LIMIT_PER_MINUTE must be between 1 and 30');

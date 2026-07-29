@@ -5,16 +5,17 @@ import { createRepository } from './data/repository.mjs';
 import { createOperationsService } from './domain/service.mjs';
 import { createMcpServer, MCP_TOOL_NAMES } from './mcp/server.mjs';
 import { createAuditLogger } from './security/audit.mjs';
-import { createBearerAuth, createRateLimiter } from './security/http-auth.mjs';
+import { createHttpAuth, createRateLimiter } from './security/http-auth.mjs';
 
 export function createHttpApp(config, options = {}) {
   const app = express();
   const repository = options.repository || createRepository(config);
   const service = options.service || createOperationsService(repository);
   const audit = options.audit || createAuditLogger(config);
-  const auth = options.auth || createBearerAuth(config, audit);
+  const auth = options.auth || createHttpAuth(config, audit, options.authOptions);
 
   app.disable('x-powered-by');
+  app.set('trust proxy', 1);
   app.use(express.json({ limit: config.requestBodyLimit, strict: true }));
   app.use((req, res, next) => {
     req.correlationId = crypto.randomUUID();
@@ -43,6 +44,23 @@ export function createHttpApp(config, options = {}) {
       tool_count: MCP_TOOL_NAMES.length,
       actions_executed: 0
     });
+  });
+
+  const protectedResourceMetadata = {
+    resource: `${config.publicBaseUrl}/mcp`,
+    authorization_servers: [config.oauthIssuer],
+    scopes_supported: config.grantedScopes,
+    bearer_methods_supported: ['header']
+  };
+  app.get([
+    '/.well-known/oauth-protected-resource',
+    '/.well-known/oauth-protected-resource/mcp'
+  ], (req, res) => {
+    if (config.authMode !== 'oauth') {
+      res.status(404).json({ ok: false, error: 'not_found' });
+      return;
+    }
+    res.json(protectedResourceMetadata);
   });
 
   app.post('/mcp', createRateLimiter(config, audit), auth, async (req, res) => {

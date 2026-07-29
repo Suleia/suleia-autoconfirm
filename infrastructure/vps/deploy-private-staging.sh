@@ -72,6 +72,30 @@ EOF
   chmod 0600 "${ENV_FILE}"
 fi
 
+ensure_env_value() {
+  local name="$1"
+  local value="$2"
+  if grep -q "^${name}=" "${ENV_FILE}"; then
+    sed -i "s|^${name}=.*$|${name}=${value}|" "${ENV_FILE}"
+  else
+    printf '%s=%s\n' "${name}" "${value}" >> "${ENV_FILE}"
+  fi
+}
+
+ensure_secret() {
+  local name="$1"
+  if ! grep -q "^${name}=.\+" "${ENV_FILE}"; then
+    printf '%s=%s\n' "${name}" "$(openssl rand -hex 32)" >> "${ENV_FILE}"
+  fi
+}
+
+ensure_env_value MCP_PUBLIC_HOST mcp.suleia.com
+ensure_env_value MCP_AUTH_MODE oauth
+ensure_env_value MCP_PUBLIC_ENDPOINT_ENABLED true
+ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
+ensure_secret KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
+chmod 0600 "${ENV_FILE}"
+
 docker run --rm \
   --volume "${INSTALL_ROOT}:/workspace:ro" \
   --workdir /workspace \
@@ -91,9 +115,14 @@ docker compose \
 docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
-  up --detach --wait --wait-timeout 180
+  up --detach --wait --wait-timeout 180 postgres
 
 "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
+
+docker compose \
+  --env-file "${ENV_FILE}" \
+  --file "${COMPOSE_FILE}" \
+  up --detach --wait --wait-timeout 300
 
 docker compose \
   --env-file "${ENV_FILE}" \

@@ -76,8 +76,12 @@ for (const line of compose.split(/\r?\n/)) {
   if (serviceMatch) currentService = serviceMatch[1];
   if (insideServices && /^    ports:$/.test(line)) servicesWithPublishedPorts.push(currentService);
 }
-if (servicesWithPublishedPorts.length !== 1 || servicesWithPublishedPorts[0] !== 'reverse-proxy') {
-  throw new Error(`Only reverse-proxy may publish ports; found: ${servicesWithPublishedPorts.join(', ')}`);
+if (
+  servicesWithPublishedPorts.length !== 2
+  || servicesWithPublishedPorts[0] !== 'reverse-proxy'
+  || servicesWithPublishedPorts[1] !== 'mcp-edge'
+) {
+  throw new Error(`Only the private reverse proxy and MCP edge may publish ports; found: ${servicesWithPublishedPorts.join(', ')}`);
 }
 
 rejectMatch(
@@ -93,7 +97,14 @@ requireMatch(decisionEngine, /actions_executed:\s*0/, 'Decision engine must retu
 requireMatch(mcpConfig, /MCP_WRITE_TOOLS_ENABLED must be false/, 'MCP must reject write tools');
 requireMatch(mcpConfig, /PRODUCTION_WRITES_ENABLED must be false/, 'MCP must reject production writes');
 requireMatch(mcpConfig, /OPENAI_API_KEY must not be present/, 'MCP must reject an OpenAI API key');
-requireMatch(compose, /MCP_PUBLIC_ENDPOINT_ENABLED: "false"/, 'MCP public endpoint must remain disabled');
+requireMatch(compose, /MCP_PUBLIC_ENDPOINT_ENABLED: "true"/, 'Public MCP must be explicitly enabled');
+requireMatch(compose, /MCP_AUTH_MODE: oauth/, 'Public MCP must use OAuth');
+requireMatch(compose, /MCP_OAUTH_REQUIRED_ROLE: mcp_reader/, 'Public MCP must require its private reader role');
+requireMatch(
+  compose,
+  /MCP_OAUTH_JWKS_URL: http:\/\/keycloak:8080\/auth\/realms\/suleia\/protocol\/openid-connect\/certs/,
+  'MCP must validate tokens against the internal identity service'
+);
 requireMatch(compose, /MCP_RATE_LIMIT_PER_MINUTE: 30/, 'MCP must enforce the 30 requests per minute limit');
 requireMatch(
   mcpViews,

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ''));
@@ -27,6 +28,61 @@ export function createBearerAuth(config, audit = null) {
     };
     next();
   };
+}
+
+function oauthChallenge(config) {
+  const metadataUrl = `${config.publicBaseUrl}/.well-known/oauth-protected-resource/mcp`;
+  return `Bearer resource_metadata="${metadataUrl}", scope="${config.grantedScopes.join(' ')}"`;
+}
+
+export function createOAuthAuth(config, audit = null, options = {}) {
+  const jwks = options.jwks || createRemoteJWKSet(new URL(config.oauthJwksUrl));
+  const verify = options.verify || ((token) => jwtVerify(token, jwks, {
+    issuer: config.oauthIssuer,
+    audience: config.oauthAudience,
+    algorithms: ['RS256']
+  }));
+
+  return async function oauthAuth(req, res, next) {
+    const header = String(req.headers.authorization || '');
+    const [scheme, token] = header.split(/\s+/, 2);
+    if (scheme !== 'Bearer' || !token) {
+      res.set('WWW-Authenticate', oauthChallenge(config));
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+      return;
+    }
+    try {
+      const { payload } = await verify(token);
+      const scopes = String(payload.scope || '').split(/\s+/).filter(Boolean);
+      const roles = Array.isArray(payload.realm_access?.roles) ? payload.realm_access.roles : [];
+      const hasRequiredScopes = config.grantedScopes.every((scope) => scopes.includes(scope));
+      if (!roles.includes(config.oauthRequiredRole) || !hasRequiredScopes) {
+        res.set('WWW-Authenticate', oauthChallenge(config));
+        res.status(403).json({ ok: false, error: 'insufficient_scope' });
+        return;
+      }
+      req.authContext = {
+        principal: String(payload.sub || 'oauth-subject'),
+        scopes: config.grantedScopes
+      };
+      next();
+    } catch {
+      audit?.security({
+        event: 'mcp_auth_failure',
+        requestId: req.correlationId,
+        outcome: 'blocked',
+        errorCode: 'UNAUTHORIZED'
+      });
+      res.set('WWW-Authenticate', oauthChallenge(config));
+      res.status(401).json({ ok: false, error: 'unauthorized' });
+    }
+  };
+}
+
+export function createHttpAuth(config, audit = null, options = {}) {
+  return config.authMode === 'oauth'
+    ? createOAuthAuth(config, audit, options)
+    : createBearerAuth(config, audit);
 }
 
 export function createRateLimiter(config, audit = null) {

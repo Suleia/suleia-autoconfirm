@@ -1,0 +1,93 @@
+{
+  "realm": "suleia",
+  "enabled": true,
+  "displayName": "Suleia Private Operations",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "rememberMe": false,
+  "resetPasswordAllowed": true,
+  "verifyEmail": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "roles": {
+    "realm": [
+      {
+        "name": "mcp_reader",
+        "description": "Allows authenticated read-only access to the Suleia MCP"
+      }
+    ]
+  },
+  "clientScopes": [
+    {
+      "name": "orders:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true" }
+    },
+    {
+      "name": "timelines:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true" }
+    },
+    {
+      "name": "decisions:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true" }
+    },
+    {
+      "name": "reviews:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true" }
+    },
+    {
+      "name": "orders:simulate",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true" }
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "chatgpt-suleia-mcp",
+      "name": "ChatGPT Suleia MCP",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": true,
+      "consentRequired": true,
+      "redirectUris": ["https://chatgpt.com/connector/oauth/*"],
+      "webOrigins": ["https://chatgpt.com"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "roles",
+        "orders:read",
+        "timelines:read",
+        "decisions:read",
+        "reviews:read",
+        "orders:simulate"
+      ],
+      "protocolMappers": [
+        {
+          "name": "suleia-mcp-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "suleia-mcp",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}
