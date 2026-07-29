@@ -1,0 +1,15 @@
+{
+  "name": "suleia-realm-roles",
+  "protocol": "openid-connect",
+  "protocolMapper": "oidc-usermodel-realm-role-mapper",
+  "consentRequired": false,
+  "config": {
+    "claim.name": "realm_access.roles",
+    "jsonType.label": "String",
+    "multivalued": "true",
+    "access.token.claim": "true",
+    "id.token.claim": "false",
+    "userinfo.token.claim": "false",
+    "usermodel.realmRoleMapping.rolePrefix": ""
+  }
+}
