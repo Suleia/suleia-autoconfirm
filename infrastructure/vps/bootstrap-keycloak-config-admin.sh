@@ -15,6 +15,7 @@ docker compose \
   --file "${COMPOSE_FILE}" \
   run --rm --no-deps keycloak \
   bootstrap-admin user \
+  --optimized \
   --no-prompt \
   --username suleia-config-admin \
   --password:env KC_BOOTSTRAP_ADMIN_PASSWORD
