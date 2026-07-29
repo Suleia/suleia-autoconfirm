@@ -244,7 +244,7 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HTTP_RELATIVE_PATH: /auth
       KC_PROXY_HEADERS: xforwarded
-      KC_FEATURES: resource-indicators:v1,cimd:v1
+      KC_FEATURES: resource-indicators:v1
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "false"
       KC_BOOTSTRAP_ADMIN_USERNAME: suleia-config-admin
