@@ -20,7 +20,7 @@ KCADM=/opt/keycloak/bin/kcadm.sh
 "${KCADM}" config credentials \
   --server http://127.0.0.1:8080/auth \
   --realm master \
-  --user suleia-bootstrap-admin \
+  --user suleia-config-admin \
   --password "${KC_BOOTSTRAP_ADMIN_PASSWORD}" >/dev/null
 
 client_uuid="$("${KCADM}" get clients \

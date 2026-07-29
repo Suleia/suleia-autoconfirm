@@ -244,9 +244,10 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_HTTP_RELATIVE_PATH: /auth
       KC_PROXY_HEADERS: xforwarded
+      KC_FEATURES: resource-indicators:v1,cimd:v1
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "false"
-      KC_BOOTSTRAP_ADMIN_USERNAME: suleia-bootstrap-admin
+      KC_BOOTSTRAP_ADMIN_USERNAME: suleia-config-admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
     volumes:
       - ../identity/suleia-realm.json:/opt/keycloak/data/import/suleia-realm.json:ro
