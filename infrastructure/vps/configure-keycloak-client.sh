@@ -6,6 +6,11 @@ COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
 ENV_FILE="${INSTALL_ROOT}/.env"
 MAPPER_FILE="${INSTALL_ROOT}/infrastructure/identity/realm-role-mapper.json"
 
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+
 docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
