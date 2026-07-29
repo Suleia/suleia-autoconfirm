@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+INSTALL_ROOT="${SULEIA_INSTALL_ROOT:-/opt/suleia-operations}"
+COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
+ENV_FILE="${INSTALL_ROOT}/.env"
+MAPPER_FILE="${INSTALL_ROOT}/infrastructure/identity/realm-role-mapper.json"
+
+docker compose \
+  --env-file "${ENV_FILE}" \
+  --file "${COMPOSE_FILE}" \
+  cp "${MAPPER_FILE}" keycloak:/tmp/realm-role-mapper.json
+
+docker compose \
+  --env-file "${ENV_FILE}" \
+  --file "${COMPOSE_FILE}" \
+  exec --no-TTY keycloak sh -s <<'INNER'
+set -eu
+KCADM=/opt/keycloak/bin/kcadm.sh
+"${KCADM}" config credentials \
+  --server http://127.0.0.1:8080/auth \
+  --realm master \
+  --user suleia-bootstrap-admin \
+  --password "${KC_BOOTSTRAP_ADMIN_PASSWORD}" >/dev/null
+
+client_uuid="$("${KCADM}" get clients \
+  --realm suleia \
+  --query clientId=chatgpt-suleia-mcp \
+  --fields id \
+  --format csv \
+  --noquotes)"
+test -n "${client_uuid}"
+
+if ! "${KCADM}" get "clients/${client_uuid}/protocol-mappers/models" \
+  --realm suleia \
+  --fields name \
+  --format csv \
+  --noquotes | grep -Fxq suleia-realm-roles; then
+  "${KCADM}" create "clients/${client_uuid}/protocol-mappers/models" \
+    --realm suleia \
+    --file /tmp/realm-role-mapper.json >/dev/null
+fi
+
+"${KCADM}" get "clients/${client_uuid}/protocol-mappers/models" \
+  --realm suleia \
+  --fields name,protocolMapper \
+  --format csv
+INNER
