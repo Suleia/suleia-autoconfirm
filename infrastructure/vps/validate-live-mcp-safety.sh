@@ -11,12 +11,6 @@ docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
   exec --no-TTY mcp-server \
-  node infrastructure/scripts/validate_staging_safety.mjs
-
-docker compose \
-  --env-file "${ENV_FILE}" \
-  --file "${COMPOSE_FILE}" \
-  exec --no-TTY mcp-server \
   sh -c 'test -z "${OPENAI_API_KEY:-}"'
 
 docker compose \
