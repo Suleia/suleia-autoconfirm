@@ -37,18 +37,28 @@ client_uuid="$("${KCADM}" get clients \
   --noquotes)"
 test -n "${client_uuid}"
 
-if ! "${KCADM}" get "clients/${client_uuid}/protocol-mappers/models" \
+mapper_names="$("${KCADM}" get "clients/${client_uuid}/protocol-mappers/models" \
   --realm suleia \
   --fields name \
   --format csv \
-  --noquotes | grep -Fxq suleia-realm-roles; then
+  --noquotes)"
+
+if ! printf '%s\n' "${mapper_names}" | grep -Fxq suleia-realm-roles; then
   "${KCADM}" create "clients/${client_uuid}/protocol-mappers/models" \
     --realm suleia \
     --file /tmp/realm-role-mapper.json >/dev/null
 fi
 
-"${KCADM}" get "clients/${client_uuid}/protocol-mappers/models" \
+"${KCADM}" get roles/mcp_reader \
   --realm suleia \
-  --fields name,protocolMapper \
-  --format csv
+  --fields name >/dev/null
+
+mapper_names="$("${KCADM}" get "clients/${client_uuid}/protocol-mappers/models" \
+  --realm suleia \
+  --fields name \
+  --format csv \
+  --noquotes)"
+printf '%s\n' "${mapper_names}" | grep -Fxq suleia-realm-roles
+
+echo "Keycloak MCP client, reader role and realm-role mapper are configured."
 INNER
