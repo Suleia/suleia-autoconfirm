@@ -9,17 +9,18 @@ set -a
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 set +a
+: "${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET:?configuration service secret is required}"
 
 docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
   exec --no-TTY \
-  --env KC_CLI_PASSWORD="${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}" \
+  --env KC_CLI_CLIENT_SECRET="${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET}" \
   keycloak \
   /opt/keycloak/bin/kcadm.sh config credentials \
   --server http://127.0.0.1:8080/auth \
   --realm master \
-  --user suleia-config-admin >/dev/null
+  --client suleia-config-service >/dev/null
 
 docker compose \
   --env-file "${ENV_FILE}" \
