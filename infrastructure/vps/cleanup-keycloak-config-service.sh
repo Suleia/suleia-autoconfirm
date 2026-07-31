@@ -5,6 +5,7 @@ INSTALL_ROOT="${SULEIA_INSTALL_ROOT:-/opt/suleia-operations}"
 COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
 ENV_FILE="${INSTALL_ROOT}/.env"
 SECRET_NAME="KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET"
+ADMIN_SECRET_NAME="KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD"
 
 docker compose \
   --env-file "${ENV_FILE}" \
@@ -32,7 +33,7 @@ rm -f "${KCADM_CONFIG}" /opt/keycloak/.keycloak/kcadm.config
 INNER
 
 temporary_env="$(mktemp "${INSTALL_ROOT}/.env.cleanup.XXXXXX")"
-grep -v "^${SECRET_NAME}=" "${ENV_FILE}" >"${temporary_env}"
+grep -v -e "^${SECRET_NAME}=" -e "^${ADMIN_SECRET_NAME}=" "${ENV_FILE}" >"${temporary_env}"
 chmod 600 "${temporary_env}"
 mv -f "${temporary_env}" "${ENV_FILE}"
 

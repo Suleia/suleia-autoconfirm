@@ -1,10 +1,29 @@
 const baseUrl = "http://keycloak:8080/auth";
-const clientId = "suleia-config-service";
+const defaultClientId = "suleia-config-service";
+const clientId =
+  process.env.KEYCLOAK_CONFIG_SERVICE_CLIENT_ID ?? defaultClientId;
 const clientSecret = process.env.KEYCLOAK_CONFIG_SERVICE_SECRET;
+const configAdminUsername = "suleia-config-admin";
+const configAdminPassword = process.env.KEYCLOAK_CONFIG_ADMIN_PASSWORD;
 
-if (!clientSecret) {
-  throw new Error("KEYCLOAK_CONFIG_SERVICE_SECRET is required");
+if (!clientSecret && !configAdminPassword) {
+  throw new Error(
+    "A temporary Keycloak configuration credential is required",
+  );
 }
+
+const tokenBody = configAdminPassword
+  ? new URLSearchParams({
+      grant_type: "password",
+      client_id: "admin-cli",
+      username: configAdminUsername,
+      password: configAdminPassword,
+    })
+  : new URLSearchParams({
+      grant_type: "client_credentials",
+      client_id: clientId,
+      client_secret: clientSecret,
+    });
 
 const tokenResponse = await fetch(
   `${baseUrl}/realms/master/protocol/openid-connect/token`,
@@ -13,11 +32,7 @@ const tokenResponse = await fetch(
     headers: {
       "content-type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({
-      grant_type: "client_credentials",
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
+    body: tokenBody,
   },
 );
 
@@ -114,19 +129,37 @@ try {
   primaryError = error;
 } finally {
   try {
-    const clients = await adminRequest(
-      `/admin/realms/master/clients?clientId=${encodeURIComponent(clientId)}&search=true`,
-    );
-    const temporaryClient = clients.find(
-      (client) => client.clientId === clientId,
-    );
-    if (temporaryClient) {
-      await adminRequest(
-        `/admin/realms/master/clients/${encodeURIComponent(temporaryClient.id)}`,
-        { method: "DELETE" },
+    for (const cleanupClientId of new Set([clientId, defaultClientId])) {
+      const clients = await adminRequest(
+        `/admin/realms/master/clients?clientId=${encodeURIComponent(cleanupClientId)}&search=true`,
       );
+      const temporaryClient = clients.find(
+        (client) => client.clientId === cleanupClientId,
+      );
+      if (temporaryClient) {
+        await adminRequest(
+          `/admin/realms/master/clients/${encodeURIComponent(temporaryClient.id)}`,
+          { method: "DELETE" },
+        );
+      }
     }
-    console.log("Temporary Keycloak configuration service was removed.");
+    console.log("Temporary Keycloak configuration services were removed.");
+
+    if (configAdminPassword) {
+      const users = await adminRequest(
+        `/admin/realms/master/users?username=${encodeURIComponent(configAdminUsername)}&exact=true`,
+      );
+      const temporaryAdmin = users.find(
+        (user) => user.username === configAdminUsername,
+      );
+      if (temporaryAdmin) {
+        await adminRequest(
+          `/admin/realms/master/users/${encodeURIComponent(temporaryAdmin.id)}`,
+          { method: "DELETE" },
+        );
+      }
+      console.log("Temporary Keycloak configuration administrator was removed.");
+    }
   } catch (cleanupError) {
     if (!primaryError) {
       primaryError = cleanupError;
