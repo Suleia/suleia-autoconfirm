@@ -18,6 +18,7 @@ query_result="$(
 SELECT 'client=' || count(*) FROM client WHERE client_id = 'chatgpt-suleia-mcp';
 SELECT 'reader_role=' || count(*) FROM keycloak_role WHERE name = 'mcp_reader' AND client_role = false;
 SELECT 'role_mapper=' || count(*) FROM protocol_mapper WHERE name = 'suleia-realm-roles';
+SELECT 'audience_mapper=' || count(*) FROM protocol_mapper WHERE name = 'suleia-mcp-audience';
 SELECT 'custom_scopes=' || count(*) FROM client_scope
 WHERE name IN ('orders:read', 'timelines:read', 'decisions:read', 'reviews:read', 'orders:simulate');
 SELECT 'offline_access_optional=' || count(*)
@@ -34,6 +35,7 @@ printf '%s\n' "${query_result}"
 grep -Fxq 'client=1' <<<"${query_result}"
 grep -Fxq 'reader_role=1' <<<"${query_result}"
 grep -Fxq 'role_mapper=1' <<<"${query_result}"
+grep -Fxq 'audience_mapper=1' <<<"${query_result}"
 grep -Fxq 'custom_scopes=5' <<<"${query_result}"
 grep -Fxq 'offline_access_optional=1' <<<"${query_result}"
 

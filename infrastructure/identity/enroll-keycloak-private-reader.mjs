@@ -68,6 +68,29 @@ try {
     );
   }
 
+  await adminRequest(`/admin/realms/suleia/users/${userId}/logout`, {
+    method: "POST",
+  });
+
+  const clients = await adminRequest(
+    "/admin/realms/suleia/clients?clientId=chatgpt-suleia-mcp&search=true",
+  );
+  const staticClient = clients.find(
+    (client) => client.clientId === "chatgpt-suleia-mcp",
+  );
+  if (!staticClient) {
+    throw new Error("Static ChatGPT client is missing");
+  }
+  const consents = await adminRequest(
+    `/admin/realms/suleia/users/${userId}/consents`,
+  );
+  if (consents.length > 0) {
+    await adminRequest(
+      `/admin/realms/suleia/users/${userId}/consents/${encodeURIComponent(staticClient.clientId)}`,
+      { method: "DELETE" },
+    );
+  }
+
   const realm = await adminRequest("/admin/realms/suleia");
   await adminRequest("/admin/realms/suleia", {
     method: "PUT",
@@ -75,6 +98,7 @@ try {
   });
 
   console.log("The private Suleia user has the MCP reader role.");
+  console.log("Pre-role OAuth sessions and consent were revoked.");
   console.log("Public user registration is disabled.");
 } catch (error) {
   primaryError = error;
