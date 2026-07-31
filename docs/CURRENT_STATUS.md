@@ -54,3 +54,19 @@ The hardened build is deployed privately: all nine containers are healthy,
 24 MCP tests pass in the VPS container, the PostgreSQL write attempt is
 blocked and only SSH is publicly listening. ChatGPT connection remains gated
 on subscription compatibility and verified OAuth 2.1.
+
+## 2026-07-31 — Private MCP and company Phase A
+
+The private ChatGPT MCP connection is now authenticated and verified against
+the VPS. It exposes only the approved read/simulation surface. The MCP database
+role cannot write, the Action Executor is disabled and no OpenAI API key is
+present.
+
+Phase A of the Suleia Autonomous Operations Company is implemented as a
+behavior-neutral organization contract in `platform-core`: six layers, forty
+departments and forty deterministic primary agents. Every agent is
+simulation-only and explicitly forbids customer messages, discounts, order
+actions, production writes, policy mutation and external AI calls.
+
+No Phase B policy runtime has started. Existing production behavior remains
+unchanged and local discount work remains separate.

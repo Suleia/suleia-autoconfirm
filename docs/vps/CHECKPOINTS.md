@@ -117,3 +117,19 @@ Final invariants: `ACTIONS_EXECUTED=0`, `PII_PERSISTED_COUNT=0`.
 - OAuth and ChatGPT-plan compatibility are mandatory pending gates.
 - Discount automation remains disabled and no template send is authorized.
 - Required steady state: `run_mode=SIMULATION`, `actions_executed=0`.
+
+## Autonomous Operations Company — Phase A
+
+Status: implemented and stopped for owner review on 2026-07-31.
+
+- Six organizational layers defined.
+- Forty departments have explicit ownership, responsibilities and outputs.
+- Forty deterministic primary-agent contracts are simulation-only.
+- Executive snapshot contract validates zero actions and zero production writes.
+- Current one-hour, 48-hour, 72-hour, disabled-discount and idempotency rules
+  are documented without behavior changes.
+- No new service, database migration, endpoint, connector or executor was added.
+- Phase B has not started.
+
+Required invariants: `OPENAI_API_CALLS=0`, `EXTERNAL_AI_CALLS=0`,
+`ACTIONS_EXECUTED=0`, `PRODUCTION_WRITES=0`, `MESSAGES_SENT=0`.

@@ -67,3 +67,21 @@ ephemeral cookie. No dashboard refresh or write endpoint is authorized.
 Technical identities may be linked only through exact Shopify references or
 explicit Dropea-tagged identifiers; names, phones and addresses are forbidden
 for matching.
+
+## D-012: Organization is a contract layer, not a microservice fleet
+
+Phase A models Suleia as six organizational layers with one deterministic
+primary agent per department. Departments remain modules in the existing
+modular monolith and do not receive containers, databases, credentials or
+executors. A future split requires measured technical evidence and a separate
+decision.
+
+All Phase A agent contracts are `SIMULATION`, non-executing, non-writing and
+external-AI-free. Existing runtime logic remains authoritative until a later
+phase is explicitly approved and verified.
+
+## D-013: Executive control is a read model without commands
+
+The Executive Control Layer consolidates future masked summaries but exposes no
+confirm, cancel, return, discount or messaging operation. Its snapshot contract
+must report `actions_executed=0` and `production_writes=0`.

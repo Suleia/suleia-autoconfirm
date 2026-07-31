@@ -57,3 +57,16 @@ No production system was modified. No public endpoint was deployed. No real data
 - Identity provider installation and OAuth integration are pending authorization.
 - Provider prices must be rechecked at checkout.
 - The GitHub Agent Hub issue could not be read because the local GitHub CLI is unavailable and the connected tool did not expose issue search.
+
+## 2026-07-31 Phase A addendum
+
+The organizational foundation is now represented by executable, immutable
+contracts rather than diagrams alone. The catalog covers all 40 requested
+departments and derives one constrained deterministic agent per department.
+Focused tests validate completeness, uniqueness, immutability, the executive
+snapshot schema, zero cost/action counters and the absence of network, external
+AI and Action Executor dependencies.
+
+This addendum supersedes the historical limitation about Agent Hub access: the
+GitHub Agent Hub is connected and used for coordinated handoffs. Phase A adds no
+runtime behavior and is deliberately stopped before Phase B.
