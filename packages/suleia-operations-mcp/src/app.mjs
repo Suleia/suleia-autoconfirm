@@ -20,6 +20,16 @@ export function createHttpApp(config, options = {}) {
   app.use((req, res, next) => {
     req.correlationId = crypto.randomUUID();
     res.set('X-Correlation-Id', req.correlationId);
+    if (req.path === '/mcp' || req.path.includes('oauth-protected-resource')) {
+      res.on('finish', () => {
+        audit.security({
+          event: 'mcp_http_response',
+          requestId: req.correlationId,
+          outcome: String(res.statusCode),
+          errorCode: `${req.method}_${req.path}_${res.statusCode}`
+        });
+      });
+    }
     res.set({
       'Cache-Control': 'no-store',
       'Content-Security-Policy': "default-src 'none'",

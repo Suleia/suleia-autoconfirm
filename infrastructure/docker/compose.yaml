@@ -136,7 +136,7 @@ services:
       MCP_PUBLIC_ENDPOINT_ENABLED: "true"
       MCP_PUBLIC_BASE_URL: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}
       MCP_OAUTH_ISSUER: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}/auth/realms/suleia
-      MCP_OAUTH_AUDIENCE: suleia-mcp
+      MCP_OAUTH_AUDIENCE: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}/mcp
       MCP_OAUTH_JWKS_URL: http://keycloak:8080/auth/realms/suleia/protocol/openid-connect/certs
       MCP_OAUTH_REQUIRED_ROLE: mcp_reader
       MCP_GRANTED_SCOPES: orders:read,timelines:read,decisions:read,reviews:read,orders:simulate

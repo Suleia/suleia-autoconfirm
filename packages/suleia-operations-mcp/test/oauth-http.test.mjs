@@ -16,7 +16,7 @@ function oauthConfig() {
     publicEndpointEnabled: true,
     publicBaseUrl: 'https://mcp.suleia.com',
     oauthIssuer: 'https://mcp.suleia.com/auth/realms/suleia',
-    oauthAudience: 'suleia-mcp',
+    oauthAudience: 'https://mcp.suleia.com/mcp',
     oauthJwksUrl: 'http://keycloak:8080/auth/realms/suleia/protocol/openid-connect/certs',
     oauthRequiredRole: 'mcp_reader'
   });

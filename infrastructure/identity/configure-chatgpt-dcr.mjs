@@ -107,6 +107,20 @@ try {
     throw new Error("Static ChatGPT client or offline_access scope is missing");
   }
 
+  await adminRequest(
+    `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        ...staticClient,
+        attributes: {
+          ...staticClient.attributes,
+          resource_url: "https://mcp.suleia.com/mcp",
+        },
+      }),
+    },
+  );
+
   const optionalScopes = await adminRequest(
     `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/optional-client-scopes`,
   );
@@ -115,6 +129,50 @@ try {
       `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/optional-client-scopes/${encodeURIComponent(offlineAccessScope.id)}`,
       { method: "PUT" },
     );
+  }
+
+  const protocolMappers = await adminRequest(
+    `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/protocol-mappers/models`,
+  );
+  const audienceMapper = protocolMappers.find(
+    (mapper) => mapper.name === "suleia-mcp-audience",
+  );
+  if (!audienceMapper) {
+    throw new Error("Static ChatGPT audience mapper is missing");
+  }
+  await adminRequest(
+    `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/protocol-mappers/models/${encodeURIComponent(audienceMapper.id)}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        ...audienceMapper,
+        config: {
+          ...audienceMapper.config,
+          "included.client.audience": "chatgpt-suleia-mcp",
+        },
+      }),
+    },
+  );
+
+  const users = await adminRequest("/admin/realms/suleia/users?enabled=true");
+  const humanUsers = users.filter((user) => !user.serviceAccountClientId);
+  if (humanUsers.length > 1) {
+    throw new Error(`Expected at most one private user, found ${humanUsers.length}`);
+  }
+  if (humanUsers.length === 1) {
+    const userId = encodeURIComponent(humanUsers[0].id);
+    await adminRequest(`/admin/realms/suleia/users/${userId}/logout`, {
+      method: "POST",
+    });
+    const consents = await adminRequest(
+      `/admin/realms/suleia/users/${userId}/consents`,
+    );
+    if (consents.length > 0) {
+      await adminRequest(
+        `/admin/realms/suleia/users/${userId}/consents/${encodeURIComponent(staticClient.clientId)}`,
+        { method: "DELETE" },
+      );
+    }
   }
 
   await adminRequest(
@@ -153,6 +211,8 @@ try {
 
   console.log("ChatGPT dynamic registration policy is configured.");
   console.log("Static ChatGPT client accepts the offline_access scope.");
+  console.log("Static ChatGPT client maps the protected resource to the token audience.");
+  console.log("Tokens issued before the audience correction were revoked.");
 } catch (error) {
   primaryError = error;
 } finally {

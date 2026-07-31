@@ -57,6 +57,14 @@ export function createOAuthAuth(config, audit = null, options = {}) {
       const roles = Array.isArray(payload.realm_access?.roles) ? payload.realm_access.roles : [];
       const hasRequiredScopes = config.grantedScopes.every((scope) => scopes.includes(scope));
       if (!roles.includes(config.oauthRequiredRole) || !hasRequiredScopes) {
+        audit?.security({
+          event: 'mcp_auth_failure',
+          requestId: req.correlationId,
+          outcome: 'blocked',
+          errorCode: roles.includes(config.oauthRequiredRole)
+            ? 'MISSING_REQUIRED_SCOPE'
+            : 'MISSING_REQUIRED_ROLE'
+        });
         res.set('WWW-Authenticate', oauthChallenge(config));
         res.status(403).json({ ok: false, error: 'insufficient_scope' });
         return;
@@ -71,7 +79,7 @@ export function createOAuthAuth(config, audit = null, options = {}) {
         event: 'mcp_auth_failure',
         requestId: req.correlationId,
         outcome: 'blocked',
-        errorCode: 'UNAUTHORIZED'
+        errorCode: 'JWT_VERIFICATION_FAILED'
       });
       res.set('WWW-Authenticate', oauthChallenge(config));
       res.status(401).json({ ok: false, error: 'unauthorized' });
