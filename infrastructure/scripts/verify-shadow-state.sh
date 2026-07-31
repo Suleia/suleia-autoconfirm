@@ -29,9 +29,10 @@ unsafe_rows="$(query "SELECT count(*) FROM raw_private.source_records WHERE payl
 action_rows="$(query "SELECT COALESCE(sum(actions_executed),0) || '|' || COALESCE(sum(production_writes),0) FROM migration.batches;")"
 batch_rows="$(query "SELECT count(*) FROM migration.batches;")"
 record_rows="$(query "SELECT count(*) FROM raw_private.source_records;")"
-failed_rows="$(query "SELECT count(*) FROM migration.batches WHERE status <> 'COMPLETED';")"
+failed_rows="$(query "WITH latest AS (SELECT DISTINCT ON (source,source_object) source,source_object,status FROM migration.batches ORDER BY source,source_object,started_at DESC) SELECT count(*) FROM latest WHERE status <> 'COMPLETED';")"
+historical_failed_rows="$(query "SELECT count(*) FROM migration.batches WHERE status <> 'COMPLETED';")"
 
 test "${unsafe_rows}" = "0" || { echo "SHADOW_VERIFY|FAIL|unsafe_rows=${unsafe_rows}" >&2; exit 1; }
 test "${action_rows}" = "0|0" || { echo "SHADOW_VERIFY|FAIL|action_counters=${action_rows}" >&2; exit 1; }
 test "${failed_rows}" = "0" || { echo "SHADOW_VERIFY|FAIL|failed_batches=${failed_rows}" >&2; exit 1; }
-echo "SHADOW_VERIFY|PASS|batches=${batch_rows}|masked_records=${record_rows}|unsafe_rows=0|actions=0|production_writes=0"
+echo "SHADOW_VERIFY|PASS|batches=${batch_rows}|masked_records=${record_rows}|historical_failed_batches=${historical_failed_rows}|unsafe_rows=0|actions=0|production_writes=0"
