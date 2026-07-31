@@ -90,6 +90,33 @@ try {
     throw new Error("Required anonymous registration policies are missing");
   }
 
+  const staticClients = await adminRequest(
+    "/admin/realms/suleia/clients?clientId=chatgpt-suleia-mcp&search=true",
+  );
+  const staticClient = staticClients.find(
+    (client) => client.clientId === "chatgpt-suleia-mcp",
+  );
+  const clientScopes = await adminRequest(
+    "/admin/realms/suleia/client-scopes?search=offline_access",
+  );
+  const offlineAccessScope = clientScopes.find(
+    (scope) => scope.name === "offline_access",
+  );
+
+  if (!staticClient || !offlineAccessScope) {
+    throw new Error("Static ChatGPT client or offline_access scope is missing");
+  }
+
+  const optionalScopes = await adminRequest(
+    `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/optional-client-scopes`,
+  );
+  if (!optionalScopes.some((scope) => scope.id === offlineAccessScope.id)) {
+    await adminRequest(
+      `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/optional-client-scopes/${encodeURIComponent(offlineAccessScope.id)}`,
+      { method: "PUT" },
+    );
+  }
+
   await adminRequest(
     `/admin/realms/suleia/components/${encodeURIComponent(trustedHosts.id)}`,
     {
@@ -125,6 +152,7 @@ try {
   );
 
   console.log("ChatGPT dynamic registration policy is configured.");
+  console.log("Static ChatGPT client accepts the offline_access scope.");
 } catch (error) {
   primaryError = error;
 } finally {

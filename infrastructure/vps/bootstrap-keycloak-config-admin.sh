@@ -5,6 +5,12 @@ INSTALL_ROOT="${SULEIA_INSTALL_ROOT:-/opt/suleia-operations}"
 COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
 ENV_FILE="${INSTALL_ROOT}/.env"
 
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+: "${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD:?configuration administrator secret is required}"
+
 docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
@@ -13,7 +19,9 @@ docker compose \
 docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
-  run --rm --no-deps keycloak \
+  run --rm --no-deps \
+  --env KC_BOOTSTRAP_ADMIN_PASSWORD="${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}" \
+  keycloak \
   bootstrap-admin user \
   --optimized \
   --no-prompt \

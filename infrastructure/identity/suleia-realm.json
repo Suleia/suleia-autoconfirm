@@ -75,6 +75,7 @@
         "reviews:read",
         "orders:simulate"
       ],
+      "optionalClientScopes": ["offline_access"],
       "protocolMappers": [
         {
           "name": "suleia-realm-roles",
