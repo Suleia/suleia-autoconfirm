@@ -18,6 +18,7 @@ docker compose \
   --env KC_CLI_CLIENT_SECRET="${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET}" \
   keycloak \
   /opt/keycloak/bin/kcadm.sh config credentials \
+  --config /tmp/suleia-kcadm.config \
   --server http://127.0.0.1:8080/auth \
   --realm master \
   --client suleia-config-service >/dev/null
@@ -28,8 +29,10 @@ docker compose \
   exec --no-TTY keycloak sh -s <<'INNER'
 set -eu
 KCADM=/opt/keycloak/bin/kcadm.sh
+KCADM_CONFIG=/tmp/suleia-kcadm.config
 
 components="$("${KCADM}" get components \
+  --config "${KCADM_CONFIG}" \
   --realm suleia \
   --fields id,name,providerId,subType \
   --format csv \
@@ -42,6 +45,7 @@ trusted_id="$(
 test -n "${trusted_id}"
 
 "${KCADM}" update "components/${trusted_id}" \
+  --config "${KCADM_CONFIG}" \
   --realm suleia \
   --set 'config={"trusted-hosts":["20.170.184.32","20.170.184.33","chatgpt.com","*.chatgpt.com"],"host-sending-registration-request-must-match":["true"],"client-uris-must-match":["true"]}' >/dev/null
 
@@ -52,6 +56,7 @@ max_clients_id="$(
 test -n "${max_clients_id}"
 
 "${KCADM}" update "components/${max_clients_id}" \
+  --config "${KCADM_CONFIG}" \
   --realm suleia \
   --set 'config={"max-clients":["20"]}' >/dev/null
 

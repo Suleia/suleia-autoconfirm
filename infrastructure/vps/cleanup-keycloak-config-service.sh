@@ -12,8 +12,10 @@ docker compose \
   exec --no-TTY keycloak sh -s <<'INNER' || true
 set -u
 KCADM=/opt/keycloak/bin/kcadm.sh
+KCADM_CONFIG=/tmp/suleia-kcadm.config
 config_client_uuid="$(
   "${KCADM}" get clients \
+    --config "${KCADM_CONFIG}" \
     --realm master \
     --query clientId=suleia-config-service \
     --fields id \
@@ -22,9 +24,11 @@ config_client_uuid="$(
   | head -n 1
 )"
 if [ -n "${config_client_uuid}" ]; then
-  "${KCADM}" delete "clients/${config_client_uuid}" --realm master >/dev/null
+  "${KCADM}" delete "clients/${config_client_uuid}" \
+    --config "${KCADM_CONFIG}" \
+    --realm master >/dev/null
 fi
-rm -f /opt/keycloak/.keycloak/kcadm.config
+rm -f "${KCADM_CONFIG}" /opt/keycloak/.keycloak/kcadm.config
 INNER
 
 temporary_env="$(mktemp "${INSTALL_ROOT}/.env.cleanup.XXXXXX")"
