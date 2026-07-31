@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, decodeJwt, jwtVerify } from 'jose';
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ''));
@@ -33,6 +33,27 @@ export function createBearerAuth(config, audit = null) {
 function oauthChallenge(config) {
   const metadataUrl = `${config.publicBaseUrl}/.well-known/oauth-protected-resource/mcp`;
   return `Bearer resource_metadata="${metadataUrl}", scope="${config.grantedScopes.join(' ')}"`;
+}
+
+function classifyJwtFailure(error, token, config) {
+  try {
+    const payload = decodeJwt(token);
+    if (payload.iss !== config.oauthIssuer) return 'JWT_ISSUER_MISMATCH';
+    const audiences = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+    if (!audiences.includes(config.oauthAudience)) return 'JWT_AUDIENCE_MISMATCH';
+    if (typeof payload.exp === 'number' && payload.exp <= Math.floor(Date.now() / 1000)) {
+      return 'JWT_EXPIRED';
+    }
+  } catch {
+    return 'JWT_MALFORMED';
+  }
+
+  const code = String(error?.code || '');
+  if (code === 'ERR_JWS_SIGNATURE_VERIFICATION_FAILED') return 'JWT_SIGNATURE_INVALID';
+  if (code === 'ERR_JWKS_NO_MATCHING_KEY') return 'JWT_KEY_NOT_FOUND';
+  if (code === 'ERR_JOSE_ALG_NOT_ALLOWED') return 'JWT_ALGORITHM_INVALID';
+  if (code === 'ERR_JWT_EXPIRED') return 'JWT_EXPIRED';
+  return 'JWT_VERIFICATION_FAILED';
 }
 
 export function createOAuthAuth(config, audit = null, options = {}) {
@@ -74,12 +95,12 @@ export function createOAuthAuth(config, audit = null, options = {}) {
         scopes: config.grantedScopes
       };
       next();
-    } catch {
+    } catch (error) {
       audit?.security({
         event: 'mcp_auth_failure',
         requestId: req.correlationId,
         outcome: 'blocked',
-        errorCode: 'JWT_VERIFICATION_FAILED'
+        errorCode: classifyJwtFailure(error, token, config)
       });
       res.set('WWW-Authenticate', oauthChallenge(config));
       res.status(401).json({ ok: false, error: 'unauthorized' });

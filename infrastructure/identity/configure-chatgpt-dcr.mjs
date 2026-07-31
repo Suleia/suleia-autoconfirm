@@ -61,8 +61,8 @@ async function adminRequest(path, options = {}) {
     );
   }
 
-  if (response.status === 204) {
-    return null;
+  if (response.status === 204 || response.status === 201) {
+    return { location: response.headers.get("location") };
   }
   return response.json();
 }
@@ -153,6 +153,34 @@ try {
       }),
     },
   );
+
+  const urlAudienceMapper = protocolMappers.find(
+    (mapper) => mapper.name === "suleia-mcp-url-audience",
+  );
+  const urlAudienceMapperBody = {
+    ...(urlAudienceMapper ?? {}),
+    name: "suleia-mcp-url-audience",
+    protocol: "openid-connect",
+    protocolMapper: "oidc-audience-mapper",
+    consentRequired: false,
+    config: {
+      ...(urlAudienceMapper?.config ?? {}),
+      "included.custom.audience": "https://mcp.suleia.com/mcp",
+      "id.token.claim": "false",
+      "access.token.claim": "true",
+    },
+  };
+  if (urlAudienceMapper) {
+    await adminRequest(
+      `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/protocol-mappers/models/${encodeURIComponent(urlAudienceMapper.id)}`,
+      { method: "PUT", body: JSON.stringify(urlAudienceMapperBody) },
+    );
+  } else {
+    await adminRequest(
+      `/admin/realms/suleia/clients/${encodeURIComponent(staticClient.id)}/protocol-mappers/models`,
+      { method: "POST", body: JSON.stringify(urlAudienceMapperBody) },
+    );
+  }
 
   const users = await adminRequest("/admin/realms/suleia/users?enabled=true");
   const humanUsers = users.filter((user) => !user.serviceAccountClientId);

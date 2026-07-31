@@ -19,6 +19,7 @@ SELECT 'client=' || count(*) FROM client WHERE client_id = 'chatgpt-suleia-mcp';
 SELECT 'reader_role=' || count(*) FROM keycloak_role WHERE name = 'mcp_reader' AND client_role = false;
 SELECT 'role_mapper=' || count(*) FROM protocol_mapper WHERE name = 'suleia-realm-roles';
 SELECT 'audience_mapper=' || count(*) FROM protocol_mapper WHERE name = 'suleia-mcp-audience';
+SELECT 'url_audience_mapper=' || count(*) FROM protocol_mapper WHERE name = 'suleia-mcp-url-audience';
 SELECT 'audience_resource=' || count(*)
 FROM protocol_mapper_config pmc
 JOIN protocol_mapper pm ON pm.id = pmc.protocol_mapper_id
@@ -31,6 +32,12 @@ JOIN client c ON c.id = ca.client_id
 WHERE c.client_id = 'chatgpt-suleia-mcp'
   AND ca.name = 'resource_url'
   AND ca.value = 'https://mcp.suleia.com/mcp';
+SELECT 'audience_custom_resource=' || count(*)
+FROM protocol_mapper_config pmc
+JOIN protocol_mapper pm ON pm.id = pmc.protocol_mapper_id
+WHERE pm.name = 'suleia-mcp-url-audience'
+  AND pmc.name = 'included.custom.audience'
+  AND pmc.value = 'https://mcp.suleia.com/mcp';
 SELECT 'custom_scopes=' || count(*) FROM client_scope
 WHERE name IN ('orders:read', 'timelines:read', 'decisions:read', 'reviews:read', 'orders:simulate');
 SELECT 'offline_access_optional=' || count(*)
@@ -48,8 +55,10 @@ grep -Fxq 'client=1' <<<"${query_result}"
 grep -Fxq 'reader_role=1' <<<"${query_result}"
 grep -Fxq 'role_mapper=1' <<<"${query_result}"
 grep -Fxq 'audience_mapper=1' <<<"${query_result}"
+grep -Fxq 'url_audience_mapper=1' <<<"${query_result}"
 grep -Fxq 'audience_resource=1' <<<"${query_result}"
 grep -Fxq 'resource_url=1' <<<"${query_result}"
+grep -Fxq 'audience_custom_resource=1' <<<"${query_result}"
 grep -Fxq 'custom_scopes=5' <<<"${query_result}"
 grep -Fxq 'offline_access_optional=1' <<<"${query_result}"
 

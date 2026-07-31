@@ -170,10 +170,69 @@ try {
     throw new Error(`Authenticated MCP initialize failed: ${mcpResponse.status}`);
   }
 
+  const clientAudienceTokenResponse = await fetch(
+    `${keycloakBase}/realms/suleia/protocol/openid-connect/token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "password",
+        client_id: "chatgpt-suleia-mcp",
+        username: email,
+        password,
+        scope: `openid ${requiredScopes.join(" ")}`,
+      }),
+    },
+  );
+  if (!clientAudienceTokenResponse.ok) {
+    throw new Error(
+      `Client-audience token failed: ${clientAudienceTokenResponse.status}`,
+    );
+  }
+  const { access_token: clientAudienceToken } =
+    await clientAudienceTokenResponse.json();
+  const clientAudiencePayload = JSON.parse(
+    Buffer.from(
+      clientAudienceToken.split(".")[1],
+      "base64url",
+    ).toString("utf8"),
+  );
+  const clientAudiences = Array.isArray(clientAudiencePayload.aud)
+    ? clientAudiencePayload.aud
+    : [clientAudiencePayload.aud];
+  if (!clientAudiences.includes("chatgpt-suleia-mcp")) {
+    throw new Error("Static client audience is missing");
+  }
+  const clientAudienceMcpResponse = await fetch(mcpUrl, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${clientAudienceToken}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-03-26",
+        capabilities: {},
+        clientInfo: { name: "suleia-e2e", version: "1.0.0" },
+      },
+    }),
+  });
+  if (clientAudienceMcpResponse.status !== 200) {
+    throw new Error(
+      `Client-audience MCP initialize failed: ${clientAudienceMcpResponse.status}`,
+    );
+  }
+
   console.log("audience_exact=1");
+  console.log("non_resource_grant_url_audience=1");
   console.log("required_scopes=5");
   console.log("reader_role=1");
   console.log("authenticated_mcp_initialize=200");
+  console.log("authenticated_mcp_client_audience=200");
 } catch (error) {
   primaryError = error;
 } finally {
