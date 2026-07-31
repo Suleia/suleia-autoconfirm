@@ -22,6 +22,10 @@ test('masking removes secrets and direct customer identity before persistence', 
   assert.match(masked.id, /^hmac:/); assert.match(masked.order_id, /^hmac:/);
   assert.equal(masked.first_name, '[MASKED]'); assert.equal(masked.email, '[MASKED]'); assert.equal(masked.status, 'OPEN');
   assert.equal(masked.total_amount, 42); assert.equal('access_token' in masked, false); assert.equal(containsDirectPii(masked), false);
+  assert.equal(containsDirectPii({ state_key: '20260731612345678' }), false);
+  assert.equal(containsDirectPii({ phone: '612345678' }), true);
+  assert.equal(containsDirectPii({ safe_field: 'private@example.com' }), true);
+  assert.equal(containsDirectPii({ authorization: '[MASKED]' }), true);
 });
 
 test('Supabase source can only issue GET reads', async () => {

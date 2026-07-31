@@ -43,6 +43,16 @@ export function payloadChecksum(masked) {
 }
 
 export function containsDirectPii(value) {
-  const text = JSON.stringify(value).replace(/hmac:[a-f0-9]{64}/gi, '[HASHED]');
-  return /(?:[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}|(?:\+?34)?[6789]\d{8}|\b(?:authorization|password|secret|token)\b\s*[:=])/i.test(text);
+  function inspect(current, field = '') {
+    if (current === null || current === undefined || typeof current === 'boolean' || typeof current === 'number') return false;
+    if (Array.isArray(current)) return current.some((item) => inspect(item, field));
+    if (typeof current === 'object') {
+      return Object.entries(current).some(([nestedField, nestedValue]) => SECRET_KEY.test(nestedField) || inspect(nestedValue, nestedField));
+    }
+    const text = String(current);
+    if (text === '[MASKED]' || /^hmac:[a-f0-9]{64}$/i.test(text)) return false;
+    if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text)) return true;
+    return PII_KEY.test(field) && /(?:\+?34)?[6789]\d{8}/.test(text);
+  }
+  return inspect(value);
 }
