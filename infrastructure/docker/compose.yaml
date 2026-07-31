@@ -187,6 +187,7 @@ services:
       SHADOW_PAGE_SIZE: ${SHADOW_PAGE_SIZE:-250}
       SHADOW_POLL_INTERVAL_MS: ${SHADOW_POLL_INTERVAL_MS:-300000}
     networks:
+      - public_network
       - application_network
       - database_network
     depends_on:
