@@ -10,6 +10,7 @@ This file is the high-level checkpoint index. Detailed VPS history remains in
 | A | Organization, departments, deterministic agent contracts, documentation | Complete |
 | B | Policy, Risk, QA, Compliance, authorization and audit | Complete locally; not deployed |
 | C-DESIGN | Enterprise Intelligence, Business Graph, Decision Memory, Twins and migration contracts | Design complete; no runtime implementation |
+| C0 | Operational Truth, quality, identity, reconciliation, parity, replay and readiness | Complete locally with fixtures; not deployed |
 | C-CORE | PostgreSQL schemas, read models and events | Not started; authorization required |
 | D-INTELLIGENCE | Deterministic analytics, patterns and policy performance | Not started |
 | E-CONTROL-TOWER | Read-only enterprise interface | Not started |

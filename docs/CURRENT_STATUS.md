@@ -96,3 +96,16 @@ ACTIONS_EXECUTED=0
 PRODUCTION_WRITES=0
 MESSAGES_SENT=0
 ```
+
+## 2026-07-31 — Phase C0 complete locally
+
+The Operational Truth layer is implemented inside `platform-core` with local,
+fictitious fixtures only. It adds deterministic truth and quality evaluation,
+separate transport/data connector health, technical identity validation,
+idempotent reconciliation, dimension-level parity, historical replay,
+migration readiness and local read models.
+
+C0 passes 28/28 focused tests and the full platform-core suite passes 94/94,
+including the unchanged 38/38 critical gate. Existing 32/32 simulations,
+29/29 MCP and 73/73 AutoConfirm suites remain green. No C0 code is deployed;
+the MCP remains eight tools and C-CORE/real Shadow Mode remain unstarted.

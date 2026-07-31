@@ -112,3 +112,21 @@ and strategic analytics and Control Tower remain future read models. The
 migration continues through inventory, mirror, shadow, dual verification,
 canary and progressive cutover, but no real-data shadow, canary, cutover or
 shutdown is authorized now.
+
+## D-017: Operational truth precedes C-CORE and real Shadow Mode
+
+Date: 2026-07-31
+
+Operational evidence is not true merely because one source returned it. C0
+keeps observed, verified, conflicting, stale, missing and unknown facts
+distinct; only exact or verified technical identity permits complete
+comparison. Fuzzy customer attributes are forbidden for correlation.
+
+## D-018: Readiness is gated, replay is historical and parity is dimensional
+
+Date: 2026-07-31
+
+No average may hide a critical failure. Replay receives an explicit reference
+time and historical policy, while parity reports every dimension without a
+global percentage. C0 may emit SHADOW_READY for a fixture but can never emit or
+activate CANARY_READY/CUTOVER_READY. All C0 persistence is local/test-only.

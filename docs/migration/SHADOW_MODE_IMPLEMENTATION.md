@@ -36,3 +36,15 @@ freshness, reviewer status, later outcome and schema version.
 - rollback means stopping mirror ingestion only; authority never moved.
 
 Shadow operation is not authorized by this document.
+
+## C0 eligibility contract
+
+An order is only a candidate when identity is EXACT/VERIFIED, critical sources
+are available, quality is approved, timeline/policy/timer/replay are complete
+and reproducible, the decision is stable, comparisons exist and actions are
+provably blocked. Every failed condition yields an exact reason.
+
+Candidate metrics are identity, comparable-order and replay rates, critical
+policy/timer parity, unexpected differences, availability and freshness.
+Production thresholds remain unset pending a separately authorized real-data
+validation. C0 does not activate Shadow Mode.

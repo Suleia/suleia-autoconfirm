@@ -20,3 +20,11 @@
 `Exact match`, `partial match`, `expected difference`, `unexpected difference`,
 `insufficient data`, `false positive`, `false negative`, `blocked` and `human
 override` are the canonical comparison outcomes.
+
+## C0 implementation evidence
+
+The local Functional Parity Engine now reports MATCHED, PARTIAL, DIVERGENT,
+BLOCKED, NOT_COMPARABLE and NOT_ASSESSED by dimension. The Reconciliation
+Ledger fingerprints canonical masked comparisons, deduplicates idempotency
+keys, counts recurrence and survives a simulated restart. This is fixture
+evidence only; every real-data row in the matrix remains gated.
