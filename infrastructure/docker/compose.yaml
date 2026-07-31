@@ -15,7 +15,13 @@ x-safety-environment: &safety-environment
   EXTERNAL_LLM_CALLS_ENABLED: ${EXTERNAL_LLM_CALLS_ENABLED:-false}
   LOCAL_LLM_ENABLED: ${LOCAL_LLM_ENABLED:-false}
   REAL_DATA_WRITE_ENABLED: ${REAL_DATA_WRITE_ENABLED:-false}
+  REAL_DATA_READ_ENABLED: ${REAL_DATA_READ_ENABLED:-false}
   CONNECTOR_WRITE_ENABLED: ${CONNECTOR_WRITE_ENABLED:-false}
+  CUSTOMER_MESSAGES_ENABLED: ${CUSTOMER_MESSAGES_ENABLED:-false}
+  ORDER_CONFIRMATION_ENABLED: ${ORDER_CONFIRMATION_ENABLED:-false}
+  ORDER_CANCELLATION_ENABLED: ${ORDER_CANCELLATION_ENABLED:-false}
+  RETURN_TO_ORIGIN_ENABLED: ${RETURN_TO_ORIGIN_ENABLED:-false}
+  DISCOUNTS_ENABLED: ${DISCOUNTS_ENABLED:-false}
   LIVE_WEBHOOKS_ENABLED: ${LIVE_WEBHOOKS_ENABLED:-false}
   LIVE_CRON_ENABLED: ${LIVE_CRON_ENABLED:-false}
   LIVE_POLLING_ENABLED: ${LIVE_POLLING_ENABLED:-false}
@@ -167,13 +173,30 @@ services:
 
   ingestion-worker:
     <<: *node-service
-    command: ["node", "services/process-runner.mjs", "ingestion-worker"]
+    command: ["node", "services/shadow-readonly-worker.mjs"]
     environment:
       <<: *safety-environment
       PORT: 3302
+      RUN_MODE: SHADOW_READ_ONLY
+      REAL_DATA_READ_ENABLED: "true"
+      LIVE_POLLING_ENABLED: "true"
+      SUPABASE_URL: ${SUPABASE_URL}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+      SHADOW_DATABASE_URL: postgres://suleia_ingestion_login:${SULEIA_INGESTION_PASSWORD}@postgres:5432/${POSTGRES_DB:-suleia_staging}
+      MIGRATION_HASH_KEY: ${MIGRATION_HASH_KEY}
+      SHADOW_PAGE_SIZE: ${SHADOW_PAGE_SIZE:-250}
+      SHADOW_POLL_INTERVAL_MS: ${SHADOW_POLL_INTERVAL_MS:-300000}
     networks:
       - application_network
       - database_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3302/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   scheduler:
     <<: *node-service

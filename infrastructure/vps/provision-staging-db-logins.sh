@@ -23,6 +23,10 @@ if [[ -z "${SULEIA_KEYCLOAK_DB_PASSWORD:-}" ]]; then
   echo "SULEIA_KEYCLOAK_DB_PASSWORD is required." >&2
   exit 1
 fi
+if [[ -z "${SULEIA_INGESTION_PASSWORD:-}" ]]; then
+  echo "SULEIA_INGESTION_PASSWORD is required." >&2
+  exit 1
+fi
 
 docker compose \
   --env-file "${ENV_FILE}" \
@@ -33,6 +37,7 @@ docker compose \
   --set ON_ERROR_STOP=1 \
   --set "backup_password=${SULEIA_BACKUP_PASSWORD}" \
   --set "keycloak_password=${SULEIA_KEYCLOAK_DB_PASSWORD}" \
+  --set "ingestion_password=${SULEIA_INGESTION_PASSWORD}" \
   --username suleia_admin \
   --dbname postgres <<'SQL'
 SELECT format(
@@ -46,6 +51,19 @@ WHERE NOT EXISTS (
 
 ALTER ROLE suleia_backup_login PASSWORD :'backup_password';
 GRANT suleia_backup TO suleia_backup_login;
+
+SELECT format(
+  'CREATE ROLE suleia_ingestion_login LOGIN PASSWORD %L',
+  :'ingestion_password'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = 'suleia_ingestion_login'
+)
+\gexec
+
+ALTER ROLE suleia_ingestion_login PASSWORD :'ingestion_password';
+ALTER ROLE suleia_ingestion_login SET default_transaction_read_only = off;
+GRANT suleia_ingestion TO suleia_ingestion_login;
 
 SELECT format(
   'CREATE ROLE suleia_keycloak LOGIN PASSWORD %L',
