@@ -16,20 +16,16 @@ docker compose \
   --file "${COMPOSE_FILE}" \
   exec --no-TTY \
   --env KC_CLI_CLIENT_SECRET="${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET}" \
-  keycloak \
-  /opt/keycloak/bin/kcadm.sh config credentials \
-  --config /tmp/suleia-kcadm.config \
-  --server http://127.0.0.1:8080/auth \
-  --realm master \
-  --client suleia-config-service >/dev/null
-
-docker compose \
-  --env-file "${ENV_FILE}" \
-  --file "${COMPOSE_FILE}" \
-  exec --no-TTY keycloak sh -s <<'INNER'
+  keycloak sh -s <<'INNER'
 set -eu
 KCADM=/opt/keycloak/bin/kcadm.sh
 KCADM_CONFIG=/tmp/suleia-kcadm.config
+
+"${KCADM}" config credentials \
+  --config "${KCADM_CONFIG}" \
+  --server http://127.0.0.1:8080/auth \
+  --realm master \
+  --client suleia-config-service >/dev/null
 
 components="$("${KCADM}" get components \
   --config "${KCADM_CONFIG}" \
