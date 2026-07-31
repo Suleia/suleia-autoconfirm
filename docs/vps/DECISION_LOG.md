@@ -85,3 +85,17 @@ phase is explicitly approved and verified.
 The Executive Control Layer consolidates future masked summaries but exposes no
 confirm, cancel, return, discount or messaging operation. Its snapshot contract
 must report `actions_executed=0` and `production_writes=0`.
+
+## D-014: Phase B adds one internal governance layer, not new services
+
+Policy Registry/Lifecycle, conflict resolution, Risk, QA, technical
+Compliance, Authorization, Decision Explanation and governance events are
+modules in `platform-core`. They remain disconnected from current production
+authority and produce simulation results only. No container, worker, queue,
+database or MCP tool is added.
+
+## D-015: Enterprise design stays on PostgreSQL
+
+Future Business Graph, Decision Memory and Enterprise Twins are designed as
+relational PostgreSQL contracts and read models. No graph database, vector
+database, external AI, local LLM or paid service is justified or authorized.

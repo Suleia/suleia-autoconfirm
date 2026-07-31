@@ -80,3 +80,35 @@ reports `SHIPMENT_NOT_ACCEPTED`, the simulator selects
 - Added a fail-closed rule: a public endpoint cannot use bearer auth.
 - Kept all eight tools read-only/simulation-only and all operational actions
   unavailable.
+
+## D-014: Phase B governance remains parallel and simulation-only
+
+Date: 2026-07-31
+
+The central Policy, Risk, QA, Compliance and Authorization modules are added to
+`platform-core` without becoming the authority for current production logic.
+This prevents a behavior change while providing versioned policy validation,
+conflict resolution, rollback, structured explanations and append-only audit.
+Every authorization result ends in `SIMULATION_ONLY` and all execution flags
+remain false.
+
+## D-015: Untrusted text is minimized once and remains typed
+
+Date: 2026-07-31
+
+Customer, carrier, operator and external text is data, never instruction. The
+governance boundary stores only semantic intent, typed PII indicators,
+untrusted-content classification, source metadata, length bucket and a
+non-reversible fingerprint. Original text is not retained. Sanitization is
+idempotent and typed QA metadata is not mistaken for a credential.
+
+## D-016: Enterprise Intelligence and migration are design-only
+
+Date: 2026-07-31
+
+Business Graph will begin on PostgreSQL relational tables and bounded recursive
+queries, not a new graph service. Enterprise Twins, Decision Memory, economic
+and strategic analytics and Control Tower remain future read models. The
+migration continues through inventory, mirror, shadow, dual verification,
+canary and progressive cutover, but no real-data shadow, canary, cutover or
+shutdown is authorized now.

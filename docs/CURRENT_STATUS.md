@@ -1,6 +1,6 @@
 # Current status
 
-Updated: 2026-07-28
+Updated: 2026-07-31
 
 The private Contabo staging platform is deployed and healthy. Its services are
 private, PostgreSQL is not exposed and all simulations remain zero-action.
@@ -68,5 +68,31 @@ departments and forty deterministic primary agents. Every agent is
 simulation-only and explicitly forbids customer messages, discounts, order
 actions, production writes, policy mutation and external AI calls.
 
-No Phase B policy runtime has started. Existing production behavior remains
-unchanged and local discount work remains separate.
+## 2026-07-31 — Phase B complete locally
+
+Phase B now provides a central, versioned governance layer inside the existing
+modular monolith: Policy Registry and Lifecycle, deterministic conflict
+resolution, Risk Engine, QA Gate, technical Compliance, simulation-only
+authorization, structured Decision Explanation and append-only governance
+events.
+
+The critical gate passes 38/38. Full regression passes 66/66 platform tests,
+32/32 fictitious simulations, 29/29 MCP tests and 73/73 current AutoConfirm
+tests. The MCP still exposes exactly the same eight read/simulation tools.
+
+The Enterprise Intelligence Platform, Business Graph, Decision Memory,
+Enterprise Twins, deterministic economic/strategic layers, Process
+Intelligence, Control Tower and complete VPS migration are designed only.
+No Phase B code or Enterprise design has been deployed. The VPS topology
+remains 11 services, all agents remain inactive and local discount work remains
+separate.
+
+Current invariant result:
+
+```text
+OPENAI_API_CALLS=0
+EXTERNAL_AI_CALLS=0
+ACTIONS_EXECUTED=0
+PRODUCTION_WRITES=0
+MESSAGES_SENT=0
+```

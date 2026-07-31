@@ -70,3 +70,16 @@ AI and Action Executor dependencies.
 This addendum supersedes the historical limitation about Agent Hub access: the
 GitHub Agent Hub is connected and used for coordinated handoffs. Phase A adds no
 runtime behavior and is deliberately stopped before Phase B.
+
+## 2026-07-31 Phase B addendum
+
+Phase B is complete locally with the central deterministic governance contract,
+typed untrusted-content minimization, versioned policies, conflict resolution,
+risk, QA, technical compliance, simulation-only authorization, explanations
+and append-only events. Critical tests pass 38/38; all local regression suites
+are green.
+
+No Phase B or Enterprise design artifact was deployed. The live VPS topology,
+MCP tool surface and operational authority are unchanged. The Enterprise layer
+and migration documents are future design only and do not authorize C-CORE,
+shadow, canary, cutover or provider shutdown.

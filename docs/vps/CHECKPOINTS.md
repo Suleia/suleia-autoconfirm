@@ -129,7 +129,18 @@ Status: implemented and stopped for owner review on 2026-07-31.
 - Current one-hour, 48-hour, 72-hour, disabled-discount and idempotency rules
   are documented without behavior changes.
 - No new service, database migration, endpoint, connector or executor was added.
-- Phase B has not started.
+- Phase B is complete locally and has not been deployed.
 
 Required invariants: `OPENAI_API_CALLS=0`, `EXTERNAL_AI_CALLS=0`,
 `ACTIONS_EXECUTED=0`, `PRODUCTION_WRITES=0`, `MESSAGES_SENT=0`.
+
+## Autonomous Operations Company — Phase B
+
+Status: complete locally and stopped for owner review on 2026-07-31.
+
+- Policy, Risk, QA, technical Compliance, Authorization and governance-event
+  modules pass the 38-test critical gate.
+- Full platform, simulation, MCP and current-system regression is green.
+- No Phase B file was copied to the VPS; no container or process was added.
+- The Enterprise Intelligence and complete migration artifacts are designs
+  only. C-CORE, real-data shadow, canary and cutover remain unauthorized.
