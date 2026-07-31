@@ -59,3 +59,18 @@ Rollback of Phase C1 stops the ingestion worker and applies `migrations/rollback
 ## Post-load verification
 
 Run `infrastructure/scripts/verify-shadow-state.sh`. It fails if an unsafe capability flag is active, a batch is incomplete, action/write counters are nonzero, or direct email/credential patterns are found in stored masked payloads. Its output contains aggregate counts only.
+
+## Verified deployment evidence
+
+The controlled VPS deployment completed with:
+
+- a fresh checksum-verified backup before schema application;
+- 4,287 masked records loaded from 9 automated source objects;
+- exact reconciliation against the 4,293-record inventory: 6 `telegram_messages` remained in `MANUAL_REVIEW` and were not imported;
+- the optional missing carrier-history table recorded as missing, without approximation;
+- all latest batches `COMPLETED`, with zero rejections and zero errors;
+- a forced incremental overlap replay that imported zero additional records and classified every reread record as a duplicate;
+- `unsafe_rows=0`, `actions=0` and `production_writes=0` after both initial and incremental runs;
+- a healthy ingestion worker with no published ports and approximately 18 MiB memory use after the load.
+
+One failed preflight batch is deliberately retained in audit history. It documents a fail-closed PII-detector false positive that occurred before the successful load; the latest batch for that source is complete and clean.
