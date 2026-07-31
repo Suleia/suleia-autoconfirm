@@ -25,7 +25,8 @@ KCADM_CONFIG=/tmp/suleia-kcadm.config
   --config "${KCADM_CONFIG}" \
   --server http://127.0.0.1:8080/auth \
   --realm master \
-  --client suleia-config-service >/dev/null
+  --client suleia-config-service \
+  --secret "${KC_CLI_CLIENT_SECRET}" >/dev/null
 
 components="$("${KCADM}" get components \
   --config "${KCADM_CONFIG}" \
