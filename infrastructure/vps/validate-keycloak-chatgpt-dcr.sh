@@ -33,7 +33,7 @@ WHERE r.name = 'suleia'
   AND c.provider_id = 'trusted-hosts'
   AND c.sub_type = 'anonymous'
   AND cc.name = 'trusted-hosts'
-  AND cc.value IN ('20.170.184.32', '20.170.184.33');
+  AND cc.value IN ('20.170.184.28', '20.170.184.32', '20.170.184.33');
 
 SELECT 'source_host_check_enabled=' || count(*)
 FROM component_config cc
@@ -69,7 +69,7 @@ SQL
 
 printf '%s\n' "${query_result}"
 grep -Fxq 'trusted_chatgpt=2' <<<"${query_result}"
-grep -Fxq 'trusted_source_ips=2' <<<"${query_result}"
+grep -Fxq 'trusted_source_ips=3' <<<"${query_result}"
 grep -Fxq 'source_host_check_enabled=1' <<<"${query_result}"
 grep -Fxq 'client_uri_check_enabled=1' <<<"${query_result}"
 grep -Fxq 'max_clients_20=1' <<<"${query_result}"

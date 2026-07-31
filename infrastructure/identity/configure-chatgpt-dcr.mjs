@@ -83,6 +83,7 @@ try {
         ...trustedHosts,
         config: {
           "trusted-hosts": [
+            "20.170.184.28",
             "20.170.184.32",
             "20.170.184.33",
             "chatgpt.com",
