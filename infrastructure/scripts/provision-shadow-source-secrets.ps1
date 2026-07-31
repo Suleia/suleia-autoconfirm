@@ -48,10 +48,9 @@ echo 'Shadow source credentials provisioned without disclosure.'
   $ssh = (Get-Command ssh.exe -ErrorAction Stop).Source
   $start = [Diagnostics.ProcessStartInfo]::new()
   $start.FileName = $ssh
-  $start.ArgumentList.Add('-T'); $start.ArgumentList.Add('-i'); $start.ArgumentList.Add($SshKeyFile)
-  $start.ArgumentList.Add('-o'); $start.ArgumentList.Add("UserKnownHostsFile=$KnownHostsFile")
-  $start.ArgumentList.Add('-o'); $start.ArgumentList.Add('StrictHostKeyChecking=yes')
-  $start.ArgumentList.Add("$VpsUser@$VpsHost"); $start.ArgumentList.Add('sudo'); $start.ArgumentList.Add('/bin/bash'); $start.ArgumentList.Add('-s')
+  $safeKeyFile = $SshKeyFile.Replace('"', '\"')
+  $safeKnownHosts = $KnownHostsFile.Replace('"', '\"')
+  $start.Arguments = "-T -i `"$safeKeyFile`" -o `"UserKnownHostsFile=$safeKnownHosts`" -o StrictHostKeyChecking=yes $VpsUser@$VpsHost sudo /bin/bash -s"
   $start.RedirectStandardInput = $true; $start.RedirectStandardOutput = $true; $start.RedirectStandardError = $true; $start.UseShellExecute = $false
   $process = [Diagnostics.Process]::Start($start)
   $process.StandardInput.Write($remoteScript); $process.StandardInput.Close(); $process.WaitForExit()
