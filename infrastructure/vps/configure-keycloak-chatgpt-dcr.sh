@@ -42,7 +42,7 @@ test -n "${trusted_id}"
 
 "${KCADM}" update "components/${trusted_id}" \
   --realm suleia \
-  --set 'config={"trusted-hosts":["chatgpt.com","*.chatgpt.com"],"host-sending-registration-request-must-match":["false"],"client-uris-must-match":["true"]}' >/dev/null
+  --set 'config={"trusted-hosts":["20.170.184.32","20.170.184.33","chatgpt.com","*.chatgpt.com"],"host-sending-registration-request-must-match":["true"],"client-uris-must-match":["true"]}' >/dev/null
 
 max_clients_id="$(
   printf '%s\n' "${components}" \
