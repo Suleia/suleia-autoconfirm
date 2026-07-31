@@ -232,9 +232,12 @@ services:
           memory: 1536M
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7.0
+    build:
+      context: ../..
+      dockerfile: infrastructure/identity/Keycloak.Dockerfile
+    image: suleia-keycloak:26.7.0
     restart: unless-stopped
-    command: ["start", "--import-realm"]
+    command: ["start", "--optimized", "--import-realm"]
     environment:
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/suleia_identity
