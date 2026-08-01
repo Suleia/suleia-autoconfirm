@@ -39,7 +39,8 @@
   }
 
   @operations_api path /operations/api/* /operations/health
-  handle_path @operations_api {
+  handle @operations_api {
+    uri strip_prefix /operations
     reverse_proxy api:3200
   }
 
@@ -49,7 +50,8 @@
   }
 
   @operations_ui path /operations/*
-  handle_path @operations_ui {
+  handle @operations_ui {
+    uri strip_prefix /operations
     reverse_proxy review-panel:80
   }
 
