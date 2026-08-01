@@ -226,7 +226,7 @@ SELECT i.*, c.has_customer_replied, c.latest_inbound_message_at,
 FROM read_models.operations_incident_records i
 LEFT JOIN read_models.operations_conversation_summaries c USING (canonical_order_id)
 LEFT JOIN read_models.operations_decision_cards d ON d.decision_id = i.decision_id
-LEFT JOIN read_models.operations_discount_workflows w USING (canonical_order_id);
+LEFT JOIN read_models.operations_discount_workflows w ON w.canonical_order_id = i.canonical_order_id;
 
 CREATE INDEX IF NOT EXISTS operations_orders_status_idx ON read_models.operations_order_records(status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS operations_orders_decision_idx ON read_models.operations_order_records(decision_status, risk, priority, updated_at DESC);

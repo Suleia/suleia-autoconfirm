@@ -9,6 +9,7 @@ test('Operations Center migration has two queues, safety checks and no storefron
   assert.match(migration, /WHERE status = 'PENDING' AND is_active = true/);
   assert.match(migration, /CHECK \(email_sent = false\)/);
   assert.match(migration, /CHECK \(actions_executed = 0\)/);
+  assert.match(migration, /w\.canonical_order_id = i\.canonical_order_id/);
   assert.doesNotMatch(migration, /shopify/i);
 });
 
