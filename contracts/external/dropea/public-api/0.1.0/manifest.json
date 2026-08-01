@@ -1,0 +1,23 @@
+{
+  "name": "Dropea Public API",
+  "openapi_version": "3.0.3",
+  "contract_version": "0.1.0",
+  "source_file": "openapi.json",
+  "sha256": "80e6419cec28ecef6a0cfabc9733e549a152760ababbdb587a0c664873866315",
+  "retrieved_at": "2026-08-01",
+  "approved_read_scopes": [
+    "dp:issues:read",
+    "dp:orders:read",
+    "dp:products:read",
+    "dp:stores:read",
+    "dp:users:read",
+    "dp:webhooks:read"
+  ],
+  "approved_hosts": [
+    "es.public-api.dropea.com",
+    "it.public-api.dropea.com",
+    "pt.public-api.dropea.com"
+  ],
+  "internal_rate_limit_per_minute": 45,
+  "mode": "SHADOW_READ_ONLY"
+}
