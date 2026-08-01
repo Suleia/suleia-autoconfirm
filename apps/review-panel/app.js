@@ -1,4 +1,5 @@
 const state={view:'orders',offset:0,limit:50,total:0,filters:{},config:null,token:null,summary:null};
+const operationsBase=location.pathname.startsWith('/operations')?'/operations':'';
 const $=(id)=>document.getElementById(id);
 const text=(value,fallback='—')=>value===undefined||value===null||value===''?fallback:String(value);
 const short=(value)=>{const v=text(value);return v.length>22?`${v.slice(0,10)}…${v.slice(-7)}`:v};
@@ -29,7 +30,7 @@ async function exchangeCode(code,returnedState){
 }
 
 function activeToken(){const token=sessionStorage.getItem('suleia_access_token');const expires=Number(sessionStorage.getItem('suleia_token_expires_at')||0);return token&&expires>Date.now()+15000?token:null}
-async function api(path){const response=await fetch(path,{headers:{Authorization:`Bearer ${state.token}`}});if(response.status===401||response.status===403){signOut(false);throw new Error('Tu sesión ha caducado.');}if(!response.ok)throw new Error('La lectura no está disponible temporalmente.');return (await response.json()).data}
+async function api(path){const response=await fetch(`${operationsBase}${path}`,{headers:{Authorization:`Bearer ${state.token}`}});if(response.status===401||response.status===403){signOut(false);throw new Error('Tu sesión ha caducado.');}if(!response.ok)throw new Error('La lectura no está disponible temporalmente.');return (await response.json()).data}
 function signOut(remote=true){sessionStorage.removeItem('suleia_access_token');sessionStorage.removeItem('suleia_token_expires_at');state.token=null;$('app').hidden=true;$('login').hidden=false;if(remote&&state.config){const url=new URL(`${state.config.oauth.issuer}/protocol/openid-connect/logout`);url.searchParams.set('client_id',state.config.oauth.client_id);url.searchParams.set('post_logout_redirect_uri',redirectUri());location.assign(url.toString());}}
 
 function badge(value){const v=text(value);const lower=v.toLowerCase();let tone='gray';if(/ready|pass|exact|verified|delivered|finish|resolved/.test(lower))tone='green';else if(/wait|pending|medium|review|active/.test(lower))tone='amber';else if(/high|critical|blocked|error|stale|conflict|reject|return/.test(lower))tone='red';else if(/human/.test(lower))tone='purple';else if(/info|shipping|transit/.test(lower))tone='blue';return node('span',`badge ${tone}`,v)}
@@ -55,7 +56,7 @@ async function refresh(){try{state.summary=await api('/api/operations/summary');
 function setView(view){state.view=view;state.offset=0;state.filters={};document.querySelectorAll('.nav-item').forEach(item=>item.classList.toggle('active',item.dataset.view===view));$('view-title').textContent=view==='orders'?'Pedidos':'Incidencias';$('queue-title').textContent=view==='orders'?'Pedidos observados':'Incidencias pendientes';renderHead();renderFilters();renderSummary();loadQueue()}
 
 async function init(){
-  state.config=await fetch('/api/config').then(r=>{if(!r.ok)throw new Error('Configuración privada no disponible.');return r.json()});
+  state.config=await fetch(`${operationsBase}/api/config`).then(r=>{if(!r.ok)throw new Error('Configuración privada no disponible.');return r.json()});
   const params=new URLSearchParams(location.search);state.token=activeToken();if(params.has('code'))state.token=await exchangeCode(params.get('code'),params.get('state'));
   if(!state.token){$('login').hidden=false;$('app').hidden=true;return}
   $('login').hidden=true;$('app').hidden=false;renderHead();renderFilters();await refresh();setInterval(()=>{if(document.visibilityState==='visible'&&activeToken())refresh()},state.config.refresh_interval_seconds*1000);

@@ -136,11 +136,11 @@
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": false,
       "consentRequired": false,
-      "redirectUris": ["https://ops.suleia.com/*", "https://ops-staging.localhost/*"],
-      "webOrigins": ["https://ops.suleia.com", "https://ops-staging.localhost"],
+      "redirectUris": ["https://mcp.suleia.com/operations/*", "https://ops.suleia.com/*", "https://ops-staging.localhost/*"],
+      "webOrigins": ["https://mcp.suleia.com", "https://ops.suleia.com", "https://ops-staging.localhost"],
       "attributes": {
         "pkce.code.challenge.method": "S256",
-        "post.logout.redirect.uris": "https://ops.suleia.com/*##https://ops-staging.localhost/*"
+        "post.logout.redirect.uris": "https://mcp.suleia.com/operations/*##https://ops.suleia.com/*##https://ops-staging.localhost/*"
       },
       "defaultClientScopes": ["openid", "profile", "roles", "operations:read"],
       "protocolMappers": [

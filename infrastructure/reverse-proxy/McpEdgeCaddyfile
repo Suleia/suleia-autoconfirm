@@ -26,6 +26,7 @@
 
 {$MCP_PUBLIC_HOST} {
   import edge_security_headers
+  header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
   @mcp path /mcp /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp
   handle @mcp {
@@ -35,6 +36,21 @@
   @identity path /auth/realms/suleia/* /auth/resources/*
   handle @identity {
     reverse_proxy keycloak:8080
+  }
+
+  @operations_api path /operations/api/* /operations/health
+  handle_path @operations_api {
+    reverse_proxy api:3200
+  }
+
+  @operations_exact path /operations
+  handle @operations_exact {
+    redir /operations/ 308
+  }
+
+  @operations_ui path /operations/*
+  handle_path @operations_ui {
+    reverse_proxy review-panel:80
   }
 
   respond 404

@@ -37,19 +37,19 @@ if [ -z "${client_id}" ]; then
     -s enabled=true -s publicClient=true -s standardFlowEnabled=true \
     -s directAccessGrantsEnabled=false -s serviceAccountsEnabled=false \
     -s fullScopeAllowed=false -s consentRequired=false \
-    -s 'redirectUris=["https://ops.suleia.com/*","https://ops-staging.localhost/*"]' \
-    -s 'webOrigins=["https://ops.suleia.com","https://ops-staging.localhost"]' \
+    -s 'redirectUris=["https://mcp.suleia.com/operations/*","https://ops.suleia.com/*","https://ops-staging.localhost/*"]' \
+    -s 'webOrigins=["https://mcp.suleia.com","https://ops.suleia.com","https://ops-staging.localhost"]' \
     -s 'attributes."pkce.code.challenge.method"=S256' \
-    -s 'attributes."post.logout.redirect.uris"=https://ops.suleia.com/*##https://ops-staging.localhost/*')
+    -s 'attributes."post.logout.redirect.uris"=https://mcp.suleia.com/operations/*##https://ops.suleia.com/*##https://ops-staging.localhost/*')
 else
   "${KCADM}" update "clients/${client_id}" -r suleia \
     -s enabled=true -s publicClient=true -s standardFlowEnabled=true \
     -s directAccessGrantsEnabled=false -s serviceAccountsEnabled=false \
     -s fullScopeAllowed=false -s consentRequired=false \
-    -s 'redirectUris=["https://ops.suleia.com/*","https://ops-staging.localhost/*"]' \
-    -s 'webOrigins=["https://ops.suleia.com","https://ops-staging.localhost"]' \
+    -s 'redirectUris=["https://mcp.suleia.com/operations/*","https://ops.suleia.com/*","https://ops-staging.localhost/*"]' \
+    -s 'webOrigins=["https://mcp.suleia.com","https://ops.suleia.com","https://ops-staging.localhost"]' \
     -s 'attributes."pkce.code.challenge.method"=S256' \
-    -s 'attributes."post.logout.redirect.uris"=https://ops.suleia.com/*##https://ops-staging.localhost/*' >/dev/null
+    -s 'attributes."post.logout.redirect.uris"=https://mcp.suleia.com/operations/*##https://ops.suleia.com/*##https://ops-staging.localhost/*' >/dev/null
 fi
 
 "${KCADM}" update "clients/${client_id}/default-client-scopes/${scope_id}" -r suleia -n >/dev/null 2>&1 || true

@@ -1,5 +1,7 @@
 # Suleia Operations Center
 
+Private URL: `https://mcp.suleia.com/operations/`.
+
 Status: private shadow application, `SHADOW_READ_ONLY` and `SIMULATION_ONLY`.
 
 The interface has exactly two primary sections: **Pedidos** and
