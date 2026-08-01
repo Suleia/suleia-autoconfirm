@@ -1,5 +1,6 @@
 BEGIN;
 ALTER DEFAULT PRIVILEGES IN SCHEMA read_models REVOKE SELECT ON TABLES FROM suleia_operations_readonly;
+REVOKE SELECT ON ALL TABLES IN SCHEMA read_models FROM suleia_mcp_readonly;
 DROP VIEW IF EXISTS read_models.operations_incident_detail;
 DROP VIEW IF EXISTS read_models.operations_incidents_queue;
 DROP VIEW IF EXISTS read_models.operations_incidents_summary;

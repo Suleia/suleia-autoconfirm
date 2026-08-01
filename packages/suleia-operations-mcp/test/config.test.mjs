@@ -58,6 +58,34 @@ test('supabase mode rejects a production or unknown project ref', () => {
   }), /approved staging project/);
 });
 
+test('production rejects fixtures and accepts only a Postgres shadow read connection', () => {
+  assert.throws(() => loadConfig({
+    environment: 'production',
+    dataMode: 'fixture',
+    authMode: 'oauth',
+    publicEndpointEnabled: true,
+    publicBaseUrl: 'https://mcp.example.invalid',
+    oauthIssuer: 'https://mcp.example.invalid/auth/realms/suleia',
+    oauthAudience: 'mcp',
+    oauthJwksUrl: 'http://identity.invalid/certs',
+    oauthRequiredRole: 'mcp_reader'
+  }), /must be postgres/);
+
+  const config = loadConfig({
+    environment: 'production',
+    dataMode: 'postgres',
+    databaseUrl: 'postgres://reader:masked@postgres/suleia',
+    authMode: 'oauth',
+    publicEndpointEnabled: true,
+    publicBaseUrl: 'https://mcp.example.invalid',
+    oauthIssuer: 'https://mcp.example.invalid/auth/realms/suleia',
+    oauthAudience: 'mcp',
+    oauthJwksUrl: 'http://identity.invalid/certs',
+    oauthRequiredRole: 'mcp_reader'
+  });
+  assert.equal(config.dataMode, 'postgres');
+});
+
 test('public OAuth configuration is accepted only with complete HTTPS identity metadata', () => {
   const config = loadConfig({
     environment: 'test',

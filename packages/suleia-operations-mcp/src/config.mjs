@@ -27,6 +27,7 @@ export function loadConfig(overrides = {}) {
     port: integer('PORT', 3100),
     dataMode: process.env.MCP_DATA_MODE || 'fixture',
     fixturePath: path.join(packageRoot, 'fixtures', 'order.masked.json'),
+    databaseUrl: process.env.MCP_DATABASE_URL || '',
     authMode: process.env.MCP_AUTH_MODE || 'bearer',
     bearerToken: process.env.MCP_STAGING_BEARER_TOKEN || '',
     publicBaseUrl: process.env.MCP_PUBLIC_BASE_URL || '',
@@ -117,7 +118,13 @@ export function assertSafetyInvariants(config) {
   if (config.maxResponseBytes < 1_024 || config.maxResponseBytes > 51_200) {
     violations.push('MCP_MAX_RESPONSE_BYTES must be between 1024 and 51200');
   }
-  if (!['fixture', 'supabase'].includes(config.dataMode)) violations.push('MCP_DATA_MODE must be fixture or supabase');
+  if (!['fixture', 'supabase', 'postgres'].includes(config.dataMode)) violations.push('MCP_DATA_MODE must be fixture, supabase or postgres');
+  if (config.environment === 'production' && config.dataMode !== 'postgres') {
+    violations.push('Production MCP_DATA_MODE must be postgres');
+  }
+  if (config.dataMode === 'postgres' && !config.databaseUrl?.startsWith('postgres')) {
+    violations.push('Postgres shadow read connection is required');
+  }
   if (config.dataMode === 'supabase') {
     if (!config.supabaseUrl || !config.supabaseReaderToken) {
       violations.push('Supabase staging read credentials are required');

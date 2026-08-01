@@ -31,6 +31,10 @@ if [[ -z "${SULEIA_API_PASSWORD:-}" ]]; then
   echo "SULEIA_API_PASSWORD is required." >&2
   exit 1
 fi
+if [[ -z "${SULEIA_MCP_READONLY_PASSWORD:-}" ]]; then
+  echo "SULEIA_MCP_READONLY_PASSWORD is required." >&2
+  exit 1
+fi
 
 docker compose \
   --env-file "${ENV_FILE}" \
@@ -43,6 +47,7 @@ docker compose \
   --set "keycloak_password=${SULEIA_KEYCLOAK_DB_PASSWORD}" \
   --set "ingestion_password=${SULEIA_INGESTION_PASSWORD}" \
   --set "api_password=${SULEIA_API_PASSWORD}" \
+  --set "mcp_password=${SULEIA_MCP_READONLY_PASSWORD}" \
   --username suleia_admin \
   --dbname postgres <<'SQL'
 SELECT format(
@@ -82,6 +87,19 @@ WHERE NOT EXISTS (
 ALTER ROLE suleia_api_login PASSWORD :'api_password';
 ALTER ROLE suleia_api_login SET default_transaction_read_only = on;
 GRANT suleia_operations_readonly TO suleia_api_login;
+
+SELECT format(
+  'CREATE ROLE suleia_mcp_readonly_login LOGIN PASSWORD %L',
+  :'mcp_password'
+)
+WHERE NOT EXISTS (
+  SELECT 1 FROM pg_roles WHERE rolname = 'suleia_mcp_readonly_login'
+)
+\gexec
+
+ALTER ROLE suleia_mcp_readonly_login PASSWORD :'mcp_password';
+ALTER ROLE suleia_mcp_readonly_login SET default_transaction_read_only = on;
+GRANT suleia_mcp_readonly TO suleia_mcp_readonly_login;
 
 SELECT format(
   'CREATE ROLE suleia_keycloak LOGIN PASSWORD %L',

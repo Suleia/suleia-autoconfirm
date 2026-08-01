@@ -146,7 +146,8 @@ services:
       NODE_ENV: production
       PORT: 3100
       READ_ONLY: "true"
-      MCP_DATA_MODE: fixture
+      MCP_DATA_MODE: postgres
+      MCP_DATABASE_URL: postgres://suleia_mcp_readonly_login:${SULEIA_MCP_READONLY_PASSWORD}@postgres:5432/${POSTGRES_DB:-suleia_staging}
       MCP_AUTH_MODE: oauth
       MCP_PUBLIC_ENDPOINT_ENABLED: "true"
       MCP_PUBLIC_BASE_URL: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}

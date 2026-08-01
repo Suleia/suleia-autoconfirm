@@ -240,6 +240,7 @@ CREATE INDEX IF NOT EXISTS operations_timeline_issue_idx ON read_models.operatio
 
 GRANT USAGE ON SCHEMA read_models TO suleia_operations_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA read_models TO suleia_operations_readonly;
+GRANT SELECT ON ALL TABLES IN SCHEMA read_models TO suleia_mcp_readonly;
 ALTER DEFAULT PRIVILEGES IN SCHEMA read_models GRANT SELECT ON TABLES TO suleia_operations_readonly;
 GRANT SELECT, INSERT, UPDATE ON read_models.operations_order_records,
   read_models.operations_incident_records, read_models.operations_conversation_summaries,

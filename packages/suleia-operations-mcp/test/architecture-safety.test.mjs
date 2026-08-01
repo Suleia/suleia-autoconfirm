@@ -16,6 +16,7 @@ test('package remains isolated from production integrations and write clients', 
     'src/app.mjs',
     'src/config.mjs',
     'src/data/repository.mjs',
+    'src/data/postgres-read-repository.mjs',
     'src/data/supabase-read-repository.mjs',
     'src/domain/service.mjs',
     'src/domain/simulator.mjs',
@@ -35,6 +36,9 @@ test('package remains isolated from production integrations and write clients', 
   const repositorySource = await read('src/data/supabase-read-repository.mjs');
   assert.doesNotMatch(repositorySource, /\bmethod:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i);
   assert.doesNotMatch(repositorySource, /\.(?:insert|update|upsert|delete|rpc)\s*\(/i);
+
+  const postgresSource = await read('src/data/postgres-read-repository.mjs');
+  assert.doesNotMatch(postgresSource, /\b(?:INSERT|UPDATE|DELETE|UPSERT|CALL)\b/i);
 });
 
 test('fixture contains exactly one fictitious masked order', async () => {
