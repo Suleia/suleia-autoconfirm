@@ -1,0 +1,98 @@
+function integer(value, fallback, min, max) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+}
+
+function filters(searchParams, allowlist) {
+  const clauses = [];
+  const values = [];
+  for (const [queryName, column] of Object.entries(allowlist)) {
+    const value = searchParams.get(queryName);
+    if (value === null || value === '') continue;
+    values.push(value);
+    clauses.push(`${column} = $${values.length}`);
+  }
+  return { clauses, values };
+}
+
+export class OperationsRepository {
+  constructor(databaseUrl, { pool = null } = {}) {
+    if (!pool) throw new Error('Use OperationsRepository.connect for a database connection');
+    this.pool = pool;
+  }
+
+  static async connect(databaseUrl) {
+    const { default: pg } = await import('pg');
+    return new OperationsRepository(databaseUrl, { pool: new pg.Pool({
+      connectionString: databaseUrl, max: 5, application_name: 'suleia-operations-center',
+      statement_timeout: 10_000, query_timeout: 12_000
+    }) });
+  }
+
+  async close() { await this.pool.end(); }
+
+  async summary() {
+    const [orders, incidents, health] = await Promise.all([
+      this.pool.query('SELECT * FROM read_models.operations_orders_summary'),
+      this.pool.query('SELECT * FROM read_models.operations_incidents_summary'),
+      this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector')
+    ]);
+    return { orders: orders.rows[0] || {}, incidents: incidents.rows[0] || {}, connectors: health.rows };
+  }
+
+  async listOrders(searchParams) {
+    const limit = integer(searchParams.get('limit'), 50, 1, 100);
+    const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
+    const selected = filters(searchParams, {
+      status: 'status', decision: 'decision_status', risk: 'risk',
+      priority: 'priority', freshness: 'freshness', identity: 'identity_status'
+    });
+    selected.values.push(limit, offset);
+    const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
+    const result = await this.pool.query(
+      `SELECT *, count(*) OVER()::integer AS total_count
+       FROM read_models.operations_orders_queue ${where}
+       ORDER BY updated_at DESC, canonical_order_id
+       LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
+      selected.values
+    );
+    return { items: result.rows, total: result.rows[0]?.total_count || 0, limit, offset };
+  }
+
+  async orderDetail(id) {
+    const [detail, timeline, incidents] = await Promise.all([
+      this.pool.query('SELECT * FROM read_models.operations_order_detail WHERE canonical_order_id=$1', [id]),
+      this.pool.query('SELECT * FROM read_models.operations_timeline_records WHERE canonical_order_id=$1 ORDER BY occurred_at DESC LIMIT 200', [id]),
+      this.pool.query('SELECT * FROM read_models.operations_incidents_queue WHERE canonical_order_id=$1 ORDER BY updated_at DESC', [id])
+    ]);
+    return detail.rows[0] ? { order: detail.rows[0], timeline: timeline.rows, incidents: incidents.rows } : null;
+  }
+
+  async listIncidents(searchParams) {
+    const limit = integer(searchParams.get('limit'), 50, 1, 100);
+    const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
+    const selected = filters(searchParams, {
+      type: 'type', response: 'customer_response_status', resolution: 'proposed_resolution',
+      risk: 'risk', priority: 'priority', freshness: 'freshness', qa: 'qa_result',
+      discount: 'discount_status'
+    });
+    selected.values.push(limit, offset);
+    const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
+    const result = await this.pool.query(
+      `SELECT *, count(*) OVER()::integer AS total_count
+       FROM read_models.operations_incidents_queue ${where}
+       ORDER BY priority DESC, due_at NULLS LAST, updated_at DESC, canonical_issue_id
+       LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
+      selected.values
+    );
+    return { items: result.rows, total: result.rows[0]?.total_count || 0, limit, offset };
+  }
+
+  async incidentDetail(id) {
+    const [detail, timeline] = await Promise.all([
+      this.pool.query('SELECT * FROM read_models.operations_incident_detail WHERE canonical_issue_id=$1', [id]),
+      this.pool.query('SELECT * FROM read_models.operations_timeline_records WHERE canonical_issue_id=$1 ORDER BY occurred_at DESC LIMIT 200', [id])
+    ]);
+    return detail.rows[0] ? { incident: detail.rows[0], timeline: timeline.rows } : null;
+  }
+}

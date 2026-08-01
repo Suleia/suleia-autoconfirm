@@ -3,69 +3,82 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Suleia Operations Staging</title>
+  <meta name="color-scheme" content="light">
+  <title>Suleia Operations Center</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <header>
-    <p class="eyebrow">SULEIA OPERATIONS</p>
-    <h1>Centro de revisión</h1>
-    <p class="lede">Prototipo local con datos ficticios, decisiones simuladas y cero acciones externas.</p>
-  </header>
-  <main>
-    <section class="status">
-      <article><span>Entorno</span><strong>STAGING</strong></article>
-      <article><span>Modo</span><strong>SIMULATION</strong></article>
-      <article><span>Acciones ejecutadas</span><strong>0</strong></article>
-      <article><span>PII</span><strong>ENMASCARADA</strong></article>
-    </section>
-    <section class="board">
-      <div>
-        <p class="eyebrow">COLAS</p>
-        <h2>Revisión controlada</h2>
-        <p>Los casos se separan en deterministas, revisión humana, revisión interactiva y bloqueados.</p>
+  <div id="login" class="login-shell" hidden>
+    <main class="login-card">
+      <div class="brand-mark" aria-hidden="true">S</div>
+      <p class="eyebrow">SULEIA · ACCESO PRIVADO</p>
+      <h1>Operations Center</h1>
+      <p>Consulta segura de pedidos e incidencias desde la copia operativa del VPS.</p>
+      <button id="login-button" class="primary-button">Iniciar sesión</button>
+      <small>Solo lectura · Datos enmascarados · Cero acciones</small>
+    </main>
+  </div>
+
+  <div id="app" class="app-shell" hidden>
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">S</div>
+        <div><strong>Suleia</strong><span>Operations Center</span></div>
       </div>
-      <div class="lanes">
-        <article class="lane green"><b>DETERMINISTIC</b><span>Regla aprobada y evidencia suficiente</span></article>
-        <article class="lane amber"><b>HUMAN_REVIEW</b><span>Riesgo o decisión empresarial</span></article>
-        <article class="lane blue"><b>AI_REVIEW</b><span>Ambigüedad para revisión interactiva</span></article>
-        <article class="lane red"><b>BLOCKED</b><span>Datos stale, contradicción o duplicado</span></article>
+      <nav aria-label="Secciones principales">
+        <button class="nav-item active" data-view="orders"><span class="nav-icon">P</span>Pedidos</button>
+        <button class="nav-item" data-view="incidents"><span class="nav-icon">I</span>Incidencias</button>
+      </nav>
+      <div class="safety-card">
+        <span class="live-dot"></span>
+        <div><strong>Solo lectura</strong><small>Acciones ejecutadas: 0</small></div>
       </div>
-    </section>
-    <section class="incident-policies">
-      <div class="section-head">
-        <p class="eyebrow">INCIDENCIAS VERIFICADAS</p>
-        <h2>Decisión por evidencia vigente</h2>
-        <p>El evento más reciente prevalece. Las propuestas no ejecutan acciones ni envían mensajes.</p>
-      </div>
-      <div class="policy-grid">
-        <article>
-          <span class="policy-code">INCIDENT_RETURN_TO_ORIGIN</span>
-          <h3>Devolución al origen</h3>
-          <dl>
-            <div><dt>Cliente</dt><dd>RETURN explícito y vigente</dd></div>
-            <div><dt>Transportista</dt><dd>SHIPMENT_NOT_ACCEPTED</dd></div>
-            <div><dt>Propuesta</dt><dd>RETURN_TO_ORIGIN</dd></div>
-            <div><dt>Descuento</dt><dd>Bloqueado</dd></div>
-          </dl>
-        </article>
-        <article>
-          <span class="policy-code">INCIDENT_AGENCY_PICKUP</span>
-          <h3>Recogida en agencia</h3>
-          <dl>
-            <div><dt>Transportista</dt><dd>AGENCY_PICKUP_CONFIRMED</dd></div>
-            <div><dt>Propuesta</dt><dd>MARK_AGENCY_PICKUP</dd></div>
-            <div><dt>Mensaje</dt><dd>Propuesto, no enviado</dd></div>
-            <div><dt>Sin evidencia</dt><dd>HUMAN_REVIEW</dd></div>
-          </dl>
-        </article>
-      </div>
-      <div class="audit-table">
-        <div><b>Auditoría disponible</b><span>customer_intent · carrier_state · latest_relevant_event · evidence_freshness · conflicting_evidence</span></div>
-        <div><b>Gates</b><span>risk_gate_result · qa_gate_result · route · confidence · policy_version</span></div>
-        <div><b>Seguridad</b><span>customer_message_sent=false · actions_executed=0 · run_mode=SIMULATION</span></div>
-      </div>
-    </section>
-  </main>
+      <button id="logout-button" class="logout-button">Cerrar sesión</button>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">CONTROL OPERATIVO</p>
+          <h1 id="view-title">Pedidos</h1>
+        </div>
+        <div class="top-actions">
+          <div class="sync-state"><span>Última sincronización</span><strong id="last-sync">—</strong></div>
+          <button id="refresh-button" class="secondary-button">Actualizar</button>
+        </div>
+      </header>
+
+      <div id="notice" class="notice" role="status" hidden></div>
+      <section id="summary" class="summary-grid" aria-label="Resumen operativo"></section>
+
+      <section class="queue-card">
+        <div class="queue-head">
+          <div><p class="eyebrow">COLA ACTUAL</p><h2 id="queue-title">Pedidos observados</h2></div>
+          <div id="filters" class="filters"></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead id="table-head"></thead>
+            <tbody id="table-body"></tbody>
+          </table>
+          <div id="empty-state" class="empty-state" hidden>
+            <strong>Sin registros para estos filtros</strong>
+            <span>La vista se actualizará automáticamente.</span>
+          </div>
+        </div>
+        <footer class="queue-footer">
+          <span id="result-count">0 registros</span>
+          <div><button id="prev-page" class="page-button" aria-label="Página anterior">←</button><button id="next-page" class="page-button" aria-label="Página siguiente">→</button></div>
+        </footer>
+      </section>
+    </main>
+
+    <div id="drawer-backdrop" class="drawer-backdrop" hidden></div>
+    <aside id="detail-drawer" class="detail-drawer" aria-label="Detalle" aria-hidden="true">
+      <header><div><p class="eyebrow">DETALLE OPERATIVO</p><h2 id="detail-title">Detalle</h2></div><button id="close-drawer" class="icon-button" aria-label="Cerrar detalle">×</button></header>
+      <div id="detail-content" class="detail-content"></div>
+    </aside>
+  </div>
+  <script src="/app.js" defer></script>
 </body>
 </html>

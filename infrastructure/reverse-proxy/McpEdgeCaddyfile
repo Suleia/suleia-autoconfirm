@@ -39,3 +39,17 @@
 
   respond 404
 }
+
+{$OPS_PUBLIC_HOST} {
+  import edge_security_headers
+  header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' https://mcp.suleia.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://mcp.suleia.com"
+
+  @operations_api path /api/* /health
+  handle @operations_api {
+    reverse_proxy api:3200
+  }
+
+  handle {
+    reverse_proxy review-panel:80
+  }
+}

@@ -90,6 +90,7 @@ ensure_secret() {
 }
 
 ensure_env_value MCP_PUBLIC_HOST mcp.suleia.com
+ensure_env_value OPS_PUBLIC_HOST ops.suleia.com
 ensure_env_value MCP_AUTH_MODE oauth
 ensure_env_value MCP_PUBLIC_ENDPOINT_ENABLED true
 ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
@@ -117,12 +118,15 @@ docker compose \
   --file "${COMPOSE_FILE}" \
   up --detach --wait --wait-timeout 180 postgres
 
-"${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-center-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
   up --detach --wait --wait-timeout 300
+
+bash "${INSTALL_ROOT}/infrastructure/vps/provision-operations-keycloak.sh"
 
 docker compose \
   --env-file "${ENV_FILE}" \

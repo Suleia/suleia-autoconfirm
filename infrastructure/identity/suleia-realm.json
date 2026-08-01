@@ -18,6 +18,10 @@
       {
         "name": "mcp_reader",
         "description": "Allows authenticated read-only access to the Suleia MCP"
+      },
+      {
+        "name": "operations_reader",
+        "description": "Allows authenticated read-only access to Suleia Operations Center"
       }
     ]
   },
@@ -44,6 +48,11 @@
     },
     {
       "name": "orders:simulate",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true" }
+    },
+    {
+      "name": "operations:read",
       "protocol": "openid-connect",
       "attributes": { "include.in.token.scope": "true" }
     }
@@ -111,6 +120,52 @@
           "consentRequired": false,
           "config": {
             "included.custom.audience": "https://mcp.suleia.com/mcp",
+            "id.token.claim": "false",
+            "access.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "suleia-operations-center",
+      "name": "Suleia Operations Center",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "consentRequired": false,
+      "redirectUris": ["https://ops.suleia.com/*", "https://ops-staging.localhost/*"],
+      "webOrigins": ["https://ops.suleia.com", "https://ops-staging.localhost"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "https://ops.suleia.com/*##https://ops-staging.localhost/*"
+      },
+      "defaultClientScopes": ["openid", "profile", "roles", "operations:read"],
+      "protocolMappers": [
+        {
+          "name": "operations-realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "claim.name": "realm_access.roles",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "usermodel.realmRoleMapping.rolePrefix": ""
+          }
+        },
+        {
+          "name": "operations-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.client.audience": "suleia-operations-center",
             "id.token.claim": "false",
             "access.token.claim": "true"
           }
