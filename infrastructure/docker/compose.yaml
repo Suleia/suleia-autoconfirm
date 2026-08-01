@@ -295,8 +295,6 @@ services:
       KC_FEATURES: resource-indicators:v1
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "false"
-      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:-admin}
-      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD}
     volumes:
       - ../identity/suleia-realm.json:/opt/keycloak/data/import/suleia-realm.json:ro
     networks:

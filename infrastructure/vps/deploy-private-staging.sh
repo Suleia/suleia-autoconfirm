@@ -98,7 +98,6 @@ ensure_env_value OPS_PUBLIC_HOST ops-staging.localhost
 ensure_env_value MCP_AUTH_MODE oauth
 ensure_env_value MCP_PUBLIC_ENDPOINT_ENABLED true
 ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
-ensure_secret KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
 chmod 0600 "${ENV_FILE}"
 
 docker run --rm \
@@ -130,7 +129,7 @@ docker compose \
   --file "${COMPOSE_FILE}" \
   up --detach --wait --wait-timeout 300
 
-bash "${INSTALL_ROOT}/infrastructure/vps/provision-operations-keycloak.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-keycloak.sh"
 
 docker compose \
   --env-file "${ENV_FILE}" \
