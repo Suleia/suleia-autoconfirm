@@ -94,6 +94,7 @@ ensure_secret() {
 }
 
 ensure_env_value MCP_PUBLIC_HOST mcp.suleia.com
+ensure_env_value OPS_PUBLIC_HOST ops-staging.localhost
 ensure_env_value MCP_AUTH_MODE oauth
 ensure_env_value MCP_PUBLIC_ENDPOINT_ENABLED true
 ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
