@@ -10,6 +10,20 @@ if [[ ! -r "${ENV_FILE}" ]]; then
   exit 1
 fi
 
+ready=false
+for _ in $(seq 1 45); do
+  if docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" exec --no-TTY api \
+    wget -qO- http://keycloak:9000/auth/health/ready >/dev/null 2>&1; then
+    ready=true
+    break
+  fi
+  sleep 2
+done
+if [[ "${ready}" != "true" ]]; then
+  echo "Keycloak did not become ready for Operations Center provisioning." >&2
+  exit 1
+fi
+
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" exec --no-TTY keycloak sh -s <<'SCRIPT'
 set -eu
 KCADM=/opt/keycloak/bin/kcadm.sh
