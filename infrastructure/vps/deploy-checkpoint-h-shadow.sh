@@ -48,7 +48,7 @@ if [[ ! "${latest}" =~ ^/backups/suleia-[0-9TZ]+\.dump$ ]]; then
   exit 1
 fi
 compose --profile maintenance run --rm --no-TTY --entrypoint /bin/sh backup \
-  -c "/opt/suleia/backup/verify_backup.sh '${latest}'" </dev/null >/dev/null
+  -c "/bin/sh /opt/suleia/backup/verify_backup.sh '${latest}'" </dev/null >/dev/null
 bash "${INSTALL_ROOT}/infrastructure/vps/run-restore-drill.sh" "${latest}" >/dev/null
 
 tar --extract --file "${ARCHIVE}" --directory "${INSTALL_ROOT}"
