@@ -8,4 +8,4 @@ export * from './parity-engine.mjs';
 export * from './replay-engine.mjs';
 export * from './readiness-engine.mjs';
 export * from './read-models.mjs';
-
+export * from './dropea-canonical.mjs';
