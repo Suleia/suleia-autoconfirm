@@ -10,6 +10,19 @@ function classify(input) {
   return 'MATCH';
 }
 
+function operationalState(input, comparisonResult) {
+  if (input.blocked) return 'BLOCKED';
+  if (input.pagination_complete === false) return 'PAGINATION_INCOMPLETE';
+  if (input.out_of_order) return 'OUT_OF_ORDER';
+  if (input.missing_event) return 'MISSING_EVENT';
+  if (!['EXACT', 'VERIFIED'].includes(input.identity_confidence)) return 'IDENTITY_MISMATCH';
+  if (input.stale_fields?.length) return 'STALE';
+  if (comparisonResult === 'EXPECTED_DIFFERENCE') return 'EXPECTED_DIFFERENCE';
+  if (comparisonResult === 'UNEXPECTED_DIFFERENCE') return 'UNEXPECTED_DIFFERENCE';
+  if (comparisonResult === 'MATCH') return 'MATCH';
+  return 'BLOCKED';
+}
+
 function makeRecord(input, now) {
   const comparable = {
     canonical_order_id: String(input.canonical_order_id), source_a: input.source_a, source_b: input.source_b,
@@ -19,9 +32,12 @@ function makeRecord(input, now) {
     stale_fields: [...(input.stale_fields || [])].toSorted(), identity_confidence: input.identity_confidence || 'UNKNOWN'
   };
   const recordFingerprint = fingerprint(comparable);
+  const comparisonResult = classify(input);
   return {
     reconciliation_id: stableId('reconciliation', recordFingerprint), ...comparable,
-    comparison_result: classify(input), difference_classification: input.difference_classification || classify(input),
+    comparison_result: comparisonResult,
+    operational_state: operationalState(input, comparisonResult),
+    difference_classification: input.difference_classification || comparisonResult,
     first_seen_at: now, last_seen_at: now, occurrence_count: 1, resolved_at: null, resolution: null,
     fingerprint: recordFingerprint, idempotency_key: input.idempotency_key || recordFingerprint,
     schema_version: C0_SCHEMA_VERSION, ...zeroActionEnvelope()

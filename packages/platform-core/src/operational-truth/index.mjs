@@ -4,6 +4,7 @@ export * from './reality-engine.mjs';
 export * from './data-quality.mjs';
 export * from './connector-health.mjs';
 export * from './reconciliation-ledger.mjs';
+export * from './reconciliation-worker.mjs';
 export * from './parity-engine.mjs';
 export * from './replay-engine.mjs';
 export * from './readiness-engine.mjs';
