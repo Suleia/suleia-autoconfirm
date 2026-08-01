@@ -3,17 +3,39 @@ import { loadShadowConfig } from '../packages/suleia-operations-mcp/src/shadow/c
 import { ShadowRepository } from '../packages/suleia-operations-mcp/src/shadow/repository.mjs';
 import { SupabaseReadSource } from '../packages/suleia-operations-mcp/src/shadow/source.mjs';
 import { syncShadow } from '../packages/suleia-operations-mcp/src/shadow/sync.mjs';
+import { OperationsProjector } from '../packages/suleia-operations-mcp/src/operations/projector.mjs';
+import { createDropeaPublicApiClient } from './integrations/dropea/public-api-client.mjs';
+import { syncDropeaPublicApi } from './integrations/dropea/shadow-sync.mjs';
 
 const config = loadShadowConfig();
 const repository = new ShadowRepository(config.databaseUrl);
 const source = new SupabaseReadSource(config);
-let running = false, lastResult = null, lastError = null;
 const audit = (event) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), run_mode: 'SHADOW_READ_ONLY', ...event, actions_executed: 0, production_writes: 0 })}\n`);
+const dropeaEnabled = String(process.env.DROPEA_PUBLIC_API_ENABLED || 'false').toLowerCase() === 'true';
+const dropeaClient = dropeaEnabled ? createDropeaPublicApiClient({
+  token: process.env.DROPEA_PUBLIC_API_TOKEN,
+  market: process.env.DROPEA_PUBLIC_API_MARKET || 'ES',
+  rateLimitPerMinute: Number(process.env.DROPEA_PUBLIC_API_RATE_LIMIT || 45),
+  audit: (event) => audit({ event: 'dropea_public_api_read', ...event })
+}) : null;
+const operationsProjector = new OperationsProjector(repository.pool);
+let running = false, lastResult = null, lastError = null;
 
 async function run() {
   if (running) return;
   running = true;
-  try { lastResult = await syncShadow({ source, repository, hashKey: config.hashKey, pageSize: config.pageSize, audit }); lastError = null; }
+  try {
+    const legacy = await syncShadow({ source, repository, hashKey: config.hashKey, pageSize: config.pageSize, audit });
+    const dropea = dropeaClient ? await syncDropeaPublicApi({
+      client: dropeaClient,
+      projector: operationsProjector,
+      hmacKey: config.hashKey,
+      maxPages: Number(process.env.DROPEA_PUBLIC_API_MAX_PAGES || 200),
+      maxRecords: Number(process.env.DROPEA_PUBLIC_API_MAX_RECORDS || 20000)
+    }) : { enabled: false, actions_executed: 0, production_writes: 0 };
+    lastResult = { ok: legacy.ok && (dropea.ok ?? true), legacy, dropea, actions_executed: 0, production_writes: 0 };
+    lastError = null;
+  }
   catch (error) { lastError = error.message; audit({ event: 'sync_failed', reason: error.message }); }
   finally { running = false; }
 }

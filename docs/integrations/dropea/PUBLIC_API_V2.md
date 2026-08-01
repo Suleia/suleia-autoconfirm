@@ -39,6 +39,21 @@ event store.
 - Success and pagination envelopes are validated before ingestion.
 - Audit events contain operation IDs and outcomes, never token or response PII.
 
+## Shadow runtime
+
+The ingestion worker can enable the public connector only with
+`DROPEA_PUBLIC_API_ENABLED=true`. Its token is supplied through the protected
+VPS environment as `DROPEA_PUBLIC_API_TOKEN`; it is never copied into source
+control. Startup inspects the JWT claims and fails closed unless they equal the
+six read scopes above.
+
+Each cycle reads the complete bounded order and issue collections. Orders are
+canonicalized and HMAC-linked first. An issue is projected only when its
+`order_id` has an exact order identity in the same complete snapshot. Orphan
+issues are counted as blocked and mark connector data health `DEGRADED`; no
+heuristic identity matching is allowed. All projected records retain
+`actions_executed=0` and `production_writes=0`.
+
 ## Deliberately unavailable operations
 
 All create, update, cancel, confirm, resolve, link, unlink and webhook mutation
