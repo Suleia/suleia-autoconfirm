@@ -37,6 +37,26 @@ set -eu
 KCADM=/opt/keycloak/bin/kcadm.sh
 SERVER=http://127.0.0.1:8080/auth
 KCADM_CONFIG=/tmp/suleia-kcadm.config
+csv_id_by_name() {
+  target="$1"
+  while IFS=, read -r item_id item_name; do
+    if [ "${item_name}" = "${target}" ]; then
+      printf '%s' "${item_id}"
+      return 0
+    fi
+  done
+}
+first_line() {
+  IFS= read -r value || true
+  printf '%s' "${value:-}"
+}
+contains_line() {
+  target="$1"
+  while IFS= read -r value; do
+    [ "${value}" = "${target}" ] && return 0
+  done
+  return 1
+}
 "${KCADM}" config credentials --config "${KCADM_CONFIG}" --server "${SERVER}" --realm master \
   --client suleia-config-service --secret "${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET}" >/dev/null
 
@@ -46,14 +66,14 @@ if ! "${KCADM}" get roles/operations_reader --config "${KCADM_CONFIG}" -r suleia
 fi
 
 scope_id=$("${KCADM}" get client-scopes --config "${KCADM_CONFIG}" -r suleia --fields id,name --format csv --noquotes \
-  | awk -F, '$2=="operations:read" {print $1; exit}')
+  | csv_id_by_name 'operations:read')
 if [ -z "${scope_id}" ]; then
   scope_id=$("${KCADM}" create client-scopes --config "${KCADM_CONFIG}" -r suleia -i -s name=operations:read \
     -s protocol=openid-connect -s 'attributes."include.in.token.scope"=true')
 fi
 
 client_id=$("${KCADM}" get clients --config "${KCADM_CONFIG}" -r suleia -q clientId=suleia-operations-center \
-  --fields id --format csv --noquotes | head -n 1)
+  --fields id --format csv --noquotes | first_line)
 if [ -z "${client_id}" ]; then
   client_id=$("${KCADM}" create clients --config "${KCADM_CONFIG}" -r suleia -i \
     -s clientId=suleia-operations-center -s 'name=Suleia Operations Center' \
@@ -78,7 +98,7 @@ fi
 "${KCADM}" update "clients/${client_id}/default-client-scopes/${scope_id}" --config "${KCADM_CONFIG}" -r suleia -n >/dev/null 2>&1 || true
 
 mapper_id=$("${KCADM}" get "clients/${client_id}/protocol-mappers/models" --config "${KCADM_CONFIG}" -r suleia \
-  --fields id,name --format csv --noquotes | awk -F, '$2=="operations-audience" {print $1; exit}')
+  --fields id,name --format csv --noquotes | csv_id_by_name 'operations-audience')
 if [ -z "${mapper_id}" ]; then
   "${KCADM}" create "clients/${client_id}/protocol-mappers/models" --config "${KCADM_CONFIG}" -r suleia \
     -s name=operations-audience -s protocol=openid-connect \
@@ -90,7 +110,7 @@ fi
 "${KCADM}" get users --config "${KCADM_CONFIG}" -r suleia --fields id --format csv --noquotes | while IFS= read -r user_id; do
   [ -n "${user_id}" ] || continue
   if "${KCADM}" get "users/${user_id}/role-mappings/realm/composite" --config "${KCADM_CONFIG}" -r suleia \
-    --fields name --format csv --noquotes | grep -qx mcp_reader; then
+    --fields name --format csv --noquotes | contains_line mcp_reader; then
     "${KCADM}" add-roles --config "${KCADM_CONFIG}" -r suleia --uid "${user_id}" --rolename operations_reader >/dev/null
   fi
 done

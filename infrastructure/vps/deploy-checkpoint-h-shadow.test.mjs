@@ -23,4 +23,5 @@ test('Operations OAuth provisioning uses and removes a temporary Keycloak servic
   assert.match(wrapper, /cleanup-keycloak-config-service\.sh/);
   assert.match(provisioner, /--client suleia-config-service/);
   assert.doesNotMatch(provisioner, /--user .*admin|KC_BOOTSTRAP_ADMIN_PASSWORD/);
+  assert.doesNotMatch(provisioner, /\|\s*(?:awk|head|grep)\b/);
 });
