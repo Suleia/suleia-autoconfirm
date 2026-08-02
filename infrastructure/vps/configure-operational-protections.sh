@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 INSTALL_ROOT="${SULEIA_INSTALL_ROOT:-/opt/suleia-operations}"
 ENV_FILE="${INSTALL_ROOT}/.env"
-BACKUP_ROOT="${SULEIA_BACKUP_ROOT:-/backups}"
+BACKUP_ROOT="${SULEIA_BACKUP_ROOT:-${INSTALL_ROOT}/private-backups}"
 
 test -r "${ENV_FILE}"
 IFS= read -r protected_phone
@@ -14,6 +14,7 @@ if [[ ! "${protected_phone}" =~ ^\+34[0-9]{9}$ ]]; then
 fi
 
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+install -d -m 700 "${BACKUP_ROOT}"
 backup_file="${BACKUP_ROOT}/suleia-env-before-protections-${stamp}"
 cp "${ENV_FILE}" "${backup_file}"
 chmod 600 "${backup_file}"
