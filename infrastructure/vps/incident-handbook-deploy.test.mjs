@@ -16,6 +16,14 @@ test('transactional VPS deploy runs the incident rollback drill before applying 
   assert.match(deploy, /incident_rollback=verified\|actions=0\|production_writes=0/);
 });
 
+test('legacy Operations Center drill rolls back the restored migration chain without reapplying version 006', () => {
+  const drill = read('infrastructure/vps/run-operations-center-rollback-drill.sh');
+  assert.match(drill, /007_operational_protections\.down\.sql/);
+  assert.match(drill, /006_operations_center_read_models\.down\.sql/);
+  assert.doesNotMatch(drill, /migrations\/006_operations_center_read_models\.sql/);
+  assert.ok(drill.indexOf('PROTECTIONS_DOWN_MIGRATION') < drill.indexOf('OPERATIONS_DOWN_MIGRATION'));
+});
+
 test('incident handbook rollback drill proves all new operational tables are removable', () => {
   const drill = read('infrastructure/vps/run-incident-handbook-rollback-drill.sh');
   assert.match(drill, /created.*5/s);
