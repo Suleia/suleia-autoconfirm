@@ -24,6 +24,17 @@ test('legacy Operations Center drill rolls back the restored migration chain wit
   assert.ok(drill.indexOf('PROTECTIONS_DOWN_MIGRATION') < drill.indexOf('OPERATIONS_DOWN_MIGRATION'));
 });
 
+test('historical migration launchers skip complete state and fail closed on partial state', () => {
+  for (const script of [
+    read('infrastructure/vps/apply-operations-center-migration.sh'),
+    read('infrastructure/vps/apply-operational-protections-migration.sh')
+  ]) {
+    assert.match(script, /if \[\[ "\$\{state\}" = "3" \]\]/);
+    assert.match(script, /if \[\[ "\$\{state\}" != "0" \]\]/);
+    assert.match(script, /partially applied; refusing to guess/);
+  }
+});
+
 test('incident handbook rollback drill proves all new operational tables are removable', () => {
   const drill = read('infrastructure/vps/run-incident-handbook-rollback-drill.sh');
   assert.match(drill, /created.*5/s);

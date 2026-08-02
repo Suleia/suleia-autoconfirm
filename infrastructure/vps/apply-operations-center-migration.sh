@@ -16,6 +16,21 @@ set -a
 source "${ENV_FILE}"
 set +a
 
+state="$(docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" exec --no-TTY postgres \
+  psql --no-psqlrc --tuples-only --no-align --username suleia_admin \
+  --dbname "${POSTGRES_DB:-suleia_staging}" --command \
+  "select (to_regclass('read_models.operations_order_records') is not null)::int +
+          (to_regclass('read_models.operations_incident_detail') is not null)::int +
+          (to_regclass('read_models.operations_connector_health') is not null)::int;")"
+if [[ "${state}" = "3" ]]; then
+  echo "Operations Center read-model migration already present; skipped safely."
+  exit 0
+fi
+if [[ "${state}" != "0" ]]; then
+  echo "Operations Center migration is partially applied; refusing to guess." >&2
+  exit 1
+fi
+
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" exec --no-TTY postgres \
   psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin \
   --dbname "${POSTGRES_DB:-suleia_staging}" < "${MIGRATION_FILE}"
