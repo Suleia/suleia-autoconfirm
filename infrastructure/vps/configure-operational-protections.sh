@@ -7,6 +7,7 @@ BACKUP_ROOT="${SULEIA_BACKUP_ROOT:-/backups}"
 
 test -r "${ENV_FILE}"
 IFS= read -r protected_phone
+protected_phone="${protected_phone%$'\r'}"
 if [[ ! "${protected_phone}" =~ ^\+34[0-9]{9}$ ]]; then
   echo 'PHONE_CONFIGURATION=REJECTED' >&2
   exit 1
