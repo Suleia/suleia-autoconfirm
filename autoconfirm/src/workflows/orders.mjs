@@ -35,7 +35,7 @@ import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clie
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
 import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
-import { evaluateTestPhoneGuard } from '../../../packages/platform-core/src/operational-protections/identity.mjs';
+import { evaluateOperationalTestPhone } from '../lib/operational-test-phone.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
@@ -49,7 +49,7 @@ const DROPEA_UNRESOLVED_STATUSES = new Set(['ERROR', 'REVIEW']);
 const DROPEA_OPERATIONAL_STATUSES = new Set(['CONFIRMED', 'PREPARING', 'PREPARED', 'TRANSIT', 'DELIVERED']);
 
 function operationalTestPhoneGuard(order) {
-  return evaluateTestPhoneGuard(order?.customerPhone, {
+  return evaluateOperationalTestPhone(order?.customerPhone, {
     enabled: config.testPhoneBlockEnabled,
     testPhoneNormalized: config.testPhoneNormalized
   });
