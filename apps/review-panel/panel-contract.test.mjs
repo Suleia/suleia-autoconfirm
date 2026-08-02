@@ -14,5 +14,8 @@ test('Operations Center exposes exactly Pedidos and Incidencias with no write co
   assert.match(script, /openid-connect\/token/);
   assert.doesNotMatch(script, /method\s*:\s*['"](?:PUT|PATCH|DELETE)['"]/i);
   assert.match(html, /Acciones ejecutadas: 0/);
+  assert.match(html, /MODO SIMULACIÓN/);
+  assert.match(html, /NO SE HA ENVIADO NADA/);
+  assert.match(html, /ACCIONES EJECUTADAS: 0/);
   assert.match(script, /refresh_interval_seconds/);
 });

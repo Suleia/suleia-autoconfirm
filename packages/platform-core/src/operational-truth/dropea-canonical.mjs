@@ -230,7 +230,8 @@ export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, observedAt = 
   const type = String(required(issue.type, 'issue.type')).toUpperCase();
   const status = String(required(issue.status, 'issue.status')).toUpperCase();
   const resolutionStatus = issue.resolution_status ? String(issue.resolution_status).toUpperCase() : null;
-  const supported = DROPEA_ISSUE_TYPES.includes(type)
+  const typeSupported = DROPEA_ISSUE_TYPES.includes(type);
+  const supported = typeSupported
     && DROPEA_ISSUE_STATUSES.includes(status)
     && (resolutionStatus === null || DROPEA_RESOLUTION_STATUSES.includes(resolutionStatus));
   const actionable = supported && status === 'PENDING' && issue.is_active === true;
@@ -241,7 +242,11 @@ export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, observedAt = 
     dropea_order_id: issue.order_id === undefined || issue.order_id === null ? null : String(issue.order_id),
     tracking_reference_masked: issue.tracking_number ? hashTechnical(issue.tracking_number, hmacKey) : null,
     carrier: String(required(issue.carrier, 'issue.carrier')).toUpperCase(),
-    type,
+    type: typeSupported ? type : 'UNKNOWN',
+    raw_type: type,
+    mapping_status: typeSupported ? 'MAPPED' : 'UNMAPPED',
+    human_review: !supported,
+    schema_drift_alert: !typeSupported,
     status,
     is_active: issue.is_active === true,
     actionable,

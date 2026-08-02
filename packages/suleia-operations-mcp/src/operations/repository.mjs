@@ -103,7 +103,7 @@ export class OperationsRepository {
 
   async incidentDetail(id) {
     const [detail, timeline] = await Promise.all([
-      this.pool.query('SELECT * FROM read_models.operations_incident_detail WHERE canonical_issue_id=$1', [id]),
+      this.pool.query('SELECT * FROM read_models.operations_incident_handbook_detail WHERE canonical_issue_id=$1', [id]),
       this.pool.query('SELECT * FROM read_models.operations_timeline_records WHERE canonical_issue_id=$1 ORDER BY occurred_at DESC LIMIT 200', [id])
     ]);
     return detail.rows[0] ? { incident: detail.rows[0], timeline: timeline.rows } : null;

@@ -170,7 +170,10 @@ export function createMcpServer({ service, audit, authContext, config }) {
     description: safeDescription('Returns active simulation timers from private staging.'),
     inputSchema: {
       order_id: orderId.optional(),
-      timer_type: z.enum(['confirmation_wait', 'incident_wait', 'review_wait']).optional()
+      timer_type: z.enum(['confirmation_wait', 'incident_wait', 'review_wait',
+        'CUSTOMER_INITIAL_RESPONSE_48H','CUSTOMER_DISCOUNT_RESPONSE_48H','DROPEA_CONFIRMATION_WAIT',
+        'COD_CHANGE_WAIT','RETURN_COMPLETION_WAIT','OPERATION_VERIFICATION','RECONCILIATION',
+        'GLS_RETENTION_DEADLINE']).optional()
     },
     scopes: [SCOPES.ORDERS_READ],
     handler: ({ order_id = null, timer_type = null }) => service.getActiveTimers({

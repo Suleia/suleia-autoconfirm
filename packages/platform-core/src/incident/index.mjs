@@ -3,3 +3,5 @@ export * from './gls-calendar.mjs';
 export * from './incident-timers.mjs';
 export * from './discount-workflow.mjs';
 export * from './incident-processor.mjs';
+export * from './conversation-intelligence.mjs';
+export * from './simulation-record.mjs';

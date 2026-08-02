@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   APPROVED_READ_SCOPES,
   assertExactReadOnlyScopes,
+  contractOperationMatrix,
   contractInventory,
   loadDropeaContract,
   marketHost
@@ -36,6 +37,15 @@ test('pinned OpenAPI checksum, version and all 25 operations are stable', () => 
   assert.equal(inventory.length, 25);
   assert.equal(inventory.filter((item) => item.method === 'GET').length, 15);
   assert.equal(inventory.filter((item) => item.method !== 'GET').length, 10);
+});
+
+test('operation matrix documents every capability while implementing GET only', () => {
+  const matrix = contractOperationMatrix();
+  assert.equal(matrix.length, 25);
+  assert.equal(matrix.filter((operation) => operation.implemented).length, 15);
+  assert.equal(matrix.filter((operation) => operation.method !== 'GET' && operation.implemented).length, 0);
+  assert.equal(matrix.filter((operation) => operation.method !== 'GET').every((operation) => operation.suleia_mode === 'DOCUMENTED_NOT_IMPLEMENTED'), true);
+  assert.equal(matrix.every((operation) => operation.verified_live === false), true);
 });
 
 test('read token must contain exactly the six approved scopes', () => {

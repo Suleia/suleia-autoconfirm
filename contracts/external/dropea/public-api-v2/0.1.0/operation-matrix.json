@@ -1,0 +1,634 @@
+{
+  "contract_version": "0.1.0",
+  "openapi_version": "3.0.3",
+  "sha256": "80e6419cec28ecef6a0cfabc9733e549a152760ababbdb587a0c664873866315",
+  "generated_from_contract": true,
+  "verified_live": false,
+  "operations": [
+    {
+      "operation_id": "dropshipperListCarriers",
+      "method": "GET",
+      "path": "/dropshipper/catalogs/carriers",
+      "scope": [],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_catalog_cache",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListOrderStatuses",
+      "method": "GET",
+      "path": "/dropshipper/catalogs/order-statuses",
+      "scope": [],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_catalog_cache",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListIssues",
+      "method": "GET",
+      "path": "/dropshipper/issues",
+      "scope": [
+        "dp:issues:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": true,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "canonical_incidents",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperGetIssueById",
+      "method": "GET",
+      "path": "/dropshipper/issues/{id}",
+      "scope": [
+        "dp:issues:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "canonical_incidents",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperResolveIssue",
+      "method": "POST",
+      "path": "/dropshipper/issues/{id}/resolve",
+      "scope": [
+        "dp:issues:resolve"
+      ],
+      "request_schema": "#/components/schemas/ResolveIssueInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "canonical_incidents",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperGetMe",
+      "method": "GET",
+      "path": "/dropshipper/me",
+      "scope": [
+        "dp:users:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_identity",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperGetOperationById",
+      "method": "GET",
+      "path": "/dropshipper/operations/{operation_id}",
+      "scope": [],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": true,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_operations",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListOrders",
+      "method": "GET",
+      "path": "/dropshipper/orders",
+      "scope": [
+        "dp:orders:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": true,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "canonical_orders",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperCreateOrder",
+      "method": "POST",
+      "path": "/dropshipper/orders",
+      "scope": [
+        "dp:orders:create"
+      ],
+      "request_schema": "#/components/schemas/CreateOrderInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "409",
+        "422",
+        "429",
+        "500",
+        "504"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "canonical_orders",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperGetOrderById",
+      "method": "GET",
+      "path": "/dropshipper/orders/{id}",
+      "scope": [
+        "dp:orders:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "canonical_orders",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperUpdateOrder",
+      "method": "PATCH",
+      "path": "/dropshipper/orders/{id}",
+      "scope": [
+        "dp:orders:update"
+      ],
+      "request_schema": "#/components/schemas/UpdateOrderInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "429",
+        "500",
+        "504"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "canonical_orders",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperCancelOrder",
+      "method": "POST",
+      "path": "/dropshipper/orders/{id}/cancel",
+      "scope": [
+        "dp:orders:cancel"
+      ],
+      "request_schema": "#/components/schemas/CancelOrderInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "429",
+        "500",
+        "504"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "canonical_orders",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperConfirmOrder",
+      "method": "POST",
+      "path": "/dropshipper/orders/{id}/confirm",
+      "scope": [
+        "dp:orders:confirm"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "429",
+        "500",
+        "504"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "canonical_orders",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListProducts",
+      "method": "GET",
+      "path": "/dropshipper/products",
+      "scope": [
+        "dp:products:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": true,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_products",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperGetProductById",
+      "method": "GET",
+      "path": "/dropshipper/products/{id}",
+      "scope": [
+        "dp:products:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_products",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListShops",
+      "method": "GET",
+      "path": "/dropshipper/shops",
+      "scope": [
+        "dp:stores:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": true,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_shops",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperGetShopById",
+      "method": "GET",
+      "path": "/dropshipper/shops/{id}",
+      "scope": [
+        "dp:stores:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_shops",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListShopOrders",
+      "method": "GET",
+      "path": "/dropshipper/shops/{id}/orders",
+      "scope": [
+        "dp:orders:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": true,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "canonical_orders",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListShopProducts",
+      "method": "GET",
+      "path": "/dropshipper/shops/{id}/products",
+      "scope": [
+        "dp:products:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": true,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_products",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperCreateShopProduct",
+      "method": "POST",
+      "path": "/dropshipper/shops/{id}/products",
+      "scope": [
+        "dp:stores:link"
+      ],
+      "request_schema": "#/components/schemas/ShopProductCreateInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "422",
+        "429",
+        "500",
+        "504"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "integration_dropea_products",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperLinkShopProduct",
+      "method": "POST",
+      "path": "/dropshipper/shops/{id}/products/link",
+      "scope": [
+        "dp:stores:link"
+      ],
+      "request_schema": "#/components/schemas/ShopProductLinkInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "409",
+        "422",
+        "429",
+        "500",
+        "504"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "integration_dropea_products",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperUnlinkShopProduct",
+      "method": "POST",
+      "path": "/dropshipper/shops/{id}/products/unlink",
+      "scope": [
+        "dp:stores:unlink"
+      ],
+      "request_schema": "#/components/schemas/ShopProductUnlinkInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "422",
+        "429",
+        "500",
+        "504"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "integration_dropea_products",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperListWebhooks",
+      "method": "GET",
+      "path": "/dropshipper/webhooks",
+      "scope": [
+        "dp:webhooks:read"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "401",
+        "403",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "SHADOW_READ_ONLY",
+      "canonical_target": "integration_dropea_webhook_catalog",
+      "implemented": true,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperCreateWebhook",
+      "method": "POST",
+      "path": "/dropshipper/webhooks",
+      "scope": [
+        "dp:webhooks:write"
+      ],
+      "request_schema": "#/components/schemas/CreateWebhookInput",
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "409",
+        "422",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "integration_dropea_webhook_catalog",
+      "implemented": false,
+      "verified_live": false
+    },
+    {
+      "operation_id": "dropshipperDeleteWebhook",
+      "method": "DELETE",
+      "path": "/dropshipper/webhooks/{id}",
+      "scope": [
+        "dp:webhooks:write"
+      ],
+      "request_schema": null,
+      "response_schema": null,
+      "pagination": false,
+      "idempotency": false,
+      "async_behavior": false,
+      "errors": [
+        "400",
+        "401",
+        "403",
+        "404",
+        "429",
+        "500"
+      ],
+      "suleia_mode": "DOCUMENTED_NOT_IMPLEMENTED",
+      "canonical_target": "integration_dropea_webhook_catalog",
+      "implemented": false,
+      "verified_live": false
+    }
+  ]
+}

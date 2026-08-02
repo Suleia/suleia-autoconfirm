@@ -121,7 +121,11 @@ test('only active pending issues enter the actionable queue', () => {
 
 test('unknown issue enums are retained but blocked', () => {
   const result = mapDropeaIssue(issue({ type: 'FUTURE_ISSUE' }), { hmacKey: HMAC_KEY, canonicalOrderId: 'order-fixture', observedAt: AT });
-  assert.equal(result.type, 'FUTURE_ISSUE');
+  assert.equal(result.type, 'UNKNOWN');
+  assert.equal(result.raw_type, 'FUTURE_ISSUE');
+  assert.equal(result.mapping_status, 'UNMAPPED');
+  assert.equal(result.human_review, true);
+  assert.equal(result.schema_drift_alert, true);
   assert.equal(result.qa_result, 'BLOCKED');
   assert.equal(result.confidence, 0);
   assert.equal(result.actionable, false);

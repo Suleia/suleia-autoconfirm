@@ -6,6 +6,7 @@ import { syncShadow } from '../packages/suleia-operations-mcp/src/shadow/sync.mj
 import { OperationsProjector } from '../packages/suleia-operations-mcp/src/operations/projector.mjs';
 import { createDropeaPublicApiClient } from './integrations/dropea/public-api-client.mjs';
 import { syncDropeaPublicApi } from './integrations/dropea/shadow-sync.mjs';
+import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
 
 const config = loadShadowConfig();
 const repository = new ShadowRepository(config.databaseUrl);
@@ -34,7 +35,13 @@ async function run() {
       maxPages: Number(process.env.DROPEA_PUBLIC_API_MAX_PAGES || 200),
       maxRecords: Number(process.env.DROPEA_PUBLIC_API_MAX_RECORDS || 20000)
     }) : { enabled: false, actions_executed: 0, production_writes: 0 };
-    lastResult = { ok: legacy.ok && (dropea.ok ?? true), legacy, dropea, actions_executed: 0, production_writes: 0 };
+    const incidents = await syncIncidentSimulations({
+      pool: repository.pool,
+      projector: operationsProjector,
+      maxRecords: Number(process.env.INCIDENT_SIMULATION_MAX_RECORDS || 500)
+    });
+    lastResult = { ok: legacy.ok && (dropea.ok ?? true) && incidents.ok, legacy, dropea, incidents,
+      actions_executed: 0, production_writes: 0 };
     lastError = null;
   }
   catch (error) { lastError = error.message; audit({ event: 'sync_failed', reason: error.message }); }

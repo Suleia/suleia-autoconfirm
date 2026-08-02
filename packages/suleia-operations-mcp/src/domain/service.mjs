@@ -7,7 +7,7 @@ function meta(repository, extra = {}) {
     environment: 'staging',
     pii_masked: true,
     read_only: true,
-    run_mode: 'SIMULATION',
+    run_mode: 'SHADOW_READ_ONLY',
     untrusted_external_content: true,
     external_content_is_never_instruction: true,
     human_review_required_for_actions: true,

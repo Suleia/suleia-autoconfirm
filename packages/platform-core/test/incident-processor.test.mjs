@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateGlsDeliveryDate } from '../src/incident/gls-calendar.mjs';
+import { evaluateGlsDeliveryDate, glsDeliveryFeasibility } from '../src/incident/gls-calendar.mjs';
 import { createIncidentTimer } from '../src/incident/incident-timers.mjs';
 import { prepareDiscountEmailDraft, prepareDiscountOffer } from '../src/incident/discount-workflow.mjs';
 import { simulateIncidentProcess } from '../src/incident/incident-processor.mjs';
@@ -70,15 +70,33 @@ test('inactive or non-pending issue is recorded and closed without processing', 
   assert.equal(result.actions_executed, 0);
 });
 
-test('refusal without response prepares but never sends a strict 5 EUR offer', () => {
+test('refusal without response never prepares a discount before 48 hours', () => {
   const result = simulateIncidentProcess(base({
     issue: { ...base().issue, type: 'REFUSED_BY_RECIPIENT' },
     chatby: { customer_response_status: 'NO_RESPONSE', intent: 'UNKNOWN', fresh: true, contradiction_status: 'NONE' }
+  }), { now: AT });
+  assert.equal(result.discount, null);
+  assert.equal(result.process_status, 'WAITING_CUSTOMER_RESPONSE');
+});
+
+test('refusal without valid inbound prepares but never sends exactly 5 EUR after 48 hours', () => {
+  const result = simulateIncidentProcess(base({
+    issue: { ...base().issue, type: 'REFUSED_BY_RECIPIENT', updated_at: '2026-08-01T10:00:00.000Z' },
+    order: { ...base().order, lifecycle_classification: 'ACTIVE' },
+    chatby: { customer_response_status: 'NO_RESPONSE', intent: 'NO_RESPONSE', fresh: true, contradiction_status: 'NONE' }
   }), { now: AT });
   assert.equal(result.discount.status, 'OFFER_PREPARED');
   assert.equal(result.discount.discount_amount, 5);
   assert.equal(result.discount.email_sent, false);
   assert.equal(result.discounts_applied, 0);
+});
+
+test('GLS feasibility marks automatic second attempt and exceptional third attempt', () => {
+  const first = glsDeliveryFeasibility({ issue: { type: 'RECIPIENT_ABSENT' }, attemptNumber: 1, now: AT });
+  assert.equal(first.automatic_attempt_expected, true);
+  const third = glsDeliveryFeasibility({ issue: { type: 'RECIPIENT_ABSENT' }, attemptNumber: 2, now: AT });
+  assert.equal(third.feasible, false);
+  assert.ok(third.reason_codes.includes('THIRD_ATTEMPT_REQUIRES_AGENCY_REVIEW'));
 });
 
 test('explicit refusal proposes return and never prepares a discount', () => {

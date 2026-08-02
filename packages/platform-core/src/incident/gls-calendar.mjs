@@ -79,3 +79,37 @@ export function evaluateGlsDeliveryDate({
     policy_version: GLS_POLICY_VERSION
   });
 }
+
+export function glsDeliveryFeasibility({
+  issue,
+  requestedDate = null,
+  requestedTimeWindow = null,
+  attemptNumber = 'UNKNOWN',
+  agencyDistanceKm = null,
+  now = new Date(),
+  holidays = []
+} = {}) {
+  const calendar = evaluateGlsDeliveryDate({ now, requestedDate, holidays });
+  const reasons = [...calendar.reason];
+  const attempt = Number(attemptNumber);
+  const automaticAttemptExpected = issue?.type === 'RECIPIENT_ABSENT' && attempt === 1;
+  const exceptionalThirdAttempt = Number.isFinite(attempt) && attempt >= 2;
+  const distanceKnown = agencyDistanceKm !== null && agencyDistanceKm !== undefined && Number.isFinite(Number(agencyDistanceKm));
+  const specificTimeAllowed = distanceKnown ? Number(agencyDistanceKm) <= 15 : false;
+  if (!distanceKnown && requestedTimeWindow) reasons.push('AGENCY_DISTANCE_UNKNOWN_NO_SPECIFIC_TIME');
+  if (distanceKnown && Number(agencyDistanceKm) > 15 && requestedTimeWindow) reasons.push('AGENCY_DISTANCE_OVER_15KM_NO_SPECIFIC_TIME');
+  if (exceptionalThirdAttempt) reasons.push('THIRD_ATTEMPT_REQUIRES_AGENCY_REVIEW');
+  if (requestedTimeWindow) reasons.push('TIME_WINDOW_IS_PREFERENCE_NOT_GUARANTEE');
+  return Object.freeze({
+    feasible: calendar.feasible && !exceptionalThirdAttempt,
+    earliest_operational_date: calendar.earliest_operational_date,
+    business_day: calendar.business_day,
+    cutoff_passed: calendar.after_cutoff,
+    automatic_attempt_expected: automaticAttemptExpected,
+    specific_time_allowed: specificTimeAllowed,
+    requires_special_handling: exceptionalThirdAttempt || Boolean(requestedDate && automaticAttemptExpected),
+    reason_codes: [...new Set(reasons)],
+    guarantee: false,
+    policy_version: GLS_POLICY_VERSION
+  });
+}

@@ -21,6 +21,21 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     source: 'postgres_shadow_readonly',
 
     async getOrder(orderId) {
+      const operational = await query(`SELECT canonical_order_id AS order_id,dropea_order_id,
+          status,sub_status,canonical_state,lifecycle_classification,product_summary,total_amount,
+          currency,carrier,service_type,tracking_reference_masked,identity_status,decision_status,
+          risk,priority,freshness,updated_at,actions_executed,production_writes,run_mode
+        FROM read_models.operations_order_records
+        WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1`, [orderId]);
+      if (operational[0]) {
+        const incidents = await query(`SELECT canonical_issue_id,dropea_issue_id,type,raw_type,
+            mapping_status,status,is_active,carrier,delivery_attempt_number,customer_response_status,
+            customer_intent,proposed_resolution,allowed_resolution_options,risk,qa_result,
+            blocking_reasons,due_at,discount_status,freshness,updated_at,actions_executed,production_writes
+          FROM read_models.operations_incident_records
+          WHERE canonical_order_id=$1 ORDER BY updated_at DESC`, [operational[0].order_id]);
+        return { ...operational[0], incidents };
+      }
       const rows = await query(`SELECT id::text AS internal_order_id,
           COALESCE(external_order_id, id::text) AS order_id,
           source_status AS status, canonical_status, currency, total_amount,
@@ -33,6 +48,14 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     },
 
     async getOrderTimeline(orderId, limit = 100) {
+      const operational = await query(`SELECT canonical_order_id FROM read_models.operations_order_records
+        WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1`, [orderId]);
+      if (operational[0]) {
+        return query(`SELECT timeline_id AS event_id,event_type,occurred_at,source,
+            summary_masked,freshness,'SHADOW_READ_ONLY' AS run_mode
+          FROM read_models.operations_timeline_records WHERE canonical_order_id=$1
+          ORDER BY occurred_at ASC LIMIT $2`, [operational[0].canonical_order_id, clamp(limit)]);
+      }
       return query(`SELECT t.event_id, lower(t.event_type) AS event_type,
           t.occurred_at, t.received_at, t.source,
           t.payload_masked AS summary_masked, t.trust_level,
@@ -61,6 +84,17 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     },
 
     async getActiveTimers({ orderId = null, timerType = null } = {}) {
+      const incidentValues = [];
+      const incidentWhere = ["status='ACTIVE'"];
+      if (orderId) { incidentValues.push(orderId); incidentWhere.push(`canonical_order_id=$${incidentValues.length}`); }
+      if (timerType) { incidentValues.push(timerType); incidentWhere.push(`timer_type=$${incidentValues.length}`); }
+      incidentValues.push(100);
+      const incidentTimers = await query(`SELECT timer_id,canonical_order_id AS order_id,
+          canonical_issue_id AS incident_id,timer_type,status,started_at,due_at,policy_version,created_at,
+          actions_executed,production_writes
+        FROM operations.incident_timers WHERE ${incidentWhere.join(' AND ')}
+        ORDER BY due_at ASC LIMIT $${incidentValues.length}`, incidentValues);
+      if (incidentTimers.length || String(timerType || '').toUpperCase().includes('_')) return incidentTimers;
       const values = [];
       const where = ["t.status='ACTIVE'"];
       if (orderId) {
@@ -84,6 +118,15 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     },
 
     async getAgentDecisions(orderId, limit = 100) {
+      const incidentDecisions = await query(`SELECT simulation_id AS decision_id,
+          canonical_order_id AS order_id,'INCIDENT' AS workflow,simulated_decision AS route,
+          simulated_action AS decision,confidence,interpretation_summary AS reason_summary,
+          risk AS risk_level,qa_status, human_review AS requires_human_review,
+          actions_executed,'SHADOW_READ_ONLY' AS run_mode,ARRAY[policy_version] AS policy_versions,
+          created_at AS decided_at,blocking_reasons,gls_feasibility,allowed_resolution_options
+        FROM operations.incident_simulation_decisions
+        WHERE canonical_order_id=$1 ORDER BY created_at DESC LIMIT $2`, [orderId, clamp(limit)]);
+      if (incidentDecisions.length) return incidentDecisions;
       return query(`SELECT d.decision_id,
           COALESCE(o.external_order_id, o.id::text) AS order_id,
           d.workflow, d.route, d.proposed_action AS decision,
@@ -99,6 +142,20 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     },
 
     async listOrdersRequiringReview({ limit = 100, reason = null } = {}) {
+      const operationalValues = [];
+      const operationalWhere = ['(protection_review=true OR risk IN (\'HIGH\',\'CRITICAL\') OR decision_status=\'HUMAN_REVIEW\')'];
+      if (reason) { operationalValues.push(reason); operationalWhere.push(`$${operationalValues.length}=ANY(ARRAY[duplicate_status,return_block_status,chatby_cleanup_status])`); }
+      operationalValues.push(clamp(limit));
+      const operational = await query(`SELECT canonical_order_id AS order_id,
+          'OPERATIONS' AS workflow,CASE WHEN test_order THEN 'TEST_ORDER'
+          WHEN duplicate_status='DUPLICATE_ACTIVE_ORDER' THEN duplicate_status
+          ELSE 'INCIDENT_OR_PROTECTION_REVIEW' END AS review_reason,
+          decision_status AS proposed_action,NULL::numeric AS confidence,
+          'MASKED_OPERATIONAL_REVIEW' AS reason_summary,risk AS risk_level,updated_at AS created_at,
+          priority,'PENDING' AS review_status
+        FROM read_models.operations_order_records WHERE ${operationalWhere.join(' AND ')}
+        ORDER BY updated_at ASC LIMIT $${operationalValues.length}`, operationalValues);
+      if (operational.length) return operational;
       const values = [];
       const where = [];
       if (reason) {

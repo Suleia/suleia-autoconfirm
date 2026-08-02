@@ -70,7 +70,7 @@ test('all tools run against one masked order and never execute actions', async (
     const result = await client.callTool({ name, arguments: args });
     assert.equal(result.isError, undefined);
     assert.equal(result.structuredContent.result.meta.actions_executed, 0);
-    assert.equal(result.structuredContent.result.meta.run_mode, 'SIMULATION');
+    assert.equal(result.structuredContent.result.meta.run_mode, 'SHADOW_READ_ONLY');
     assert.equal(result.structuredContent.result.meta.pii_masked, true);
     assert.equal(containsObviousPii(result.structuredContent), false);
   }

@@ -15,7 +15,7 @@ if [[ ! -f "${ENV_FILE}" ]]; then
   {
     cat <<'EOF'
 APP_ENV=staging
-RUN_MODE=SIMULATION
+RUN_MODE=SHADOW_READ_ONLY
 SIMULATION_ONLY=true
 PRODUCTION_WRITES_ENABLED=false
 ACTION_EXECUTOR_ENABLED=false
@@ -52,6 +52,23 @@ MCP_TOOL_TIMEOUT_MS=10000
 MCP_MAX_RESPONSE_BYTES=51200
 MCP_AUDIT_MODE=stderr
 READ_ONLY=true
+REAL_DATA_READ_ENABLED=true
+DROPEA_READ_ENABLED=true
+DROPEA_WRITE_ENABLED=false
+DROPEA_MUTATION_CLIENT_ENABLED=false
+CHATBY_READ_ENABLED=true
+CHATBY_WRITE_ENABLED=false
+GLS_WRITE_ENABLED=false
+INCIDENT_INTERPRETATION_ENABLED=true
+INCIDENT_DECISION_ENABLED=true
+INCIDENT_SIMULATION_ENABLED=true
+ISSUE_RESOLUTION_ENABLED=false
+RETURN_EXECUTION_ENABLED=false
+ADDRESS_UPDATE_ENABLED=false
+TEMPLATE_SENDING_ENABLED=false
+DISCOUNT_SENDING_ENABLED=false
+EMAIL_SENDING_ENABLED=false
+EXTERNAL_AI_CALLS_ENABLED=false
 SHOPIFY_ACCESS_TOKEN=
 DROPEA_ACCESS_TOKEN=
 DROPEA_PUBLIC_API_ENABLED=false
@@ -97,6 +114,25 @@ ensure_env_value MCP_PUBLIC_HOST mcp.suleia.com
 ensure_env_value OPS_PUBLIC_HOST ops-staging.localhost
 ensure_env_value MCP_AUTH_MODE oauth
 ensure_env_value MCP_PUBLIC_ENDPOINT_ENABLED true
+ensure_env_value RUN_MODE SHADOW_READ_ONLY
+ensure_env_value SIMULATION_ONLY true
+ensure_env_value REAL_DATA_READ_ENABLED true
+ensure_env_value DROPEA_READ_ENABLED true
+ensure_env_value DROPEA_WRITE_ENABLED false
+ensure_env_value DROPEA_MUTATION_CLIENT_ENABLED false
+ensure_env_value CHATBY_READ_ENABLED true
+ensure_env_value CHATBY_WRITE_ENABLED false
+ensure_env_value GLS_WRITE_ENABLED false
+ensure_env_value INCIDENT_INTERPRETATION_ENABLED true
+ensure_env_value INCIDENT_DECISION_ENABLED true
+ensure_env_value INCIDENT_SIMULATION_ENABLED true
+ensure_env_value ISSUE_RESOLUTION_ENABLED false
+ensure_env_value RETURN_EXECUTION_ENABLED false
+ensure_env_value ADDRESS_UPDATE_ENABLED false
+ensure_env_value TEMPLATE_SENDING_ENABLED false
+ensure_env_value DISCOUNT_SENDING_ENABLED false
+ensure_env_value EMAIL_SENDING_ENABLED false
+ensure_env_value EXTERNAL_AI_CALLS_ENABLED false
 ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
 chmod 0600 "${ENV_FILE}"
 
@@ -123,6 +159,7 @@ docker compose \
 
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-center-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-protections-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-handbook-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 docker compose \

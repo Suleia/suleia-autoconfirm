@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-export const CONTRACT_ROOT = path.resolve(HERE, '../../../contracts/external/dropea/public-api/0.1.0');
+export const CONTRACT_ROOT = path.resolve(HERE, '../../../contracts/external/dropea/public-api-v2/0.1.0');
 export const CONTRACT_PATH = path.join(CONTRACT_ROOT, 'openapi.json');
 export const MANIFEST_PATH = path.join(CONTRACT_ROOT, 'manifest.json');
 
@@ -142,4 +142,51 @@ export function contractInventory(document = loadDropeaContract().document) {
     }
   }
   return inventory;
+}
+
+function schemaReference(value) {
+  if (!value || typeof value !== 'object') return null;
+  if (value.$ref) return value.$ref;
+  if (value.schema?.$ref) return value.schema.$ref;
+  return value.schema?.type || value.type || null;
+}
+
+function canonicalTarget(route) {
+  if (route.includes('/issues')) return 'canonical_incidents';
+  if (route.includes('/orders')) return 'canonical_orders';
+  if (route.includes('/operations')) return 'integration_dropea_operations';
+  if (route.includes('/webhooks')) return 'integration_dropea_webhook_catalog';
+  if (route.includes('/catalogs')) return 'integration_dropea_catalog_cache';
+  if (route.includes('/products')) return 'integration_dropea_products';
+  if (route.includes('/shops')) return 'integration_dropea_shops';
+  if (route.endsWith('/me')) return 'integration_dropea_identity';
+  return 'documented_external_capability';
+}
+
+export function contractOperationMatrix(document = loadDropeaContract().document) {
+  const implementedReadIds = new Set(Object.values(READ_OPERATIONS).map((item) => item.operationId));
+  return contractInventory(document).map((item) => {
+    const operation = document.paths[item.path]?.[item.method.toLowerCase()] || {};
+    const parameters = operation.parameters || [];
+    const success = Object.entries(operation.responses || {}).find(([status]) => /^2\d\d$/.test(status))?.[1];
+    const requestBody = operation.requestBody?.content?.['application/json'];
+    const responseBody = success?.content?.['application/json'];
+    const errorCodes = Object.keys(operation.responses || {}).filter((status) => !/^2\d\d$/.test(status));
+    return Object.freeze({
+      operation_id: item.operation_id,
+      method: item.method,
+      path: item.path,
+      scope: item.permissions,
+      request_schema: schemaReference(requestBody),
+      response_schema: schemaReference(responseBody),
+      pagination: parameters.some((parameter) => ['page', 'limit'].includes(parameter.name)),
+      idempotency: parameters.some((parameter) => /idempot/i.test(parameter.name)),
+      async_behavior: item.path.includes('/operations') || Boolean(operation.responses?.['202']),
+      errors: errorCodes,
+      suleia_mode: item.method === 'GET' ? 'SHADOW_READ_ONLY' : 'DOCUMENTED_NOT_IMPLEMENTED',
+      canonical_target: canonicalTarget(item.path),
+      implemented: item.method === 'GET' && implementedReadIds.has(item.operation_id),
+      verified_live: false
+    });
+  });
 }
