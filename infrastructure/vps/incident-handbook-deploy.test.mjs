@@ -10,6 +10,12 @@ test('incident handbook migration is applied after existing operational read mod
   assert.match(deploy, /apply-incident-handbook-migration\.sh/);
 });
 
+test('transactional VPS deploy runs the incident rollback drill before applying migrations', () => {
+  const deploy = read('infrastructure/vps/deploy-checkpoint-h-shadow.sh');
+  assert.ok(deploy.indexOf('run-incident-handbook-rollback-drill.sh') < deploy.indexOf('deploy-private-staging.sh'));
+  assert.match(deploy, /incident_rollback=verified\|actions=0\|production_writes=0/);
+});
+
 test('incident handbook rollback drill proves all new operational tables are removable', () => {
   const drill = read('infrastructure/vps/run-incident-handbook-rollback-drill.sh');
   assert.match(drill, /created.*5/s);
