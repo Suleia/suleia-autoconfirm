@@ -25,3 +25,18 @@ test('Operations OAuth provisioning uses and removes a temporary Keycloak servic
   assert.doesNotMatch(provisioner, /--user .*admin|KC_BOOTSTRAP_ADMIN_PASSWORD/);
   assert.doesNotMatch(provisioner, /\|\s*(?:awk|head|grep)\b/);
 });
+
+test('private staging applies operational protections only after Operations Center base migration', () => {
+  const script = fs.readFileSync(new URL('./deploy-private-staging.sh', import.meta.url), 'utf8');
+  const base = script.indexOf('apply-operations-center-migration.sh');
+  const protections = script.indexOf('apply-operational-protections-migration.sh');
+  assert.ok(base >= 0 && protections > base);
+});
+
+test('operational protections rollback drill preserves the base read model', () => {
+  const script = fs.readFileSync(new URL('./run-operational-protections-rollback-drill.sh', import.meta.url), 'utf8');
+  assert.match(script, /007_operational_protections\.sql/);
+  assert.match(script, /007_operational_protections\.down\.sql/);
+  assert.match(script, /base_preserved=1/);
+  assert.doesNotMatch(script, /DROP SCHEMA|DROP DATABASE/);
+});

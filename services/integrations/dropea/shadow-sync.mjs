@@ -13,6 +13,7 @@ export async function syncDropeaPublicApi({
   client,
   projector,
   hmacKey,
+  testPhoneNormalized = null,
   now = () => new Date(),
   maxPages = 200,
   maxRecords = 20_000
@@ -24,7 +25,7 @@ export async function syncDropeaPublicApi({
       client.listAll('listIssues', {}, { maxPages, maxRecords })
     ]);
     const observedAt = now().toISOString();
-    const orders = orderPage.items.map((order) => mapDropeaOrder(order, { hmacKey, observedAt }));
+    const orders = orderPage.items.map((order) => mapDropeaOrder(order, { hmacKey, observedAt, testPhoneNormalized }));
     const orderIdentity = new Map(orders.map((order) => [order.dropea_order_id, order.canonical_order_id]));
     const orphanIssues = issuePage.items.filter((issue) => !orderIdentity.has(String(issue.order_id)));
     const issues = issuePage.items

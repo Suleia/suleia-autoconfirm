@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { C0_SCHEMA_VERSION, stableId, zeroActionEnvelope } from './contracts.mjs';
 import { validateCanonicalIdentity } from './identity-engine.mjs';
+import { canonicalProductKey, classifyOrderLifecycle, evaluateTestPhoneGuard, normalizeSpanishPhone } from '../operational-protections/index.mjs';
 
 export const DROPEA_SOURCE_VERSION = '0.1.0';
 export const DROPEA_ORDER_MAPPER_VERSION = '1.0.0';
@@ -138,7 +139,8 @@ export function mapDropeaOrder(order, {
   hmacKey,
   observedAt = new Date().toISOString(),
   dataFreshness = 'FRESH',
-  additionalIdentityLinks = []
+  additionalIdentityLinks = [],
+  testPhoneNormalized = null
 } = {}) {
   required(order?.id, 'order.id');
   required(order?.status, 'order.status');
@@ -146,6 +148,16 @@ export function mapDropeaOrder(order, {
   const identity = buildDropeaCanonicalIdentity({ order, hmacKey, additionalLinks: additionalIdentityLinks });
   const state = mapDropeaOrderState(order.status, order.sub_status);
   const lineItems = order.line_items.map(normalizeLineItem);
+  const lifecycle = classifyOrderLifecycle({
+    canonical_state: state.canonical_state,
+    final_state_verified: ['DELIVERED', 'FINISHED'].includes(state.canonical_state)
+  });
+  const productKey = lineItems.length === 1 ? canonicalProductKey({
+    canonical_product_id: lineItems[0].product_id,
+    canonical_sku: lineItems[0].sku
+  }) : { key: null, match_type: 'UNKNOWN' };
+  const customerPhoneNormalized = normalizeSpanishPhone(order.customer?.phone || order.customer_phone);
+  const testPhone = evaluateTestPhoneGuard(customerPhoneNormalized, { testPhoneNormalized });
   return Object.freeze({
     canonical_order_id: identity.canonical_order_id,
     dropea_order_id: String(order.id),
@@ -172,6 +184,20 @@ export function mapDropeaOrder(order, {
     rejected_at: nullableIso(order.rejected_at, 'order.rejected_at'),
     identity_status: identity.status,
     identity,
+    lifecycle_classification: lifecycle.lifecycle,
+    phone_last4: customerPhoneNormalized?.slice(-4) || null,
+    canonical_product_key: productKey.key,
+    product_match_type: productKey.match_type,
+    duplicate_status: 'NOT_ASSESSED',
+    conflicting_order_id: null,
+    automatic_confirmation_allowed: false,
+    test_order: testPhone.matched,
+    chatby_cleanup_status: 'NOT_ASSESSED',
+    chatby_cleanup_blockers: ['CONTACT_LIFECYCLE_NOT_RECONCILED'],
+    return_block_status: 'NOT_ELIGIBLE',
+    return_block_reason: null,
+    protection_review: testPhone.matched || !productKey.key,
+    protection_last_reconciled_at: nullableIso(observedAt, 'observed_at'),
     data_freshness: dataFreshness,
     observed_at: nullableIso(observedAt, 'observed_at'),
     source_version: DROPEA_SOURCE_VERSION,

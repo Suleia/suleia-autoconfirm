@@ -15,8 +15,12 @@ export class OperationsProjector {
       (canonical_order_id,dropea_order_id,external_order_id_hash,status,sub_status,canonical_state,
        product_summary,total_amount,currency,carrier,service_type,tracking_reference_masked,
        identity_status,decision_status,risk,priority,freshness,latest_message_at,updated_at,
-       source_version,schema_version,actions_executed,production_writes,run_mode)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,0,0,'SHADOW_READ_ONLY')
+       source_version,schema_version,lifecycle_classification,phone_last4,canonical_product_key,
+       duplicate_status,conflicting_order_id,automatic_confirmation_allowed,test_order,
+       chatby_cleanup_status,chatby_cleanup_blockers,return_block_status,return_block_reason,
+       protection_review,protection_last_reconciled_at,actions_executed,production_writes,run_mode)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
+       $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,0,0,'SHADOW_READ_ONLY')
       ON CONFLICT(canonical_order_id) DO UPDATE SET
        dropea_order_id=EXCLUDED.dropea_order_id,external_order_id_hash=EXCLUDED.external_order_id_hash,
        status=EXCLUDED.status,sub_status=EXCLUDED.sub_status,canonical_state=EXCLUDED.canonical_state,
@@ -24,14 +28,28 @@ export class OperationsProjector {
        carrier=EXCLUDED.carrier,service_type=EXCLUDED.service_type,
        tracking_reference_masked=EXCLUDED.tracking_reference_masked,identity_status=EXCLUDED.identity_status,
        freshness=EXCLUDED.freshness,updated_at=EXCLUDED.updated_at,source_version=EXCLUDED.source_version,
-       schema_version=EXCLUDED.schema_version`, [
+       schema_version=EXCLUDED.schema_version,lifecycle_classification=EXCLUDED.lifecycle_classification,
+       phone_last4=EXCLUDED.phone_last4,canonical_product_key=EXCLUDED.canonical_product_key,
+       duplicate_status=EXCLUDED.duplicate_status,conflicting_order_id=EXCLUDED.conflicting_order_id,
+       automatic_confirmation_allowed=EXCLUDED.automatic_confirmation_allowed,test_order=EXCLUDED.test_order,
+       chatby_cleanup_status=EXCLUDED.chatby_cleanup_status,chatby_cleanup_blockers=EXCLUDED.chatby_cleanup_blockers,
+       return_block_status=EXCLUDED.return_block_status,return_block_reason=EXCLUDED.return_block_reason,
+       protection_review=EXCLUDED.protection_review,
+       protection_last_reconciled_at=EXCLUDED.protection_last_reconciled_at`, [
       order.canonical_order_id, order.dropea_order_id, order.external_order_id_hash,
       order.status, order.sub_status, order.canonical_state, order.product_summary,
       order.total_amount, order.currency, order.carrier, order.service_type,
       order.tracking_reference_masked, order.identity_status,
       order.decision_status || 'NOT_ASSESSED', order.risk || 'NOT_ASSESSED',
       order.priority || 'NORMAL', order.data_freshness || 'UNKNOWN',
-      order.latest_message_at || null, order.updated_at, order.source_version, order.schema_version
+      order.latest_message_at || null, order.updated_at, order.source_version, order.schema_version,
+      order.lifecycle_classification || 'UNKNOWN', order.phone_last4 || null,
+      order.canonical_product_key || null, order.duplicate_status || 'NOT_ASSESSED',
+      order.conflicting_order_id || null, order.automatic_confirmation_allowed === true,
+      order.test_order === true, order.chatby_cleanup_status || 'NOT_ASSESSED',
+      order.chatby_cleanup_blockers || [], order.return_block_status || 'NOT_ELIGIBLE',
+      order.return_block_reason || null, order.protection_review === true,
+      order.protection_last_reconciled_at || null
     ]);
     return { projected: true, resource: 'order', actions_executed: 0, production_writes: 0 };
   }

@@ -66,6 +66,21 @@ test('central order mapper keeps status and sub_status separate', () => {
   assert.equal('shipping_address' in result, false);
 });
 
+test('central mapper projects only masked operational protections and blocks test orders', () => {
+  const result = mapDropeaOrder(order({ customer: { phone: '600000000' } }), {
+    hmacKey: HMAC_KEY,
+    observedAt: AT,
+    testPhoneNormalized: '+34600000000'
+  });
+  assert.equal(result.lifecycle_classification, 'ACTIVE');
+  assert.equal(result.phone_last4, '0000');
+  assert.equal(result.canonical_product_key, 'PRODUCT:8');
+  assert.equal(result.test_order, true);
+  assert.equal(result.automatic_confirmation_allowed, false);
+  assert.equal(result.protection_review, true);
+  assert.equal(JSON.stringify(result).includes('600000000'), false);
+});
+
 test('unknown status or sub-status fails closed without losing source values', () => {
   const result = mapDropeaOrder(order({ sub_status: 'FUTURE_STATE' }), { hmacKey: HMAC_KEY, observedAt: AT });
   assert.equal(result.sub_status, 'FUTURE_STATE');

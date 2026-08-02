@@ -122,6 +122,7 @@ docker compose \
   up --detach --wait --wait-timeout 180 postgres
 
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-center-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-protections-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 docker compose \

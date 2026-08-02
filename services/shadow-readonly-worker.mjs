@@ -30,6 +30,7 @@ async function run() {
       client: dropeaClient,
       projector: operationsProjector,
       hmacKey: config.hashKey,
+      testPhoneNormalized: process.env.TEST_PHONE_NORMALIZED || null,
       maxPages: Number(process.env.DROPEA_PUBLIC_API_MAX_PAGES || 200),
       maxRecords: Number(process.env.DROPEA_PUBLIC_API_MAX_RECORDS || 20000)
     }) : { enabled: false, actions_executed: 0, production_writes: 0 };

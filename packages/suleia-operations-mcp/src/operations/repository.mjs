@@ -32,12 +32,13 @@ export class OperationsRepository {
   async close() { await this.pool.end(); }
 
   async summary() {
-    const [orders, incidents, health] = await Promise.all([
+    const [orders, incidents, protections, health] = await Promise.all([
       this.pool.query('SELECT * FROM read_models.operations_orders_summary'),
       this.pool.query('SELECT * FROM read_models.operations_incidents_summary'),
+      this.pool.query('SELECT * FROM read_models.operations_protection_summary'),
       this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector')
     ]);
-    return { orders: orders.rows[0] || {}, incidents: incidents.rows[0] || {}, connectors: health.rows };
+    return { orders: orders.rows[0] || {}, incidents: incidents.rows[0] || {}, protections: protections.rows[0] || {}, connectors: health.rows };
   }
 
   async listOrders(searchParams) {
@@ -47,6 +48,18 @@ export class OperationsRepository {
       status: 'status', decision: 'decision_status', risk: 'risk',
       priority: 'priority', freshness: 'freshness', identity: 'identity_status'
     });
+    const protection = searchParams.get('protection');
+    const protectionClauses = {
+      DUPLICATE_ACTIVE_ORDER: "duplicate_status = 'DUPLICATE_ACTIVE_ORDER'",
+      TEST_ORDER: 'test_order = true',
+      CHATBY_DELETE_ELIGIBLE: "chatby_cleanup_status = 'DELETE_ELIGIBLE'",
+      CHATBY_DELETE_FAILED: "chatby_cleanup_status = 'DELETE_FAILED'",
+      RELEASIT_PENDING: "return_block_status IN ('BLOCK_ELIGIBLE','BLOCK_PENDING','BLOCK_REQUESTED')",
+      RELEASIT_BLOCKED: "return_block_status IN ('BLOCKED_VERIFIED','ALREADY_BLOCKED')",
+      RELEASIT_ERROR: "return_block_status IN ('BLOCK_FAILED','VERIFICATION_FAILED')",
+      PROTECTION_REVIEW: 'protection_review = true'
+    };
+    if (protectionClauses[protection]) selected.clauses.push(protectionClauses[protection]);
     selected.values.push(limit, offset);
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(

@@ -35,6 +35,7 @@ import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clie
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
 import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
+import { evaluateTestPhoneGuard } from '../../../packages/platform-core/src/operational-protections/identity.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
@@ -46,6 +47,43 @@ const DROPEA_REPAIR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const DROPEA_GRAPHQL_RECOVERY_MAX_ATTEMPTS = 1;
 const DROPEA_UNRESOLVED_STATUSES = new Set(['ERROR', 'REVIEW']);
 const DROPEA_OPERATIONAL_STATUSES = new Set(['CONFIRMED', 'PREPARING', 'PREPARED', 'TRANSIT', 'DELIVERED']);
+
+function operationalTestPhoneGuard(order) {
+  return evaluateTestPhoneGuard(order?.customerPhone, {
+    enabled: config.testPhoneBlockEnabled,
+    testPhoneNormalized: config.testPhoneNormalized
+  });
+}
+
+async function applyOperationalTestPhonePolicy(order, store, source) {
+  const guard = operationalTestPhoneGuard(order);
+  if (!guard.matched) return null;
+  const updated = upsertOrder(store.id, {
+    ...order,
+    status: 'MANUAL_REVIEW',
+    aiIntent: 'TEST_ORDER',
+    operationalNote: 'Pedido de prueba protegido: ninguna confirmacion, envio, mutacion o bloqueo automatico esta permitido.',
+    raw: {
+      ...(order.raw || {}),
+      operationalProtection: {
+        classification: guard.classification,
+        route: guard.route,
+        source,
+        automaticConfirmationAllowed: false,
+        executionAllowed: false,
+        releasitBlockAllowed: false
+      }
+    }
+  });
+  await safeUpsertSheetRow(updated, 'operational_test_phone_guard');
+  return {
+    skipped: true,
+    action: 'test_order_human_review',
+    source,
+    analysis: { intent: 'TEST_ORDER', confidence: 100, reason: 'OPERATIONAL_TEST_ALLOWLIST' },
+    order: updated
+  };
+}
 
 function recentAgentConfirmation(order) {
   if (String(order?.aiIntent || '').toUpperCase() !== 'CONFIRM') return false;
@@ -86,6 +124,9 @@ async function pollDropeaOrder(orderId, { attempts = 5, delayMs = 5000 } = {}) {
 }
 
 async function inspectAndRepairConfirmedDropeaOrder(order, { poll = false } = {}) {
+  if (operationalTestPhoneGuard(order).matched) {
+    return { repaired: false, blocked: true, reason: 'OPERATIONAL_TEST_ALLOWLIST' };
+  }
   const attempts = poll ? 4 : 1;
   let dropeaOrder = null;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
@@ -836,6 +877,8 @@ function shopifyConfirmationResult(order, store, patch, analysis, source = 'shop
 }
 
 async function applyBlockedCustomerPolicy(order, store, source = 'blocked_customer_policy') {
+  const testOrder = await applyOperationalTestPhonePolicy(order, store, source);
+  if (testOrder) return testOrder;
   if (!isBlockedCustomerOrder(order, store)) return null;
 
   if (isTerminalBlockedCustomerStatus(order.status) && order.cancelledAt) {
