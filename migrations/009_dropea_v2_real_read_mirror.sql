@@ -167,7 +167,14 @@ SELECT market, store_id, resource_type, phase, sync_completed_at AS source_updat
        0::integer AS actions_executed, 0::integer AS production_writes
 FROM integration.dropea_sync_checkpoints;
 
-CREATE OR REPLACE VIEW read_models.integration_dropea_orders AS SELECT * FROM integration.dropea_orders;
+CREATE OR REPLACE VIEW read_models.integration_dropea_orders AS
+SELECT market,store_id,dropea_order_id,canonical_order_id,external_order_id_hash,status,sub_status,
+       lifecycle_status,total_amount,currency,payment_method,carrier,service_type,line_items_masked,
+       canonical_product_keys,product_display_names,normalized_address_hash,address_line_2_present,
+       created_at_utc,updated_at_utc,confirmed_at_utc,delivered_at_utc,source_system,source_version,
+       schema_version,observed_at,payload_hash,data_freshness,historical_pre_cutover,first_seen_at,
+       last_seen_at,shadow_mirror_writes,actions_executed,production_writes
+FROM integration.dropea_orders;
 CREATE OR REPLACE VIEW read_models.integration_dropea_issues AS SELECT * FROM integration.dropea_issues;
 CREATE OR REPLACE VIEW read_models.integration_dropea_sync_checkpoints AS SELECT * FROM integration.dropea_sync_checkpoints;
 CREATE OR REPLACE VIEW read_models.integration_dropea_webhook_events AS SELECT * FROM integration.dropea_webhook_events;
