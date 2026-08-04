@@ -71,9 +71,35 @@ export async function syncDropeaPublicApi({
       } else orders.push(order);
     }
     const orderIdentity = new Map(orders.map((order) => [order.dropea_order_id, order]));
-    const orphanIssues = issuePage.items.filter((issue) => !orderIdentity.has(String(issue.order_id)));
-    const issues = issuePage.items
-      .filter((issue) => orderIdentity.has(String(issue.order_id)))
+    const issueCandidates = upperPhase === 'CANARY'
+      ? issuePage.items.filter((issue) => orderIdentity.has(String(issue.order_id)))
+      : issuePage.items;
+    const issuesOutOfScope = issuePage.items.length - issueCandidates.length;
+    const orphanIssues = [];
+    for (const issue of issueCandidates) {
+      const dropeaOrderId = String(issue.order_id);
+      if (orderIdentity.has(dropeaOrderId)) continue;
+      if (!projector.resolveCanonicalOrderByDropeaId || !storeConfig) {
+        orphanIssues.push(issue);
+        continue;
+      }
+      const resolution = await projector.resolveCanonicalOrderByDropeaId({
+        market: client.market,
+        storeId,
+        dropeaOrderId
+      });
+      if (resolution.status !== 'FOUND') {
+        orphanIssues.push(issue);
+        continue;
+      }
+      orderIdentity.set(dropeaOrderId, {
+        canonical_order_id: resolution.canonical_order_id,
+        store_id: storeId
+      });
+    }
+    const orphanIds = new Set(orphanIssues.map((issue) => String(issue.id)));
+    const issues = issueCandidates
+      .filter((issue) => !orphanIds.has(String(issue.id)))
       .map((issue) => mapDropeaIssue(issue, {
         hmacKey,
         canonicalOrderId: orderIdentity.get(String(issue.order_id)).canonical_order_id,
@@ -143,6 +169,7 @@ export async function syncDropeaPublicApi({
       dry_run: dryRun,
       phase: upperPhase,
       orphan_issues_blocked: orphanIssues.length,
+      issues_out_of_scope: issuesOutOfScope,
       historical_orders_blocked: historicalOrdersBlocked,
       identities_reused: identitiesReused,
       identity_conflicts_blocked: identityConflictsBlocked,

@@ -87,3 +87,62 @@ test('Dropea V2 shadow sync blocks a pre-cutover new identity and reuses an exis
   assert.equal(projected.length, 1);
   assert.equal(projected[0].canonical_order_id, 'order-v1-existing');
 });
+
+test('CANARY ignores pending issues outside the five-order sample', async () => {
+  const projected = [];
+  const client = {
+    market: 'ES',
+    async request(name) {
+      assert.equal(name, 'listOrders');
+      return { data: { items: [{ ...order, created_at: '2026-08-04T10:00:00Z', updated_at: '2026-08-04T10:01:00Z' }] } };
+    },
+    async listAll(name) {
+      assert.equal(name, 'listIssues');
+      return { items: [issue, { ...issue, id: 10, order_id: 999 }], page_count: 1, complete: true };
+    }
+  };
+  const projector = {
+    async resolveCanonicalOrder() { return { status: 'NOT_FOUND' }; },
+    async upsertOrder(value) { projected.push(['order', value]); return { inserted: true }; },
+    async upsertIssue(value) { projected.push(['issue', value]); return { inserted: true }; },
+    async connectorHealth() {}, async syncCheckpoint() {}
+  };
+  const result = await syncDropeaPublicApi({
+    client, projector, hmacKey: 'a-protected-hmac-key-with-more-than-32-characters',
+    phase: 'CANARY',
+    storeConfig: { store_id: '17', migration_cutover_at: '2026-08-03T00:00:00Z', native_v2_activation_at: '2026-08-01T00:00:00Z' },
+    now: () => new Date('2026-08-04T12:00:00Z')
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.orphan_issues_blocked, 0);
+  assert.equal(result.issues_out_of_scope, 1);
+  assert.equal(projected.filter(([type]) => type === 'issue').length, 1);
+});
+
+test('TODAY links a pending issue to an order already present in the mirror', async () => {
+  const projected = [];
+  const client = {
+    market: 'ES',
+    async listAll(name) {
+      return { items: name === 'listOrders' ? [] : [issue], page_count: 1, complete: true };
+    }
+  };
+  const projector = {
+    async resolveCanonicalOrderByDropeaId(value) {
+      assert.deepEqual(value, { market: 'ES', storeId: '17', dropeaOrderId: '41' });
+      return { status: 'FOUND', canonical_order_id: 'order-existing' };
+    },
+    async upsertOrder() {},
+    async upsertIssue(value) { projected.push(value); return { inserted: false }; },
+    async connectorHealth() {}, async syncCheckpoint() {}
+  };
+  const result = await syncDropeaPublicApi({
+    client, projector, hmacKey: 'a-protected-hmac-key-with-more-than-32-characters',
+    phase: 'TODAY',
+    storeConfig: { store_id: '17', migration_cutover_at: '2026-08-03T00:00:00Z', native_v2_activation_at: '2026-08-04T00:00:00Z' },
+    now: () => new Date('2026-08-04T12:00:00Z')
+  });
+  assert.equal(result.ok, true);
+  assert.equal(result.orphan_issues_blocked, 0);
+  assert.equal(projected[0].canonical_order_id, 'order-existing');
+});
