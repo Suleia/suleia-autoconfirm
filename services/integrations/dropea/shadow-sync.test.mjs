@@ -61,3 +61,29 @@ test('Dropea V2 shadow sync blocks orphan issues without guessing identity', asy
   assert.equal(writes.some(([type]) => type === 'issue'), false);
   assert.equal(writes.at(-1)[1].data_health, 'DEGRADED');
 });
+
+test('Dropea V2 shadow sync blocks a pre-cutover new identity and reuses an existing V1 identity', async () => {
+  const projected = [];
+  const client = {
+    market: 'ES',
+    async listAll(name) {
+      return { items: name === 'listOrders' ? [
+        { ...order, id: 40, external_order_id: 'old-missing', created_at: '2026-08-01T10:00:00Z' },
+        { ...order, id: 41, external_order_id: 'old-existing', created_at: '2026-08-01T10:00:00Z' }
+      ] : [], page_count: 1, complete: true, records_read: 2, requested_limit: 100 };
+    }
+  };
+  const projector = {
+    async resolveCanonicalOrder(value) { return value.dropea_order_id === '41' ? { status: 'FOUND', canonical_order_id: 'order-v1-existing' } : { status: 'NOT_FOUND' }; },
+    async upsertOrder(value) { projected.push(value); return { inserted: false }; },
+    async upsertIssue() {}, async connectorHealth() {}, async syncCheckpoint() {}
+  };
+  const result = await syncDropeaPublicApi({
+    client, projector, hmacKey: 'a-protected-hmac-key-with-more-than-32-characters',
+    storeConfig: { store_id: '17', migration_cutover_at: '2026-08-03T00:00:00Z', native_v2_activation_at: '2026-08-04T00:00:00Z' }
+  });
+  assert.equal(result.historical_orders_blocked, 1);
+  assert.equal(result.identities_reused, 1);
+  assert.equal(projected.length, 1);
+  assert.equal(projected[0].canonical_order_id, 'order-v1-existing');
+});

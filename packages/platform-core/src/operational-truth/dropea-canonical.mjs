@@ -150,6 +150,8 @@ export function buildDropeaCanonicalIdentity({ order, hmacKey, market, storeId =
 export function mapDropeaOrder(order, {
   hmacKey,
   market,
+  migrationCutoverAt = null,
+  canonicalOrderIdOverride = null,
   observedAt = new Date().toISOString(),
   dataFreshness = 'FRESH',
   additionalIdentityLinks = [],
@@ -180,7 +182,7 @@ export function mapDropeaOrder(order, {
     200
   ));
   return Object.freeze({
-    canonical_order_id: identity.canonical_order_id,
+    canonical_order_id: canonicalOrderIdOverride || identity.canonical_order_id,
     dropea_order_id: String(order.id),
     market: normalizedMarket,
     external_order_id_hash: order.external_order_id ? hashTechnical(order.external_order_id, hmacKey) : null,
@@ -209,7 +211,7 @@ export function mapDropeaOrder(order, {
     processing_at: nullableIso(order.processing_at, 'order.processing_at'),
     delivered_at: nullableIso(order.delivered_at, 'order.delivered_at'),
     rejected_at: nullableIso(order.rejected_at, 'order.rejected_at'),
-    identity_status: identity.status,
+    identity_status: canonicalOrderIdOverride ? 'VERIFIED' : identity.status,
     identity,
     lifecycle_classification: lifecycle.lifecycle,
     phone_last4: customerPhoneNormalized?.slice(-4) || null,
@@ -229,6 +231,9 @@ export function mapDropeaOrder(order, {
     observed_at: nullableIso(observedAt, 'observed_at'),
     source_version: DROPEA_SOURCE_VERSION,
     source_system: 'DROPEA_PUBLIC_API_V2',
+    historical_pre_cutover: migrationCutoverAt
+      ? new Date(order.created_at).getTime() < new Date(migrationCutoverAt).getTime()
+      : false,
     payload_hash: hashTechnical(JSON.stringify({
       market: normalizedMarket, store_id: order.store_id, id: order.id, status: order.status,
       sub_status: order.sub_status, total_amount: order.total_amount, updated_at: order.updated_at

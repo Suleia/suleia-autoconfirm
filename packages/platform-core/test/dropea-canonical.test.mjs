@@ -170,6 +170,16 @@ test('empty carrier code and timezone-less timestamps fail closed safely', () =>
   assert.equal(mappedOrder.created_at, '2026-08-01T10:00:00.000Z');
 });
 
+test('historical cutover metadata and verified canonical override preserve one functional identity', () => {
+  const mapped = mapDropeaOrder(order({ created_at: '2026-08-02T23:59:00Z' }), {
+    hmacKey: HMAC_KEY, market: 'ES', migrationCutoverAt: '2026-08-03T00:00:00Z',
+    canonicalOrderIdOverride: 'order-existing-v1', observedAt: AT
+  });
+  assert.equal(mapped.historical_pre_cutover, true);
+  assert.equal(mapped.canonical_order_id, 'order-existing-v1');
+  assert.equal(mapped.identity_status, 'VERIFIED');
+});
+
 test('pickup point omits address, phone, email and coordinates', () => {
   const result = mapDropeaIssue(issue({ pickup_point: {
     pup_id: 'fixture-pup', display_name: 'Fixture agency', country_code: 'ES', is_active: true,

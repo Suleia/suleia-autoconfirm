@@ -29,8 +29,10 @@ export async function syncDropeaPublicApi({
     const todayStart = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate())).toISOString();
     const orderParams = storeConfig ? {
       store_id: Number(storeId), sort_by: 'created_at', sort_order: 'desc',
+      ...(upperPhase === 'CANARY' ? { date_from: storeConfig.native_v2_activation_at, date_to: current.toISOString(), date_type: 'created_at' } : {}),
       ...(upperPhase === 'TODAY' ? { date_from: todayStart, date_to: current.toISOString(), date_type: 'created_at' } : {}),
-      ...(upperPhase === 'BACKFILL' ? { date_from: storeConfig.migration_cutover_at, date_to: current.toISOString(), date_type: 'created_at' } : {})
+      ...(upperPhase === 'BACKFILL' ? { date_from: storeConfig.migration_cutover_at, date_to: current.toISOString(), date_type: 'created_at' } : {}),
+      ...(upperPhase === 'INCREMENTAL' ? { date_from: storeConfig.migration_cutover_at, date_to: current.toISOString(), date_type: 'updated_at' } : {})
     } : {};
     const orderPage = upperPhase === 'CANARY'
       ? await client.request('listOrders', { ...orderParams, page: 1, limit: 5 }).then((payload) => ({
@@ -51,7 +53,23 @@ export async function syncDropeaPublicApi({
       maxPages, maxRecords, requestedLimit: 100, pagePauseMs: 400
     });
     const observedAt = now().toISOString();
-    const orders = orderPage.items.map((order) => mapDropeaOrder(order, { hmacKey, market: client.market, observedAt, testPhoneNormalized }));
+    const initiallyMapped = orderPage.items.map((order) => mapDropeaOrder(order, {
+      hmacKey, market: client.market, migrationCutoverAt: storeConfig?.migration_cutover_at || null,
+      observedAt, testPhoneNormalized
+    }));
+    const orders = [];
+    let historicalOrdersBlocked = 0, identitiesReused = 0, identityConflictsBlocked = 0;
+    for (const order of initiallyMapped) {
+      if (!projector.resolveCanonicalOrder) { orders.push(order); continue; }
+      const resolution = await projector.resolveCanonicalOrder(order);
+      if (resolution.status === 'CONFLICT') { identityConflictsBlocked += 1; continue; }
+      if (order.historical_pre_cutover && resolution.status === 'NOT_FOUND') { historicalOrdersBlocked += 1; continue; }
+      if (resolution.canonical_order_id && resolution.canonical_order_id !== order.canonical_order_id) {
+        identitiesReused += 1;
+        orders.push(Object.freeze({ ...order, canonical_order_id: resolution.canonical_order_id,
+          identity_status: 'VERIFIED', duplicate_status: 'V1_V2_IDENTITY_REUSED' }));
+      } else orders.push(order);
+    }
     const orderIdentity = new Map(orders.map((order) => [order.dropea_order_id, order]));
     const orphanIssues = issuePage.items.filter((issue) => !orderIdentity.has(String(issue.order_id)));
     const issues = issuePage.items
@@ -125,6 +143,9 @@ export async function syncDropeaPublicApi({
       dry_run: dryRun,
       phase: upperPhase,
       orphan_issues_blocked: orphanIssues.length,
+      historical_orders_blocked: historicalOrdersBlocked,
+      identities_reused: identitiesReused,
+      identity_conflicts_blocked: identityConflictsBlocked,
       pages_read: orderPage.page_count + issuePage.page_count,
       pagination_complete: orderPage.complete && issuePage.complete
     });

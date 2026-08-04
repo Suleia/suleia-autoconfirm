@@ -25,6 +25,19 @@ export class OperationsProjector {
     return { projected: true, resource: 'store_config', actions_executed: 0, production_writes: 0 };
   }
 
+  async resolveCanonicalOrder(order) {
+    const result = await this.pool.query(`SELECT canonical_order_id FROM read_models.operations_order_records
+      WHERE (market=$1 AND store_id=$2 AND dropea_order_id=$3)
+         OR (external_order_id_hash IS NOT NULL AND external_order_id_hash=$4)
+      ORDER BY updated_at DESC LIMIT 2`, [
+      order.market, String(order.store_id), order.dropea_order_id, order.external_order_id_hash
+    ]);
+    const ids = [...new Set((result.rows || []).map((row) => row.canonical_order_id))];
+    if (ids.length > 1) return { status: 'CONFLICT', canonical_order_id: null };
+    if (ids.length === 1) return { status: 'FOUND', canonical_order_id: ids[0] };
+    return { status: 'NOT_FOUND', canonical_order_id: null };
+  }
+
   async upsertOrder(order) {
     assertSafe(order);
     const integrationResult = await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO integration.dropea_orders
