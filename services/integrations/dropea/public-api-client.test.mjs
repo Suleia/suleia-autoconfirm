@@ -91,16 +91,53 @@ test('complete pagination follows contract metadata without repeating or skippin
   const calls = [];
   const client = createDropeaPublicApiClient({
     token: jwt(),
+    market: 'ES',
     fetchImpl: async (url) => {
       const current = Number(new URL(url).searchParams.get('page'));
       calls.push(current);
-      return response(page([{ id: current }], current, 3));
+      return response(page(current < 3 ? [{ id: current }] : [], current, 99));
     }
   });
   const result = await client.listAll('listOrders', { limit: 1 });
   assert.deepEqual(calls, [1, 2, 3]);
-  assert.deepEqual(result.items.map((item) => item.id), [1, 2, 3]);
+  assert.deepEqual(result.items.map((item) => item.id), [1, 2]);
   assert.equal(result.complete, true);
+  assert.equal(result.termination_reason, 'EMPTY_PAGE');
+});
+
+test('pagination ignores incorrect total_pages and stops on a short page', async () => {
+  const calls = [];
+  const client = createDropeaPublicApiClient({
+    token: jwt(), market: 'ES',
+    fetchImpl: async (url) => {
+      const current = Number(new URL(url).searchParams.get('page'));
+      calls.push(current);
+      return response(page(current === 1 ? [{ id: 1 }, { id: 2 }] : [{ id: 3 }], current, 1));
+    }
+  });
+  const result = await client.listAll('listOrders', { limit: 2 });
+  assert.deepEqual(calls, [1, 2]);
+  assert.deepEqual(result.items.map((item) => item.id), [1, 2, 3]);
+  assert.equal(result.termination_reason, 'SHORT_PAGE');
+});
+
+test('pagination fails closed on a repeated page and deduplicates overlapping ids', async () => {
+  const repeating = createDropeaPublicApiClient({
+    token: jwt(), market: 'ES',
+    fetchImpl: async (url) => response(page([{ id: 1 }], Number(new URL(url).searchParams.get('page')), 999))
+  });
+  await assert.rejects(repeating.listAll('listOrders', { limit: 1 }), { code: 'DROPEA_PAGE_REPEATED' });
+
+  const overlapping = createDropeaPublicApiClient({
+    token: jwt(), market: 'ES',
+    fetchImpl: async (url) => {
+      const current = Number(new URL(url).searchParams.get('page'));
+      return response(page(current === 1 ? [{ id: 1 }, { id: 2 }] : [{ id: 2 }], current, 999));
+    }
+  });
+  const result = await overlapping.listAll('listOrders', { limit: 2 });
+  assert.deepEqual(result.items.map((item) => item.id), [1, 2]);
+  assert.equal(result.duplicates_skipped, 1);
 });
 
 test('429 honors Retry-After and retries without exposing response content', async () => {
@@ -108,6 +145,7 @@ test('429 honors Retry-After and retries without exposing response content', asy
   let attempt = 0;
   const client = createDropeaPublicApiClient({
     token: jwt(),
+    market: 'ES',
     wait: async (ms) => waits.push(ms),
     fetchImpl: async () => {
       attempt += 1;
@@ -123,6 +161,7 @@ test('429 honors Retry-After and retries without exposing response content', asy
 test('circuit breaker opens after bounded repeated read failures', async () => {
   const client = createDropeaPublicApiClient({
     token: jwt(),
+    market: 'ES',
     maxRetries: 0,
     circuitThreshold: 2,
     fetchImpl: async () => response({ message: 'failed' }, { status: 503 })
@@ -133,10 +172,11 @@ test('circuit breaker opens after bounded repeated read failures', async () => {
 });
 
 test('invalid success and pagination envelopes fail closed', async () => {
-  const badSuccess = createDropeaPublicApiClient({ token: jwt(), fetchImpl: async () => response({ data: {} }) });
+  const badSuccess = createDropeaPublicApiClient({ token: jwt(), market: 'ES', fetchImpl: async () => response({ data: {} }) });
   await assert.rejects(badSuccess.request('getMe'), { code: 'DROPEA_RESPONSE_SCHEMA_INVALID' });
   const badPage = createDropeaPublicApiClient({
     token: jwt(),
+    market: 'ES',
     fetchImpl: async () => response({ success: true, message: 'ok', data: { items: [] } })
   });
   await assert.rejects(badPage.request('listOrders'), { code: 'DROPEA_PAGINATION_SCHEMA_INVALID' });
@@ -158,7 +198,7 @@ test('contract preserves critical enums, required fields and nullable semantics'
 });
 
 test('contract-driven parameter validation blocks unknown, invalid enum and out-of-range inputs', async () => {
-  const client = createDropeaPublicApiClient({ token: jwt(), fetchImpl: async () => response(page([], 1, 1)) });
+  const client = createDropeaPublicApiClient({ token: jwt(), market: 'ES', fetchImpl: async () => response(page([], 1, 1)) });
   await assert.rejects(client.request('listOrders', { unknown: true }), { code: 'DROPEA_PARAMETER_NOT_DECLARED' });
   await assert.rejects(client.request('listOrders', { status: 'NOT_REAL' }), { code: 'DROPEA_PARAMETER_SCHEMA_INVALID' });
   await assert.rejects(client.request('listOrders', { limit: 101 }), { code: 'DROPEA_PARAMETER_SCHEMA_INVALID' });

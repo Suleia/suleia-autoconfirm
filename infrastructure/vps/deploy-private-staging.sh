@@ -72,9 +72,14 @@ EXTERNAL_AI_CALLS_ENABLED=false
 SHOPIFY_ACCESS_TOKEN=
 DROPEA_ACCESS_TOKEN=
 DROPEA_PUBLIC_API_ENABLED=false
-DROPEA_PUBLIC_API_TOKEN=
-DROPEA_PUBLIC_API_MARKET=ES
+DROPEA_READ_JWT_ES=
+DROPEA_STORES_CONFIG=[]
+DROPEA_INGESTION_PHASE=CANARY
+DROPEA_INGESTION_DRY_RUN=true
 DROPEA_PUBLIC_API_RATE_LIMIT=45
+DROPEA_WEBHOOK_AUTH_MODE=HMAC_ONLY
+DROPEA_WEBHOOK_HMAC_SECRET=
+DROPEA_WEBHOOK_PATH_TOKEN_SHA256=
 CHATBY_TOKEN=
 GLS_TOKEN=
 BACKUP_DAILY_RETENTION_DAYS=14
@@ -133,6 +138,7 @@ ensure_env_value TEMPLATE_SENDING_ENABLED false
 ensure_env_value DISCOUNT_SENDING_ENABLED false
 ensure_env_value EMAIL_SENDING_ENABLED false
 ensure_env_value EXTERNAL_AI_CALLS_ENABLED false
+ensure_env_value DROPEA_INGESTION_DRY_RUN true
 ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
 chmod 0600 "${ENV_FILE}"
 
@@ -160,6 +166,7 @@ docker compose \
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-center-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-protections-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-handbook-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-dropea-v2-read-mirror-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 docker compose \

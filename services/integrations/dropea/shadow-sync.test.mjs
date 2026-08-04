@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { syncDropeaPublicApi } from './shadow-sync.mjs';
 
 const order = {
-  id: 41, external_order_id: 'external-masked', status: 'PENDING', sub_status: 'PENDING',
+  id: 41, store_id: 17, external_order_id: 'external-masked', status: 'PENDING', sub_status: 'PENDING',
   line_items: [{ product_id: 2, variant_id: 3, product_name: 'Producto', quantity: 1, unit_price: 20 }],
   total_amount: 20, currency: 'EUR', carrier: 'GLS', created_at: '2026-08-01T10:00:00Z',
   updated_at: '2026-08-01T10:01:00Z'

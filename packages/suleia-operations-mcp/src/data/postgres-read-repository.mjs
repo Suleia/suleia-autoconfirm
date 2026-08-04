@@ -68,11 +68,16 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     },
 
     async getDataFreshness() {
-      const rows = await query(`SELECT source, last_success_at AS source_updated_at,
-          last_failure_at, lag_seconds, status, checked_at AS measured_at
-        FROM mcp.data_freshness
-        ORDER BY checked_at DESC
+      const operationalRows = await query(`SELECT 'DROPEA_PUBLIC_API_' || market AS source,
+          source_updated_at,NULL::timestamptz AS last_failure_at,
+          GREATEST(0,EXTRACT(EPOCH FROM (now()-source_updated_at)))::bigint AS lag_seconds,
+          freshness AS status,measured_at
+        FROM read_models.operations_data_freshness
+        ORDER BY measured_at DESC
         LIMIT 100`);
+      const rows = operationalRows.length ? operationalRows : await query(`SELECT source, last_success_at AS source_updated_at,
+          last_failure_at, lag_seconds, status, checked_at AS measured_at
+        FROM mcp.data_freshness ORDER BY checked_at DESC LIMIT 100`);
       return {
         sources: rows,
         source_updated_at: rows.reduce((latest, row) => {

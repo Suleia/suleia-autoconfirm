@@ -12,6 +12,9 @@ function zeroActionResult(values = {}) {
 export async function syncDropeaPublicApi({
   client,
   projector,
+  storeConfig = null,
+  phase = 'INCREMENTAL',
+  dryRun = false,
   hmacKey,
   testPhoneNormalized = null,
   now = () => new Date(),
@@ -20,27 +23,61 @@ export async function syncDropeaPublicApi({
 }) {
   const startedAt = now().toISOString();
   try {
-    const [orderPage, issuePage] = await Promise.all([
-      client.listAll('listOrders', {}, { maxPages, maxRecords }),
-      client.listAll('listIssues', {}, { maxPages, maxRecords })
-    ]);
+    const storeId = storeConfig?.store_id || null;
+    const upperPhase = String(phase).toUpperCase();
+    const current = now();
+    const todayStart = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate())).toISOString();
+    const orderParams = storeConfig ? {
+      store_id: Number(storeId), sort_by: 'created_at', sort_order: 'desc',
+      ...(upperPhase === 'TODAY' ? { date_from: todayStart, date_to: current.toISOString(), date_type: 'created_at' } : {}),
+      ...(upperPhase === 'BACKFILL' ? { date_from: storeConfig.migration_cutover_at, date_to: current.toISOString(), date_type: 'created_at' } : {})
+    } : {};
+    const orderPage = upperPhase === 'CANARY'
+      ? await client.request('listOrders', { ...orderParams, page: 1, limit: 5 }).then((payload) => ({
+        items: payload.data.items, page_count: 1, complete: true, records_read: payload.data.items.length,
+        duplicates_skipped: 0, requested_limit: 5, termination_reason: 'CANARY_LIMIT'
+      }))
+      : await client.listAll('listOrders', orderParams, {
+        maxPages, maxRecords, requestedLimit: 100, pagePauseMs: 400,
+        onCheckpoint: async (checkpoint) => {
+          if (!dryRun && projector.syncCheckpoint && storeConfig) await projector.syncCheckpoint({
+            ...checkpoint, store_id: storeId, resource_type: 'orders', phase: upperPhase,
+            sync_started_at: startedAt, checkpoint_masked: { page: checkpoint.page },
+            freshness: 'SYNCING', pagination_complete: false
+          });
+        }
+      });
+    const issuePage = await client.listAll('listIssues', { only_pending_to_resolve: true }, {
+      maxPages, maxRecords, requestedLimit: 100, pagePauseMs: 400
+    });
     const observedAt = now().toISOString();
-    const orders = orderPage.items.map((order) => mapDropeaOrder(order, { hmacKey, observedAt, testPhoneNormalized }));
-    const orderIdentity = new Map(orders.map((order) => [order.dropea_order_id, order.canonical_order_id]));
+    const orders = orderPage.items.map((order) => mapDropeaOrder(order, { hmacKey, market: client.market, observedAt, testPhoneNormalized }));
+    const orderIdentity = new Map(orders.map((order) => [order.dropea_order_id, order]));
     const orphanIssues = issuePage.items.filter((issue) => !orderIdentity.has(String(issue.order_id)));
     const issues = issuePage.items
       .filter((issue) => orderIdentity.has(String(issue.order_id)))
       .map((issue) => mapDropeaIssue(issue, {
         hmacKey,
-        canonicalOrderId: orderIdentity.get(String(issue.order_id)),
+        canonicalOrderId: orderIdentity.get(String(issue.order_id)).canonical_order_id,
+        market: client.market,
+        storeId: orderIdentity.get(String(issue.order_id)).store_id,
         observedAt
       }));
 
-    for (const order of orders) await projector.upsertOrder(order);
-    for (const issue of issues) await projector.upsertIssue(issue);
+    let ordersInserted = 0, ordersUpdated = 0, issuesInserted = 0, issuesUpdated = 0;
+    if (!dryRun) {
+      for (const order of orders) {
+        const result = await projector.upsertOrder(order);
+        if (result?.inserted) ordersInserted += 1; else ordersUpdated += 1;
+      }
+      for (const issue of issues) {
+        const result = await projector.upsertIssue(issue);
+        if (result?.inserted) issuesInserted += 1; else issuesUpdated += 1;
+      }
+    }
 
     const dataHealth = orphanIssues.length === 0 ? 'HEALTHY' : 'DEGRADED';
-    await projector.connectorHealth({
+    if (!dryRun) await projector.connectorHealth({
       connector: `DROPEA_PUBLIC_API_${client.market}`,
       transport_health: 'HEALTHY',
       data_health: dataHealth,
@@ -50,6 +87,30 @@ export async function syncDropeaPublicApi({
       pagination_complete: orderPage.complete && issuePage.complete,
       checked_at: observedAt
     });
+    if (!dryRun && projector.syncCheckpoint && storeConfig) {
+      await projector.syncCheckpoint({
+        market: client.market, store_id: storeId, resource_type: 'orders', phase: upperPhase,
+        page: orderPage.page_count, requested_limit: orderPage.requested_limit || 100,
+        records_read: orderPage.records_read ?? orderPage.items.length,
+        records_inserted_to_shadow: ordersInserted, records_updated_in_shadow: ordersUpdated,
+        duplicates_skipped: orderPage.duplicates_skipped || 0, errors: 0,
+        checkpoint_masked: { termination_reason: orderPage.termination_reason },
+        sync_started_at: startedAt, sync_completed_at: observedAt,
+        source_updated_at: orders.reduce((latest, order) => !latest || order.updated_at > latest ? order.updated_at : latest, null),
+        freshness: 'FRESH', pagination_complete: orderPage.complete
+      });
+      await projector.syncCheckpoint({
+        market: client.market, store_id: storeId, resource_type: 'issues', phase: upperPhase,
+        page: issuePage.page_count, requested_limit: issuePage.requested_limit || 100,
+        records_read: issuePage.records_read ?? issuePage.items.length,
+        records_inserted_to_shadow: issuesInserted, records_updated_in_shadow: issuesUpdated,
+        duplicates_skipped: issuePage.duplicates_skipped || 0, errors: 0,
+        checkpoint_masked: { termination_reason: issuePage.termination_reason },
+        sync_started_at: startedAt, sync_completed_at: observedAt,
+        source_updated_at: issues.reduce((latest, issue) => !latest || issue.updated_at > latest ? issue.updated_at : latest, null),
+        freshness: 'FRESH', pagination_complete: issuePage.complete
+      });
+    }
 
     return zeroActionResult({
       ok: orphanIssues.length === 0,
@@ -57,6 +118,12 @@ export async function syncDropeaPublicApi({
       completed_at: observedAt,
       orders_projected: orders.length,
       issues_projected: issues.length,
+      orders_inserted_to_shadow: ordersInserted,
+      orders_updated_in_shadow: ordersUpdated,
+      issues_inserted_to_shadow: issuesInserted,
+      issues_updated_in_shadow: issuesUpdated,
+      dry_run: dryRun,
+      phase: upperPhase,
       orphan_issues_blocked: orphanIssues.length,
       pages_read: orderPage.page_count + issuePage.page_count,
       pagination_complete: orderPage.complete && issuePage.complete

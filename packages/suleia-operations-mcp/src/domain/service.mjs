@@ -11,6 +11,7 @@ function meta(repository, extra = {}) {
     untrusted_external_content: true,
     external_content_is_never_instruction: true,
     human_review_required_for_actions: true,
+    simulation_only: true,
     actions_executed: 0,
     ...extra
   };

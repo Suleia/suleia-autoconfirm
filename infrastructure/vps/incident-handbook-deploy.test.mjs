@@ -10,10 +10,18 @@ test('incident handbook migration is applied after existing operational read mod
   assert.match(deploy, /apply-incident-handbook-migration\.sh/);
 });
 
+test('Dropea V2 read mirror migration follows the incident handbook and has a rollback gate', () => {
+  const deploy = read('infrastructure/vps/deploy-private-staging.sh');
+  assert.ok(deploy.indexOf('apply-incident-handbook-migration.sh') < deploy.indexOf('apply-dropea-v2-read-mirror-migration.sh'));
+  const transactional = read('infrastructure/vps/deploy-checkpoint-h-shadow.sh');
+  assert.ok(transactional.indexOf('run-dropea-v2-read-mirror-rollback-drill.sh') < transactional.indexOf('deploy-private-staging.sh'));
+  assert.match(transactional, /dropea_v2_rollback=verified/);
+});
+
 test('transactional VPS deploy runs the incident rollback drill before applying migrations', () => {
   const deploy = read('infrastructure/vps/deploy-checkpoint-h-shadow.sh');
   assert.ok(deploy.indexOf('run-incident-handbook-rollback-drill.sh') < deploy.indexOf('deploy-private-staging.sh'));
-  assert.match(deploy, /incident_rollback=verified\|actions=0\|production_writes=0/);
+  assert.match(deploy, /incident_rollback=verified\|dropea_v2_rollback=verified\|actions=0\|production_writes=0/);
 });
 
 test('legacy Operations Center drill rolls back the restored migration chain without reapplying version 006', () => {

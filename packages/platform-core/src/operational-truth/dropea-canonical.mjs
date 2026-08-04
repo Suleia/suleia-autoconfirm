@@ -54,9 +54,19 @@ function required(value, field) {
 
 function nullableIso(value, field) {
   if (value === undefined || value === null || value === '') return null;
-  const timestamp = new Date(value);
+  const raw = String(value);
+  const timestamp = new Date(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(raw) ? `${raw}Z` : raw);
   if (Number.isNaN(timestamp.getTime())) throw new Error(`${field} must be an ISO date`);
   return timestamp.toISOString();
+}
+
+function encryptPrivateJson(value, hmacKey) {
+  if (!value || typeof value !== 'object' || Object.keys(value).length === 0) return null;
+  const key = crypto.createHash('sha256').update(`suleia-private-v1|${hmacKey}`).digest();
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+  return `v1:${iv.toString('base64url')}:${cipher.getAuthTag().toString('base64url')}:${ciphertext.toString('base64url')}`;
 }
 
 function hashTechnical(value, hmacKey) {
@@ -124,9 +134,11 @@ export function technicalIdentityLink(namespace, value, hmacKey, verification = 
   return Object.freeze({ namespace, value_hash: hashTechnical(value, hmacKey), verification });
 }
 
-export function buildDropeaCanonicalIdentity({ order, hmacKey, additionalLinks = [] }) {
+export function buildDropeaCanonicalIdentity({ order, hmacKey, market, storeId = order?.store_id, additionalLinks = [] }) {
+  required(market, 'market');
+  required(storeId, 'store_id');
   const links = [
-    technicalIdentityLink('dropea_order_id', order?.id, hmacKey),
+    technicalIdentityLink('dropea_order_id', `${String(market).toUpperCase()}:${storeId}:${order?.id}`, hmacKey),
     technicalIdentityLink('dropea_external_reference', order?.external_order_id, hmacKey),
     ...additionalLinks
   ].filter(Boolean);
@@ -137,6 +149,7 @@ export function buildDropeaCanonicalIdentity({ order, hmacKey, additionalLinks =
 
 export function mapDropeaOrder(order, {
   hmacKey,
+  market,
   observedAt = new Date().toISOString(),
   dataFreshness = 'FRESH',
   additionalIdentityLinks = [],
@@ -145,7 +158,8 @@ export function mapDropeaOrder(order, {
   required(order?.id, 'order.id');
   required(order?.status, 'order.status');
   if (!Array.isArray(order?.line_items)) throw new Error('order.line_items is required');
-  const identity = buildDropeaCanonicalIdentity({ order, hmacKey, additionalLinks: additionalIdentityLinks });
+  const normalizedMarket = String(required(market, 'market')).toUpperCase();
+  const identity = buildDropeaCanonicalIdentity({ order, hmacKey, market: normalizedMarket, additionalLinks: additionalIdentityLinks });
   const state = mapDropeaOrderState(order.status, order.sub_status);
   const lineItems = order.line_items.map(normalizeLineItem);
   const lifecycle = classifyOrderLifecycle({
@@ -158,16 +172,26 @@ export function mapDropeaOrder(order, {
   }) : { key: null, match_type: 'UNKNOWN' };
   const customerPhoneNormalized = normalizeSpanishPhone(order.customer?.phone || order.customer_phone);
   const testPhone = evaluateTestPhoneGuard(customerPhoneNormalized, { testPhoneNormalized });
+  const address = order.shipping_address || {};
+  const normalizedAddress = [address.address_line_1, address.address_line_2, address.postal_code, address.city, address.state, address.country]
+    .filter(Boolean).map((part) => String(part).trim().toUpperCase()).join('|');
+  const productDisplayNames = lineItems.map((item, index) => cleanTechnicalText(
+    order.line_items[index]?.external_name || item.product_name,
+    200
+  ));
   return Object.freeze({
     canonical_order_id: identity.canonical_order_id,
     dropea_order_id: String(order.id),
+    market: normalizedMarket,
     external_order_id_hash: order.external_order_id ? hashTechnical(order.external_order_id, hmacKey) : null,
+    external_order_id_ciphertext: order.external_order_id ? encryptPrivateJson({ value: order.external_order_id }, hmacKey) : null,
     store_id: order.store_id ?? null,
     status: String(order.status).toUpperCase(),
     sub_status: order.sub_status === undefined || order.sub_status === null ? null : String(order.sub_status).toUpperCase(),
     canonical_state: state.canonical_state,
     line_items: lineItems,
     product_summary: productSummary(lineItems),
+    product_display_names: productDisplayNames,
     total_amount: Number(required(order.total_amount, 'order.total_amount')),
     currency: String(required(order.currency, 'order.currency')).toUpperCase(),
     payment_method: order.payment_method ?? 'UNKNOWN',
@@ -176,6 +200,9 @@ export function mapDropeaOrder(order, {
     carrier: order.carrier ?? 'UNKNOWN',
     service_type: order.service_type ?? 'UNKNOWN',
     tracking_reference_masked: order.tracking_number ? hashTechnical(order.tracking_number, hmacKey) : null,
+    normalized_address_hash: normalizedAddress ? hashTechnical(normalizedAddress, hmacKey) : null,
+    shipping_address_ciphertext: encryptPrivateJson(address, hmacKey),
+    address_line_2_present: Boolean(address.address_line_2),
     created_at: nullableIso(required(order.created_at, 'order.created_at'), 'order.created_at'),
     updated_at: nullableIso(required(order.updated_at, 'order.updated_at'), 'order.updated_at'),
     confirmed_at: nullableIso(order.confirmed_at, 'order.confirmed_at'),
@@ -201,6 +228,11 @@ export function mapDropeaOrder(order, {
     data_freshness: dataFreshness,
     observed_at: nullableIso(observedAt, 'observed_at'),
     source_version: DROPEA_SOURCE_VERSION,
+    source_system: 'DROPEA_PUBLIC_API_V2',
+    payload_hash: hashTechnical(JSON.stringify({
+      market: normalizedMarket, store_id: order.store_id, id: order.id, status: order.status,
+      sub_status: order.sub_status, total_amount: order.total_amount, updated_at: order.updated_at
+    }), hmacKey),
     mapper_version: DROPEA_ORDER_MAPPER_VERSION,
     schema_version: C0_SCHEMA_VERSION,
     decision_eligible: state.decision_eligible && identity.shadow_eligible,
@@ -224,36 +256,50 @@ function safePickupPoint(value, hmacKey) {
   });
 }
 
-export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, observedAt = new Date().toISOString(), freshness = 'FRESH' } = {}) {
+export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, market, storeId, observedAt = new Date().toISOString(), freshness = 'FRESH' } = {}) {
   required(issue?.id, 'issue.id');
   required(canonicalOrderId, 'canonicalOrderId');
+  const normalizedMarket = String(required(market, 'market')).toUpperCase();
+  const normalizedStoreId = String(required(storeId, 'store_id'));
   const type = String(required(issue.type, 'issue.type')).toUpperCase();
   const status = String(required(issue.status, 'issue.status')).toUpperCase();
   const resolutionStatus = issue.resolution_status ? String(issue.resolution_status).toUpperCase() : null;
+  const carrierCode = cleanTechnicalText(issue.initial_carrier_code, 80);
+  const canonicalByCarrierCode = Object.freeze({ DI: 'ADDRESS_INCORRECT', NAM: 'RECIPIENT_ABSENT' });
+  const canonicalType = canonicalByCarrierCode[String(carrierCode || '').toUpperCase()] || 'UNKNOWN';
+  const carrierCodeMapped = canonicalType !== 'UNKNOWN';
   const typeSupported = DROPEA_ISSUE_TYPES.includes(type);
   const supported = typeSupported
     && DROPEA_ISSUE_STATUSES.includes(status)
-    && (resolutionStatus === null || DROPEA_RESOLUTION_STATUSES.includes(resolutionStatus));
+    && (resolutionStatus === null || DROPEA_RESOLUTION_STATUSES.includes(resolutionStatus))
+    && carrierCodeMapped;
   const actionable = supported && status === 'PENDING' && issue.is_active === true;
+  const capabilityStatus = Array.isArray(issue.allowed_resolution_options) && issue.allowed_resolution_options.length > 0
+    ? 'DECLARED' : 'NOT_DECLARED';
   return Object.freeze({
     canonical_issue_id: stableId('issue', { dropea_issue_id: String(issue.id), canonical_order_id: canonicalOrderId }),
     dropea_issue_id: String(issue.id),
     canonical_order_id: String(canonicalOrderId),
+    market: normalizedMarket,
+    store_id: normalizedStoreId,
     dropea_order_id: issue.order_id === undefined || issue.order_id === null ? null : String(issue.order_id),
     tracking_reference_masked: issue.tracking_number ? hashTechnical(issue.tracking_number, hmacKey) : null,
     carrier: String(required(issue.carrier, 'issue.carrier')).toUpperCase(),
-    type: typeSupported ? type : 'UNKNOWN',
+    type: canonicalType,
+    secondary_type: typeSupported ? type : 'UNKNOWN',
     raw_type: type,
-    mapping_status: typeSupported ? 'MAPPED' : 'UNMAPPED',
+    mapping_status: carrierCodeMapped ? 'MAPPED' : 'UNMAPPED',
     human_review: !supported,
-    schema_drift_alert: !typeSupported,
+    schema_drift_alert: !typeSupported || !carrierCodeMapped,
     status,
     is_active: issue.is_active === true,
     actionable,
     resolution_status: resolutionStatus,
     allowed_resolution_options: Array.isArray(issue.allowed_resolution_options) ? [...issue.allowed_resolution_options] : [],
-    initial_carrier_code: cleanTechnicalText(required(issue.initial_carrier_code, 'issue.initial_carrier_code'), 80),
-    initial_carrier_description_sanitized: sanitizeCarrierDescription(required(issue.initial_carrier_description, 'issue.initial_carrier_description')),
+    capability_status: capabilityStatus,
+    automation_allowed: false,
+    initial_carrier_code: carrierCode,
+    initial_carrier_description_sanitized: sanitizeCarrierDescription(issue.initial_carrier_description),
     initial_carrier_substatus_code: cleanTechnicalText(issue.initial_carrier_substatus_code, 80),
     resolution_data_present: issue.resolution_data !== undefined && issue.resolution_data !== null,
     resolution_changed_at: nullableIso(issue.resolution_changed_at, 'issue.resolution_changed_at'),
@@ -270,10 +316,17 @@ export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, observedAt = 
     confidence: supported ? 100 : 0,
     risk: supported ? 'NOT_ASSESSED' : 'HIGH',
     qa_result: supported ? 'PENDING' : 'BLOCKED',
-    blocking_reasons: supported ? [] : ['DROPEA_ISSUE_ENUM_UNSUPPORTED'],
+    blocking_reasons: supported ? [] : [
+      ...(!carrierCodeMapped ? ['DROPEA_CARRIER_CODE_UNKNOWN'] : []),
+      ...(!typeSupported ? ['DROPEA_ISSUE_ENUM_UNSUPPORTED'] : [])
+    ],
     source_event_id: null,
     source_version: DROPEA_SOURCE_VERSION,
     mapper_version: DROPEA_ISSUE_MAPPER_VERSION,
+    payload_hash: hashTechnical(JSON.stringify({
+      id: issue.id, order_id: issue.order_id, status: issue.status, is_active: issue.is_active,
+      initial_carrier_code: issue.initial_carrier_code, updated_at: issue.updated_at
+    }), hmacKey),
     freshness,
     observed_at: nullableIso(observedAt, 'observed_at'),
     schema_version: C0_SCHEMA_VERSION,

@@ -97,6 +97,30 @@ export function tokenScopes(token) {
   return [...new Set(scopes.map((scope) => String(scope).trim()).filter(Boolean))].sort();
 }
 
+export function tokenClaims(token) {
+  const value = String(token || '').trim();
+  const segments = value.split('.');
+  if (segments.length !== 3) {
+    throw new DropeaContractError('Dropea read token must be an inspectable JWT', 'DROPEA_TOKEN_NOT_INSPECTABLE');
+  }
+  return base64UrlJson(segments[1]);
+}
+
+export function assertTokenActive(token, { now = Date.now, expectedExpiresAt } = {}) {
+  const claims = tokenClaims(token);
+  if (!Number.isFinite(Number(claims.exp))) {
+    throw new DropeaContractError('Dropea token expiry is missing', 'DROPEA_TOKEN_EXPIRY_MISSING');
+  }
+  const expiresAt = new Date(Number(claims.exp) * 1000);
+  if (expiresAt.getTime() <= now()) {
+    throw new DropeaContractError('Dropea token is expired', 'DROPEA_TOKEN_EXPIRED');
+  }
+  if (expectedExpiresAt && expiresAt.toISOString() !== new Date(expectedExpiresAt).toISOString()) {
+    throw new DropeaContractError('Dropea token expiry does not match store configuration', 'DROPEA_TOKEN_EXPIRY_MISMATCH');
+  }
+  return Object.freeze({ expires_at: expiresAt.toISOString() });
+}
+
 export function assertExactReadOnlyScopes(scopesOrToken) {
   const actual = Array.isArray(scopesOrToken)
     ? [...new Set(scopesOrToken.map(String))].sort()

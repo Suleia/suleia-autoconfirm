@@ -193,7 +193,7 @@ function isPaginatedOperation(name) {
 
 export function createDropeaPublicApiClient({
   token,
-  market = 'ES',
+  market,
   fetchImpl = globalThis.fetch,
   timeoutMs = 15_000,
   maxRetries = 2,
@@ -267,24 +267,82 @@ export function createDropeaPublicApiClient({
     throw lastError;
   }
 
-  async function listAll(name, params = {}, { maxPages = 200, maxRecords = 20_000 } = {}) {
+  async function listAll(name, params = {}, {
+    maxPages = 200,
+    maxRecords = 20_000,
+    requestedLimit = 100,
+    pagePauseMs = 0,
+    onCheckpoint = async () => {}
+  } = {}) {
     if (!isPaginatedOperation(name)) {
       throw new DropeaContractError('Operation is not paginated', 'DROPEA_OPERATION_NOT_PAGINATED');
     }
     const items = [];
+    const seenKeys = new Set();
+    const seenPageFingerprints = new Set();
     let page = Number(params.page || 1);
-    let totalPages = null;
-    while (totalPages === null || page <= totalPages) {
+    const firstPage = page;
+    const limit = Math.min(Number(params.limit || requestedLimit), 100);
+    let duplicateCount = 0;
+    let recordsRead = 0;
+    let terminationReason = null;
+    while (true) {
       if (page > maxPages) throw new DropeaReadError('Dropea pagination exceeded safety limit', 'DROPEA_MAX_PAGES_EXCEEDED');
-      const payload = await request(name, { ...params, page, limit: Math.min(Number(params.limit || 100), 100) });
+      const payload = await request(name, { ...params, page, limit });
       const data = payload.data;
       if (data.pagination.page !== page) throw new DropeaReadError('Dropea pagination page mismatch', 'DROPEA_PAGE_MISMATCH');
-      totalPages = data.pagination.total_pages;
-      items.push(...data.items);
+      const fingerprint = JSON.stringify(data.items.map((item) => item?.id ?? item?.order_id ?? item));
+      if (seenPageFingerprints.has(fingerprint) && data.items.length > 0) {
+        throw new DropeaReadError('Dropea pagination repeated a page', 'DROPEA_PAGE_REPEATED');
+      }
+      seenPageFingerprints.add(fingerprint);
+      recordsRead += data.items.length;
+      for (const item of data.items) {
+        const resourceId = item?.id ?? item?.order_id;
+        if (resourceId === undefined || resourceId === null) {
+          throw new DropeaReadError('Dropea paginated item has no stable identity', 'DROPEA_ITEM_ID_MISSING');
+        }
+        const storeId = item?.store_id ?? params.store_id ?? params.id ?? 'NO_STORE';
+        const key = `${String(market).toUpperCase()}:${storeId}:${resourceId}`;
+        if (seenKeys.has(key)) {
+          duplicateCount += 1;
+          continue;
+        }
+        seenKeys.add(key);
+        items.push(item);
+      }
       if (items.length > maxRecords) throw new DropeaReadError('Dropea pagination exceeded record safety limit', 'DROPEA_MAX_RECORDS_EXCEEDED');
+      await onCheckpoint(Object.freeze({
+        operation: name,
+        market: String(market).toUpperCase(),
+        page,
+        requested_limit: limit,
+        items_received: data.items.length,
+        records_read: recordsRead,
+        unique_records: items.length,
+        duplicates_skipped: duplicateCount
+      }));
+      if (data.items.length === 0) {
+        terminationReason = 'EMPTY_PAGE';
+        break;
+      }
+      if (data.items.length < limit) {
+        terminationReason = 'SHORT_PAGE';
+        break;
+      }
       page += 1;
+      if (pagePauseMs > 0) await wait(pagePauseMs);
     }
-    return { items, page_count: Math.max(0, page - Number(params.page || 1)), complete: true };
+    return {
+      items,
+      page_count: page - firstPage + 1,
+      complete: true,
+      termination_reason: terminationReason,
+      records_read: recordsRead,
+      duplicates_skipped: duplicateCount,
+      requested_limit: limit,
+      reported_total_pages: null
+    };
   }
 
   return Object.freeze({
