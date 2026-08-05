@@ -15,6 +15,7 @@ const repository = new ShadowRepository(config.databaseUrl);
 const source = new SupabaseReadSource(config);
 const audit = (event) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), run_mode: 'SHADOW_READ_ONLY', ...event, actions_executed: 0, production_writes: 0 })}\n`);
 const dropeaEnabled = String(process.env.DROPEA_PUBLIC_API_ENABLED || 'false').toLowerCase() === 'true';
+const dropeaDryRun = String(process.env.DROPEA_INGESTION_DRY_RUN || 'false').toLowerCase() === 'true';
 const dropeaStores = dropeaEnabled ? loadDropeaStoreConfigs(process.env) : [];
 const dropeaClients = dropeaStores.map((store) => ({ store, client: createDropeaPublicApiClient({
   token: store.token,
@@ -71,11 +72,11 @@ async function run() {
     const legacy = await syncShadow({ source, repository, hashKey: config.hashKey, pageSize: config.pageSize, audit });
     const dropeaResults = [];
     for (const { store, client } of dropeaClients) {
-      await operationsProjector.upsertStoreConfig(store);
+      if (!dropeaDryRun) await operationsProjector.upsertStoreConfig(store);
       dropeaResults.push(await syncDropeaPublicApi({
         client, storeConfig: store,
         phase: process.env.DROPEA_INGESTION_PHASE || 'INCREMENTAL',
-        dryRun: String(process.env.DROPEA_INGESTION_DRY_RUN || 'false').toLowerCase() === 'true',
+        dryRun: dropeaDryRun,
         projector: operationsProjector,
         hmacKey: config.hashKey,
         testPhoneNormalized: process.env.TEST_PHONE_NORMALIZED || null,

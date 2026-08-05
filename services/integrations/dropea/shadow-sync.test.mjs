@@ -146,3 +146,33 @@ test('TODAY links a pending issue to an order already present in the mirror', as
   assert.equal(result.orphan_issues_blocked, 0);
   assert.equal(projected[0].canonical_order_id, 'order-existing');
 });
+
+test('dry-run performs zero mirror writes on success and failure', async () => {
+  const writes = [];
+  const projector = {
+    async resolveCanonicalOrder() { return { status: 'NOT_FOUND' }; },
+    async upsertOrder() { writes.push('order'); },
+    async upsertIssue() { writes.push('issue'); },
+    async connectorHealth() { writes.push('health'); },
+    async syncCheckpoint() { writes.push('checkpoint'); }
+  };
+  const client = {
+    market: 'ES',
+    async listAll(name) {
+      return { items: name === 'listOrders' ? [order] : [issue], page_count: 1, complete: true };
+    }
+  };
+  const result = await syncDropeaPublicApi({
+    client, projector, dryRun: true,
+    hmacKey: 'a-protected-hmac-key-with-more-than-32-characters'
+  });
+  assert.equal(result.dry_run, true);
+  assert.deepEqual(writes, []);
+
+  await assert.rejects(() => syncDropeaPublicApi({
+    client: { market: 'ES', async listAll() { throw new Error('read failed'); } },
+    projector, dryRun: true,
+    hmacKey: 'a-protected-hmac-key-with-more-than-32-characters'
+  }), /read failed/);
+  assert.deepEqual(writes, []);
+});

@@ -178,7 +178,7 @@ export async function syncDropeaPublicApi({
     });
   } catch (error) {
     const failedAt = now().toISOString();
-    await projector.connectorHealth({
+    if (!dryRun) await projector.connectorHealth({
       connector: `DROPEA_PUBLIC_API_${client.market}`,
       transport_health: 'FAILED',
       data_health: 'UNKNOWN',
