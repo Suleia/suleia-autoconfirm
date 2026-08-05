@@ -26,10 +26,17 @@ test('transactional VPS deploy runs the incident rollback drill before applying 
 
 test('legacy Operations Center drill rolls back the restored migration chain without reapplying version 006', () => {
   const drill = read('infrastructure/vps/run-operations-center-rollback-drill.sh');
+  assert.match(drill, /009_dropea_v2_real_read_mirror\.down\.sql/);
+  assert.match(drill, /008_incident_management_handbook\.down\.sql/);
   assert.match(drill, /007_operational_protections\.down\.sql/);
   assert.match(drill, /006_operations_center_read_models\.down\.sql/);
   assert.doesNotMatch(drill, /migrations\/006_operations_center_read_models\.sql/);
-  assert.ok(drill.indexOf('PROTECTIONS_DOWN_MIGRATION') < drill.indexOf('OPERATIONS_DOWN_MIGRATION'));
+  const v2Execution = drill.indexOf('< "${V2_DOWN_MIGRATION}"');
+  const incidentExecution = drill.indexOf('< "${INCIDENT_DOWN_MIGRATION}"');
+  const protectionsExecution = drill.indexOf('< "${PROTECTIONS_DOWN_MIGRATION}"');
+  const operationsExecution = drill.indexOf('< "${OPERATIONS_DOWN_MIGRATION}"');
+  assert.ok(v2Execution >= 0 && v2Execution < incidentExecution);
+  assert.ok(incidentExecution < protectionsExecution && protectionsExecution < operationsExecution);
 });
 
 test('historical migration launchers skip complete state and fail closed on partial state', () => {
