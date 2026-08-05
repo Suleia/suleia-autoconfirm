@@ -1,1 +1,2 @@
 *.sh text eol=lf
+contracts/external/dropea/public-api-v2/0.1.0/openapi.json -text
