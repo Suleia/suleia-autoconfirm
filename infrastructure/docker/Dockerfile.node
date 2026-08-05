@@ -12,6 +12,7 @@ WORKDIR /app
 COPY --from=dependencies /app/packages/suleia-operations-mcp/node_modules ./packages/suleia-operations-mcp/node_modules
 COPY apps ./apps
 COPY services ./services
+COPY scripts/run-dropea-v2-shadow-phase.mjs ./scripts/run-dropea-v2-shadow-phase.mjs
 COPY packages/platform-core ./packages/platform-core
 COPY packages/suleia-operations-mcp ./packages/suleia-operations-mcp
 USER suleia

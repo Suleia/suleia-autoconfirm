@@ -18,3 +18,8 @@ test('periodic worker cannot persist store configuration during dry-run', () => 
   const source = fs.readFileSync(new URL('../services/shadow-readonly-worker.mjs', import.meta.url), 'utf8');
   assert.match(source, /if \(!dropeaDryRun\) await operationsProjector\.upsertStoreConfig\(store\)/);
 });
+
+test('one-shot runner is included explicitly in the production Node image', () => {
+  const dockerfile = fs.readFileSync(new URL('../infrastructure/docker/Dockerfile.node', import.meta.url), 'utf8');
+  assert.match(dockerfile, /COPY scripts\/run-dropea-v2-shadow-phase\.mjs \.\/scripts\/run-dropea-v2-shadow-phase\.mjs/);
+});
