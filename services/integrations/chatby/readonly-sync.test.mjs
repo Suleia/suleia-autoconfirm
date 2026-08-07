@@ -111,6 +111,67 @@ test('Chatby mirror accepts the exact Dropea order id stored by the real integra
   assert.deepEqual(available, [{ canonical_order_id: 'order-safe', canonical_issue_id: 'issue-safe' }]);
 });
 
+test('Chatby mirror recovers a conversation from the exact technical order id inside Dropea payload', async () => {
+  const links = [];
+  const pool = { query: async () => ({ rows: [{
+    canonical_order_id: 'order-v2-safe', external_order_id_hash: 'a'.repeat(64),
+    dropea_order_id: '198765', canonical_issue_id: 'issue-v2-safe',
+    issue_created_at: '2026-08-01T09:00:00Z', issue_updated_at: '2026-08-01T09:05:00Z'
+  }] }) };
+  const fetchImpl = async (url) => new URL(url).pathname.endsWith('/subscribers')
+    ? response({ data: [{
+      user_ns: 'conversation-safe', user_id: 'contact-safe',
+      user_fields: [
+        { name: 'Dropea: Número', value: 'legacy-issue-id' },
+        { name: '[Dropea] Issue Payload', value: JSON.stringify({ order_id: '198765', order: { id: '198765' } }) }
+      ]
+    }], meta: { current_page: 1, last_page: 1 } })
+    : response({ data: [{ id: 'm1', type: 'in', msg_type: 'text', ts: Date.parse('2026-08-01T10:00:00Z'), content: 'Confirmo' }], meta: { current_page: 1, last_page: 1 } });
+  const result = await syncChatbyReadOnly({
+    pool,
+    projector: {
+      recordChatbyConversationEvent: async () => ({ inserted: true }),
+      upsertChatbyConversationLink: async (value) => links.push(value),
+      markChatbyConversationAvailable: async () => ({ available: true })
+    },
+    token: 'test-token', hmacKey: key, fetchImpl
+  });
+  assert.equal(result.available_issues, 1);
+  assert.equal(result.conversation_statuses.FOUND, 1);
+  assert.equal(links[0].conversation_status, 'FOUND');
+  assert.match(links[0].identity_method, /^CHATBY_PAYLOAD:/);
+  assert.equal(links[0].customer_replied, true);
+});
+
+test('Chatby mirror records the exact cause when no technical conversation reference exists', async () => {
+  const links = [];
+  const pool = { query: async () => ({ rows: [{
+    canonical_order_id: 'order-safe', external_order_id_hash: 'a'.repeat(64),
+    dropea_order_id: '198765', canonical_issue_id: 'issue-safe',
+    issue_created_at: '2026-08-01T09:00:00Z', issue_updated_at: '2026-08-01T09:05:00Z'
+  }] }) };
+  const result = await syncChatbyReadOnly({
+    pool,
+    projector: { upsertChatbyConversationLink: async (value) => links.push(value) },
+    token: 'test-token', hmacKey: key,
+    fetchImpl: async () => response({ data: [{ user_ns: 'unrelated', user_fields: [] }], meta: { current_page: 1, last_page: 1 } })
+  });
+  assert.equal(result.conversation_statuses.NONE, 1);
+  assert.equal(links[0].reason_code, 'NO_EXACT_TECHNICAL_REFERENCE');
+  assert.equal(result.external_methods[0], 'GET');
+});
+
+test('conversation metrics separate existence, current reply and stale activity', () => {
+  const metrics = chatbyReadOnlyInternals.conversationMetrics([
+    { id: 'old-out', type: 'out', msg_type: 'template', ts: Date.parse('2026-07-01T10:00:00Z') },
+    { id: 'old-in', type: 'in', msg_type: 'postback', ts: Date.parse('2026-07-01T11:00:00Z'), payload: { title: 'No quiero el pedido' } }
+  ], '2026-08-01T09:00:00Z', new Date('2026-08-02T09:00:00Z'));
+  assert.equal(metrics.customer_replied, false);
+  assert.equal(metrics.conversation_freshness, 'STALE');
+  assert.equal(metrics.last_button, 'FINAL_REJECTION');
+  assert.equal(metrics.message_count, 2);
+});
+
 test('Chatby deterministic classifier recognizes the supported operational intents', () => {
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ payload: { title: 'No quiero el pedido' } }), 'FINAL_REJECTION');
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'Quiero recogerlo en agencia' }), 'PICKUP_AT_AGENCY');

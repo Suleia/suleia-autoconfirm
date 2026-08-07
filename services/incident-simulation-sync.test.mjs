@@ -11,7 +11,7 @@ test('incident sync reads mirror rows and records only zero-action simulations',
     updated_at: '2026-08-02T08:00:00Z', observed_at: '2026-08-02T08:01:00Z',
     freshness: 'FRESH', source_version: '0.1.0', identity_status: 'EXACT', total_amount: 20,
     lifecycle_classification: 'ACTIVE', canonical_state: 'DELIVERY_ATTEMPTED', delivery_attempt_number: '1',
-    discount_status: 'NOT_OFFERED', conversation_source: 'AVAILABLE'
+    discount_status: 'NOT_OFFERED', conversation_source: 'AVAILABLE', conversation_status: 'FOUND'
   }] } : { rows: [] } };
   const projector = {
     upsertIncidentInterpretation: async (value) => calls.push(['interpretation', value]),
@@ -33,7 +33,8 @@ test('incident sync blocks decisions and timers when Chatby source is unavailabl
     updated_at: '2026-08-02T08:00:00Z', observed_at: '2026-08-02T08:01:00Z',
     freshness: 'FRESH', source_version: '0.1.0', identity_status: 'EXACT', total_amount: 20,
     lifecycle_classification: 'ACTIVE', canonical_state: 'DELIVERY_ATTEMPTED',
-    conversation_source: 'UNAVAILABLE', blocking_reasons: ['DROPEA_CARRIER_CODE_UNKNOWN']
+    conversation_source: 'UNAVAILABLE', conversation_status: 'NONE',
+    conversation_reason: 'NO_EXACT_TECHNICAL_REFERENCE', blocking_reasons: ['DROPEA_CARRIER_CODE_UNKNOWN']
   }] } : { rows: [] } };
   const projector = {
     upsertIncidentInterpretation: async (value) => calls.push(['interpretation', value]),
@@ -44,5 +45,5 @@ test('incident sync blocks decisions and timers when Chatby source is unavailabl
   assert.equal(result.blocked, 1);
   assert.deepEqual(calls.map(([type]) => type), ['interpretation', 'simulation']);
   assert.equal(calls[1][1].simulated_action, null);
-  assert.equal(calls[1][1].blocking_reasons.includes('WAITING_CHATBY_SOURCE'), true);
+  assert.equal(calls[1][1].blocking_reasons.includes('CHATBY_NONE:NO_EXACT_TECHNICAL_REFERENCE'), true);
 });

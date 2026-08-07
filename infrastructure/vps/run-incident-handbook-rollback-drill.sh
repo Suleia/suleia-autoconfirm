@@ -8,11 +8,13 @@ BACKUP_FILE="${1:-}"
 DRILL_DATABASE="suleia_incident_handbook_drill"
 UP_MIGRATION="${INSTALL_ROOT}/migrations/008_incident_management_handbook.sql"
 DOWN_MIGRATION="${INSTALL_ROOT}/migrations/rollback/008_incident_management_handbook.down.sql"
+CHATBY_RECOVERY_DOWN_MIGRATION="${INSTALL_ROOT}/migrations/rollback/013_chatby_conversation_recovery.down.sql"
 
 [[ "${BACKUP_FILE}" =~ ^/backups/suleia-[0-9TZ]+\.dump$ ]]
 test -r "${ENV_FILE}"
 test -r "${UP_MIGRATION}"
 test -r "${DOWN_MIGRATION}"
+test -r "${CHATBY_RECOVERY_DOWN_MIGRATION}"
 compose() { docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" "$@"; }
 cleanup() { compose exec --no-TTY postgres dropdb --if-exists --username suleia_admin "${DRILL_DATABASE}" >/dev/null; }
 trap cleanup EXIT
@@ -33,6 +35,8 @@ if [[ "${created}" = "0" ]]; then
 fi
 [[ "${created}" = "5" ]]
 
+compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username suleia_admin --dbname "${DRILL_DATABASE}" < "${CHATBY_RECOVERY_DOWN_MIGRATION}" >/dev/null
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN_MIGRATION}" >/dev/null
 remaining="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align \

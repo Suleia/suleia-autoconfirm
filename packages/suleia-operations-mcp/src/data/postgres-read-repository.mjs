@@ -24,15 +24,23 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       const operational = await query(`SELECT canonical_order_id AS order_id,dropea_order_id,
           status,sub_status,canonical_state,lifecycle_classification,product_summary,total_amount,
           currency,carrier,service_type,tracking_reference_masked,identity_status,decision_status,
-          risk,priority,freshness,updated_at,actions_executed,production_writes,run_mode
-        FROM read_models.operations_order_records
+          risk,priority,freshness,updated_at,actions_executed,production_writes,run_mode,
+          conversation_status,conversation_reason,conversation_identity_method,
+          last_customer_message_at,last_suleia_message_at,last_button,latest_template_hash,
+          customer_replied,conversation_age_seconds,conversation_freshness,
+          conversation_message_count,detected_intent,conversation_confidence
+        FROM read_models.operations_order_detail
         WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1`, [orderId]);
       if (operational[0]) {
         const incidents = await query(`SELECT canonical_issue_id,dropea_issue_id,type,raw_type,
             mapping_status,status,is_active,carrier,delivery_attempt_number,customer_response_status,
             customer_intent,proposed_resolution,allowed_resolution_options,risk,qa_result,
-            blocking_reasons,due_at,discount_status,freshness,updated_at,actions_executed,production_writes
-          FROM read_models.operations_incident_records
+            blocking_reasons,due_at,discount_status,freshness,updated_at,actions_executed,production_writes,
+            conversation_status,conversation_reason,conversation_identity_method,
+            last_customer_message_at,last_suleia_message_at,last_button,latest_template_hash,
+            customer_replied,conversation_age_seconds,conversation_freshness,
+            conversation_message_count,detected_intent,conversation_confidence,interpretation_summary
+          FROM read_models.operations_incident_handbook_detail
           WHERE canonical_order_id=$1 ORDER BY updated_at DESC`, [operational[0].order_id]);
         return { ...operational[0], incidents };
       }

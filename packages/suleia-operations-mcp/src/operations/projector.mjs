@@ -435,7 +435,67 @@ export class OperationsProjector {
       event.incident_version, event.relevance_status, event.intent,
       event.intent_confidence, event.payload_hash
     ]);
+    if ((result?.rowCount || 0) > 0) {
+      await this.pool.query(`INSERT INTO read_models.operations_timeline_records
+        (timeline_id,canonical_order_id,canonical_issue_id,event_type,source,occurred_at,
+         summary_masked,freshness)
+        VALUES($1,$2,$3,$4,'CHATBY_READ_ONLY',$5,$6,$7)
+        ON CONFLICT(timeline_id) DO NOTHING`, [
+        `chatby:${event.chatby_message_id_hash}`, event.canonical_order_id,
+        event.canonical_issue_id, `CHATBY_${event.direction}_${event.message_type}`,
+        event.occurred_at, JSON.stringify({
+          intent: event.intent, button: event.button_payload,
+          relevance_status: event.relevance_status, text_status: event.sanitized_text
+        }), event.relevance_status === 'CURRENT_ORDER_EXACT_MATCH' ? 'FRESH' : 'STALE'
+      ]);
+    }
     return { inserted: (result?.rowCount || 0) > 0, actions_executed: 0, production_writes: 0 };
+  }
+
+  async upsertChatbyConversationLink(record) {
+    assertSafe(record);
+    await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO operations.chatby_conversation_links
+      (canonical_issue_id,canonical_order_id,chatby_conversation_id_hash,chatby_contact_id_hash,
+       conversation_status,reason_code,identity_method,evidence_hash,last_customer_message_at,
+       last_suleia_message_at,last_button,latest_template_hash,customer_replied,
+       conversation_age_seconds,conversation_freshness,message_count,observed_at,
+       actions_executed,production_writes)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),0,0)
+      ON CONFLICT(canonical_issue_id) DO UPDATE SET
+       canonical_order_id=EXCLUDED.canonical_order_id,
+       chatby_conversation_id_hash=EXCLUDED.chatby_conversation_id_hash,
+       chatby_contact_id_hash=EXCLUDED.chatby_contact_id_hash,
+       conversation_status=EXCLUDED.conversation_status,reason_code=EXCLUDED.reason_code,
+       identity_method=EXCLUDED.identity_method,evidence_hash=EXCLUDED.evidence_hash,
+       last_customer_message_at=EXCLUDED.last_customer_message_at,
+       last_suleia_message_at=EXCLUDED.last_suleia_message_at,last_button=EXCLUDED.last_button,
+       latest_template_hash=EXCLUDED.latest_template_hash,customer_replied=EXCLUDED.customer_replied,
+       conversation_age_seconds=EXCLUDED.conversation_age_seconds,
+       conversation_freshness=EXCLUDED.conversation_freshness,message_count=EXCLUDED.message_count,
+       observed_at=now()`, [
+      record.canonical_issue_id, record.canonical_order_id,
+      record.chatby_conversation_id_hash || null, record.chatby_contact_id_hash || null,
+      record.conversation_status, record.reason_code, record.identity_method,
+      record.evidence_hash || null, record.last_customer_message_at || null,
+      record.last_suleia_message_at || null, record.last_button || null,
+      record.latest_template_hash || null, record.customer_replied === true,
+      record.conversation_age_seconds ?? null, record.conversation_freshness || 'UNKNOWN',
+      record.message_count || 0
+    ]);
+    const available = record.conversation_status === 'FOUND';
+    await this.pool.query(`UPDATE read_models.operations_order_records SET
+      conversation_source=$2,interpretation_status=$3 WHERE canonical_order_id=$1`, [
+      record.canonical_order_id, available ? 'AVAILABLE' : 'UNAVAILABLE',
+      available ? 'READY' : `CHATBY_${record.conversation_status}`
+    ]);
+    await this.pool.query(`UPDATE read_models.operations_incident_records SET
+      conversation_source=$3,interpretation_status=$4
+      WHERE canonical_issue_id=$1 AND canonical_order_id=$2`, [
+      record.canonical_issue_id, record.canonical_order_id,
+      available ? 'AVAILABLE' : 'UNAVAILABLE', available ? 'READY' : `CHATBY_${record.conversation_status}`
+    ]);
+    return { linked: available, status: record.conversation_status,
+      actions_executed: 0, production_writes: 0 };
   }
 
   async markChatbyConversationAvailable({ canonical_order_id, canonical_issue_id }) {

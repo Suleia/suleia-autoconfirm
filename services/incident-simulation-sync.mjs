@@ -3,9 +3,12 @@ import crypto from 'node:crypto';
 
 export async function syncIncidentSimulations({ pool, projector, now = () => new Date(), maxRecords = 500 }) {
   const candidates = await pool.query(`SELECT i.*, o.identity_status, o.total_amount,
-    o.lifecycle_classification, o.canonical_state
+    o.lifecycle_classification, o.canonical_state,l.conversation_status,
+    l.reason_code AS conversation_reason,l.conversation_freshness,
+    l.observed_at AS conversation_observed_at
     FROM read_models.operations_incident_records i
     JOIN read_models.operations_order_records o USING(canonical_order_id)
+    LEFT JOIN operations.chatby_conversation_links l USING(canonical_issue_id)
     WHERE i.status='PENDING' AND i.is_active=true
     ORDER BY i.updated_at ASC LIMIT $1`, [maxRecords]);
   let interpreted = 0;
@@ -36,7 +39,10 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
       package_available_for_pickup: row.pickup_point_masked?.is_active === true,
       agency_distance_km: null
     };
-    if (row.conversation_source !== 'AVAILABLE') {
+    if (row.conversation_status !== 'FOUND') {
+      const chatbyReason = row.conversation_status
+        ? `CHATBY_${row.conversation_status}:${row.conversation_reason || 'UNSPECIFIED'}`
+        : 'CHATBY_UNKNOWN:LINK_NOT_ASSESSED';
       const sourceEventId = row.source_event_id || `poll:${row.canonical_issue_id}:${row.updated_at}`;
       const simulationId = crypto.createHash('sha256').update(`WAITING_CHATBY_SOURCE|${row.canonical_issue_id}|${row.updated_at}`).digest('hex');
       await projector.upsertIncidentInterpretation({
@@ -47,8 +53,8 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         requested_time_window: null, requested_detail: null, requested_address_present: false,
         pickup_requested: false, return_requested: false, discount_accepted: false,
         discount_rejected: false, conversation_quality: 'SOURCE_UNAVAILABLE',
-        interpretation_confidence: 0, interpretation_summary: 'WAITING_CHATBY_SOURCE',
-        messages_used: 0, messages_ignored: 0, missing_information: ['CHATBY_SOURCE'],
+        interpretation_confidence: 0, interpretation_summary: chatbyReason,
+        messages_used: 0, messages_ignored: 0, missing_information: [chatbyReason],
         freshness: row.freshness || 'UNKNOWN', interpreted_at: now().toISOString()
       });
       await projector.recordIncidentSimulation({
@@ -58,11 +64,11 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         chatby_snapshot_at: null, policy_version: 'CHATBY_SOURCE_GATE_V1',
         connector_version: row.source_version || '0.1.0', issue_type: row.type,
         delivery_attempt_number: row.delivery_attempt_number || 'UNKNOWN', customer_has_replied: false,
-        customer_intent: 'UNKNOWN', interpretation_summary: 'WAITING_CHATBY_SOURCE',
+        customer_intent: 'UNKNOWN', interpretation_summary: chatbyReason,
         facts_used: ['DROPEA_ISSUE'], facts_ignored: [],
         allowed_resolution_options: row.allowed_resolution_options || [], gls_feasibility: {},
         simulated_decision: 'BLOCKED', simulated_action: null,
-        missing_data: ['CHATBY_SOURCE'], blocking_reasons: ['WAITING_CHATBY_SOURCE', ...(row.blocking_reasons || [])],
+        missing_data: [chatbyReason], blocking_reasons: [chatbyReason, ...(row.blocking_reasons || [])],
         risk: 'HIGH', confidence: 0, qa_status: 'BLOCKED', human_review: true,
         timer_status: null, execution_available: false, external_write_attempted: false,
         actions_executed: 0, production_writes: 0
