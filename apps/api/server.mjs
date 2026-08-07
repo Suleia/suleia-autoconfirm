@@ -70,7 +70,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
     }
     if (requestUrl.pathname === '/api/config') {
       return json(res, 200, {
-        oauth: { issuer: config.oauthIssuer, client_id: config.oauthClientId, audience: config.oauthAudience, scope: 'openid profile operations:read' },
+        oauth: { issuer: config.oauthIssuer, client_id: config.oauthClientId, audience: config.oauthAudience, scope: 'openid operations:read' },
         refresh_interval_seconds: 45,
         run_mode: 'SHADOW_READ_ONLY'
       });

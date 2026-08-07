@@ -99,6 +99,13 @@ fi
 
 "${KCADM}" update "clients/${client_id}/default-client-scopes/${scope_id}" --config "${KCADM_CONFIG}" -r suleia -n >/dev/null 2>&1 || true
 
+profile_scope_id=$("${KCADM}" get client-scopes --config "${KCADM_CONFIG}" -r suleia --fields id,name --format csv --noquotes \
+  | csv_id_by_name profile)
+if [ -n "${profile_scope_id}" ]; then
+  "${KCADM}" update "clients/${client_id}/optional-client-scopes/${profile_scope_id}" \
+    --config "${KCADM_CONFIG}" -r suleia -n >/dev/null 2>&1 || true
+fi
+
 mapper_id=$("${KCADM}" get "clients/${client_id}/protocol-mappers/models" --config "${KCADM_CONFIG}" -r suleia \
   --fields id,name --format csv --noquotes | csv_id_by_name 'operations-audience')
 if [ -z "${mapper_id}" ]; then
