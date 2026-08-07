@@ -51,6 +51,9 @@ export function containsDirectPii(value) {
     }
     const text = String(current);
     if (text === '[MASKED]' || /^hmac:[a-f0-9]{64}$/i.test(text)) return false;
+    if (/(?:^|_)(?:hash|masked)$/.test(field) && /^[a-f0-9]{64}$/i.test(text)) return false;
+    if (/(?:^|_)ciphertext$/.test(field)
+        && /^v1:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$/.test(text)) return false;
     if (/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(text)) return true;
     return PII_KEY.test(field) && /(?:\+?34)?[6789]\d{8}/.test(text);
   }

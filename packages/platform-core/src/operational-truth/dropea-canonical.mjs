@@ -79,13 +79,19 @@ function cleanTechnicalText(value, maxLength = 160) {
   return String(value).replace(/[\r\n\t]+/g, ' ').trim().slice(0, maxLength) || null;
 }
 
+function sanitizeBusinessLabel(value, maxLength = 200) {
+  return cleanTechnicalText(value, maxLength)
+    ?.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[EMAIL REDACTED]')
+    .replace(/(?:\+?34)?[6789]\d{8}/g, '[PHONE REDACTED]') || null;
+}
+
 function normalizeLineItem(item = {}) {
   return Object.freeze({
     product_id: item.product_id ?? null,
     variant_id: required(item.variant_id, 'line_item.variant_id'),
     sku: cleanTechnicalText(item.sku, 128),
-    product_name: cleanTechnicalText(item.product_name, 200),
-    variant_name: cleanTechnicalText(item.variant_name, 200),
+    product_name: sanitizeBusinessLabel(item.product_name, 200),
+    variant_name: sanitizeBusinessLabel(item.variant_name, 200),
     variant_type: item.variant_type ?? 'UNKNOWN',
     quantity: Number(required(item.quantity, 'line_item.quantity')),
     unit_price: Number(required(item.unit_price, 'line_item.unit_price'))
@@ -177,7 +183,7 @@ export function mapDropeaOrder(order, {
   const address = order.shipping_address || {};
   const normalizedAddress = [address.address_line_1, address.address_line_2, address.postal_code, address.city, address.state, address.country]
     .filter(Boolean).map((part) => String(part).trim().toUpperCase()).join('|');
-  const productDisplayNames = lineItems.map((item, index) => cleanTechnicalText(
+  const productDisplayNames = lineItems.map((item, index) => sanitizeBusinessLabel(
     order.line_items[index]?.external_name || item.product_name,
     200
   ));
@@ -247,7 +253,7 @@ export function mapDropeaOrder(order, {
 }
 
 function sanitizeCarrierDescription(value) {
-  return cleanTechnicalText(value, 300)?.replace(/(?:\+?34)?[6789]\d{8}/g, '[PHONE REDACTED]') || null;
+  return sanitizeBusinessLabel(value, 300);
 }
 
 function safePickupPoint(value, hmacKey) {

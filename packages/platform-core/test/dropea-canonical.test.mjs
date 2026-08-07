@@ -161,6 +161,23 @@ test('order mapping uses total_amount, product fallback, address line 2 hash and
   assert.equal(result.external_order_id_ciphertext.includes('#1234'), false);
 });
 
+test('order and carrier display labels redact embedded contact data before projection', () => {
+  const mappedOrder = mapDropeaOrder(order({
+    line_items: [{ variant_id: 1, product_id: 8,
+      product_name: 'Producto 612345678 private@example.com', quantity: 1, unit_price: 10 }]
+  }), { hmacKey: HMAC_KEY, market: 'ES', observedAt: AT });
+  assert.equal(mappedOrder.product_display_names[0], 'Producto [PHONE REDACTED] [EMAIL REDACTED]');
+  assert.equal(mappedOrder.line_items[0].product_name, 'Producto [PHONE REDACTED] [EMAIL REDACTED]');
+
+  const mappedIssue = mapDropeaIssue(issue({
+    initial_carrier_code: 'DI',
+    initial_carrier_description: 'Contacto 612345678 private@example.com'
+  }), { hmacKey: HMAC_KEY, canonicalOrderId: mappedOrder.canonical_order_id,
+    market: 'ES', storeId: '17', observedAt: AT });
+  assert.equal(mappedIssue.initial_carrier_description_sanitized,
+    'Contacto [PHONE REDACTED] [EMAIL REDACTED]');
+});
+
 test('empty carrier code and timezone-less timestamps fail closed safely', () => {
   const mappedIssue = mapDropeaIssue(issue({ initial_carrier_code: '', initial_carrier_description: '' }), ISSUE_CONTEXT);
   assert.equal(mappedIssue.type, 'UNKNOWN');
