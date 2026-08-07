@@ -169,6 +169,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-handbook-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-dropea-v2-read-mirror-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-dropea-complete-history-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-readonly-permissions.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-customer-operational-history-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 docker compose \

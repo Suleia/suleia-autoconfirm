@@ -45,7 +45,8 @@ test('historical migration launchers skip complete state and fail closed on part
     read('infrastructure/vps/apply-operational-protections-migration.sh'),
     read('infrastructure/vps/apply-incident-handbook-migration.sh'),
     read('infrastructure/vps/apply-dropea-v2-read-mirror-migration.sh'),
-    read('infrastructure/vps/apply-dropea-complete-history-migration.sh')
+    read('infrastructure/vps/apply-dropea-complete-history-migration.sh'),
+    read('infrastructure/vps/apply-customer-operational-history-migration.sh')
   ]) {
     assert.match(script, /if \[\[ "\$\{state\}" = "[135]" \]\]/);
     assert.match(script, /if \[\[ "\$\{state\}" != "0" \]\]/);
@@ -58,6 +59,19 @@ test('incident handbook rollback drill proves all new operational tables are rem
   assert.match(drill, /created.*5/s);
   assert.match(drill, /if \[\[ "\$\{created\}" = "0" \]\]/);
   assert.match(drill, /remaining=0\|base_preserved=1\|actions=0\|production_writes=0/);
+});
+
+test('customer operational history follows read-only permissions and stores only a technical HMAC', () => {
+  const deploy = read('infrastructure/vps/deploy-private-staging.sh');
+  assert.ok(deploy.indexOf('apply-operations-readonly-permissions.sh')
+    < deploy.indexOf('apply-customer-operational-history-migration.sh'));
+  const migration = read('migrations/012_customer_operational_history.sql');
+  const rollback = read('migrations/rollback/012_customer_operational_history.down.sql');
+  assert.match(migration, /customer_identity_hash ~ '\^\[a-f0-9\]\{64\}\$'/);
+  assert.match(migration, /CREATE OR REPLACE VIEW read_models\.customer_operational_history/);
+  assert.match(migration, /0::integer AS actions_executed,0::integer AS production_writes/);
+  assert.doesNotMatch(migration, /phone_number|email|shipping_address_ciphertext/);
+  assert.match(rollback, /DROP VIEW IF EXISTS read_models\.customer_operational_history/);
 });
 
 test('runtime declares strict read and simulation flags with every external write disabled', () => {

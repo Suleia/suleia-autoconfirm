@@ -178,7 +178,11 @@ export function mapDropeaOrder(order, {
     canonical_product_id: lineItems[0].product_id,
     canonical_sku: lineItems[0].sku
   }) : { key: null, match_type: 'UNKNOWN' };
-  const customerPhoneNormalized = normalizeSpanishPhone(order.customer?.phone || order.customer_phone);
+  const customerPhoneNormalized = normalizeSpanishPhone(
+    order.shipping_address?.phone_number
+      || order.customer?.phone
+      || order.customer_phone
+  );
   const testPhone = evaluateTestPhoneGuard(customerPhoneNormalized, { testPhoneNormalized });
   const address = order.shipping_address || {};
   const normalizedAddress = [address.address_line_1, address.address_line_2, address.postal_code, address.city, address.state, address.country]
@@ -209,6 +213,7 @@ export function mapDropeaOrder(order, {
     service_type: order.service_type ?? 'UNKNOWN',
     tracking_reference_masked: order.tracking_number ? hashTechnical(order.tracking_number, hmacKey) : null,
     normalized_address_hash: normalizedAddress ? hashTechnical(normalizedAddress, hmacKey) : null,
+    customer_identity_hash: customerPhoneNormalized ? hashTechnical(customerPhoneNormalized, hmacKey) : null,
     shipping_address_ciphertext: encryptPrivateJson(address, hmacKey),
     address_line_2_present: Boolean(address.address_line_2),
     created_at: nullableIso(required(order.created_at, 'order.created_at'), 'order.created_at'),

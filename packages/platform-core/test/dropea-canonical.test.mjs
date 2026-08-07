@@ -161,6 +161,19 @@ test('order mapping uses total_amount, product fallback, address line 2 hash and
   assert.equal(result.external_order_id_ciphertext.includes('#1234'), false);
 });
 
+test('V2 shipping address phone becomes only a stable customer HMAC and activates the test guard', () => {
+  const result = mapDropeaOrder(order({
+    shipping_address: { phone_number: '+34 600 000 000', city: 'Madrid', country: 'ES' }
+  }), {
+    hmacKey: HMAC_KEY, market: 'ES', observedAt: AT,
+    testPhoneNormalized: '+34600000000'
+  });
+  assert.match(result.customer_identity_hash, /^[a-f0-9]{64}$/);
+  assert.equal(result.phone_last4, '0000');
+  assert.equal(result.test_order, true);
+  assert.equal(JSON.stringify(result).includes('600 000 000'), false);
+});
+
 test('order and carrier display labels redact embedded contact data before projection', () => {
   const mappedOrder = mapDropeaOrder(order({
     line_items: [{ variant_id: 1, product_id: 8,

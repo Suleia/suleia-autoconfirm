@@ -56,9 +56,9 @@ export class OperationsProjector {
        lifecycle_status,total_amount,currency,payment_method,carrier,service_type,line_items_masked,
        canonical_product_keys,product_display_names,normalized_address_hash,shipping_address_ciphertext,address_line_2_present,
        created_at_utc,updated_at_utc,confirmed_at_utc,delivered_at_utc,source_system,source_version,
-       schema_version,observed_at,payload_hash,data_freshness,historical_pre_cutover)
+       schema_version,observed_at,payload_hash,data_freshness,historical_pre_cutover,customer_identity_hash)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-       $23,$24,$25,$26,$27,$28,$29,$30,$31)
+       $23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
       ON CONFLICT(market,store_id,dropea_order_id) DO UPDATE SET
        canonical_order_id=EXCLUDED.canonical_order_id,external_order_id_hash=EXCLUDED.external_order_id_hash,
        external_order_id_ciphertext=EXCLUDED.external_order_id_ciphertext,
@@ -74,6 +74,7 @@ export class OperationsProjector {
        source_version=EXCLUDED.source_version,schema_version=EXCLUDED.schema_version,
        observed_at=EXCLUDED.observed_at,payload_hash=EXCLUDED.payload_hash,
        data_freshness=EXCLUDED.data_freshness,last_seen_at=now(),
+       customer_identity_hash=EXCLUDED.customer_identity_hash,
        shadow_mirror_writes=integration.dropea_orders.shadow_mirror_writes+1
       RETURNING (xmax = 0) AS inserted`, [
       order.market, String(order.store_id), order.dropea_order_id, order.canonical_order_id,
@@ -84,7 +85,8 @@ export class OperationsProjector {
       order.normalized_address_hash, order.shipping_address_ciphertext, order.address_line_2_present === true, order.created_at,
       order.updated_at, order.confirmed_at, order.delivered_at, order.source_system,
       order.source_version, order.schema_version, order.observed_at, order.payload_hash,
-      order.data_freshness, order.historical_pre_cutover === true
+      order.data_freshness, order.historical_pre_cutover === true,
+      order.customer_identity_hash || null
     ]);
     await this.pool.query(`INSERT INTO read_models.operations_order_records
       (canonical_order_id,dropea_order_id,external_order_id_hash,status,sub_status,canonical_state,
@@ -93,9 +95,10 @@ export class OperationsProjector {
        source_version,schema_version,lifecycle_classification,phone_last4,canonical_product_key,
        duplicate_status,conflicting_order_id,automatic_confirmation_allowed,test_order,
        chatby_cleanup_status,chatby_cleanup_blockers,return_block_status,return_block_reason,
-       protection_review,protection_last_reconciled_at,actions_executed,production_writes,run_mode)
+       protection_review,protection_last_reconciled_at,customer_identity_hash,
+       actions_executed,production_writes,run_mode)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,
-       $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,0,0,'SHADOW_READ_ONLY')
+       $22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,0,0,'SHADOW_READ_ONLY')
       ON CONFLICT(canonical_order_id) DO UPDATE SET
        dropea_order_id=EXCLUDED.dropea_order_id,external_order_id_hash=EXCLUDED.external_order_id_hash,
        status=EXCLUDED.status,sub_status=EXCLUDED.sub_status,canonical_state=EXCLUDED.canonical_state,
@@ -110,7 +113,8 @@ export class OperationsProjector {
        chatby_cleanup_status=EXCLUDED.chatby_cleanup_status,chatby_cleanup_blockers=EXCLUDED.chatby_cleanup_blockers,
        return_block_status=EXCLUDED.return_block_status,return_block_reason=EXCLUDED.return_block_reason,
        protection_review=EXCLUDED.protection_review,
-       protection_last_reconciled_at=EXCLUDED.protection_last_reconciled_at`, [
+       protection_last_reconciled_at=EXCLUDED.protection_last_reconciled_at,
+       customer_identity_hash=EXCLUDED.customer_identity_hash`, [
       order.canonical_order_id, order.dropea_order_id, order.external_order_id_hash,
       order.status, order.sub_status, order.canonical_state, order.product_summary,
       order.total_amount, order.currency, order.carrier, order.service_type,
@@ -124,7 +128,7 @@ export class OperationsProjector {
       order.test_order === true, order.chatby_cleanup_status || 'NOT_ASSESSED',
       order.chatby_cleanup_blockers || [], order.return_block_status || 'NOT_ELIGIBLE',
       order.return_block_reason || null, order.protection_review === true,
-      order.protection_last_reconciled_at || null
+      order.protection_last_reconciled_at || null, order.customer_identity_hash || null
     ]);
     await this.pool.query(`UPDATE read_models.operations_order_records SET market=$2,store_id=$3,
       product_display_names=$4,normalized_address_hash=$5,address_line_2_present=$6,
