@@ -42,9 +42,12 @@ test('legacy Operations Center drill rolls back the restored migration chain wit
 test('historical migration launchers skip complete state and fail closed on partial state', () => {
   for (const script of [
     read('infrastructure/vps/apply-operations-center-migration.sh'),
-    read('infrastructure/vps/apply-operational-protections-migration.sh')
+    read('infrastructure/vps/apply-operational-protections-migration.sh'),
+    read('infrastructure/vps/apply-incident-handbook-migration.sh'),
+    read('infrastructure/vps/apply-dropea-v2-read-mirror-migration.sh'),
+    read('infrastructure/vps/apply-dropea-complete-history-migration.sh')
   ]) {
-    assert.match(script, /if \[\[ "\$\{state\}" = "3" \]\]/);
+    assert.match(script, /if \[\[ "\$\{state\}" = "[135]" \]\]/);
     assert.match(script, /if \[\[ "\$\{state\}" != "0" \]\]/);
     assert.match(script, /partially applied; refusing to guess/);
   }
