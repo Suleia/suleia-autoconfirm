@@ -16,6 +16,9 @@ test('Operations projector writes only masked shadow read models with zero-actio
   assert.equal(result.production_writes, 0);
   assert.match(calls[0].sql, /SHADOW_READ_ONLY/);
   assert.doesNotMatch(calls[0].sql, /DELETE|TRUNCATE/);
+  assert.deepEqual(JSON.parse(calls[0].values[14]), []);
+  assert.deepEqual(JSON.parse(calls[0].values[16]), []);
+  assert.deepEqual(JSON.parse(calls[2].values[3]), []);
 });
 
 test('Operations projector rejects direct customer PII', async () => {

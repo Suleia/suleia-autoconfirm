@@ -90,7 +90,8 @@ export class OperationsProjector {
       order.market, String(order.store_id), order.dropea_order_id, order.canonical_order_id,
       order.external_order_id_hash, order.external_order_id_ciphertext, order.status, order.sub_status, order.canonical_state,
       order.total_amount, order.currency, order.payment_method, order.carrier, order.service_type,
-      order.line_items, [order.canonical_product_key].filter(Boolean), order.product_display_names || [],
+      JSON.stringify(order.line_items || []), [order.canonical_product_key].filter(Boolean),
+      JSON.stringify(order.product_display_names || []),
       order.normalized_address_hash, order.shipping_address_ciphertext, order.address_line_2_present === true, order.created_at,
       order.updated_at, order.confirmed_at, order.delivered_at, order.source_system,
       order.source_version, order.schema_version, order.observed_at, order.payload_hash,
@@ -140,7 +141,7 @@ export class OperationsProjector {
       product_display_names=$4,normalized_address_hash=$5,address_line_2_present=$6,
       source_system=$7,payload_hash=$8,conversation_source='UNAVAILABLE',
       interpretation_status='WAITING_CHATBY_SOURCE' WHERE canonical_order_id=$1`, [
-      order.canonical_order_id, order.market, String(order.store_id), order.product_display_names || [],
+      order.canonical_order_id, order.market, String(order.store_id), JSON.stringify(order.product_display_names || []),
       order.normalized_address_hash, order.address_line_2_present === true, order.source_system,
       order.payload_hash
     ]);
