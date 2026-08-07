@@ -106,6 +106,16 @@ test('complete-history migration follows the base Dropea V2 mirror migration', (
   assert.match(rollback, /historical_reingestion_allowed=false/);
 });
 
+test('MCP receives only read access to incident operations after the complete-history migration', () => {
+  const deploy = read('infrastructure/vps/deploy-private-staging.sh');
+  assert.ok(deploy.indexOf('apply-dropea-complete-history-migration.sh')
+    < deploy.indexOf('apply-operations-readonly-permissions.sh'));
+  const migration = read('migrations/011_operations_readonly_permissions.sql');
+  assert.match(migration, /GRANT USAGE ON SCHEMA operations TO suleia_mcp_readonly/);
+  assert.match(migration, /GRANT SELECT ON operations\.chatby_conversation_events/);
+  assert.doesNotMatch(migration, /GRANT (?:INSERT|UPDATE|DELETE|ALL)/);
+});
+
 test('public edge exposes only the authenticated Dropea V2 webhook namespace to ingestion', () => {
   const edge = read('infrastructure/reverse-proxy/McpEdgeCaddyfile');
   assert.match(edge, /@dropea_webhooks path \/webhooks\/dropea\/v2\/\*/);
