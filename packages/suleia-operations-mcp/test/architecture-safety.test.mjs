@@ -50,11 +50,16 @@ test('fixture contains exactly one fictitious masked order', async () => {
   assert.match(fixture.order.email_token, /^email_hash_/);
 });
 
-test('tool surface is frozen to the eight approved read and simulation tools', () => {
+test('tool surface is frozen to the approved real-operations read and simulation tools', () => {
   assert.deepEqual(MCP_TOOL_NAMES, [
+    'list_orders',
     'get_order',
+    'list_incidents',
+    'get_incident',
     'get_order_timeline',
     'get_data_freshness',
+    'get_data_quality',
+    'list_reconciliation_findings',
     'get_active_timers',
     'get_agent_decisions',
     'preview_order_decision',

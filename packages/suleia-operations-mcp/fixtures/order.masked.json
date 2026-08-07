@@ -11,6 +11,20 @@
     "email_token": "email_hash_b1a7d3",
     "created_offset_minutes": -50,
     "source_updated_offset_minutes": -2,
+    "incidents": [
+      {
+        "canonical_issue_id": "STG-ISSUE-0001",
+        "dropea_issue_id": "MASKED-ISSUE-1",
+        "canonical_order_id": "STG-ORDER-0001",
+        "status": "PENDING",
+        "is_active": true,
+        "normalized_type": "RECIPIENT_ABSENT",
+        "conversation_status": "FOUND",
+        "customer_replied_after_issue": false,
+        "actions_executed": 0,
+        "production_writes": 0
+      }
+    ],
     "requires_review": false,
     "review_reason": null
   },

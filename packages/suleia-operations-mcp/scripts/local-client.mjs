@@ -5,7 +5,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const serverPath = path.join(packageRoot, 'src', 'transports', 'stdio.mjs');
-const client = new Client({ name: 'suleia-mcp-local-validator', version: '0.1.0' });
+const client = new Client({ name: 'suleia-mcp-local-validator', version: '0.2.0' });
 const transport = new StdioClientTransport({
   command: process.execPath,
   args: [serverPath],
@@ -18,9 +18,14 @@ const toolList = await client.listTools();
 const results = {};
 for (const tool of toolList.tools) {
   const args = {
+    list_orders: { status: 'PENDING_CONFIRMATION' },
     get_order: { order_id: 'STG-ORDER-0001' },
+    list_incidents: { status: 'PENDING' },
+    get_incident: { incident_id: 'STG-ISSUE-0001' },
     get_order_timeline: { order_id: 'STG-ORDER-0001' },
     get_data_freshness: {},
+    get_data_quality: {},
+    list_reconciliation_findings: {},
     get_active_timers: { order_id: 'STG-ORDER-0001' },
     get_agent_decisions: { order_id: 'STG-ORDER-0001' },
     preview_order_decision: { order_id: 'STG-ORDER-0001' },

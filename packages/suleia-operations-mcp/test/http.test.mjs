@@ -4,6 +4,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { createHttpApp } from '../src/app.mjs';
 import { loadConfig } from '../src/config.mjs';
+import { MCP_TOOL_NAMES } from '../src/mcp/server.mjs';
 
 async function listen(app) {
   return new Promise((resolve) => {
@@ -39,7 +40,7 @@ test('Streamable HTTP requires bearer auth and serves tools when authorized', as
     });
     await client.connect(transport);
     const tools = await client.listTools();
-    assert.equal(tools.tools.length, 8);
+    assert.equal(tools.tools.length, MCP_TOOL_NAMES.length);
     const simulation = await client.callTool({
       name: 'preview_order_decision',
       arguments: { order_id: 'STG-ORDER-0001' }

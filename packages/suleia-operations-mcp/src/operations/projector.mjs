@@ -151,10 +151,11 @@ export class OperationsProjector {
       (market,store_id,dropea_order_id,canonical_order_id,external_order_id_hash,external_order_id_ciphertext,status,sub_status,
        lifecycle_status,total_amount,currency,payment_method,carrier,service_type,line_items_masked,
        canonical_product_keys,product_display_names,normalized_address_hash,shipping_address_ciphertext,address_line_2_present,
-       created_at_utc,updated_at_utc,confirmed_at_utc,delivered_at_utc,source_system,source_version,
+       created_at_utc,updated_at_utc,confirmed_at_utc,processing_at_utc,delivered_at_utc,
+       cancelled_at_utc,returned_at_utc,source_system,source_version,
        schema_version,observed_at,payload_hash,data_freshness,historical_pre_cutover,customer_identity_hash)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-       $23,$24,$25,$26,$27,$28,$29,$30,$31,$32)
+       $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
       ON CONFLICT(market,store_id,dropea_order_id) DO UPDATE SET
        canonical_order_id=EXCLUDED.canonical_order_id,external_order_id_hash=EXCLUDED.external_order_id_hash,
        external_order_id_ciphertext=EXCLUDED.external_order_id_ciphertext,
@@ -166,7 +167,9 @@ export class OperationsProjector {
        shipping_address_ciphertext=EXCLUDED.shipping_address_ciphertext,
        address_line_2_present=EXCLUDED.address_line_2_present,
        updated_at_utc=EXCLUDED.updated_at_utc,confirmed_at_utc=EXCLUDED.confirmed_at_utc,
-       delivered_at_utc=EXCLUDED.delivered_at_utc,source_system=EXCLUDED.source_system,
+       processing_at_utc=EXCLUDED.processing_at_utc,delivered_at_utc=EXCLUDED.delivered_at_utc,
+       cancelled_at_utc=EXCLUDED.cancelled_at_utc,returned_at_utc=EXCLUDED.returned_at_utc,
+       source_system=EXCLUDED.source_system,
        source_version=EXCLUDED.source_version,schema_version=EXCLUDED.schema_version,
        observed_at=EXCLUDED.observed_at,payload_hash=EXCLUDED.payload_hash,
        data_freshness=EXCLUDED.data_freshness,last_seen_at=now(),
@@ -179,7 +182,8 @@ export class OperationsProjector {
       JSON.stringify(order.line_items || []), [order.canonical_product_key].filter(Boolean),
       JSON.stringify(order.product_display_names || []),
       order.normalized_address_hash, order.shipping_address_ciphertext, order.address_line_2_present === true, order.created_at,
-      order.updated_at, order.confirmed_at, order.delivered_at, order.source_system,
+       order.updated_at, order.confirmed_at, order.processing_at, order.delivered_at,
+       order.cancelled_at, order.returned_at, order.source_system,
       order.source_version, order.schema_version, order.observed_at, order.payload_hash,
       order.data_freshness, order.historical_pre_cutover === true,
       order.customer_identity_hash || null
@@ -238,7 +242,8 @@ export class OperationsProjector {
       VALUES($1,$2,'DROPEA_ORDER_OBSERVED','DROPEA_PUBLIC_API_V2',$3,$4,$5)
       ON CONFLICT(timeline_id) DO NOTHING`, [
       `dropea-order-${order.payload_hash}`, order.canonical_order_id, order.updated_at,
-      { status: order.status, sub_status: order.sub_status, market: order.market, store_id: String(order.store_id) },
+       { status: order.status, sub_status: order.sub_status, lifecycle_status: order.canonical_state,
+         market: order.market, store_id: String(order.store_id) },
       order.data_freshness || 'UNKNOWN'
     ]);
     await this.projectOperationalTruthOrder(order);
@@ -285,9 +290,9 @@ export class OperationsProjector {
     ]);
     if (issue.initial_carrier_code) {
       await this.pool.query(`INSERT INTO integration.carrier_issue_code_registry
-        (carrier,market,code,normalized_type,description_example_sanitized,first_seen_at,last_seen_at,
-         occurrences,mapping_status,policy_id,human_review)
-        VALUES($1,$2,$3,$4,$5,$6,$6,1,$7,$8,$9)
+         (carrier,market,code,normalized_type,description_example_sanitized,first_seen_at,last_seen_at,
+          occurrences,mapping_status,policy_id,human_review,last_verified_at)
+        VALUES($1,$2,$3,$4,$5,$6,$6,1,$7,$8,$9,$10)
         ON CONFLICT(carrier,market,code) DO UPDATE SET
          normalized_type=EXCLUDED.normalized_type,
          description_example_sanitized=COALESCE(EXCLUDED.description_example_sanitized,
@@ -296,10 +301,13 @@ export class OperationsProjector {
          occurrences=(SELECT count(*) FROM integration.dropea_issues
            WHERE carrier=$1 AND market=$2 AND initial_carrier_code=$3),
          mapping_status=EXCLUDED.mapping_status,policy_id=EXCLUDED.policy_id,
-         human_review=EXCLUDED.human_review,updated_at=now()`, [
+          human_review=EXCLUDED.human_review,
+          last_verified_at=COALESCE(EXCLUDED.last_verified_at,integration.carrier_issue_code_registry.last_verified_at),
+          updated_at=now()`, [
         issue.carrier, issue.market, issue.initial_carrier_code, issue.type,
         issue.initial_carrier_description_sanitized, issue.observed_at,
-        issue.mapping_status || 'UNMAPPED', issue.policy_id, issue.human_review === true
+        issue.mapping_status || 'UNMAPPED', issue.policy_id, issue.human_review === true,
+        issue.mapping_status === 'MAPPED' ? issue.observed_at : null
       ]);
     }
     await this.pool.query(`INSERT INTO read_models.operations_incident_records
@@ -359,8 +367,9 @@ export class OperationsProjector {
       VALUES($1,$2,$3,'DROPEA_INCIDENT_OBSERVED','DROPEA_PUBLIC_API_V2',$4,$5,$6)
       ON CONFLICT(timeline_id) DO NOTHING`, [
       `dropea-issue-${issue.payload_hash}`, issue.canonical_order_id, issue.canonical_issue_id,
-      issue.updated_at, { status: issue.status, is_active: issue.is_active,
-        initial_carrier_code: issue.initial_carrier_code, capability_status: issue.capability_status },
+       issue.updated_at, { status: issue.status, is_active: issue.is_active,
+         initial_carrier_code: issue.initial_carrier_code, normalized_type: issue.type,
+         resolution_status: issue.resolution_status, capability_status: issue.capability_status },
       issue.freshness || 'UNKNOWN'
     ]);
     await this.projectOperationalTruthIssue(issue);

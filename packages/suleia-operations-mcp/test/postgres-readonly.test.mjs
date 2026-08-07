@@ -7,15 +7,15 @@ test('Postgres repository uses fixed SELECT statements and parameterized values'
   const pool = {
     async query(text, values = []) {
       calls.push({ text, values });
-      if (text.includes('FROM mcp.orders_read') && text.includes('LIMIT 1')) {
-        return { rows: [{ order_id: 'masked-order' }] };
+      if (text.includes('FROM read_models.operations_order_context') && text.includes('LIMIT 1')) {
+        return { rows: [{ canonical_order_id: 'masked-order' }] };
       }
       return { rows: [] };
     }
   };
   const repository = createPostgresReadRepository({ databaseUrl: 'postgres://unused' }, { pool });
 
-  assert.equal((await repository.getOrder("x' OR true --")).order_id, 'masked-order');
+  assert.equal((await repository.getOrder("x' OR true --")).canonical_order_id, 'masked-order');
   await repository.getOrderTimeline('masked-order', 200);
   await repository.getActiveTimers({ orderId: 'masked-order', timerType: 'confirmation_wait' });
   await repository.getAgentDecisions('masked-order', 25);

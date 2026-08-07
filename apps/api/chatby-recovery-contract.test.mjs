@@ -35,12 +35,14 @@ test('Chatby recovery is deployed after the operational history and rolls back b
 
 test('Operations Center and MCP expose conversation facts without adding write tools', () => {
   const migration = read('migrations/013_chatby_conversation_recovery.sql');
+  const hardening = read('migrations/014_operational_data_model_hardening.sql');
   const repository = read('packages/suleia-operations-mcp/src/data/postgres-read-repository.mjs');
   const server = read('packages/suleia-operations-mcp/src/mcp/server.mjs');
   assert.match(migration, /conversation_reason/);
-  assert.match(repository, /conversation_identity_method/);
-  assert.match(repository, /interpretation_summary/);
+  assert.match(hardening, /conversation_identity_method/);
+  assert.match(hardening, /interpretation_summary/);
+  assert.match(repository, /operations_incident_context/);
   const toolNames = server.match(/export const MCP_TOOL_NAMES[\s\S]*?\]\);/)?.[0] || '';
-  assert.equal((toolNames.match(/^\s+'[^']+'/gm) || []).length, 8);
+  assert.equal((toolNames.match(/^\s+'[^']+'/gm) || []).length, 13);
   assert.doesNotMatch(server, /send_message|resolve_issue|confirm_order/);
 });

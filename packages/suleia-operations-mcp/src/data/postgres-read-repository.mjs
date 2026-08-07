@@ -1,5 +1,6 @@
 const clamp = (value, fallback = 100, maximum = 500) =>
   Math.min(maximum, Math.max(1, Number.parseInt(value, 10) || fallback));
+const offset = (value) => Math.min(100_000, Math.max(0, Number.parseInt(value, 10) || 0));
 
 export function createPostgresReadRepository(config, { pool } = {}) {
   let database = pool;
@@ -20,59 +21,79 @@ export function createPostgresReadRepository(config, { pool } = {}) {
   return Object.freeze({
     source: 'postgres_shadow_readonly',
 
+    async listOrders({ status = null, lifecycle = null, freshness = null, identity = null,
+      limit = 50, offset: requestedOffset = 0 } = {}) {
+      const values = [];
+      const where = [];
+      for (const [value, column] of [[status, 'status'], [lifecycle, 'lifecycle_status'],
+        [freshness, 'freshness'], [identity, 'identity_status']]) {
+        if (value) { values.push(value); where.push(`${column}=$${values.length}`); }
+      }
+      const safeLimit = clamp(limit, 50, 100);
+      const safeOffset = offset(requestedOffset);
+      values.push(safeLimit, safeOffset);
+      const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
+        FROM read_models.operations_order_context
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY updated_at_utc DESC,canonical_order_id
+        LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+      return { items: rows, total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
+    },
+
     async getOrder(orderId) {
-      const operational = await query(`SELECT canonical_order_id AS order_id,dropea_order_id,
-          status,sub_status,canonical_state,lifecycle_classification,product_summary,total_amount,
-          currency,carrier,service_type,tracking_reference_masked,identity_status,decision_status,
-          risk,priority,freshness,updated_at,actions_executed,production_writes,run_mode,
-          conversation_status,conversation_reason,conversation_identity_method,
-          last_customer_message_at,last_suleia_message_at,last_button,latest_template_hash,
-          customer_replied,conversation_age_seconds,conversation_freshness,
-          conversation_message_count,detected_intent,conversation_confidence
-        FROM read_models.operations_order_detail
+      const operational = await query(`SELECT * FROM read_models.operations_order_context
         WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1`, [orderId]);
       if (operational[0]) {
-        const incidents = await query(`SELECT canonical_issue_id,dropea_issue_id,type,raw_type,
-            mapping_status,status,is_active,carrier,delivery_attempt_number,customer_response_status,
-            customer_intent,proposed_resolution,allowed_resolution_options,risk,qa_result,
-            blocking_reasons,due_at,discount_status,freshness,updated_at,actions_executed,production_writes,
-            conversation_status,conversation_reason,conversation_identity_method,
-            last_customer_message_at,last_suleia_message_at,last_button,latest_template_hash,
-            customer_replied,conversation_age_seconds,conversation_freshness,
-            conversation_message_count,detected_intent,conversation_confidence,interpretation_summary
-          FROM read_models.operations_incident_handbook_detail
-          WHERE canonical_order_id=$1 ORDER BY updated_at DESC`, [operational[0].order_id]);
+        const incidents = await query(`SELECT * FROM read_models.operations_incident_context
+          WHERE canonical_order_id=$1 ORDER BY updated_at DESC`, [operational[0].canonical_order_id]);
         return { ...operational[0], incidents };
       }
-      const rows = await query(`SELECT id::text AS internal_order_id,
-          COALESCE(external_order_id, id::text) AS order_id,
-          source_status AS status, canonical_status, currency, total_amount,
-          created_at_source AS created_at, last_source_update_at AS source_updated_at,
-          display_name_masked, phone_masked, email_masked, address_masked, masking_version
-        FROM mcp.orders_read
-        WHERE id::text=$1 OR external_order_id=$1
-        LIMIT 1`, [orderId]);
-      return rows[0] || null;
+      return null;
+    },
+
+    async listIncidents({ status = 'PENDING', isActive = true, olderThanHours = null,
+      freshness = null, risk = null, limit = 50, offset: requestedOffset = 0 } = {}) {
+      const values = [];
+      const where = [];
+      if (status) { values.push(status); where.push(`status=$${values.length}`); }
+      if (isActive !== null && isActive !== undefined) {
+        values.push(isActive); where.push(`is_active=$${values.length}`);
+      }
+      if (olderThanHours !== null && olderThanHours !== undefined) {
+        values.push(olderThanHours); where.push(`created_at <= now()-($${values.length}::integer * interval '1 hour')`);
+      }
+      if (freshness) { values.push(freshness); where.push(`freshness=$${values.length}`); }
+      if (risk) { values.push(risk); where.push(`risk=$${values.length}`); }
+      const safeLimit = clamp(limit, 50, 100);
+      const safeOffset = offset(requestedOffset);
+      values.push(safeLimit, safeOffset);
+      const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
+        FROM read_models.operations_incident_context
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY updated_at DESC,canonical_issue_id
+        LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+      return { items: rows, total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
+    },
+
+    async getIncident(incidentId) {
+      const rows = await query(`SELECT * FROM read_models.operations_incident_context
+        WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [incidentId]);
+      if (!rows[0]) return null;
+      const timeline = await query(`SELECT * FROM read_models.operations_order_timeline
+        WHERE canonical_issue_id=$1 ORDER BY occurred_at ASC LIMIT 200`, [rows[0].canonical_issue_id]);
+      return { ...rows[0], timeline };
     },
 
     async getOrderTimeline(orderId, limit = 100) {
       const operational = await query(`SELECT canonical_order_id FROM read_models.operations_order_records
         WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1`, [orderId]);
       if (operational[0]) {
-        return query(`SELECT timeline_id AS event_id,event_type,occurred_at,source,
-            summary_masked,freshness,'SHADOW_READ_ONLY' AS run_mode
-          FROM read_models.operations_timeline_records WHERE canonical_order_id=$1
+        return query(`SELECT timeline_event_id AS event_id,event_type,occurred_at,event_source AS source,
+            summary_sanitized AS summary_masked,freshness,'SHADOW_READ_ONLY' AS run_mode
+          FROM read_models.operations_order_timeline WHERE canonical_order_id=$1
           ORDER BY occurred_at ASC LIMIT $2`, [operational[0].canonical_order_id, clamp(limit)]);
       }
-      return query(`SELECT t.event_id, lower(t.event_type) AS event_type,
-          t.occurred_at, t.received_at, t.source,
-          t.payload_masked AS summary_masked, t.trust_level,
-          t.freshness_status AS freshness, t.run_mode
-        FROM mcp.order_timeline t
-        JOIN mcp.orders_read o ON o.id=t.order_id
-        WHERE o.id::text=$1 OR o.external_order_id=$1
-        ORDER BY t.occurred_at ASC
-        LIMIT $2`, [orderId, clamp(limit)]);
+      return [];
     },
 
     async getDataFreshness() {
@@ -99,6 +120,29 @@ export function createPostgresReadRepository(config, { pool } = {}) {
         }, null),
         measured_at: new Date().toISOString()
       };
+    },
+
+    async getDataQuality() {
+      const rows = await query('SELECT * FROM read_models.operations_data_quality');
+      return rows[0] || {};
+    },
+
+    async listReconciliationFindings({ type = null, severity = null, status = 'OPEN',
+      limit = 50, offset: requestedOffset = 0 } = {}) {
+      const values = [];
+      const where = [];
+      for (const [value, column] of [[type, 'finding_type'], [severity, 'severity'], [status, 'status']]) {
+        if (value) { values.push(value); where.push(`${column}=$${values.length}`); }
+      }
+      const safeLimit = clamp(limit, 50, 100);
+      const safeOffset = offset(requestedOffset);
+      values.push(safeLimit, safeOffset);
+      const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
+        FROM read_models.reconciliation_findings
+        ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+        ORDER BY detected_at DESC,finding_id
+        LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
+      return { items: rows, total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
     },
 
     async getActiveTimers({ orderId = null, timerType = null } = {}) {
@@ -161,17 +205,14 @@ export function createPostgresReadRepository(config, { pool } = {}) {
 
     async listOrdersRequiringReview({ limit = 100, reason = null } = {}) {
       const operationalValues = [];
-      const operationalWhere = ['(protection_review=true OR risk IN (\'HIGH\',\'CRITICAL\') OR decision_status=\'HUMAN_REVIEW\')'];
-      if (reason) { operationalValues.push(reason); operationalWhere.push(`$${operationalValues.length}=ANY(ARRAY[duplicate_status,return_block_status,chatby_cleanup_status])`); }
+      const operationalWhere = [];
+      if (reason) { operationalValues.push(reason); operationalWhere.push(`$${operationalValues.length}=ANY(review_reasons)`); }
       operationalValues.push(clamp(limit));
-      const operational = await query(`SELECT canonical_order_id AS order_id,
-          'OPERATIONS' AS workflow,CASE WHEN test_order THEN 'TEST_ORDER'
-          WHEN duplicate_status='DUPLICATE_ACTIVE_ORDER' THEN duplicate_status
-          ELSE 'INCIDENT_OR_PROTECTION_REVIEW' END AS review_reason,
-          decision_status AS proposed_action,NULL::numeric AS confidence,
-          'MASKED_OPERATIONAL_REVIEW' AS reason_summary,risk AS risk_level,updated_at AS created_at,
-          priority,'PENDING' AS review_status
-        FROM read_models.operations_order_records WHERE ${operationalWhere.join(' AND ')}
+      const operational = await query(`SELECT canonical_order_id AS order_id,canonical_issue_id,
+          resource_type AS workflow,review_reasons,'MASKED_OPERATIONAL_REVIEW' AS reason_summary,
+          risk AS risk_level,updated_at AS created_at,priority,'PENDING' AS review_status
+        FROM read_models.operations_review_queue
+        ${operationalWhere.length ? `WHERE ${operationalWhere.join(' AND ')}` : ''}
         ORDER BY updated_at ASC LIMIT $${operationalValues.length}`, operationalValues);
       if (operational.length) return operational;
       const values = [];

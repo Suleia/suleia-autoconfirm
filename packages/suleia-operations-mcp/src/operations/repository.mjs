@@ -64,7 +64,7 @@ export class OperationsRepository {
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
       `SELECT *, count(*) OVER()::integer AS total_count
-       FROM read_models.operations_orders_queue ${where}
+       FROM read_models.operations_order_context ${where}
        ORDER BY updated_at DESC, canonical_order_id
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
@@ -74,9 +74,15 @@ export class OperationsRepository {
 
   async orderDetail(id) {
     const [detail, timeline, incidents] = await Promise.all([
-      this.pool.query('SELECT * FROM read_models.operations_order_detail WHERE canonical_order_id=$1', [id]),
-      this.pool.query('SELECT * FROM read_models.operations_timeline_records WHERE canonical_order_id=$1 ORDER BY occurred_at DESC LIMIT 200', [id]),
-      this.pool.query('SELECT * FROM read_models.operations_incidents_queue WHERE canonical_order_id=$1 ORDER BY updated_at DESC', [id])
+      this.pool.query('SELECT * FROM read_models.operations_order_context WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1', [id]),
+      this.pool.query(`SELECT * FROM read_models.operations_order_timeline
+        WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_context
+          WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
+        ORDER BY occurred_at DESC LIMIT 200`, [id]),
+      this.pool.query(`SELECT * FROM read_models.operations_incident_context
+        WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_context
+          WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
+        ORDER BY updated_at DESC`, [id])
     ]);
     return detail.rows[0] ? { order: detail.rows[0], timeline: timeline.rows, incidents: incidents.rows } : null;
   }
@@ -85,16 +91,17 @@ export class OperationsRepository {
     const limit = integer(searchParams.get('limit'), 50, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
     const selected = filters(searchParams, {
-      type: 'type', response: 'customer_response_status', resolution: 'proposed_resolution',
-      risk: 'risk', priority: 'priority', freshness: 'freshness', qa: 'qa_result',
-      discount: 'discount_status'
+      status: 'status', type: 'normalized_type', response: 'customer_response_status',
+      risk: 'risk', freshness: 'freshness'
     });
+    if (!searchParams.has('status')) selected.clauses.push("status = 'PENDING'");
+    if (!searchParams.has('active')) selected.clauses.push('is_active = true');
     selected.values.push(limit, offset);
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
       `SELECT *, count(*) OVER()::integer AS total_count
-       FROM read_models.operations_incidents_queue ${where}
-       ORDER BY priority DESC, due_at NULLS LAST, updated_at DESC, canonical_issue_id
+       FROM read_models.operations_incident_context ${where}
+       ORDER BY updated_at DESC, canonical_issue_id
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
     );
@@ -103,8 +110,11 @@ export class OperationsRepository {
 
   async incidentDetail(id) {
     const [detail, timeline] = await Promise.all([
-      this.pool.query('SELECT * FROM read_models.operations_incident_handbook_detail WHERE canonical_issue_id=$1', [id]),
-      this.pool.query('SELECT * FROM read_models.operations_timeline_records WHERE canonical_issue_id=$1 ORDER BY occurred_at DESC LIMIT 200', [id])
+      this.pool.query('SELECT * FROM read_models.operations_incident_context WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1', [id]),
+      this.pool.query(`SELECT * FROM read_models.operations_order_timeline
+        WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_context
+          WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
+        ORDER BY occurred_at DESC LIMIT 200`, [id])
     ]);
     return detail.rows[0] ? { incident: detail.rows[0], timeline: timeline.rows } : null;
   }

@@ -53,6 +53,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/run-restore-drill.sh" "${latest}" >/dev
 
 tar --extract --file "${ARCHIVE}" --directory "${INSTALL_ROOT}"
 bash "${INSTALL_ROOT}/infrastructure/vps/run-chatby-conversation-recovery-rollback-drill.sh" "${latest}"
+bash "${INSTALL_ROOT}/infrastructure/vps/run-operational-data-model-hardening-rollback-drill.sh" "${latest}"
 bash "${INSTALL_ROOT}/infrastructure/vps/run-operations-center-rollback-drill.sh" "${latest}"
 bash "${INSTALL_ROOT}/infrastructure/vps/run-incident-handbook-rollback-drill.sh" "${latest}"
 bash "${INSTALL_ROOT}/infrastructure/vps/run-dropea-v2-read-mirror-rollback-drill.sh" "${latest}"
@@ -60,4 +61,4 @@ bash "${INSTALL_ROOT}/infrastructure/vps/deploy-private-staging.sh"
 
 trap - ERR
 rm -f "${ARCHIVE}"
-echo "CHECKPOINT_H_DEPLOY|PASS|backup=verified|restore=verified|chatby_rollback=verified|operations_rollback=verified|incident_rollback=verified|dropea_v2_rollback=verified|actions=0|production_writes=0"
+echo "CHECKPOINT_H_DEPLOY|PASS|backup=verified|restore=verified|chatby_rollback=verified|data_model_rollback=verified|operations_rollback=verified|incident_rollback=verified|dropea_v2_rollback=verified|actions=0|production_writes=0"

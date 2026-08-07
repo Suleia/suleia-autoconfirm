@@ -29,8 +29,23 @@ async function requireOrder(repository, orderId) {
 
 export function createOperationsService(repository) {
   return Object.freeze({
+    async listOrders(filters) {
+      return maskPii({ data: await repository.listOrders(filters), meta: meta(repository) });
+    },
     async getOrder(orderId) {
       return maskPii({ data: await requireOrder(repository, orderId), meta: meta(repository) });
+    },
+    async listIncidents(filters) {
+      return maskPii({ data: await repository.listIncidents(filters), meta: meta(repository) });
+    },
+    async getIncident(incidentId) {
+      const incident = await repository.getIncident(incidentId);
+      if (!incident) {
+        const error = new Error(`Incident not found: ${incidentId}`);
+        error.code = 'INCIDENT_NOT_FOUND';
+        throw error;
+      }
+      return maskPii({ data: incident, meta: meta(repository) });
     },
     async getOrderTimeline(orderId, limit) {
       await requireOrder(repository, orderId);
@@ -49,6 +64,12 @@ export function createOperationsService(repository) {
         data: { ...freshness, age_seconds: ageSeconds },
         meta: meta(repository)
       });
+    },
+    async getDataQuality() {
+      return maskPii({ data: await repository.getDataQuality(), meta: meta(repository) });
+    },
+    async listReconciliationFindings(filters) {
+      return maskPii({ data: await repository.listReconciliationFindings(filters), meta: meta(repository) });
     },
     async getActiveTimers(filters) {
       return maskPii({

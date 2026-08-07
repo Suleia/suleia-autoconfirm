@@ -36,7 +36,7 @@ async function createHarness(scopes = allScopes) {
   return { client, server, lines };
 }
 
-test('exposes exactly eight read-only tools with schemas', async () => {
+test('exposes the complete real-operations read-only catalog with schemas', async () => {
   const { client, server } = await createHarness();
   const result = await client.listTools();
   assert.deepEqual(result.tools.map((tool) => tool.name).sort(), [...MCP_TOOL_NAMES].sort());
@@ -48,6 +48,8 @@ test('exposes exactly eight read-only tools with schemas', async () => {
     assert.equal(tool.outputSchema.type, 'object');
     assert.match(tool.description, /READ-ONLY/);
     assert.match(tool.description, /SIMULATION-ONLY/);
+    assert.match(tool.description, /^Use this when/);
+    assert.deepEqual(tool._meta?.securitySchemes?.[0]?.type, 'oauth2');
   }
   await client.close();
   await server.close();
@@ -56,9 +58,14 @@ test('exposes exactly eight read-only tools with schemas', async () => {
 test('all tools run against one masked order and never execute actions', async () => {
   const { client, server, lines } = await createHarness();
   const calls = [
+    ['list_orders', { status: 'PENDING_CONFIRMATION' }],
     ['get_order', { order_id: 'STG-ORDER-0001' }],
+    ['list_incidents', { status: 'PENDING' }],
+    ['get_incident', { incident_id: 'STG-ISSUE-0001' }],
     ['get_order_timeline', { order_id: 'STG-ORDER-0001' }],
     ['get_data_freshness', {}],
+    ['get_data_quality', {}],
+    ['list_reconciliation_findings', {}],
     ['get_active_timers', { order_id: 'STG-ORDER-0001' }],
     ['get_agent_decisions', { order_id: 'STG-ORDER-0001' }],
     ['preview_order_decision', { order_id: 'STG-ORDER-0001', as_of: '2026-07-26T12:00:00Z' }],
@@ -75,7 +82,7 @@ test('all tools run against one masked order and never execute actions', async (
     assert.equal(containsObviousPii(result.structuredContent), false);
   }
 
-  assert.equal(lines.length, 8);
+  assert.equal(lines.length, MCP_TOOL_NAMES.length);
   for (const line of lines) {
     const audit = JSON.parse(line);
     assert.equal(audit.pii_logged, false);

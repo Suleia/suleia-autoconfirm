@@ -39,8 +39,20 @@ export function createFixtureRepository(config, { anchor = new Date() } = {}) {
 
   return Object.freeze({
     source: 'masked_fixture',
+    async listOrders({ status = null, limit = 50, offset = 0 } = {}) {
+      const items = !status || data.order.status === status ? [structuredClone(data.order)] : [];
+      return { items: items.slice(offset, offset + limit), total: items.length, limit, offset };
+    },
     async getOrder(orderId) {
       return data.order.order_id === orderId ? structuredClone(data.order) : null;
+    },
+    async listIncidents({ status = 'PENDING', limit = 50, offset = 0 } = {}) {
+      const incidents = structuredClone(data.order.incidents || []).filter((item) => !status || item.status === status);
+      return { items: incidents.slice(offset, offset + limit), total: incidents.length, limit, offset };
+    },
+    async getIncident(incidentId) {
+      return structuredClone((data.order.incidents || []).find((item) =>
+        item.canonical_issue_id === incidentId || item.dropea_issue_id === incidentId) || null);
     },
     async getOrderTimeline(orderId, limit = 100) {
       if (data.order.order_id !== orderId) return [];
@@ -52,6 +64,14 @@ export function createFixtureRepository(config, { anchor = new Date() } = {}) {
         source_updated_at: data.order.source_updated_at,
         measured_at: new Date().toISOString()
       };
+    },
+    async getDataQuality() {
+      return { orders_total: 1, orders_identity_exact: 1, orders_identity_conflicting: 0,
+        issues_total: (data.order.incidents || []).length, reconciliation_findings: 0,
+        measured_at: new Date().toISOString(), actions_executed: 0, production_writes: 0 };
+    },
+    async listReconciliationFindings({ limit = 50, offset = 0 } = {}) {
+      return { items: [], total: 0, limit, offset };
     },
     async getActiveTimers({ orderId = null, timerType = null } = {}) {
       return structuredClone(data.timers.filter((timer) => {
