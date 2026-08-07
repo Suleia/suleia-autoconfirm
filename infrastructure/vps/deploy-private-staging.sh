@@ -138,7 +138,8 @@ ensure_env_value TEMPLATE_SENDING_ENABLED false
 ensure_env_value DISCOUNT_SENDING_ENABLED false
 ensure_env_value EMAIL_SENDING_ENABLED false
 ensure_env_value EXTERNAL_AI_CALLS_ENABLED false
-ensure_env_value DROPEA_INGESTION_DRY_RUN true
+# Preserve an explicitly approved internal mirror on an existing environment.
+# Fresh environments still start in dry-run from the template above.
 ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
 chmod 0600 "${ENV_FILE}"
 

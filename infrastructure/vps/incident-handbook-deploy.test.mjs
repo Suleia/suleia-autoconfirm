@@ -123,6 +123,7 @@ test('deployment upgrades existing environments to the strict incident safety en
     'ensure_env_value EMAIL_SENDING_ENABLED false',
     'ensure_env_value EXTERNAL_AI_CALLS_ENABLED false'
   ]) assert.match(deploy, new RegExp(declaration));
+  assert.doesNotMatch(deploy, /ensure_env_value DROPEA_INGESTION_DRY_RUN/);
 });
 
 test('complete-history migration follows the base Dropea V2 mirror migration', () => {
