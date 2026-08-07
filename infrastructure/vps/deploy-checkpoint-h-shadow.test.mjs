@@ -25,7 +25,7 @@ test('Operations OAuth provisioning uses and removes a temporary Keycloak servic
   assert.match(wrapper, /cleanup-keycloak-config-service\.sh/);
   assert.match(provisioner, /--client "\$\{KEYCLOAK_CONFIG_SERVICE_CLIENT_ID\}"/);
   assert.match(secretProvisioner, /suleia-config-service-\$\(openssl rand -hex 8\)/);
-  assert.match(cleanup, /"\$\{KEYCLOAK_CONFIG_SERVICE_CLIENT_ID\}" suleia-config-service/);
+  assert.match(cleanup, /suleia-config-service "\$\{KEYCLOAK_CONFIG_SERVICE_CLIENT_ID\}"/);
   assert.match(cleanup, /\^\$\{CLIENT_ID_NAME\}=/);
   assert.doesNotMatch(provisioner, /--user .*admin|KC_BOOTSTRAP_ADMIN_PASSWORD/);
   assert.doesNotMatch(provisioner, /\|\s*(?:awk|head|grep)\b/);

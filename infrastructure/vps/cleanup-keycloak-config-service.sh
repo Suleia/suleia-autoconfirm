@@ -22,7 +22,7 @@ docker compose \
 set -u
 KCADM=/opt/keycloak/bin/kcadm.sh
 KCADM_CONFIG=/tmp/suleia-kcadm.config
-for target_client_id in "${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID}" suleia-config-service; do
+for target_client_id in suleia-config-service "${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID}"; do
   config_client_uuid="$(
     "${KCADM}" get clients --config "${KCADM_CONFIG}" --realm master \
       --query "clientId=${target_client_id}" --fields id --format csv --noquotes 2>/dev/null \
