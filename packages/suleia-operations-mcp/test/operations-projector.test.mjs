@@ -45,3 +45,31 @@ test('Dropea refresh preserves a previously available Chatby source', async () =
   assert.ok(refresh);
   assert.doesNotMatch(refresh.sql, /conversation_source|interpretation_status/);
 });
+
+test('Incident simulation serializes every jsonb value explicitly', async () => {
+  const calls = [];
+  const projector = new OperationsProjector({ query: async (sql, values) => {
+    calls.push({ sql, values });
+    return { rowCount: 1 };
+  } });
+  await projector.recordIncidentSimulation({
+    simulation_id: 'simulation-safe', canonical_issue_id: 'issue-safe',
+    canonical_order_id: 'order-safe', issue_version: '2026-08-01T10:00:00Z',
+    source_event_id: 'source-safe', dropea_snapshot_at: '2026-08-01T10:00:00Z',
+    chatby_snapshot_at: '2026-08-01T10:01:00Z', policy_version: 'policy-safe',
+    connector_version: '0.1.0', issue_type: 'RECIPIENT_ABSENT',
+    customer_has_replied: true, customer_intent: 'DELIVERY_RETRY',
+    interpretation_summary: 'CURRENT_INTENT:DELIVERY_RETRY',
+    facts_used: ['DROPEA_ISSUE', 'CURRENT_CHATBY_INBOUND'], facts_ignored: [],
+    allowed_resolution_options: ['RETRY'], gls_feasibility: { feasible: true },
+    simulated_decision: 'PROPOSE_RETRY', simulated_action: { type: 'PREVIEW_ONLY' },
+    missing_data: [], blocking_reasons: [], risk: 'LOW', confidence: 0.85,
+    qa_status: 'PASS', human_review: false
+  });
+  const values = calls[0].values;
+  assert.deepEqual(JSON.parse(values[14]), ['DROPEA_ISSUE', 'CURRENT_CHATBY_INBOUND']);
+  assert.deepEqual(JSON.parse(values[15]), []);
+  assert.deepEqual(JSON.parse(values[17]), { feasible: true });
+  assert.deepEqual(JSON.parse(values[19]), { type: 'PREVIEW_ONLY' });
+  assert.deepEqual(values[16], ['RETRY']);
+});

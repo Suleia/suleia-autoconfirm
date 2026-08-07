@@ -393,8 +393,11 @@ export class OperationsProjector {
       record.chatby_snapshot_at, record.policy_version, record.connector_version,
       record.issue_type, record.delivery_attempt_number || 'UNKNOWN',
       record.customer_has_replied, record.customer_intent, record.interpretation_summary,
-      record.facts_used || [], record.facts_ignored || [], record.allowed_resolution_options || [],
-      record.gls_feasibility || {}, record.simulated_decision, record.simulated_action,
+      JSON.stringify(record.facts_used || []), JSON.stringify(record.facts_ignored || []),
+      record.allowed_resolution_options || [], JSON.stringify(record.gls_feasibility || {}),
+      record.simulated_decision,
+      record.simulated_action === null || record.simulated_action === undefined
+        ? null : JSON.stringify(record.simulated_action),
       record.missing_data || [], record.blocking_reasons || [], record.risk,
       record.confidence, record.qa_status, record.human_review,
       record.timer_status || null
