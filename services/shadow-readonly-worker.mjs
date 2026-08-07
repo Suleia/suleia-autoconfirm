@@ -10,6 +10,7 @@ import { loadDropeaStoreConfigs } from './integrations/dropea/store-config.mjs';
 import { prepareDropeaV2Webhook } from './integrations/webhooks/dropea-v2-ingress.mjs';
 import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
 import { syncChatbyReadOnly } from './integrations/chatby/readonly-sync.mjs';
+import { shadowWorkerHealth } from './shadow-worker-health.mjs';
 
 const config = loadShadowConfig();
 const repository = new ShadowRepository(config.databaseUrl);
@@ -116,9 +117,9 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (req.method === 'POST' && await receiveWebhook(req, res)) return;
   if (req.method === 'GET' && req.url === '/health') {
-    res.statusCode = lastError ? 503 : 200;
-    res.end(JSON.stringify({ ok: !lastError, service: 'shadow-readonly-worker', run_mode: 'SHADOW_READ_ONLY', running,
-      last_sync_ok: lastResult?.ok ?? null, last_error: lastError, actions_executed: 0, production_writes: 0 })); return;
+    const health = shadowWorkerHealth({ lastResult, lastError, running });
+    res.statusCode = health.statusCode;
+    res.end(JSON.stringify(health.body)); return;
   }
   res.statusCode = 404; res.end(JSON.stringify({ ok: false, error: 'not_found' }));
 });
