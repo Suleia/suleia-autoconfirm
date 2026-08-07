@@ -20,12 +20,16 @@ test('Operations provisioning keeps operations read default and profile optional
   const provision = read('infrastructure/vps/provision-operations-keycloak.sh');
   assert.match(provision, /default-client-scopes\/\$\{scope_id\}/);
   assert.match(provision, /optional-client-scopes\/\$\{profile_scope_id\}/);
+  assert.match(provision, /operations-realm-roles/);
+  assert.match(provision, /scope-mappings\/realm/);
 });
 
 test('Operations owner provisioning consumes a temporary private file and removes it', () => {
   const provision = read('infrastructure/vps/provision-operations-owner.sh');
   const apply = read('infrastructure/vps/apply-operations-owner.sh');
   assert.match(provision, /OPERATIONS_CENTER_PASSWORD/);
+  assert.match(provision, /OPERATIONS_CENTER_PASSWORD\} >= 9/);
+  assert.match(provision, /@suleia\.invalid/);
   assert.match(provision, /operations_reader/);
   assert.match(provision, /temporary=false/);
   assert.doesNotMatch(provision, /echo.*OPERATIONS_CENTER_PASSWORD/);

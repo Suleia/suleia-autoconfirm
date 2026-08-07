@@ -19,7 +19,7 @@ set +a
 : "${OPERATIONS_CENTER_USERNAME:?Operations Center username is required}"
 : "${OPERATIONS_CENTER_PASSWORD:?Operations Center password is required}"
 [[ "${OPERATIONS_CENTER_USERNAME}" =~ ^[a-zA-Z0-9._-]{3,64}$ ]]
-(( ${#OPERATIONS_CENTER_PASSWORD} >= 16 ))
+(( ${#OPERATIONS_CENTER_PASSWORD} >= 9 ))
 
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" exec --no-TTY \
   --env OPERATIONS_CENTER_USERNAME="${OPERATIONS_CENTER_USERNAME}" \
@@ -38,8 +38,13 @@ trap 'rm -f "${KCADM_CONFIG}"' EXIT
 user_id=$("${KCADM}" get users --config "${KCADM_CONFIG}" -r suleia \
   -q "username=${OPERATIONS_CENTER_USERNAME}" -q exact=true --fields id --format csv --noquotes | head -n 1)
 if [ -z "${user_id}" ]; then
+  internal_email="${OPERATIONS_CENTER_USERNAME}@suleia.invalid"
   user_id=$("${KCADM}" create users --config "${KCADM_CONFIG}" -r suleia -i \
-    -s "username=${OPERATIONS_CENTER_USERNAME}" -s enabled=true -s emailVerified=false)
+    -s "username=${OPERATIONS_CENTER_USERNAME}" \
+    -s "email=${internal_email}" \
+    -s 'firstName=Suleia' \
+    -s 'lastName=Owner' \
+    -s enabled=true -s emailVerified=false)
 else
   "${KCADM}" update "users/${user_id}" --config "${KCADM_CONFIG}" -r suleia -s enabled=true >/dev/null
 fi

@@ -116,6 +116,25 @@ if [ -z "${mapper_id}" ]; then
     -s 'config."id.token.claim"=false' -s 'config."access.token.claim"=true' >/dev/null
 fi
 
+roles_mapper_id=$("${KCADM}" get "clients/${client_id}/protocol-mappers/models" --config "${KCADM_CONFIG}" -r suleia \
+  --fields id,name --format csv --noquotes | csv_id_by_name 'operations-realm-roles')
+if [ -z "${roles_mapper_id}" ]; then
+  "${KCADM}" create "clients/${client_id}/protocol-mappers/models" --config "${KCADM_CONFIG}" -r suleia \
+    -s name=operations-realm-roles -s protocol=openid-connect \
+    -s protocolMapper=oidc-usermodel-realm-role-mapper -s consentRequired=false \
+    -s 'config."claim.name"=realm_access.roles' \
+    -s 'config."jsonType.label"=String' \
+    -s 'config."multivalued"=true' \
+    -s 'config."access.token.claim"=true' \
+    -s 'config."id.token.claim"=false' \
+    -s 'config."userinfo.token.claim"=false' \
+    -s 'config."usermodel.realmRoleMapping.rolePrefix"=' >/dev/null
+fi
+
+role_json=$("${KCADM}" get roles/operations_reader --config "${KCADM_CONFIG}" -r suleia)
+printf '[%s]' "${role_json}" | "${KCADM}" create "clients/${client_id}/scope-mappings/realm" \
+  --config "${KCADM_CONFIG}" -r suleia -f - >/dev/null
+
 "${KCADM}" get users --config "${KCADM_CONFIG}" -r suleia --fields id --format csv --noquotes | while IFS= read -r user_id; do
   [ -n "${user_id}" ] || continue
   if "${KCADM}" get "users/${user_id}/role-mappings/realm/composite" --config "${KCADM_CONFIG}" -r suleia \
