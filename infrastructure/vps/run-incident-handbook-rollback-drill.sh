@@ -21,12 +21,16 @@ cleanup
 compose exec --no-TTY postgres createdb --username suleia_admin --owner suleia_backup_login "${DRILL_DATABASE}"
 compose --profile maintenance run --rm --env "PGDATABASE=${DRILL_DATABASE}" --env ALLOW_RESTORE=true \
   backup /bin/sh /opt/suleia/backup/restore.sh "${BACKUP_FILE}" >/dev/null
-compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
-  --username suleia_admin --dbname "${DRILL_DATABASE}" < "${UP_MIGRATION}" >/dev/null
-
 created="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align \
   --username suleia_admin --dbname "${DRILL_DATABASE}" --command \
   "select count(*) from information_schema.tables where table_schema='operations' and table_name in ('chatby_conversation_events','incident_intent_timeline','incident_timers','incident_simulation_decisions','incident_discount_workflow');")"
+if [[ "${created}" = "0" ]]; then
+  compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+    --username suleia_admin --dbname "${DRILL_DATABASE}" < "${UP_MIGRATION}" >/dev/null
+  created="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align \
+    --username suleia_admin --dbname "${DRILL_DATABASE}" --command \
+    "select count(*) from information_schema.tables where table_schema='operations' and table_name in ('chatby_conversation_events','incident_intent_timeline','incident_timers','incident_simulation_decisions','incident_discount_workflow');")"
+fi
 [[ "${created}" = "5" ]]
 
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \

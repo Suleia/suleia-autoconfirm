@@ -53,6 +53,7 @@ test('historical migration launchers skip complete state and fail closed on part
 test('incident handbook rollback drill proves all new operational tables are removable', () => {
   const drill = read('infrastructure/vps/run-incident-handbook-rollback-drill.sh');
   assert.match(drill, /created.*5/s);
+  assert.match(drill, /if \[\[ "\$\{created\}" = "0" \]\]/);
   assert.match(drill, /remaining=0\|base_preserved=1\|actions=0\|production_writes=0/);
 });
 
