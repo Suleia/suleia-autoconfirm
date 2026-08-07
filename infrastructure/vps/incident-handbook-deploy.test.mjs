@@ -18,6 +18,17 @@ test('Dropea V2 read mirror migration follows the incident handbook and has a ro
   assert.match(transactional, /dropea_v2_rollback=verified/);
 });
 
+test('Dropea V2 rollback drill removes dependent history objects before the mirror', () => {
+  const drill = read('infrastructure/vps/run-dropea-v2-read-mirror-rollback-drill.sh');
+  assert.match(drill, /012_customer_operational_history\.down\.sql/);
+  assert.match(drill, /010_dropea_complete_history\.down\.sql/);
+  const customerHistory = drill.indexOf('< "${CUSTOMER_HISTORY_DOWN}"');
+  const completeHistory = drill.indexOf('< "${COMPLETE_HISTORY_DOWN}"');
+  const mirror = drill.indexOf('< "${DOWN}"');
+  assert.ok(customerHistory >= 0 && customerHistory < completeHistory);
+  assert.ok(completeHistory < mirror);
+});
+
 test('transactional VPS deploy runs the incident rollback drill before applying migrations', () => {
   const deploy = read('infrastructure/vps/deploy-checkpoint-h-shadow.sh');
   assert.ok(deploy.indexOf('run-incident-handbook-rollback-drill.sh') < deploy.indexOf('deploy-private-staging.sh'));

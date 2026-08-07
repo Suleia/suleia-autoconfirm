@@ -7,8 +7,11 @@ BACKUP_FILE="${1:-}"
 DRILL_DATABASE="suleia_dropea_v2_read_mirror_drill"
 UP="${INSTALL_ROOT}/migrations/009_dropea_v2_real_read_mirror.sql"
 DOWN="${INSTALL_ROOT}/migrations/rollback/009_dropea_v2_real_read_mirror.down.sql"
+CUSTOMER_HISTORY_DOWN="${INSTALL_ROOT}/migrations/rollback/012_customer_operational_history.down.sql"
+COMPLETE_HISTORY_DOWN="${INSTALL_ROOT}/migrations/rollback/010_dropea_complete_history.down.sql"
 [[ "${BACKUP_FILE}" =~ ^/backups/suleia-[0-9TZ]+\.dump$ ]]
 test -r "${ENV_FILE}"; test -r "${UP}"; test -r "${DOWN}"
+test -r "${CUSTOMER_HISTORY_DOWN}"; test -r "${COMPLETE_HISTORY_DOWN}"
 compose() { docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" "$@"; }
 cleanup() { compose exec --no-TTY postgres dropdb --if-exists --username suleia_admin "${DRILL_DATABASE}" >/dev/null; }
 trap cleanup EXIT
@@ -22,6 +25,10 @@ created="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-al
   --username suleia_admin --dbname "${DRILL_DATABASE}" --command \
   "select count(*) from information_schema.tables where table_schema='integration' and table_name like 'dropea_%';")"
 [[ "${created}" = "5" ]]
+compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username suleia_admin --dbname "${DRILL_DATABASE}" < "${CUSTOMER_HISTORY_DOWN}" >/dev/null
+compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username suleia_admin --dbname "${DRILL_DATABASE}" < "${COMPLETE_HISTORY_DOWN}" >/dev/null
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN}" >/dev/null
 remaining="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align \
