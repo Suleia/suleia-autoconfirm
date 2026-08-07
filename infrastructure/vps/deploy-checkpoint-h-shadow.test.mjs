@@ -18,10 +18,15 @@ test('Checkpoint H deploy verifies archive, backup, restore and rollback before 
 test('Operations OAuth provisioning uses and removes a temporary Keycloak service', () => {
   const wrapper = fs.readFileSync(new URL('./apply-operations-keycloak.sh', import.meta.url), 'utf8');
   const provisioner = fs.readFileSync(new URL('./provision-operations-keycloak.sh', import.meta.url), 'utf8');
+  const secretProvisioner = fs.readFileSync(new URL('./provision-keycloak-config-service-secret.sh', import.meta.url), 'utf8');
+  const cleanup = fs.readFileSync(new URL('./cleanup-keycloak-config-service.sh', import.meta.url), 'utf8');
   assert.match(wrapper, /trap cleanup EXIT/);
   assert.match(wrapper, /bootstrap-keycloak-config-service\.sh/);
   assert.match(wrapper, /cleanup-keycloak-config-service\.sh/);
-  assert.match(provisioner, /--client suleia-config-service/);
+  assert.match(provisioner, /--client "\$\{KEYCLOAK_CONFIG_SERVICE_CLIENT_ID\}"/);
+  assert.match(secretProvisioner, /suleia-config-service-\$\(openssl rand -hex 8\)/);
+  assert.match(cleanup, /"\$\{KEYCLOAK_CONFIG_SERVICE_CLIENT_ID\}" suleia-config-service/);
+  assert.match(cleanup, /\^\$\{CLIENT_ID_NAME\}=/);
   assert.doesNotMatch(provisioner, /--user .*admin|KC_BOOTSTRAP_ADMIN_PASSWORD/);
   assert.doesNotMatch(provisioner, /\|\s*(?:awk|head|grep)\b/);
 });

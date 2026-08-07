@@ -4,13 +4,13 @@ set -Eeuo pipefail
 INSTALL_ROOT="${SULEIA_INSTALL_ROOT:-/opt/suleia-operations}"
 COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
 ENV_FILE="${INSTALL_ROOT}/.env"
-CONFIG_SERVICE_CLIENT_ID="${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID:-suleia-config-service}"
 
 set -a
 # shellcheck disable=SC1090
 source "${ENV_FILE}"
 set +a
 : "${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET:?configuration service secret is required}"
+: "${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID:?configuration service client id is required}"
 
 docker compose \
   --env-file "${ENV_FILE}" \
@@ -26,7 +26,7 @@ docker compose \
   bootstrap-admin service \
   --optimized \
   --no-prompt \
-  --client-id "${CONFIG_SERVICE_CLIENT_ID}" \
+  --client-id "${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID}" \
   --client-secret:env KC_BOOTSTRAP_ADMIN_CLIENT_SECRET
 
 docker compose \

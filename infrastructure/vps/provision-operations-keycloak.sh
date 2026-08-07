@@ -15,6 +15,7 @@ set -a
 source "${ENV_FILE}"
 set +a
 : "${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET:?temporary configuration service secret is required}"
+: "${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID:?temporary configuration service client id is required}"
 
 ready=false
 for _ in $(seq 1 45); do
@@ -32,6 +33,7 @@ fi
 
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" exec --no-TTY \
   --env KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET="${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET}" \
+  --env KEYCLOAK_CONFIG_SERVICE_CLIENT_ID="${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID}" \
   keycloak sh -s <<'SCRIPT'
 set -eu
 KCADM=/opt/keycloak/bin/kcadm.sh
@@ -58,7 +60,7 @@ contains_line() {
   return 1
 }
 "${KCADM}" config credentials --config "${KCADM_CONFIG}" --server "${SERVER}" --realm master \
-  --client suleia-config-service --secret "${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET}" >/dev/null
+  --client "${KEYCLOAK_CONFIG_SERVICE_CLIENT_ID}" --secret "${KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET}" >/dev/null
 
 if ! "${KCADM}" get roles/operations_reader --config "${KCADM_CONFIG}" -r suleia >/dev/null 2>&1; then
   "${KCADM}" create roles --config "${KCADM_CONFIG}" -r suleia -s name=operations_reader \
