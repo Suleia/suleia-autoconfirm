@@ -476,7 +476,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
-    if (req.method === 'GET' && url.pathname === '/dashboard-login') {
+    if (req.method === 'GET' && (url.pathname === '/dashboard-login' || url.pathname === '/api/dashboard-login')) {
       return sendDashboardLogin(res);
     }
 
