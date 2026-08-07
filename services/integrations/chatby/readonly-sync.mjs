@@ -164,7 +164,7 @@ export async function syncChatbyReadOnly({
     throw error;
   }
 
-  const candidates = await pool.query(`SELECT o.canonical_order_id,o.external_order_id_hash,
+  const candidates = await pool.query(`SELECT o.canonical_order_id,o.external_order_id_hash,o.dropea_order_id,
       o.created_at_utc AS order_created_at,i.canonical_issue_id,i.created_at_utc AS issue_created_at,
       i.updated_at_utc AS issue_updated_at
     FROM integration.dropea_orders o
@@ -172,17 +172,31 @@ export async function syncChatbyReadOnly({
     WHERE i.status='PENDING' AND i.is_active=true
     ORDER BY i.updated_at_utc DESC`);
   const byExternalHash = new Map();
+  const byDropeaOrderId = new Map();
   for (const row of candidates.rows) {
-    if (!row.external_order_id_hash) continue;
-    const existing = byExternalHash.get(row.external_order_id_hash) || [];
-    existing.push(row); byExternalHash.set(row.external_order_id_hash, existing);
+    if (row.external_order_id_hash) {
+      const existing = byExternalHash.get(row.external_order_id_hash) || [];
+      existing.push(row); byExternalHash.set(row.external_order_id_hash, existing);
+    }
+    const dropeaOrderId = normalizeReference(row.dropea_order_id);
+    if (dropeaOrderId) {
+      const existing = byDropeaOrderId.get(dropeaOrderId) || [];
+      existing.push(row); byDropeaOrderId.set(dropeaOrderId, existing);
+    }
   }
   const matchesByOrder = new Map();
+  let referenceConflicts = 0;
   for (const subscriber of subscribers.items) {
     const reference = orderReference(subscriber);
     if (!reference) continue;
-    const matched = referenceHashes(reference, hmacKey)
-      .flatMap((hash) => byExternalHash.get(hash) || []);
+    const matched = [...new Map([
+      ...referenceHashes(reference, hmacKey).flatMap((hash) => byExternalHash.get(hash) || []),
+      ...(byDropeaOrderId.get(reference) || [])
+    ].map((row) => [`${row.canonical_order_id}:${row.canonical_issue_id}`, row])).values()];
+    if (new Set(matched.map((row) => row.canonical_order_id)).size > 1) {
+      referenceConflicts += 1;
+      continue;
+    }
     for (const row of matched) {
       const list = matchesByOrder.get(row.canonical_order_id) || [];
       list.push({ subscriber, issue: row });
@@ -262,7 +276,8 @@ export async function syncChatbyReadOnly({
     available_issues: availableIssues,
     conversations_read: conversationsRead,
     events_inserted: eventsInserted,
-    identity_conflicts: identityConflicts,
+    identity_conflicts: identityConflicts + referenceConflicts,
+    reference_conflicts: referenceConflicts,
     pagination_complete: true,
     external_methods: ['GET'],
     actions_executed: 0,
