@@ -128,8 +128,7 @@ export class OperationsProjector {
     ]);
     await this.pool.query(`UPDATE read_models.operations_order_records SET market=$2,store_id=$3,
       product_display_names=$4,normalized_address_hash=$5,address_line_2_present=$6,
-      source_system=$7,payload_hash=$8,conversation_source='UNAVAILABLE',
-      interpretation_status='WAITING_CHATBY_SOURCE' WHERE canonical_order_id=$1`, [
+      source_system=$7,payload_hash=$8 WHERE canonical_order_id=$1`, [
       order.canonical_order_id, order.market, String(order.store_id), JSON.stringify(order.product_display_names || []),
       order.normalized_address_hash, order.address_line_2_present === true, order.source_system,
       order.payload_hash
@@ -249,7 +248,7 @@ export class OperationsProjector {
     ]);
     await this.pool.query(`UPDATE read_models.operations_incident_records SET market=$2,store_id=$3,
       secondary_type=$4,capability_status=$5,human_review=$6,automation_allowed=false,
-      payload_hash=$7,conversation_source='UNAVAILABLE',interpretation_status='WAITING_CHATBY_SOURCE'
+      payload_hash=$7
       WHERE canonical_issue_id=$1`, [
       issue.canonical_issue_id, issue.market, String(issue.store_id), issue.secondary_type || 'UNKNOWN',
       issue.capability_status || 'NOT_DECLARED', issue.human_review === true, issue.payload_hash
@@ -305,6 +304,35 @@ export class OperationsProjector {
     ]);
     return { inserted: (result?.rowCount || 0) > 0, process_async: (result?.rowCount || 0) > 0,
       actions_executed: 0, production_writes: 0 };
+  }
+
+  async recordChatbyConversationEvent(event) {
+    assertSafe(event);
+    const result = await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO operations.chatby_conversation_events
+      (chatby_conversation_id_hash,chatby_contact_id_hash,chatby_message_id_hash,
+       canonical_order_id,canonical_issue_id,direction,message_type,template_id_hash,
+       button_payload,sanitized_text,occurred_at,source_event_id,incident_version,
+       relevance_status,intent,intent_confidence,payload_hash,actions_executed,production_writes)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,0,0)
+      ON CONFLICT(chatby_message_id_hash,payload_hash) DO NOTHING RETURNING event_id`, [
+      event.chatby_conversation_id_hash, event.chatby_contact_id_hash,
+      event.chatby_message_id_hash, event.canonical_order_id, event.canonical_issue_id,
+      event.direction, event.message_type, event.template_id_hash, event.button_payload,
+      event.sanitized_text, event.occurred_at, event.source_event_id,
+      event.incident_version, event.relevance_status, event.intent,
+      event.intent_confidence, event.payload_hash
+    ]);
+    return { inserted: (result?.rowCount || 0) > 0, actions_executed: 0, production_writes: 0 };
+  }
+
+  async markChatbyConversationAvailable({ canonical_order_id, canonical_issue_id }) {
+    await this.pool.query(`UPDATE read_models.operations_order_records
+      SET conversation_source='AVAILABLE',interpretation_status='READY'
+      WHERE canonical_order_id=$1`, [canonical_order_id]);
+    await this.pool.query(`UPDATE read_models.operations_incident_records
+      SET conversation_source='AVAILABLE',interpretation_status='READY'
+      WHERE canonical_issue_id=$1 AND canonical_order_id=$2`, [canonical_issue_id, canonical_order_id]);
+    return { available: true, actions_executed: 0, production_writes: 0 };
   }
 
   async upsertIncidentInterpretation(record) {
