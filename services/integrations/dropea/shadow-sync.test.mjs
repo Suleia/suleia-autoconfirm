@@ -147,6 +147,63 @@ test('TODAY links a pending issue to an order already present in the mirror', as
   assert.equal(projected[0].canonical_order_id, 'order-existing');
 });
 
+test('authorized BACKFILL reads complete order and issue history and mirrors pre-cutover identities', async () => {
+  const calls = [];
+  const projected = [];
+  const client = {
+    market: 'ES',
+    async listAll(name, params) {
+      calls.push([name, params]);
+      return { items: name === 'listOrders' ? [order] : [issue], page_count: 1, complete: true,
+        records_read: 1, requested_limit: 100 };
+    }
+  };
+  const projector = {
+    async resolveCanonicalOrder() { return { status: 'NOT_FOUND' }; },
+    async upsertOrder(value) { projected.push(['order', value]); return { inserted: true }; },
+    async upsertIssue(value) { projected.push(['issue', value]); return { inserted: true }; },
+    async connectorHealth() {}, async syncCheckpoint() {}
+  };
+  const result = await syncDropeaPublicApi({
+    client, projector, phase: 'BACKFILL',
+    hmacKey: 'a-protected-hmac-key-with-more-than-32-characters',
+    storeConfig: { store_id: '17', migration_cutover_at: '2026-08-03T00:00:00Z',
+      native_v2_activation_at: '2026-08-04T00:00:00Z', historical_reingestion_allowed: true },
+    now: () => new Date('2026-08-04T12:00:00Z')
+  });
+  assert.equal(calls[0][0], 'listOrders');
+  assert.equal('date_from' in calls[0][1], false);
+  assert.equal(calls[0][1].date_type, 'created_at');
+  assert.deepEqual(calls[1], ['listIssues', {}]);
+  assert.equal(result.historical_orders_blocked, 0);
+  assert.equal(projected.filter(([type]) => type === 'order').length, 1);
+  assert.equal(projected.filter(([type]) => type === 'issue').length, 1);
+});
+
+test('INCREMENTAL resumes orders from the last complete persistent source checkpoint', async () => {
+  let orderParams;
+  const client = {
+    market: 'ES',
+    async listAll(name, params) {
+      if (name === 'listOrders') orderParams = params;
+      return { items: [], page_count: 1, complete: true, records_read: 0, requested_limit: 100 };
+    }
+  };
+  const projector = {
+    async latestSyncSourceUpdatedAt() { return '2026-08-04T11:30:00.000Z'; },
+    async connectorHealth() {}, async syncCheckpoint() {}
+  };
+  await syncDropeaPublicApi({
+    client, projector, phase: 'INCREMENTAL',
+    hmacKey: 'a-protected-hmac-key-with-more-than-32-characters',
+    storeConfig: { store_id: '17', migration_cutover_at: '2026-08-03T00:00:00Z',
+      native_v2_activation_at: '2026-08-04T00:00:00Z', historical_reingestion_allowed: true },
+    now: () => new Date('2026-08-04T12:00:00Z')
+  });
+  assert.equal(orderParams.date_from, '2026-08-04T11:30:00.000Z');
+  assert.equal(orderParams.date_type, 'updated_at');
+});
+
 test('dry-run performs zero mirror writes on success and failure', async () => {
   const writes = [];
   const projector = {

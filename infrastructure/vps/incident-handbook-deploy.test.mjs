@@ -90,3 +90,21 @@ test('deployment upgrades existing environments to the strict incident safety en
     'ensure_env_value EXTERNAL_AI_CALLS_ENABLED false'
   ]) assert.match(deploy, new RegExp(declaration));
 });
+
+test('complete-history migration follows the base Dropea V2 mirror migration', () => {
+  const deploy = read('infrastructure/vps/deploy-private-staging.sh');
+  assert.ok(deploy.indexOf('apply-dropea-v2-read-mirror-migration.sh')
+    < deploy.indexOf('apply-dropea-complete-history-migration.sh'));
+  const migration = read('migrations/010_dropea_complete_history.sql');
+  const rollback = read('migrations/rollback/010_dropea_complete_history.down.sql');
+  assert.match(migration, /carrier_issue_code_registry/);
+  assert.match(migration, /automation_allowed boolean NOT NULL DEFAULT false CHECK \(automation_allowed = false\)/);
+  assert.match(rollback, /historical_reingestion_allowed=false/);
+});
+
+test('public edge exposes only the authenticated Dropea V2 webhook namespace to ingestion', () => {
+  const edge = read('infrastructure/reverse-proxy/McpEdgeCaddyfile');
+  assert.match(edge, /@dropea_webhooks path \/webhooks\/dropea\/v2\/\*/);
+  assert.match(edge, /handle @dropea_webhooks \{[\s\S]*reverse_proxy ingestion-worker:3302[\s\S]*\}/);
+  assert.doesNotMatch(edge, /path \/webhook(?:\s|$)/);
+});

@@ -26,7 +26,9 @@ export function loadDropeaStoreConfigs(env = process.env, { now = Date.now } = {
         throw new Error(`DROPEA_STORE_CONFIG_${field.toUpperCase()}_MISSING`);
       }
     }
-    if (value.historical_reingestion_allowed !== false) throw new Error('DROPEA_HISTORICAL_REINGESTION_MUST_BE_FALSE');
+    if (typeof value.historical_reingestion_allowed !== 'boolean') {
+      throw new Error('DROPEA_HISTORICAL_REINGESTION_MUST_BE_BOOLEAN');
+    }
     const market = String(value.market).toUpperCase();
     const expectedBaseUrl = `https://${marketHost(market)}`;
     if (String(value.base_url).replace(/\/$/, '') !== expectedBaseUrl) throw new Error('DROPEA_STORE_BASE_URL_MISMATCH');
@@ -48,7 +50,7 @@ export function loadDropeaStoreConfigs(env = process.env, { now = Date.now } = {
       jwt_expires_at: expiry.expires_at,
       migration_cutover_at: requiredIso(value.migration_cutover_at, 'migration_cutover_at'),
       native_v2_activation_at: requiredIso(value.native_v2_activation_at, 'native_v2_activation_at'),
-      historical_reingestion_allowed: false,
+      historical_reingestion_allowed: value.historical_reingestion_allowed,
       token
     });
   }));

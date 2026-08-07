@@ -27,12 +27,23 @@ export async function syncDropeaPublicApi({
     const upperPhase = String(phase).toUpperCase();
     const current = now();
     const todayStart = new Date(Date.UTC(current.getUTCFullYear(), current.getUTCMonth(), current.getUTCDate())).toISOString();
+    const persistedIncrementalStart = upperPhase === 'INCREMENTAL' && storeConfig && projector.latestSyncSourceUpdatedAt
+      ? await projector.latestSyncSourceUpdatedAt({
+        market: client.market, storeId, resourceType: 'orders', phase: upperPhase
+      })
+      : null;
+    const incrementalStart = persistedIncrementalStart || storeConfig?.migration_cutover_at;
     const orderParams = storeConfig ? {
       store_id: Number(storeId), sort_by: 'created_at', sort_order: 'desc',
       ...(upperPhase === 'CANARY' ? { date_from: storeConfig.native_v2_activation_at, date_to: current.toISOString(), date_type: 'created_at' } : {}),
       ...(upperPhase === 'TODAY' ? { date_from: todayStart, date_to: current.toISOString(), date_type: 'created_at' } : {}),
-      ...(upperPhase === 'BACKFILL' ? { date_from: storeConfig.migration_cutover_at, date_to: current.toISOString(), date_type: 'created_at' } : {}),
-      ...(upperPhase === 'INCREMENTAL' ? { date_from: storeConfig.migration_cutover_at, date_to: current.toISOString(), date_type: 'updated_at' } : {})
+      ...(upperPhase === 'BACKFILL' && !storeConfig.historical_reingestion_allowed
+        ? { date_from: storeConfig.migration_cutover_at, date_to: current.toISOString(), date_type: 'created_at' }
+        : {}),
+      ...(upperPhase === 'BACKFILL' && storeConfig.historical_reingestion_allowed
+        ? { date_to: current.toISOString(), date_type: 'created_at' }
+        : {}),
+      ...(upperPhase === 'INCREMENTAL' ? { date_from: incrementalStart, date_to: current.toISOString(), date_type: 'updated_at' } : {})
     } : {};
     const orderPage = upperPhase === 'CANARY'
       ? await client.request('listOrders', { ...orderParams, page: 1, limit: 5 }).then((payload) => ({
@@ -49,7 +60,8 @@ export async function syncDropeaPublicApi({
           });
         }
       });
-    const issuePage = await client.listAll('listIssues', { only_pending_to_resolve: true }, {
+    const issueParams = upperPhase === 'BACKFILL' ? {} : { only_pending_to_resolve: true };
+    const issuePage = await client.listAll('listIssues', issueParams, {
       maxPages, maxRecords, requestedLimit: 100, pagePauseMs: 400
     });
     const observedAt = now().toISOString();
@@ -63,7 +75,10 @@ export async function syncDropeaPublicApi({
       if (!projector.resolveCanonicalOrder) { orders.push(order); continue; }
       const resolution = await projector.resolveCanonicalOrder(order);
       if (resolution.status === 'CONFLICT') { identityConflictsBlocked += 1; continue; }
-      if (order.historical_pre_cutover && resolution.status === 'NOT_FOUND') { historicalOrdersBlocked += 1; continue; }
+      if (order.historical_pre_cutover && resolution.status === 'NOT_FOUND'
+          && storeConfig?.historical_reingestion_allowed !== true) {
+        historicalOrdersBlocked += 1; continue;
+      }
       if (resolution.canonical_order_id && resolution.canonical_order_id !== order.canonical_order_id) {
         identitiesReused += 1;
         orders.push(Object.freeze({ ...order, canonical_order_id: resolution.canonical_order_id,

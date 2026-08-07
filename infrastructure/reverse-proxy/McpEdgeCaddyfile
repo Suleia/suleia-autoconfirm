@@ -28,6 +28,14 @@
   import edge_security_headers
   header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
+  @dropea_webhooks path /webhooks/dropea/v2/*
+  handle @dropea_webhooks {
+    request_body {
+      max_size 1MB
+    }
+    reverse_proxy ingestion-worker:3302
+  }
+
   @mcp path /mcp /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp
   handle @mcp {
     reverse_proxy mcp-server:3100

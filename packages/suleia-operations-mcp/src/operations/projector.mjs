@@ -13,16 +13,28 @@ export class OperationsProjector {
     await this.pool.query(`INSERT INTO integration.dropea_store_config
       (market,store_id,base_url,jwt_secret_reference,jwt_expires_at,migration_cutover_at,
        native_v2_activation_at,historical_reingestion_allowed,enabled)
-      VALUES($1,$2,$3,$4,$5,$6,$7,false,true)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)
       ON CONFLICT(market,store_id) DO UPDATE SET base_url=EXCLUDED.base_url,
        jwt_secret_reference=EXCLUDED.jwt_secret_reference,jwt_expires_at=EXCLUDED.jwt_expires_at,
        migration_cutover_at=EXCLUDED.migration_cutover_at,
        native_v2_activation_at=EXCLUDED.native_v2_activation_at,
-       historical_reingestion_allowed=false,enabled=true,updated_at=now()`, [
+       historical_reingestion_allowed=EXCLUDED.historical_reingestion_allowed,enabled=true,updated_at=now()`, [
       config.market, String(config.store_id), config.base_url, config.jwt_secret_reference,
-      config.jwt_expires_at, config.migration_cutover_at, config.native_v2_activation_at
+      config.jwt_expires_at, config.migration_cutover_at, config.native_v2_activation_at,
+      config.historical_reingestion_allowed === true
     ]);
     return { projected: true, resource: 'store_config', actions_executed: 0, production_writes: 0 };
+  }
+
+  async latestSyncSourceUpdatedAt({ market, storeId, resourceType, phase = 'INCREMENTAL' }) {
+    const result = await this.pool.query(`SELECT source_updated_at
+      FROM integration.dropea_sync_checkpoints
+      WHERE market=$1 AND store_id=$2 AND resource_type=$3 AND phase=$4
+        AND pagination_complete=true AND source_updated_at IS NOT NULL
+      LIMIT 1`, [market, String(storeId), resourceType, phase]);
+    return result.rows?.[0]?.source_updated_at
+      ? new Date(result.rows[0].source_updated_at).toISOString()
+      : null;
   }
 
   async resolveCanonicalOrder(order) {
@@ -181,6 +193,25 @@ export class OperationsProjector {
       issue.source_event_id, issue.source_version, issue.observed_at, issue.payload_hash,
       issue.freshness || 'UNKNOWN', issue.human_review === true
     ]);
+    if (issue.initial_carrier_code) {
+      await this.pool.query(`INSERT INTO integration.carrier_issue_code_registry
+        (carrier,market,code,normalized_type,description_example_sanitized,first_seen_at,last_seen_at,
+         occurrences,mapping_status,policy_id,human_review)
+        VALUES($1,$2,$3,$4,$5,$6,$6,1,$7,$8,$9)
+        ON CONFLICT(carrier,market,code) DO UPDATE SET
+         normalized_type=EXCLUDED.normalized_type,
+         description_example_sanitized=COALESCE(EXCLUDED.description_example_sanitized,
+           integration.carrier_issue_code_registry.description_example_sanitized),
+         last_seen_at=GREATEST(integration.carrier_issue_code_registry.last_seen_at,EXCLUDED.last_seen_at),
+         occurrences=(SELECT count(*) FROM integration.dropea_issues
+           WHERE carrier=$1 AND market=$2 AND initial_carrier_code=$3),
+         mapping_status=EXCLUDED.mapping_status,policy_id=EXCLUDED.policy_id,
+         human_review=EXCLUDED.human_review,updated_at=now()`, [
+        issue.carrier, issue.market, issue.initial_carrier_code, issue.type,
+        issue.initial_carrier_description_sanitized, issue.observed_at,
+        issue.mapping_status || 'UNMAPPED', issue.policy_id, issue.human_review === true
+      ]);
+    }
     await this.pool.query(`INSERT INTO read_models.operations_incident_records
       (canonical_issue_id,dropea_issue_id,canonical_order_id,dropea_order_id,type,raw_type,
        mapping_status,schema_drift_alert,status,is_active,

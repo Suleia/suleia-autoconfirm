@@ -28,6 +28,19 @@ test('store configuration is explicit, exact-host and exact-read-token only', ()
   assert.equal(config.historical_reingestion_allowed, false);
 });
 
+test('historical reingestion requires an explicit boolean and preserves an authorized true value', () => {
+  const authorized = JSON.parse(env().DROPEA_STORES_CONFIG);
+  authorized[0].historical_reingestion_allowed = true;
+  const [config] = loadDropeaStoreConfigs(env({ DROPEA_STORES_CONFIG: JSON.stringify(authorized) }), {
+    now: () => new Date('2026-08-04T12:00:00Z').getTime()
+  });
+  assert.equal(config.historical_reingestion_allowed, true);
+
+  const invalid = JSON.parse(env().DROPEA_STORES_CONFIG);
+  invalid[0].historical_reingestion_allowed = 'true';
+  assert.throws(() => loadDropeaStoreConfigs(env({ DROPEA_STORES_CONFIG: JSON.stringify(invalid) })), /MUST_BE_BOOLEAN/);
+});
+
 test('store configuration blocks missing fields, fallback hosts, expired and write tokens', () => {
   const missing = JSON.parse(env().DROPEA_STORES_CONFIG); delete missing[0].store_id;
   assert.throws(() => loadDropeaStoreConfigs(env({ DROPEA_STORES_CONFIG: JSON.stringify(missing) })), /STORE_ID_MISSING/);
