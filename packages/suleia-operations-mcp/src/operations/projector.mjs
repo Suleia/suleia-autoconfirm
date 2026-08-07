@@ -26,17 +26,6 @@ export class OperationsProjector {
     return { projected: true, resource: 'store_config', actions_executed: 0, production_writes: 0 };
   }
 
-  async latestSyncSourceUpdatedAt({ market, storeId, resourceType, phase = 'INCREMENTAL' }) {
-    const result = await this.pool.query(`SELECT source_updated_at
-      FROM integration.dropea_sync_checkpoints
-      WHERE market=$1 AND store_id=$2 AND resource_type=$3 AND phase=$4
-        AND pagination_complete=true AND source_updated_at IS NOT NULL
-      LIMIT 1`, [market, String(storeId), resourceType, phase]);
-    return result.rows?.[0]?.source_updated_at
-      ? new Date(result.rows[0].source_updated_at).toISOString()
-      : null;
-  }
-
   async resolveCanonicalOrder(order) {
     const result = await this.pool.query(`SELECT canonical_order_id FROM read_models.operations_order_records
       WHERE (market=$1 AND store_id=$2 AND dropea_order_id=$3)

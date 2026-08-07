@@ -180,17 +180,16 @@ test('authorized BACKFILL reads complete order and issue history and mirrors pre
   assert.equal(projected.filter(([type]) => type === 'issue').length, 1);
 });
 
-test('INCREMENTAL resumes orders from the last complete persistent source checkpoint', async () => {
-  let orderParams;
+test('INCREMENTAL reconciles complete orders and issues ordered by source update without unsupported filters', async () => {
+  const calls = [];
   const client = {
     market: 'ES',
     async listAll(name, params) {
-      if (name === 'listOrders') orderParams = params;
+      calls.push([name, params]);
       return { items: [], page_count: 1, complete: true, records_read: 0, requested_limit: 100 };
     }
   };
   const projector = {
-    async latestSyncSourceUpdatedAt() { return '2026-08-04T11:30:00.000Z'; },
     async connectorHealth() {}, async syncCheckpoint() {}
   };
   await syncDropeaPublicApi({
@@ -200,8 +199,10 @@ test('INCREMENTAL resumes orders from the last complete persistent source checkp
       native_v2_activation_at: '2026-08-04T00:00:00Z', historical_reingestion_allowed: true },
     now: () => new Date('2026-08-04T12:00:00Z')
   });
-  assert.equal(orderParams.date_from, '2026-08-04T11:30:00.000Z');
-  assert.equal(orderParams.date_type, 'updated_at');
+  assert.equal(calls[0][1].sort_by, 'updated_at');
+  assert.equal('date_from' in calls[0][1], false);
+  assert.equal('date_type' in calls[0][1], false);
+  assert.deepEqual(calls[1], ['listIssues', {}]);
 });
 
 test('dry-run performs zero mirror writes on success and failure', async () => {
