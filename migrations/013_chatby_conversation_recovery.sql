@@ -52,6 +52,10 @@ SELECT o.canonical_order_id,o.dropea_order_id,o.status,o.sub_status,o.canonical_
        o.product_summary,o.total_amount,o.currency,o.carrier,o.tracking_reference_masked,
        o.identity_status,o.decision_status,o.risk,o.priority,o.freshness,o.latest_message_at,
        o.updated_at,o.actions_executed,o.production_writes,o.run_mode,
+       o.lifecycle_classification,o.phone_last4,o.canonical_product_key,o.duplicate_status,
+       o.conflicting_order_id,o.automatic_confirmation_allowed,o.test_order,
+       o.chatby_cleanup_status,o.chatby_cleanup_blockers,o.return_block_status,
+       o.return_block_reason,o.protection_review,o.protection_last_reconciled_at,
        coalesce(c.conversation_status,'UNKNOWN') AS conversation_status,
        coalesce(c.conversation_freshness,'UNKNOWN') AS conversation_freshness
 FROM read_models.operations_order_records o
@@ -63,7 +67,16 @@ LEFT JOIN LATERAL (
 ) c ON true;
 
 CREATE OR REPLACE VIEW read_models.operations_order_detail AS
-SELECT o.*, c.has_customer_replied, c.latest_inbound_message_at,
+SELECT o.canonical_order_id,o.dropea_order_id,o.external_order_id_hash,o.status,o.sub_status,
+       o.canonical_state,o.product_summary,o.total_amount,o.currency,o.carrier,o.service_type,
+       o.tracking_reference_masked,o.identity_status,o.decision_status,o.risk,o.priority,
+       o.freshness,o.latest_message_at,o.updated_at,o.source_version,o.schema_version,
+       o.actions_executed,o.production_writes,o.run_mode,o.lifecycle_classification,
+       o.phone_last4,o.canonical_product_key,o.duplicate_status,o.conflicting_order_id,
+       o.automatic_confirmation_allowed,o.test_order,o.chatby_cleanup_status,
+       o.chatby_cleanup_blockers,o.return_block_status,o.return_block_reason,
+       o.protection_review,o.protection_last_reconciled_at,
+       c.has_customer_replied, c.latest_inbound_message_at,
        c.latest_relevant_message_hash, c.detected_intent, c.requested_date,
        c.requested_time_window, c.address_change_detected, c.refusal_detected,
        c.acceptance_detected, c.discount_accepted, c.change_of_intent,
@@ -97,7 +110,17 @@ LEFT JOIN operations.chatby_conversation_links l USING(canonical_issue_id)
 WHERE i.status='PENDING' AND i.is_active=true;
 
 CREATE OR REPLACE VIEW read_models.operations_incident_handbook_detail AS
-SELECT i.*, x.has_customer_replied, x.latest_inbound_message_at,
+SELECT i.canonical_issue_id,i.dropea_issue_id,i.canonical_order_id,i.dropea_order_id,
+       i.type,i.status,i.is_active,i.actionable,i.carrier,i.tracking_reference_masked,
+       i.initial_carrier_code,i.initial_carrier_description_sanitized,
+       i.initial_carrier_substatus_code,i.allowed_resolution_options,i.pickup_point_masked,
+       i.delivery_attempt_number,i.carrier_retention_deadline,i.customer_response_status,
+       i.customer_intent,i.proposed_resolution,i.decision_id,i.policy_id,i.confidence,
+       i.risk,i.priority,i.qa_result,i.blocking_reasons,i.due_at,i.discount_status,
+       i.freshness,i.created_at,i.updated_at,i.actions_executed,i.production_writes,i.run_mode,
+       i.raw_type,i.mapping_status,i.schema_drift_alert,i.resolution_status,
+       i.resolution_data_present,i.resolution_changed_at,i.resolved_at,i.source_event_id,i.observed_at,
+       x.has_customer_replied, x.latest_inbound_message_at,
        x.latest_relevant_message_hash, x.customer_intent AS detected_intent,
        x.previous_intents, x.intent_changed, x.contradiction,
        x.requested_date, x.requested_time_window, x.requested_detail_masked,
