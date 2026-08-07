@@ -51,9 +51,9 @@ CREATE OR REPLACE VIEW read_models.operations_orders_queue AS
 SELECT o.canonical_order_id,o.dropea_order_id,o.status,o.sub_status,o.canonical_state,
        o.product_summary,o.total_amount,o.currency,o.carrier,o.tracking_reference_masked,
        o.identity_status,o.decision_status,o.risk,o.priority,o.freshness,o.latest_message_at,
+       o.updated_at,o.actions_executed,o.production_writes,o.run_mode,
        coalesce(c.conversation_status,'UNKNOWN') AS conversation_status,
-       coalesce(c.conversation_freshness,'UNKNOWN') AS conversation_freshness,
-       o.updated_at,o.actions_executed,o.production_writes,o.run_mode
+       coalesce(c.conversation_freshness,'UNKNOWN') AS conversation_freshness
 FROM read_models.operations_order_records o
 LEFT JOIN LATERAL (
   SELECT conversation_status,conversation_freshness
@@ -88,10 +88,10 @@ SELECT i.canonical_issue_id,i.dropea_issue_id,i.canonical_order_id,i.dropea_orde
        i.allowed_resolution_options,i.delivery_attempt_number,i.carrier_retention_deadline,
        i.customer_response_status,i.customer_intent,i.proposed_resolution,i.decision_id,
        i.risk,i.priority,i.qa_result,i.blocking_reasons,i.due_at,i.discount_status,
+       i.freshness,i.created_at,i.updated_at,i.actions_executed,i.production_writes,i.run_mode,
        coalesce(l.conversation_status,'UNKNOWN') AS conversation_status,
        l.reason_code AS conversation_reason,
-       coalesce(l.conversation_freshness,'UNKNOWN') AS conversation_freshness,
-       i.freshness,i.created_at,i.updated_at,i.actions_executed,i.production_writes,i.run_mode
+       coalesce(l.conversation_freshness,'UNKNOWN') AS conversation_freshness
 FROM read_models.operations_incident_records i
 LEFT JOIN operations.chatby_conversation_links l USING(canonical_issue_id)
 WHERE i.status='PENDING' AND i.is_active=true;
@@ -105,19 +105,19 @@ SELECT i.*, x.has_customer_replied, x.latest_inbound_message_at,
        x.discount_accepted, x.discount_rejected, x.conversation_quality,
        x.interpretation_confidence AS conversation_confidence,
        x.interpretation_summary, x.messages_used, x.messages_ignored,x.missing_information,
-       coalesce(l.conversation_status,'UNKNOWN') AS conversation_status,
-       l.reason_code AS conversation_reason,l.identity_method AS conversation_identity_method,
-       l.last_customer_message_at,l.last_suleia_message_at,l.last_button,
-       l.latest_template_hash,l.customer_replied,l.conversation_age_seconds,
-       coalesce(l.conversation_freshness,'UNKNOWN') AS conversation_freshness,
-       coalesce(l.message_count,0) AS conversation_message_count,l.observed_at AS conversation_observed_at,
        d.payload_masked AS decision_payload_masked,d.policy_version AS decision_policy_version,
        d.reason_codes,d.dropea_validation,d.gls_feasibility,
        d.confidence AS decision_confidence,d.requires_human_review,
        w.original_amount,w.discount_amount,w.new_amount,w.offer_created_at,
        w.response_status AS discount_response_status,w.accepted_at AS discount_accepted_at,
        w.email_prepared,w.email_sent,w.dropea_status AS discount_dropea_status,
-       w.cod_change_verified,w.ready_for_retry
+       w.cod_change_verified,w.ready_for_retry,
+       coalesce(l.conversation_status,'UNKNOWN') AS conversation_status,
+       l.reason_code AS conversation_reason,l.identity_method AS conversation_identity_method,
+       l.last_customer_message_at,l.last_suleia_message_at,l.last_button,
+       l.latest_template_hash,l.customer_replied,l.conversation_age_seconds,
+       coalesce(l.conversation_freshness,'UNKNOWN') AS conversation_freshness,
+       coalesce(l.message_count,0) AS conversation_message_count,l.observed_at AS conversation_observed_at
 FROM read_models.operations_incident_records i
 LEFT JOIN read_models.operations_incident_interpretations x USING(canonical_issue_id)
 LEFT JOIN operations.chatby_conversation_links l USING(canonical_issue_id)
