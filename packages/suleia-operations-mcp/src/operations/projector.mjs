@@ -49,6 +49,102 @@ export class OperationsProjector {
     return { status: 'NOT_FOUND', canonical_order_id: null };
   }
 
+  async projectOperationalTruthOrder(order) {
+    const customer = order.customer_identity_hash
+      ? await this.pool.query(`INSERT INTO core.customers_masked
+          (external_reference_hash,masking_version,updated_at)
+          VALUES($1,'hmac-sha256-v1',now())
+          ON CONFLICT(external_reference_hash) DO UPDATE SET updated_at=now()
+          RETURNING id`, [order.customer_identity_hash])
+      : { rows: [] };
+    const canonical = await this.pool.query(`INSERT INTO core.orders
+      (external_order_id,customer_id,source_status,canonical_status,currency,total_amount,
+       created_at_source,last_source_update_at,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
+      ON CONFLICT(external_order_id) DO UPDATE SET customer_id=EXCLUDED.customer_id,
+       source_status=EXCLUDED.source_status,canonical_status=EXCLUDED.canonical_status,
+       currency=EXCLUDED.currency,total_amount=EXCLUDED.total_amount,
+       last_source_update_at=EXCLUDED.last_source_update_at,updated_at=now()
+      RETURNING id`, [
+      order.canonical_order_id, customer.rows?.[0]?.id || null, order.status,
+      order.canonical_state, order.currency, order.total_amount, order.created_at, order.updated_at
+    ]);
+    const coreOrderId = canonical.rows[0].id;
+    const primaryLink = order.identity?.links?.find((link) => link.namespace === 'dropea_order_id');
+    if (primaryLink?.value_hash) {
+      await this.pool.query(`INSERT INTO core.order_source_links
+        (order_id,source,source_order_id_hash,confidence,verified_at)
+        VALUES($1,'DROPEA_PUBLIC_API_V2',$2,1,now())
+        ON CONFLICT(source,source_order_id_hash) DO UPDATE SET
+         order_id=EXCLUDED.order_id,confidence=1,verified_at=now()`, [coreOrderId, primaryLink.value_hash]);
+    }
+    const eventPayload = {
+      status: order.status, sub_status: order.sub_status, canonical_state: order.canonical_state,
+      total_amount: order.total_amount, currency: order.currency, carrier: order.carrier,
+      source_version: order.source_version
+    };
+    await this.pool.query(`INSERT INTO events.order_events
+      (order_id,event_type,occurred_at,source,source_record_id_hash,payload_masked,checksum,
+       deduplication_key,trust_level,freshness_status,masking_version,run_mode)
+      VALUES($1,'DROPEA_ORDER_OBSERVED',$2,'DROPEA_PUBLIC_API_V2',$3,$4,$3,$5,
+       'HIGH',$6,'hmac-sha256-v1','SIMULATION')
+      ON CONFLICT(deduplication_key) DO NOTHING`, [
+      coreOrderId, order.updated_at, order.payload_hash, JSON.stringify(eventPayload),
+      `dropea-order:${order.payload_hash}`, order.data_freshness || 'UNKNOWN'
+    ]);
+    const twin = {
+      canonical_order_id: order.canonical_order_id, status: order.status,
+      sub_status: order.sub_status, canonical_state: order.canonical_state,
+      total_amount: order.total_amount, currency: order.currency, carrier: order.carrier,
+      source: 'DROPEA_PUBLIC_API_V2', source_version: order.source_version,
+      observed_at: order.observed_at
+    };
+    await this.pool.query(`INSERT INTO core.order_digital_twins
+      (order_id,snapshot_version,twin_document,completeness,freshness_status,
+       contradiction_count,policy_versions,built_at,run_mode)
+      VALUES($1,$2,$3,$4,$5,0,'{}',now(),'SIMULATION')
+      ON CONFLICT(order_id) DO UPDATE SET snapshot_version=EXCLUDED.snapshot_version,
+       twin_document=EXCLUDED.twin_document,completeness=EXCLUDED.completeness,
+       freshness_status=EXCLUDED.freshness_status,built_at=now()`, [
+      coreOrderId, order.payload_hash, JSON.stringify(twin),
+      ['EXACT', 'VERIFIED'].includes(order.identity_status) ? 1 : 0.8,
+      order.data_freshness || 'UNKNOWN'
+    ]);
+    return { core_order_id: coreOrderId, actions_executed: 0, production_writes: 0 };
+  }
+
+  async projectOperationalTruthIssue(issue) {
+    const canonical = await this.pool.query(`SELECT id FROM core.orders
+      WHERE external_order_id=$1 LIMIT 1`, [issue.canonical_order_id]);
+    if (!canonical.rows?.[0]?.id) throw new Error('CORE_ORDER_MISSING_FOR_ISSUE');
+    const coreOrderId = canonical.rows[0].id;
+    await this.pool.query(`INSERT INTO core.incidents
+      (order_id,external_incident_id,incident_type,status,opened_at,resolved_at,
+       latest_carrier_reason_masked,updated_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,now())
+      ON CONFLICT(external_incident_id) DO UPDATE SET incident_type=EXCLUDED.incident_type,
+       status=EXCLUDED.status,resolved_at=EXCLUDED.resolved_at,
+       latest_carrier_reason_masked=EXCLUDED.latest_carrier_reason_masked,updated_at=now()`, [
+      coreOrderId, issue.canonical_issue_id, issue.type, issue.status, issue.created_at,
+      issue.resolved_at, issue.initial_carrier_description_sanitized
+    ]);
+    const eventPayload = {
+      issue_type: issue.type, status: issue.status, is_active: issue.is_active,
+      carrier: issue.carrier, carrier_code: issue.initial_carrier_code,
+      mapping_status: issue.mapping_status, source_version: issue.source_version
+    };
+    await this.pool.query(`INSERT INTO events.order_events
+      (order_id,event_type,occurred_at,source,source_record_id_hash,payload_masked,checksum,
+       deduplication_key,trust_level,freshness_status,masking_version,run_mode)
+      VALUES($1,'DROPEA_ISSUE_OBSERVED',$2,'DROPEA_PUBLIC_API_V2',$3,$4,$3,$5,
+       'HIGH',$6,'hmac-sha256-v1','SIMULATION')
+      ON CONFLICT(deduplication_key) DO NOTHING`, [
+      coreOrderId, issue.updated_at, issue.payload_hash, JSON.stringify(eventPayload),
+      `dropea-issue:${issue.payload_hash}`, issue.freshness || 'UNKNOWN'
+    ]);
+    return { core_order_id: coreOrderId, actions_executed: 0, production_writes: 0 };
+  }
+
   async upsertOrder(order) {
     assertSafe(order);
     const integrationResult = await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO integration.dropea_orders
@@ -145,6 +241,7 @@ export class OperationsProjector {
       { status: order.status, sub_status: order.sub_status, market: order.market, store_id: String(order.store_id) },
       order.data_freshness || 'UNKNOWN'
     ]);
+    await this.projectOperationalTruthOrder(order);
     return { projected: true, inserted: integrationResult?.rows?.[0]?.inserted === true, resource: 'order', shadow_mirror_writes: 1, actions_executed: 0, production_writes: 0 };
   }
 
@@ -266,6 +363,7 @@ export class OperationsProjector {
         initial_carrier_code: issue.initial_carrier_code, capability_status: issue.capability_status },
       issue.freshness || 'UNKNOWN'
     ]);
+    await this.projectOperationalTruthIssue(issue);
     return { projected: true, inserted: integrationResult?.rows?.[0]?.inserted === true, resource: 'issue', shadow_mirror_writes: 1, actions_executed: 0, production_writes: 0 };
   }
 
@@ -295,6 +393,17 @@ export class OperationsProjector {
       record.pagination_complete === true, record.last_error_code || null
     ]);
     return { projected: true, resource: 'sync_checkpoint', actions_executed: 0, production_writes: 0 };
+  }
+
+  async recordSourceFreshness({ source, last_success_at, lag_seconds = 0, status = 'FRESH' }) {
+    await this.pool.query(`INSERT INTO core.source_freshness
+      (source,last_success_at,last_failure_at,lag_seconds,status,checked_at)
+      VALUES($1,$2,NULL,$3,$4,now())
+      ON CONFLICT(source) DO UPDATE SET last_success_at=EXCLUDED.last_success_at,
+       lag_seconds=EXCLUDED.lag_seconds,status=EXCLUDED.status,checked_at=now()`, [
+      source, last_success_at, lag_seconds, status
+    ]);
+    return { projected: true, resource: 'source_freshness', actions_executed: 0, production_writes: 0 };
   }
 
   async recordDropeaWebhook(event) {

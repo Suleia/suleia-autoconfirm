@@ -266,6 +266,11 @@ export async function syncChatbyReadOnly({
     exactOrders += 1;
     availableIssues += 1;
   }
+  if (projector.recordSourceFreshness) {
+    await projector.recordSourceFreshness({
+      source: 'chatby', last_success_at: new Date().toISOString(), lag_seconds: 0, status: 'FRESH'
+    });
+  }
   return Object.freeze({
     ok: true,
     enabled: true,

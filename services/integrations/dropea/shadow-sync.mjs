@@ -167,6 +167,11 @@ export async function syncDropeaPublicApi({
         freshness: 'FRESH', pagination_complete: issuePage.complete
       });
     }
+    if (!dryRun && projector.recordSourceFreshness) {
+      for (const source of ['event_store', 'digital_twin', 'read_model']) {
+        await projector.recordSourceFreshness({ source, last_success_at: observedAt, lag_seconds: 0, status: 'FRESH' });
+      }
+    }
 
     return zeroActionResult({
       ok: orphanIssues.length === 0,

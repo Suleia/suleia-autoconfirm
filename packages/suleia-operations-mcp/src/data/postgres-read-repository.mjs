@@ -73,6 +73,11 @@ export function createPostgresReadRepository(config, { pool } = {}) {
           GREATEST(0,EXTRACT(EPOCH FROM (now()-source_updated_at)))::bigint AS lag_seconds,
           freshness AS status,measured_at
         FROM read_models.operations_data_freshness
+        UNION ALL
+        SELECT source,last_success_at AS source_updated_at,last_failure_at,lag_seconds,status,
+          checked_at AS measured_at
+        FROM core.source_freshness
+        WHERE source IN ('chatby','event_store','digital_twin','read_model')
         ORDER BY measured_at DESC
         LIMIT 100`);
       const rows = operationalRows.length ? operationalRows : await query(`SELECT source, last_success_at AS source_updated_at,

@@ -2,9 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { OperationsProjector } from '../src/operations/projector.mjs';
 
+function safeProjectorPool(calls) {
+  return { query: async (sql, values) => {
+    calls.push({ sql, values });
+    if (/INSERT INTO core\.customers_masked/.test(sql)) return { rowCount: 1, rows: [{ id: 'customer-safe-id' }] };
+    if (/INSERT INTO core\.orders/.test(sql)) return { rowCount: 1, rows: [{ id: 'core-order-safe-id' }] };
+    if (/SELECT id FROM core\.orders/.test(sql)) return { rowCount: 1, rows: [{ id: 'core-order-safe-id' }] };
+    return { rowCount: 1, rows: [] };
+  } };
+}
+
 test('Operations projector writes only masked shadow read models with zero-action result', async () => {
   const calls = [];
-  const projector = new OperationsProjector({ query: async (sql, values) => { calls.push({ sql, values }); return { rowCount: 1 }; } });
+  const projector = new OperationsProjector(safeProjectorPool(calls));
   const result = await projector.upsertOrder({
     canonical_order_id: 'order-fixture', dropea_order_id: '24', external_order_id_hash: 'a'.repeat(64),
     status: 'SHIPPING', sub_status: 'SHIPPED', canonical_state: 'IN_TRANSIT',
@@ -19,6 +29,9 @@ test('Operations projector writes only masked shadow read models with zero-actio
   assert.deepEqual(JSON.parse(calls[0].values[14]), []);
   assert.deepEqual(JSON.parse(calls[0].values[16]), []);
   assert.deepEqual(JSON.parse(calls[2].values[3]), []);
+  assert.ok(calls.some((call) => /INSERT INTO events\.order_events/.test(call.sql)));
+  assert.ok(calls.some((call) => /INSERT INTO core\.order_digital_twins/.test(call.sql)));
+  assert.equal(calls.some((call) => /INSERT INTO (chatby|dropea)|UPDATE (chatby|dropea)/i.test(call.sql)), false);
 });
 
 test('Operations projector rejects direct customer PII', async () => {
@@ -30,10 +43,7 @@ test('Operations projector rejects direct customer PII', async () => {
 
 test('Dropea refresh preserves a previously available Chatby source', async () => {
   const calls = [];
-  const projector = new OperationsProjector({ query: async (sql, values) => {
-    calls.push({ sql, values });
-    return { rowCount: 1 };
-  } });
+  const projector = new OperationsProjector(safeProjectorPool(calls));
   await projector.upsertOrder({
     canonical_order_id: 'order-fixture', dropea_order_id: '24', external_order_id_hash: 'a'.repeat(64),
     status: 'SHIPPING', sub_status: 'SHIPPED', canonical_state: 'IN_TRANSIT',
@@ -44,6 +54,37 @@ test('Dropea refresh preserves a previously available Chatby source', async () =
   const refresh = calls.find((call) => /UPDATE read_models\.operations_order_records SET market/.test(call.sql));
   assert.ok(refresh);
   assert.doesNotMatch(refresh.sql, /conversation_source|interpretation_status/);
+});
+
+test('Operational truth projects masked customer, incident event and no external action', async () => {
+  const calls = [];
+  const projector = new OperationsProjector(safeProjectorPool(calls));
+  const customerHash = 'c'.repeat(64);
+  const orderResult = await projector.projectOperationalTruthOrder({
+    canonical_order_id: 'order-safe', customer_identity_hash: customerHash,
+    status: 'SHIPPING', sub_status: 'SHIPPED', canonical_state: 'IN_TRANSIT',
+    currency: 'EUR', total_amount: 10, carrier: 'GLS', source_version: '0.1.0',
+    created_at: '2026-08-01T10:00:00Z', updated_at: '2026-08-01T12:00:00Z',
+    observed_at: '2026-08-01T12:01:00Z', payload_hash: 'd'.repeat(64),
+    data_freshness: 'FRESH', identity_status: 'EXACT',
+    identity: { links: [{ namespace: 'dropea_order_id', value_hash: 'e'.repeat(64) }] }
+  });
+  const issueResult = await projector.projectOperationalTruthIssue({
+    canonical_order_id: 'order-safe', canonical_issue_id: 'issue-safe',
+    type: 'RECIPIENT_ABSENT', status: 'PENDING', is_active: true, carrier: 'GLS',
+    initial_carrier_code: 'NAM', initial_carrier_description_sanitized: 'RECIPIENT ABSENT',
+    mapping_status: 'MAPPED', source_version: '0.1.0',
+    created_at: '2026-08-01T10:00:00Z', updated_at: '2026-08-01T12:00:00Z',
+    resolved_at: null, payload_hash: 'f'.repeat(64), freshness: 'FRESH'
+  });
+  assert.equal(orderResult.actions_executed, 0);
+  assert.equal(issueResult.production_writes, 0);
+  const customerWrite = calls.find((call) => /INSERT INTO core\.customers_masked/.test(call.sql));
+  assert.deepEqual(customerWrite.values, [customerHash]);
+  const eventWrites = calls.filter((call) => /INSERT INTO events\.order_events/.test(call.sql));
+  assert.equal(eventWrites.length, 2);
+  assert.match(eventWrites[0].values[3], /"canonical_state":"IN_TRANSIT"/);
+  assert.doesNotMatch(eventWrites.map((call) => call.values.join('|')).join('|'), /@|\+34|664381580/);
 });
 
 test('Incident simulation serializes every jsonb value explicitly', async () => {
