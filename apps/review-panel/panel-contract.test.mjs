@@ -17,6 +17,15 @@ test('Operations Center exposes exactly Pedidos and Incidencias with no write co
   assert.match(html, /MODO SIMULACIÓN/);
   assert.match(html, /NO SE HA ENVIADO NADA/);
   assert.match(html, /ACCIONES EJECUTADAS: 0/);
-  assert.match(html, /<script src="app\.js\?v=c65be9f" defer><\/script>/);
+  assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
+  assert.match(html, /id="login-notice"[^>]*role="alert"/);
+  assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-login-native">/);
+  assert.match(html, /<script src="app\.js\?v=20260808-login-native" defer><\/script>/);
+  assert.match(script, /async function prepareLogin\(\)/);
+  assert.match(script, /button\.href=url\.toString\(\)/);
+  assert.match(script, /button\.setAttribute\('aria-disabled','false'\)/);
+  assert.match(script, /if\(!state\.token\)\{await prepareLogin\(\);/);
+  assert.doesNotMatch(script, /login-button'\)\.addEventListener\('click'/);
+  assert.match(script, /if\(params\.has\('error'\)\)/);
   assert.match(script, /refresh_interval_seconds/);
 });

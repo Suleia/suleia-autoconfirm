@@ -6,6 +6,7 @@
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="login.css?v=20260808-login-native">
 </head>
 <body>
   <div id="login" class="login-shell" hidden>
@@ -14,7 +15,8 @@
       <p class="eyebrow">SULEIA · ACCESO PRIVADO</p>
       <h1>Operations Center</h1>
       <p>Consulta segura de pedidos e incidencias desde la copia operativa del VPS.</p>
-      <button id="login-button" class="primary-button">Iniciar sesión</button>
+      <a id="login-button" class="primary-button" href="#" aria-disabled="true">Preparando acceso seguro…</a>
+      <div id="login-notice" class="notice" role="alert" hidden></div>
       <small>Solo lectura · Datos enmascarados · Cero acciones</small>
     </main>
   </div>
@@ -84,6 +86,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=c65be9f" defer></script>
+  <script src="app.js?v=20260808-login-native" defer></script>
 </body>
 </html>

@@ -11,12 +11,15 @@ function randomString(){const bytes=crypto.getRandomValues(new Uint8Array(32));r
 async function sha256(value){const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')}
 function redirectUri(){return `${location.origin}${location.pathname}`}
 
-async function beginLogin(){
+function showLoginError(message){const notice=$('login-notice');notice.textContent=message;notice.hidden=!message}
+async function prepareLogin(){
+  if(!state.config?.oauth?.issuer||!state.config.oauth.client_id||!state.config.oauth.scope)throw new Error('La configuración de acceso está incompleta.');
+  if(!globalThis.crypto?.getRandomValues||!globalThis.crypto?.subtle)throw new Error('Este navegador no permite iniciar el acceso seguro.');
   const verifier=randomString()+randomString();const loginState=randomString();
   sessionStorage.setItem('suleia_pkce_verifier',verifier);sessionStorage.setItem('suleia_oauth_state',loginState);
   const challenge=await sha256(verifier);const url=new URL(`${state.config.oauth.issuer}/protocol/openid-connect/auth`);
   Object.entries({client_id:state.config.oauth.client_id,response_type:'code',scope:state.config.oauth.scope,redirect_uri:redirectUri(),state:loginState,code_challenge:challenge,code_challenge_method:'S256',audience:state.config.oauth.audience}).forEach(([k,v])=>url.searchParams.set(k,v));
-  location.assign(url.toString());
+  const button=$('login-button');button.href=url.toString();button.textContent='Iniciar sesión';button.setAttribute('aria-disabled','false');
 }
 
 async function exchangeCode(code,returnedState){
@@ -79,9 +82,11 @@ function setView(view){state.view=view;state.offset=0;state.filters={};document.
 
 async function init(){
   state.config=await fetch(`${operationsBase}/api/config`).then(r=>{if(!r.ok)throw new Error('Configuración privada no disponible.');return r.json()});
-  const params=new URLSearchParams(location.search);state.token=activeToken();if(params.has('code'))state.token=await exchangeCode(params.get('code'),params.get('state'));
-  if(!state.token){$('login').hidden=false;$('app').hidden=true;return}
+  const params=new URLSearchParams(location.search);state.token=activeToken();
+  if(params.has('error')){history.replaceState({},document.title,location.pathname);throw new Error('El proveedor de acceso rechazó el inicio de sesión. Inténtalo de nuevo.');}
+  if(params.has('code'))state.token=await exchangeCode(params.get('code'),params.get('state'));
+  if(!state.token){await prepareLogin();showLoginError('');$('login').hidden=false;$('app').hidden=true;return}
   $('login').hidden=true;$('app').hidden=false;renderHead();renderFilters();await refresh();setInterval(()=>{if(document.visibilityState==='visible'&&activeToken())refresh()},state.config.refresh_interval_seconds*1000);
 }
-$('login-button').addEventListener('click',beginLogin);$('logout-button').addEventListener('click',()=>signOut(true));$('refresh-button').addEventListener('click',refresh);$('prev-page').addEventListener('click',()=>{state.offset=Math.max(0,state.offset-state.limit);loadQueue()});$('next-page').addEventListener('click',()=>{state.offset+=state.limit;loadQueue()});document.querySelectorAll('.nav-item').forEach(item=>item.addEventListener('click',()=>setView(item.dataset.view)));$('close-drawer').addEventListener('click',closeDetail);$('drawer-backdrop').addEventListener('click',closeDetail);document.addEventListener('keydown',event=>{if(event.key==='Escape')closeDetail()});
-init().catch(error=>{$('login').hidden=false;$('app').hidden=true;const card=document.querySelector('.login-card');card.append(node('div','notice',error.message))});
+$('logout-button').addEventListener('click',()=>signOut(true));$('refresh-button').addEventListener('click',refresh);$('prev-page').addEventListener('click',()=>{state.offset=Math.max(0,state.offset-state.limit);loadQueue()});$('next-page').addEventListener('click',()=>{state.offset+=state.limit;loadQueue()});document.querySelectorAll('.nav-item').forEach(item=>item.addEventListener('click',()=>setView(item.dataset.view)));$('close-drawer').addEventListener('click',closeDetail);$('drawer-backdrop').addEventListener('click',closeDetail);document.addEventListener('keydown',event=>{if(event.key==='Escape')closeDetail()});
+init().catch(async error=>{$('login').hidden=false;$('app').hidden=true;try{if(state.config)await prepareLogin()}catch{}showLoginError(error.message)});

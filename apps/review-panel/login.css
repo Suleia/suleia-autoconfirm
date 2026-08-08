@@ -1,0 +1,9 @@
+.login-card a.primary-button {
+  display: block;
+  text-decoration: none;
+}
+
+.login-card .primary-button[aria-disabled="true"] {
+  pointer-events: none;
+  opacity: .55;
+}
