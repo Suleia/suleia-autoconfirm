@@ -22,10 +22,13 @@ test('Chatby recovery is deployed after the operational history and rolls back b
   assert.ok(deploy.indexOf('apply-customer-operational-history-migration.sh')
     < deploy.indexOf('apply-chatby-conversation-recovery-migration.sh'));
   const operationsDrill = read('infrastructure/vps/run-operations-center-rollback-drill.sh');
+  assert.ok(operationsDrill.indexOf('014_operational_data_model_hardening.down.sql')
+    < operationsDrill.indexOf('013_chatby_conversation_recovery.down.sql'));
   assert.ok(operationsDrill.indexOf('013_chatby_conversation_recovery.down.sql')
     < operationsDrill.indexOf('012_customer_operational_history.down.sql'));
   const incidentDrill = read('infrastructure/vps/run-incident-handbook-rollback-drill.sh');
-  assert.match(incidentDrill, /013_chatby_conversation_recovery\.down\.sql/);
+  assert.ok(incidentDrill.indexOf('014_operational_data_model_hardening.down.sql')
+    < incidentDrill.indexOf('013_chatby_conversation_recovery.down.sql'));
   const chatbyDrill = read('infrastructure/vps/run-chatby-conversation-recovery-rollback-drill.sh');
   assert.match(chatbyDrill, /CHATBY_RECOVERY_ROLLBACK_DRILL\|PASS/);
   assert.ok(chatbyDrill.indexOf('014_operational_data_model_hardening.down.sql')

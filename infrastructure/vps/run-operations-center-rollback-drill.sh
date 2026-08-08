@@ -6,6 +6,7 @@ COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
 ENV_FILE="${INSTALL_ROOT}/.env"
 BACKUP_FILE="${1:-}"
 DRILL_DATABASE="suleia_operations_rollback_drill"
+DATA_MODEL_DOWN_MIGRATION="${INSTALL_ROOT}/migrations/rollback/014_operational_data_model_hardening.down.sql"
 CHATBY_RECOVERY_DOWN_MIGRATION="${INSTALL_ROOT}/migrations/rollback/013_chatby_conversation_recovery.down.sql"
 CUSTOMER_HISTORY_DOWN_MIGRATION="${INSTALL_ROOT}/migrations/rollback/012_customer_operational_history.down.sql"
 COMPLETE_HISTORY_DOWN_MIGRATION="${INSTALL_ROOT}/migrations/rollback/010_dropea_complete_history.down.sql"
@@ -19,6 +20,7 @@ if [[ ! "${BACKUP_FILE}" =~ ^/backups/suleia-[0-9TZ]+\.dump$ ]]; then
   exit 1
 fi
 test -r "${ENV_FILE}"
+test -r "${DATA_MODEL_DOWN_MIGRATION}"
 test -r "${CHATBY_RECOVERY_DOWN_MIGRATION}"
 test -r "${CUSTOMER_HISTORY_DOWN_MIGRATION}"
 test -r "${COMPLETE_HISTORY_DOWN_MIGRATION}"
@@ -41,6 +43,8 @@ compose exec --no-TTY postgres createdb --username suleia_admin --owner suleia_b
 compose --profile maintenance run --rm --env "PGDATABASE=${DRILL_DATABASE}" --env ALLOW_RESTORE=true \
   backup /bin/sh /opt/suleia/backup/restore.sh "${BACKUP_FILE}" >/dev/null
 
+compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DATA_MODEL_DOWN_MIGRATION}" >/dev/null
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username suleia_admin --dbname "${DRILL_DATABASE}" < "${CHATBY_RECOVERY_DOWN_MIGRATION}" >/dev/null
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \

@@ -48,6 +48,12 @@ test('migration deployment and rollback are ordered after Chatby recovery', () =
   assert.match(drill, /014_operational_data_model_hardening\.down\.sql/);
   assert.match(drill, /actions=0\|production_writes=0/);
   assert.match(checkpointDeploy, /run-operational-data-model-hardening-rollback-drill\.sh/);
+  const operationsDrill = read('infrastructure/vps/run-operations-center-rollback-drill.sh');
+  const incidentDrill = read('infrastructure/vps/run-incident-handbook-rollback-drill.sh');
+  const dropeaDrill = read('infrastructure/vps/run-dropea-v2-read-mirror-rollback-drill.sh');
+  for (const dependentDrill of [operationsDrill, incidentDrill, dropeaDrill]) {
+    assert.match(dependentDrill, /014_operational_data_model_hardening\.down\.sql/);
+  }
 });
 
 test('new MCP catalog exposes real order, incident, quality and reconciliation reads only', () => {
