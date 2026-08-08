@@ -93,6 +93,7 @@ test('OAuth end-to-end validation uses the exact public MCP hostname without ext
   const verifier = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'vps', 'verify-keycloak-mcp-e2e.sh'), 'utf8');
   const flow = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'identity', 'verify-keycloak-mcp-e2e.mjs'), 'utf8');
   const dcr = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'identity', 'configure-chatgpt-dcr.mjs'), 'utf8');
+  const dcrLauncher = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'vps', 'configure-keycloak-chatgpt-dcr.sh'), 'utf8');
   const realm = JSON.parse(await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'identity', 'suleia-realm.json'), 'utf8'));
   const chatgptClient = realm.clients.find((client) => client.clientId === 'chatgpt-suleia-mcp');
   assert.match(verifier, /MCP_E2E_URL=https:\/\/mcp\.suleia\.com\/mcp/);
@@ -107,5 +108,6 @@ test('OAuth end-to-end validation uses the exact public MCP hostname without ext
   assert.equal(chatgptClient?.consentRequired, false);
   assert.match(dcr, /CHATGPT_MCP_CONSENT_REQUIRED === "true"/);
   assert.match(dcr, /consentRequired,/);
+  assert.match(dcrLauncher, /CHATGPT_MCP_CONSENT_REQUIRED="\$\{CHATGPT_MCP_CONSENT_REQUIRED:-false\}"/);
   assert.doesNotMatch(dcr, /\/consents|\/logout/);
 });
