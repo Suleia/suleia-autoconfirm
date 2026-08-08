@@ -40,6 +40,12 @@ test('Operations Center exposes protection badges, filters and masked detail onl
   assert.doesNotMatch(script, /phone_normalized/);
 });
 
+test('Operations Center assigns filter values on the select element, not append return value', () => {
+  const script = read('../review-panel/app.js');
+  assert.doesNotMatch(script, /\.append\(new Option\([^\n]+\)\)\.value\s*=/);
+  assert.match(script, /select\.append\(new Option\(`Todos · \$\{label\}`,''\)\);select\.value=/);
+});
+
 test('production order path evaluates the test-phone guard before blocked-customer policy', () => {
   const source = read('../../autoconfirm/src/workflows/orders.mjs');
   const functionStart = source.indexOf("async function applyBlockedCustomerPolicy");
