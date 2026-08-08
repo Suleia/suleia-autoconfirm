@@ -2,30 +2,22 @@ import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
 import {
-  getDropeaIncidenceHistory,
   getDropeaOrderById,
-  listDropeaIncidences,
-  listDropeaIncidencesByIds,
   listDropeaOrders,
   listDropeaOrdersBasic,
-  listDropeaOrdersByStatus,
   listDropeaOrdersByStatusBasic,
   listDropeaOrderStateValues,
   pickupDropeaIssueAtDepot,
   resolveDropeaIssue,
   returnDropeaIssueToOrigin
 } from '../clients/dropea.mjs';
+import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
 import { findSubscriberInIndexByPhone, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import { syncAgentMemoryRuleToSupabase, syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
-import { processIncidentNotification } from './incident-notifications.mjs';
 import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
-import {
-  carrierIncidentDisplay,
-  parseDropeaCarrierHistory,
-  selectCurrentDropeaCarrierIncident
-} from './incident-carrier-history.mjs';
+import { carrierIncidentDisplay } from './incident-carrier-history.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -1658,66 +1650,8 @@ function orderFromIncidence(incidence = {}) {
 }
 
 async function collectPendingIncidents({ limit = 100, pages = 3 } = {}) {
-  const rows = [];
-  const errors = [];
-
-  // This is the same operational population shown by Dropea under "Pendientes de resolver":
-  // orders currently in INCIDENCE with an issue that is still pending.
-  try {
-    for (let page = 1; page <= Math.max(pages, 10); page += 1) {
-      const orders = await listDropeaOrdersByStatus({ status: 'INCIDENCE', limit, page });
-      if (!Array.isArray(orders) || !orders.length) break;
-      for (const order of orders) {
-        for (const issue of asArray(order.raw?.issues).filter(isPendingIssue)) {
-          if (!issue?.id) continue;
-          rows.push({ order, issue });
-        }
-      }
-      if (orders.length < limit) break;
-    }
-  } catch (error) {
-    errors.push(`orders_status_INCIDENCE: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  if (rows.length) {
-    const richById = new Map();
-    const ids = unique(rows.map((row) => row.issue?.id));
-    for (let offset = 0; offset < ids.length; offset += 100) {
-      try {
-        const richIssues = await listDropeaIncidencesByIds(ids.slice(offset, offset + 100));
-        for (const issue of richIssues) richById.set(String(issue.id || issue.incidenceId), issue);
-      } catch (error) {
-        errors.push(`issues_by_ids: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    return sortRowsByOrderDesc(rows.map(({ order, issue }) => {
-      const rich = richById.get(String(issue.id));
-      return { order, issue: rich ? { ...issue, ...rich } : issue };
-    }));
-  }
-
-  // Safe fallback for temporary failures of the status query. Closed/charged/rejected orders
-  // returned by the generic issues endpoint are intentionally excluded.
-  const directRows = [];
-  try {
-    for (let page = 1; page <= Math.max(pages, 30); page += 1) {
-      const incidences = await listDropeaIncidences({ limit, page, status: 'PENDING', sort: 'ID', direction: 'DESC' });
-      if (!Array.isArray(incidences) || !incidences.length) break;
-      for (const incidence of incidences) {
-        if (!incidence.orderId || !isPendingIssue(incidence)) continue;
-        const order = orderFromIncidence(incidence);
-        if (!orderLooksLikeIncident(order)) continue;
-        directRows.push({ order, issue: incidence });
-      }
-      if (incidences.length < limit) break;
-    }
-  } catch (error) {
-    errors.push(`issues_pending: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (directRows.length) return sortRowsByOrderDesc(directRows);
-
-  if (errors.length) throw new Error(`No se pudo cargar Pendientes de resolver de Dropea. ${errors.join(' | ')}`);
-  return [];
+  const rows = await collectPendingDropeaV2Incidents({ limit, pages });
+  return sortRowsByOrderDesc(rows);
 }
 
 function incidentDisplayLabel(classification) {
@@ -1736,7 +1670,27 @@ export function loadIncidentsCache() {
   });
 }
 
-export async function syncPendingIncidents({ limit = 100, pages = 3, notificationDryRun = false } = {}) {
+export async function preparePendingIncidentsForAnalysis({
+  pending = [],
+  indexLoader = loadSubscriberIndex
+} = {}) {
+  try {
+    return {
+      pending,
+      subscriberIndex: await indexLoader({ maxPages: 10, limit: 100 }),
+      subscriberIndexError: null
+    };
+  } catch (error) {
+    return {
+      // A Chatby outage must never hide Dropea's pending incidents.
+      pending,
+      subscriberIndex: null,
+      subscriberIndexError: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
   const updatedAt = new Date().toISOString();
   const incidents = [];
 
@@ -1746,14 +1700,18 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
     const chatbyByPhone = new Map();
     const messagesByUserNs = new Map();
     const pending = await collectPendingIncidents({ limit, pages });
-    const subscriberIndex = await loadSubscriberIndex({ maxPages: 10, limit: 100 });
-    const analyzed = await mapWithConcurrency(pending, 4, async ({ order, issue }) => {
+    const prepared = await preparePendingIncidentsForAnalysis({ pending });
+    const subscriberIndex = prepared.subscriberIndex;
+    const analyzed = await mapWithConcurrency(prepared.pending, 4, async ({ order, issue }) => {
       const orderId = String(order?.orderId || issue?.orderId || '');
       const phone = order?.customerPhone || order?.raw?.customer?.phone || issue?.customerPhone || '';
       const fallbackTransportHistory = transportHistoryFromIssue(issue);
       const incidentStartedAt = fallbackTransportHistory[0]?.eventAt || issueDate(order, issue);
       let chatby;
       try {
+        if (prepared.subscriberIndexError) {
+          throw new Error(`Chatby subscriber index unavailable: ${prepared.subscriberIndexError}`);
+        }
         const phoneKey = `${digits(phone).slice(-9) || `order:${orderId}`}|${issue?.id || incidentStartedAt || ''}`;
         if (!chatbyByPhone.has(phoneKey)) {
           chatbyByPhone.set(phoneKey, chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs, {
@@ -1794,16 +1752,11 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
       }
       const classification = classifyIncident(issue, order);
       const cleanLabel = incidentDisplayLabel(classification);
-      let dropeaCarrierHistory = [];
-      let dropeaCarrierCurrent = null;
-      let dropeaCarrierHistoryError = null;
-      try {
-        const payload = await getDropeaIncidenceHistory(orderId);
-        dropeaCarrierHistory = parseDropeaCarrierHistory(payload);
-        dropeaCarrierCurrent = selectCurrentDropeaCarrierIncident(dropeaCarrierHistory, issue?.id || issue?.incidenceId);
-      } catch (error) {
-        dropeaCarrierHistoryError = error instanceof Error ? error.message : String(error);
-      }
+      // Dropea Public API V2 already supplies the active pending issue. Do not
+      // enrich this dashboard read through the retired V1 incidence-history route.
+      const dropeaCarrierHistory = [];
+      const dropeaCarrierCurrent = null;
+      const dropeaCarrierHistoryError = null;
       const glsTracking = await getGlsTrackingHistory({
         trackingUrl: issue?.trackingUrl || issue?.raw?.tracking_url || issue?.raw?.order?.tracking_url,
         tracking: issue?.tracking || issue?.raw?.tracking || issue?.raw?.order?.tracking_code
@@ -1902,7 +1855,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
         transportIncidenceEvent: mergedTransport.incidenceEvent,
         transportLogAvailable: transportHistory.length > 0,
         transportLogCompleteness: carrierIncident ? 'dropea_incidence_history' : glsTracking?.history?.length ? 'official_tracking' : 'summary_only',
-        transportLogSource: carrierIncident?.source || glsTracking?.source || 'Dropea GraphQL: resumen de incidencia sin observacion REST',
+        transportLogSource: carrierIncident?.source || glsTracking?.source || 'Dropea Public API V2: resumen de incidencia',
         chatbyIntent: chatby.intent || 'unknown',
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
@@ -1983,19 +1936,22 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
       };
     });
     for (const item of analyzed) {
-      const notification = await processIncidentNotification({
-        incident: item.incident,
-        order: item.order,
-        messages: item.messages,
-        dryRun: notificationDryRun
-      });
-      const actionResult = notificationDryRun
-        ? {
-            status: item.operationalDecision?.eligible ? 'would_execute' : 'not_applicable',
-            verified: false,
-            reason: 'Sincronizacion ejecutada en modo de prueba.'
-          }
-        : await executeIncidentOperationalDecision(item.incident, item.operationalDecision);
+      // This V2 dashboard path is a hard read-only boundary. It never invokes
+      // notification delivery or any Dropea resolution/action function.
+      const notification = {
+        status: 'disabled',
+        reason: 'dropea_v2_dashboard_read_only',
+        templateName: null,
+        attemptedAt: null,
+        sentAt: null,
+        verified: false,
+        error: null
+      };
+      const actionResult = {
+        status: 'blocked_read_only',
+        verified: false,
+        reason: 'Dropea V2 dashboard sync is GET-only.'
+      };
       const enrichedIncident = {
         ...item.incident,
         incidentNotification: notification,
@@ -2021,15 +1977,11 @@ export async function syncPendingIncidents({ limit = 100, pages = 3, notificatio
       updatedAt,
       intervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
       agentName: 'Agente de incidencias',
-      agentMode: config.defaultStore.incidentResolutionRealEnabled ? 'operational_high_confidence' : 'training_read_only',
-      agentModeLabel: config.defaultStore.incidentResolutionRealEnabled
-        ? 'Operativo solo para reglas de alta confianza; casos ambiguos en revision'
-        : 'Entrenamiento y analisis; sin acciones automaticas',
-      notificationMode: config.defaultStore.incidentNotificationsEnabled ? 'active_verified' : 'disabled',
-      notificationModeLabel: config.defaultStore.incidentNotificationsEnabled
-        ? 'Avisos de incidencia activos y verificados contra Chatby'
-        : 'Avisos de incidencia desactivados',
-      transportHistoryNotice: 'Historial oficial de GLS cuando hay tracking disponible; detalle de Dropea como respaldo.',
+      agentMode: 'training_read_only',
+      agentModeLabel: 'Lectura V2 y analisis; sin mensajes ni acciones automaticas',
+      notificationMode: 'disabled',
+      notificationModeLabel: 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
+      transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
       error: null
