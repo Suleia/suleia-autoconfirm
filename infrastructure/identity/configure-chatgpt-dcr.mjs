@@ -226,14 +226,15 @@ try {
   primaryError = error;
 } finally {
   try {
-    for (const cleanupClientId of new Set([clientId, defaultClientId])) {
-      const clients = await adminRequest(
-        `/admin/realms/master/clients?clientId=${encodeURIComponent(cleanupClientId)}&search=true`,
-      );
-      const temporaryClient = clients.find(
-        (client) => client.clientId === cleanupClientId,
-      );
-      if (temporaryClient) {
+    const temporaryClients = await adminRequest(
+      `/admin/realms/master/clients?clientId=${encodeURIComponent(defaultClientId)}&search=true`,
+    );
+    for (const temporaryClient of temporaryClients) {
+      if (
+        temporaryClient.clientId === defaultClientId ||
+        temporaryClient.clientId === clientId ||
+        temporaryClient.clientId?.startsWith(`${defaultClientId}-`)
+      ) {
         await adminRequest(
           `/admin/realms/master/clients/${encodeURIComponent(temporaryClient.id)}`,
           { method: "DELETE" },

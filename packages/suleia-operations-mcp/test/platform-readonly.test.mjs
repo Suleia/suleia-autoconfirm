@@ -109,5 +109,7 @@ test('OAuth end-to-end validation uses the exact public MCP hostname without ext
   assert.match(dcr, /CHATGPT_MCP_CONSENT_REQUIRED === "true"/);
   assert.match(dcr, /consentRequired,/);
   assert.match(dcrLauncher, /CHATGPT_MCP_CONSENT_REQUIRED="\$\{CHATGPT_MCP_CONSENT_REQUIRED:-false\}"/);
+  assert.match(dcrLauncher, /source "\$\{ENV_FILE\}"[\s\S]*CONFIG_SERVICE_CLIENT_ID=/);
+  assert.match(dcr, /startsWith\(`\$\{defaultClientId\}-`\)/);
   assert.doesNotMatch(dcr, /\/consents|\/logout/);
 });
