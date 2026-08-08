@@ -59,6 +59,7 @@
 
   @operations_ui path /operations/*
   handle @operations_ui {
+    header Cache-Control "no-store"
     uri strip_prefix /operations
     reverse_proxy review-panel:80
   }
@@ -76,6 +77,7 @@
   }
 
   handle {
+    header Cache-Control "no-store"
     reverse_proxy review-panel:80
   }
 }
