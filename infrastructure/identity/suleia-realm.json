@@ -72,7 +72,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "fullScopeAllowed": true,
-      "consentRequired": true,
+      "consentRequired": false,
       "redirectUris": ["https://chatgpt.com/connector/oauth/*"],
       "webOrigins": ["https://chatgpt.com"],
       "attributes": {

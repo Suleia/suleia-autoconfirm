@@ -21,6 +21,64 @@ const expectedTools = [
   "get_database_catalog", "get_component_details",
 ].sort();
 
+function base64UrlSha256(value) {
+  return crypto.createHash("sha256").update(value).digest("base64url");
+}
+
+function updateCookieJar(jar, headers) {
+  const values = typeof headers.getSetCookie === "function"
+    ? headers.getSetCookie()
+    : [headers.get("set-cookie")].filter(Boolean);
+  for (const value of values) {
+    const pair = value.split(";", 1)[0];
+    const separator = pair.indexOf("=");
+    if (separator > 0) jar.set(pair.slice(0, separator), pair.slice(separator + 1));
+  }
+}
+
+function cookieHeader(jar) {
+  return [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
+}
+
+async function fetchWithLoginSession(url, options, jar) {
+  let currentUrl = url;
+  let method = options.method ?? "GET";
+  let body = options.body;
+  let headers = { ...(options.headers ?? {}) };
+  for (let redirectCount = 0; redirectCount < 12; redirectCount += 1) {
+    const cookies = cookieHeader(jar);
+    const response = await fetch(currentUrl, {
+      method,
+      body,
+      headers: { ...headers, ...(cookies ? { cookie: cookies } : {}) },
+      redirect: "manual",
+    });
+    updateCookieJar(jar, response.headers);
+    const location = response.headers.get("location");
+    if (!location || response.status < 300 || response.status >= 400) {
+      return { response, redirectUrl: null };
+    }
+    const nextUrl = new URL(location, currentUrl);
+    if (nextUrl.hostname === "chatgpt.com") {
+      return { response, redirectUrl: nextUrl };
+    }
+    if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
+      method = "GET";
+      body = undefined;
+      headers = {};
+    }
+    currentUrl = nextUrl.toString();
+  }
+  throw new Error("Authorization flow exceeded the redirect limit");
+}
+
+function loginFormAction(html) {
+  const form = html.match(/<form\b[^>]*\bid=["']kc-form-login["'][^>]*>/i)?.[0];
+  const action = form?.match(/\baction=["']([^"']+)["']/i)?.[1];
+  if (!action) throw new Error("Keycloak login form is missing");
+  return action.replaceAll("&amp;", "&");
+}
+
 if (!adminClientId || !adminClientSecret) {
   throw new Error("Temporary Keycloak configuration service credentials are required");
 }
@@ -66,7 +124,25 @@ let testUserId;
 let staticClient;
 let primaryError;
 let accessToken;
+let refreshToken;
 try {
+  const discoveryResponse = await fetch(
+    "https://mcp.suleia.com/auth/realms/suleia/.well-known/openid-configuration",
+  );
+  if (!discoveryResponse.ok) {
+    throw new Error(`OIDC discovery failed: ${discoveryResponse.status}`);
+  }
+  const discovery = await discoveryResponse.json();
+  if (!discovery.scopes_supported?.includes("offline_access")) {
+    throw new Error("OIDC discovery does not advertise offline_access");
+  }
+  if (!discovery.code_challenge_methods_supported?.includes("S256")) {
+    throw new Error("OIDC discovery does not advertise PKCE S256");
+  }
+  if (!discovery.grant_types_supported?.includes("refresh_token")) {
+    throw new Error("OIDC discovery does not advertise refresh_token");
+  }
+
   const clients = await adminRequest(
     "/admin/realms/suleia/clients?clientId=chatgpt-suleia-mcp&search=true",
   );
@@ -113,21 +189,56 @@ try {
     { method: "POST", body: JSON.stringify([readerRole]) },
   );
 
-  const tokenResponse = await fetch(
-    `${keycloakBase}/realms/suleia/protocol/openid-connect/token`,
+  const redirectUri = "https://chatgpt.com/connector/oauth/suleia-e2e";
+  const codeVerifier = crypto.randomBytes(48).toString("base64url");
+  const state = crypto.randomBytes(24).toString("base64url");
+  const authorizeUrl = new URL(discovery.authorization_endpoint);
+  authorizeUrl.search = new URLSearchParams({
+    response_type: "code",
+    client_id: "chatgpt-suleia-mcp",
+    redirect_uri: redirectUri,
+    scope: `openid offline_access ${requiredScopes.join(" ")}`,
+    resource,
+    state,
+    code_challenge: base64UrlSha256(codeVerifier),
+    code_challenge_method: "S256",
+  });
+  const cookieJar = new Map();
+  const loginPage = await fetchWithLoginSession(authorizeUrl, {}, cookieJar);
+  if (!loginPage.response.ok || loginPage.redirectUrl) {
+    throw new Error(`Authorization login page failed: ${loginPage.response.status}`);
+  }
+  const action = loginFormAction(await loginPage.response.text());
+  const loginResult = await fetchWithLoginSession(
+    action,
     {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "password",
-        client_id: "chatgpt-suleia-mcp",
-        username: email,
-        password,
-        scope: `openid offline_access ${requiredScopes.join(" ")}`,
-        resource,
-      }),
+      body: new URLSearchParams({ username: email, password, credentialId: "" }),
     },
+    cookieJar,
   );
+  if (!loginResult.redirectUrl) {
+    throw new Error(`Authorization callback was not issued: ${loginResult.response.status}`);
+  }
+  if (loginResult.redirectUrl.searchParams.get("state") !== state) {
+    throw new Error("Authorization callback state mismatch");
+  }
+  const authorizationCode = loginResult.redirectUrl.searchParams.get("code");
+  if (!authorizationCode) throw new Error("Authorization code is missing");
+
+  const tokenResponse = await fetch(discovery.token_endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: "chatgpt-suleia-mcp",
+      redirect_uri: redirectUri,
+      code: authorizationCode,
+      code_verifier: codeVerifier,
+      resource,
+    }),
+  });
   if (!tokenResponse.ok) {
     const tokenError = await tokenResponse.json().catch(() => ({}));
     const errorCode = String(tokenError.error ?? "unknown_error").replace(
@@ -143,7 +254,33 @@ try {
       `End-to-end access token failed: ${tokenResponse.status} ${errorCode} ${errorDescription}`,
     );
   }
-  ({ access_token: accessToken } = await tokenResponse.json());
+  ({ access_token: accessToken, refresh_token: refreshToken } = await tokenResponse.json());
+  if (!refreshToken) throw new Error("Offline refresh token is missing");
+
+  const refreshResponse = await fetch(
+    `${keycloakBase}/realms/suleia/protocol/openid-connect/token`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: "chatgpt-suleia-mcp",
+        refresh_token: refreshToken,
+        scope: `openid offline_access ${requiredScopes.join(" ")}`,
+        resource,
+      }),
+    },
+  );
+  if (!refreshResponse.ok) {
+    const refreshError = await refreshResponse.json().catch(() => ({}));
+    throw new Error(
+      `Offline token refresh failed: ${refreshResponse.status} ${String(refreshError.error ?? "unknown_error")}`,
+    );
+  }
+  ({ access_token: accessToken, refresh_token: refreshToken } = await refreshResponse.json());
+  if (!accessToken || !refreshToken) {
+    throw new Error("Refreshed OAuth token set is incomplete");
+  }
   const payload = JSON.parse(
     Buffer.from(accessToken.split(".")[1], "base64url").toString("utf8"),
   );
@@ -279,6 +416,10 @@ try {
   }
 
   console.log("audience_exact=1");
+  console.log("authorization_code_pkce_s256=1");
+  console.log("offline_access_advertised=1");
+  console.log("refresh_token_issued=1");
+  console.log("token_refresh=1");
   console.log("non_resource_grant_url_audience=1");
   console.log("required_scopes=6");
   console.log("reader_role=1");

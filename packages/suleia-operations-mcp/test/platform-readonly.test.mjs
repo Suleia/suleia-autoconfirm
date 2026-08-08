@@ -91,6 +91,10 @@ test('runtime inventory never mounts the Docker socket and collector uses an all
 
 test('OAuth end-to-end validation uses the exact public MCP hostname without external DNS dependency', async () => {
   const verifier = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'vps', 'verify-keycloak-mcp-e2e.sh'), 'utf8');
+  const flow = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'identity', 'verify-keycloak-mcp-e2e.mjs'), 'utf8');
+  const dcr = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'identity', 'configure-chatgpt-dcr.mjs'), 'utf8');
+  const realm = JSON.parse(await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'identity', 'suleia-realm.json'), 'utf8'));
+  const chatgptClient = realm.clients.find((client) => client.clientId === 'chatgpt-suleia-mcp');
   assert.match(verifier, /MCP_E2E_URL=https:\/\/mcp\.suleia\.com\/mcp/);
   assert.match(verifier, /MCP_EDGE_CONTAINER_ID/);
   assert.match(verifier, /--add-host "mcp\.suleia\.com:\$\{MCP_EDGE_IP\}"/);
@@ -98,4 +102,9 @@ test('OAuth end-to-end validation uses the exact public MCP hostname without ext
   assert.match(verifier, /docker network connect/);
   assert.match(verifier, /_application_network\$/);
   assert.match(verifier, /_identity_network\$/);
+  assert.match(flow, /grant_type: "refresh_token"/);
+  assert.match(flow, /Offline refresh token is missing/);
+  assert.equal(chatgptClient?.consentRequired, false);
+  assert.match(dcr, /consentRequired: false/);
+  assert.doesNotMatch(dcr, /\/consents|\/logout/);
 });
