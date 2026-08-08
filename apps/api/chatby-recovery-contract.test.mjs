@@ -28,6 +28,8 @@ test('Chatby recovery is deployed after the operational history and rolls back b
   assert.match(incidentDrill, /013_chatby_conversation_recovery\.down\.sql/);
   const chatbyDrill = read('infrastructure/vps/run-chatby-conversation-recovery-rollback-drill.sh');
   assert.match(chatbyDrill, /CHATBY_RECOVERY_ROLLBACK_DRILL\|PASS/);
+  assert.ok(chatbyDrill.indexOf('014_operational_data_model_hardening.down.sql')
+    < chatbyDrill.indexOf('013_chatby_conversation_recovery.down.sql'));
   const checkpoint = read('infrastructure/vps/deploy-checkpoint-h-shadow.sh');
   assert.ok(checkpoint.indexOf('run-chatby-conversation-recovery-rollback-drill.sh')
     < checkpoint.indexOf('deploy-private-staging.sh'));
