@@ -1,5 +1,10 @@
 # Current status
 
+> Historical status document. The definitive MCP checkpoint supersedes the
+> original eight-tool prototype: the server contract is now exactly sixteen
+> private read/simulation tools, pending deployment and real ChatGPT
+> Refresh/Scan Tools acceptance.
+
 Updated: 2026-07-28
 
 ## Completed locally

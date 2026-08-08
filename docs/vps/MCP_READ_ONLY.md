@@ -15,17 +15,34 @@
 - `preview_order_decision`
 - `compare_simulation_with_current_system`
 - `list_orders_needing_ai_review`
+- `search_orders`
+- `search_incidents`
+- `get_incident`
+- `search_operational_findings`
+- `get_platform_overview`
+- `get_runtime_inventory`
+- `get_database_catalog`
+- `get_component_details`
 
 ## Authentication
 
-The temporary staging design uses a random bearer token over TLS. It is acceptable only while access is tightly restricted. OAuth 2.1 security practices with Authorization Code and PKCE are the public-staging target. The options and acceptance gates are documented in `AUTHENTICATION_OPTIONS.md`.
+The public private endpoint uses OAuth Authorization Code with PKCE through
+Keycloak. ChatGPT receives the read-only scopes as default client scopes and
+must hold the `mcp_reader` role.
 
 ## Scopes
 
 - `orders:read`
 - `orders:simulate`
+- `timelines:read`
+- `decisions:read`
+- `reviews:read`
+- `platform:read`
 
-There is no write scope and no write tool. The MCP database role can read only the allowlisted masked views in the `mcp` schema. Its only write privilege is an insert into the append-only call audit table.
+There is no write scope and no write tool. `suleia_mcp_readonly` and
+`suleia_platform_audit_readonly` are strict database read roles. MCP audit
+events are emitted by the structured application logger; neither role has
+INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, GRANT or role-switching capability.
 
 ## Response controls
 
@@ -35,10 +52,8 @@ There is no write scope and no write tool. The MCP database role can read only t
 - Include `actions_executed = 0` in simulations.
 - Record principal hash, scopes, tool, request hash, response hash and duration.
 
-## URL placeholder
+## Endpoint
 
-`https://mcp-staging.<approved-domain>/mcp`
-
-The URL is not live and must not be registered until public staging is explicitly authorized.
+`https://mcp.suleia.com/mcp`
 
 Rate limiting is enforced inside the MCP server. The stock Caddy image is deliberately retained rather than adding an unreviewed rate-limit plugin.

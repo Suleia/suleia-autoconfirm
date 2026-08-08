@@ -1,10 +1,40 @@
 import { maskPii } from '../security/pii.mjs';
+import { createPlatformKnowledge } from '../platform/catalog.mjs';
 import { compareDecisions, simulateDecision } from './simulator.mjs';
 
-function meta(repository, extra = {}) {
+function latestTimestamp(value, current = null) {
+  if (!value || typeof value !== 'object') return current;
+  if (Array.isArray(value)) return value.reduce((latest, item) => latestTimestamp(item, latest), current);
+  let latest = current;
+  for (const [key, nested] of Object.entries(value)) {
+    if (['source_updated_at', 'updated_at', 'updated_at_utc', 'observed_at', 'measured_at', 'generated_at'].includes(key)) {
+      const parsed = new Date(nested);
+      if (!Number.isNaN(parsed.getTime())) {
+        const candidate = parsed.toISOString();
+        if (!latest || candidate > latest) latest = candidate;
+      }
+    } else if (nested && typeof nested === 'object') {
+      latest = latestTimestamp(nested, latest);
+    }
+  }
+  return latest;
+}
+
+function detectedFreshness(value) {
+  const serialized = JSON.stringify(value || {});
+  if (/"freshness"\s*:\s*"STALE"|"status"\s*:\s*"STALE"/.test(serialized)) return 'STALE';
+  if (/"freshness"\s*:\s*"FRESH"|"status"\s*:\s*"FRESH"/.test(serialized)) return 'FRESH';
+  return 'UNKNOWN';
+}
+
+function meta(repository, data, extra = {}) {
+  const measuredAt = new Date().toISOString();
   return {
     source: repository.source,
-    environment: 'staging',
+    environment: extra.environment || 'VPS_SHADOW_READ_ONLY',
+    source_updated_at: latestTimestamp(data),
+    measured_at: measuredAt,
+    freshness: detectedFreshness(data),
     pii_masked: true,
     read_only: true,
     run_mode: 'SHADOW_READ_ONLY',
@@ -17,6 +47,10 @@ function meta(repository, extra = {}) {
   };
 }
 
+function safeEnvelope(repository, data, extra = {}) {
+  return maskPii({ data, meta: meta(repository, data, extra) });
+}
+
 async function requireOrder(repository, orderId) {
   const order = await repository.getOrder(orderId);
   if (!order) {
@@ -27,32 +61,35 @@ async function requireOrder(repository, orderId) {
   return order;
 }
 
-export function createOperationsService(repository) {
+export function createOperationsService(repository, config = { environment: 'development', runtimeInventoryPath: '' }) {
+  const platformKnowledge = createPlatformKnowledge({ repository, config });
   return Object.freeze({
-    async listOrders(filters) {
-      return maskPii({ data: await repository.listOrders(filters), meta: meta(repository) });
+    async searchOrders(filters) {
+      const data = await repository.searchOrders(filters);
+      return safeEnvelope(repository, data);
     },
     async getOrder(orderId) {
-      return maskPii({ data: await requireOrder(repository, orderId), meta: meta(repository) });
+      const data = await requireOrder(repository, orderId);
+      return safeEnvelope(repository, data);
     },
-    async listIncidents(filters) {
-      return maskPii({ data: await repository.listIncidents(filters), meta: meta(repository) });
+    async searchIncidents(filters) {
+      const data = await repository.searchIncidents(filters);
+      return safeEnvelope(repository, data);
     },
-    async getIncident(incidentId) {
-      const incident = await repository.getIncident(incidentId);
+    async getIncident(identifiers) {
+      const incident = await repository.getIncident(identifiers);
       if (!incident) {
+        const incidentId = identifiers?.canonicalIssueId || identifiers?.dropeaIssueId || 'UNKNOWN';
         const error = new Error(`Incident not found: ${incidentId}`);
         error.code = 'INCIDENT_NOT_FOUND';
         throw error;
       }
-      return maskPii({ data: incident, meta: meta(repository) });
+      return safeEnvelope(repository, incident);
     },
     async getOrderTimeline(orderId, limit) {
       await requireOrder(repository, orderId);
-      return maskPii({
-        data: await repository.getOrderTimeline(orderId, limit),
-        meta: meta(repository)
-      });
+      const data = await repository.getOrderTimeline(orderId, limit);
+      return safeEnvelope(repository, data);
     },
     async getDataFreshness() {
       const freshness = await repository.getDataFreshness();
@@ -60,29 +97,21 @@ export function createOperationsService(repository) {
       const ageSeconds = sourceAt && !Number.isNaN(sourceAt.getTime())
         ? Math.max(0, Math.round((Date.now() - sourceAt.getTime()) / 1000))
         : null;
-      return maskPii({
-        data: { ...freshness, age_seconds: ageSeconds },
-        meta: meta(repository)
-      });
+      const data = { ...freshness, age_seconds: ageSeconds };
+      return safeEnvelope(repository, data);
     },
-    async getDataQuality() {
-      return maskPii({ data: await repository.getDataQuality(), meta: meta(repository) });
-    },
-    async listReconciliationFindings(filters) {
-      return maskPii({ data: await repository.listReconciliationFindings(filters), meta: meta(repository) });
+    async searchOperationalFindings(filters) {
+      const data = await repository.searchOperationalFindings(filters);
+      return safeEnvelope(repository, data);
     },
     async getActiveTimers(filters) {
-      return maskPii({
-        data: await repository.getActiveTimers(filters),
-        meta: meta(repository)
-      });
+      const data = await repository.getActiveTimers(filters);
+      return safeEnvelope(repository, data);
     },
     async getAgentDecisions(orderId, limit) {
       await requireOrder(repository, orderId);
-      return maskPii({
-        data: await repository.getAgentDecisions(orderId, limit),
-        meta: meta(repository)
-      });
+      const data = await repository.getAgentDecisions(orderId, limit);
+      return safeEnvelope(repository, data);
     },
     async simulateOrderDecision(orderId, asOf) {
       const [order, timeline, timers] = await Promise.all([
@@ -96,23 +125,34 @@ export function createOperationsService(repository) {
         timers,
         asOf: asOf ? new Date(asOf) : new Date()
       });
-      return maskPii({ data: simulation, meta: meta(repository, { simulation_only: true }) });
+      return safeEnvelope(repository, simulation, { simulation_only: true });
     },
     async compareSimulationWithCurrentSystem(orderId, asOf) {
       const [simulationResult, currentDecisions] = await Promise.all([
         this.simulateOrderDecision(orderId, asOf),
         repository.getAgentDecisions(orderId, 100)
       ]);
-      return maskPii({
-        data: compareDecisions(simulationResult.data, currentDecisions),
-        meta: meta(repository, { simulation_only: true })
-      });
+      return safeEnvelope(repository, compareDecisions(simulationResult.data, currentDecisions), { simulation_only: true });
     },
     async listOrdersRequiringReview(filters) {
-      return maskPii({
-        data: await repository.listOrdersRequiringReview(filters),
-        meta: meta(repository)
-      });
+      const data = await repository.listOrdersRequiringReview(filters);
+      return safeEnvelope(repository, data);
+    },
+    async getPlatformOverview(filters) {
+      const data = await platformKnowledge.getOverview(filters);
+      return safeEnvelope(repository, data, { source: 'repository_runtime_and_catalog' });
+    },
+    async getRuntimeInventory(filters) {
+      const data = await platformKnowledge.getRuntimeInventory(filters);
+      return safeEnvelope(repository, data, { source: 'sanitized_runtime_collector' });
+    },
+    async getDatabaseCatalog(filters) {
+      const data = await repository.getDatabaseCatalog(filters);
+      return safeEnvelope(repository, data, { source: 'postgres_pg_catalog_predefined_queries' });
+    },
+    async getComponentDetails(filters) {
+      const data = await platformKnowledge.getComponentDetails(filters);
+      return safeEnvelope(repository, data, { source: 'deployed_repository_catalog' });
     }
   });
 }

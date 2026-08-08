@@ -179,12 +179,15 @@ services:
       MCP_OAUTH_AUDIENCE: https://${MCP_PUBLIC_HOST:-mcp.suleia.com}/mcp
       MCP_OAUTH_JWKS_URL: http://keycloak:8080/auth/realms/suleia/protocol/openid-connect/certs
       MCP_OAUTH_REQUIRED_ROLE: mcp_reader
-      MCP_GRANTED_SCOPES: orders:read,timelines:read,decisions:read,reviews:read,orders:simulate
+      MCP_GRANTED_SCOPES: orders:read,timelines:read,decisions:read,reviews:read,platform:read,orders:simulate
       MCP_RATE_LIMIT_PER_MINUTE: 30
       MCP_REQUEST_BODY_LIMIT: 64kb
       MCP_TOOL_TIMEOUT_MS: 10000
       MCP_MAX_RESPONSE_BYTES: 51200
+      MCP_RUNTIME_INVENTORY_PATH: /app/private-runtime/platform-runtime.json
       MCP_AUDIT_MODE: stderr
+    volumes:
+      - ../../private-runtime:/app/private-runtime:ro
     networks:
       - application_network
       - database_network

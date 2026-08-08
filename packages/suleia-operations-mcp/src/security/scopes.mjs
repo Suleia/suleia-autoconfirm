@@ -3,6 +3,7 @@ export const SCOPES = Object.freeze({
   TIMELINES_READ: 'timelines:read',
   DECISIONS_READ: 'decisions:read',
   REVIEWS_READ: 'reviews:read',
+  PLATFORM_READ: 'platform:read',
   SIMULATE: 'orders:simulate'
 });
 

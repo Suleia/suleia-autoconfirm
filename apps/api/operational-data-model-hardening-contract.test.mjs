@@ -52,8 +52,9 @@ test('migration deployment and rollback are ordered after Chatby recovery', () =
 
 test('new MCP catalog exposes real order, incident, quality and reconciliation reads only', () => {
   const server = read('packages/suleia-operations-mcp/src/mcp/server.mjs');
-  for (const tool of ['list_orders','get_order','list_incidents','get_incident',
-    'get_order_timeline','get_data_quality','list_reconciliation_findings']) {
+  for (const tool of ['search_orders','get_order','search_incidents','get_incident',
+    'get_order_timeline','search_operational_findings','get_platform_overview',
+    'get_runtime_inventory','get_database_catalog','get_component_details']) {
     assert.match(server, new RegExp(`name: '${tool}'`));
   }
   assert.match(server, /readOnlyHint: true/);

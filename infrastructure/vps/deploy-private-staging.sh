@@ -45,7 +45,7 @@ POSTGRES_DB=suleia_staging
 MCP_DATA_MODE=fixture
 MCP_AUTH_MODE=bearer
 MCP_PUBLIC_ENDPOINT_ENABLED=false
-MCP_GRANTED_SCOPES=orders:read,timelines:read,decisions:read,reviews:read,orders:simulate
+MCP_GRANTED_SCOPES=orders:read,timelines:read,decisions:read,reviews:read,platform:read,orders:simulate
 MCP_RATE_LIMIT_PER_MINUTE=30
 MCP_REQUEST_BODY_LIMIT=64kb
 MCP_TOOL_TIMEOUT_MS=10000
@@ -119,6 +119,7 @@ ensure_env_value MCP_PUBLIC_HOST mcp.suleia.com
 ensure_env_value OPS_PUBLIC_HOST ops-staging.localhost
 ensure_env_value MCP_AUTH_MODE oauth
 ensure_env_value MCP_PUBLIC_ENDPOINT_ENABLED true
+ensure_env_value MCP_GRANTED_SCOPES orders:read,timelines:read,decisions:read,reviews:read,platform:read,orders:simulate
 ensure_env_value RUN_MODE SHADOW_READ_ONLY
 ensure_env_value SIMULATION_ONLY true
 ensure_env_value REAL_DATA_READ_ENABLED true
@@ -173,7 +174,10 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-readonly-permissions.s
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-customer-operational-history-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-chatby-conversation-recovery-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-data-model-hardening-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-platform-audit-readonly-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
+
+bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"
 
 docker compose \
   --env-file "${ENV_FILE}" \
@@ -181,6 +185,8 @@ docker compose \
   up --detach --wait --wait-timeout 300
 
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-keycloak.sh"
+
+bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"
 
 docker compose \
   --env-file "${ENV_FILE}" \

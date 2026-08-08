@@ -20,12 +20,18 @@ test('Postgres repository uses fixed SELECT statements and parameterized values'
   await repository.getActiveTimers({ orderId: 'masked-order', timerType: 'confirmation_wait' });
   await repository.getAgentDecisions('masked-order', 25);
   await repository.listOrdersRequiringReview({ limit: 15, reason: 'HUMAN_REVIEW' });
+  await repository.searchOrders({ orderId: "order'; DROP TABLE x; --", sort: 'UNTRUSTED_SORT' });
+  await repository.searchIncidents({ issueId: "issue'; DELETE FROM x; --", sort: 'UNTRUSTED_SORT' });
+  await repository.searchOperationalFindings({ domain: "x%' OR true --", sort: 'UNTRUSTED_SORT' });
+  await repository.getDatabaseCatalog({ objectName: "table%' OR true --", limit: 50, offset: 0 });
 
   assert.equal(repository.source, 'postgres_shadow_readonly');
-  assert.equal(calls.every(({ text }) => /^SELECT\b/i.test(text.trim())), true);
+  assert.equal(calls.every(({ text }) => /^(?:SELECT|WITH)\b/i.test(text.trim())), true);
   assert.equal(calls.every(({ text }) => !/\b(?:INSERT|UPDATE|DELETE|UPSERT|CALL)\b/i.test(text)), true);
   assert.deepEqual(calls[0].values, ["x' OR true --"]);
   assert.equal(calls.some(({ text }) => text.includes("x' OR true --")), false);
+  assert.equal(calls.some(({ text }) => text.includes("DROP TABLE x") || text.includes("DELETE FROM x") || text.includes("OR true --")), false);
+  assert.equal(calls.some(({ text }) => text.includes('UNTRUSTED_SORT')), false);
 });
 
 test('Postgres repository reports freshness without exposing credentials', async () => {

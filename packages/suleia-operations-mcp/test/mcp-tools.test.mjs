@@ -14,13 +14,14 @@ const allScopes = [
   'timelines:read',
   'decisions:read',
   'reviews:read',
+  'platform:read',
   'orders:simulate'
 ];
 
 async function createHarness(scopes = allScopes) {
   const config = loadConfig({ dataMode: 'fixture' });
   const repository = createRepository(config, { anchor: new Date('2026-07-26T12:00:00Z') });
-  const service = createOperationsService(repository);
+  const service = createOperationsService(repository, config);
   const lines = [];
   const audit = createAuditLogger(config, (line) => lines.push(line));
   const server = createMcpServer({
@@ -58,27 +59,35 @@ test('exposes the complete real-operations read-only catalog with schemas', asyn
 test('all tools run against one masked order and never execute actions', async () => {
   const { client, server, lines } = await createHarness();
   const calls = [
-    ['list_orders', { status: 'PENDING_CONFIRMATION' }],
     ['get_order', { order_id: 'STG-ORDER-0001' }],
-    ['list_incidents', { status: 'PENDING' }],
-    ['get_incident', { incident_id: 'STG-ISSUE-0001' }],
     ['get_order_timeline', { order_id: 'STG-ORDER-0001' }],
     ['get_data_freshness', {}],
-    ['get_data_quality', {}],
-    ['list_reconciliation_findings', {}],
     ['get_active_timers', { order_id: 'STG-ORDER-0001' }],
     ['get_agent_decisions', { order_id: 'STG-ORDER-0001' }],
     ['preview_order_decision', { order_id: 'STG-ORDER-0001', as_of: '2026-07-26T12:00:00Z' }],
     ['compare_simulation_with_current_system', { order_id: 'STG-ORDER-0001', as_of: '2026-07-26T12:00:00Z' }],
-    ['list_orders_needing_ai_review', {}]
+    ['list_orders_needing_ai_review', {}],
+    ['search_orders', { status: 'PENDING_CONFIRMATION' }],
+    ['search_incidents', { status: 'PENDING' }],
+    ['get_incident', { canonical_issue_id: 'STG-ISSUE-0001' }],
+    ['search_operational_findings', {}],
+    ['get_platform_overview', { section: 'ALL' }],
+    ['get_runtime_inventory', { platform: 'VPS' }],
+    ['get_database_catalog', { platform: 'VPS_POSTGRES' }],
+    ['get_component_details', { component_type: 'MODULE', component_id: 'incident-processor', depth: 2 }]
   ];
 
   for (const [name, args] of calls) {
     const result = await client.callTool({ name, arguments: args });
-    assert.equal(result.isError, undefined);
+    assert.equal(result.isError, undefined, `${name}: ${result.content?.[0]?.text || 'unknown error'}`);
     assert.equal(result.structuredContent.result.meta.actions_executed, 0);
     assert.equal(result.structuredContent.result.meta.run_mode, 'SHADOW_READ_ONLY');
     assert.equal(result.structuredContent.result.meta.pii_masked, true);
+    assert.equal(result.structuredContent.result.meta.read_only, true);
+    assert.equal(result.structuredContent.result.meta.simulation_only, true);
+    assert.equal(typeof result.structuredContent.result.meta.measured_at, 'string');
+    assert.equal('source_updated_at' in result.structuredContent.result.meta, true);
+    assert.equal(typeof result.structuredContent.result.meta.freshness, 'string');
     assert.equal(containsObviousPii(result.structuredContent), false);
   }
 

@@ -43,6 +43,6 @@ test('Operations Center and MCP expose conversation facts without adding write t
   assert.match(hardening, /interpretation_summary/);
   assert.match(repository, /operations_incident_context/);
   const toolNames = server.match(/export const MCP_TOOL_NAMES[\s\S]*?\]\);/)?.[0] || '';
-  assert.equal((toolNames.match(/^\s+'[^']+'/gm) || []).length, 13);
+  assert.equal((toolNames.match(/^\s+'[^']+'/gm) || []).length, 16);
   assert.doesNotMatch(server, /send_message|resolve_issue|confirm_order/);
 });

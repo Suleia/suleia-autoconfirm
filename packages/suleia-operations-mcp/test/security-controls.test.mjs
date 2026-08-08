@@ -13,6 +13,7 @@ const scopes = [
   'timelines:read',
   'decisions:read',
   'reviews:read',
+  'platform:read',
   'orders:simulate'
 ];
 

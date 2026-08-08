@@ -74,6 +74,22 @@ if [ -z "${scope_id}" ]; then
     -s protocol=openid-connect -s 'attributes."include.in.token.scope"=true')
 fi
 
+platform_scope_id=$("${KCADM}" get client-scopes --config "${KCADM_CONFIG}" -r suleia --fields id,name --format csv --noquotes \
+  | csv_id_by_name 'platform:read')
+if [ -z "${platform_scope_id}" ]; then
+  platform_scope_id=$("${KCADM}" create client-scopes --config "${KCADM_CONFIG}" -r suleia -i -s name=platform:read \
+    -s protocol=openid-connect -s 'attributes."include.in.token.scope"=true')
+fi
+
+mcp_client_id=$("${KCADM}" get clients --config "${KCADM_CONFIG}" -r suleia -q clientId=chatgpt-suleia-mcp \
+  --fields id --format csv --noquotes | first_line)
+if [ -z "${mcp_client_id}" ]; then
+  echo "ChatGPT MCP OAuth client is missing." >&2
+  exit 1
+fi
+"${KCADM}" update "clients/${mcp_client_id}/default-client-scopes/${platform_scope_id}" \
+  --config "${KCADM_CONFIG}" -r suleia -n >/dev/null 2>&1 || true
+
 client_id=$("${KCADM}" get clients --config "${KCADM_CONFIG}" -r suleia -q clientId=suleia-operations-center \
   --fields id --format csv --noquotes | first_line)
 if [ -z "${client_id}" ]; then

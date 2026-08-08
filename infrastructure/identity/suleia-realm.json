@@ -47,6 +47,11 @@
       "attributes": { "include.in.token.scope": "true" }
     },
     {
+      "name": "platform:read",
+      "protocol": "openid-connect",
+      "attributes": { "include.in.token.scope": "true" }
+    },
+    {
       "name": "orders:simulate",
       "protocol": "openid-connect",
       "attributes": { "include.in.token.scope": "true" }
@@ -83,6 +88,7 @@
         "timelines:read",
         "decisions:read",
         "reviews:read",
+        "platform:read",
         "orders:simulate"
       ],
       "optionalClientScopes": ["offline_access"],

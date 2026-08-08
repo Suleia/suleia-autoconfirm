@@ -99,7 +99,8 @@ WHERE NOT EXISTS (
 
 ALTER ROLE suleia_mcp_readonly_login PASSWORD :'mcp_password';
 ALTER ROLE suleia_mcp_readonly_login SET default_transaction_read_only = on;
-GRANT suleia_mcp_readonly TO suleia_mcp_readonly_login;
+GRANT suleia_mcp_readonly TO suleia_mcp_readonly_login WITH INHERIT TRUE, SET FALSE;
+GRANT suleia_platform_audit_readonly TO suleia_mcp_readonly_login WITH INHERIT TRUE, SET FALSE;
 
 SELECT format(
   'CREATE ROLE suleia_keycloak LOGIN PASSWORD %L',

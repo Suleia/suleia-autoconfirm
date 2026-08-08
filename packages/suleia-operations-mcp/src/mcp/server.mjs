@@ -9,6 +9,7 @@ const incidentId = z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/);
 const timelineLimit = z.number().int().min(1).max(100).default(50);
 const listLimit = z.number().int().min(1).max(100).default(50);
 const listOffset = z.number().int().min(0).max(100_000).default(0);
+const searchLimit = z.number().int().min(1).max(50).default(50);
 const decisionLimit = z.number().int().min(1).max(20).default(20);
 const reviewLimit = z.number().int().min(1).max(5).default(5);
 const asOf = z.string().datetime({ offset: true }).optional();
@@ -133,9 +134,9 @@ function registerReadTool({
 export function createMcpServer({ service, audit, authContext, config }) {
   const server = new McpServer({
     name: 'suleia-operations-mcp',
-    version: '0.2.0'
+    version: '0.3.0'
   }, {
-    instructions: 'Use list_orders and list_incidents to find real operational records before opening a detail. Use get_order or get_incident for context, get_order_timeline for history, and freshness/quality tools when reliability matters. All tools are private read-only simulation tools.'
+    instructions: 'Use search_orders and search_incidents to find real operational records before opening details. Use get_order or get_incident for one record, get_order_timeline for traceability, search_operational_findings for quality, and the four platform tools for architecture/runtime/database knowledge. All tools are private, PII-masked, read-only and simulation-only; no tool executes an external action.'
   });
 
   const common = { server, context: authContext, audit, config };
@@ -143,19 +144,36 @@ export function createMcpServer({ service, audit, authContext, config }) {
 
   registerReadTool({
     ...common,
-    name: 'list_orders',
-    title: 'List real operational orders',
-    description: safeDescription('the user wants to find or review real orders from the VPS operational read model.'),
+    name: 'search_orders',
+    title: 'Search real operational orders',
+    description: safeDescription('the user wants to find or filter real orders from the canonical VPS operational read model.'),
     inputSchema: {
+      order_id: orderId.optional(),
       status: z.string().min(1).max(64).optional(),
-      lifecycle: z.string().min(1).max(64).optional(),
-      freshness: z.enum(['FRESH','STALE','UNKNOWN']).optional(),
-      identity: z.enum(['EXACT','VERIFIED','PARTIAL','CONFLICTING','UNKNOWN']).optional(),
-      limit: listLimit.optional(), offset: listOffset.optional()
+      sub_status: z.string().min(1).max(64).optional(),
+      lifecycle_status: z.string().min(1).max(64).optional(),
+      active: z.boolean().optional(),
+      incident_active: z.boolean().optional(),
+      duplicate: z.boolean().optional(),
+      human_review: z.boolean().optional(),
+      carrier: z.string().min(1).max(64).optional(),
+      created_from: z.string().datetime({ offset: true }).optional(),
+      created_to: z.string().datetime({ offset: true }).optional(),
+      updated_from: z.string().datetime({ offset: true }).optional(),
+      updated_to: z.string().datetime({ offset: true }).optional(),
+      limit: searchLimit.optional(), offset: listOffset.optional(),
+      sort: z.enum(['UPDATED_DESC','UPDATED_ASC','CREATED_DESC','CREATED_ASC','ORDER_ID_ASC','ORDER_ID_DESC']).optional()
     },
     scopes: [SCOPES.ORDERS_READ],
-    handler: ({ status = null, lifecycle = null, freshness = null, identity = null,
-      limit = 50, offset = 0 }) => service.listOrders({ status, lifecycle, freshness, identity, limit, offset })
+    handler: ({ order_id = null, status = null, sub_status = null, lifecycle_status = null,
+      active = null, incident_active = null, duplicate = null, human_review = null, carrier = null,
+      created_from = null, created_to = null, updated_from = null, updated_to = null,
+      limit = 50, offset = 0, sort = 'UPDATED_DESC' }) => service.searchOrders({
+      orderId: order_id, status, subStatus: sub_status, lifecycleStatus: lifecycle_status,
+      active, incidentActive: incident_active, duplicate, humanReview: human_review, carrier,
+      createdFrom: created_from, createdTo: created_to, updatedFrom: updated_from, updatedTo: updated_to,
+      limit, offset, sort
+    })
   });
 
   registerReadTool({
@@ -170,21 +188,38 @@ export function createMcpServer({ service, audit, authContext, config }) {
 
   registerReadTool({
     ...common,
-    name: 'list_incidents',
-    title: 'List real operational incidents',
-    description: safeDescription('the user wants to list real incidents, including PENDING incidents or incidents older than a requested number of hours.'),
+    name: 'search_incidents',
+    title: 'Search real operational incidents',
+    description: safeDescription('the user wants to find or filter real incidents and their Dropea, Chatby, timer, policy, risk and QA context.'),
     inputSchema: {
+      issue_id: incidentId.optional(),
+      order_id: orderId.optional(),
       status: z.string().min(1).max(64).optional(),
       is_active: z.boolean().optional(),
-      older_than_hours: z.number().int().min(1).max(8760).optional(),
-      freshness: z.enum(['FRESH','STALE','UNKNOWN']).optional(),
+      initial_carrier_code: z.string().min(1).max(64).optional(),
+      normalized_type: z.string().min(1).max(64).optional(),
+      human_review: z.boolean().optional(),
+      customer_replied: z.boolean().optional(),
+      timer_status: z.string().min(1).max(64).optional(),
       risk: z.string().min(1).max(64).optional(),
-      limit: listLimit.optional(), offset: listOffset.optional()
+      created_from: z.string().datetime({ offset: true }).optional(),
+      created_to: z.string().datetime({ offset: true }).optional(),
+      updated_from: z.string().datetime({ offset: true }).optional(),
+      updated_to: z.string().datetime({ offset: true }).optional(),
+      limit: searchLimit.optional(), offset: listOffset.optional(),
+      sort: z.enum(['UPDATED_DESC','UPDATED_ASC','CREATED_DESC','CREATED_ASC','ISSUE_ID_ASC','ISSUE_ID_DESC']).optional()
     },
     scopes: [SCOPES.ORDERS_READ],
-    handler: ({ status = 'PENDING', is_active = true, older_than_hours = null,
-      freshness = null, risk = null, limit = 50, offset = 0 }) => service.listIncidents({
-      status, isActive: is_active, olderThanHours: older_than_hours, freshness, risk, limit, offset
+    handler: ({ issue_id = null, order_id = null, status = null, is_active = null,
+      initial_carrier_code = null, normalized_type = null, human_review = null,
+      customer_replied = null, timer_status = null, risk = null,
+      created_from = null, created_to = null, updated_from = null, updated_to = null,
+      limit = 50, offset = 0, sort = 'UPDATED_DESC' }) => service.searchIncidents({
+      issueId: issue_id, orderId: order_id, status, isActive: is_active,
+      initialCarrierCode: initial_carrier_code, normalizedType: normalized_type,
+      humanReview: human_review, customerReplied: customer_replied, timerStatus: timer_status, risk,
+      createdFrom: created_from, createdTo: created_to, updatedFrom: updated_from, updatedTo: updated_to,
+      limit, offset, sort
     })
   });
 
@@ -193,9 +228,19 @@ export function createMcpServer({ service, audit, authContext, config }) {
     name: 'get_incident',
     title: 'Get real operational incident context',
     description: safeDescription('the user wants to open one real incident and inspect order, Chatby, timer, policy, simulated decision and quality context.'),
-    inputSchema: { incident_id: incidentId },
+    inputSchema: {
+      canonical_issue_id: incidentId.optional(),
+      dropea_issue_id: incidentId.optional()
+    },
     scopes: [SCOPES.ORDERS_READ, SCOPES.DECISIONS_READ],
-    handler: ({ incident_id }) => service.getIncident(incident_id)
+    handler: ({ canonical_issue_id = null, dropea_issue_id = null }) => {
+      if (!canonical_issue_id && !dropea_issue_id) {
+        const error = new Error('canonical_issue_id or dropea_issue_id is required');
+        error.code = 'INCIDENT_ID_REQUIRED';
+        throw error;
+      }
+      return service.getIncident({ canonicalIssueId: canonical_issue_id, dropeaIssueId: dropea_issue_id });
+    }
   });
 
   registerReadTool({
@@ -220,28 +265,91 @@ export function createMcpServer({ service, audit, authContext, config }) {
 
   registerReadTool({
     ...common,
-    name: 'get_data_quality',
-    title: 'Get operational data quality',
-    description: safeDescription('the user asks about identity conflicts, unknown carrier codes, missing conversations, stale records or operational data quality.'),
-    inputSchema: {},
-    scopes: [SCOPES.ORDERS_READ],
-    handler: () => service.getDataQuality()
-  });
-
-  registerReadTool({
-    ...common,
-    name: 'list_reconciliation_findings',
-    title: 'List reconciliation findings',
-    description: safeDescription('the user asks about divergences between Dropea, Chatby and the VPS read models.'),
+    name: 'search_operational_findings',
+    title: 'Search operational findings',
+    description: safeDescription('the user asks about identity conflicts, reconciliation errors, stale data, unknown GLS codes, missing or duplicated conversations, event gaps, read-model mismatches, data quality or human review.'),
     inputSchema: {
       type: z.string().min(1).max(64).optional(),
       severity: z.enum(['LOW','MEDIUM','HIGH','CRITICAL']).optional(),
       status: z.enum(['OPEN','RESOLVED']).optional(),
-      limit: listLimit.optional(), offset: listOffset.optional()
+      domain: z.string().min(1).max(64).optional(),
+      order_id: orderId.optional(),
+      issue_id: incidentId.optional(),
+      limit: searchLimit.optional(), offset: listOffset.optional(),
+      sort: z.enum(['DETECTED_DESC','DETECTED_ASC','SEVERITY_DESC']).optional()
     },
     scopes: [SCOPES.REVIEWS_READ],
-    handler: ({ type = null, severity = null, status = 'OPEN', limit = 50, offset = 0 }) =>
-      service.listReconciliationFindings({ type, severity, status, limit, offset })
+    handler: ({ type = null, severity = null, status = null, domain = null,
+      order_id = null, issue_id = null, limit = 50, offset = 0, sort = 'DETECTED_DESC' }) =>
+      service.searchOperationalFindings({ type, severity, status, domain,
+        orderId: order_id, issueId: issue_id, limit, offset, sort })
+  });
+
+  registerReadTool({
+    ...common,
+    name: 'get_platform_overview',
+    title: 'Get Suleia platform overview',
+    description: safeDescription('the user asks about Suleia architecture, deployed layers, services, agents, policies, timers, connectors, read models, tests or overall platform status.'),
+    inputSchema: {
+      section: z.enum(['ALL','ARCHITECTURE','AGENTS','POLICIES','TIMERS','CONNECTORS','READ_MODELS','TESTS','STATUS']).optional()
+    },
+    scopes: [SCOPES.PLATFORM_READ],
+    handler: ({ section = 'ALL' }) => service.getPlatformOverview({ section })
+  });
+
+  registerReadTool({
+    ...common,
+    name: 'get_runtime_inventory',
+    title: 'Get sanitized runtime inventory',
+    description: safeDescription('the user asks which VPS, Docker, Caddy, PostgreSQL, Render, Supabase, Keycloak or worker services exist and their sanitized runtime health or capacity metadata.'),
+    inputSchema: {
+      platform: z.string().min(1).max(64).optional(),
+      service: z.string().min(1).max(100).optional(),
+      container: z.string().min(1).max(100).optional(),
+      status: z.string().min(1).max(64).optional(),
+      environment: z.string().min(1).max(64).optional(),
+      limit: searchLimit.optional(), offset: listOffset.optional()
+    },
+    scopes: [SCOPES.PLATFORM_READ],
+    handler: ({ platform = null, service: requestedService = null, container = null, status = null,
+      environment = null, limit = 50, offset = 0 }) => service.getRuntimeInventory({
+      platform, service: requestedService, container, status, environment, limit, offset
+    })
+  });
+
+  registerReadTool({
+    ...common,
+    name: 'get_database_catalog',
+    title: 'Get safe PostgreSQL catalog metadata',
+    description: safeDescription('the user asks about Suleia database schemas, tables, views, columns, keys, constraints, indexes, triggers, functions, RLS, grants, sizes, row estimates or dependencies using fixed predefined metadata queries.'),
+    inputSchema: {
+      platform: z.enum(['VPS_POSTGRES']).optional(),
+      schema: z.string().min(1).max(63).regex(/^[A-Za-z_][A-Za-z0-9_]*$/).optional(),
+      object_type: z.enum(['SCHEMA','TABLE','VIEW','MATERIALIZED_VIEW','FUNCTION']).optional(),
+      object_name: z.string().min(1).max(100).regex(/^[A-Za-z0-9_.-]+$/).optional(),
+      limit: searchLimit.optional(), offset: listOffset.optional()
+    },
+    scopes: [SCOPES.PLATFORM_READ],
+    handler: ({ platform = 'VPS_POSTGRES', schema = null, object_type = null,
+      object_name = null, limit = 50, offset = 0 }) => service.getDatabaseCatalog({
+      platform, schema, objectType: object_type, objectName: object_name, limit, offset
+    })
+  });
+
+  registerReadTool({
+    ...common,
+    name: 'get_component_details',
+    title: 'Get allowlisted platform component details',
+    description: safeDescription('the user asks how a known Suleia module, package, app, worker, service, table, view, read model, policy, timer, connector, MCP tool, test, migration or document works and what it consumes or produces.'),
+    inputSchema: {
+      component_type: z.enum(['MODULE','PACKAGE','APP','WORKER','SERVICE','TABLE','VIEW','READ_MODEL','POLICY','TIMER','CONNECTOR','MCP_TOOL','TEST','MIGRATION','DOCUMENT']).optional(),
+      component_id: z.string().min(1).max(120).regex(/^[A-Za-z0-9_.:-]+$/),
+      depth: z.number().int().min(0).max(5).optional()
+    },
+    scopes: [SCOPES.PLATFORM_READ],
+    handler: ({ component_type = null, component_id, depth = 1 }) => service.getComponentDetails({
+      component_type, component_id, depth
+    })
   });
 
   registerReadTool({
@@ -313,17 +421,20 @@ export function createMcpServer({ service, audit, authContext, config }) {
 }
 
 export const MCP_TOOL_NAMES = Object.freeze([
-  'list_orders',
   'get_order',
-  'list_incidents',
-  'get_incident',
   'get_order_timeline',
   'get_data_freshness',
-  'get_data_quality',
-  'list_reconciliation_findings',
   'get_active_timers',
   'get_agent_decisions',
   'preview_order_decision',
   'compare_simulation_with_current_system',
-  'list_orders_needing_ai_review'
+  'list_orders_needing_ai_review',
+  'search_orders',
+  'search_incidents',
+  'get_incident',
+  'search_operational_findings',
+  'get_platform_overview',
+  'get_runtime_inventory',
+  'get_database_catalog',
+  'get_component_details'
 ]);

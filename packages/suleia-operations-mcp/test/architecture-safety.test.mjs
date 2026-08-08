@@ -31,7 +31,8 @@ test('package remains isolated from production integrations and write clients', 
   const source = (await Promise.all(sourceFiles.map(read))).join('\n');
 
   assert.doesNotMatch(source, /(?:from|import)\s+['"][^'"]*autoconfirm/i);
-  assert.doesNotMatch(source, /\b(?:DROPEA|CHATBY|SHOPIFY|META_ACCESS_TOKEN)\b/);
+  assert.doesNotMatch(source, /(?:from|import)\s+['"][^'"]*(?:services\/integrations|connectors|write-client)/i);
+  assert.doesNotMatch(source, /\b(?:DROPEA|CHATBY|SHOPIFY|META_ACCESS)_?(?:TOKEN|SECRET|KEY)\b/i);
 
   const repositorySource = await read('src/data/supabase-read-repository.mjs');
   assert.doesNotMatch(repositorySource, /\bmethod:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i);
@@ -52,18 +53,22 @@ test('fixture contains exactly one fictitious masked order', async () => {
 
 test('tool surface is frozen to the approved real-operations read and simulation tools', () => {
   assert.deepEqual(MCP_TOOL_NAMES, [
-    'list_orders',
     'get_order',
-    'list_incidents',
-    'get_incident',
     'get_order_timeline',
     'get_data_freshness',
-    'get_data_quality',
-    'list_reconciliation_findings',
     'get_active_timers',
     'get_agent_decisions',
     'preview_order_decision',
     'compare_simulation_with_current_system',
-    'list_orders_needing_ai_review'
+    'list_orders_needing_ai_review',
+    'search_orders',
+    'search_incidents',
+    'get_incident',
+    'search_operational_findings',
+    'get_platform_overview',
+    'get_runtime_inventory',
+    'get_database_catalog',
+    'get_component_details'
   ]);
+  assert.equal(MCP_TOOL_NAMES.length, 16);
 });

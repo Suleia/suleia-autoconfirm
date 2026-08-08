@@ -8,6 +8,7 @@ data/*.json
 autoconfirm/data/*.json
 !autoconfirm/data/.gitkeep
 backups/
+private-runtime/
 *.dump
 *.sha256
 node_modules/

@@ -40,6 +40,7 @@ export function loadConfig(overrides = {}) {
       'timelines:read',
       'decisions:read',
       'reviews:read',
+      'platform:read',
       'orders:simulate'
     ]),
     allowedOrigins: list('MCP_ALLOWED_ORIGINS'),
@@ -47,6 +48,7 @@ export function loadConfig(overrides = {}) {
     requestBodyLimit: process.env.MCP_REQUEST_BODY_LIMIT || '64kb',
     toolTimeoutMs: integer('MCP_TOOL_TIMEOUT_MS', 10_000),
     maxResponseBytes: integer('MCP_MAX_RESPONSE_BYTES', 51_200),
+    runtimeInventoryPath: process.env.MCP_RUNTIME_INVENTORY_PATH || '/app/private-runtime/platform-runtime.json',
     publicEndpointEnabled: bool('MCP_PUBLIC_ENDPOINT_ENABLED', false),
     auditMode: process.env.MCP_AUDIT_MODE || 'stderr',
     auditLogPath: process.env.MCP_AUDIT_LOG_PATH || '',

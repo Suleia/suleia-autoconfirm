@@ -2,6 +2,36 @@ const clamp = (value, fallback = 100, maximum = 500) =>
   Math.min(maximum, Math.max(1, Number.parseInt(value, 10) || fallback));
 const offset = (value) => Math.min(100_000, Math.max(0, Number.parseInt(value, 10) || 0));
 
+const ORDER_SORT = Object.freeze({
+  UPDATED_DESC: 'updated_at_utc DESC NULLS LAST,canonical_order_id',
+  UPDATED_ASC: 'updated_at_utc ASC NULLS LAST,canonical_order_id',
+  CREATED_DESC: 'created_at_utc DESC NULLS LAST,canonical_order_id',
+  CREATED_ASC: 'created_at_utc ASC NULLS LAST,canonical_order_id',
+  ORDER_ID_ASC: 'canonical_order_id ASC',
+  ORDER_ID_DESC: 'canonical_order_id DESC'
+});
+
+const INCIDENT_SORT = Object.freeze({
+  UPDATED_DESC: 'updated_at DESC,canonical_issue_id',
+  UPDATED_ASC: 'updated_at ASC,canonical_issue_id',
+  CREATED_DESC: 'created_at DESC,canonical_issue_id',
+  CREATED_ASC: 'created_at ASC,canonical_issue_id',
+  ISSUE_ID_ASC: 'canonical_issue_id ASC',
+  ISSUE_ID_DESC: 'canonical_issue_id DESC'
+});
+
+const FINDING_SORT = Object.freeze({
+  DETECTED_DESC: 'detected_at DESC,finding_id',
+  DETECTED_ASC: 'detected_at ASC,finding_id',
+  SEVERITY_DESC: "CASE severity WHEN 'CRITICAL' THEN 4 WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 ELSE 1 END DESC,detected_at DESC"
+});
+
+function addDateFilter(values, where, value, column, operator) {
+  if (!value) return;
+  values.push(value);
+  where.push(`${column}${operator}$${values.length}::timestamptz`);
+}
+
 export function createPostgresReadRepository(config, { pool } = {}) {
   let database = pool;
 
@@ -11,6 +41,8 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       database = new pg.Pool({
         connectionString: config.databaseUrl,
         max: 4,
+        statement_timeout: Math.max(100, config.toolTimeoutMs - 250),
+        query_timeout: config.toolTimeoutMs,
         application_name: 'suleia-mcp-readonly'
       });
     }
@@ -21,21 +53,45 @@ export function createPostgresReadRepository(config, { pool } = {}) {
   return Object.freeze({
     source: 'postgres_shadow_readonly',
 
-    async listOrders({ status = null, lifecycle = null, freshness = null, identity = null,
-      limit = 50, offset: requestedOffset = 0 } = {}) {
+    async searchOrders({ orderId = null, status = null, subStatus = null, lifecycleStatus = null,
+      active = null, incidentActive = null, duplicate = null, humanReview = null, carrier = null,
+      createdFrom = null, createdTo = null, updatedFrom = null, updatedTo = null,
+      limit = 50, offset: requestedOffset = 0, sort = 'UPDATED_DESC' } = {}) {
       const values = [];
       const where = [];
-      for (const [value, column] of [[status, 'status'], [lifecycle, 'lifecycle_status'],
-        [freshness, 'freshness'], [identity, 'identity_status']]) {
+      for (const [value, column] of [[status, 'status'], [subStatus, 'sub_status'],
+        [lifecycleStatus, 'lifecycle_status'], [carrier, 'carrier']]) {
         if (value) { values.push(value); where.push(`${column}=$${values.length}`); }
       }
-      const safeLimit = clamp(limit, 50, 100);
+      if (orderId) {
+        values.push(orderId);
+        where.push(`(canonical_order_id=$${values.length} OR dropea_order_id=$${values.length})`);
+      }
+      if (active !== null && active !== undefined) {
+        where.push(active
+          ? "coalesce(lifecycle_status,'UNKNOWN') NOT IN ('DELIVERED','FINISHED','CANCELLED','REJECTED','RETURNED')"
+          : "coalesce(lifecycle_status,'UNKNOWN') IN ('DELIVERED','FINISHED','CANCELLED','REJECTED','RETURNED')");
+      }
+      if (incidentActive !== null && incidentActive !== undefined) where.push(incidentActive ? 'active_issue_id IS NOT NULL' : 'active_issue_id IS NULL');
+      if (duplicate !== null && duplicate !== undefined) {
+        where.push(duplicate
+          ? "coalesce(duplicate_status,'NOT_ASSESSED') NOT IN ('NOT_ASSESSED','UNIQUE','NONE')"
+          : "coalesce(duplicate_status,'NOT_ASSESSED') IN ('NOT_ASSESSED','UNIQUE','NONE')");
+      }
+      if (humanReview !== null && humanReview !== undefined) {
+        values.push(humanReview); where.push(`human_review=$${values.length}`);
+      }
+      addDateFilter(values, where, createdFrom, 'created_at_utc', '>=');
+      addDateFilter(values, where, createdTo, 'created_at_utc', '<=');
+      addDateFilter(values, where, updatedFrom, 'updated_at_utc', '>=');
+      addDateFilter(values, where, updatedTo, 'updated_at_utc', '<=');
+      const safeLimit = clamp(limit, 50, 50);
       const safeOffset = offset(requestedOffset);
       values.push(safeLimit, safeOffset);
       const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
         FROM read_models.operations_order_context
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY updated_at_utc DESC,canonical_order_id
+        ORDER BY ${ORDER_SORT[sort] || ORDER_SORT.UPDATED_DESC}
         LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
       return { items: rows, total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
     },
@@ -51,37 +107,120 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       return null;
     },
 
-    async listIncidents({ status = 'PENDING', isActive = true, olderThanHours = null,
-      freshness = null, risk = null, limit = 50, offset: requestedOffset = 0 } = {}) {
+    async searchIncidents({ issueId = null, orderId = null, status = null, isActive = null,
+      initialCarrierCode = null, normalizedType = null, humanReview = null, customerReplied = null,
+      timerStatus = null, risk = null, createdFrom = null, createdTo = null,
+      updatedFrom = null, updatedTo = null, limit = 50, offset: requestedOffset = 0,
+      sort = 'UPDATED_DESC' } = {}) {
       const values = [];
       const where = [];
       if (status) { values.push(status); where.push(`status=$${values.length}`); }
       if (isActive !== null && isActive !== undefined) {
         values.push(isActive); where.push(`is_active=$${values.length}`);
       }
-      if (olderThanHours !== null && olderThanHours !== undefined) {
-        values.push(olderThanHours); where.push(`created_at <= now()-($${values.length}::integer * interval '1 hour')`);
+      if (issueId) {
+        values.push(issueId); where.push(`(canonical_issue_id=$${values.length} OR dropea_issue_id=$${values.length})`);
       }
-      if (freshness) { values.push(freshness); where.push(`freshness=$${values.length}`); }
-      if (risk) { values.push(risk); where.push(`risk=$${values.length}`); }
-      const safeLimit = clamp(limit, 50, 100);
+      if (orderId) {
+        values.push(orderId); where.push(`(canonical_order_id=$${values.length} OR dropea_order_id=$${values.length})`);
+      }
+      for (const [value, column] of [[initialCarrierCode, 'initial_carrier_code'],
+        [normalizedType, 'normalized_type'], [timerStatus, 'timer_status'], [risk, 'risk']]) {
+        if (value) { values.push(value); where.push(`${column}=$${values.length}`); }
+      }
+      for (const [value, column] of [[humanReview, 'human_review'],
+        [customerReplied, 'customer_replied_after_issue']]) {
+        if (value !== null && value !== undefined) { values.push(value); where.push(`${column}=$${values.length}`); }
+      }
+      addDateFilter(values, where, createdFrom, 'created_at', '>=');
+      addDateFilter(values, where, createdTo, 'created_at', '<=');
+      addDateFilter(values, where, updatedFrom, 'updated_at', '>=');
+      addDateFilter(values, where, updatedTo, 'updated_at', '<=');
+      const safeLimit = clamp(limit, 50, 50);
       const safeOffset = offset(requestedOffset);
       values.push(safeLimit, safeOffset);
       const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
         FROM read_models.operations_incident_context
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY updated_at DESC,canonical_issue_id
+        ORDER BY ${INCIDENT_SORT[sort] || INCIDENT_SORT.UPDATED_DESC}
         LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
       return { items: rows, total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
     },
 
-    async getIncident(incidentId) {
+    async getIncident({ canonicalIssueId = null, dropeaIssueId = null } = {}) {
+      const incidentId = canonicalIssueId || dropeaIssueId;
       const rows = await query(`SELECT * FROM read_models.operations_incident_context
         WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [incidentId]);
       if (!rows[0]) return null;
       const timeline = await query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_issue_id=$1 ORDER BY occurred_at ASC LIMIT 200`, [rows[0].canonical_issue_id]);
-      return { ...rows[0], timeline };
+      const incident = rows[0];
+      return {
+        ...incident,
+        traceability: {
+          dropea: {
+            dropea_issue_id: incident.dropea_issue_id,
+            dropea_order_id: incident.dropea_order_id,
+            market: incident.market,
+            store_id: incident.store_id,
+            status: incident.status,
+            is_active: incident.is_active,
+            initial_carrier_code: incident.initial_carrier_code,
+            source_updated_at: incident.source_updated_at
+          },
+          canonical_issue: {
+            canonical_issue_id: incident.canonical_issue_id,
+            canonical_order_id: incident.canonical_order_id,
+            normalized_type: incident.normalized_type,
+            identity_status: incident.identity_status
+          },
+          event_store: { timeline_event_count: timeline.length },
+          incident_digital_twin: {
+            data_quality_status: incident.data_quality_status,
+            freshness: incident.freshness,
+            mapping_status: incident.mapping_status
+          },
+          chatby: {
+            conversation_status: incident.conversation_status,
+            conversation_reason: incident.conversation_reason,
+            identity_method: incident.conversation_identity_method,
+            customer_replied_after_issue: incident.customer_replied_after_issue,
+            latest_customer_activity_at: incident.latest_customer_activity_at,
+            latest_suleia_activity_at: incident.latest_suleia_activity_at,
+            last_button_intent: incident.last_button_intent,
+            conversation_freshness: incident.conversation_freshness
+          },
+          conversation_intelligence: {
+            current_intent: incident.customer_intent,
+            confidence: incident.interpretation_confidence,
+            contradiction: incident.contradiction,
+            summary_sanitized: incident.interpretation_summary,
+            messages_used: incident.messages_used,
+            messages_ignored: incident.messages_ignored
+          },
+          policy: { policy_id: incident.policy_id, version: incident.policy_version },
+          timer: {
+            timer_type: incident.timer_type,
+            started_at: incident.timer_started_at,
+            due_at: incident.timer_due_at,
+            status: incident.timer_status
+          },
+          gls_feasibility: {
+            initial_carrier_code: incident.initial_carrier_code,
+            allowed_resolution_options: incident.allowed_resolution_options,
+            capability_status: incident.capability_status
+          },
+          risk: incident.risk,
+          qa: { status: incident.qa_status, human_review: incident.human_review },
+          simulated_decision: {
+            decision: incident.simulated_decision,
+            action_type: incident.simulated_action_type,
+            blocking_reasons: incident.blocking_reasons
+          },
+          read_model: 'read_models.operations_incident_context'
+        },
+        timeline
+      };
     },
 
     async getOrderTimeline(orderId, limit = 100) {
@@ -127,22 +266,169 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       return rows[0] || {};
     },
 
-    async listReconciliationFindings({ type = null, severity = null, status = 'OPEN',
-      limit = 50, offset: requestedOffset = 0 } = {}) {
+    async searchOperationalFindings({ type = null, severity = null, status = null, domain = null,
+      orderId = null, issueId = null, limit = 50, offset: requestedOffset = 0,
+      sort = 'DETECTED_DESC' } = {}) {
       const values = [];
       const where = [];
       for (const [value, column] of [[type, 'finding_type'], [severity, 'severity'], [status, 'status']]) {
         if (value) { values.push(value); where.push(`${column}=$${values.length}`); }
       }
-      const safeLimit = clamp(limit, 50, 100);
+      if (domain) {
+        values.push(domain);
+        where.push(`domain ILIKE '%'||$${values.length}||'%'`);
+      }
+      if (orderId) { values.push(orderId); where.push(`canonical_order_id=$${values.length}`); }
+      if (issueId) { values.push(issueId); where.push(`canonical_issue_id=$${values.length}`); }
+      const safeLimit = clamp(limit, 50, 50);
       const safeOffset = offset(requestedOffset);
       values.push(safeLimit, safeOffset);
-      const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
+      const rows = await query(`WITH findings AS (
+        SELECT finding_id,canonical_order_id,canonical_issue_id,finding_type,severity,
+          CASE WHEN finding_type LIKE 'CHATBY_%' THEN 'CHATBY'
+            WHEN finding_type LIKE '%GLS%' THEN 'GLS'
+            WHEN finding_type LIKE '%IDENTITY%' THEN 'IDENTITY'
+            WHEN finding_type LIKE '%EVENT%' THEN 'EVENT_STORE'
+            WHEN finding_type LIKE '%STALE%' THEN 'FRESHNESS' ELSE 'RECONCILIATION' END AS domain,
+          source_a,source_b,detected_at,resolved_at,status,evidence_sanitized
         FROM read_models.reconciliation_findings
+        UNION ALL
+        SELECT md5('HUMAN_REVIEW:'||resource_type||':'||canonical_order_id||':'||coalesce(canonical_issue_id,'')),
+          canonical_order_id,canonical_issue_id,'HUMAN_REVIEW',
+          CASE WHEN risk='CRITICAL' THEN 'CRITICAL' WHEN risk='HIGH' THEN 'HIGH' ELSE 'MEDIUM' END,
+          'GOVERNANCE','OPERATIONS_REVIEW_QUEUE','HUMAN_REVIEW',updated_at,NULL,'OPEN',
+          jsonb_build_object('resource_type',resource_type,'review_reasons',review_reasons,'priority',priority)
+        FROM read_models.operations_review_queue
+        UNION ALL
+        SELECT md5('DATA_QUALITY:'||measured_at::text),NULL,NULL,'DATA_QUALITY',
+          CASE WHEN orders_identity_conflicting>0 OR multiple_conversations>0 THEN 'CRITICAL'
+            WHEN issues_unknown_code>0 OR incidents_without_conversation>0 OR stale_orders>0 OR stale_issues>0 THEN 'HIGH'
+            ELSE 'LOW' END,
+          'DATA_QUALITY','OPERATIONS_READ_MODELS','QUALITY_AGGREGATE',measured_at,NULL,
+          CASE WHEN orders_identity_conflicting>0 OR issues_unknown_code>0 OR incidents_without_conversation>0
+            OR multiple_conversations>0 OR stale_orders>0 OR stale_issues>0 OR event_gaps>0 OR read_model_mismatches>0
+            THEN 'OPEN' ELSE 'RESOLVED' END,
+          to_jsonb(q)-'actions_executed'-'production_writes'
+        FROM read_models.operations_data_quality q
+      )
+      SELECT *,count(*) OVER()::integer AS total_count
+        FROM findings
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY detected_at DESC,finding_id
+        ORDER BY ${FINDING_SORT[sort] || FINDING_SORT.DETECTED_DESC}
         LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
       return { items: rows, total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
+    },
+
+    async getDatabaseSummary() {
+      const rows = await query(`SELECT
+        (SELECT count(*)::integer FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema') AS schema_count,
+        (SELECT count(*)::integer FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m')) AS object_count,
+        (SELECT count(*)::integer FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname='read_models' AND c.relkind IN ('v','m')) AS read_model_count,
+        current_database() AS database, current_setting('server_version') AS server_version,
+        now() AS measured_at`);
+      return rows[0] || {};
+    },
+
+    async getRuntimeMetrics() {
+      const rows = await query(`SELECT current_database() AS database,
+        current_setting('server_version') AS server_version,
+        pg_database_size(current_database())::bigint AS database_size_bytes,
+        pg_postmaster_start_time() AS started_at,
+        (SELECT count(*)::integer FROM pg_stat_activity WHERE datname=current_database()) AS connections,
+        now() AS measured_at`);
+      return rows[0] || {};
+    },
+
+    async getDatabaseCatalog({ platform = 'VPS_POSTGRES', schema = null, objectType = null,
+      objectName = null, limit = 50, offset: requestedOffset = 0 } = {}) {
+      if (platform && platform !== 'VPS_POSTGRES') {
+        return { platform, items: [], total: 0, limit: clamp(limit, 50, 50), offset: offset(requestedOffset) };
+      }
+      const safeLimit = clamp(limit, 50, 50);
+      const safeOffset = offset(requestedOffset);
+      const values = [schema, objectType, objectName, safeLimit, safeOffset];
+      const rows = await query(`WITH catalog AS (
+        SELECT n.oid AS object_oid,n.nspname AS schema_name,n.nspname AS object_name,
+          'SCHEMA'::text AS object_type,NULL::text AS relation_kind,NULL::bigint AS size_bytes,
+          NULL::bigint AS estimated_rows,false AS rls_enabled,NULL::text AS function_arguments,
+          NULL::text AS function_result,NULL::text AS function_language,false AS security_definer
+        FROM pg_namespace n
+        WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+        UNION ALL
+        SELECT c.oid,n.nspname,c.relname,
+          CASE c.relkind WHEN 'r' THEN 'TABLE' WHEN 'p' THEN 'TABLE'
+            WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED_VIEW' END,
+          c.relkind::text,
+          CASE WHEN c.relkind IN ('r','p','m') THEN pg_total_relation_size(c.oid)::bigint ELSE NULL END,
+          CASE WHEN c.relkind IN ('r','p','m') THEN greatest(c.reltuples,0)::bigint ELSE NULL END,
+          c.relrowsecurity,NULL,NULL,NULL,false
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m')
+        UNION ALL
+        SELECT p.oid,n.nspname,p.proname,'FUNCTION',NULL,NULL,NULL,false,
+          pg_get_function_identity_arguments(p.oid),pg_get_function_result(p.oid),l.lanname,p.prosecdef
+        FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace JOIN pg_language l ON l.oid=p.prolang
+        WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+      ), filtered AS (
+        SELECT *,count(*) OVER()::integer AS total_count
+        FROM catalog
+        WHERE ($1::text IS NULL OR schema_name=$1)
+          AND ($2::text IS NULL OR object_type=$2)
+          AND ($3::text IS NULL OR object_name ILIKE '%'||$3||'%')
+        ORDER BY schema_name,object_type,object_name
+        LIMIT $4 OFFSET $5
+      )
+      SELECT f.*,
+        CASE WHEN f.relation_kind IS NULL THEN '[]'::jsonb ELSE coalesce((
+          SELECT jsonb_agg(jsonb_build_object(
+            'name',a.attname,'position',a.attnum,'type',format_type(a.atttypid,a.atttypmod),
+            'nullable',NOT a.attnotnull,'default',pg_get_expr(ad.adbin,ad.adrelid),
+            'identity',a.attidentity,'generated',a.attgenerated) ORDER BY a.attnum)
+          FROM pg_attribute a LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum
+          WHERE a.attrelid=f.object_oid AND a.attnum>0 AND NOT a.attisdropped
+        ),'[]'::jsonb) END AS columns,
+        CASE WHEN f.relation_kind IS NULL THEN '[]'::jsonb ELSE coalesce((
+          SELECT jsonb_agg(jsonb_build_object(
+            'name',con.conname,'type',CASE con.contype WHEN 'p' THEN 'PRIMARY_KEY' WHEN 'f' THEN 'FOREIGN_KEY'
+              WHEN 'u' THEN 'UNIQUE' WHEN 'c' THEN 'CHECK' WHEN 'x' THEN 'EXCLUSION' ELSE con.contype::text END,
+            'definition',pg_get_constraintdef(con.oid,true)) ORDER BY con.conname)
+          FROM pg_constraint con WHERE con.conrelid=f.object_oid
+        ),'[]'::jsonb) END AS constraints,
+        CASE WHEN f.relation_kind IS NULL THEN '[]'::jsonb ELSE coalesce((
+          SELECT jsonb_agg(jsonb_build_object('name',ic.relname,'definition',pg_get_indexdef(ix.indexrelid),
+            'primary',ix.indisprimary,'unique',ix.indisunique) ORDER BY ic.relname)
+          FROM pg_index ix JOIN pg_class ic ON ic.oid=ix.indexrelid WHERE ix.indrelid=f.object_oid
+        ),'[]'::jsonb) END AS indexes,
+        CASE WHEN f.relation_kind IS NULL THEN '[]'::jsonb ELSE coalesce((
+          SELECT jsonb_agg(jsonb_build_object('name',t.tgname,'enabled',t.tgenabled,
+            'definition',pg_get_triggerdef(t.oid,true)) ORDER BY t.tgname)
+          FROM pg_trigger t WHERE t.tgrelid=f.object_oid AND NOT t.tgisinternal
+        ),'[]'::jsonb) END AS triggers,
+        CASE WHEN f.relation_kind IS NULL THEN '[]'::jsonb ELSE coalesce((
+          SELECT jsonb_agg(jsonb_build_object('grantee',r.rolname,'privilege',p.privilege_type) ORDER BY r.rolname,p.privilege_type)
+          FROM pg_class c2
+          CROSS JOIN LATERAL aclexplode(coalesce(c2.relacl,acldefault('r',c2.relowner))) p
+          JOIN pg_roles r ON r.oid=p.grantee WHERE c2.oid=f.object_oid
+        ),'[]'::jsonb) END AS grants,
+        CASE WHEN f.relation_kind IS NULL THEN '[]'::jsonb ELSE coalesce((
+          SELECT jsonb_agg(DISTINCT jsonb_build_object('schema',rn.nspname,'object',rc.relname))
+          FROM pg_depend d JOIN pg_class rc ON rc.oid=d.refobjid JOIN pg_namespace rn ON rn.oid=rc.relnamespace
+          WHERE d.objid=f.object_oid AND d.refobjid<>f.object_oid AND rn.nspname !~ '^pg_'
+        ),'[]'::jsonb) END AS dependencies,
+        'UNRECORDED_AT_OBJECT_LEVEL'::text AS migration_origin
+      FROM filtered f ORDER BY f.schema_name,f.object_type,f.object_name`, values);
+      return {
+        platform: 'VPS_POSTGRES',
+        items: rows,
+        total: rows[0]?.total_count || 0,
+        limit: safeLimit,
+        offset: safeOffset,
+        metadata_only: true,
+        arbitrary_sql_allowed: false,
+        measured_at: new Date().toISOString()
+      };
     },
 
     async getActiveTimers({ orderId = null, timerType = null } = {}) {

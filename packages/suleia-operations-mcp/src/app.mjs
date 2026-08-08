@@ -10,7 +10,7 @@ import { createHttpAuth, createRateLimiter } from './security/http-auth.mjs';
 export function createHttpApp(config, options = {}) {
   const app = express();
   const repository = options.repository || createRepository(config);
-  const service = options.service || createOperationsService(repository);
+  const service = options.service || createOperationsService(repository, config);
   const audit = options.audit || createAuditLogger(config);
   const auth = options.auth || createHttpAuth(config, audit, options.authOptions);
 
