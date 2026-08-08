@@ -78,7 +78,13 @@ test('platform database role has no write grants and MCP membership disables SET
 test('runtime inventory never mounts the Docker socket and collector uses an allowlisted output directory', async () => {
   const compose = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'docker', 'compose.yaml'), 'utf8');
   const collector = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'scripts', 'collect-platform-runtime-inventory.mjs'), 'utf8');
+  const launcher = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'vps', 'collect-platform-runtime-inventory.sh'), 'utf8');
   assert.doesNotMatch(compose, /docker\.sock/i);
   assert.match(collector, /outputPath\.startsWith\(allowedOutputRoot\)/);
   assert.doesNotMatch(collector, /OPENAI_API_KEY|CHATBY_TOKEN|DROPEA_READ_JWT|SHOPIFY_ACCESS_TOKEN/);
+  assert.match(launcher, /node:22\.22\.0-alpine/);
+  assert.match(launcher, /--network none/);
+  assert.match(launcher, /--read-only/);
+  assert.doesNotMatch(launcher, /docker\.sock/i);
+  assert.doesNotMatch(launcher, /^node\s/m);
 });

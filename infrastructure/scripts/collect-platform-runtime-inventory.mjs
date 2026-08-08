@@ -40,6 +40,11 @@ function parseJsonOutput(raw) {
   }
 }
 
+function runtimeSnapshot(name) {
+  const snapshot = path.join(installRoot, 'private-runtime', name);
+  try { return fs.readFileSync(snapshot, 'utf8'); } catch { return ''; }
+}
+
 function bytes(value) {
   const match = String(value || '').match(/^([\d.]+)\s*([KMGT]?i?B)$/i);
   if (!match) return null;
@@ -57,8 +62,10 @@ function safePorts(publishers) {
 }
 
 const composeArgs = ['compose', '--env-file', envFile, '--file', composeFile];
-const ps = parseJsonOutput(fixed('docker', [...composeArgs, 'ps', '--format', 'json']));
-const stats = parseJsonOutput(fixed('docker', ['stats', '--no-stream', '--format', '{{json .}}']));
+const ps = parseJsonOutput(fixed('docker', [...composeArgs, 'ps', '--format', 'json'])
+  || runtimeSnapshot('compose-ps.json'));
+const stats = parseJsonOutput(fixed('docker', ['stats', '--no-stream', '--format', '{{json .}}'])
+  || runtimeSnapshot('docker-stats.json'));
 const statsByName = new Map(stats.map((item) => [String(item.Name || '').toLowerCase(), item]));
 
 const containers = ps.map((item) => {
@@ -135,13 +142,12 @@ try {
   disk = { total_bytes: stats.blocks * stats.bsize, free_bytes: stats.bavail * stats.bsize };
 } catch {}
 
-const backupVolume = fixed('docker', ['volume', 'ls', '--filter', 'name=backup_data', '--format', '{{.Name}}']);
 const inventory = {
   schema_version: 'suleia-runtime-inventory-v1',
   generated_at: new Date().toISOString(),
   git: {
-    commit: fixed('git', ['rev-parse', 'HEAD']) || 'UNKNOWN',
-    branch: fixed('git', ['branch', '--show-current']) || 'DETACHED_OR_UNKNOWN'
+    commit: fixed('git', ['rev-parse', 'HEAD']) || process.env.SULEIA_RUNTIME_GIT_COMMIT || 'UNKNOWN',
+    branch: fixed('git', ['branch', '--show-current']) || process.env.SULEIA_RUNTIME_GIT_BRANCH || 'DETACHED_OR_UNKNOWN'
   },
   host: {
     platform: os.platform(),
@@ -154,7 +160,7 @@ const inventory = {
     disk
   },
   containers,
-  backup: { status: backupVolume ? 'VOLUME_PRESENT_NOT_REVERIFIED' : 'UNKNOWN' },
+  backup: { status: process.env.SULEIA_RUNTIME_BACKUP_STATUS || 'UNKNOWN' },
   repository: { test_count: testCount, files }
 };
 
