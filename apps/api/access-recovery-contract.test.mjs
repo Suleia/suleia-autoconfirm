@@ -28,8 +28,12 @@ test('Operations owner provisioning consumes a temporary private file and remove
   const provision = read('infrastructure/vps/provision-operations-owner.sh');
   const apply = read('infrastructure/vps/apply-operations-owner.sh');
   assert.match(provision, /OPERATIONS_CENTER_PASSWORD/);
+  assert.match(provision, /OPERATIONS_CENTER_EMAIL/);
   assert.match(provision, /OPERATIONS_CENTER_PASSWORD\} >= 9/);
-  assert.match(provision, /@suleia\.invalid/);
+  assert.match(provision, /emailVerified=true/);
+  assert.match(provision, /username_user_id/);
+  assert.match(provision, /email_user_id/);
+  assert.doesNotMatch(provision, /@suleia\.invalid/);
   assert.match(provision, /operations_reader/);
   assert.match(provision, /temporary=false/);
   assert.doesNotMatch(provision, /echo.*OPERATIONS_CENTER_PASSWORD/);
