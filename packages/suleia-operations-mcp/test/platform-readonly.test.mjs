@@ -112,4 +112,11 @@ test('OAuth end-to-end validation uses the exact public MCP hostname without ext
   assert.match(dcrLauncher, /source "\$\{ENV_FILE\}"[\s\S]*CONFIG_SERVICE_CLIENT_ID=/);
   assert.match(dcr, /startsWith\(`\$\{defaultClientId\}-`\)/);
   assert.doesNotMatch(dcr, /\/consents|\/logout/);
+  const adminCleanup = dcr.indexOf('/admin/realms/master/users?username=');
+  const staleClientCleanup = dcr.indexOf('const staleClients =');
+  const activeClientCleanup = dcr.indexOf('const activeConfigurationClient =');
+  assert.ok(adminCleanup >= 0);
+  assert.ok(staleClientCleanup > adminCleanup);
+  assert.ok(activeClientCleanup > staleClientCleanup);
+  assert.match(dcr, /final Keycloak API call/);
 });

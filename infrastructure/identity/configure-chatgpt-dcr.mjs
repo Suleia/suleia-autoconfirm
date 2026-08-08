@@ -229,20 +229,6 @@ try {
     const temporaryClients = await adminRequest(
       `/admin/realms/master/clients?clientId=${encodeURIComponent(defaultClientId)}&search=true`,
     );
-    for (const temporaryClient of temporaryClients) {
-      if (
-        temporaryClient.clientId === defaultClientId ||
-        temporaryClient.clientId === clientId ||
-        temporaryClient.clientId?.startsWith(`${defaultClientId}-`)
-      ) {
-        await adminRequest(
-          `/admin/realms/master/clients/${encodeURIComponent(temporaryClient.id)}`,
-          { method: "DELETE" },
-        );
-      }
-    }
-    console.log("Temporary Keycloak configuration services were removed.");
-
     if (configAdminPassword) {
       const users = await adminRequest(
         `/admin/realms/master/users?username=${encodeURIComponent(configAdminUsername)}&exact=true`,
@@ -258,6 +244,35 @@ try {
       }
       console.log("Temporary Keycloak configuration administrator was removed.");
     }
+
+    const removableClients = temporaryClients.filter(
+      (temporaryClient) =>
+        temporaryClient.clientId === defaultClientId ||
+        temporaryClient.clientId === clientId ||
+        temporaryClient.clientId?.startsWith(`${defaultClientId}-`),
+    );
+    const staleClients = removableClients.filter(
+      (temporaryClient) => temporaryClient.clientId !== clientId,
+    );
+    for (const temporaryClient of staleClients) {
+      await adminRequest(
+        `/admin/realms/master/clients/${encodeURIComponent(temporaryClient.id)}`,
+        { method: "DELETE" },
+      );
+    }
+
+    // Deleting the client used by this access token invalidates that token.
+    // It must therefore be the final Keycloak API call in this process.
+    const activeConfigurationClient = removableClients.find(
+      (temporaryClient) => temporaryClient.clientId === clientId,
+    );
+    if (activeConfigurationClient) {
+      await adminRequest(
+        `/admin/realms/master/clients/${encodeURIComponent(activeConfigurationClient.id)}`,
+        { method: "DELETE" },
+      );
+    }
+    console.log("Temporary Keycloak configuration services were removed.");
   } catch (cleanupError) {
     if (!primaryError) {
       primaryError = cleanupError;
