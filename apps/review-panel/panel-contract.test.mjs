@@ -20,7 +20,7 @@ test('Operations Center exposes exactly Pedidos and Incidencias with no write co
   assert.match(html, /ACCIONES EJECUTADAS: 0/);
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
-  assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-login-native">/);
+  assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
   assert.match(html, /<script src="app\.js\?v=20260808-login-native" defer><\/script>/);
   assert.match(script, /async function prepareLogin\(\)/);
