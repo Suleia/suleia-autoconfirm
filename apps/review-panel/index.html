@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260808-operations-rich-v1">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -30,6 +30,7 @@
       <nav aria-label="Secciones principales">
         <button class="nav-item active" data-view="orders"><span class="nav-icon">P</span>Pedidos</button>
         <button class="nav-item" data-view="incidents"><span class="nav-icon">I</span>Incidencias</button>
+        <button class="nav-item" data-view="finance"><span class="nav-icon">€</span>Control de gasto</button>
       </nav>
       <div class="safety-card">
         <span class="live-dot"></span>
@@ -51,14 +52,45 @@
       </header>
 
       <section class="simulation-banner" aria-label="Estado de seguridad">
-        <strong>MODO SIMULACIÓN</strong>
-        <span>NO SE HA ENVIADO NADA</span>
+        <strong>MODO SOLO LECTURA</strong>
+        <span>LA LÓGICA PRODUCTIVA NO SE MODIFICA</span>
         <span>ACCIONES EJECUTADAS: 0</span>
       </section>
       <div id="notice" class="notice" role="status" hidden></div>
       <section id="summary" class="summary-grid" aria-label="Resumen operativo"></section>
 
-      <section class="queue-card">
+      <section id="finance-view" class="finance-view" hidden aria-label="Control de gasto">
+        <div class="finance-toolbar">
+          <div>
+            <p class="eyebrow">COHORTE DROPEA</p>
+            <h2>Control de gasto</h2>
+            <p>Valores de pedidos reales. Costes y beneficio solo cuando exista una fuente conciliada.</p>
+          </div>
+          <label>Periodo
+            <select id="finance-period" class="filter-select">
+              <option value="7d">Últimos 7 días</option>
+              <option value="30d" selected>Últimos 30 días</option>
+              <option value="90d">Últimos 90 días</option>
+              <option value="all">Todo el histórico</option>
+            </select>
+          </label>
+        </div>
+        <section id="finance-hero" class="finance-hero"></section>
+        <section class="finance-panel">
+          <div class="panel-heading"><div><p class="eyebrow">EMBUDO OPERATIVO</p><h3>Pedidos por estado</h3></div><span class="data-quality">Valores Dropea · Sin costes estimados</span></div>
+          <div id="finance-funnel" class="funnel-grid"></div>
+        </section>
+        <section class="finance-columns">
+          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">DESGLOSE ECONÓMICO</p><h3>Fuentes de coste</h3></div></div><div id="finance-costs" class="cost-list"></div></article>
+          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">CALIDAD</p><h3>Cobertura y límites</h3></div></div><div id="finance-quality" class="quality-list"></div></article>
+        </section>
+        <section class="finance-panel">
+          <div class="panel-heading"><div><p class="eyebrow">INFORME DIARIO</p><h3>Valor operativo por día</h3></div></div>
+          <div class="table-wrap"><table class="finance-table"><thead><tr><th>Fecha</th><th>Pedidos</th><th>Entregados</th><th>Incidencias</th><th>Devueltos</th><th>Valor pedidos</th><th>Valor entregados</th><th>Costes</th><th>Beneficio</th><th>Calidad</th></tr></thead><tbody id="finance-daily"></tbody></table></div>
+        </section>
+      </section>
+
+      <section id="queue-card" class="queue-card">
         <div class="queue-head">
           <div><p class="eyebrow">COLA ACTUAL</p><h2 id="queue-title">Pedidos observados</h2></div>
           <div id="filters" class="filters"></div>
@@ -86,6 +118,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260808-login-native" defer></script>
+  <script src="app.js?v=20260808-operations-rich-v1" defer></script>
 </body>
 </html>

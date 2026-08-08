@@ -14,6 +14,7 @@ const config = loadOperationsConfig({
 test('Operations API exposes only authenticated GET reads and zero-action envelopes', async (t) => {
   const repository = {
     summary: async () => ({ orders: { total: 0 }, incidents: { pending: 0 }, connectors: [] }),
+    financialSummary: async () => ({ exactness: 'ORDER_VALUE_ONLY', costs: { availability: 'PENDING_SOURCE' }, actions_executed: 0 }),
     listOrders: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
     orderDetail: async () => null,
     listIncidents: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
@@ -39,6 +40,11 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   const payload = await allowed.json();
   assert.equal(allowed.status, 200);
   assert.equal(payload.production_writes, 0);
+  const finance = await fetch(`${base}/api/operations/finance?period=30d`, { headers: { Authorization: 'Bearer fixture' } });
+  const financePayload = await finance.json();
+  assert.equal(finance.status, 200);
+  assert.equal(financePayload.data.costs.availability, 'PENDING_SOURCE');
+  assert.equal(financePayload.production_writes, 0);
   const post = await fetch(`${base}/api/operations/summary`, { method: 'POST' });
   assert.equal(post.status, 405);
 });
@@ -71,4 +77,27 @@ test('repository builds allowlisted filters and keeps user values parameterized'
   assert.doesNotMatch(calls[0].sql, /DROP TABLE/);
   assert.equal(calls[0].values[0], "PENDING'; DROP TABLE x; --");
   assert.equal(calls[0].sql.includes('ignored'), false);
+});
+
+test('financial summary is GET-only data with missing costs represented as unknown', async () => {
+  const calls = [];
+  const pool = {
+    query: async (sql, values = []) => {
+      calls.push({ sql, values });
+      if (sql.includes('AS orders_total')) return { rows: [{ orders_total: 2, gross_order_value: '59.98', currency: 'EUR' }] };
+      return { rows: [] };
+    },
+    end: async () => {}
+  };
+  const repository = new OperationsRepository(null, { pool });
+  const result = await repository.financialSummary(new URLSearchParams({ period: 'UNTRUSTED' }));
+  assert.equal(result.period, '30d');
+  assert.equal(result.costs.total, null);
+  assert.equal(result.profit, null);
+  assert.equal(result.roi, null);
+  assert.equal(result.production_writes, 0);
+  assert.equal(calls.length, 3);
+  assert.equal(calls.every(({ sql }) => /^SELECT\b/i.test(sql.trim())), true);
+  assert.equal(calls.every(({ sql }) => !/\b(?:INSERT|UPDATE|DELETE|UPSERT|CALL)\b/i.test(sql)), true);
+  assert.equal(calls.every(({ values }) => values.length === 1), true);
 });

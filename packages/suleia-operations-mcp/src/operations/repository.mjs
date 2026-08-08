@@ -15,6 +15,13 @@ function filters(searchParams, allowlist) {
   return { clauses, values };
 }
 
+function financialWindow(searchParams) {
+  const period = searchParams.get('period') || '30d';
+  const days = { '7d': 7, '30d': 30, '90d': 90, all: null }[period];
+  if (days === undefined) return { period: '30d', from: new Date(Date.now() - 30 * 86_400_000).toISOString() };
+  return { period, from: days === null ? null : new Date(Date.now() - days * 86_400_000).toISOString() };
+}
+
 export class OperationsRepository {
   constructor(databaseUrl, { pool = null } = {}) {
     if (!pool) throw new Error('Use OperationsRepository.connect for a database connection');
@@ -32,21 +39,89 @@ export class OperationsRepository {
   async close() { await this.pool.end(); }
 
   async summary() {
-    const [orders, incidents, protections, health] = await Promise.all([
+    const [orders, incidents, protections, health, orderFlow] = await Promise.all([
       this.pool.query('SELECT * FROM read_models.operations_orders_summary'),
       this.pool.query('SELECT * FROM read_models.operations_incidents_summary'),
       this.pool.query('SELECT * FROM read_models.operations_protection_summary'),
-      this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector')
+      this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector'),
+      this.pool.query(`SELECT
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING')::integer AS pending,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('CONFIRMED','PROCESSING'))::integer AS confirmed,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='SHIPPING')::integer AS shipping,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED'))::integer AS delivered,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='INCIDENCE')::integer AS incidence,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('CANCELLED','REJECTED'))::integer AS cancelled_or_rejected,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='RETURNED')::integer AS returned,
+        count(*) FILTER (WHERE human_review)::integer AS human_review,
+        count(*) FILTER (WHERE active_issue_id IS NOT NULL)::integer AS with_active_issue
+      FROM read_models.operations_order_context`)
     ]);
-    return { orders: orders.rows[0] || {}, incidents: incidents.rows[0] || {}, protections: protections.rows[0] || {}, connectors: health.rows };
+    return {
+      orders: { ...(orders.rows[0] || {}), ...(orderFlow.rows[0] || {}) },
+      incidents: incidents.rows[0] || {}, protections: protections.rows[0] || {}, connectors: health.rows
+    };
+  }
+
+  async financialSummary(searchParams) {
+    const window = financialWindow(searchParams);
+    const values = [window.from];
+    const where = `WHERE ($1::timestamptz IS NULL OR coalesce(created_at_utc,source_updated_at,updated_at) >= $1::timestamptz)`;
+    const [totals, states, daily] = await Promise.all([
+      this.pool.query(`SELECT
+        count(*)::integer AS orders_total,
+        count(total_amount)::integer AS orders_with_amount,
+        coalesce(sum(total_amount),0)::numeric(14,2) AS gross_order_value,
+        count(*) FILTER (WHERE confirmed_at_utc IS NOT NULL)::integer AS confirmed,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='SHIPPING')::integer AS shipping,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED'))::integer AS delivered,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='INCIDENCE')::integer AS incidences,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='RETURNED')::integer AS returned,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('PENDING','CONFIRMED','PROCESSING','SHIPPING','INCIDENCE'))::integer AS open_orders,
+        coalesce(sum(total_amount) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED')),0)::numeric(14,2) AS delivered_order_value,
+        coalesce(sum(total_amount) FILTER (WHERE coalesce(lifecycle_status,status) IN ('PENDING','CONFIRMED','PROCESSING','SHIPPING','INCIDENCE')),0)::numeric(14,2) AS open_order_value,
+        count(DISTINCT currency)::integer AS currency_count,
+        min(currency) AS currency,
+        max(source_updated_at) AS source_updated_at
+      FROM read_models.operations_order_context ${where}`, values),
+      this.pool.query(`SELECT coalesce(lifecycle_status,status) AS state,count(*)::integer AS orders,
+        coalesce(sum(total_amount),0)::numeric(14,2) AS order_value
+      FROM read_models.operations_order_context ${where}
+      GROUP BY 1 ORDER BY orders DESC,state`, values),
+      this.pool.query(`SELECT date_trunc('day',coalesce(created_at_utc,source_updated_at,updated_at))::date AS day,
+        count(*)::integer AS orders,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED'))::integer AS delivered,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='INCIDENCE')::integer AS incidences,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='RETURNED')::integer AS returned,
+        coalesce(sum(total_amount),0)::numeric(14,2) AS gross_order_value,
+        coalesce(sum(total_amount) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED')),0)::numeric(14,2) AS delivered_order_value
+      FROM read_models.operations_order_context ${where}
+      GROUP BY 1 ORDER BY day DESC LIMIT 120`, values)
+    ]);
+    const total = totals.rows[0] || {};
+    return {
+      perspective: 'DROPEA_COHORT', period: window.period, from: window.from,
+      exactness: 'ORDER_VALUE_ONLY', provisional: true,
+      totals: total, states: states.rows, daily: daily.rows,
+      costs: {
+        availability: 'PENDING_SOURCE', product: null, transport: null, fulfillment: null,
+        cod: null, returns: null, advertising: null, external: null, total: null
+      },
+      profit: null, roi: null, margin: null,
+      limitations: [
+        'Dropea aporta el valor de los pedidos y sus estados.',
+        'No hay todavía un ledger conciliado de costes, cargos, abonos o liquidaciones.',
+        'Beneficio, ROI y margen permanecen no disponibles para evitar cifras falsas.'
+      ],
+      actions_executed: 0, production_writes: 0
+    };
   }
 
   async listOrders(searchParams) {
     const limit = integer(searchParams.get('limit'), 50, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
     const selected = filters(searchParams, {
-      status: 'status', decision: 'decision_status', risk: 'risk',
-      priority: 'priority', freshness: 'freshness', identity: 'identity_status'
+      status: 'status', lifecycle: 'coalesce(lifecycle_status,status)', risk: 'risk',
+      freshness: 'freshness', identity: 'identity_status'
     });
     const protection = searchParams.get('protection');
     const protectionClauses = {
@@ -74,7 +149,12 @@ export class OperationsRepository {
 
   async orderDetail(id) {
     const [detail, timeline, incidents] = await Promise.all([
-      this.pool.query('SELECT * FROM read_models.operations_order_context WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1', [id]),
+      this.pool.query(`SELECT c.*,r.phone_last4,r.test_order,r.automatic_confirmation_allowed,
+        r.chatby_cleanup_status,r.chatby_cleanup_blockers,r.return_block_status,r.return_block_reason,
+        r.protection_review,r.protection_last_reconciled_at
+      FROM read_models.operations_order_context c
+      LEFT JOIN read_models.operations_order_records r USING(canonical_order_id)
+      WHERE c.canonical_order_id=$1 OR c.dropea_order_id=$1 LIMIT 1`, [id]),
       this.pool.query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_context
           WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
@@ -91,8 +171,7 @@ export class OperationsRepository {
     const limit = integer(searchParams.get('limit'), 50, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
     const selected = filters(searchParams, {
-      status: 'status', type: 'normalized_type', response: 'customer_response_status',
-      risk: 'risk', freshness: 'freshness'
+      status: 'status', type: 'normalized_type', risk: 'risk', freshness: 'freshness'
     });
     if (!searchParams.has('status')) selected.clauses.push("status = 'PENDING'");
     if (!searchParams.has('active')) selected.clauses.push('is_active = true');

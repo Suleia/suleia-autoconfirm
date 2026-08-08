@@ -86,6 +86,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
     try {
       let data;
       if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary();
+      else if (requestUrl.pathname === '/api/operations/finance') data = await repository.financialSummary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else if (requestUrl.pathname === '/api/operations/incidents') data = await repository.listIncidents(requestUrl.searchParams);

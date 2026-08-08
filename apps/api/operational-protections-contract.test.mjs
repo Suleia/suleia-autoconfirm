@@ -43,7 +43,8 @@ test('Operations Center exposes protection badges, filters and masked detail onl
 test('Operations Center assigns filter values on the select element, not append return value', () => {
   const script = read('../review-panel/app.js');
   assert.doesNotMatch(script, /\.append\(new Option\([^\n]+\)\)\.value\s*=/);
-  assert.match(script, /select\.append\(new Option\(`Todos · \$\{label\}`,''\)\);select\.value=/);
+  assert.match(script, /select\.append\(new Option\(`Todos · \$\{label\}`, ''\)\)/);
+  assert.match(script, /select\.value = state\.filters\[key\]/);
 });
 
 test('production order path evaluates the test-phone guard before blocked-customer policy', () => {
