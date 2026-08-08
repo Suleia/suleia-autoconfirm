@@ -105,6 +105,7 @@ test('OAuth end-to-end validation uses the exact public MCP hostname without ext
   assert.match(flow, /grant_type: "refresh_token"/);
   assert.match(flow, /Offline refresh token is missing/);
   assert.equal(chatgptClient?.consentRequired, false);
-  assert.match(dcr, /consentRequired: false/);
+  assert.match(dcr, /CHATGPT_MCP_CONSENT_REQUIRED === "true"/);
+  assert.match(dcr, /consentRequired,/);
   assert.doesNotMatch(dcr, /\/consents|\/logout/);
 });

@@ -5,6 +5,7 @@ const clientId =
 const clientSecret = process.env.KEYCLOAK_CONFIG_SERVICE_SECRET;
 const configAdminUsername = "suleia-config-admin";
 const configAdminPassword = process.env.KEYCLOAK_CONFIG_ADMIN_PASSWORD;
+const consentRequired = process.env.CHATGPT_MCP_CONSENT_REQUIRED === "true";
 
 if (!clientSecret && !configAdminPassword) {
   throw new Error(
@@ -113,7 +114,7 @@ try {
       method: "PUT",
       body: JSON.stringify({
         ...staticClient,
-        consentRequired: false,
+        consentRequired,
         attributes: {
           ...staticClient.attributes,
           resource_url: "https://mcp.suleia.com/mcp",
