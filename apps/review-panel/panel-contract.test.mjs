@@ -6,6 +6,7 @@ test('Operations Center exposes exactly Pedidos and Incidencias with no write co
   const html = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
+  const loginCss = fs.readFileSync(new URL('./login.css', import.meta.url), 'utf8');
   assert.equal((html.match(/class="nav-item/g) || []).length, 2);
   assert.match(html, />Pedidos</);
   assert.match(html, />Incidencias</);
@@ -20,6 +21,7 @@ test('Operations Center exposes exactly Pedidos and Incidencias with no write co
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-login-native">/);
+  assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
   assert.match(html, /<script src="app\.js\?v=20260808-login-native" defer><\/script>/);
   assert.match(script, /async function prepareLogin\(\)/);
   assert.match(script, /button\.href=url\.toString\(\)/);
