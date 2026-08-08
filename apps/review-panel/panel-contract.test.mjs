@@ -17,5 +17,6 @@ test('Operations Center exposes exactly Pedidos and Incidencias with no write co
   assert.match(html, /MODO SIMULACIÓN/);
   assert.match(html, /NO SE HA ENVIADO NADA/);
   assert.match(html, /ACCIONES EJECUTADAS: 0/);
+  assert.match(html, /<script src="app\.js\?v=c65be9f" defer><\/script>/);
   assert.match(script, /refresh_interval_seconds/);
 });
