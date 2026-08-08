@@ -1,20 +1,28 @@
 import crypto from "node:crypto";
 
 const keycloakBase = "http://keycloak:8080/auth";
-const mcpUrl = "http://mcp-server:3100/mcp";
+const mcpUrl = process.env.MCP_E2E_URL || "https://mcp.suleia.com/mcp";
 const resource = "https://mcp.suleia.com/mcp";
-const adminUsername = "suleia-config-admin";
-const adminPassword = process.env.KEYCLOAK_CONFIG_ADMIN_PASSWORD;
+const adminClientId = process.env.KEYCLOAK_CONFIG_SERVICE_CLIENT_ID;
+const adminClientSecret = process.env.KEYCLOAK_BOOTSTRAP_ADMIN_CLIENT_SECRET;
 const requiredScopes = [
   "orders:read",
   "timelines:read",
   "decisions:read",
   "reviews:read",
+  "platform:read",
   "orders:simulate",
 ];
+const expectedTools = [
+  "get_order", "get_order_timeline", "get_data_freshness", "get_active_timers",
+  "get_agent_decisions", "preview_order_decision", "compare_simulation_with_current_system",
+  "list_orders_needing_ai_review", "search_orders", "search_incidents", "get_incident",
+  "search_operational_findings", "get_platform_overview", "get_runtime_inventory",
+  "get_database_catalog", "get_component_details",
+].sort();
 
-if (!adminPassword) {
-  throw new Error("KEYCLOAK_CONFIG_ADMIN_PASSWORD is required");
+if (!adminClientId || !adminClientSecret) {
+  throw new Error("Temporary Keycloak configuration service credentials are required");
 }
 
 const adminTokenResponse = await fetch(
@@ -23,10 +31,9 @@ const adminTokenResponse = await fetch(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
-      grant_type: "password",
-      client_id: "admin-cli",
-      username: adminUsername,
-      password: adminPassword,
+      grant_type: "client_credentials",
+      client_id: adminClientId,
+      client_secret: adminClientSecret,
     }),
   },
 );
@@ -58,6 +65,7 @@ async function adminRequest(path, options = {}) {
 let testUserId;
 let staticClient;
 let primaryError;
+let accessToken;
 try {
   const clients = await adminRequest(
     "/admin/realms/suleia/clients?clientId=chatgpt-suleia-mcp&search=true",
@@ -135,7 +143,7 @@ try {
       `End-to-end access token failed: ${tokenResponse.status} ${errorCode} ${errorDescription}`,
     );
   }
-  const { access_token: accessToken } = await tokenResponse.json();
+  ({ access_token: accessToken } = await tokenResponse.json());
   const payload = JSON.parse(
     Buffer.from(accessToken.split(".")[1], "base64url").toString("utf8"),
   );
@@ -148,27 +156,70 @@ try {
   }
   if (!roles.includes("mcp_reader")) throw new Error("MCP reader role is missing");
 
-  const mcpResponse = await fetch(mcpUrl, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${accessToken}`,
-      "content-type": "application/json",
-      accept: "application/json, text/event-stream",
-    },
-    body: JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2025-03-26",
-        capabilities: {},
-        clientInfo: { name: "suleia-e2e", version: "1.0.0" },
+  let sessionId;
+  let requestId = 0;
+  const parseRpcResponse = (text, contentType, id) => {
+    const messages = contentType.includes("text/event-stream")
+      ? text.split(/\r?\n/).filter((line) => line.startsWith("data:"))
+        .map((line) => JSON.parse(line.slice(5).trim()))
+      : [JSON.parse(text)];
+    const message = messages.find((item) => item.id === id);
+    if (!message) throw new Error(`MCP response ${id} is missing`);
+    if (message.error) throw new Error(`MCP ${message.error.code}: ${message.error.message}`);
+    return message.result;
+  };
+  const rpc = async (method, params = {}, notification = false) => {
+    const id = notification ? undefined : ++requestId;
+    const response = await fetch(mcpUrl, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        ...(sessionId ? { "mcp-session-id": sessionId } : {}),
       },
-    }),
+      body: JSON.stringify({ jsonrpc: "2.0", ...(id ? { id } : {}), method, params }),
+    });
+    if (!response.ok) throw new Error(`MCP ${method} failed: ${response.status}`);
+    sessionId ||= response.headers.get("mcp-session-id") || undefined;
+    if (notification) return null;
+    return parseRpcResponse(await response.text(), response.headers.get("content-type") || "", id);
+  };
+  await rpc("initialize", {
+    protocolVersion: "2025-03-26",
+    capabilities: {},
+    clientInfo: { name: "suleia-e2e", version: "1.0.0" },
   });
-  if (mcpResponse.status !== 200) {
-    throw new Error(`Authenticated MCP initialize failed: ${mcpResponse.status}`);
+  await rpc("notifications/initialized", {}, true);
+  const catalog = await rpc("tools/list");
+  const publishedTools = catalog.tools.map((tool) => tool.name).sort();
+  if (JSON.stringify(publishedTools) !== JSON.stringify(expectedTools)) {
+    throw new Error(`Published MCP catalog mismatch: ${publishedTools.length}`);
   }
+
+  const callTool = async (name, args) => {
+    const startedAt = Date.now();
+    const result = await rpc("tools/call", { name, arguments: args });
+    if (result.isError) throw new Error(`${name} returned an MCP tool error`);
+    const bytes = Buffer.byteLength(JSON.stringify(result));
+    if (bytes > 51_200) throw new Error(`${name} exceeded the response limit`);
+    if (Date.now() - startedAt > 10_000) throw new Error(`${name} exceeded the time limit`);
+    const text = result.content?.find((item) => item.type === "text")?.text;
+    const envelope = text ? JSON.parse(text) : null;
+    if (!envelope || envelope.meta?.read_only !== true || envelope.meta?.actions_executed !== 0) {
+      throw new Error(`${name} omitted the read-only zero-action envelope`);
+    }
+    return { envelope, bytes };
+  };
+
+  const incidentSearch = await callTool("search_incidents", { status: "PENDING", is_active: true, limit: 5 });
+  const orderSearch = await callTool("search_orders", { active: true, limit: 5 });
+  const firstOrderId = orderSearch.envelope.data?.items?.[0]?.canonical_order_id;
+  if (firstOrderId) await callTool("get_order", { order_id: firstOrderId });
+  await callTool("get_platform_overview", { section: "STATUS" });
+  await callTool("get_runtime_inventory", { limit: 10 });
+  await callTool("get_database_catalog", { platform: "VPS_POSTGRES", limit: 5 });
+  await callTool("get_component_details", { component_type: "SERVICE", component_id: "mcp-server", depth: 2 });
 
   const clientAudienceTokenResponse = await fetch(
     `${keycloakBase}/realms/suleia/protocol/openid-connect/token`,
@@ -229,9 +280,13 @@ try {
 
   console.log("audience_exact=1");
   console.log("non_resource_grant_url_audience=1");
-  console.log("required_scopes=5");
+  console.log("required_scopes=6");
   console.log("reader_role=1");
-  console.log("authenticated_mcp_initialize=200");
+  console.log(`published_tools=${publishedTools.length}`);
+  console.log(`pending_incidents=${incidentSearch.envelope.data?.total ?? 0}`);
+  console.log(`active_orders=${orderSearch.envelope.data?.total ?? 0}`);
+  console.log(`opened_order=${firstOrderId ? 1 : 0}`);
+  console.log("authenticated_public_mcp=1");
   console.log("authenticated_mcp_client_audience=200");
 } catch (error) {
   primaryError = error;
@@ -245,15 +300,6 @@ try {
     }
     if (testUserId) {
       await adminRequest(`/admin/realms/suleia/users/${testUserId}`, {
-        method: "DELETE",
-      });
-    }
-    const admins = await adminRequest(
-      `/admin/realms/master/users?username=${adminUsername}&exact=true`,
-    );
-    const temporaryAdmin = admins.find((user) => user.username === adminUsername);
-    if (temporaryAdmin) {
-      await adminRequest(`/admin/realms/master/users/${temporaryAdmin.id}`, {
         method: "DELETE",
       });
     }

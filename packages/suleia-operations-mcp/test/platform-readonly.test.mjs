@@ -88,3 +88,14 @@ test('runtime inventory never mounts the Docker socket and collector uses an all
   assert.doesNotMatch(launcher, /docker\.sock/i);
   assert.doesNotMatch(launcher, /^node\s/m);
 });
+
+test('OAuth end-to-end validation uses the exact public MCP hostname without external DNS dependency', async () => {
+  const verifier = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'vps', 'verify-keycloak-mcp-e2e.sh'), 'utf8');
+  assert.match(verifier, /MCP_E2E_URL=https:\/\/mcp\.suleia\.com\/mcp/);
+  assert.match(verifier, /MCP_EDGE_CONTAINER_ID/);
+  assert.match(verifier, /--add-host "mcp\.suleia\.com:\$\{MCP_EDGE_IP\}"/);
+  assert.match(verifier, /docker create --name/);
+  assert.match(verifier, /docker network connect/);
+  assert.match(verifier, /_application_network\$/);
+  assert.match(verifier, /_identity_network\$/);
+});
