@@ -1,0 +1,12 @@
+finding_id,phase1_status,evidence,commit,residual_risk,next_action
+PF0-001,VERIFIED,"Canonical query-time calculation; 80650 seconds evaluates STALE; live verifier rejects FRESH above threshold","76bb10c;265d8fd;7a623c7",LOW,"Continue monitoring canonical freshness"
+PF0-002,OPEN_UNHEALTHY,"Worker returns 503 and Chatby GET remains HTTP 401; no complete cycle","37d32d7;6d3bc22",HIGH,"Repair Chatby native handshake in an independent checkpoint without changing flows or templates"
+PF0-003,VERIFIED_NOT_IMPLEMENTED,"Decision Engine returns 501 NOT_IMPLEMENTED with actions and writes zero","37d32d7;6d3bc22",LOW,"Implement only in a later simulation phase if explicitly authorized"
+PF0-004,VERIFIED_NOT_IMPLEMENTED,"Scheduler returns 501 NOT_IMPLEMENTED with actions and writes zero","37d32d7;6d3bc22",LOW,"Implement only in a later simulation phase if explicitly authorized"
+PF0-005,VERIFIED,"Checksum archive isolated restore migration rollback and cleanup published in functional health","37d32d7;6d3bc22",MEDIUM,"Add safe periodic restore verification in a later recovery phase"
+PF0-006,OPEN,"Runtime deployment provenance still lacks a durable signed commit and hash manifest","",MEDIUM,"Publish a deployment provenance manifest"
+PF0-007,OPEN,"Standard paginated MCP reads work but oversized defaults remain possible","",MEDIUM,"Reduce defaults and expose cursor or truncation metadata"
+PF0-008,OPEN_PHASE2,"Local technical catalog is auditable but MCP redaction still hides required metadata names","",HIGH,"Implement metadata-value separation in Phase 2"
+PF0-009,OPEN,"No operational backup schedule or Suleia timer is deployed","",MEDIUM,"Design a safe isolated recurring drill after recovery contracts are approved"
+PF0-010,DEGRADED,"Panel HTML API and Keycloak are reachable but no synthetic authenticated read ran in this cycle","37d32d7;6d3bc22;7a623c7",MEDIUM,"Add a PII-free authenticated synthetic read"
+PF0-012,OPEN_NOT_CONFIGURED,"Supabase GET-only inventory is not configured in the Render service","",MEDIUM,"Document and configure read-only inventory without removing Supabase"
