@@ -1,0 +1,27 @@
+{
+  "schema_version": "suleia-phase0-findings-v1",
+  "generated_at": "2026-08-09T07:12:14.107Z",
+  "total_findings": 239,
+  "unique_findings": 239,
+  "linked_duplicates": 214,
+  "orphan_duplicates": 0,
+  "by_status": {
+    "DUPLICATE": 214,
+    "OPEN": 25
+  },
+  "by_severity": {
+    "HIGH": 222,
+    "WARNING": 17
+  },
+  "by_component": {
+    "DATA_QUALITY": 1,
+    "GLS_INCIDENT_REVIEW": 216,
+    "GLS_NORMALIZATION": 5,
+    "OPERATIONAL_PROTECTIONS": 17
+  },
+  "database_objects": 131,
+  "database_catalog_entries": 2478,
+  "pii_values_included": false,
+  "actions_executed": 0,
+  "production_writes": 0
+}
