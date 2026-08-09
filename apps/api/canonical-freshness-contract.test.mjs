@@ -11,6 +11,7 @@ const drill = fs.readFileSync(new URL('../../infrastructure/vps/run-source-fresh
 test('Operations Center and MCP share the canonical freshness evaluator', () => {
   assert.match(operationsRepository, /evaluateSourceFreshness/);
   assert.match(mcpRepository, /evaluateSourceFreshness/);
+  assert.match(mcpRepository, /DISTINCT ON \(market,store_id,resource_type\)/);
   assert.match(migration, /source_observed_at/);
   assert.match(migration, /source_event_at/);
   assert.match(migration, /last_successful_sync_at/);

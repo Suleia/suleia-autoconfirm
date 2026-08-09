@@ -238,18 +238,24 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     },
 
     async getDataFreshness() {
-      const operationalRows = await query(`SELECT 'DROPEA_PUBLIC_API_' || market AS source,
-          source_observed_at,source_event_at,ingested_at,last_successful_sync_at,
-          NULL::timestamptz AS last_failure_at,sync_complete,measured_at
-        FROM read_models.operations_data_freshness
-        UNION ALL
-        SELECT source,checked_at AS source_observed_at,NULL::timestamptz AS source_event_at,
-          checked_at AS ingested_at,last_success_at AS last_successful_sync_at,last_failure_at,
-          true AS sync_complete,checked_at AS measured_at
-        FROM core.source_freshness
-        WHERE source IN ('chatby','event_store','digital_twin','read_model')
-        ORDER BY measured_at DESC
-        LIMIT 100`);
+      const operationalRows = await query(`WITH dropea_latest AS (
+          SELECT DISTINCT ON (market,store_id,resource_type)
+            'DROPEA_PUBLIC_API_' || market AS source,market,store_id,resource_type,phase,
+            source_observed_at,source_event_at,ingested_at,last_successful_sync_at,
+            NULL::timestamptz AS last_failure_at,sync_complete,measured_at
+          FROM read_models.operations_data_freshness
+          ORDER BY market,store_id,resource_type,last_successful_sync_at DESC NULLS LAST,measured_at DESC
+        )
+        SELECT * FROM (
+          SELECT * FROM dropea_latest
+          UNION ALL
+          SELECT source,NULL::text AS market,NULL::text AS store_id,NULL::text AS resource_type,NULL::text AS phase,
+            checked_at AS source_observed_at,NULL::timestamptz AS source_event_at,
+            checked_at AS ingested_at,last_success_at AS last_successful_sync_at,last_failure_at,
+            true AS sync_complete,checked_at AS measured_at
+          FROM core.source_freshness
+          WHERE source IN ('chatby','event_store','digital_twin','read_model')
+        ) source_rows ORDER BY measured_at DESC LIMIT 100`);
       const fallbackRows = operationalRows.length ? [] : await query(`SELECT source,checked_at AS source_observed_at,
           NULL::timestamptz AS source_event_at,checked_at AS ingested_at,
           last_success_at AS last_successful_sync_at,last_failure_at,true AS sync_complete,checked_at AS measured_at
@@ -260,7 +266,8 @@ export function createPostgresReadRepository(config, { pool } = {}) {
           source_observed_at: row.source_observed_at ?? row.source_updated_at,
           ingested_at: row.ingested_at ?? row.measured_at ?? row.source_updated_at };
         const freshness = evaluateSourceFreshness(normalized);
-        return { source: row.source, ...freshness,
+        return { source: row.source, market: row.market ?? null, store_id: row.store_id ?? null,
+          resource_type: row.resource_type ?? null, phase: row.phase ?? null, ...freshness,
           source_updated_at: freshness.last_successful_sync_at,
           last_failure_at: row.last_failure_at, measured_at: row.measured_at };
       });
