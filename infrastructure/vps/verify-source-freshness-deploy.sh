@@ -12,6 +12,20 @@ compose() {
   docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" "$@"
 }
 
+wait_http() {
+  local service="$1"
+  local url="$2"
+  for _attempt in $(seq 1 30); do
+    if compose exec --no-TTY "${service}" wget -qO- "${url}" >/dev/null 2>&1; then return 0; fi
+    sleep 2
+  done
+  echo "Timed out waiting for ${service}." >&2
+  return 1
+}
+
+wait_http api http://127.0.0.1:3200/health
+wait_http mcp-server http://127.0.0.1:3100/health
+
 compose exec --no-TTY api node -e '
   fetch("http://127.0.0.1:3200/health").then(async (response) => {
     const payload = await response.json();
@@ -112,5 +126,20 @@ mv "${health_tmp}" "${health_file}"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh" >/dev/null
 echo 'FUNCTIONAL_HEALTH_INVENTORY|PASS|components=11'
+
+compose exec --no-TTY mcp-server node --input-type=module -e '
+  import { createPlatformKnowledge } from "./packages/suleia-operations-mcp/src/platform/catalog.mjs";
+  const knowledge = createPlatformKnowledge({ repository: { getRuntimeMetrics: async () => null },
+    config: { runtimeInventoryPath: process.env.MCP_RUNTIME_INVENTORY_PATH } });
+  const result = await knowledge.getRuntimeInventory({ limit: 50 });
+  const expected = new Map([["api","HEALTHY"],["mcp-server","HEALTHY"],["ingestion-worker","UNHEALTHY"],
+    ["decision-engine","NOT_IMPLEMENTED"],["timer-engine","NOT_IMPLEMENTED"],["scheduler","NOT_IMPLEMENTED"],["keycloak","HEALTHY"],
+    ["postgres","HEALTHY"],["review-panel","HEALTHY"],["backup","HEALTHY"]]);
+  for (const [service, status] of expected) {
+    const item = result.items.find((candidate) => candidate.service === service);
+    if (!item || item.health !== status || !item.health_reason || !item.health_checked_at) process.exit(1);
+  }
+  console.log(JSON.stringify({ check: "MCP_FUNCTIONAL_HEALTH_CATALOG", ok: true,
+    services: result.items.filter((item) => expected.has(item.service)).map(({ service, health, health_checked_at }) => ({ service, health, health_checked_at })) }));'
 
 echo 'SOURCE_FRESHNESS_DEPLOY_VERIFICATION|PASS|actions=0|production_writes=0'

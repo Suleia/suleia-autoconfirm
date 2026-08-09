@@ -37,6 +37,7 @@ const SERVICE_MANIFEST = Object.freeze([
   ['VPS', 'mcp-server', 'suleia-node:22.22.0', ['postgres', 'keycloak']],
   ['VPS', 'decision-engine', 'suleia-node:22.22.0', ['postgres']],
   ['VPS', 'ingestion-worker', 'suleia-node:22.22.0', ['postgres', 'Dropea V2', 'Chatby']],
+  ['VPS', 'timer-engine', 'not-deployed', ['postgres']],
   ['VPS', 'scheduler', 'suleia-node:22.22.0', ['postgres']],
   ['VPS', 'review-panel', 'nginx:1.29-alpine', ['api']],
   ['VPS', 'postgres', 'postgres:17.5-alpine', []],
@@ -443,19 +444,22 @@ export function createPlatformKnowledge({ repository, config }) {
         repository.getRuntimeMetrics?.().catch(() => null)
       ]);
       const observed = new Map((snapshot?.containers || []).map((item) => [String(item.service || item.name).toLowerCase(), item]));
+      const functional = new Map((snapshot?.functional_health?.components || [])
+        .map((item) => [String(item.service || '').toLowerCase(), item]));
       let items = SERVICE_MANIFEST.map((declared) => {
         const live = observed.get(declared.service.toLowerCase()) || {};
+        const functionalHealth = live.functional_health || functional.get(declared.service.toLowerCase()) || null;
         return {
           ...declared,
           version: live.version || null,
           image: live.image || declared.image,
           commit: snapshot?.git?.commit || null,
           status: live.status || declared.declared_status,
-          health: live.health || 'UNKNOWN',
-          health_reason: live.functional_health?.reason || null,
-          health_checked_at: live.functional_health?.checked_at || null,
-          health_evidence: live.functional_health?.evidence || null,
-          last_completed_cycle_at: live.functional_health?.last_completed_cycle_at || null,
+          health: functionalHealth?.health_status || live.health || 'UNKNOWN',
+          health_reason: functionalHealth?.reason || null,
+          health_checked_at: functionalHealth?.checked_at || null,
+          health_evidence: functionalHealth?.evidence || null,
+          last_completed_cycle_at: functionalHealth?.last_completed_cycle_at || null,
           cpu_percent: live.cpu_percent ?? null,
           ram_usage_bytes: live.ram_usage_bytes ?? null,
           ram_limit_bytes: live.ram_limit_bytes ?? null,
