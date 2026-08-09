@@ -1,0 +1,69 @@
+{
+  "measured_at_utc": "2026-08-09T10:43:00Z",
+  "mode": "SHADOW_READ_ONLY",
+  "actions_executed": 0,
+  "production_writes": 0,
+  "customer_messages": 0,
+  "external_ai_cost_eur": 0,
+  "database": {
+    "application_schemas": 21,
+    "relations": 131,
+    "tables": 97,
+    "views": 34,
+    "orders": 961,
+    "incidents": 327,
+    "active_pending_incidents": 18,
+    "actionable_incidents": 0,
+    "unmapped_incidents": 216,
+    "unknown_incidents": 216,
+    "chatby_links": 18,
+    "chatby_events": 0,
+    "active_timers": 18,
+    "active_overdue_timers": 16,
+    "simulated_decisions": 37,
+    "economic_observations": 760
+  },
+  "order_history": {
+    "current_shipping": 0,
+    "current_delivered_or_finished": 487,
+    "confirmed_milestone": 687,
+    "delivered_milestone": 488,
+    "returned_milestone": 0,
+    "historical_shipped_milestone": 0,
+    "history_rows": 961,
+    "distinct_orders_in_history": 961
+  },
+  "incident_context": {
+    "conversation_found": 18,
+    "conversation_stale": 18,
+    "valid_post_issue_customer_reply": 0,
+    "summary_pending": 0,
+    "summary_awaiting_customer": 327,
+    "summary_blocked": 216
+  },
+  "gls_observed_codes": {
+    "NAM": { "rows": 100, "mapping": "RECIPIENT_ABSENT", "verified": true },
+    "DI": { "rows": 11, "mapping": "ADDRESS_INCORRECT", "verified": true },
+    "AS": { "rows": 80, "mapping": null, "verified": false },
+    "SF": { "rows": 75, "mapping": null, "verified": false },
+    "-30": { "rows": 39, "mapping": null, "verified": false },
+    "OTH": { "rows": 19, "mapping": null, "verified": false },
+    "RETURN_LITERAL": { "rows": 1, "mapping": null, "verified": false }
+  },
+  "backup": {
+    "artifact": "/backups/suleia-20260809T095508Z.dump",
+    "checksum_verified": true,
+    "isolated_restore_verified": true,
+    "restored_application_tables": 75,
+    "temporary_database_removed": true
+  },
+  "auditor": {
+    "oauth_discovery_http": 200,
+    "operations_center_http": 200,
+    "unauthenticated_mcp_http": 401,
+    "freshness_tool_verified_now": true,
+    "order_search_verified_now": false,
+    "incident_search_verified_now": false,
+    "catalog_mismatch": true
+  }
+}

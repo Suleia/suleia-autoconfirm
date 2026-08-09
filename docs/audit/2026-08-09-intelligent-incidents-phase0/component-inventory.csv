@@ -1,0 +1,27 @@
+component,location,observed_state,classification,phase0_evidence,phase0_decision
+Repository,GitHub/local,branch checkpoint/real-operations-readonly-20260807 at 2c651a1,REUSE,"clean except owner OpenAPI change",preserve
+Deployed source provenance,VPS,exact Git SHA unavailable,EXTEND,"/opt/suleia-operations has no .git and images lack application revision label",block until pinned
+PostgreSQL,VPS,healthy with 21 application schemas and 131 relations,REUSE,"fresh read-only transaction and restore drill",keep
+Core order model,VPS,961 current-state orders with incomplete transition history,EXTEND,"0 historical shipped milestones but 487 current delivered/finished",add explicit milestones later
+Incident model,VPS,327 records with 18 active PENDING,EXTEND,"216 UNMAPPED/UNKNOWN",preserve raw evidence and extend contract
+Conversation context,VPS,18 links and 0 materialized events,MIGRATE,"18/18 linked contexts stale; no valid post-issue customer reply",ingest canonical events before decisions
+Timer model,VPS,18 ACTIVE and 16 effectively overdue,EXTEND,"stored state disagrees with due_at",derive effective state before scheduling
+Decision records,VPS,37 simulated BLOCKED decisions,EXTEND,"no readable input snapshot diff",add immutable input snapshot/version later
+Economics observations,VPS,760 generic observations,EXTEND,"not a canonical per-order cost ledger",do not present as complete spend control
+Dropea V2 reader,VPS,GET succeeds and incremental data is current,REUSE,"orders/issues last sync current",keep read-only
+Chatby reader,VPS,credential rejected and source stale,REPLACE,"worker receives HTTP 401",issue a valid credential without changing flows
+Ingestion worker,VPS,unhealthy due Chatby 401,EXTEND,"Dropea succeeds while aggregate health is 503",expose per-source health
+Decision Engine,VPS,running placeholder,REPLACE,"no functional processing loop",do not rely on it
+Scheduler,VPS,running placeholder,REPLACE,"no functional scheduling loop",do not rely on it
+Action Executor,VPS,disabled,REUSE,"ACTION_EXECUTOR_ENABLED=false",keep disabled
+Operational API,VPS,healthy SHADOW_READ_ONLY,REUSE,"actions_executed=0; production_writes=0",keep
+MCP server,VPS,healthy and protected,EXTEND,"server catalog uses search_* names",align published catalog and client cache
+ChatGPT MCP catalog,ChatGPT,partially stale,REPLACE,"invokes list_orders/list_incidents and receives Unknown tool",republish/version and Scan Tools
+MCP Edge,VPS,healthy,REUSE,"OAuth discovery 200 and unauthenticated MCP 401",keep
+Keycloak,VPS,running after audit recovery,EXTEND,"verification script timeout can leave service stopped",make verifier interruption-safe
+Operations Center,VPS,HTTP 200,EXTEND,"read-only UI exists; known semantic gaps documented",reuse shell and correct contracts later
+Backup maintenance,VPS,manual backup and isolated restore pass,EXTEND,"fresh dump checksum and 75-table restore pass",automate only in later authorized phase
+GLS catalog,repository/VPS,partial verified mapping,EXTEND,"NAM and DI verified; AS/SF/-30/OTH unknown",never infer unknown mappings
+TIPSA,none,out of current contract,DEPRECATED,"user contract is GLS only",NOT_APPLICABLE
+Render legacy dashboard,Render,running outside cutover,MIGRATE,"not source of truth for new incident engine",keep isolated until controlled migration
+OpenAI API,none,not used,REUSE,"cost 0 EUR",keep unused
