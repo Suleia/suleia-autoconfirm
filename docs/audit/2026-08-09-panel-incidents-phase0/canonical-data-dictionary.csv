@@ -1,0 +1,60 @@
+domain,canonical_concept,physical_source,field_or_rule,cardinality,semantic_status,external_provenance,notes
+order,canonical_order_id,read_models.operations_order_records,canonical_order_id,1 per projected order,VERIFIED,Dropea V2 order identity,Internal canonical identifier; never expose customer PII
+order,dropea_order_id,integration.dropea_orders,dropea_order_id,1 per store/order mirror,VERIFIED,Dropea V2 order id,Joins to read model by canonical_order_id
+order,current_status,read_models.operations_order_context,status and lifecycle_status,1 current value,VERIFIED,Dropea V2 order snapshot,Current state only; not historical transition
+order,created_at,integration.dropea_orders,created_at_utc,0..1,VERIFIED,Dropea V2 order snapshot,UTC
+order,updated_at,integration.dropea_orders,updated_at_utc,1,VERIFIED,Dropea V2 order snapshot,Source event time distinct from ingestion time
+order,confirmed_at,integration.dropea_orders,confirmed_at_utc,0..1,VERIFIED,Dropea V2 order snapshot,Present in 687 measured orders
+order,processing_at,integration.dropea_orders,processing_at_utc,0..1,VERIFIED,Dropea V2 order snapshot,Milestone when supplied
+order,shipped_at,NOT_MODELED,NOT_AVAILABLE,0,ABSENT,No verified field/event in active model,Must not infer from delivered or current status
+order,delivered_at,integration.dropea_orders,delivered_at_utc,0..1,VERIFIED,Dropea V2 order snapshot,Present in 488 measured orders
+order,cancelled_at,integration.dropea_orders,cancelled_at_utc,0..1,VERIFIED,Dropea V2 order snapshot,Milestone when supplied
+order,returned_at,integration.dropea_orders,returned_at_utc,0..1,UNPOPULATED,Dropea V2 order snapshot,0 present; do not claim verified no returns
+order,commercial_amount,read_models.operations_order_records,total_amount and currency,0..1,VERIFIED,Dropea V2 order snapshot,Not cost/margin/economic coverage
+order,product_summary,read_models.operations_order_records,product_summary,1 masked aggregate,VERIFIED,Dropea V2 line items,No raw customer data
+order,identity_status,read_models.operations_order_records,identity_status,1,VERIFIED,Canonical identity engine,EXACT/VERIFIED required for sensitive decisions
+order,current_open,read_models.operations_order_context,"lifecycle_status IN PENDING|CONFIRMED|PROCESSING|SHIPPING|INCIDENCE",derived set,DEFINED_INTERNAL,Dropea current snapshot,Do not label En el aire without definition
+order,history,read_models.order_state_history,observed lifecycle_status,0..N,INCOMPLETE,Projected timeline observations,Measured one row per order; not transition-complete
+shipment,shipment_id,NOT_MODELED,NOT_AVAILABLE,0,ABSENT,No verified independent shipment entity,Required for real 1:N shipments
+shipment,carrier,read_models.operations_order_records,carrier,0..1 embedded,PARTIAL,Dropea order snapshot,GLS in current scope
+shipment,tracking_reference,read_models.operations_order_records,tracking_reference_masked,0..1 embedded,VERIFIED_MASKED,Dropea order snapshot,Masked only
+shipment,shipment_status,NOT_MODELED,NOT_AVAILABLE,0,ABSENT,No independent shipment lifecycle,Do not derive historical sent KPI
+incident,canonical_issue_id,read_models.operations_incident_records,canonical_issue_id,1 per projected issue,VERIFIED,Dropea V2 issue identity,Internal canonical identifier
+incident,dropea_issue_id,integration.dropea_issues,dropea_issue_id,1,VERIFIED,Dropea V2 issue id,Source identifier
+incident,canonical_order_id,read_models.operations_incident_records,canonical_order_id,N issues to 1 order,VERIFIED_BY_PROJECTOR,Dropea issue/order references,No observed DB foreign key
+incident,current_status,read_models.operations_incident_records,status and is_active,1,VERIFIED,Dropea V2 issue snapshot,Active pending predicate is status=PENDING and is_active=true
+incident,actionable,read_models.operations_incident_records,actionable,1,DEFINED_INTERNAL,Capability evaluation,Separate from pending state
+incident,raw_carrier_code,read_models.operations_incident_records,initial_carrier_code,0..1,VERIFIED,Dropea carrier issue fields,GLS only
+incident,normalized_type,read_models.operations_incident_records,type and mapping_status,1,PARTIAL,Carrier registry,216 UNKNOWN/UNMAPPED
+incident,allowed_resolutions,read_models.operations_incident_records,allowed_resolution_options,0..N,OBSERVED,Dropea issue capability,Read only in this phase
+incident,created_at,read_models.operations_incident_records,created_at,1,VERIFIED,Dropea issue snapshot,Used as reply relevance boundary
+incident,source_freshness,read_models.operations_incident_records,freshness,1,VERIFIED,Dropea sync checkpoint,Does not include Chatby freshness
+conversation,link_status,operations.chatby_conversation_links,conversation_status,0..1 per incident,PARTIAL,Chatby linkage evidence,FOUND is not a valid reply
+conversation,conversation_freshness,operations.chatby_conversation_links,conversation_freshness,0..1,VERIFIED_AS_OBSERVED,Chatby snapshot,All 18 active contexts stale
+conversation,latest_customer_activity,operations.chatby_conversation_links,last_customer_message_at,0..1,PARTIAL,Chatby snapshot,Must be after issue to be relevant
+conversation,valid_reply_after_issue,read_models.operations_incident_context,customer_replied_after_issue,derived boolean,DEFINED_INTERNAL,Link plus relevance rule,Measured 0
+conversation,customer_intent,read_models.operations_incident_interpretations,customer_intent,0..1,PARTIAL,Conversation interpretation,Not a carrier mapping
+conversation,interpretation_confidence,read_models.operations_incident_interpretations,interpretation_confidence,0..1,PARTIAL,Conversation interpretation,Must be labeled separately from mapping status
+decision,simulation_id,operations.incident_simulation_decisions,simulation_id,1 per evaluation,VERIFIED,Internal shadow processor,Simulation only
+decision,input_identity,operations.incident_simulation_decisions,"issue_version + source_event_id + policy_version",1 composite key,PARTIAL,Internal shadow processor,No explicit normalized input hash/diff
+decision,result,operations.incident_simulation_decisions,simulated_decision and blocking_reasons,1,VERIFIED,Internal shadow processor,All 37 currently BLOCKED
+decision,policy_version,operations.incident_simulation_decisions,policy_version,1,UNRESOLVED,Internal string reference,Configuration policy tables are empty
+decision,human_review,operations.incident_simulation_decisions,human_review,1,VERIFIED,Internal QA,All 37 true
+timer,timer_id,operations.incident_timers,timer_id,1 per timer,VERIFIED,Internal shadow processor,No external action authorization
+timer,persisted_status,operations.incident_timers,status,1,VERIFIED,Internal timer record,Can remain ACTIVE after due_at
+timer,effective_status,DERIVED,"CASE WHEN status=ACTIVE AND due_at<=now() THEN EXPIRED_EFFECTIVE ELSE status END",1,PROPOSED_READ_CONTRACT,Database clock,Does not mutate or fire actions
+timer,due_at,operations.incident_timers,due_at,1,VERIFIED,Internal policy calculation,16 of 18 past due while ACTIVE
+freshness,dropea_freshness,read_models.operations_data_freshness,freshness and last_successful_sync_at,per market/store/resource,VERIFIED,Dropea sync checkpoints,Current deployed threshold verified as 600s
+freshness,chatby_freshness,operations.chatby_conversation_links,conversation_freshness and observed_at,per linked incident,VERIFIED_AS_OBSERVED,Chatby snapshot,Worker currently 401/unhealthy
+freshness,decision_freshness,DERIVED,all required sources fresh at evaluation time,per decision,PROPOSED_READ_CONTRACT,Composite source rule,Must fail closed when Chatby is required and stale
+mapping,gls_NAM,integration.carrier_issue_code_registry,NAM -> RECIPIENT_ABSENT,1 registry row,VERIFIED,Observed GLS data and verified registry,100 occurrences
+mapping,gls_DI,integration.carrier_issue_code_registry,DI -> ADDRESS_INCORRECT,1 registry row,VERIFIED,Observed GLS data and verified registry,11 occurrences
+mapping,gls_unknown_codes,integration.carrier_issue_code_registry,"AS|SF|-30|OTH|return literal",5 registry rows,UNMAPPED,Observed GLS data,No invented mapping; -30 is polymorphic
+economics,observation,economics.observations,"metric + value + currency + value_status + source + observed_at",0..N,PARTIAL,Internal shadow observations,760 rows; generic metric bag
+economics,commercial_order_value,read_models.operations_order_records,total_amount,0..1 per order,VERIFIED,Dropea order snapshot,Not a cost or margin
+economics,order_cost_ledger,NOT_MODELED,NOT_AVAILABLE,0,ABSENT,No verified source contract,Required before cost coverage claims
+economics,reconciliation,NOT_MODELED,NOT_AVAILABLE,0,ABSENT,No verified economic reconciliation table,Do not present reconciled margin
+policy,policy_registry,configuration.policies and configuration.policy_versions,rows,0,UNPOPULATED,Internal configuration,Decision strings do not resolve to governed rows
+feedback,review_record,decisions.review_records and decisions.human_review_queue,rows,0,UNPOPULATED,Internal decision domain,Controls must not be exposed as functional
+safety,actions_executed,multiple read and operation tables,CHECK equals 0,per record,ENFORCED,Database constraints,Aggregate measured 0
+safety,production_writes,multiple read and operation tables,CHECK equals 0,per record,ENFORCED,Database constraints,Aggregate measured 0

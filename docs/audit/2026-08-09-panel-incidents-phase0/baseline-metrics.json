@@ -1,0 +1,78 @@
+{
+  "measured_at": "2026-08-09T09:17:20.787733Z",
+  "run_mode": "SHADOW_READ_ONLY",
+  "safety": {
+    "actions_executed": 0,
+    "production_writes": 0
+  },
+  "database": {
+    "schemas": 21,
+    "objects": 131,
+    "tables": 97,
+    "views": 34,
+    "functions": 37,
+    "triggers": 1,
+    "indexes": 182,
+    "constraints": 302
+  },
+  "orders": {
+    "total": 961,
+    "current_shipping": 0,
+    "current_delivered_or_finished": 487,
+    "current_open": 26,
+    "confirmed_at_present": 687,
+    "delivered_at_present": 488,
+    "returned_at_present": 0,
+    "commercial_amount_present": 961,
+    "state_history_rows": 961,
+    "state_history_distinct_orders": 961,
+    "shipped_ever_from_history": 0,
+    "daily_distinct_dates": 55,
+    "daily_min_date": "2026-05-10",
+    "daily_max_date": "2026-07-29"
+  },
+  "incidents": {
+    "total": 327,
+    "active_pending": 18,
+    "actionable": 0,
+    "summary_pending": 0,
+    "summary_awaiting_customer": 327,
+    "summary_blocked": 216,
+    "summary_stale": 0,
+    "unmapped": 216,
+    "unknown_type": 216,
+    "conversation_found": 18,
+    "conversation_stale": 18,
+    "valid_reply_after_issue": 0
+  },
+  "timers": {
+    "total": 18,
+    "active": 18,
+    "active_past_due": 16,
+    "expired": 0
+  },
+  "decisions": {
+    "total": 37,
+    "blocked": 37,
+    "human_review": 37,
+    "exact_duplicate_groups": 0
+  },
+  "chatby": {
+    "conversation_links": 18,
+    "conversation_events": 0,
+    "intent_timeline_events": 0,
+    "worker_health": "UNHEALTHY",
+    "failure": "HTTP_401"
+  },
+  "economics": {
+    "observations": 760,
+    "canonical_order_cost_tables": 0,
+    "reconciliation_ledger_tables": 0
+  },
+  "checkpoint": {
+    "git_commit": "ad1cb5b278c4b7fb3d76e650306f977e2856b643",
+    "git_tag": "panel-incidents-phase0-20260809T090558Z",
+    "backup": "/backups/suleia-20260809T090820Z.dump",
+    "isolated_restore_exit_code": 0
+  }
+}
