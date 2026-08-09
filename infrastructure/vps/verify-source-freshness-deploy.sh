@@ -116,7 +116,7 @@ printf '%s\n' "{
     {\"service\":\"scheduler\",\"health_status\":\"NOT_IMPLEMENTED\",\"reason\":\"No functional scheduling cycle is deployed.\",\"checked_at\":\"${checked_at}\",\"last_completed_cycle_at\":null,\"evidence\":{\"endpoint\":\"internal:/health\",\"status\":501}},
     {\"service\":\"keycloak\",\"health_status\":\"HEALTHY\",\"reason\":\"Keycloak readiness reported UP.\",\"checked_at\":\"${checked_at}\",\"last_completed_cycle_at\":null,\"evidence\":{\"endpoint\":\"internal:/auth/health/ready\",\"status\":200}},
     {\"service\":\"postgres\",\"health_status\":\"HEALTHY\",\"reason\":\"PostgreSQL accepted a read and exposes the five canonical freshness fields.\",\"checked_at\":\"${checked_at}\",\"last_completed_cycle_at\":null,\"evidence\":{\"canonical_freshness_columns\":5}},
-    {\"service\":\"review-panel\",\"health_status\":\"HEALTHY\",\"reason\":\"The private Operations Center entry point answered over TLS.\",\"checked_at\":\"${checked_at}\",\"last_completed_cycle_at\":null,\"evidence\":{\"endpoint\":\"public:/operations/\",\"status\":200}},
+    {\"service\":\"review-panel\",\"health_status\":\"DEGRADED\",\"reason\":\"HTML, API and Keycloak are reachable, but this cycle did not perform a synthetic authenticated panel read.\",\"checked_at\":\"${checked_at}\",\"last_completed_cycle_at\":null,\"evidence\":{\"endpoint\":\"public:/operations/\",\"status\":200,\"authenticated_synthetic_read\":false}},
     {\"service\":\"mcp-edge\",\"health_status\":\"HEALTHY\",\"reason\":\"OIDC discovery succeeded and unauthenticated MCP access was rejected.\",\"checked_at\":\"${checked_at}\",\"last_completed_cycle_at\":null,\"evidence\":{\"discovery_status\":200,\"unauthenticated_mcp_status\":401}},
     {\"service\":\"backup\",\"health_status\":\"HEALTHY\",\"reason\":\"Backup checksum, archive, isolated restore and cleanup were verified.\",\"checked_at\":\"${checked_at}\",\"last_completed_cycle_at\":\"${checked_at}\",\"evidence\":{\"backup\":\"${BACKUP_FILE##*/}\",\"restore_record\":\"backup-restore-status.json\"}}
   ]
@@ -134,7 +134,7 @@ compose exec --no-TTY mcp-server node --input-type=module -e '
   const result = await knowledge.getRuntimeInventory({ limit: 50 });
   const expected = new Map([["api","HEALTHY"],["mcp-server","HEALTHY"],["ingestion-worker","UNHEALTHY"],
     ["decision-engine","NOT_IMPLEMENTED"],["timer-engine","NOT_IMPLEMENTED"],["scheduler","NOT_IMPLEMENTED"],["keycloak","HEALTHY"],
-    ["postgres","HEALTHY"],["review-panel","HEALTHY"],["backup","HEALTHY"]]);
+    ["postgres","HEALTHY"],["review-panel","DEGRADED"],["backup","HEALTHY"]]);
   for (const [service, status] of expected) {
     const item = result.items.find((candidate) => candidate.service === service);
     if (!item || item.health !== status || !item.health_reason || !item.health_checked_at) process.exit(1);

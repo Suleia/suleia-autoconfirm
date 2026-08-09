@@ -32,13 +32,15 @@ export function evaluateSourceFreshness(input = {}, { now = new Date(), threshol
   const ageSeconds = Number.isFinite(lastSuccessfulSyncAt) ? Math.floor((measuredAt - lastSuccessfulSyncAt) / 1000) : null;
   const ingestionLagSeconds = Number.isFinite(ingestedAt) && Number.isFinite(sourceEventAt)
     ? Math.floor((ingestedAt - sourceEventAt) / 1000) : null;
-  const clockSkewSeconds = Number.isFinite(sourceEventAt) && Number.isFinite(sourceObservedAt)
-    ? Math.floor((sourceEventAt - sourceObservedAt) / 1000)
-    : Number.isFinite(lastSuccessfulSyncAt) ? Math.floor((lastSuccessfulSyncAt - measuredAt) / 1000) : null;
+  const futureSkewSeconds = [sourceObservedAt, sourceEventAt, ingestedAt, lastSuccessfulSyncAt]
+    .filter(Number.isFinite)
+    .reduce((maximum, value) => Math.max(maximum, Math.floor((value - measuredAt) / 1000)), 0);
+  const negativeLagSkewSeconds = Number.isFinite(ingestionLagSeconds) && ingestionLagSeconds < 0
+    ? Math.abs(ingestionLagSeconds) : 0;
+  const clockSkewSeconds = Math.max(futureSkewSeconds, negativeLagSkewSeconds);
   let status = 'UNKNOWN';
   if (!invalid && Number.isFinite(threshold) && Number.isFinite(lastSuccessfulSyncAt)) {
-    const futureTimestamp = [sourceObservedAt, sourceEventAt, ingestedAt, lastSuccessfulSyncAt]
-      .filter(Number.isFinite).some((value) => value > measuredAt + clockSkewToleranceSeconds * 1000);
+    const futureTimestamp = futureSkewSeconds > clockSkewToleranceSeconds;
     const negativeIngestionLag = Number.isFinite(ingestionLagSeconds) && ingestionLagSeconds < -clockSkewToleranceSeconds;
     if (futureTimestamp || negativeIngestionLag) status = 'CLOCK_SKEW';
     else if (input.sync_complete === false || (Number.isFinite(lastFailureAt) && lastFailureAt >= lastSuccessfulSyncAt)) status = 'UNAVAILABLE';
@@ -51,7 +53,7 @@ export function evaluateSourceFreshness(input = {}, { now = new Date(), threshol
     last_successful_sync_at: Number.isFinite(lastSuccessfulSyncAt) ? new Date(lastSuccessfulSyncAt).toISOString() : null,
     age_seconds: Number.isFinite(ageSeconds) ? Math.max(0, ageSeconds) : null,
     ingestion_lag_seconds: Number.isFinite(ingestionLagSeconds) ? ingestionLagSeconds : null,
-    clock_skew_seconds: Number.isFinite(clockSkewSeconds) ? clockSkewSeconds : null,
+    clock_skew_seconds: invalid ? null : clockSkewSeconds,
     freshness_threshold_seconds: Number.isFinite(threshold) ? threshold : null,
     freshness_status: status
   });

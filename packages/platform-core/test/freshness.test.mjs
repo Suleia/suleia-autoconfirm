@@ -13,6 +13,7 @@ test('Dropea is fresh at 9 and 10 minutes and stale at 11 minutes', () => {
   assert.equal(dropea(540).freshness_status, 'FRESH');
   assert.equal(dropea(600).freshness_status, 'FRESH');
   assert.equal(dropea(660).freshness_status, 'STALE');
+  assert.equal(dropea(540).clock_skew_seconds, 0);
 });
 
 test('the audited 80650 second Dropea delay is STALE', () => {
@@ -22,7 +23,9 @@ test('the audited 80650 second Dropea delay is STALE', () => {
 });
 
 test('future source time is CLOCK_SKEW and never FRESH', () => {
-  assert.equal(dropea(0, { source_event_at: new Date(NOW.getTime() + 60_000).toISOString() }).freshness_status, 'CLOCK_SKEW');
+  const result = dropea(0, { source_event_at: new Date(NOW.getTime() + 60_000).toISOString() });
+  assert.equal(result.freshness_status, 'CLOCK_SKEW');
+  assert.equal(result.clock_skew_seconds, 60);
 });
 
 test('null or invalid timestamps are UNKNOWN', () => {
