@@ -1,3 +1,5 @@
+import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
+
 const clamp = (value, fallback = 100, maximum = 500) =>
   Math.min(maximum, Math.max(1, Number.parseInt(value, 10) || fallback));
 const offset = (value) => Math.min(100_000, Math.max(0, Number.parseInt(value, 10) || 0));
@@ -237,24 +239,40 @@ export function createPostgresReadRepository(config, { pool } = {}) {
 
     async getDataFreshness() {
       const operationalRows = await query(`SELECT 'DROPEA_PUBLIC_API_' || market AS source,
-          source_updated_at,NULL::timestamptz AS last_failure_at,
-          GREATEST(0,EXTRACT(EPOCH FROM (now()-source_updated_at)))::bigint AS lag_seconds,
-          freshness AS status,measured_at
+          source_observed_at,source_event_at,ingested_at,last_successful_sync_at,
+          NULL::timestamptz AS last_failure_at,sync_complete,measured_at
         FROM read_models.operations_data_freshness
         UNION ALL
-        SELECT source,last_success_at AS source_updated_at,last_failure_at,lag_seconds,status,
-          checked_at AS measured_at
+        SELECT source,checked_at AS source_observed_at,NULL::timestamptz AS source_event_at,
+          checked_at AS ingested_at,last_success_at AS last_successful_sync_at,last_failure_at,
+          true AS sync_complete,checked_at AS measured_at
         FROM core.source_freshness
         WHERE source IN ('chatby','event_store','digital_twin','read_model')
         ORDER BY measured_at DESC
         LIMIT 100`);
-      const rows = operationalRows.length ? operationalRows : await query(`SELECT source, last_success_at AS source_updated_at,
-          last_failure_at, lag_seconds, status, checked_at AS measured_at
+      const fallbackRows = operationalRows.length ? [] : await query(`SELECT source,checked_at AS source_observed_at,
+          NULL::timestamptz AS source_event_at,checked_at AS ingested_at,
+          last_success_at AS last_successful_sync_at,last_failure_at,true AS sync_complete,checked_at AS measured_at
         FROM mcp.data_freshness ORDER BY checked_at DESC LIMIT 100`);
+      const rows = (operationalRows.length ? operationalRows : fallbackRows).map((row) => {
+        const normalized = { ...row,
+          last_successful_sync_at: row.last_successful_sync_at ?? row.source_updated_at,
+          source_observed_at: row.source_observed_at ?? row.source_updated_at,
+          ingested_at: row.ingested_at ?? row.measured_at ?? row.source_updated_at };
+        const freshness = evaluateSourceFreshness(normalized);
+        return { source: row.source, ...freshness,
+          source_updated_at: freshness.last_successful_sync_at,
+          last_failure_at: row.last_failure_at, measured_at: row.measured_at };
+      });
+      const statusPriority = ['CLOCK_SKEW', 'UNAVAILABLE', 'STALE', 'UNKNOWN', 'FRESH'];
+      const aggregateStatus = statusPriority.find((status) => rows.some((row) => row.freshness_status === status)) || 'UNKNOWN';
+      const ages = rows.map((row) => row.age_seconds).filter(Number.isFinite);
       return {
         sources: rows,
+        freshness_status: aggregateStatus,
+        age_seconds: ages.length ? Math.max(...ages) : null,
         source_updated_at: rows.reduce((latest, row) => {
-          const value = row.source_updated_at ? new Date(row.source_updated_at).toISOString() : null;
+          const value = row.last_successful_sync_at;
           return !latest || (value && value > latest) ? value : latest;
         }, null),
         measured_at: new Date().toISOString()

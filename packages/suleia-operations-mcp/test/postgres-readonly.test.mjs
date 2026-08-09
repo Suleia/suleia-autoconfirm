@@ -43,4 +43,6 @@ test('Postgres repository reports freshness without exposing credentials', async
   const result = await repository.getDataFreshness();
   assert.equal(result.source_updated_at, '2026-08-01T11:00:00.000Z');
   assert.equal(result.sources.length, 2);
+  assert.equal(result.freshness_status, 'STALE');
+  assert.equal(result.age_seconds > 600, true);
 });

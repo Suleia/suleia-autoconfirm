@@ -10,16 +10,22 @@ const disabled = {
   'ingestion-worker': process.env.LIVE_POLLING_ENABLED !== 'true' && process.env.LIVE_WEBHOOKS_ENABLED !== 'true',
   scheduler: process.env.LIVE_CRON_ENABLED !== 'true'
 };
+const implemented = role === 'ingestion-worker';
 
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (req.method === 'GET' && req.url === '/health') {
+    if (!implemented) res.statusCode = 501;
     res.end(JSON.stringify({
-      ok: true,
+      ok: implemented,
       service: role,
       mode: 'SIMULATION',
+      health_status: implemented ? 'UNKNOWN' : 'NOT_IMPLEMENTED',
+      functional_cycle_available: false,
+      last_completed_cycle_at: null,
       production_activity_disabled: disabled[role],
-      actions_executed: 0
+      actions_executed: 0,
+      production_writes: 0
     }));
     return;
   }

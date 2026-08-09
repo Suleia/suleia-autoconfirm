@@ -7,7 +7,8 @@ function latestTimestamp(value, current = null) {
   if (Array.isArray(value)) return value.reduce((latest, item) => latestTimestamp(item, latest), current);
   let latest = current;
   for (const [key, nested] of Object.entries(value)) {
-    if (['source_updated_at', 'updated_at', 'updated_at_utc', 'observed_at', 'measured_at', 'generated_at'].includes(key)) {
+    if (['source_updated_at', 'source_observed_at', 'source_event_at', 'ingested_at', 'last_successful_sync_at',
+      'updated_at', 'updated_at_utc', 'observed_at', 'measured_at', 'generated_at'].includes(key)) {
       const parsed = new Date(nested);
       if (!Number.isNaN(parsed.getTime())) {
         const candidate = parsed.toISOString();
@@ -22,8 +23,10 @@ function latestTimestamp(value, current = null) {
 
 function detectedFreshness(value) {
   const serialized = JSON.stringify(value || {});
-  if (/"freshness"\s*:\s*"STALE"|"status"\s*:\s*"STALE"/.test(serialized)) return 'STALE';
-  if (/"freshness"\s*:\s*"FRESH"|"status"\s*:\s*"FRESH"/.test(serialized)) return 'FRESH';
+  for (const status of ['CLOCK_SKEW', 'UNAVAILABLE', 'STALE', 'FRESH']) {
+    const pattern = new RegExp(`"(?:freshness|freshness_status|status)"\\s*:\\s*"${status}"`);
+    if (pattern.test(serialized)) return status;
+  }
   return 'UNKNOWN';
 }
 
@@ -93,12 +96,7 @@ export function createOperationsService(repository, config = { environment: 'dev
     },
     async getDataFreshness() {
       const freshness = await repository.getDataFreshness();
-      const sourceAt = freshness?.source_updated_at ? new Date(freshness.source_updated_at) : null;
-      const ageSeconds = sourceAt && !Number.isNaN(sourceAt.getTime())
-        ? Math.max(0, Math.round((Date.now() - sourceAt.getTime()) / 1000))
-        : null;
-      const data = { ...freshness, age_seconds: ageSeconds };
-      return safeEnvelope(repository, data);
+      return safeEnvelope(repository, freshness);
     },
     async searchOperationalFindings(filters) {
       const data = await repository.searchOperationalFindings(filters);

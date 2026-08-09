@@ -1,3 +1,5 @@
+import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
+
 function integer(value, fallback, min, max) {
   const parsed = Number(value);
   return Number.isInteger(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
@@ -56,9 +58,18 @@ export class OperationsRepository {
         count(*) FILTER (WHERE active_issue_id IS NOT NULL)::integer AS with_active_issue
       FROM read_models.operations_order_context`)
     ]);
+    const connectors = health.rows.map((row) => {
+      const freshness = evaluateSourceFreshness({
+        source: row.connector, source_observed_at: row.checked_at, ingested_at: row.checked_at,
+        last_successful_sync_at: row.last_success_at, last_failure_at: row.last_failure_at,
+        sync_complete: row.pagination_complete
+      });
+      return { ...row, ...freshness,
+        data_health: freshness.freshness_status === 'FRESH' ? row.data_health : freshness.freshness_status };
+    });
     return {
       orders: { ...(orders.rows[0] || {}), ...(orderFlow.rows[0] || {}) },
-      incidents: incidents.rows[0] || {}, protections: protections.rows[0] || {}, connectors: health.rows
+      incidents: incidents.rows[0] || {}, protections: protections.rows[0] || {}, connectors
     };
   }
 
