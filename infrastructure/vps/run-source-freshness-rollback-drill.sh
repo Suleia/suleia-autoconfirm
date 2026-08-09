@@ -44,4 +44,14 @@ down_columns="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --
   "select count(*) from information_schema.columns where table_schema='read_models' and table_name='operations_data_freshness' and column_name in ('source_observed_at','source_event_at','ingested_at','last_successful_sync_at','sync_complete');")"
 [[ "${down_columns}" = "0" ]]
 
+cleanup
+trap - EXIT
+status_file="${INSTALL_ROOT}/private-runtime/backup-restore-status.json"
+status_tmp="${status_file}.tmp"
+install -d -m 0755 "${INSTALL_ROOT}/private-runtime"
+printf '{"schema_version":"suleia-backup-restore-v1","backup":"%s","verified_at":"%s","restore_succeeded":true,"temporary_database_removed":true,"actions_executed":0,"production_writes":0}\n' \
+  "${BACKUP_FILE##*/}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "${status_tmp}"
+chmod 0644 "${status_tmp}"
+mv "${status_tmp}" "${status_file}"
+
 echo 'SOURCE_FRESHNESS_ROLLBACK_DRILL|PASS|up_columns=5|down_columns=0|actions=0|production_writes=0'

@@ -81,6 +81,8 @@ test('runtime inventory never mounts the Docker socket and collector uses an all
   const launcher = await fs.readFile(path.join(repositoryRoot, 'infrastructure', 'vps', 'collect-platform-runtime-inventory.sh'), 'utf8');
   assert.doesNotMatch(compose, /docker\.sock/i);
   assert.match(collector, /outputPath\.startsWith\(allowedOutputRoot\)/);
+  assert.match(collector, /functional-health\.json/);
+  assert.match(collector, /functional_health/);
   assert.doesNotMatch(collector, /OPENAI_API_KEY|CHATBY_TOKEN|DROPEA_READ_JWT|SHOPIFY_ACCESS_TOKEN/);
   assert.match(launcher, /node:22\.22\.0-alpine/);
   assert.match(launcher, /--network none/);

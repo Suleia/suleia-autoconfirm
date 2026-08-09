@@ -67,9 +67,18 @@ const ps = parseJsonOutput(fixed('docker', [...composeArgs, 'ps', '--format', 'j
 const stats = parseJsonOutput(fixed('docker', ['stats', '--no-stream', '--format', '{{json .}}'])
   || runtimeSnapshot('docker-stats.json'));
 const statsByName = new Map(stats.map((item) => [String(item.Name || '').toLowerCase(), item]));
+const functionalHealth = (() => {
+  try {
+    const value = JSON.parse(runtimeSnapshot('functional-health.json'));
+    return value && Array.isArray(value.components) ? value : null;
+  } catch { return null; }
+})();
+const functionalByService = new Map((functionalHealth?.components || [])
+  .map((item) => [String(item.service || '').toLowerCase(), item]));
 
 const containers = ps.map((item) => {
   const observedStats = statsByName.get(String(item.Name || '').toLowerCase()) || {};
+  const observedFunctionalHealth = functionalByService.get(String(item.Service || '').toLowerCase()) || null;
   const [ramUsage, ramLimit] = String(observedStats.MemUsage || '').split('/').map((part) => bytes(part?.trim()));
   const inspect = parseJsonOutput(fixed('docker', ['inspect', String(item.ID || item.Name),
     '--format', '{{json .HostConfig.RestartPolicy}}']))[0] || {};
@@ -79,7 +88,8 @@ const containers = ps.map((item) => {
     image: item.Image || null,
     version: String(item.Image || '').includes(':') ? String(item.Image).split(':').at(-1) : null,
     status: item.State || item.Status || 'UNKNOWN',
-    health: item.Health || 'UNKNOWN',
+    health: observedFunctionalHealth?.health_status || item.Health || 'UNKNOWN',
+    functional_health: observedFunctionalHealth,
     cpu_percent: Number.parseFloat(String(observedStats.CPUPerc || '').replace('%', '')) || null,
     ram_usage_bytes: ramUsage,
     ram_limit_bytes: ramLimit,
@@ -160,7 +170,13 @@ const inventory = {
     disk
   },
   containers,
-  backup: { status: process.env.SULEIA_RUNTIME_BACKUP_STATUS || 'UNKNOWN' },
+  functional_health: functionalHealth,
+  backup: functionalByService.has('backup')
+    ? { status: functionalByService.get('backup').health_status,
+        reason: functionalByService.get('backup').reason,
+        checked_at: functionalByService.get('backup').checked_at,
+        evidence: functionalByService.get('backup').evidence }
+    : { status: process.env.SULEIA_RUNTIME_BACKUP_STATUS || 'UNKNOWN' },
   repository: { test_count: testCount, files }
 };
 
