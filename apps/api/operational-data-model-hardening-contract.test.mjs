@@ -30,7 +30,7 @@ test('central contexts, timeline, quality and findings contain no raw payload or
 test('Operations Center and MCP query the same central contexts', () => {
   const operationsRepository = read('packages/suleia-operations-mcp/src/operations/repository.mjs');
   const mcpRepository = read('packages/suleia-operations-mcp/src/data/postgres-read-repository.mjs');
-  for (const view of ['operations_order_context','operations_incident_context','operations_order_timeline']) {
+  for (const view of ['operations_order_context','operations_incident_panel_context','operations_order_timeline']) {
     assert.match(operationsRepository, new RegExp(view));
     assert.match(mcpRepository, new RegExp(view));
   }

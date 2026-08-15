@@ -22,6 +22,14 @@ test('the audited 80650 second Dropea delay is STALE', () => {
   assert.equal(result.freshness_status, 'STALE');
 });
 
+test('a recent poll never hides a stale source event', () => {
+  const result = dropea(30, { source_event_at: atAge(118_000) });
+  assert.equal(result.poll_age_seconds, 30);
+  assert.equal(result.source_event_age_seconds, 118_000);
+  assert.equal(result.freshness_status, 'STALE');
+  assert.equal(result.freshness_reason, 'SOURCE_EVENT_STALE');
+});
+
 test('future source time is CLOCK_SKEW and never FRESH', () => {
   const result = dropea(0, { source_event_at: new Date(NOW.getTime() + 60_000).toISOString() });
   assert.equal(result.freshness_status, 'CLOCK_SKEW');

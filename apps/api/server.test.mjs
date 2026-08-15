@@ -34,6 +34,10 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   const base = `http://127.0.0.1:${server.address().port}`;
   const health = await fetch(`${base}/health`).then((response) => response.json());
   assert.equal(health.actions_executed, 0);
+  const version = await fetch(`${base}/version`).then((response) => response.json());
+  assert.equal(typeof version.revision, 'string');
+  assert.equal(typeof version.branch, 'string');
+  assert.equal(version.production_writes, 0);
   const unauthorized = await fetch(`${base}/api/operations/summary`);
   assert.equal(unauthorized.status, 401);
   const allowed = await fetch(`${base}/api/operations/summary`, { headers: { Authorization: 'Bearer fixture' } });
@@ -77,6 +81,16 @@ test('repository builds allowlisted filters and keeps user values parameterized'
   assert.doesNotMatch(calls[0].sql, /DROP TABLE/);
   assert.equal(calls[0].values[0], "PENDING'; DROP TABLE x; --");
   assert.equal(calls[0].sql.includes('ignored'), false);
+});
+
+test('incident active=false is applied and does not silently fall back to the active queue', async () => {
+  const calls = [];
+  const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
+  const repository = new OperationsRepository(null, { pool });
+  await repository.listIncidents(new URLSearchParams({ scope: 'ALL', active: 'false' }));
+  assert.match(calls[0].sql, /is_active=\$1::boolean/);
+  assert.equal(calls[0].values[0], false);
+  assert.doesNotMatch(calls[0].sql, /status='PENDING' AND is_active=true/);
 });
 
 test('financial summary is GET-only data with missing costs represented as unknown', async () => {

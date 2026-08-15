@@ -27,6 +27,12 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(script, /simulated_decision/);
   assert.match(script, /customer_replied_after_issue/);
   assert.match(script, /normalized_type/);
+  assert.match(script, /response_evidence_status/);
+  assert.match(script, /customer_intent_confidence/);
+  assert.match(script, /effective_timer_status/);
+  assert.match(script, /Propuesta condicionada/);
+  assert.match(script, /Código GLS pendiente de gobernar/);
+  assert.match(script, /Acción: NOT_EXECUTED/);
   assert.doesNotMatch(script, /canonical_state|decision_status|proposed_resolution|customer_response_status/);
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);

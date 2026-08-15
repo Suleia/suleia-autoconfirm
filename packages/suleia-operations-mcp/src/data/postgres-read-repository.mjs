@@ -102,7 +102,7 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       const operational = await query(`SELECT * FROM read_models.operations_order_context
         WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1`, [orderId]);
       if (operational[0]) {
-        const incidents = await query(`SELECT * FROM read_models.operations_incident_context
+        const incidents = await query(`SELECT * FROM read_models.operations_incident_panel_context
           WHERE canonical_order_id=$1 ORDER BY updated_at DESC`, [operational[0].canonical_order_id]);
         return { ...operational[0], incidents };
       }
@@ -142,7 +142,7 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       const safeOffset = offset(requestedOffset);
       values.push(safeLimit, safeOffset);
       const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
-        FROM read_models.operations_incident_context
+        FROM read_models.operations_incident_panel_context
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY ${INCIDENT_SORT[sort] || INCIDENT_SORT.UPDATED_DESC}
         LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
@@ -151,7 +151,7 @@ export function createPostgresReadRepository(config, { pool } = {}) {
 
     async getIncident({ canonicalIssueId = null, dropeaIssueId = null } = {}) {
       const incidentId = canonicalIssueId || dropeaIssueId;
-      const rows = await query(`SELECT * FROM read_models.operations_incident_context
+      const rows = await query(`SELECT * FROM read_models.operations_incident_panel_context
         WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [incidentId]);
       if (!rows[0]) return null;
       const timeline = await query(`SELECT * FROM read_models.operations_order_timeline
@@ -190,11 +190,14 @@ export function createPostgresReadRepository(config, { pool } = {}) {
             latest_customer_activity_at: incident.latest_customer_activity_at,
             latest_suleia_activity_at: incident.latest_suleia_activity_at,
             last_button_intent: incident.last_button_intent,
-            conversation_freshness: incident.conversation_freshness
+            conversation_freshness: incident.effective_conversation_freshness,
+            link_snapshot_freshness: incident.conversation_freshness,
+            evidence_status: incident.response_evidence_status
           },
           conversation_intelligence: {
             current_intent: incident.customer_intent,
-            confidence: incident.interpretation_confidence,
+            evidence_classification_confidence: incident.evidence_classification_confidence,
+            customer_intent_confidence: incident.customer_intent_confidence,
             contradiction: incident.contradiction,
             summary_sanitized: incident.interpretation_summary,
             messages_used: incident.messages_used,
@@ -205,7 +208,9 @@ export function createPostgresReadRepository(config, { pool } = {}) {
             timer_type: incident.timer_type,
             started_at: incident.timer_started_at,
             due_at: incident.timer_due_at,
-            status: incident.timer_status
+            stored_status: incident.stored_timer_status,
+            effective_status: incident.effective_timer_status,
+            overdue_seconds: incident.overdue_seconds
           },
           gls_feasibility: {
             initial_carrier_code: incident.initial_carrier_code,
@@ -217,9 +222,10 @@ export function createPostgresReadRepository(config, { pool } = {}) {
           simulated_decision: {
             decision: incident.simulated_decision,
             action_type: incident.simulated_action_type,
-            blocking_reasons: incident.blocking_reasons
+            blocking_reasons: incident.effective_blocking_reasons,
+            record_status: incident.decision_record_status
           },
-          read_model: 'read_models.operations_incident_context'
+          read_model: 'read_models.operations_incident_panel_context'
         },
         timeline
       };
@@ -459,11 +465,18 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     async getActiveTimers({ orderId = null, timerType = null } = {}) {
       const incidentValues = [];
       const incidentWhere = ["status='ACTIVE'"];
-      if (orderId) { incidentValues.push(orderId); incidentWhere.push(`canonical_order_id=$${incidentValues.length}`); }
+      if (orderId) {
+        incidentValues.push(orderId);
+        incidentWhere.push(`canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_records
+          WHERE canonical_order_id=$${incidentValues.length} OR dropea_order_id=$${incidentValues.length} LIMIT 1)`);
+      }
       if (timerType) { incidentValues.push(timerType); incidentWhere.push(`timer_type=$${incidentValues.length}`); }
       incidentValues.push(100);
       const incidentTimers = await query(`SELECT timer_id,canonical_order_id AS order_id,
-          canonical_issue_id AS incident_id,timer_type,status,started_at,due_at,policy_version,created_at,
+          canonical_issue_id AS incident_id,timer_type,status AS stored_status,
+          CASE WHEN status='ACTIVE' AND due_at<=now() THEN 'EXPIRED' ELSE status END AS effective_status,
+          CASE WHEN due_at<=now() THEN extract(epoch FROM (now()-due_at))::bigint ELSE 0 END AS overdue_seconds,
+          started_at,due_at,policy_version,created_at,
           actions_executed,production_writes
         FROM operations.incident_timers WHERE ${incidentWhere.join(' AND ')}
         ORDER BY due_at ASC LIMIT $${incidentValues.length}`, incidentValues);
@@ -498,7 +511,9 @@ export function createPostgresReadRepository(config, { pool } = {}) {
           actions_executed,'SHADOW_READ_ONLY' AS run_mode,ARRAY[policy_version] AS policy_versions,
           created_at AS decided_at,blocking_reasons,gls_feasibility,allowed_resolution_options
         FROM operations.incident_simulation_decisions
-        WHERE canonical_order_id=$1 ORDER BY created_at DESC LIMIT $2`, [orderId, clamp(limit)]);
+        WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_records
+          WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
+        ORDER BY created_at DESC LIMIT $2`, [orderId, clamp(limit)]);
       if (incidentDecisions.length) return incidentDecisions;
       return query(`SELECT d.decision_id,
           COALESCE(o.external_order_id, o.id::text) AS order_id,

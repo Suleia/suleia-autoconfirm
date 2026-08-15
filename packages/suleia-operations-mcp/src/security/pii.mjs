@@ -23,6 +23,13 @@ export function maskScalar(key, value) {
 
 export function maskPii(value, key = '') {
   if (Array.isArray(value)) return value.map((item) => maskPii(item, key));
+  // pg materializes timestamptz columns as Date instances. Treating a Date as
+  // a generic object produces `{}` because Date has no enumerable properties.
+  // Serialize at the security boundary so API and MCP contracts always expose
+  // ISO 8601 UTC strings (or null for an invalid timestamp).
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.toISOString() : null;
+  }
   if (!value || typeof value !== 'object') return maskScalar(key, value);
 
   const output = {};

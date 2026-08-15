@@ -17,6 +17,42 @@ function filters(searchParams, allowlist) {
   return { clauses, values };
 }
 
+function incidentSelection(searchParams) {
+  const selected = filters(searchParams, {
+    status: 'status', type: 'interpreted_type', risk: 'risk',
+    freshness: 'effective_freshness_status', mapping: 'mapping_status',
+    response: 'response_evidence_status', timer: 'effective_timer_status',
+    decision: 'simulated_decision', qa: 'qa_status', carrier_code: 'initial_carrier_code'
+  });
+  const scope = String(searchParams.get('scope') || 'ACTIVE').toUpperCase();
+  if (scope === 'ACTIVE') selected.clauses.push("status='PENDING' AND is_active=true");
+  else if (scope === 'HISTORICAL') selected.clauses.push("NOT (status='PENDING' AND is_active=true)");
+  else if (scope !== 'ALL') selected.clauses.push("status='PENDING' AND is_active=true");
+
+  const active = searchParams.get('active');
+  if (active === 'true' || active === 'false') {
+    selected.values.push(active === 'true');
+    selected.clauses.push(`is_active=$${selected.values.length}::boolean`);
+  }
+  const from = searchParams.get('from');
+  if (from) {
+    selected.values.push(from);
+    selected.clauses.push(`created_at >= $${selected.values.length}::timestamptz`);
+  }
+  const to = searchParams.get('to');
+  if (to) {
+    selected.values.push(to);
+    selected.clauses.push(`created_at <= $${selected.values.length}::timestamptz`);
+  }
+  const query = searchParams.get('q');
+  if (query) {
+    selected.values.push(query);
+    selected.clauses.push(`(canonical_issue_id=$${selected.values.length} OR dropea_issue_id=$${selected.values.length}
+      OR canonical_order_id=$${selected.values.length} OR dropea_order_id=$${selected.values.length})`);
+  }
+  return { ...selected, scope };
+}
+
 function financialWindow(searchParams) {
   const period = searchParams.get('period') || '30d';
   const days = { '7d': 7, '30d': 30, '90d': 90, all: null }[period];
@@ -40,10 +76,24 @@ export class OperationsRepository {
 
   async close() { await this.pool.end(); }
 
-  async summary() {
+  async summary(searchParams = new URLSearchParams()) {
+    const incidentFilters = incidentSelection(searchParams);
+    const incidentWhere = incidentFilters.clauses.length ? `WHERE ${incidentFilters.clauses.join(' AND ')}` : '';
     const [orders, incidents, protections, health, orderFlow] = await Promise.all([
       this.pool.query('SELECT * FROM read_models.operations_orders_summary'),
-      this.pool.query('SELECT * FROM read_models.operations_incidents_summary'),
+      this.pool.query(`SELECT
+        count(*)::integer AS pending,
+        count(*) FILTER (WHERE response_evidence_status='VALID_RESPONSE')::integer AS responded,
+        count(*) FILTER (WHERE response_evidence_status='NO_VALID_RESPONSE')::integer AS awaiting_customer,
+        count(*) FILTER (WHERE response_evidence_status='NOT_VERIFIABLE')::integer AS not_verifiable,
+        count(*) FILTER (WHERE risk IN ('HIGH','CRITICAL'))::integer AS high_risk,
+        count(*) FILTER (WHERE cardinality(effective_blocking_reasons)>0)::integer AS blocked,
+        count(*) FILTER (WHERE effective_freshness_status IN ('STALE','UNAVAILABLE','UNKNOWN'))::integer AS stale,
+        count(*) FILTER (WHERE effective_timer_status='EXPIRED')::integer AS timers_expired,
+        max(panel_updated_at) AS last_sync_at,$${incidentFilters.values.length + 1}::text AS scope,
+        0::integer AS actions_executed,0::integer AS production_writes
+      FROM read_models.operations_incident_panel_context ${incidentWhere}`,
+      [...incidentFilters.values, incidentFilters.scope]),
       this.pool.query('SELECT * FROM read_models.operations_protection_summary'),
       this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector'),
       this.pool.query(`SELECT
@@ -170,7 +220,7 @@ export class OperationsRepository {
         WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_context
           WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
         ORDER BY occurred_at DESC LIMIT 200`, [id]),
-      this.pool.query(`SELECT * FROM read_models.operations_incident_context
+      this.pool.query(`SELECT * FROM read_models.operations_incident_panel_context
         WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_context
           WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
         ORDER BY updated_at DESC`, [id])
@@ -181,16 +231,12 @@ export class OperationsRepository {
   async listIncidents(searchParams) {
     const limit = integer(searchParams.get('limit'), 50, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
-    const selected = filters(searchParams, {
-      status: 'status', type: 'normalized_type', risk: 'risk', freshness: 'freshness'
-    });
-    if (!searchParams.has('status')) selected.clauses.push("status = 'PENDING'");
-    if (!searchParams.has('active')) selected.clauses.push('is_active = true');
+    const selected = incidentSelection(searchParams);
     selected.values.push(limit, offset);
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
       `SELECT *, count(*) OVER()::integer AS total_count
-       FROM read_models.operations_incident_context ${where}
+       FROM read_models.operations_incident_panel_context ${where}
        ORDER BY updated_at DESC, canonical_issue_id
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
@@ -200,9 +246,9 @@ export class OperationsRepository {
 
   async incidentDetail(id) {
     const [detail, timeline] = await Promise.all([
-      this.pool.query('SELECT * FROM read_models.operations_incident_context WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1', [id]),
+      this.pool.query('SELECT * FROM read_models.operations_incident_panel_context WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1', [id]),
       this.pool.query(`SELECT * FROM read_models.operations_order_timeline
-        WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_context
+        WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_panel_context
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
         ORDER BY occurred_at DESC LIMIT 200`, [id])
     ]);

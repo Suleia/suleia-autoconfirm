@@ -60,6 +60,12 @@ x-node-service: &node-service
   build:
     context: ../..
     dockerfile: infrastructure/docker/Dockerfile.node
+    args:
+      OCI_REVISION: ${SULEIA_OCI_REVISION:-UNKNOWN}
+      OCI_SOURCE: ${SULEIA_OCI_SOURCE:-UNKNOWN}
+      OCI_CREATED: ${SULEIA_OCI_CREATED:-UNKNOWN}
+      OCI_VERSION: ${SULEIA_OCI_VERSION:-UNKNOWN}
+      OCI_REF_NAME: ${SULEIA_OCI_REF_NAME:-UNKNOWN}
   restart: unless-stopped
   read_only: true
   tmpfs:

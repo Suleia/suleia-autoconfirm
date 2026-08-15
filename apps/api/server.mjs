@@ -68,6 +68,18 @@ export function createOperationsServer({ config, repository, authenticate, audit
     if (requestUrl.pathname === '/health') {
       return json(res, 200, { ok: true, service: 'suleia-operations-api', run_mode: config.runMode, actions_executed: 0, production_writes: 0 });
     }
+    if (requestUrl.pathname === '/version') {
+      return json(res, 200, {
+        revision: process.env.SULEIA_BUILD_REVISION || 'UNKNOWN',
+        source: process.env.SULEIA_BUILD_SOURCE || 'UNKNOWN',
+        created: process.env.SULEIA_BUILD_CREATED || 'UNKNOWN',
+        version: process.env.SULEIA_BUILD_VERSION || 'UNKNOWN',
+        branch: process.env.SULEIA_BUILD_BRANCH || 'UNKNOWN',
+        run_mode: config.runMode,
+        actions_executed: 0,
+        production_writes: 0
+      });
+    }
     if (requestUrl.pathname === '/api/config') {
       return json(res, 200, {
         oauth: { issuer: config.oauthIssuer, client_id: config.oauthClientId, audience: config.oauthAudience, scope: 'openid operations:read' },
@@ -85,7 +97,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
     }
     try {
       let data;
-      if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary();
+      if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/finance') data = await repository.financialSummary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
