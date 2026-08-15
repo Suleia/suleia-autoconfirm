@@ -3,7 +3,7 @@ const operationsBase = location.pathname.startsWith('/operations') ? '/operation
 const $ = (id) => document.getElementById(id);
 const text = (value, fallback = '—') => value === undefined || value === null || value === '' ? fallback : String(value);
 const short = (value) => { const v = text(value); return v.length > 22 ? `${v.slice(0, 10)}…${v.slice(-7)}` : v; };
-const date = (value, dateOnly = false) => value ? new Intl.DateTimeFormat('es-ES', dateOnly ? { dateStyle: 'medium' } : { dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '—';
+const date = (value, dateOnly = false) => { if (!value || typeof value === 'object') return '—'; const parsed = new Date(value); return Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat('es-ES', dateOnly ? { dateStyle: 'medium' } : { dateStyle: 'short', timeStyle: 'short' }).format(parsed) : '—'; };
 const money = (value, currency = 'EUR') => value === null || value === undefined ? 'No disponible' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: currency || 'EUR' }).format(Number(value));
 const node = (tag, className, content) => { const el = document.createElement(tag); if (className) el.className = className; if (content !== undefined) el.textContent = content; return el; };
 
@@ -43,6 +43,19 @@ function showNotice(message) { const el = $('notice'); el.textContent = message;
 function productText(value) { if (Array.isArray(value)) return value.filter(Boolean).join(', ') || 'Producto no informado'; if (typeof value === 'object' && value) return Object.values(value).filter((item) => typeof item === 'string').join(', ') || 'Producto no informado'; return text(value, 'Producto no informado'); }
 function stacked(primary, secondary, className = '') { const box = node('div', `stacked ${className}`.trim()); box.append(node('strong', '', text(primary))); if (secondary) box.append(node('small', '', text(secondary))); return box; }
 function percentage(value, total) { return total ? `${Math.round((Number(value || 0) / Number(total)) * 100)} %` : 'No disponible'; }
+const labels = {
+  ACTIVE: 'Activas', HISTORICAL: 'Históricas', ALL: 'Todas',
+  ADDRESS_INCORRECT: 'Problema de dirección', RECIPIENT_ABSENT: 'Destinatario ausente',
+  REFUSED_BY_RECIPIENT: 'Rechazado por destinatario', GENERAL_INCIDENCE: 'Incidencia general',
+  UNKNOWN: 'No determinado', VALID_RESPONSE: 'Respuesta válida',
+  NO_VALID_RESPONSE: 'Sin respuesta válida', NOT_VERIFIABLE: 'No verificable',
+  UNMAPPED: 'Código pendiente de gobernar', MAPPED: 'Mapping gobernado', VERIFIED: 'Verificado',
+  PENDING: 'Pendiente', RESOLVED: 'Resuelta', CLOSED: 'Cerrada',
+  FRESH: 'Vigente', STALE: 'Caducado', UNAVAILABLE: 'No disponible',
+  EXPIRED: 'Vencido', BLOCKED: 'Bloqueada', REVIEW: 'Revisión'
+};
+const translated = (value) => labels[value] || text(value);
+const optionLabel = (key, value) => key === 'timer' && value === 'ACTIVE' ? 'Activo' : key === 'active' ? (value === 'true' ? 'Activa' : 'Inactiva') : translated(value);
 
 function renderSummary() {
   const root = $('summary'); root.replaceChildren();
@@ -58,13 +71,16 @@ function renderSummary() {
       summaryCard('Revisión humana', data?.human_review, 'La automatización queda bloqueada', 'purple')
     );
   } else {
+    const activeScope = (data?.scope || 'ACTIVE') === 'ACTIVE';
     root.append(
-      summaryCard('Pendientes', data?.pending, 'Incidencias activas'),
-      summaryCard('Cliente respondió', data?.responded, 'Señal disponible', 'green'),
-      summaryCard('Esperando cliente', data?.awaiting_customer, 'Sin respuesta concluyente', 'amber'),
-      summaryCard('Riesgo alto', data?.high_risk, 'Revisión prioritaria', 'red'),
-      summaryCard('Bloqueadas', data?.blocked, 'Sin acción automática', 'purple'),
-      summaryCard('Datos caducados', data?.stale, 'No usar para decidir', 'red')
+      summaryCard(activeScope ? 'Incidencias activas pendientes' : 'Incidencias seleccionadas', data?.pending, activeScope ? "status='PENDING' · activa=true" : `Alcance: ${translated(data?.scope)}`),
+      summaryCard('Con respuesta válida', data?.responded, 'Entrante posterior y evidencia vigente', 'green'),
+      summaryCard('Esperando cliente', data?.awaiting_customer, 'Solo fuente verificable', 'amber'),
+      summaryCard('Respuesta no verificable', data?.not_verifiable, 'Chatby caducado, incompleto o inaccesible', 'red'),
+      summaryCard('Riesgo alto', data?.high_risk, 'Evaluación vigente de la selección', 'red'),
+      summaryCard('Bloqueadas', data?.blocked, 'Con causa específica', 'purple'),
+      summaryCard('Datos caducados', data?.stale, 'Alguna fuente requerida no vigente', 'red'),
+      summaryCard('Timers vencidos', data?.timers_expired, 'Estado efectivo calculado en lectura', 'red')
     );
   }
   const last = data?.last_sync_at || state.summary?.protections?.last_reconciled_at;
@@ -80,12 +96,39 @@ const filterDefinitions = {
     ['identity', 'Identidad', ['EXACT', 'VERIFIED', 'CONFLICTING', 'UNKNOWN']]
   ],
   incidents: [
+    ['scope', 'Alcance', ['ACTIVE', 'HISTORICAL', 'ALL']],
+    ['active', 'Actividad', ['true', 'false']],
+    ['status', 'Estado', ['PENDING', 'RESOLVED', 'CLOSED']],
     ['type', 'Tipo', ['RECIPIENT_ABSENT', 'ADDRESS_INCORRECT', 'PENDING_DATA', 'REFUSED_BY_RECIPIENT', 'POSSIBLE_RETURN', 'RETURN_REQUESTED', 'PICKUP_AT_AGENCY', 'DELIVERY_FAILED', 'ADMINISTRATIVE_ISSUE', 'PENDING_AUTHORIZATION', 'RETAINED', 'CUSTOMS_ISSUE', 'DAMAGED_PACKAGE', 'LOST_PACKAGE', 'GENERAL_INCIDENCE', 'UNKNOWN']],
+    ['mapping', 'Mapping GLS', ['MAPPED', 'VERIFIED', 'UNMAPPED', 'UNKNOWN']],
+    ['response', 'Evidencia cliente', ['VALID_RESPONSE', 'NO_VALID_RESPONSE', 'NOT_VERIFIABLE']],
     ['risk', 'Riesgo', ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']],
-    ['freshness', 'Datos', ['FRESH', 'STALE', 'UNKNOWN']]
+    ['freshness', 'Datos', ['FRESH', 'STALE', 'UNAVAILABLE', 'UNKNOWN']],
+    ['qa', 'QA', ['PASS', 'REVIEW', 'BLOCKED']],
+    ['timer', 'Timer efectivo', ['ACTIVE', 'EXPIRED', 'COMPLETED', 'CANCELLED']],
+    ['decision', 'Decisión vigente', ['REVIEW', 'BLOCKED', 'APPROVED']]
   ]
 };
-function renderFilters() { const root = $('filters'); root.replaceChildren(); for (const [key, label, options] of filterDefinitions[state.view] || []) { const select = node('select', 'filter-select'); select.setAttribute('aria-label', label); select.append(new Option(`Todos · ${label}`, '')); for (const option of options) select.append(new Option(option, option)); select.value = state.filters[key] || ''; select.addEventListener('change', () => { state.filters[key] = select.value; state.offset = 0; loadQueue(); }); root.append(select); } }
+function renderFilters() {
+  const root = $('filters'); root.replaceChildren();
+  const changed = (key, value) => { state.filters[key] = value; state.offset = 0; loadQueue(); };
+  for (const [key, label, options] of filterDefinitions[state.view] || []) {
+    const select = node('select', 'filter-select'); select.setAttribute('aria-label', label);
+    select.append(new Option(`Todos · ${label}`, ''));
+    for (const option of options) select.append(new Option(optionLabel(key, option), option));
+    select.value = state.filters[key] || '';
+    select.addEventListener('change', () => changed(key, select.value)); root.append(select);
+  }
+  if (state.view === 'incidents') {
+    for (const [key, label, type] of [['q', 'Pedido o incidencia', 'search'], ['carrier_code', 'Código GLS', 'search'], ['from', 'Desde', 'date'], ['to', 'Hasta', 'date']]) {
+      const input = node('input', 'filter-select'); input.type = type; input.placeholder = label;
+      input.setAttribute('aria-label', label); input.value = state.filters[key] || '';
+      input.addEventListener('change', () => changed(key, input.value));
+      if (type === 'search') input.addEventListener('keydown', (event) => { if (event.key === 'Enter') changed(key, input.value); });
+      root.append(input);
+    }
+  }
+}
 function cell(content, className = '') { const td = node('td', className); td.append(content instanceof Node ? content : document.createTextNode(text(content))); return td; }
 function actionStatus(item) { return Number(item.actions_executed || 0) === 0 ? stacked('Sin acción real', 'Panel de lectura · 0 ejecuciones', 'safe-action') : stacked('Revisión requerida', 'Estado inesperado', 'blocked-action'); }
 function protectionBadges(item) { const box = node('div', 'protection-badges'); if (item.duplicate_status === 'DUPLICATE_ACTIVE_ORDER') box.append(badge('DUPLICADO')); if (item.test_order) box.append(badge('TEST')); if (item.chatby_cleanup_status === 'DELETE_ELIGIBLE') box.append(badge('CHATBY CLEANUP')); if (['BLOCK_ELIGIBLE', 'BLOCK_PENDING', 'BLOCK_REQUESTED', 'BLOCKED_VERIFIED'].includes(item.return_block_status)) box.append(badge('RETURN BLOCK')); return box; }
@@ -109,25 +152,29 @@ function rowOrder(item) {
 }
 function rowIncident(item) {
   const tr = node('tr'); tr.tabIndex = 0;
-  const customer = item.customer_replied_after_issue ? 'RESPONDIÓ' : (item.conversation_status || 'SIN RESPUESTA');
-  const decision = item.simulated_decision || 'REVISIÓN PENDIENTE';
-  const action = item.simulated_action_type || 'NINGUNA';
+  const customer = item.response_evidence_status === 'VALID_RESPONSE' ? 'Respuesta válida' : item.response_evidence_status === 'NOT_VERIFIABLE' ? 'No verificable' : 'Sin respuesta válida';
+  const conversation = item.conversation_status === 'FOUND' ? 'Conversación localizada' : text(item.conversation_status);
+  const decision = item.simulated_decision || 'Revisión pendiente';
+  const blocking = (item.effective_blocking_reasons || []).join(' · ') || 'Sin bloqueo vigente';
+  const timer = item.effective_timer_status === 'EXPIRED' ? `Vencido hace ${Math.max(0, Math.round(Number(item.overdue_seconds || 0) / 3600))} h` : text(item.effective_timer_status, 'Sin timer');
+  const intentConfidence = item.customer_intent_confidence === null || item.customer_intent_confidence === undefined ? 'Intención: no disponible' : `Confianza intención ${item.customer_intent_confidence}`;
+  const quality = node('div', 'stacked'); quality.append(badge(item.effective_freshness_status || item.data_quality_status), node('small', '', `Actualizado ${date(item.panel_updated_at || item.updated_at)}`));
   tr.append(
     cell(stacked(`#${short(item.dropea_issue_id)}`, `Pedido #${short(item.dropea_order_id)}`)),
-    cell(stacked(text(item.normalized_type), text(item.initial_carrier_description_sanitized || item.initial_carrier_code))),
-    cell(stacked(customer, text(item.customer_intent || item.conversation_reason))),
-    cell(stacked(decision, `Propuesta: ${action}`)),
-    cell(stacked(text(item.interpretation_summary, 'Sin explicación disponible'), `Confianza ${text(item.interpretation_confidence)}`)),
-    cell(stacked(text(item.carrier), `Intento ${text(item.delivery_attempt_number)}`)),
-    cell(stacked(text(item.risk), `QA ${text(item.qa_status)}`)),
-    cell(stacked(date(item.timer_due_at), text(item.timer_status))),
-    cell(badge(item.data_quality_status || item.freshness))
+    cell(stacked(translated(item.interpreted_type), `${translated(item.status)} · ${item.is_active ? 'Activa' : 'Inactiva'}`)),
+    cell(stacked(customer, `${conversation} · ${intentConfidence}`)),
+    cell(stacked(decision, `Bloqueada: ${blocking}`)),
+    cell(stacked(`Propuesta condicionada: ${text(item.conditional_proposal)}`, `${text(item.reason_summary)} · Acción: NOT_EXECUTED`)),
+    cell(stacked(`GLS ${text(item.initial_carrier_code)} / ${text(item.initial_carrier_substatus_code)}`, item.mapping_status === 'UNMAPPED' ? 'Código GLS pendiente de gobernar' : `Mapping ${text(item.mapping_status)}`)),
+    cell(stacked(text(item.risk), `QA ${text(item.qa_status)} · Dropea ${text(item.freshness)} · Chatby ${text(item.effective_conversation_freshness)}`)),
+    cell(stacked(timer, `Almacenado: ${text(item.stored_timer_status)} · ${date(item.timer_due_at)}`)),
+    cell(quality)
   );
   tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
 }
 function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Decisión recomendada', 'Acción real', 'Señal del cliente', 'Estado / incidencia', 'Importe', 'Calidad'] : ['Incidencia / pedido', 'Situación', 'Cliente', 'Decisión del agente', 'Explicación', 'GLS', 'Riesgo / QA', 'Temporizador', 'Calidad']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
 
-async function loadQueue() { if (state.view === 'finance') return; showNotice(''); const params = new URLSearchParams({ limit: String(state.limit), offset: String(state.offset) }); Object.entries(state.filters).forEach(([key, value]) => { if (value) params.set(key, value); }); try { const data = await api(`/api/operations/${state.view}?${params}`); state.total = data.total; const body = $('table-body'); body.replaceChildren(...data.items.map(state.view === 'orders' ? rowOrder : rowIncident)); $('empty-state').hidden = data.items.length > 0; $('result-count').textContent = `${data.total} registros`; $('prev-page').disabled = state.offset === 0; $('next-page').disabled = state.offset + state.limit >= data.total; } catch (error) { showNotice(error.message); } }
+async function loadQueue() { if (state.view === 'finance') return; showNotice(''); const params = new URLSearchParams({ limit: String(state.limit), offset: String(state.offset) }); Object.entries(state.filters).forEach(([key, value]) => { if (value) params.set(key, value); }); try { const [data, filteredSummary] = await Promise.all([api(`/api/operations/${state.view}?${params}`), state.view === 'incidents' ? api(`/api/operations/summary?${params}`) : Promise.resolve(null)]); if (filteredSummary) { state.summary = filteredSummary; renderSummary(); } state.total = data.total; const body = $('table-body'); body.replaceChildren(...data.items.map(state.view === 'orders' ? rowOrder : rowIncident)); $('empty-state').hidden = data.items.length > 0; $('result-count').textContent = `${data.total} registros`; $('prev-page').disabled = state.offset === 0; $('next-page').disabled = state.offset + state.limit >= data.total; } catch (error) { showNotice(error.message); } }
 function field(label, value, asBadge = false) { const el = node('div', 'field'); el.append(node('span', '', label), asBadge ? badge(value) : node('strong', '', text(value))); return el; }
 function section(title, fields, className = '') { const box = node('section', `detail-section ${className}`.trim()); box.append(node('h3', '', title)); const grid = node('div', 'field-grid'); fields.forEach((item) => grid.append(field(...item))); box.append(grid); return box; }
 function timeline(items) { const box = node('section', 'detail-section'); box.append(node('h3', '', 'Cronología')); const list = node('div', 'timeline'); for (const item of items || []) { const row = node('div', 'timeline-item'); row.append(node('strong', '', text(item.event_type)), node('span', '', `${date(item.occurred_at)} · ${text(item.source)} · ${text(item.freshness)}`)); list.append(row); } if (!(items || []).length) list.append(node('span', '', 'Sin eventos disponibles')); box.append(list); return box; }
@@ -150,10 +197,11 @@ async function openDetail(id) {
     } else {
       const incident = data.incident; $('detail-title').textContent = `Incidencia ${short(incident.dropea_issue_id)}`;
       root.append(
-        section('Situación logística', [['Tipo', incident.normalized_type, true], ['Tipo original', incident.raw_type], ['Estado', incident.status, true], ['Activa', incident.is_active ? 'SÍ' : 'NO'], ['Transportista', incident.carrier], ['Código carrier', incident.initial_carrier_code], ['Descripción', incident.initial_carrier_description_sanitized], ['Intento', incident.delivery_attempt_number], ['Antigüedad', incident.age_seconds ? `${Math.round(Number(incident.age_seconds) / 3600)} h` : '—']]),
-        section('Información del cliente', [['Conversación', incident.conversation_status || 'UNKNOWN', true], ['Motivo', incident.conversation_reason], ['Respondió', incident.customer_replied_after_issue ? 'SÍ' : 'NO', true], ['Intención', incident.customer_intent || 'SIN SEÑAL', true], ['Resumen', incident.interpretation_summary], ['Confianza', incident.interpretation_confidence], ['Última actividad', date(incident.latest_customer_activity_at)], ['Último botón', incident.last_button_intent], ['Contradicción', incident.contradiction ? 'SÍ' : 'NO', true]]),
-        section('Decisión del agente', [['Decisión', incident.simulated_decision || 'REVISIÓN PENDIENTE', true], ['Acción propuesta', incident.simulated_action_type || 'NINGUNA', true], ['Política', incident.policy_version], ['Riesgo', incident.risk, true], ['QA', incident.qa_status, true], ['Revisión humana', incident.human_review ? 'REQUERIDA' : 'NO', true], ['Bloqueos', (incident.blocking_reasons || []).join(', ') || 'NINGUNO'], ['Acciones ejecutadas', incident.actions_executed || 0], ['Escrituras externas', incident.production_writes || 0]], 'decision-card'),
-        section('Evidencia y viabilidad', [['Capacidad Dropea', incident.capability_status, true], ['Resolución Dropea', incident.resolution_status, true], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Mapeo GLS', incident.mapping_status, true], ['Temporizador', incident.timer_status || 'NO ACTIVO', true], ['Vence', date(incident.timer_due_at)], ['Frescura conversación', incident.conversation_freshness, true], ['Calidad general', incident.data_quality_status || incident.freshness, true]]),
+        section('Identidad y situación', [['ID canónico incidencia', incident.canonical_issue_id], ['ID Dropea incidencia', incident.dropea_issue_id], ['ID canónico pedido', incident.canonical_order_id], ['ID Dropea pedido', incident.dropea_order_id], ['Estado', translated(incident.status), true], ['Activa', incident.is_active ? 'SÍ' : 'NO'], ['Tipo interpretado', translated(incident.interpreted_type), true], ['Tipo original', incident.raw_type], ['Origen interpretación', incident.interpretation_source], ['Antigüedad', incident.age_seconds ? `${Math.round(Number(incident.age_seconds) / 3600)} h` : '—']]),
+        section('GLS y capacidad', [['Transportista', incident.carrier], ['Código GLS original', incident.initial_carrier_code], ['Subestado GLS', incident.initial_carrier_substatus_code], ['Descripción observada', incident.initial_carrier_description_sanitized], ['Mapping gobernado', incident.mapping_status === 'UNMAPPED' ? 'Código GLS pendiente de gobernar' : incident.mapping_status, true], ['Confianza mapping', incident.mapping_confidence ?? 'NO DISPONIBLE'], ['Intento', incident.delivery_attempt_number], ['Capacidad Dropea', incident.capability_status, true], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS']]),
+        section('Evidencia del cliente', [['Conversación', incident.conversation_status === 'FOUND' ? 'Conversación localizada' : incident.conversation_status, true], ['Estado de evidencia', translated(incident.response_evidence_status), true], ['Causa', incident.conversation_reason], ['Frescura Chatby', translated(incident.effective_conversation_freshness), true], ['Intención', incident.response_evidence_status === 'VALID_RESPONSE' ? incident.customer_intent : 'NO VERIFICABLE'], ['Confianza de intención', incident.customer_intent_confidence ?? 'NO DISPONIBLE'], ['Mensajes usados', incident.messages_used ?? 0], ['Mensajes ignorados', incident.messages_ignored ?? 0], ['Última actividad cliente', date(incident.latest_customer_activity_at)], ['Último botón', incident.last_button_intent], ['Contradicción', incident.contradiction ? 'SÍ' : 'NO', true]]),
+        section('Decisión vigente y propuesta', [['Estado del registro', incident.decision_record_status, true], ['ID decisión', incident.current_decision_id], ['Decidida', date(incident.decided_at)], ['Decisión', incident.simulated_decision || 'REVISIÓN PENDIENTE', true], ['Propuesta condicionada', incident.conditional_proposal, true], ['Justificación', incident.reason_summary], ['Política ID', incident.policy_id || 'NO PERSISTIDA'], ['Política versión', incident.policy_version], ['Riesgo', incident.risk, true], ['QA', incident.qa_status, true], ['Bloqueos específicos', (incident.effective_blocking_reasons || []).join(', ') || 'NINGUNO'], ['Acción externa', incident.external_action_status, true], ['Acciones ejecutadas', incident.actions_executed || 0], ['Escrituras externas', incident.production_writes || 0]], 'decision-card'),
+        section('Timers y frescura', [['Timer ID', incident.timer_id], ['Tipo', incident.timer_type], ['Estado almacenado', incident.stored_timer_status, true], ['Estado efectivo', incident.effective_timer_status, true], ['Inicio', date(incident.timer_started_at)], ['Vence', date(incident.timer_due_at)], ['Retraso', incident.overdue_seconds ? `${Math.round(Number(incident.overdue_seconds) / 3600)} h` : '0 h'], ['Frescura efectiva', incident.effective_freshness_status, true], ['Motivo', incident.freshness_reason], ['Edad poll Dropea', incident.poll_age_seconds], ['Edad evento Dropea', incident.source_event_age_seconds], ['Último sync Chatby', date(incident.chatby_last_successful_sync_at)]]),
         timeline(data.timeline)
       );
     }
@@ -193,7 +241,7 @@ function renderFinance() {
 async function loadFinance() { showNotice(''); const period = $('finance-period').value; try { state.finance = await api(`/api/operations/finance?period=${encodeURIComponent(period)}`); renderFinance(); } catch (error) { showNotice(error.message); } }
 async function refresh() { try { state.summary = await api('/api/operations/summary'); renderSummary(); if (state.view === 'finance') await loadFinance(); else await loadQueue(); } catch (error) { showNotice(error.message); } }
 function setView(view) {
-  state.view = view; state.offset = 0; state.filters = {}; closeDetail();
+  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : {}; closeDetail();
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   const titles = { orders: 'Pedidos operativos', incidents: 'Incidencias', finance: 'Control de gasto' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance'; $('summary').hidden = finance; $('finance-view').hidden = !finance; $('queue-card').hidden = finance;

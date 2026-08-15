@@ -144,6 +144,15 @@ ensure_env_value EXTERNAL_AI_CALLS_ENABLED false
 ensure_secret SULEIA_KEYCLOAK_DB_PASSWORD
 chmod 0600 "${ENV_FILE}"
 
+# Build provenance is derived from the checked-out source before the image is
+# built. It is embedded in OCI labels and cannot be injected after the build.
+export SULEIA_OCI_REVISION="$(git -C "${INSTALL_ROOT}" rev-parse HEAD)"
+origin_url="$(git -C "${INSTALL_ROOT}" remote get-url origin)"
+export SULEIA_OCI_SOURCE="$(printf '%s' "${origin_url}" | sed -E 's#https://[^/@]+@#https://#')"
+export SULEIA_OCI_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export SULEIA_OCI_VERSION="$(git -C "${INSTALL_ROOT}" describe --tags --always --dirty)"
+export SULEIA_OCI_REF_NAME="$(git -C "${INSTALL_ROOT}" symbolic-ref --short HEAD)"
+
 docker run --rm \
   --volume "${INSTALL_ROOT}:/workspace:ro" \
   --workdir /workspace \
@@ -165,6 +174,20 @@ docker compose \
   --file "${COMPOSE_FILE}" \
   up --detach --wait --wait-timeout 180 postgres
 
+# A verified, restorable checkpoint is mandatory before any internal schema
+# write. The drill runs against an isolated database and never touches external
+# systems.
+docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" \
+  --profile maintenance run --rm --no-TTY backup </dev/null >/dev/null
+latest_backup="$(docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" \
+  --profile maintenance run --rm --no-TTY --entrypoint /bin/sh backup \
+  -c 'find /backups -maxdepth 1 -type f -name "suleia-*.dump" | sort | tail -n 1')"
+[[ "${latest_backup}" =~ ^/backups/suleia-[0-9TZ]+\.dump$ ]]
+docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" \
+  --profile maintenance run --rm --no-TTY --entrypoint /bin/sh backup \
+  -c "/opt/suleia/backup/verify_backup.sh '${latest_backup}'" </dev/null >/dev/null
+bash "${INSTALL_ROOT}/infrastructure/vps/run-incident-panel-integrity-rollback-drill.sh" "${latest_backup}"
+
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-center-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-protections-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-handbook-migration.sh"
@@ -175,6 +198,8 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-customer-operational-history-migr
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-chatby-conversation-recovery-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-data-model-hardening-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-platform-audit-readonly-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-source-freshness-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-panel-integrity-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"

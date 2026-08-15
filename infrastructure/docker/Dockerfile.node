@@ -6,6 +6,21 @@ RUN corepack enable \
     && pnpm install --prod --frozen-lockfile
 
 FROM node:22.22.0-alpine
+ARG OCI_REVISION=UNKNOWN
+ARG OCI_SOURCE=UNKNOWN
+ARG OCI_CREATED=UNKNOWN
+ARG OCI_VERSION=UNKNOWN
+ARG OCI_REF_NAME=UNKNOWN
+LABEL org.opencontainers.image.revision="${OCI_REVISION}" \
+      org.opencontainers.image.source="${OCI_SOURCE}" \
+      org.opencontainers.image.created="${OCI_CREATED}" \
+      org.opencontainers.image.version="${OCI_VERSION}" \
+      org.opencontainers.image.ref.name="${OCI_REF_NAME}"
+ENV SULEIA_BUILD_REVISION="${OCI_REVISION}" \
+    SULEIA_BUILD_SOURCE="${OCI_SOURCE}" \
+    SULEIA_BUILD_CREATED="${OCI_CREATED}" \
+    SULEIA_BUILD_VERSION="${OCI_VERSION}" \
+    SULEIA_BUILD_BRANCH="${OCI_REF_NAME}"
 ENV NODE_ENV=production
 RUN addgroup -S suleia && adduser -S -G suleia suleia
 WORKDIR /app
