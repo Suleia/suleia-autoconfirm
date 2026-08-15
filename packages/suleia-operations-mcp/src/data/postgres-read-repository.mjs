@@ -109,9 +109,11 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       return null;
     },
 
-    async searchIncidents({ issueId = null, orderId = null, status = null, isActive = null,
-      initialCarrierCode = null, normalizedType = null, humanReview = null, customerReplied = null,
-      timerStatus = null, risk = null, createdFrom = null, createdTo = null,
+    async searchIncidents({ canonicalIssueId = null, dropeaIssueId = null,
+      canonicalOrderId = null, dropeaOrderId = null, status = null, isActive = null,
+      initialCarrierCode = null, normalizedType = null, interpretedType = null, mappingStatus = null,
+      evidenceStatus = null, freshnessStatus = null, decisionStatus = null, qaStatus = null,
+      humanReview = null, customerReplied = null, timerStatus = null, risk = null, createdFrom = null, createdTo = null,
       updatedFrom = null, updatedTo = null, limit = 50, offset: requestedOffset = 0,
       sort = 'UPDATED_DESC' } = {}) {
       const values = [];
@@ -120,17 +122,19 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       if (isActive !== null && isActive !== undefined) {
         values.push(isActive); where.push(`is_active=$${values.length}`);
       }
-      if (issueId) {
-        values.push(issueId); where.push(`(canonical_issue_id=$${values.length} OR dropea_issue_id=$${values.length})`);
-      }
-      if (orderId) {
-        values.push(orderId); where.push(`(canonical_order_id=$${values.length} OR dropea_order_id=$${values.length})`);
-      }
-      for (const [value, column] of [[initialCarrierCode, 'initial_carrier_code'],
-        [normalizedType, 'normalized_type'], [timerStatus, 'timer_status'], [risk, 'risk']]) {
+      for (const [value, column] of [[canonicalIssueId, 'canonical_issue_id'],
+        [dropeaIssueId, 'dropea_issue_id'], [canonicalOrderId, 'canonical_order_id'],
+        [dropeaOrderId, 'dropea_order_id']]) {
         if (value) { values.push(value); where.push(`${column}=$${values.length}`); }
       }
-      for (const [value, column] of [[humanReview, 'human_review'],
+      for (const [value, column] of [[initialCarrierCode, 'initial_carrier_code'],
+        [normalizedType, 'normalized_type'], [interpretedType, 'interpreted_type'],
+        [mappingStatus, 'mapping_status'], [evidenceStatus, 'response_evidence_status'],
+        [freshnessStatus, 'effective_freshness_status'], [decisionStatus, 'effective_decision_status'],
+        [qaStatus, 'effective_qa_status'], [timerStatus, 'effective_timer_status'], [risk, 'effective_risk']]) {
+        if (value) { values.push(value); where.push(`${column}=$${values.length}`); }
+      }
+      for (const [value, column] of [[humanReview, 'effective_human_review'],
         [customerReplied, 'customer_replied_after_issue']]) {
         if (value !== null && value !== undefined) { values.push(value); where.push(`${column}=$${values.length}`); }
       }
@@ -151,8 +155,9 @@ export function createPostgresReadRepository(config, { pool } = {}) {
 
     async getIncident({ canonicalIssueId = null, dropeaIssueId = null } = {}) {
       const incidentId = canonicalIssueId || dropeaIssueId;
+      const identityColumn = canonicalIssueId ? 'canonical_issue_id' : 'dropea_issue_id';
       const rows = await query(`SELECT * FROM read_models.operations_incident_panel_context
-        WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [incidentId]);
+        WHERE ${identityColumn}=$1 LIMIT 1`, [incidentId]);
       if (!rows[0]) return null;
       const timeline = await query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_issue_id=$1 ORDER BY occurred_at ASC LIMIT 200`, [rows[0].canonical_issue_id]);
@@ -179,7 +184,8 @@ export function createPostgresReadRepository(config, { pool } = {}) {
           event_store: { timeline_event_count: timeline.length },
           incident_digital_twin: {
             data_quality_status: incident.data_quality_status,
-            freshness: incident.freshness,
+            freshness: incident.effective_freshness_status,
+            dropea_freshness: incident.dropea_freshness_status,
             mapping_status: incident.mapping_status
           },
           chatby: {
@@ -210,20 +216,27 @@ export function createPostgresReadRepository(config, { pool } = {}) {
             due_at: incident.timer_due_at,
             stored_status: incident.stored_timer_status,
             effective_status: incident.effective_timer_status,
-            overdue_seconds: incident.overdue_seconds
+            overdue_seconds: incident.overdue_seconds,
+            policy_version: incident.timer_policy_version
           },
           gls_feasibility: {
             initial_carrier_code: incident.initial_carrier_code,
             allowed_resolution_options: incident.allowed_resolution_options,
             capability_status: incident.capability_status
           },
-          risk: incident.risk,
-          qa: { status: incident.qa_status, human_review: incident.human_review },
+          risk: { effective: incident.effective_risk, stored: incident.risk },
+          qa: { status: incident.effective_qa_status, stored_status: incident.qa_status,
+            human_review: incident.effective_human_review },
           simulated_decision: {
-            decision: incident.simulated_decision,
-            action_type: incident.simulated_action_type,
+            decision: incident.effective_decision_status,
+            stored_decision: incident.stored_decision_status,
+            action_type: incident.effective_simulated_action_type,
             blocking_reasons: incident.effective_blocking_reasons,
-            record_status: incident.decision_record_status
+            record_status: incident.decision_record_status,
+            status_reason: incident.decision_status_reason,
+            input_snapshot_hash: incident.input_snapshot_hash,
+            policy_snapshot_hash: incident.policy_snapshot_hash,
+            snapshot_status: incident.snapshot_status
           },
           read_model: 'read_models.operations_incident_panel_context'
         },

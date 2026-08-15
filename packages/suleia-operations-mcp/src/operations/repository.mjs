@@ -1,6 +1,7 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
 
 function integer(value, fallback, min, max) {
+  if (value === null || value === undefined || value === '') return fallback;
   const parsed = Number(value);
   return Number.isInteger(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
 }
@@ -19,10 +20,10 @@ function filters(searchParams, allowlist) {
 
 function incidentSelection(searchParams) {
   const selected = filters(searchParams, {
-    status: 'status', type: 'interpreted_type', risk: 'risk',
+    status: 'status', type: 'interpreted_type', risk: 'effective_risk',
     freshness: 'effective_freshness_status', mapping: 'mapping_status',
     response: 'response_evidence_status', timer: 'effective_timer_status',
-    decision: 'simulated_decision', qa: 'qa_status', carrier_code: 'initial_carrier_code'
+    decision: 'effective_decision_status', qa: 'effective_qa_status', carrier_code: 'initial_carrier_code'
   });
   const scope = String(searchParams.get('scope') || 'ACTIVE').toUpperCase();
   if (scope === 'ACTIVE') selected.clauses.push("status='PENDING' AND is_active=true");
@@ -37,14 +38,14 @@ function incidentSelection(searchParams) {
   const from = searchParams.get('from');
   if (from) {
     selected.values.push(from);
-    selected.clauses.push(`created_at >= $${selected.values.length}::timestamptz`);
+    selected.clauses.push(`created_at >= ($${selected.values.length}::date::timestamp AT TIME ZONE 'Europe/Madrid')`);
   }
   const to = searchParams.get('to');
   if (to) {
     selected.values.push(to);
-    selected.clauses.push(`created_at <= $${selected.values.length}::timestamptz`);
+    selected.clauses.push(`created_at < (($${selected.values.length}::date + 1)::timestamp AT TIME ZONE 'Europe/Madrid')`);
   }
-  const query = searchParams.get('q');
+  const query = searchParams.get('q')?.trim();
   if (query) {
     selected.values.push(query);
     selected.clauses.push(`(canonical_issue_id=$${selected.values.length} OR dropea_issue_id=$${selected.values.length}
@@ -84,10 +85,10 @@ export class OperationsRepository {
       this.pool.query(`SELECT
         count(*)::integer AS pending,
         count(*) FILTER (WHERE response_evidence_status='VALID_RESPONSE')::integer AS responded,
-        count(*) FILTER (WHERE response_evidence_status='NO_VALID_RESPONSE')::integer AS awaiting_customer,
+        count(*) FILTER (WHERE waiting_customer)::integer AS awaiting_customer,
         count(*) FILTER (WHERE response_evidence_status='NOT_VERIFIABLE')::integer AS not_verifiable,
-        count(*) FILTER (WHERE risk IN ('HIGH','CRITICAL'))::integer AS high_risk,
-        count(*) FILTER (WHERE cardinality(effective_blocking_reasons)>0)::integer AS blocked,
+        count(*) FILTER (WHERE effective_risk IN ('HIGH','CRITICAL'))::integer AS high_risk,
+        count(*) FILTER (WHERE currently_blocked AND cardinality(effective_blocking_reasons)>0)::integer AS blocked,
         count(*) FILTER (WHERE effective_freshness_status IN ('STALE','UNAVAILABLE','UNKNOWN'))::integer AS stale,
         count(*) FILTER (WHERE effective_timer_status='EXPIRED')::integer AS timers_expired,
         max(panel_updated_at) AS last_sync_at,$${incidentFilters.values.length + 1}::text AS scope,
@@ -242,6 +243,45 @@ export class OperationsRepository {
       selected.values
     );
     return { items: result.rows, total: result.rows[0]?.total_count || 0, limit, offset };
+  }
+
+  async incidentOverview(searchParams) {
+    const limit = integer(searchParams.get('limit'), 25, 1, 100);
+    const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
+    const selected = incidentSelection(searchParams);
+    const scopeParameter = selected.values.length + 1;
+    selected.values.push(selected.scope, limit, offset);
+    const limitParameter = selected.values.length - 1;
+    const offsetParameter = selected.values.length;
+    const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
+    const result = await this.pool.query(
+      `WITH selected AS MATERIALIZED (
+         SELECT * FROM read_models.operations_incident_panel_context ${where}
+       ), page AS (
+         SELECT * FROM selected
+         ORDER BY updated_at DESC,canonical_issue_id
+         LIMIT $${limitParameter} OFFSET $${offsetParameter}
+       ), metrics AS (
+         SELECT count(*)::integer AS pending,
+           count(*) FILTER (WHERE response_evidence_status='VALID_RESPONSE')::integer AS responded,
+           count(*) FILTER (WHERE waiting_customer)::integer AS awaiting_customer,
+           count(*) FILTER (WHERE response_evidence_status='NOT_VERIFIABLE')::integer AS not_verifiable,
+           count(*) FILTER (WHERE effective_risk IN ('HIGH','CRITICAL'))::integer AS high_risk,
+           count(*) FILTER (WHERE currently_blocked AND cardinality(effective_blocking_reasons)>0)::integer AS blocked,
+           count(*) FILTER (WHERE effective_freshness_status IN ('STALE','UNAVAILABLE','UNKNOWN'))::integer AS stale,
+           count(*) FILTER (WHERE effective_timer_status='EXPIRED')::integer AS timers_expired,
+           max(panel_updated_at) AS last_sync_at,$${scopeParameter}::text AS scope,
+           0::integer AS actions_executed,0::integer AS production_writes
+         FROM selected
+       )
+       SELECT coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.updated_at DESC,p.canonical_issue_id)
+                        FROM page p),'[]'::jsonb) AS items,
+              (SELECT count(*)::integer FROM selected) AS total,
+              (SELECT to_jsonb(m) FROM metrics m) AS summary`,
+      selected.values
+    );
+    const row = result.rows[0] || {};
+    return { items: row.items || [], total: row.total || 0, limit, offset, summary: row.summary || {} };
   }
 
   async incidentDetail(id) {

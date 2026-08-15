@@ -102,6 +102,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else if (requestUrl.pathname === '/api/operations/incidents') data = await repository.listIncidents(requestUrl.searchParams);
+      else if (requestUrl.pathname === '/api/operations/incidents/overview') data = await repository.incidentOverview(requestUrl.searchParams);
       else if (/^\/api\/operations\/incidents\/[^/]+$/.test(requestUrl.pathname)) data = await repository.incidentDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else return json(res, 404, { ok: false, error: 'not_found' });
       if (data === null) return json(res, 404, { ok: false, error: 'not_found' });

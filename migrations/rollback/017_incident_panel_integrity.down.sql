@@ -2,6 +2,7 @@ BEGIN;
 
 DROP VIEW IF EXISTS read_models.operations_incidents_summary;
 DROP VIEW IF EXISTS read_models.operations_incident_panel_context;
+DROP INDEX IF EXISTS operations.incident_timers_issue_current_idx;
 
 CREATE VIEW read_models.operations_incidents_summary AS
 SELECT

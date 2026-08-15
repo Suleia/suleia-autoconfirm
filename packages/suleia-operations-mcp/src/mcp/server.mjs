@@ -192,12 +192,20 @@ export function createMcpServer({ service, audit, authContext, config }) {
     title: 'Search real operational incidents',
     description: safeDescription('the user wants to find or filter real incidents and their Dropea, Chatby, timer, policy, risk and QA context.'),
     inputSchema: {
-      issue_id: incidentId.optional(),
-      order_id: orderId.optional(),
+      canonical_issue_id: incidentId.optional(),
+      dropea_issue_id: incidentId.optional(),
+      canonical_order_id: orderId.optional(),
+      dropea_order_id: orderId.optional(),
       status: z.string().min(1).max(64).optional(),
       is_active: z.boolean().optional(),
       initial_carrier_code: z.string().min(1).max(64).optional(),
       normalized_type: z.string().min(1).max(64).optional(),
+      interpreted_type: z.string().min(1).max(64).optional(),
+      mapping_status: z.string().min(1).max(64).optional(),
+      response_evidence_status: z.string().min(1).max(64).optional(),
+      freshness_status: z.string().min(1).max(64).optional(),
+      decision_status: z.string().min(1).max(64).optional(),
+      qa_status: z.string().min(1).max(64).optional(),
       human_review: z.boolean().optional(),
       customer_replied: z.boolean().optional(),
       timer_status: z.string().min(1).max(64).optional(),
@@ -210,13 +218,21 @@ export function createMcpServer({ service, audit, authContext, config }) {
       sort: z.enum(['UPDATED_DESC','UPDATED_ASC','CREATED_DESC','CREATED_ASC','ISSUE_ID_ASC','ISSUE_ID_DESC']).optional()
     },
     scopes: [SCOPES.ORDERS_READ],
-    handler: ({ issue_id = null, order_id = null, status = null, is_active = null,
-      initial_carrier_code = null, normalized_type = null, human_review = null,
+    handler: ({ canonical_issue_id = null, dropea_issue_id = null,
+      canonical_order_id = null, dropea_order_id = null, status = null, is_active = null,
+      initial_carrier_code = null, normalized_type = null, interpreted_type = null,
+      mapping_status = null, response_evidence_status = null, freshness_status = null,
+      decision_status = null, qa_status = null, human_review = null,
       customer_replied = null, timer_status = null, risk = null,
       created_from = null, created_to = null, updated_from = null, updated_to = null,
       limit = 50, offset = 0, sort = 'UPDATED_DESC' }) => service.searchIncidents({
-      issueId: issue_id, orderId: order_id, status, isActive: is_active,
+      canonicalIssueId: canonical_issue_id, dropeaIssueId: dropea_issue_id,
+      canonicalOrderId: canonical_order_id, dropeaOrderId: dropea_order_id,
+      status, isActive: is_active,
       initialCarrierCode: initial_carrier_code, normalizedType: normalized_type,
+      interpretedType: interpreted_type, mappingStatus: mapping_status,
+      evidenceStatus: response_evidence_status, freshnessStatus: freshness_status,
+      decisionStatus: decision_status, qaStatus: qa_status,
       humanReview: human_review, customerReplied: customer_replied, timerStatus: timer_status, risk,
       createdFrom: created_from, createdTo: created_to, updatedFrom: updated_from, updatedTo: updated_to,
       limit, offset, sort
@@ -234,8 +250,8 @@ export function createMcpServer({ service, audit, authContext, config }) {
     },
     scopes: [SCOPES.ORDERS_READ, SCOPES.DECISIONS_READ],
     handler: ({ canonical_issue_id = null, dropea_issue_id = null }) => {
-      if (!canonical_issue_id && !dropea_issue_id) {
-        const error = new Error('canonical_issue_id or dropea_issue_id is required');
+      if ((!canonical_issue_id && !dropea_issue_id) || (canonical_issue_id && dropea_issue_id)) {
+        const error = new Error('provide exactly one of canonical_issue_id or dropea_issue_id');
         error.code = 'INCIDENT_ID_REQUIRED';
         throw error;
       }

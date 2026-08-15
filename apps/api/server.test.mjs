@@ -18,6 +18,7 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
     listOrders: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
     orderDetail: async () => null,
     listIncidents: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
+    incidentOverview: async () => ({ items: [], total: 0, limit: 25, offset: 0, summary: { pending: 0 } }),
     incidentDetail: async () => null
   };
   const server = createOperationsServer({
@@ -49,6 +50,11 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   assert.equal(finance.status, 200);
   assert.equal(financePayload.data.costs.availability, 'PENDING_SOURCE');
   assert.equal(financePayload.production_writes, 0);
+  const overview = await fetch(`${base}/api/operations/incidents/overview?scope=ACTIVE`, { headers: { Authorization: 'Bearer fixture' } });
+  const overviewPayload = await overview.json();
+  assert.equal(overview.status, 200);
+  assert.equal(overviewPayload.data.summary.pending, 0);
+  assert.equal(overviewPayload.production_writes, 0);
   const post = await fetch(`${base}/api/operations/summary`, { method: 'POST' });
   assert.equal(post.status, 405);
 });
@@ -91,6 +97,24 @@ test('incident active=false is applied and does not silently fall back to the ac
   assert.match(calls[0].sql, /is_active=\$1::boolean/);
   assert.equal(calls[0].values[0], false);
   assert.doesNotMatch(calls[0].sql, /status='PENDING' AND is_active=true/);
+});
+
+test('incident overview returns table and counters from one materialized selection', async () => {
+  const calls = [];
+  const pool = { query: async (sql, values = []) => {
+    calls.push({ sql, values });
+    return { rows: [{ items: [{ canonical_issue_id: 'masked-issue' }], total: 1, summary: { pending: 1, high_risk: 0 } }] };
+  }, end: async () => {} };
+  const repository = new OperationsRepository(null, { pool });
+  const result = await repository.incidentOverview(new URLSearchParams({ scope: 'ACTIVE', to: '2026-08-15', risk: 'HIGH' }));
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].sql, /WITH selected AS MATERIALIZED/);
+  assert.match(calls[0].sql, /effective_risk = \$1/);
+  assert.match(calls[0].sql, /created_at < \(\(\$2::date \+ 1\)::timestamp AT TIME ZONE 'Europe\/Madrid'\)/);
+  assert.match(calls[0].sql, /status='PENDING' AND is_active=true/);
+  assert.equal(result.total, 1);
+  assert.equal(result.summary.pending, 1);
+  assert.equal(result.limit, 25);
 });
 
 test('financial summary is GET-only data with missing costs represented as unknown', async () => {
