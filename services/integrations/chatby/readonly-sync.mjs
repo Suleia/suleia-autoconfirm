@@ -387,15 +387,17 @@ export async function syncChatbyReadOnly({
     foundOrders.add(issue.canonical_order_id);
     availableIssues += 1;
   }
-  if (projector.recordSourceFreshness) {
+  const complete = statusCounts.BROKEN === 0;
+  if (complete && projector.recordSourceFreshness) {
     await projector.recordSourceFreshness({
       source: 'chatby', last_success_at: new Date().toISOString(), lag_seconds: 0, status: 'FRESH'
     });
   }
   return Object.freeze({
-    ok: true,
+    ok: complete,
     enabled: true,
     consultable: true,
+    error: complete ? null : 'CHATBY_MESSAGE_READ_INCOMPLETE',
     subscribers_read: subscribers.items.length,
     subscriber_pages: subscribers.page_count,
     exact_orders: foundOrders.size,
