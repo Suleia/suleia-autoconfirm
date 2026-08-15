@@ -68,7 +68,7 @@ ejemplos están enmascarados.
 | Decisión | `current_decision_id`,`simulated_decision`,`simulated_action_type`,`decided_at` | `incident_simulation_decisions` | último registro, sin ejecutar | VERIFIED | migración 017 |
 | Vigencia decisión | `decision_record_status` | `superseded_at`, `source_event_id`, `issue_version` | `CURRENT/SUPERSEDED/HISTORICAL/NOT_AVAILABLE`; un preview no materializado se declara aparte | VERIFIED | migración 017 |
 | Bloqueo/explicación | `effective_blocking_reasons`,`reason_summary` | decisión + carencias derivadas | causas específicas; nunca solo `UNKNOWN_ISSUE_TYPE` | VERIFIED | migración 017 |
-| Riesgo/QA/revisión | `risk`,`qa_status`,`human_review` | simulación vigente o incidente | tarjetas solo sobre selección actual | VERIFIED | builder compartido |
+| Riesgo/QA/revisión | `effective_risk`,`effective_qa_status`,`effective_human_review` | última simulación contrastada con `source_event_id`, `issue_version` y `superseded_at` | solo se promueve cuando `decision_record_status=CURRENT`; los campos sin prefijo quedan como histórico auditor | VERIFIED | migración 017 + builder compartido |
 | Política ID | `policy_id` | `operations_incident_records.policy_id` | si falta: `POLICY_NOT_PERSISTED`; no se inventa | BROKEN | migración 017 |
 | Hash entrada/política | `input_snapshot_hash`,`policy_snapshot_hash` | no existen columnas observadas | se devuelve `null`; no fabricar hash con otra semántica | UNAVAILABLE | contrato de vista |
 | Supersede explícito | `supersedes_decision_id` | esquema actual solo tiene `superseded_at` | `null`; requiere migración de ledger futura | UNAVAILABLE | contrato de vista |
@@ -118,3 +118,36 @@ No se declara despliegue completado sin: suite MCP con dependencias, backup y
 rollback aislado, migración SQL real, E2E autenticado, paridad API/MCP/UI, digest
 activo y `/version` coincidente. Producción permanece `NO_GO` incluso después de
 superar esas comprobaciones, por instrucción del encargo.
+
+## Addendum de auditoría y rendimiento — 2026-08-15
+
+Una segunda revisión del recorrido completo detectó y corrigió, todavía sin
+desplegar, los siguientes defectos adicionales:
+
+| Hallazgo adicional | Impacto | Corrección y prueba |
+|---|---|---|
+| Un parámetro numérico ausente se convertía con `Number(null)=0` | el límite por defecto podía quedar reducido a una sola fila | `integer` distingue ausencia de cero; prueba API confirma `limit=25` |
+| Tarjetas y tabla requerían dos lecturas completas independientes | más latencia y posibilidad de observar snapshots distintos | endpoint `GET /api/operations/incidents/overview`; una CTE materializada alimenta página y métricas en un solo round-trip |
+| Las respuestas antiguas de filtros podían sobrescribir la vista actual | filas y contadores incoherentes al filtrar rápido | cancelación con `AbortController` y número monotónico de petición |
+| Dos aperturas rápidas de expediente podían mostrar el detalle anterior | trazabilidad visual incorrecta | cancelación y control de vigencia independiente para el drawer |
+| Una página podía quedar vacía al reducir el conjunto filtrado | paginación fuera de rango | reposicionamiento automático a la última página válida |
+| `NULL` en mapping, capacidad o intento logístico evitaba una causa explícita | expediente incompleto sin explicar por qué se revisa | `coalesce` seguro a `UNMAPPED/UNKNOWN` y causas específicas |
+| “Bloqueadas” contaba cualquier carencia, incluso sin decisión vigente bloqueada | inflación equivalente al error histórico observado | `currently_blocked` exige registro `CURRENT`, decisión `BLOCKED` y causa específica |
+| El MCP enmascaraba nombres de esquemas, objetos y columnas como si fueran personas | catálogo auditor inutilizable | excepción cerrada para descriptores técnicos; `customer_name` sigue enmascarado en prueba |
+| Los intervalos ausentes se presentaban como `0 min` | falsa precisión en frescura y timers | `null`, vacío o no numérico se presenta como `—` |
+| El filtro de fecha dependía de la zona horaria de PostgreSQL | borde diario desplazable | límites convertidos con `AT TIME ZONE 'Europe/Madrid'` |
+
+La tabla usa 25 filas por defecto (selector 25/50/100), expone paginación real y
+mantiene un máximo servidor de 100. Los contadores se calculan sobre exactamente
+la misma selección filtrada. Riesgo y QA históricos se conservan solo como
+auditoría; los valores principales usan los campos efectivos. Una incidencia
+sin decisión vigente muestra “Motivos de revisión”, no “Bloqueo”.
+
+Validación local del addendum: 28 pruebas focalizadas pasan y la ejecución
+ampliada deja 213 pruebas en verde. Seis pruebas MCP no llegan a arrancar porque
+faltan los enlaces instalados de `@modelcontextprotocol/sdk` y `express`; el
+entorno conserva una caché parcial, insuficiente para una instalación offline.
+La migración aún requiere backup, ejecución PostgreSQL
+real y rollback aislado en un runner con acceso al VPS. La revisión visual
+productiva autenticada sigue pendiente de sesión Keycloak y, sin un despliegue
+nuevo, producción continúa mostrando el frontend anterior.

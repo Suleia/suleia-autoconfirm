@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260808-operations-rich-v1">
+  <link rel="stylesheet" href="styles.css?v=20260815-incident-integrity-v2">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -107,7 +107,11 @@
         </div>
         <footer class="queue-footer">
           <span id="result-count">0 registros</span>
-          <div><button id="prev-page" class="page-button" aria-label="Página anterior">←</button><button id="next-page" class="page-button" aria-label="Página siguiente">→</button></div>
+          <div class="pagination-controls">
+            <label>Filas <select id="page-size" class="page-size" aria-label="Filas por página"><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
+            <span id="page-status">0 de 0</span>
+            <button id="prev-page" class="page-button" aria-label="Página anterior">←</button><button id="next-page" class="page-button" aria-label="Página siguiente">→</button>
+          </div>
         </footer>
       </section>
     </main>
@@ -118,6 +122,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260808-operations-rich-v1" defer></script>
+  <script src="app.js?v=20260815-incident-integrity-v2" defer></script>
 </body>
 </html>

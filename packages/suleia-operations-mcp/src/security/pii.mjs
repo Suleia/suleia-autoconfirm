@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 const SENSITIVE_KEY = /(name|phone|email|address|street|city|postal|zip|dni|nif|document|conversation|message|raw|payload)/i;
+const TECHNICAL_NAME_KEY = /^(schema_name|object_name|column_name|constraint_name|index_name|trigger_name|function_name)$/i;
 const PHONE = /(?:\+\d{9,15}\b|\b[6-9]\d{8}\b)/g;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 
@@ -35,6 +36,17 @@ export function maskPii(value, key = '') {
   const output = {};
   for (const [childKey, childValue] of Object.entries(value)) {
     if (/^(raw|payload|conversation|messages?)$/i.test(childKey)) continue;
+    const descriptorName = childKey === 'name' && (
+      (Object.hasOwn(value, 'position') && Object.hasOwn(value, 'type'))
+      || Object.hasOwn(value, 'definition')
+      || Object.hasOwn(value, 'enabled')
+    );
+    if (TECHNICAL_NAME_KEY.test(childKey) || descriptorName) {
+      // Database catalog identifiers are operational metadata, not a person's
+      // name. Still scan their string value for accidental phone/e-mail data.
+      output[childKey] = maskPii(childValue, 'technical_identifier');
+      continue;
+    }
     output[childKey] = SENSITIVE_KEY.test(childKey)
       ? maskPii(maskScalar(childKey, childValue), childKey)
       : maskPii(childValue, childKey);
