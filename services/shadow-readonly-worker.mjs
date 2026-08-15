@@ -10,6 +10,7 @@ import { loadDropeaStoreConfigs } from './integrations/dropea/store-config.mjs';
 import { prepareDropeaV2Webhook } from './integrations/webhooks/dropea-v2-ingress.mjs';
 import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
 import { syncChatbyReadOnly } from './integrations/chatby/readonly-sync.mjs';
+import { chatbyErrorCode, syncChatbyWithRecovery } from './integrations/chatby/safe-sync.mjs';
 import { shadowWorkerHealth } from './shadow-worker-health.mjs';
 
 const config = loadShadowConfig();
@@ -91,25 +92,35 @@ async function run() {
       ok: dropeaResults.every((result) => result.ok), actions_executed: 0, production_writes: 0
     } : { enabled: false, actions_executed: 0, production_writes: 0 };
     const chatbyEnabled = String(process.env.CHATBY_READ_ENABLED || 'false').toLowerCase() === 'true';
-    const chatby = chatbyEnabled ? await syncChatbyReadOnly({
-      pool: repository.pool,
+    const chatby = chatbyEnabled ? await syncChatbyWithRecovery({
       projector: operationsProjector,
-      token: process.env.CHATBY_TOKEN,
-      hmacKey: config.hashKey,
-      baseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
-      maxPages: Number(process.env.CHATBY_READ_MAX_PAGES || 200),
-      maxConversations: Number(process.env.CHATBY_READ_MAX_CONVERSATIONS || 500)
+      sync: () => syncChatbyReadOnly({
+        pool: repository.pool,
+        projector: operationsProjector,
+        token: process.env.CHATBY_TOKEN,
+        hmacKey: config.hashKey,
+        baseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
+        maxPages: Number(process.env.CHATBY_READ_MAX_PAGES || 200),
+        maxConversations: Number(process.env.CHATBY_READ_MAX_CONVERSATIONS || 500)
+      })
     }) : { enabled: false, ok: true, actions_executed: 0, production_writes: 0, messages_sent: 0 };
+    if (chatbyEnabled && !chatby.ok) {
+      audit({ event: 'chatby_read_incomplete', reason: chatby.error || 'CHATBY_READ_INCOMPLETE' });
+    }
     const incidents = await syncIncidentSimulations({
       pool: repository.pool,
       projector: operationsProjector,
       maxRecords: Number(process.env.INCIDENT_SIMULATION_MAX_RECORDS || 500)
     });
     lastResult = { ok: legacy.ok && (dropea.ok ?? true) && chatby.ok && incidents.ok, legacy, dropea, chatby, incidents,
+      completed_at: new Date().toISOString(),
       actions_executed: 0, production_writes: 0 };
     lastError = null;
   }
-  catch (error) { lastError = error.message; audit({ event: 'sync_failed', reason: error.message }); }
+  catch (error) {
+    lastError = chatbyErrorCode(error, 'SHADOW_SYNC_FAILED');
+    audit({ event: 'sync_failed', reason: lastError });
+  }
   finally { running = false; }
 }
 

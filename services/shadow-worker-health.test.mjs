@@ -11,12 +11,24 @@ test('worker is not healthy before the first complete synchronization', () => {
 });
 
 test('worker becomes healthy only after a successful complete synchronization', () => {
-  const state = shadowWorkerHealth({ lastResult: { ok: true }, lastError: null, running: false });
+  const state = shadowWorkerHealth({
+    lastResult: {
+      ok: true, completed_at: '2026-08-15T10:00:00.000Z',
+      legacy: { ok: true }, dropea: { enabled: true, ok: true },
+      chatby: { enabled: true, ok: true, consultable: true }, incidents: { ok: true }
+    },
+    lastError: null,
+    running: false
+  });
   assert.equal(state.statusCode, 200);
   assert.equal(state.body.ok, true);
   assert.equal(state.body.first_cycle_complete, true);
   assert.equal(state.body.actions_executed, 0);
   assert.equal(state.body.production_writes, 0);
+  assert.equal(state.body.last_cycle_completed_at, '2026-08-15T10:00:00.000Z');
+  assert.deepEqual(state.body.components.chatby, {
+    enabled: true, ok: true, consultable: true, error: null, freshness_persisted: null
+  });
 });
 
 test('worker stays unhealthy after a failed synchronization', () => {
@@ -25,4 +37,3 @@ test('worker stays unhealthy after a failed synchronization', () => {
   assert.equal(state.body.ok, false);
   assert.equal(state.body.last_error, 'SAFE_FAILURE');
 });
-

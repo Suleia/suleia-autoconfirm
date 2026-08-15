@@ -409,9 +409,19 @@ export class OperationsProjector {
       (source,last_success_at,last_failure_at,lag_seconds,status,checked_at)
       VALUES($1,$2,NULL,$3,$4,now())
       ON CONFLICT(source) DO UPDATE SET last_success_at=EXCLUDED.last_success_at,
-       lag_seconds=EXCLUDED.lag_seconds,status=EXCLUDED.status,checked_at=now()`, [
+       last_failure_at=NULL,lag_seconds=EXCLUDED.lag_seconds,
+       status=EXCLUDED.status,checked_at=now()`, [
       source, last_success_at, lag_seconds, status
     ]);
+    return { projected: true, resource: 'source_freshness', actions_executed: 0, production_writes: 0 };
+  }
+
+  async recordSourceFailure({ source, status = 'UNAVAILABLE' }) {
+    await this.pool.query(`INSERT INTO core.source_freshness
+      (source,last_success_at,last_failure_at,lag_seconds,status,checked_at)
+      VALUES($1,NULL,now(),NULL,$2,now())
+      ON CONFLICT(source) DO UPDATE SET last_failure_at=now(),
+       lag_seconds=NULL,status=EXCLUDED.status,checked_at=now()`, [source, status]);
     return { projected: true, resource: 'source_freshness', actions_executed: 0, production_writes: 0 };
   }
 
