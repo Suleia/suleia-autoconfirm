@@ -185,7 +185,7 @@ latest_backup="$(docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}
 [[ "${latest_backup}" =~ ^/backups/suleia-[0-9TZ]+\.dump$ ]]
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" \
   --profile maintenance run --rm --no-TTY --entrypoint /bin/sh backup \
-  -c "/opt/suleia/backup/verify_backup.sh '${latest_backup}'" </dev/null >/dev/null
+  -c "/bin/sh /opt/suleia/backup/verify_backup.sh '${latest_backup}'" </dev/null >/dev/null
 bash "${INSTALL_ROOT}/infrastructure/vps/run-incident-panel-integrity-rollback-drill.sh" "${latest_backup}"
 bash "${INSTALL_ROOT}/infrastructure/vps/run-order-chatby-signal-projection-rollback-drill.sh" "${latest_backup}"
 
@@ -219,3 +219,4 @@ docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
   ps
+
