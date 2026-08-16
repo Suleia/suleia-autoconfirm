@@ -89,6 +89,25 @@ function operation(name, params = {}) {
     if (Object.keys(params).some((key) => !allowed.has(key))) fail('DROPEA_V2_PARAMETER_NOT_ALLOWED');
     return { path: '/dropshipper/issues', paginated: true };
   }
+  if (name === 'listOrders') {
+    const allowed = new Set([
+      'page',
+      'limit',
+      'status',
+      'store_id',
+      'date_from',
+      'date_to',
+      'date_type',
+      'sort_by',
+      'sort_order',
+      'carrier',
+      'service_type',
+      'payment_method',
+      'external_order_id'
+    ]);
+    if (Object.keys(params).some((key) => !allowed.has(key))) fail('DROPEA_V2_PARAMETER_NOT_ALLOWED');
+    return { path: '/dropshipper/orders', paginated: true };
+  }
   if (name === 'getOrder') {
     const id = Number(params.id);
     if (!Number.isInteger(id) || id < 1 || Object.keys(params).some((key) => key !== 'id')) {
@@ -114,7 +133,7 @@ export function createDropeaV2IncidentClient({
   async function request(name, params = {}) {
     const definition = operation(name, params);
     const url = new URL(`https://${host}${definition.path}`);
-    if (name === 'listIssues') {
+    if (definition.paginated) {
       for (const [key, value] of Object.entries(params)) {
         if (value !== undefined && value !== null) url.searchParams.set(key, typeof value === 'boolean' ? String(value) : value);
       }
