@@ -231,7 +231,13 @@ async function collectPendingOrders({ limit = 100, pages = 10 } = {}) {
   return orders;
 }
 
-async function enrichPendingOrder(order, previous = null, subscriberIndex = null, messagesByUserNs = new Map()) {
+export async function enrichPendingOrder(
+  order,
+  previous = null,
+  subscriberIndex = null,
+  messagesByUserNs = new Map(),
+  subscriberIndexError = null
+) {
   let subscriber = null;
   let conversationSubscriber = null;
   let messages = [];
@@ -247,6 +253,44 @@ async function enrichPendingOrder(order, previous = null, subscriberIndex = null
     agentReason: 'Sin respuesta del cliente en Chatby.',
     customerMessages: 0
   };
+
+  if (subscriberIndexError) {
+    return {
+      orderId: String(order.orderId || ''),
+      customer: order.customerName || previous?.customer || '',
+      phone: order.customerPhone || previous?.phone || '',
+      createdAt: order.raw?.created_at || order.raw?.createdAt || previous?.createdAt || '',
+      dropeaStatus: order.status || previous?.dropeaStatus || 'PENDING',
+      status: 'PENDING',
+      amount: Number(order.orderAmount) || previous?.amount || null,
+      issue: order.raw?.issues ? 'Si' : 'No',
+      issueCode: order.raw?.issues?.incidence_code || '',
+      note: 'La conversación no puede verificarse; no se infiere respuesta ni ausencia de respuesta.',
+      confirmedAt: '',
+      product: guessProduct(order),
+      liveSource: 'Dropea V2; Chatby no verificable',
+      agentAction: 'manual_review',
+      agentIntent: 'NOT_VERIFIABLE',
+      agentConfidence: 0,
+      agentReason: 'Chatby no está disponible para verificar la respuesta del cliente.',
+      customerSignalSource: 'chatby_unavailable',
+      customerSignalRaw: 'NOT_VERIFIABLE',
+      customerConfirmed: false,
+      customerMessages: 0,
+      lastCustomerMessage: '',
+      customerActionLabel: 'Respuesta no verificable',
+      customerActionDetail: 'El pedido se muestra desde Dropea, pero no se tomará ninguna decisión dependiente de Chatby.',
+      chatbyStatus: 'Chatby no verificable',
+      chatbyUserNs: null,
+      chatbyLiveCheckedAt: new Date().toISOString(),
+      chatbyError: subscriberIndexError,
+      priorOrderDetected: false,
+      priorOrderState: '',
+      priorOrderWarning: '',
+      priorPreparedAt: null,
+      raw: order.raw || previous?.raw || {}
+    };
+  }
 
   try {
     subscriber = findSubscriberInIndexForOrder(subscriberIndex, {
@@ -361,10 +405,22 @@ export async function syncOperationalOrders({ limit = 100, pages = 10 } = {}) {
     const previousCache = loadOperationalOrdersCache();
     const previousByOrderId = new Map((previousCache.orders || []).map((order) => [String(order.orderId), order]));
     const pending = await collectPendingOrders({ limit, pages });
-    const subscriberIndex = await loadSubscriberIndex({ maxPages: 10, limit: 100 });
+    let subscriberIndex = null;
+    let subscriberIndexError = null;
+    try {
+      subscriberIndex = await loadSubscriberIndex({ maxPages: 10, limit: 100 });
+    } catch (error) {
+      subscriberIndexError = error instanceof Error ? error.message : String(error);
+    }
     const messagesByUserNs = new Map();
     const orders = await mapWithConcurrency(pending, 12, (order) => (
-      enrichPendingOrder(order, previousByOrderId.get(String(order.orderId)), subscriberIndex, messagesByUserNs)
+      enrichPendingOrder(
+        order,
+        previousByOrderId.get(String(order.orderId)),
+        subscriberIndex,
+        messagesByUserNs,
+        subscriberIndexError
+      )
     ));
 
     const payload = {
@@ -374,6 +430,9 @@ export async function syncOperationalOrders({ limit = 100, pages = 10 } = {}) {
       count: orders.length,
       confirmedByCustomer: orders.filter((order) => order.customerConfirmed).length,
       withCustomerResponse: orders.filter((order) => Number(order.customerMessages) > 0).length,
+      responseNotVerifiable: orders.filter((order) => order.customerSignalRaw === 'NOT_VERIFIABLE').length,
+      partial: Boolean(subscriberIndexError),
+      chatbyError: subscriberIndexError,
       orders,
       error: null
     };
@@ -385,6 +444,7 @@ export async function syncOperationalOrders({ limit = 100, pages = 10 } = {}) {
     const state = { ...loadState() };
     state.lastOperationalOrdersSyncAt = updatedAt;
     state.lastOperationalOrdersSyncError = null;
+    state.lastOperationalOrdersChatbyError = subscriberIndexError;
     state.lastOperationalOrdersSyncCount = orders.length;
     saveState(state);
 
