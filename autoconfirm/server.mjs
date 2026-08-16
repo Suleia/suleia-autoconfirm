@@ -359,7 +359,27 @@ function storeSummary({ publicView = false } = {}) {
 async function runAutomationAndUnansweredSweep(context = 'automation') {
   const cycle = await runStoreAutomationCycle({ store: config.defaultStore });
   const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
-  return { context, cycle, unanswered };
+  let operationalOrders;
+  try {
+    const runtimeState = loadState();
+    const configuredMinutes = Number(config.defaultStore.operationalDashboardIntervalMinutes);
+    const refreshMinutes = Math.min(Number.isFinite(configuredMinutes) && configuredMinutes > 0 ? configuredMinutes : 15, 15);
+    const lastRefreshAt = new Date(runtimeState.lastOperationalOrdersSyncAt || 0).getTime();
+    const refreshDue = Boolean(runtimeState.lastOperationalOrdersSyncError)
+      || !Number.isFinite(lastRefreshAt)
+      || lastRefreshAt <= Date.now() - (refreshMinutes * 60 * 1000);
+    if (refreshDue) {
+      operationalOrders = await syncOperationalOrders();
+      dashboardBuildCacheAt = 0;
+    } else {
+      operationalOrders = { ok: true, skipped: true, reason: 'fresh_cache', refreshMinutes };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[${context}] Operational orders refresh failed:`, error);
+    operationalOrders = { ok: false, error: message };
+  }
+  return { context, cycle, unanswered, operationalOrders };
 }
 
 async function runAutomationOnly(context = 'automation') {

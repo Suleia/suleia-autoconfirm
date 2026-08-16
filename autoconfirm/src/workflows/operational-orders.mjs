@@ -11,6 +11,7 @@ import {
 } from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import { syncOperationalOrdersCacheToSupabase } from '../db/supabase-store.mjs';
+import { customerConversationIntentForOrder } from './orders.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'operational-orders-cache.json');
@@ -131,14 +132,18 @@ async function mapWithConcurrency(items, concurrency, worker) {
   return output;
 }
 
-function classifyCustomerMessages(messages = []) {
+export function classifyCustomerMessages(messages = []) {
   const customerMessages = messages.filter(isCustomerMessage);
-  const text = normalize(customerMessages.map(messageContent).join(' | '));
-  const lastCustomerMessage = customerMessages.length
-    ? messageContent(customerMessages[customerMessages.length - 1]).replace(/\s+/g, ' ').trim()
+  const orderedCustomerMessages = [...customerMessages].sort((left, right) => {
+    const leftAt = new Date(messageDate(left) || 0).getTime();
+    const rightAt = new Date(messageDate(right) || 0).getTime();
+    return leftAt - rightAt;
+  });
+  const lastCustomerMessage = orderedCustomerMessages.length
+    ? messageContent(orderedCustomerMessages[orderedCustomerMessages.length - 1]).replace(/\s+/g, ' ').trim()
     : '';
 
-  if (!customerMessages.length || !text) {
+  if (!orderedCustomerMessages.length || !normalize(orderedCustomerMessages.map(messageContent).join(' | '))) {
     return {
       signal: 'NO_RESPONSE',
       status: 'PENDING',
@@ -153,7 +158,14 @@ function classifyCustomerMessages(messages = []) {
     };
   }
 
-  if (/cambio de direccion|cambiar direccion|cambiar datos|direccion incorrecta|direcc/.test(text)) {
+  const governedMessages = orderedCustomerMessages.map((message) => ({
+    role: 'customer',
+    content: messageContent(message),
+    raw: message.raw || message
+  }));
+  const intent = customerConversationIntentForOrder(governedMessages, {});
+
+  if (intent?.intent === 'ADDRESS_CHANGE') {
     return {
       signal: 'ADDRESS_CHANGE',
       status: 'PENDING_ADDRESS_CHANGE',
@@ -168,7 +180,7 @@ function classifyCustomerMessages(messages = []) {
     };
   }
 
-  if (/no lo quiero|no quiero|cancel|anular|no enviar|ya no me interesa|no me interesa|rechaz/.test(text)) {
+  if (intent?.intent === 'CANCEL') {
     return {
       signal: 'CANCEL',
       status: 'NOT_CONFIRMED_BY_CUSTOMER',
@@ -183,13 +195,13 @@ function classifyCustomerMessages(messages = []) {
     };
   }
 
-  if (/confirmar mi pedido|confirmo|confirmado|si lo quiero|lo quiero|adelante|perfecto|\bok\b|\bvale\b/.test(text)) {
+  if (intent?.intent === 'CONFIRM') {
     return {
       signal: 'CONFIRM',
       status: 'PENDING',
       agentAction: 'would_confirm',
       agentIntent: 'CONFIRM',
-      agentConfidence: 100,
+      agentConfidence: Math.round(Number(intent.confidence) || 100),
       agentReason: 'El cliente confirmo el pedido en Chatby.',
       customerMessages: customerMessages.length,
       lastCustomerMessage,
