@@ -58,3 +58,11 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(script, /if \(params\.has\('error'\)\)/);
   assert.match(script, /refresh_interval_seconds/);
 });
+
+test('orders open on the pending dropshipper queue and expose Chatby intent', () => {
+  const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  assert.match(script, /filters: \{ lifecycle: 'PENDING' \}/);
+  assert.match(script, /view === 'orders' \? \{ lifecycle: 'PENDING' \} : \{\}/);
+  assert.match(script, /Pendientes de Dropshipper/);
+  assert.match(script, /latest_customer_intent/);
+});

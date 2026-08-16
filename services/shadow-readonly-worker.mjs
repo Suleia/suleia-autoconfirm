@@ -10,6 +10,7 @@ import { loadDropeaStoreConfigs } from './integrations/dropea/store-config.mjs';
 import { prepareDropeaV2Webhook } from './integrations/webhooks/dropea-v2-ingress.mjs';
 import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
 import { syncChatbyReadOnly } from './integrations/chatby/readonly-sync.mjs';
+import { syncOperationalOrderSignals } from './integrations/chatby/operational-order-signal-sync.mjs';
 import { shadowWorkerHealth } from './shadow-worker-health.mjs';
 
 const config = loadShadowConfig();
@@ -100,12 +101,20 @@ async function run() {
       maxPages: Number(process.env.CHATBY_READ_MAX_PAGES || 200),
       maxConversations: Number(process.env.CHATBY_READ_MAX_CONVERSATIONS || 500)
     }) : { enabled: false, ok: true, actions_executed: 0, production_writes: 0, messages_sent: 0 };
+    const operationalSignals = dropeaStores.length
+      ? await syncOperationalOrderSignals({
+          source, projector: operationsProjector, stores: dropeaStores,
+          pageSize: config.pageSize,
+          maxPages: Number(process.env.CHATBY_OPERATIONAL_SIGNAL_MAX_PAGES || 20)
+        })
+      : { ok: true, skipped: true, reason: 'dropea_disabled', actions_executed: 0, production_writes: 0 };
     const incidents = await syncIncidentSimulations({
       pool: repository.pool,
       projector: operationsProjector,
       maxRecords: Number(process.env.INCIDENT_SIMULATION_MAX_RECORDS || 500)
     });
-    lastResult = { ok: legacy.ok && (dropea.ok ?? true) && chatby.ok && incidents.ok, legacy, dropea, chatby, incidents,
+    lastResult = { ok: legacy.ok && (dropea.ok ?? true) && chatby.ok && operationalSignals.ok && incidents.ok,
+      legacy, dropea, chatby, operationalSignals, incidents,
       actions_executed: 0, production_writes: 0 };
     lastError = null;
   }
