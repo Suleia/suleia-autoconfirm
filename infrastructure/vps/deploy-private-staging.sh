@@ -187,6 +187,7 @@ docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" \
   --profile maintenance run --rm --no-TTY --entrypoint /bin/sh backup \
   -c "/opt/suleia/backup/verify_backup.sh '${latest_backup}'" </dev/null >/dev/null
 bash "${INSTALL_ROOT}/infrastructure/vps/run-incident-panel-integrity-rollback-drill.sh" "${latest_backup}"
+bash "${INSTALL_ROOT}/infrastructure/vps/run-order-chatby-signal-projection-rollback-drill.sh" "${latest_backup}"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-center-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-protections-migration.sh"
@@ -200,6 +201,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-data-model-hardening-
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-platform-audit-readonly-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-source-freshness-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-panel-integrity-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-order-chatby-signal-projection-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"

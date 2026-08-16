@@ -1,4 +1,4 @@
-const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
+const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: { lifecycle: 'PENDING' }, config: null, token: null, summary: null, finance: null, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
 const operationsBase = location.pathname.startsWith('/operations') ? '/operations' : '';
 const $ = (id) => document.getElementById(id);
 const text = (value, fallback = '—') => value === undefined || value === null || value === '' ? fallback : String(value);
@@ -78,7 +78,7 @@ function renderSummary() {
   const data = state.view === 'orders' ? state.summary?.orders : state.summary?.incidents;
   if (state.view === 'orders') {
     root.append(
-      summaryCard('Pedidos observados', data?.total, 'Copia operativa Dropea'),
+      summaryCard('Pendientes Dropshipper', state.total, 'Cola operativa actual'),
       summaryCard('Pendientes', data?.pending, 'Esperando señal o gestión', 'amber'),
       summaryCard('Entregados', data?.delivered, 'Entregados o finalizados', 'green'),
       summaryCard('Con incidencia', data?.with_active_issue ?? data?.incidence, 'Seguimiento operativo', 'amber'),
@@ -215,7 +215,7 @@ async function loadQueue() {
       loadQueue(); return;
     }
     if (data.total === 0) state.offset = 0;
-    state.total = data.total; const items = data.items || []; const body = $('table-body');
+    state.total = data.total; if (view === 'orders') renderSummary(); const items = data.items || []; const body = $('table-body');
     body.replaceChildren(...items.map(view === 'orders' ? rowOrder : rowIncident)); $('empty-state').hidden = items.length > 0;
     $('result-count').textContent = `${data.total} registros`; $('page-status').textContent = data.total ? `${state.offset + 1}–${Math.min(state.offset + state.limit, data.total)} de ${data.total}` : '0 de 0';
     $('prev-page').disabled = state.offset === 0; $('next-page').disabled = state.offset + state.limit >= data.total;
@@ -303,12 +303,12 @@ async function refresh() {
   finally { state.refreshing = false; $('refresh-button').disabled = false; $('refresh-button').textContent = 'Actualizar'; }
 }
 function setView(view) {
-  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : {}; closeDetail();
+  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : view === 'orders' ? { lifecycle: 'PENDING' } : {}; closeDetail();
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   const titles = { orders: 'Pedidos operativos', incidents: 'Incidencias', finance: 'Control de gasto' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance'; $('summary').hidden = finance; $('finance-view').hidden = !finance; $('queue-card').hidden = finance;
   if (finance) { loadFinance(); return; }
-  $('queue-title').textContent = view === 'orders' ? 'Pedidos observados' : 'Incidencias pendientes'; renderHead(); renderFilters(); renderSummary(); loadQueue();
+  $('queue-title').textContent = view === 'orders' ? 'Pendientes de Dropshipper' : 'Incidencias pendientes'; renderHead(); renderFilters(); renderSummary(); loadQueue();
 }
 
 async function init() {
