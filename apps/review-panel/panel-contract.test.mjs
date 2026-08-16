@@ -19,3 +19,11 @@ test('Operations Center exposes exactly Pedidos and Incidencias with no write co
   assert.match(html, /ACCIONES EJECUTADAS: 0/);
   assert.match(script, /refresh_interval_seconds/);
 });
+
+test('orders open on the pending dropshipper queue and expose Chatby intent', () => {
+  const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  assert.match(script, /filters:\{status:'PENDING'\}/);
+  assert.match(script, /view==='orders'\?\{status:'PENDING'\}:\{\}/);
+  assert.match(script, /Pendientes de Dropshipper/);
+  assert.match(script, /detected_intent/);
+});

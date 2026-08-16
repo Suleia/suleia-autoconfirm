@@ -9,6 +9,7 @@ import { syncDropeaPublicApi } from './integrations/dropea/shadow-sync.mjs';
 import { loadDropeaStoreConfigs } from './integrations/dropea/store-config.mjs';
 import { prepareDropeaV2Webhook } from './integrations/webhooks/dropea-v2-ingress.mjs';
 import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
+import { syncOperationalOrderSignals } from './integrations/chatby/operational-order-signal-sync.mjs';
 
 const config = loadShadowConfig();
 const repository = new ShadowRepository(config.databaseUrl);
@@ -88,12 +89,20 @@ async function run() {
       enabled: true, stores: dropeaResults,
       ok: dropeaResults.every((result) => result.ok), actions_executed: 0, production_writes: 0
     } : { enabled: false, actions_executed: 0, production_writes: 0 };
+    const operationalSignals = dropeaStores.length
+      ? await syncOperationalOrderSignals({
+          source, projector: operationsProjector, stores: dropeaStores,
+          pageSize: config.pageSize,
+          maxPages: Number(process.env.CHATBY_OPERATIONAL_SIGNAL_MAX_PAGES || 20)
+        })
+      : { ok: true, skipped: true, reason: 'dropea_disabled', actions_executed: 0, production_writes: 0 };
     const incidents = await syncIncidentSimulations({
       pool: repository.pool,
       projector: operationsProjector,
       maxRecords: Number(process.env.INCIDENT_SIMULATION_MAX_RECORDS || 500)
     });
-    lastResult = { ok: legacy.ok && (dropea.ok ?? true) && incidents.ok, legacy, dropea, incidents,
+    lastResult = { ok: legacy.ok && (dropea.ok ?? true) && operationalSignals.ok && incidents.ok,
+      legacy, dropea, operationalSignals, incidents,
       actions_executed: 0, production_writes: 0 };
     lastError = null;
   }
