@@ -219,4 +219,3 @@ docker compose \
   --env-file "${ENV_FILE}" \
   --file "${COMPOSE_FILE}" \
   ps
-
