@@ -813,6 +813,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/automation-cycle') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await runAutomationAndUnansweredSweep('cron_automation_cycle');
+      return sendJson(res, 200, { ok: true, result });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/backfill-today-messages') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await backfillTodayMissingInitialTemplates({

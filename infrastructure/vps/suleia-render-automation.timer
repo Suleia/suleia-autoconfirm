@@ -1,0 +1,13 @@
+[Unit]
+Description=Run Suleia governed order automation every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+AccuracySec=10s
+RandomizedDelaySec=15s
+Persistent=true
+Unit=suleia-render-automation.service
+
+[Install]
+WantedBy=timers.target
