@@ -24,3 +24,18 @@ test('Operations projector rejects direct customer PII', async () => {
     canonical_order_id: 'order-fixture', dropea_order_id: '24', customer_email: 'fixture@example.com'
   }), /PII/);
 });
+
+test('Operations projector stores only a masked Chatby category with zero writes', async () => {
+  const calls = [];
+  const projector = new OperationsProjector({ query: async (sql, values) => { calls.push({ sql, values }); return { rowCount: 1 }; } });
+  const result = await projector.upsertOperationalOrderSignal({
+    canonical_order_id: 'order-fixture', has_customer_replied: false,
+    latest_inbound_message_at: null, detected_intent: 'NO_RESPONSE', confidence: 0.25,
+    messages_used: 0, explanation_masked: { source: 'RENDER_OPERATIONAL_ORDERS', source_intent: 'NO_RESPONSE' },
+    freshness: 'FRESH', updated_at: '2026-08-16T19:00:00Z', actions_executed: 0, production_writes: 0
+  });
+  assert.equal(result.actions_executed, 0);
+  assert.equal(result.production_writes, 0);
+  assert.match(calls[0].sql, /operations_conversation_summaries/);
+  assert.doesNotMatch(JSON.stringify(calls), /customer@example|\+34/);
+});

@@ -143,6 +143,43 @@ export class OperationsProjector {
     return { projected: true, inserted: integrationResult?.rows?.[0]?.inserted === true, resource: 'order', shadow_mirror_writes: 1, actions_executed: 0, production_writes: 0 };
   }
 
+  async upsertOperationalOrderSignal(signal) {
+    assertSafe(signal);
+    await this.pool.query(`INSERT INTO read_models.operations_conversation_summaries
+      (canonical_order_id,has_customer_replied,latest_inbound_message_at,
+       latest_relevant_message_hash,detected_intent,requested_date,requested_time_window,
+       address_change_detected,refusal_detected,acceptance_detected,discount_accepted,
+       change_of_intent,contradiction,confidence,messages_used,messages_ignored,
+       explanation_masked,freshness,updated_at)
+      VALUES($1,$2,$3,NULL,$4,NULL,NULL,$5,$6,$7,false,false,'NONE',$8,$9,0,$10,$11,$12)
+      ON CONFLICT(canonical_order_id) DO UPDATE SET
+       has_customer_replied=EXCLUDED.has_customer_replied,
+       latest_inbound_message_at=EXCLUDED.latest_inbound_message_at,
+       detected_intent=EXCLUDED.detected_intent,
+       address_change_detected=EXCLUDED.address_change_detected,
+       refusal_detected=EXCLUDED.refusal_detected,
+       acceptance_detected=EXCLUDED.acceptance_detected,
+       confidence=EXCLUDED.confidence,messages_used=EXCLUDED.messages_used,
+       explanation_masked=EXCLUDED.explanation_masked,freshness=EXCLUDED.freshness,
+       updated_at=EXCLUDED.updated_at`, [
+      signal.canonical_order_id, signal.has_customer_replied,
+      signal.latest_inbound_message_at, signal.detected_intent,
+      signal.detected_intent === 'ADDRESS_CHANGE', signal.detected_intent === 'REJECT',
+      signal.detected_intent === 'CONFIRM', signal.confidence,
+      signal.messages_used, signal.explanation_masked,
+      signal.freshness, signal.updated_at
+    ]);
+    await this.pool.query(`UPDATE read_models.operations_order_records SET
+      conversation_source='CHATBY_VIA_RENDER_READ_MODEL',
+      interpretation_status=$2,latest_message_at=$3
+      WHERE canonical_order_id=$1`, [
+      signal.canonical_order_id,
+      signal.detected_intent === 'UNKNOWN' ? 'REVIEW_REQUIRED' : 'INTERPRETED',
+      signal.latest_inbound_message_at
+    ]);
+    return { projected: true, resource: 'operational_order_signal', actions_executed: 0, production_writes: 0 };
+  }
+
   async upsertIssue(issue) {
     assertSafe(issue);
     const integrationResult = await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO integration.dropea_issues

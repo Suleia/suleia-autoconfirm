@@ -45,27 +45,31 @@ export class OperationsRepository {
     const limit = integer(searchParams.get('limit'), 50, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
     const selected = filters(searchParams, {
-      status: 'status', decision: 'decision_status', risk: 'risk',
-      priority: 'priority', freshness: 'freshness', identity: 'identity_status'
+      status: 'o.status', decision: 'o.decision_status', risk: 'o.risk',
+      priority: 'o.priority', freshness: 'o.freshness', identity: 'o.identity_status'
     });
     const protection = searchParams.get('protection');
     const protectionClauses = {
-      DUPLICATE_ACTIVE_ORDER: "duplicate_status = 'DUPLICATE_ACTIVE_ORDER'",
-      TEST_ORDER: 'test_order = true',
-      CHATBY_DELETE_ELIGIBLE: "chatby_cleanup_status = 'DELETE_ELIGIBLE'",
-      CHATBY_DELETE_FAILED: "chatby_cleanup_status = 'DELETE_FAILED'",
-      RELEASIT_PENDING: "return_block_status IN ('BLOCK_ELIGIBLE','BLOCK_PENDING','BLOCK_REQUESTED')",
-      RELEASIT_BLOCKED: "return_block_status IN ('BLOCKED_VERIFIED','ALREADY_BLOCKED')",
-      RELEASIT_ERROR: "return_block_status IN ('BLOCK_FAILED','VERIFICATION_FAILED')",
-      PROTECTION_REVIEW: 'protection_review = true'
+      DUPLICATE_ACTIVE_ORDER: "o.duplicate_status = 'DUPLICATE_ACTIVE_ORDER'",
+      TEST_ORDER: 'o.test_order = true',
+      CHATBY_DELETE_ELIGIBLE: "o.chatby_cleanup_status = 'DELETE_ELIGIBLE'",
+      CHATBY_DELETE_FAILED: "o.chatby_cleanup_status = 'DELETE_FAILED'",
+      RELEASIT_PENDING: "o.return_block_status IN ('BLOCK_ELIGIBLE','BLOCK_PENDING','BLOCK_REQUESTED')",
+      RELEASIT_BLOCKED: "o.return_block_status IN ('BLOCKED_VERIFIED','ALREADY_BLOCKED')",
+      RELEASIT_ERROR: "o.return_block_status IN ('BLOCK_FAILED','VERIFICATION_FAILED')",
+      PROTECTION_REVIEW: 'o.protection_review = true'
     };
     if (protectionClauses[protection]) selected.clauses.push(protectionClauses[protection]);
     selected.values.push(limit, offset);
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
-      `SELECT *, count(*) OVER()::integer AS total_count
-       FROM read_models.operations_orders_queue ${where}
-       ORDER BY updated_at DESC, canonical_order_id
+      `SELECT o.*, c.has_customer_replied, c.detected_intent,
+              c.latest_inbound_message_at, c.confidence AS conversation_confidence,
+              count(*) OVER()::integer AS total_count
+       FROM read_models.operations_orders_queue o
+       LEFT JOIN read_models.operations_conversation_summaries c USING (canonical_order_id)
+       ${where}
+       ORDER BY o.updated_at DESC, o.canonical_order_id
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
     );
