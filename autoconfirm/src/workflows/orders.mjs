@@ -478,7 +478,9 @@ const ADDRESS_CHANGE_PATTERNS = [
   /\bcambio direccion\b/,
   /\bdireccion (mal|incorrecta|equivocada)\b/,
   /\bcambiar datos\b/,
+  /\bcambiar los datos\b/,
   /\bmodificar datos\b/,
+  /\bmodificar los datos\b/,
   /\bcambiar envio\b/,
   /\bcambiar el envio\b/,
   /\bcorregir direccion\b/,
@@ -1283,7 +1285,7 @@ export function subscriberConfirmationIsCurrent(subscriber, order, inboundConfir
   return Boolean(subscriberAt && subscriberAt >= validFrom);
 }
 
-function customerConversationIntentForOrder(messages, order) {
+export function customerConversationIntentForOrder(messages, order) {
   const orderedMessages = [...messages].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
   const customerOnly = orderedMessages.filter((message) => isCustomerMessage(message));
 

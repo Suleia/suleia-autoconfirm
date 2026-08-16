@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enrichPendingOrder } from './operational-orders.mjs';
+import { classifyCustomerMessages, enrichPendingOrder } from './operational-orders.mjs';
 
 test('a Chatby outage keeps the V2 order visible and marks customer evidence as not verifiable', async () => {
   const order = {
@@ -27,4 +27,32 @@ test('a Chatby outage keeps the V2 order visible and marks customer evidence as 
   assert.equal(row.agentConfidence, 0);
   assert.equal(row.chatbyStatus, 'Chatby no verificable');
   assert.match(row.liveSource, /Dropea V2/);
+});
+
+function customerMessage(content, createdAt) {
+  return { content, created_at: createdAt, direction: 'incoming' };
+}
+
+test('operational dashboard uses the governed latest-message Chatby classifier', () => {
+  const confirmed = classifyCustomerMessages([
+    customerMessage('Quiero cambiar la direccion', '2026-08-16T08:00:00Z'),
+    customerMessage('Finalmente confirmo el pedido', '2026-08-16T08:05:00Z')
+  ]);
+  assert.equal(confirmed.signal, 'CONFIRM');
+  assert.equal(confirmed.agentIntent, 'CONFIRM');
+
+  const rejected = classifyCustomerMessages([
+    customerMessage('Confirmo el pedido', '2026-08-16T08:00:00Z'),
+    customerMessage('Ya no lo quiero, canceladlo', '2026-08-16T08:05:00Z')
+  ]);
+  assert.equal(rejected.signal, 'CANCEL');
+  assert.equal(rejected.agentIntent, 'NO_CONFIRM');
+
+  const addressChange = classifyCustomerMessages([
+    customerMessage('Necesito cambiar los datos de envio', '2026-08-16T08:05:00Z')
+  ]);
+  assert.equal(addressChange.signal, 'ADDRESS_CHANGE');
+
+  const unanswered = classifyCustomerMessages([]);
+  assert.equal(unanswered.signal, 'NO_RESPONSE');
 });

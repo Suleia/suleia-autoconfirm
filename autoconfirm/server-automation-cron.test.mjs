@@ -9,6 +9,8 @@ test('persistent automation cron reuses the complete governed cycle', () => {
   assert.match(source, /\/api\/cron\/automation-cycle'[\s\S]{0,180}isAuthorizedCron\(req\)/);
   assert.match(source, /runAutomationAndUnansweredSweep\('cron_automation_cycle'\)/);
   assert.match(source, /async function runAutomationAndUnansweredSweep[\s\S]*runStoreAutomationCycle[\s\S]*runUnansweredCancellationSweep/);
+  assert.match(source, /async function runAutomationAndUnansweredSweep[\s\S]*syncOperationalOrders\(\)/);
+  assert.match(source, /operationalOrders = \{ ok: false, error: message \}/);
 });
 
 test('existing confirmation and cancellation entry points remain present', () => {

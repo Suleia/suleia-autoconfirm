@@ -611,6 +611,16 @@ function agentCustomerSignal(order) {
     };
   }
 
+  if (text.includes('no_response') || text.includes('wait_customer') || text.includes('sin respuesta del cliente')) {
+    return {
+      code: 'no_response',
+      label: 'Sin respuesta del cliente',
+      detail: 'No hay mensajes entrantes ni botones pulsados por el cliente.',
+      confidence: Number(order.agentConfidence) || 25,
+      tone: 'neutral'
+    };
+  }
+
   if (text.includes('address_change') || text.includes('direccion') || text.includes('cambio de direccion') || text.includes('cambiar datos')) {
     return {
       code: 'address_change',
