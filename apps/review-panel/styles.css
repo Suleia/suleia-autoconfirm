@@ -18,3 +18,9 @@ button,select,input{font:inherit}.queue-card[aria-busy="true"] .table-wrap{opaci
 .filter-chip:hover,.filter-chip:focus-visible{border-color:#8bcfc6;background:#f2fbf9}
 .filter-chip.active{border-color:var(--teal);background:var(--teal);color:#fff}
 #queue-card table{min-width:1180px}
+.filter-chip.scope{border-width:2px}
+.order-search{min-width:155px}
+.order-cell .stacked,.customer-cell .stacked,.signal-cell .stacked{padding:10px 12px;border-radius:12px;background:#f7fafb;border:1px solid #e6ecef}
+.order-cell .stacked{border-left:4px solid var(--blue);background:linear-gradient(135deg,#f7fbff,#fff)}
+.customer-cell .stacked{border-left:4px solid var(--teal);background:linear-gradient(135deg,#f1fbf8,#fff)}
+.signal-cell .stacked{border-left:4px solid var(--purple);background:linear-gradient(135deg,#f8f4ff,#fff)}

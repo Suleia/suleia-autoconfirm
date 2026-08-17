@@ -45,9 +45,9 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260817-render-parity-v1">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260817-order-identity-v2">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260817-render-parity-v1" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260817-order-identity-v2" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);
@@ -67,6 +67,11 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
   assert.match(script, /latest_customer_intent/);
   for (const label of ['Todos', 'Confirmar', 'Dirección', 'Incidencias', 'No confirmar', 'Revisión', 'Sin respuesta']) assert.match(script, new RegExp(label));
   for (const field of ['Acción recomendada', 'Acción real', 'Señal del cliente', 'Cliente / importe']) assert.match(script, new RegExp(field));
+  assert.match(script, /Pend\. Dropshipper/);
+  assert.match(script, /Todos los estados/);
+  assert.match(script, /Buscar ID Dropea/);
+  assert.match(script, /customer_name/);
+  assert.match(script, /external_order_reference/);
   assert.match(script, /Confirmar según reglas/);
   assert.match(script, /mantener demoras y protecciones/);
 });

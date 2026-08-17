@@ -137,10 +137,19 @@ function renderFilters() {
     renderFilters(); loadQueue();
   };
   if (state.view === 'orders') {
+    for (const [value, label] of [['PENDING', 'Pend. Dropshipper'], ['', 'Todos los estados']]) {
+      const button = node('button', `filter-chip scope ${(state.filters.lifecycle || '') === value ? 'active' : ''}`.trim(), label);
+      button.type = 'button'; button.addEventListener('click', () => changed('lifecycle', value)); root.append(button);
+    }
     for (const [value, label] of [['', 'Todos'], ['CONFIRM', 'Confirmar'], ['ADDRESS', 'Dirección'], ['INCIDENTS', 'Incidencias'], ['REJECT', 'No confirmar'], ['REVIEW', 'Revisión'], ['NO_RESPONSE', 'Sin respuesta']]) {
       const button = node('button', `filter-chip ${(state.filters.category || '') === value ? 'active' : ''}`.trim(), label);
       button.type = 'button'; button.addEventListener('click', () => changed('category', value)); root.append(button);
     }
+    const input = node('input', 'filter-select order-search'); input.type = 'search'; input.placeholder = 'Buscar ID Dropea';
+    input.setAttribute('aria-label', 'Buscar pedido por ID Dropea'); input.value = state.filters.q || '';
+    input.addEventListener('change', () => changed('q', input.value.trim()));
+    input.addEventListener('keydown', (event) => { if (event.key === 'Enter') changed('q', input.value.trim()); });
+    root.append(input);
     return;
   }
   for (const [key, label, options] of filterDefinitions[state.view] || []) {
@@ -189,15 +198,19 @@ function rowOrder(item) {
   const client = item.latest_customer_intent || 'NO_RESPONSE';
   const confidence = item.customer_signal_confidence === null || item.customer_signal_confidence === undefined ? 'Confianza no disponible' : `Confianza ${Math.round(Number(item.customer_signal_confidence) * 100)} %`;
   const recommendation = node('div', 'decision-summary'); recommendation.append(stacked(recommended, reason), protectionBadges(item));
-  const customer = item.safe_customer_reference ? `Teléfono ···${item.safe_customer_reference}` : 'Cliente protegido';
+  const customer = item.customer_name || (item.safe_customer_reference ? `Cliente ···${item.safe_customer_reference}` : 'Cliente protegido');
+  const orderReference = item.external_order_reference || item.dropea_order_id;
+  const orderMeta = item.external_order_reference
+    ? `Dropea #${short(item.dropea_order_id)} · ${date(item.created_at_utc)}`
+    : `${date(item.created_at_utc)} · ID Dropea`;
   const quality = node('div', 'stacked'); quality.append(badge(item.data_quality_status || item.freshness), node('small', '', `Actualizado ${date(item.source_updated_at)}`));
   tr.append(
-    cell(stacked(`#${short(item.dropea_order_id)}`, date(item.created_at_utc))),
+    cell(stacked(`#${short(orderReference)}`, orderMeta), 'order-cell'),
     cell(stacked(productText(item.product_display_names), `${item.product_summary?.total_units ?? '—'} unidad(es) · Dropea + Chatby`)),
     cell(recommendation),
     cell(actionStatus(item)),
-    cell(stacked(translated(client), `${Number(item.customer_messages || 0)} mensaje(s) · ${confidence}`)),
-    cell(stacked(customer, money(item.total_amount, item.currency))),
+    cell(stacked(translated(client), `${Number(item.customer_messages || 0)} mensaje(s) · ${confidence}`), 'signal-cell'),
+    cell(stacked(customer, `${money(item.total_amount, item.currency)} · ${item.safe_customer_reference ? `Tel. ···${item.safe_customer_reference}` : 'Contacto protegido'}`), 'customer-cell'),
     cell(quality)
   );
   tr.addEventListener('click', () => openDetail(item.canonical_order_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_order_id); }); return tr;
@@ -258,9 +271,9 @@ async function openDetail(id) {
     if (request !== state.detailRequest || view !== state.view) return;
     const root = $('detail-content');
     if (view === 'orders') {
-      const order = data.order; $('detail-title').textContent = `Pedido ${short(order.dropea_order_id)}`;
+      const order = data.order; $('detail-title').textContent = `Pedido ${short(order.external_order_reference || order.dropea_order_id)}`;
       root.append(
-        section('Pedido', [['Estado', order.lifecycle_status || order.status, true], ['Subestado', order.sub_status], ['Producto', productText(order.product_display_names)], ['Unidades', order.product_summary?.total_units], ['Importe', money(order.total_amount, order.currency)], ['Pago', order.payment_method], ['Transportista', order.carrier], ['Datos', order.data_quality_status || order.freshness, true]]),
+        section('Pedido y cliente', [['Referencia', order.external_order_reference || 'NO DISPONIBLE'], ['ID Dropea', order.dropea_order_id], ['Cliente', order.customer_name || 'Cliente protegido'], ['Estado Dropea V2', order.lifecycle_status || order.status, true], ['Subestado', order.sub_status], ['Producto', productText(order.product_display_names)], ['Unidades', order.product_summary?.total_units], ['Importe', money(order.total_amount, order.currency)], ['Pago', order.payment_method], ['Transportista', order.carrier], ['Datos', order.data_quality_status || order.freshness, true]]),
         section('PROTECCIONES OPERATIVAS', [['Teléfono', order.phone_last4 ? `***${order.phone_last4}` : '—'], ['Duplicado', order.duplicate_status || 'NO', true], ['Pedido TEST', order.test_order ? 'SÍ' : 'NO', true], ['Confirmación automática', order.automatic_confirmation_allowed ? 'PERMITIDA' : 'BLOQUEADA', true], ['Chatby cleanup', order.chatby_cleanup_status || 'NO EVALUADO', true], ['Bloqueos Chatby', (order.chatby_cleanup_blockers || []).join(', ') || 'NINGUNO'], ['Return block', order.return_block_status || 'NO EVALUADO', true], ['Motivo', order.return_block_reason || '—']]),
         section('Decisión operativa observada', [['Recomendación', order.simulated_decision || 'SIN EVALUAR', true], ['Acción simulada', order.simulated_action_type || 'NINGUNA', true], ['Política', order.policy_version], ['Riesgo', order.risk, true], ['Bloqueos', (order.blocking_reasons || []).join(', ') || 'NINGUNO'], ['Revisión humana', order.human_review ? 'REQUERIDA' : 'NO', true], ['Acciones reales', order.actions_executed || 0], ['Escrituras externas', order.production_writes || 0]], 'decision-card'),
         section('Señal del cliente', [['Conversación', order.conversation_status || 'UNKNOWN', true], ['Intención', order.latest_customer_intent || 'SIN SEÑAL', true], ['Respondió tras incidencia', order.customer_replied_after_issue ? 'SÍ' : 'NO'], ['Última actividad', date(order.latest_customer_activity_at)], ['Contradicción', order.contradiction ? 'SÍ' : 'NO', true], ['Temporizador', order.timer_status || 'NO ACTIVO', true], ['Vence', date(order.timer_due_at)]]),

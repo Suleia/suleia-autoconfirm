@@ -159,6 +159,7 @@ services:
       OPERATIONS_OAUTH_REQUIRED_ROLE: operations_reader
       OPERATIONS_OAUTH_CLIENT_ID: suleia-operations-center
       OPERATIONS_RATE_LIMIT_PER_MINUTE: 60
+      OPERATIONS_PRIVATE_DATA_KEY: ${MIGRATION_HASH_KEY}
     networks:
       - application_network
       - database_network
