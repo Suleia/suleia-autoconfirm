@@ -1,5 +1,57 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
 
+const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
+  coalesce(s.messages_used,0) AS customer_messages,
+  s.confidence AS customer_signal_confidence,
+  s.explanation_masked->>'source_intent' AS render_customer_signal,
+  r.phone_last4 AS safe_customer_reference
+ FROM read_models.operations_order_context c
+ LEFT JOIN read_models.operations_conversation_summaries s USING(canonical_order_id)
+ LEFT JOIN read_models.operations_order_records r USING(canonical_order_id))`;
+
+const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
+  CASE
+    WHEN p.chatby_last_successful_sync_at IS NULL
+      OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
+      OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN false
+    ELSE true
+  END AS chatby_sync_current,
+  CASE
+    WHEN p.last_successful_sync_at IS NULL
+      OR p.last_successful_sync_at < now()-interval '900 seconds' THEN false
+    ELSE true
+  END AS dropea_sync_current,
+  CASE
+    WHEN p.chatby_last_successful_sync_at IS NULL
+      OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
+      OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN 'NOT_VERIFIABLE'
+    WHEN p.conversation_status='FOUND' AND p.response_evidence_status='VALID_RESPONSE' THEN 'VALID_RESPONSE'
+    WHEN p.conversation_status='FOUND' THEN 'NO_VALID_RESPONSE'
+    WHEN p.conversation_status='NONE' THEN 'NO_CONVERSATION'
+    ELSE 'NOT_VERIFIABLE'
+  END AS operational_response_status,
+  CASE
+    WHEN p.last_successful_sync_at IS NULL
+      OR p.last_successful_sync_at < now()-interval '900 seconds' THEN 'STALE'
+    WHEN p.chatby_last_successful_sync_at IS NULL
+      OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
+      OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN 'STALE'
+    ELSE 'FRESH'
+  END AS operational_freshness_status,
+  CASE
+    WHEN p.conversation_status='NONE' THEN 'REVIEW_CHATBY_LINK'
+    WHEN p.response_evidence_status='VALID_RESPONSE' THEN 'REVIEW_CUSTOMER_RESPONSE'
+    WHEN p.timer_status='ACTIVE' AND p.timer_due_at>now() THEN 'WAITING_CUSTOMER'
+    ELSE 'HUMAN_REVIEW'
+  END AS operational_decision_status,
+  CASE
+    WHEN p.interpreted_type='ADDRESS_INCORRECT' THEN 'REVIEW_ADDRESS_CHANGE'
+    WHEN p.interpreted_type='RECIPIENT_ABSENT' THEN 'REVIEW_DELIVERY_AVAILABILITY'
+    WHEN p.interpreted_type='REFUSED_BY_RECIPIENT' THEN 'REVIEW_REJECTION'
+    ELSE 'REVIEW_INCIDENT'
+  END AS operational_recommendation
+ FROM read_models.operations_incident_panel_context p)`;
+
 function integer(value, fallback, min, max) {
   if (value === null || value === undefined || value === '') return fallback;
   const parsed = Number(value);
@@ -21,9 +73,9 @@ function filters(searchParams, allowlist) {
 function incidentSelection(searchParams) {
   const selected = filters(searchParams, {
     status: 'status', type: 'interpreted_type', risk: 'effective_risk',
-    freshness: 'effective_freshness_status', mapping: 'mapping_status',
-    response: 'response_evidence_status', timer: 'effective_timer_status',
-    decision: 'effective_decision_status', qa: 'effective_qa_status', carrier_code: 'initial_carrier_code'
+    freshness: 'operational_freshness_status', mapping: 'mapping_status',
+    response: 'operational_response_status', timer: 'effective_timer_status',
+    decision: 'operational_decision_status', qa: 'effective_qa_status', carrier_code: 'initial_carrier_code'
   });
   const scope = String(searchParams.get('scope') || 'ACTIVE').toUpperCase();
   if (scope === 'ACTIVE') selected.clauses.push("status='PENDING' AND is_active=true");
@@ -84,16 +136,20 @@ export class OperationsRepository {
       this.pool.query('SELECT * FROM read_models.operations_orders_summary'),
       this.pool.query(`SELECT
         count(*)::integer AS pending,
-        count(*) FILTER (WHERE response_evidence_status='VALID_RESPONSE')::integer AS responded,
+        count(*) FILTER (WHERE operational_response_status='VALID_RESPONSE')::integer AS responded,
         count(*) FILTER (WHERE waiting_customer)::integer AS awaiting_customer,
-        count(*) FILTER (WHERE response_evidence_status='NOT_VERIFIABLE')::integer AS not_verifiable,
+        count(*) FILTER (WHERE operational_response_status='NOT_VERIFIABLE')::integer AS not_verifiable,
+        count(*) FILTER (WHERE operational_response_status='NO_CONVERSATION')::integer AS without_conversation,
         count(*) FILTER (WHERE effective_risk IN ('HIGH','CRITICAL'))::integer AS high_risk,
         count(*) FILTER (WHERE currently_blocked AND cardinality(effective_blocking_reasons)>0)::integer AS blocked,
-        count(*) FILTER (WHERE effective_freshness_status IN ('STALE','UNAVAILABLE','UNKNOWN'))::integer AS stale,
+        count(*) FILTER (WHERE operational_freshness_status<>'FRESH')::integer AS stale,
         count(*) FILTER (WHERE effective_timer_status='EXPIRED')::integer AS timers_expired,
+        count(*) FILTER (WHERE interpreted_type='RECIPIENT_ABSENT')::integer AS recipient_absent,
+        count(*) FILTER (WHERE interpreted_type='ADDRESS_INCORRECT')::integer AS address_issues,
+        count(*) FILTER (WHERE interpreted_type='REFUSED_BY_RECIPIENT')::integer AS refused,
         max(panel_updated_at) AS last_sync_at,$${incidentFilters.values.length + 1}::text AS scope,
         0::integer AS actions_executed,0::integer AS production_writes
-      FROM read_models.operations_incident_panel_context ${incidentWhere}`,
+      FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${incidentWhere}`,
       [...incidentFilters.values, incidentFilters.scope]),
       this.pool.query('SELECT * FROM read_models.operations_protection_summary'),
       this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector'),
@@ -106,8 +162,14 @@ export class OperationsRepository {
         count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('CANCELLED','REJECTED'))::integer AS cancelled_or_rejected,
         count(*) FILTER (WHERE coalesce(lifecycle_status,status)='RETURNED')::integer AS returned,
         count(*) FILTER (WHERE human_review)::integer AS human_review,
-        count(*) FILTER (WHERE active_issue_id IS NOT NULL)::integer AS with_active_issue
-      FROM read_models.operations_order_context`)
+        count(*) FILTER (WHERE active_issue_id IS NOT NULL)::integer AS with_active_issue,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND customer_replied_after_issue)::integer AS with_customer_response,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='CONFIRM')::integer AS confirm_now,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='ADDRESS_CHANGE')::integer AS address_change,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='REJECT')::integer AS reject_signal,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent IN ('UNCLEAR','UNKNOWN','NOT_VERIFIABLE'))::integer AS review_signal,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND duplicate_status='DUPLICATE_ACTIVE_ORDER')::integer AS prior_order
+      FROM ${ORDER_OPERATIONAL_SOURCE} orders`)
     ]);
     const connectors = health.rows.map((row) => {
       const freshness = evaluateSourceFreshness({
@@ -197,11 +259,21 @@ export class OperationsRepository {
       PROTECTION_REVIEW: 'protection_review = true'
     };
     if (protectionClauses[protection]) selected.clauses.push(protectionClauses[protection]);
+    const category = String(searchParams.get('category') || '').toUpperCase();
+    const categoryClauses = {
+      CONFIRM: "latest_customer_intent='CONFIRM'",
+      ADDRESS: "latest_customer_intent='ADDRESS_CHANGE'",
+      INCIDENTS: 'active_issue_id IS NOT NULL',
+      REJECT: "latest_customer_intent='REJECT'",
+      REVIEW: "latest_customer_intent IN ('UNCLEAR','UNKNOWN','NOT_VERIFIABLE')",
+      NO_RESPONSE: "coalesce(latest_customer_intent,'NO_RESPONSE')='NO_RESPONSE'"
+    };
+    if (categoryClauses[category]) selected.clauses.push(categoryClauses[category]);
     selected.values.push(limit, offset);
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
       `SELECT *, count(*) OVER()::integer AS total_count
-       FROM read_models.operations_order_context ${where}
+       FROM ${ORDER_OPERATIONAL_SOURCE} orders ${where}
        ORDER BY updated_at DESC, canonical_order_id
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
@@ -214,14 +286,14 @@ export class OperationsRepository {
       this.pool.query(`SELECT c.*,r.phone_last4,r.test_order,r.automatic_confirmation_allowed,
         r.chatby_cleanup_status,r.chatby_cleanup_blockers,r.return_block_status,r.return_block_reason,
         r.protection_review,r.protection_last_reconciled_at
-      FROM read_models.operations_order_context c
+      FROM ${ORDER_OPERATIONAL_SOURCE} c
       LEFT JOIN read_models.operations_order_records r USING(canonical_order_id)
       WHERE c.canonical_order_id=$1 OR c.dropea_order_id=$1 LIMIT 1`, [id]),
       this.pool.query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_context
           WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
         ORDER BY occurred_at DESC LIMIT 200`, [id]),
-      this.pool.query(`SELECT * FROM read_models.operations_incident_panel_context
+      this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident
         WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_order_context
           WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
         ORDER BY updated_at DESC`, [id])
@@ -237,7 +309,7 @@ export class OperationsRepository {
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
       `SELECT *, count(*) OVER()::integer AS total_count
-       FROM read_models.operations_incident_panel_context ${where}
+       FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}
        ORDER BY updated_at DESC, canonical_issue_id
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
@@ -256,20 +328,24 @@ export class OperationsRepository {
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
       `WITH selected AS MATERIALIZED (
-         SELECT * FROM read_models.operations_incident_panel_context ${where}
+         SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}
        ), page AS (
          SELECT * FROM selected
          ORDER BY updated_at DESC,canonical_issue_id
          LIMIT $${limitParameter} OFFSET $${offsetParameter}
        ), metrics AS (
          SELECT count(*)::integer AS pending,
-           count(*) FILTER (WHERE response_evidence_status='VALID_RESPONSE')::integer AS responded,
+           count(*) FILTER (WHERE operational_response_status='VALID_RESPONSE')::integer AS responded,
            count(*) FILTER (WHERE waiting_customer)::integer AS awaiting_customer,
-           count(*) FILTER (WHERE response_evidence_status='NOT_VERIFIABLE')::integer AS not_verifiable,
+           count(*) FILTER (WHERE operational_response_status='NOT_VERIFIABLE')::integer AS not_verifiable,
+           count(*) FILTER (WHERE operational_response_status='NO_CONVERSATION')::integer AS without_conversation,
            count(*) FILTER (WHERE effective_risk IN ('HIGH','CRITICAL'))::integer AS high_risk,
            count(*) FILTER (WHERE currently_blocked AND cardinality(effective_blocking_reasons)>0)::integer AS blocked,
-           count(*) FILTER (WHERE effective_freshness_status IN ('STALE','UNAVAILABLE','UNKNOWN'))::integer AS stale,
+           count(*) FILTER (WHERE operational_freshness_status<>'FRESH')::integer AS stale,
            count(*) FILTER (WHERE effective_timer_status='EXPIRED')::integer AS timers_expired,
+           count(*) FILTER (WHERE interpreted_type='RECIPIENT_ABSENT')::integer AS recipient_absent,
+           count(*) FILTER (WHERE interpreted_type='ADDRESS_INCORRECT')::integer AS address_issues,
+           count(*) FILTER (WHERE interpreted_type='REFUSED_BY_RECIPIENT')::integer AS refused,
            max(panel_updated_at) AS last_sync_at,$${scopeParameter}::text AS scope,
            0::integer AS actions_executed,0::integer AS production_writes
          FROM selected
@@ -286,7 +362,7 @@ export class OperationsRepository {
 
   async incidentDetail(id) {
     const [detail, timeline] = await Promise.all([
-      this.pool.query('SELECT * FROM read_models.operations_incident_panel_context WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1', [id]),
+      this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [id]),
       this.pool.query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_panel_context
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)

@@ -89,6 +89,17 @@ test('repository builds allowlisted filters and keeps user values parameterized'
   assert.equal(calls[0].sql.includes('ignored'), false);
 });
 
+test('order categories are allowlisted and the queue exposes the Render signal projection', async () => {
+  const calls = [];
+  const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
+  const repository = new OperationsRepository(null, { pool });
+  await repository.listOrders(new URLSearchParams({ lifecycle: 'PENDING', category: 'CONFIRM' }));
+  assert.match(calls[0].sql, /latest_customer_intent='CONFIRM'/);
+  assert.match(calls[0].sql, /operations_conversation_summaries/);
+  assert.match(calls[0].sql, /customer_signal_confidence/);
+  assert.equal(calls[0].values.includes('CONFIRM'), false);
+});
+
 test('incident active=false is applied and does not silently fall back to the active queue', async () => {
   const calls = [];
   const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
@@ -112,6 +123,9 @@ test('incident overview returns table and counters from one materialized selecti
   assert.match(calls[0].sql, /effective_risk = \$1/);
   assert.match(calls[0].sql, /created_at < \(\(\$2::date \+ 1\)::timestamp AT TIME ZONE 'Europe\/Madrid'\)/);
   assert.match(calls[0].sql, /status='PENDING' AND is_active=true/);
+  assert.match(calls[0].sql, /operational_response_status/);
+  assert.match(calls[0].sql, /operational_freshness_status/);
+  assert.match(calls[0].sql, /NO_CONVERSATION/);
   assert.equal(result.total, 1);
   assert.equal(result.summary.pending, 1);
   assert.equal(result.limit, 25);

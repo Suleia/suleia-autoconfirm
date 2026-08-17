@@ -9,3 +9,12 @@
 .protection-badges{display:flex;flex-wrap:wrap;gap:4px;min-width:140px}.protection-badges .badge{font-size:10px}.muted{color:var(--muted)}
 button,select,input{font:inherit}.queue-card[aria-busy="true"] .table-wrap{opacity:.55}.table-wrap{transition:opacity .15s}#queue-card table{min-width:1580px}#queue-card th,#queue-card td{padding-left:14px;padding-right:14px}.pagination-controls{display:flex;align-items:center;gap:10px}.pagination-controls label{display:flex;align-items:center;gap:6px}.page-size{padding:5px 24px 5px 8px;border:1px solid var(--line);border-radius:7px;background:#fff}.pagination-controls .page-button{margin-left:0}.detail-drawer{width:min(720px,100%)}
 @media(max-width:700px){.queue-footer{align-items:flex-start;gap:10px;flex-direction:column}.pagination-controls{flex-wrap:wrap}}
+
+/* Render-style operational queue: compact cards, category pills and seven readable columns. */
+.summary-grid{grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px}
+.summary-card{padding:18px}
+.summary-card strong{font-size:27px}
+.filter-chip{padding:9px 13px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);font-size:11px;font-weight:800}
+.filter-chip:hover,.filter-chip:focus-visible{border-color:#8bcfc6;background:#f2fbf9}
+.filter-chip.active{border-color:var(--teal);background:var(--teal);color:#fff}
+#queue-card table{min-width:1180px}
