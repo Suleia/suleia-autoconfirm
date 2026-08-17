@@ -22,6 +22,7 @@ export function loadOperationsConfig(overrides = {}) {
     oauthRequiredRole: process.env.OPERATIONS_OAUTH_REQUIRED_ROLE || 'operations_reader',
     oauthClientId: process.env.OPERATIONS_OAUTH_CLIENT_ID || 'suleia-operations-center',
     rateLimitPerMinute: Number(process.env.OPERATIONS_RATE_LIMIT_PER_MINUTE || 60),
+    privateDataKey: process.env.OPERATIONS_PRIVATE_DATA_KEY || '',
     ...overrides
   };
   const violations = [];
@@ -29,6 +30,7 @@ export function loadOperationsConfig(overrides = {}) {
   if (!config.simulationOnly) violations.push('simulation-only must remain enabled');
   if (config.productionWritesEnabled || config.actionExecutorEnabled) violations.push('write/action execution is forbidden');
   if (!config.databaseUrl) violations.push('read-only database URL is required');
+  if (typeof config.privateDataKey !== 'string' || config.privateDataKey.length < 32) violations.push('private display key is required');
   if (config.rateLimitPerMinute < 1 || config.rateLimitPerMinute > 120) violations.push('invalid rate limit');
   if (violations.length) throw new Error(`Unsafe Operations API configuration: ${violations.join('; ')}`);
   return Object.freeze(config);
@@ -117,7 +119,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
 
 export async function startOperationsServer() {
   const config = loadOperationsConfig();
-  const repository = await OperationsRepository.connect(config.databaseUrl);
+  const repository = await OperationsRepository.connect(config.databaseUrl, { privateDataKey: config.privateDataKey });
   const authenticate = createOperationsAuth({
     issuer: config.oauthIssuer,
     audience: config.oauthAudience,

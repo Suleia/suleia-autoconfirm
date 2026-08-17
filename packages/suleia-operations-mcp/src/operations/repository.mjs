@@ -1,13 +1,16 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
+import { privateOrderDisplay } from './private-display.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
   s.confidence AS customer_signal_confidence,
   s.explanation_masked->>'source_intent' AS render_customer_signal,
-  r.phone_last4 AS safe_customer_reference
+  r.phone_last4 AS safe_customer_reference,
+  p.external_order_id_ciphertext,p.shipping_address_ciphertext
  FROM read_models.operations_order_context c
  LEFT JOIN read_models.operations_conversation_summaries s USING(canonical_order_id)
- LEFT JOIN read_models.operations_order_records r USING(canonical_order_id))`;
+ LEFT JOIN read_models.operations_order_records r USING(canonical_order_id)
+ LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   CASE
@@ -114,17 +117,18 @@ function financialWindow(searchParams) {
 }
 
 export class OperationsRepository {
-  constructor(databaseUrl, { pool = null } = {}) {
+  constructor(databaseUrl, { pool = null, privateDataKey = '' } = {}) {
     if (!pool) throw new Error('Use OperationsRepository.connect for a database connection');
     this.pool = pool;
+    this.privateDataKey = privateDataKey;
   }
 
-  static async connect(databaseUrl) {
+  static async connect(databaseUrl, { privateDataKey = '' } = {}) {
     const { default: pg } = await import('pg');
     return new OperationsRepository(databaseUrl, { pool: new pg.Pool({
       connectionString: databaseUrl, max: 5, application_name: 'suleia-operations-center',
       statement_timeout: 10_000, query_timeout: 12_000
-    }) });
+    }), privateDataKey });
   }
 
   async close() { await this.pool.end(); }
@@ -269,6 +273,11 @@ export class OperationsRepository {
       NO_RESPONSE: "coalesce(latest_customer_intent,'NO_RESPONSE')='NO_RESPONSE'"
     };
     if (categoryClauses[category]) selected.clauses.push(categoryClauses[category]);
+    const query = searchParams.get('q')?.trim();
+    if (query) {
+      selected.values.push(query);
+      selected.clauses.push(`(canonical_order_id=$${selected.values.length} OR dropea_order_id=$${selected.values.length})`);
+    }
     selected.values.push(limit, offset);
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
@@ -278,7 +287,7 @@ export class OperationsRepository {
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
     );
-    return { items: result.rows, total: result.rows[0]?.total_count || 0, limit, offset };
+    return { items: result.rows.map((row) => privateOrderDisplay(row, this.privateDataKey)), total: result.rows[0]?.total_count || 0, limit, offset };
   }
 
   async orderDetail(id) {
@@ -298,7 +307,7 @@ export class OperationsRepository {
           WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1)
         ORDER BY updated_at DESC`, [id])
     ]);
-    return detail.rows[0] ? { order: detail.rows[0], timeline: timeline.rows, incidents: incidents.rows } : null;
+    return detail.rows[0] ? { order: privateOrderDisplay(detail.rows[0], this.privateDataKey), timeline: timeline.rows, incidents: incidents.rows } : null;
   }
 
   async listIncidents(searchParams) {

@@ -8,7 +8,7 @@ import { OperationsRepository } from '../../packages/suleia-operations-mcp/src/o
 const config = loadOperationsConfig({
   databaseUrl: 'postgres://fixture.invalid/db', oauthIssuer: 'https://identity.example.test/realms/suleia',
   oauthJwksUrl: 'https://identity.example.test/certs', oauthAudience: 'suleia-operations-center',
-  rateLimitPerMinute: 60
+  rateLimitPerMinute: 60, privateDataKey: 'fixture-private-key-that-is-longer-than-thirty-two-characters'
 });
 
 test('Operations API exposes only authenticated GET reads and zero-action envelopes', async (t) => {
@@ -97,7 +97,40 @@ test('order categories are allowlisted and the queue exposes the Render signal p
   assert.match(calls[0].sql, /latest_customer_intent='CONFIRM'/);
   assert.match(calls[0].sql, /operations_conversation_summaries/);
   assert.match(calls[0].sql, /customer_signal_confidence/);
+  assert.match(calls[0].sql, /operations_private_order_display/);
   assert.equal(calls[0].values.includes('CONFIRM'), false);
+});
+
+test('repository exposes decrypted private display fields only and strips ciphertext', async () => {
+  const crypto = await import('node:crypto');
+  const privateDataKey = 'fixture-private-key-that-is-longer-than-thirty-two-characters';
+  const encrypt = (value) => {
+    const key = crypto.createHash('sha256').update(`suleia-private-v1|${privateDataKey}`).digest();
+    const iv = Buffer.alloc(12, 3); const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+    const encrypted = Buffer.concat([cipher.update(JSON.stringify(value), 'utf8'), cipher.final()]);
+    return `v1:${iv.toString('base64url')}:${cipher.getAuthTag().toString('base64url')}:${encrypted.toString('base64url')}`;
+  };
+  const pool = { query: async () => ({ rows: [{
+    canonical_order_id: 'order-fixture', dropea_order_id: '1234', total_count: 1,
+    external_order_id_ciphertext: encrypt({ value: '#2006' }),
+    shipping_address_ciphertext: encrypt({ first_name: 'Cliente', last_name: 'Prueba' })
+  }] }), end: async () => {} };
+  const repository = new OperationsRepository(null, { pool, privateDataKey });
+  const result = await repository.listOrders(new URLSearchParams());
+  assert.equal(result.items[0].external_order_reference, '#2006');
+  assert.equal(result.items[0].customer_name, 'Cliente Prueba');
+  assert.equal('external_order_id_ciphertext' in result.items[0], false);
+  assert.equal('shipping_address_ciphertext' in result.items[0], false);
+});
+
+test('order search is exact, parameterized and never interpolated into SQL', async () => {
+  const calls = [];
+  const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
+  const repository = new OperationsRepository(null, { pool });
+  await repository.listOrders(new URLSearchParams({ q: "1357847' OR true --" }));
+  assert.match(calls[0].sql, /canonical_order_id=\$1 OR dropea_order_id=\$1/);
+  assert.doesNotMatch(calls[0].sql, /OR true/);
+  assert.equal(calls[0].values[0], "1357847' OR true --");
 });
 
 test('incident active=false is applied and does not silently fall back to the active queue', async () => {
