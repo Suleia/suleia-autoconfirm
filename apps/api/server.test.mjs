@@ -99,6 +99,16 @@ test('order categories are allowlisted and the queue exposes the Render signal p
   assert.match(calls[0].sql, /customer_signal_confidence/);
   assert.match(calls[0].sql, /operations_private_order_display/);
   assert.equal(calls[0].values.includes('CONFIRM'), false);
+
+  calls.length = 0;
+  await repository.listOrders(new URLSearchParams({ lifecycle: 'PENDING', category: 'RESPONDED' }));
+  assert.match(calls[0].sql, /customer_response_status='RESPONDED'/);
+  assert.match(calls[0].sql, /customer_response_summary/);
+  assert.match(calls[0].sql, /customer_signal_association/);
+
+  calls.length = 0;
+  await repository.listOrders(new URLSearchParams({ lifecycle: 'PENDING', category: 'NO_RESPONSE' }));
+  assert.match(calls[0].sql, /customer_response_status='NO_RESPONSE'/);
 });
 
 test('repository exposes decrypted private display fields only and strips ciphertext', async () => {

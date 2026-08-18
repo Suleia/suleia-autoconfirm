@@ -25,7 +25,7 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.doesNotMatch(script, /costs\?\.total\s*\|\|\s*0/);
   assert.match(script, /lifecycle_status/);
   assert.match(script, /simulated_decision/);
-  assert.match(script, /customer_replied_after_issue/);
+  assert.match(script, /customer_response_status/);
   assert.match(script, /normalized_type/);
   assert.match(script, /operational_response_status/);
   assert.match(script, /customer_signal_confidence/);
@@ -41,13 +41,13 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(script, /Acción recomendada/);
   assert.match(script, /Código GLS pendiente de gobernar/);
   assert.match(script, /\['Acción externa', 'NO EJECUTADA'/);
-  assert.doesNotMatch(script, /\b(?:canonical_state|proposed_resolution|customer_response_status)\b/);
+  assert.doesNotMatch(script, /\b(?:canonical_state|proposed_resolution)\b/);
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260817-order-identity-v2">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260818-order-response-fidelity-v1">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260817-order-identity-v2" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260818-order-response-fidelity-v1" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);
@@ -61,11 +61,12 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
 
 test('orders open on the pending dropshipper queue and expose Chatby intent', () => {
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
   assert.match(script, /filters: \{ lifecycle: 'PENDING' \}/);
   assert.match(script, /view === 'orders' \? \{ lifecycle: 'PENDING' \} : \{\}/);
   assert.match(script, /Pendientes de Dropshipper/);
   assert.match(script, /latest_customer_intent/);
-  for (const label of ['Todos', 'Confirmar', 'Dirección', 'Incidencias', 'No confirmar', 'Revisión', 'Sin respuesta']) assert.match(script, new RegExp(label));
+  for (const label of ['Todos', 'Con respuesta', 'Confirmar', 'Dirección', 'Incidencias', 'No confirmar', 'Revisión', 'Sin respuesta', 'No verificable']) assert.match(script, new RegExp(label));
   for (const field of ['Acción recomendada', 'Acción real', 'Señal del cliente', 'Cliente / importe']) assert.match(script, new RegExp(field));
   assert.match(script, /Pend\. Dropshipper/);
   assert.match(script, /Todos los estados/);
@@ -74,6 +75,15 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
   assert.match(script, /external_order_reference/);
   assert.match(script, /Confirmar según reglas/);
   assert.match(script, /mantener demoras y protecciones/);
+  assert.match(script, /customer_response_status/);
+  assert.match(script, /customer_response_summary/);
+  assert.match(script, /customer_signal_association/);
+  assert.match(script, /ID Dropea exacto del pedido/);
+  assert.match(script, /Abrir únicamente los pedidos respondidos/);
+  assert.match(script, /No aplica: no hay respuesta/);
+  assert.match(script, /association exacta al pedido|asociación exacta al pedido/);
+  assert.match(css, /signal-confirm/);
+  assert.match(css, /summary-card\.filterable/);
 });
 
 test('incidents use current connector polls and distinguish a missing association from a connector error', () => {

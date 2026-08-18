@@ -38,7 +38,7 @@ async function api(path, { signal } = {}) { const response = await fetch(`${oper
 function signOut(remote = true) { sessionStorage.removeItem('suleia_access_token'); sessionStorage.removeItem('suleia_token_expires_at'); state.token = null; $('app').hidden = true; $('login').hidden = false; if (remote && state.config) { const url = new URL(`${state.config.oauth.issuer}/protocol/openid-connect/logout`); url.searchParams.set('client_id', state.config.oauth.client_id); url.searchParams.set('post_logout_redirect_uri', redirectUri()); location.assign(url.toString()); } }
 
 function badge(value) { const v = text(value); const lower = v.toLowerCase(); let tone = 'gray'; if (/ready|pass|exact|verified|delivered|finish|resolved|responded|permitida/.test(lower)) tone = 'green'; else if (/wait|pending|medium|review|active|incidence/.test(lower)) tone = 'amber'; else if (/high|critical|blocked|error|stale|conflict|reject|return|cancel/.test(lower)) tone = 'red'; else if (/human|simulation/.test(lower)) tone = 'purple'; else if (/info|shipping|transit/.test(lower)) tone = 'blue'; return node('span', `badge ${tone}`, v); }
-function summaryCard(label, value, detail, tone = '') { const card = node('article', `summary-card ${tone}`.trim()); card.append(node('span', '', label), node('strong', '', text(value, '0')), node('small', '', detail)); return card; }
+function summaryCard(label, value, detail, tone = '', onClick = null, active = false) { const card = node(onClick ? 'button' : 'article', `summary-card ${tone} ${onClick ? 'filterable' : ''} ${active ? 'selected' : ''}`.trim()); if (onClick) { card.type = 'button'; card.addEventListener('click', onClick); card.setAttribute('aria-pressed', String(active)); } card.append(node('span', '', label), node('strong', '', text(value, '0')), node('small', '', detail)); return card; }
 function showNotice(message) { const el = $('notice'); el.textContent = message; el.hidden = !message; }
 function productText(value) { if (Array.isArray(value)) return value.filter(Boolean).join(', ') || 'Producto no informado'; if (typeof value === 'object' && value) return Object.values(value).filter((item) => typeof item === 'string').join(', ') || 'Producto no informado'; return text(value, 'Producto no informado'); }
 function stacked(primary, secondary, className = '') { const box = node('div', `stacked ${className}`.trim()); box.append(node('strong', '', text(primary))); if (secondary) box.append(node('small', '', text(secondary))); return box; }
@@ -84,8 +84,13 @@ function renderSummary() {
   if (state.view === 'finance') return;
   const data = state.view === 'orders' ? state.summary?.orders : state.summary?.incidents;
   if (state.view === 'orders') {
+    const categoryCard = (label, value, detail, tone, category) => summaryCard(label, value, detail, tone, () => {
+      state.filters.category = state.filters.category === category ? '' : category;
+      state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+    }, state.filters.category === category);
     root.append(
-      summaryCard('Con respuesta', data?.with_customer_response, 'Cliente contestó en Chatby', 'green'),
+      categoryCard('Con respuesta', data?.with_customer_response, 'Abrir únicamente los pedidos respondidos', 'green', 'RESPONDED'),
+      categoryCard('Sin respuesta', data?.no_response, 'Conversación del pedido sin mensajes del cliente', 'purple', 'NO_RESPONSE'),
       summaryCard('Pedido previo', data?.prior_order, 'Posible duplicidad a revisar', 'red'),
       summaryCard('Cola operativa', data?.pending, 'Solo pendientes de Dropshipper'),
       summaryCard('Confirmar ahora', data?.confirm_now, 'Señal clara; se respetan todas las reglas', 'green'),
@@ -141,7 +146,7 @@ function renderFilters() {
       const button = node('button', `filter-chip scope ${(state.filters.lifecycle || '') === value ? 'active' : ''}`.trim(), label);
       button.type = 'button'; button.addEventListener('click', () => changed('lifecycle', value)); root.append(button);
     }
-    for (const [value, label] of [['', 'Todos'], ['CONFIRM', 'Confirmar'], ['ADDRESS', 'Dirección'], ['INCIDENTS', 'Incidencias'], ['REJECT', 'No confirmar'], ['REVIEW', 'Revisión'], ['NO_RESPONSE', 'Sin respuesta']]) {
+    for (const [value, label] of [['', 'Todos'], ['RESPONDED', 'Con respuesta'], ['CONFIRM', 'Confirmar'], ['ADDRESS', 'Dirección'], ['INCIDENTS', 'Incidencias'], ['REJECT', 'No confirmar'], ['REVIEW', 'Revisión'], ['NO_RESPONSE', 'Sin respuesta'], ['NOT_VERIFIABLE', 'No verificable']]) {
       const button = node('button', `filter-chip ${(state.filters.category || '') === value ? 'active' : ''}`.trim(), label);
       button.type = 'button'; button.addEventListener('click', () => changed('category', value)); root.append(button);
     }
@@ -192,11 +197,39 @@ function orderRecommendation(item) {
   };
   return values[intent] || values.UNKNOWN;
 }
+function orderSignalSummary(item) {
+  const intent = item.latest_customer_intent || 'NO_RESPONSE';
+  const status = item.customer_response_status || (Number(item.customer_messages || 0) > 0 ? 'RESPONDED' : 'NO_RESPONSE');
+  const summaries = {
+    CONFIRM: 'El cliente confirmó el pedido.',
+    REJECT: 'El cliente rechazó o pidió cancelar el pedido.',
+    ADDRESS_CHANGE: 'El cliente pidió cambiar la dirección o los datos de envío.',
+    PROMOTION_CHANGE: 'El cliente solicitó modificar la promoción o el pedido.',
+    UNCLEAR: 'El cliente respondió, pero no permite decidir con seguridad.',
+    NOT_VERIFIABLE: 'La señal no puede verificarse con seguridad.',
+    UNKNOWN: 'Hay una respuesta sin clasificación fiable.'
+  };
+  const box = node('div', `stacked signal-card signal-${String(intent).toLowerCase().replace(/[^a-z_]/g, '')}`);
+  if (status === 'NOT_VERIFIABLE') {
+    box.append(node('strong', '', 'No verificable'), node('small', '', 'No hay una asociación fiable entre Chatby y este pedido.'));
+    return box;
+  }
+  if (status === 'NO_RESPONSE') {
+    box.append(node('strong', '', 'Sin respuesta'), node('small', '', 'Conversación asociada · 0 mensajes entrantes'), node('small', 'signal-evidence', 'No se atribuye ninguna acción antigua a este pedido.'));
+    return box;
+  }
+  const count = Number(item.customer_messages || 0);
+  const when = item.customer_latest_reply_at ? ` · ${date(item.customer_latest_reply_at)}` : '';
+  box.append(
+    node('strong', '', translated(intent)),
+    node('small', '', item.customer_response_summary || summaries[intent] || summaries.UNKNOWN),
+    node('small', 'signal-evidence', `${count} mensaje(s) del cliente${when} · asociación exacta al pedido`)
+  );
+  return box;
+}
 function rowOrder(item) {
   const tr = node('tr'); tr.tabIndex = 0;
   const [recommended, reason] = orderRecommendation(item);
-  const client = item.latest_customer_intent || 'NO_RESPONSE';
-  const confidence = item.customer_signal_confidence === null || item.customer_signal_confidence === undefined ? 'Confianza no disponible' : `Confianza ${Math.round(Number(item.customer_signal_confidence) * 100)} %`;
   const recommendation = node('div', 'decision-summary'); recommendation.append(stacked(recommended, reason), protectionBadges(item));
   const customer = item.customer_name || (item.safe_customer_reference ? `Cliente ···${item.safe_customer_reference}` : 'Cliente protegido');
   const orderReference = item.external_order_reference || item.dropea_order_id;
@@ -209,7 +242,7 @@ function rowOrder(item) {
     cell(stacked(productText(item.product_display_names), `${item.product_summary?.total_units ?? '—'} unidad(es) · Dropea + Chatby`)),
     cell(recommendation),
     cell(actionStatus(item)),
-    cell(stacked(translated(client), `${Number(item.customer_messages || 0)} mensaje(s) · ${confidence}`), 'signal-cell'),
+    cell(orderSignalSummary(item), 'signal-cell'),
     cell(stacked(customer, `${money(item.total_amount, item.currency)} · ${item.safe_customer_reference ? `Tel. ···${item.safe_customer_reference}` : 'Contacto protegido'}`), 'customer-cell'),
     cell(quality)
   );
@@ -232,7 +265,7 @@ function rowIncident(item) {
   );
   tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
 }
-function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Señal del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Motivo', 'Señal del cliente', 'Estado operativo', 'Acción recomendada', 'Conexiones', 'Calidad']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
+function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Motivo', 'Señal del cliente', 'Estado operativo', 'Acción recomendada', 'Conexiones', 'Calidad']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
 
 async function loadQueue() {
   if (state.view === 'finance') return;
@@ -276,7 +309,7 @@ async function openDetail(id) {
         section('Pedido y cliente', [['Referencia', order.external_order_reference || 'NO DISPONIBLE'], ['ID Dropea', order.dropea_order_id], ['Cliente', order.customer_name || 'Cliente protegido'], ['Estado Dropea V2', order.lifecycle_status || order.status, true], ['Subestado', order.sub_status], ['Producto', productText(order.product_display_names)], ['Unidades', order.product_summary?.total_units], ['Importe', money(order.total_amount, order.currency)], ['Pago', order.payment_method], ['Transportista', order.carrier], ['Datos', order.data_quality_status || order.freshness, true]]),
         section('PROTECCIONES OPERATIVAS', [['Teléfono', order.phone_last4 ? `***${order.phone_last4}` : '—'], ['Duplicado', order.duplicate_status || 'NO', true], ['Pedido TEST', order.test_order ? 'SÍ' : 'NO', true], ['Confirmación automática', order.automatic_confirmation_allowed ? 'PERMITIDA' : 'BLOQUEADA', true], ['Chatby cleanup', order.chatby_cleanup_status || 'NO EVALUADO', true], ['Bloqueos Chatby', (order.chatby_cleanup_blockers || []).join(', ') || 'NINGUNO'], ['Return block', order.return_block_status || 'NO EVALUADO', true], ['Motivo', order.return_block_reason || '—']]),
         section('Decisión operativa observada', [['Recomendación', order.simulated_decision || 'SIN EVALUAR', true], ['Acción simulada', order.simulated_action_type || 'NINGUNA', true], ['Política', order.policy_version], ['Riesgo', order.risk, true], ['Bloqueos', (order.blocking_reasons || []).join(', ') || 'NINGUNO'], ['Revisión humana', order.human_review ? 'REQUERIDA' : 'NO', true], ['Acciones reales', order.actions_executed || 0], ['Escrituras externas', order.production_writes || 0]], 'decision-card'),
-        section('Señal del cliente', [['Conversación', order.conversation_status || 'UNKNOWN', true], ['Intención', order.latest_customer_intent || 'SIN SEÑAL', true], ['Respondió tras incidencia', order.customer_replied_after_issue ? 'SÍ' : 'NO'], ['Última actividad', date(order.latest_customer_activity_at)], ['Contradicción', order.contradiction ? 'SÍ' : 'NO', true], ['Temporizador', order.timer_status || 'NO ACTIVO', true], ['Vence', date(order.timer_due_at)]]),
+        section('Respuesta del cliente para este pedido', [['Estado', translated(order.customer_response_status || 'NOT_VERIFIABLE'), true], ['Qué contestó', order.customer_response_summary || (order.customer_response_status === 'NO_RESPONSE' ? 'No hay mensajes entrantes del cliente para este pedido.' : translated(order.latest_customer_intent || 'UNKNOWN'))], ['Intención detectada', translated(order.latest_customer_intent || 'UNKNOWN'), true], ['Mensajes del cliente', order.customer_messages ?? 0], ['Asociación', order.customer_signal_association === 'EXACT_DROPEA_ORDER_ID' ? 'ID Dropea exacto del pedido' : 'NO VERIFICABLE', true], ['Última respuesta', date(order.customer_latest_reply_at)], ['Señal revisada', date(order.customer_signal_updated_at)], ['Fuente', order.customer_signal_source || 'NO DISPONIBLE'], ['Confianza', order.customer_response_status === 'NO_RESPONSE' ? 'No aplica: no hay respuesta' : order.customer_signal_confidence === null || order.customer_signal_confidence === undefined ? 'NO DISPONIBLE' : `${Math.round(Number(order.customer_signal_confidence) * 100)} %`], ['Contradicción', order.contradiction ? 'SÍ' : 'NO', true]]),
         section('Ciclo de vida', [['Creado', date(order.created_at_utc)], ['Confirmado', date(order.confirmed_at_utc)], ['Procesando', date(order.processing_at_utc)], ['Entregado', date(order.delivered_at_utc)], ['Cancelado', date(order.cancelled_at_utc)], ['Devuelto', date(order.returned_at_utc)], ['Fuente', order.source_system], ['Actualizado', date(order.source_updated_at)]]),
         section('Control económico', [['Valor del pedido', money(order.total_amount, order.currency)], ['Costes reales', 'PENDIENTE DE FUENTE', true], ['Beneficio', 'NO CALCULABLE', true], ['Exactitud', 'SOLO VALOR DEL PEDIDO', true], ['Escrituras en Dropea', '0']]),
         relatedIncidents(data.incidents), timeline(data.timeline)

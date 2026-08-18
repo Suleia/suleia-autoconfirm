@@ -4,7 +4,19 @@ import { privateOrderDisplay } from './private-display.mjs';
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
   s.confidence AS customer_signal_confidence,
+  coalesce(s.has_customer_replied,false) AS customer_has_replied,
+  s.latest_inbound_message_at AS customer_latest_reply_at,
+  s.updated_at AS customer_signal_updated_at,
+  s.freshness AS customer_signal_freshness,
   s.explanation_masked->>'source_intent' AS render_customer_signal,
+  s.explanation_masked->>'response_summary' AS customer_response_summary,
+  s.explanation_masked->>'association' AS customer_signal_association,
+  s.explanation_masked->>'source' AS customer_signal_source,
+  CASE
+    WHEN s.canonical_order_id IS NULL THEN 'NOT_VERIFIABLE'
+    WHEN s.has_customer_replied THEN 'RESPONDED'
+    ELSE 'NO_RESPONSE'
+  END AS customer_response_status,
   r.phone_last4 AS safe_customer_reference,
   p.external_order_id_ciphertext,p.shipping_address_ciphertext
  FROM read_models.operations_order_context c
@@ -168,6 +180,8 @@ export class OperationsRepository {
         count(*) FILTER (WHERE human_review)::integer AS human_review,
         count(*) FILTER (WHERE active_issue_id IS NOT NULL)::integer AS with_active_issue,
         count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND customer_replied_after_issue)::integer AS with_customer_response,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND customer_response_status='NO_RESPONSE')::integer AS no_response,
+        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND customer_response_status='NOT_VERIFIABLE')::integer AS response_not_verifiable,
         count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='CONFIRM')::integer AS confirm_now,
         count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='ADDRESS_CHANGE')::integer AS address_change,
         count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='REJECT')::integer AS reject_signal,
@@ -266,11 +280,13 @@ export class OperationsRepository {
     const category = String(searchParams.get('category') || '').toUpperCase();
     const categoryClauses = {
       CONFIRM: "latest_customer_intent='CONFIRM'",
+      RESPONDED: "customer_response_status='RESPONDED'",
       ADDRESS: "latest_customer_intent='ADDRESS_CHANGE'",
       INCIDENTS: 'active_issue_id IS NOT NULL',
       REJECT: "latest_customer_intent='REJECT'",
       REVIEW: "latest_customer_intent IN ('UNCLEAR','UNKNOWN','NOT_VERIFIABLE')",
-      NO_RESPONSE: "coalesce(latest_customer_intent,'NO_RESPONSE')='NO_RESPONSE'"
+      NO_RESPONSE: "customer_response_status='NO_RESPONSE'",
+      NOT_VERIFIABLE: "customer_response_status='NOT_VERIFIABLE'"
     };
     if (categoryClauses[category]) selected.clauses.push(categoryClauses[category]);
     const query = searchParams.get('q')?.trim();
