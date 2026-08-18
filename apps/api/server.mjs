@@ -61,11 +61,23 @@ function limiter(limit) {
   };
 }
 
+async function jsonBody(req, maxBytes = 2048) {
+  const chunks = []; let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw Object.assign(new Error('payload_too_large'), { status: 413 });
+    chunks.push(chunk);
+  }
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
+  catch { throw Object.assign(new Error('invalid_json'), { status: 400 }); }
+}
+
 export function createOperationsServer({ config, repository, authenticate, audit = () => {} }) {
   const allowRequest = limiter(config.rateLimitPerMinute);
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, 'http://operations.internal');
-    if (req.method !== 'GET') return json(res, 405, { ok: false, error: 'method_not_allowed' });
+    const feedbackMatch = requestUrl.pathname.match(/^\/api\/operations\/incidents\/([^/]+)\/feedback$/);
+    if (req.method !== 'GET' && !(req.method === 'POST' && feedbackMatch)) return json(res, 405, { ok: false, error: 'method_not_allowed' });
     if (!allowRequest(req)) return json(res, 429, { ok: false, error: 'rate_limited' });
     if (requestUrl.pathname === '/health') {
       return json(res, 200, { ok: true, service: 'suleia-operations-api', run_mode: config.runMode, actions_executed: 0, production_writes: 0 });
@@ -99,7 +111,18 @@ export function createOperationsServer({ config, repository, authenticate, audit
     }
     try {
       let data;
-      if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
+      if (req.method === 'POST' && feedbackMatch) {
+        const body = await jsonBody(req);
+        data = await repository.recordIncidentFeedback(decodeURIComponent(feedbackMatch[1]), {
+          feedbackType: body.feedback_type,
+          reasonCode: body.reason_code,
+          recommendationCode: body.recommendation_code,
+          principalHash: principal.principal_hash
+        });
+        if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
+        audit({ event: 'incident_recommendation_feedback', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'recorded' });
+        return json(res, 201, { ok: true, data, actions_executed: 0, production_writes: 0, internal_feedback_writes: 1 });
+      } else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/finance') data = await repository.financialSummary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
@@ -110,7 +133,10 @@ export function createOperationsServer({ config, repository, authenticate, audit
       if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
       audit({ event: 'operations_read', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'ok' });
       return json(res, 200, { ok: true, data, actions_executed: 0, production_writes: 0 });
-    } catch {
+    } catch (error) {
+      if (error?.status === 400 || error?.status === 413 || error?.code === 'INVALID_FEEDBACK') {
+        return json(res, error.status || 400, { ok: false, error: error.message || 'invalid_feedback' });
+      }
       audit({ event: 'operations_read_failed', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'error' });
       return json(res, 503, { ok: false, error: 'read_temporarily_unavailable' });
     }

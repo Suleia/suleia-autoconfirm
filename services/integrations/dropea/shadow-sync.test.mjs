@@ -202,7 +202,38 @@ test('INCREMENTAL reconciles complete orders and issues ordered by source update
   assert.equal(calls[0][1].sort_by, 'updated_at');
   assert.equal('date_from' in calls[0][1], false);
   assert.equal('date_type' in calls[0][1], false);
-  assert.deepEqual(calls[1], ['listIssues', {}]);
+  assert.deepEqual(calls[1], ['listIssues', { only_pending_to_resolve: true }]);
+});
+
+test('complete live pending snapshot retires stale local incidents without external actions', async () => {
+  const reconciliations = [];
+  const client = {
+    market: 'ES',
+    async listAll(name) { return { items: [], page_count: 1, complete: true, records_read: 0, requested_limit: 100 }; }
+  };
+  const projector = {
+    async reconcilePendingIssues(value) { reconciliations.push(value); return { reconciled: 2 }; },
+    async connectorHealth() {}, async syncCheckpoint() {}
+  };
+  const result = await syncDropeaPublicApi({
+    client, projector, phase: 'INCREMENTAL',
+    hmacKey: 'a-protected-hmac-key-with-more-than-32-characters',
+    storeConfig: { store_id: '17', migration_cutover_at: '2026-08-03T00:00:00Z', native_v2_activation_at: '2026-08-04T00:00:00Z' },
+    now: () => new Date('2026-08-18T19:00:00Z')
+  });
+  assert.deepEqual(reconciliations[0].activeIssueIds, []);
+  assert.equal(reconciliations[0].storeId, '17');
+  assert.equal(result.issues_removed_from_pending, 2);
+  assert.equal(result.actions_executed, 0);
+  assert.equal(result.production_writes, 0);
+});
+
+test('incomplete pending snapshot never retires local incidents', async () => {
+  let reconciled = false;
+  const client = { market: 'ES', async listAll() { return { items: [], page_count: 1, complete: false, records_read: 0, requested_limit: 100 }; } };
+  const projector = { async reconcilePendingIssues() { reconciled = true; }, async connectorHealth() {}, async syncCheckpoint() {} };
+  await syncDropeaPublicApi({ client, projector, phase: 'INCREMENTAL', hmacKey: 'a-protected-hmac-key-with-more-than-32-characters', storeConfig: { store_id: '17', migration_cutover_at: '2026-08-03T00:00:00Z', native_v2_activation_at: '2026-08-04T00:00:00Z' } });
+  assert.equal(reconciled, false);
 });
 
 test('dry-run performs zero mirror writes on success and failure', async () => {

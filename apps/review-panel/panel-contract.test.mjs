@@ -12,7 +12,7 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, />Incidencias</);
   assert.match(html, />Control de gasto</);
   assert.doesNotMatch(`${html}\n${script}\n${css}`, /shopify/i);
-  assert.equal((script.match(/method\s*:\s*['"]POST['"]/gi) || []).length, 1);
+  assert.equal((script.match(/method\s*:\s*['"]POST['"]/gi) || []).length, 2);
   assert.match(script, /openid-connect\/token/);
   assert.doesNotMatch(script, /method\s*:\s*['"](?:PUT|PATCH|DELETE)['"]/i);
   assert.match(html, /Acciones ejecutadas: 0/);
@@ -27,27 +27,24 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(script, /simulated_decision/);
   assert.match(script, /customer_response_status/);
   assert.match(script, /normalized_type/);
-  assert.match(script, /operational_response_status/);
+  assert.match(script, /customer_evidence/);
   assert.match(script, /customer_signal_confidence/);
-  assert.match(script, /effective_timer_status/);
   assert.match(script, /incidents\/overview/);
   assert.match(script, /queueController\?\.abort/);
   assert.match(script, /detailController\?\.abort/);
   assert.match(script, /state\.offset >= data\.total/);
-  assert.match(script, /operational_decision_status/);
-  assert.match(script, /dropea_sync_current/);
-  assert.match(script, /operational_recommendation/);
-  assert.match(script, /translatedBlockers/);
-  assert.match(script, /Acción recomendada/);
-  assert.match(script, /Código GLS pendiente de gobernar/);
-  assert.match(script, /\['Acción externa', 'NO EJECUTADA'/);
+  assert.match(script, /tailored_recommendation/);
+  assert.match(script, /source_truth/);
+  assert.match(script, /Solución propuesta para esta incidencia/);
+  assert.match(script, /Tu feedback se guarda como memoria operativa/);
+  assert.match(script, /Acciones externas', '0'/);
   assert.doesNotMatch(script, /\b(?:canonical_state|proposed_resolution)\b/);
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260818-order-response-fidelity-v1">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260818-incident-truth-v1">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260818-order-response-fidelity-v1" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260818-incident-truth-v1" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);
@@ -67,7 +64,7 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
   assert.match(script, /Pendientes de Dropshipper/);
   assert.match(script, /latest_customer_intent/);
   for (const label of ['Todos', 'Con respuesta', 'Confirmar', 'Dirección', 'Incidencias', 'No confirmar', 'Revisión', 'Sin respuesta', 'No verificable']) assert.match(script, new RegExp(label));
-  for (const field of ['Acción recomendada', 'Acción real', 'Señal del cliente', 'Cliente / importe']) assert.match(script, new RegExp(field));
+  for (const field of ['Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe']) assert.match(script, new RegExp(field));
   assert.match(script, /Pend\. Dropshipper/);
   assert.match(script, /Todos los estados/);
   assert.match(script, /Buscar ID Dropea/);
@@ -88,9 +85,9 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
 
 test('incidents use current connector polls and distinguish a missing association from a connector error', () => {
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
-  assert.match(script, /operational_response_status/);
+  assert.match(script, /customer_evidence/);
   assert.match(script, /operational_freshness_status/);
   assert.match(script, /Sin conversación asociada/);
-  assert.match(script, /No es un fallo de conexión/);
-  assert.match(script, /ninguna acción ejecutada/i);
+  assert.match(script, /no se presupone que el cliente no respondió/i);
+  assert.match(script, /No se ha ejecutado ninguna acción externa/i);
 });
