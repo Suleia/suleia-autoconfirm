@@ -55,7 +55,9 @@ export async function syncDropeaPublicApi({
           });
         }
       });
-    const issueParams = ['BACKFILL', 'INCREMENTAL'].includes(upperPhase)
+    // BACKFILL preserves the historical mirror. Every live refresh reads Dropea's
+    // authoritative pending queue so records that leave it can be reconciled.
+    const issueParams = upperPhase === 'BACKFILL'
       ? {}
       : { only_pending_to_resolve: true };
     const issuePage = await client.listAll('listIssues', issueParams, {
@@ -121,6 +123,7 @@ export async function syncDropeaPublicApi({
       }));
 
     let ordersInserted = 0, ordersUpdated = 0, issuesInserted = 0, issuesUpdated = 0;
+    let issuesRemovedFromPending = 0;
     if (!dryRun) {
       for (const order of orders) {
         const result = await projector.upsertOrder(order);
@@ -129,6 +132,20 @@ export async function syncDropeaPublicApi({
       for (const issue of issues) {
         const result = await projector.upsertIssue(issue);
         if (result?.inserted) issuesInserted += 1; else issuesUpdated += 1;
+      }
+      const authoritativePendingSnapshot = upperPhase !== 'BACKFILL'
+        && issuePage.complete === true
+        && orphanIssues.length === 0
+        && Boolean(storeConfig)
+        && typeof projector.reconcilePendingIssues === 'function';
+      if (authoritativePendingSnapshot) {
+        const reconciliation = await projector.reconcilePendingIssues({
+          market: client.market,
+          storeId,
+          activeIssueIds: issues.map((item) => item.dropea_issue_id),
+          observedAt
+        });
+        issuesRemovedFromPending = Number(reconciliation?.reconciled || 0);
       }
     }
 
@@ -183,6 +200,7 @@ export async function syncDropeaPublicApi({
       orders_updated_in_shadow: ordersUpdated,
       issues_inserted_to_shadow: issuesInserted,
       issues_updated_in_shadow: issuesUpdated,
+      issues_removed_from_pending: issuesRemovedFromPending,
       dry_run: dryRun,
       phase: upperPhase,
       orphan_issues_blocked: orphanIssues.length,

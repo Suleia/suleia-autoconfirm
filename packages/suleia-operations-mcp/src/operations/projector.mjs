@@ -413,6 +413,53 @@ export class OperationsProjector {
     return { projected: true, inserted: integrationResult?.rows?.[0]?.inserted === true, resource: 'issue', shadow_mirror_writes: 1, actions_executed: 0, production_writes: 0 };
   }
 
+  async reconcilePendingIssues({ market, storeId, activeIssueIds = [], observedAt }) {
+    assertSafe({ market, storeId, activeIssueIds, observedAt });
+    const ids = activeIssueIds.map(String);
+    const result = await this.pool.query(`/* SHADOW_READ_ONLY: authoritative pending snapshot */
+      WITH no_longer_pending AS (
+        UPDATE integration.dropea_issues
+           SET is_active=false,
+               resolution_status=COALESCE(resolution_status,'SOURCE_NO_LONGER_PENDING'),
+               observed_at=$4::timestamptz,
+               data_freshness='CURRENT',
+               last_seen_at=now(),
+               shadow_mirror_writes=shadow_mirror_writes+1
+         WHERE market=$1 AND store_id=$2 AND status='PENDING' AND is_active=true
+           AND NOT (dropea_issue_id = ANY($3::text[]))
+         RETURNING canonical_issue_id,canonical_order_id
+      ), projected AS (
+        UPDATE read_models.operations_incident_records r
+           SET is_active=false,
+               resolution_status=COALESCE(r.resolution_status,'SOURCE_NO_LONGER_PENDING'),
+               resolution_changed_at=$4::timestamptz,
+               observed_at=$4::timestamptz,
+               freshness='CURRENT'
+          FROM no_longer_pending n
+         WHERE r.canonical_issue_id=n.canonical_issue_id
+         RETURNING r.canonical_issue_id,r.canonical_order_id
+      ), audited AS (
+        INSERT INTO read_models.operations_timeline_records
+          (timeline_id,canonical_order_id,canonical_issue_id,event_type,source,occurred_at,summary_masked,freshness)
+        SELECT 'dropea-pending-snapshot-' || md5(p.canonical_issue_id || $4::text),
+               p.canonical_order_id,p.canonical_issue_id,'DROPEA_INCIDENT_LEFT_PENDING_QUEUE',
+               'DROPEA_PUBLIC_API_V2',$4::timestamptz,
+               jsonb_build_object('pending_snapshot_present',false,'status_preserved','PENDING'),'CURRENT'
+          FROM projected p
+        ON CONFLICT(timeline_id) DO NOTHING
+        RETURNING canonical_issue_id
+      )
+      SELECT count(*)::integer AS reconciled FROM projected`,
+    [market, String(storeId), ids, observedAt]);
+    return {
+      projected: true,
+      resource: 'pending_issue_reconciliation',
+      reconciled: result.rows?.[0]?.reconciled || 0,
+      actions_executed: 0,
+      production_writes: 0
+    };
+  }
+
   async syncCheckpoint(record) {
     assertSafe(record);
     await this.pool.query(`INSERT INTO integration.dropea_sync_checkpoints

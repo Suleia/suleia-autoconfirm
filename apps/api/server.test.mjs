@@ -19,7 +19,8 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
     orderDetail: async () => null,
     listIncidents: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
     incidentOverview: async () => ({ items: [], total: 0, limit: 25, offset: 0, summary: { pending: 0 } }),
-    incidentDetail: async () => null
+    incidentDetail: async () => null,
+    recordIncidentFeedback: async (_id, value) => ({ feedback_id: 1, feedback_type: value.feedbackType, reason_code: value.reasonCode, actions_executed: 0, production_writes: 0 })
   };
   const server = createOperationsServer({
     config,
@@ -57,6 +58,27 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   assert.equal(overviewPayload.production_writes, 0);
   const post = await fetch(`${base}/api/operations/summary`, { method: 'POST' });
   assert.equal(post.status, 405);
+  const feedback = await fetch(`${base}/api/operations/incidents/issue-fixture/feedback`, {
+    method: 'POST', headers: { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feedback_type: 'APPROVE', reason_code: 'ACCURATE', recommendation_code: 'VALIDATE_NEW_ADDRESS' })
+  });
+  const feedbackPayload = await feedback.json();
+  assert.equal(feedback.status, 201);
+  assert.equal(feedbackPayload.internal_feedback_writes, 1);
+  assert.equal(feedbackPayload.production_writes, 0);
+});
+
+test('incident feedback is structured, parameterized and cannot trigger external actions', async () => {
+  const calls = [];
+  const client = { query: async (sql, values = []) => { calls.push({ sql, values }); return /INSERT INTO/.test(sql) ? { rows: [{ feedback_id: 7, actions_executed: 0, production_writes: 0 }] } : { rows: [] }; }, release() {} };
+  const pool = { connect: async () => client, end: async () => {} };
+  const repository = new OperationsRepository(null, { pool });
+  const result = await repository.recordIncidentFeedback('issue-1', { feedbackType: 'CORRECT', reasonCode: 'WRONG_TYPE', recommendationCode: 'CLASSIFY_INCIDENT', principalHash: 'principal-hash' });
+  assert.equal(calls[0].sql, 'BEGIN READ WRITE');
+  assert.match(calls[1].sql, /decision_memory\.incident_recommendation_feedback/);
+  assert.deepEqual(calls[1].values, ['issue-1', 'CLASSIFY_INCIDENT', 'CORRECT', 'WRONG_TYPE', 'principal-hash']);
+  assert.equal(result.production_writes, 0);
+  await assert.rejects(() => repository.recordIncidentFeedback('issue-1', { feedbackType: 'EXECUTE', reasonCode: 'OTHER', recommendationCode: 'X', principalHash: 'x' }), { code: 'INVALID_FEEDBACK' });
 });
 
 test('OAuth auth requires issuer/audience verification, role and read scope', async () => {

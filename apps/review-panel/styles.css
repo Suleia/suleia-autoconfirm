@@ -32,3 +32,10 @@ button,select,input{font:inherit}.queue-card[aria-busy="true"] .table-wrap{opaci
 .signal-cell .signal-card.signal-address_change,.signal-cell .signal-card.signal-promotion_change{border-left-color:var(--amber);background:linear-gradient(135deg,#fff8ea,#fff)}
 .signal-cell .signal-card.signal-reject{border-left-color:var(--red);background:linear-gradient(135deg,#fff1ef,#fff)}
 .signal-cell .signal-evidence{padding-top:5px;margin-top:2px;border-top:1px solid rgba(99,113,129,.14);font-weight:700;color:#526271}
+.recommendation-steps{margin:.85rem 0;padding-left:1.25rem;color:var(--ink)}
+.recommendation-steps li{margin:.4rem 0;line-height:1.4}
+.feedback-controls{display:flex;flex-wrap:wrap;gap:.55rem;margin-top:1rem}
+.feedback-button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:.55rem .8rem;font-weight:700;cursor:pointer}
+.feedback-button:hover{border-color:var(--teal);color:var(--teal-dark)}
+.feedback-button:disabled{opacity:.55;cursor:default}
+.feedback-status{display:block;margin-top:.7rem;color:var(--muted)}

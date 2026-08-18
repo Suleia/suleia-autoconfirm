@@ -1,5 +1,6 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
 import { privateOrderDisplay } from './private-display.mjs';
+import { incidentInsight } from './incident-insight.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
@@ -339,7 +340,7 @@ export class OperationsRepository {
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
     );
-    return { items: result.rows, total: result.rows[0]?.total_count || 0, limit, offset };
+    return { items: result.rows.map(incidentInsight), total: result.rows[0]?.total_count || 0, limit, offset };
   }
 
   async incidentOverview(searchParams) {
@@ -382,17 +383,45 @@ export class OperationsRepository {
       selected.values
     );
     const row = result.rows[0] || {};
-    return { items: row.items || [], total: row.total || 0, limit, offset, summary: row.summary || {} };
+    return { items: (row.items || []).map(incidentInsight), total: row.total || 0, limit, offset, summary: row.summary || {} };
   }
 
   async incidentDetail(id) {
-    const [detail, timeline] = await Promise.all([
+    const [detail, timeline, feedback] = await Promise.all([
       this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [id]),
       this.pool.query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_panel_context
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
-        ORDER BY occurred_at DESC LIMIT 200`, [id])
+        ORDER BY occurred_at DESC LIMIT 200`, [id]),
+      this.pool.query(`SELECT feedback_type,reason_code,created_at
+        FROM decision_memory.incident_recommendation_feedback
+        WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
+          WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
+        ORDER BY created_at DESC LIMIT 20`, [id])
     ]);
-    return detail.rows[0] ? { incident: detail.rows[0], timeline: timeline.rows } : null;
+    return detail.rows[0] ? { incident: incidentInsight(detail.rows[0]), timeline: timeline.rows, feedback: feedback.rows } : null;
+  }
+
+  async recordIncidentFeedback(id, { feedbackType, reasonCode, recommendationCode, principalHash }) {
+    const allowedFeedback = new Set(['APPROVE', 'CORRECT', 'REJECT']);
+    const allowedReasons = new Set(['ACCURATE', 'WRONG_TYPE', 'MISSING_CHATBY', 'WRONG_ACTION', 'STALE_DATA', 'OTHER']);
+    if (!allowedFeedback.has(feedbackType) || !allowedReasons.has(reasonCode)
+      || typeof recommendationCode !== 'string' || recommendationCode.length < 2 || recommendationCode.length > 80) {
+      const error = new Error('invalid_feedback'); error.code = 'INVALID_FEEDBACK'; throw error;
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN READ WRITE');
+      const result = await client.query(`INSERT INTO decision_memory.incident_recommendation_feedback
+        (canonical_issue_id,recommendation_code,feedback_type,reason_code,principal_hash)
+        SELECT canonical_issue_id,$2,$3,$4,$5 FROM read_models.operations_incident_records
+        WHERE canonical_issue_id=$1 OR dropea_issue_id=$1
+        RETURNING feedback_id,feedback_type,reason_code,created_at,actions_executed,production_writes`,
+      [id, recommendationCode, feedbackType, reasonCode, principalHash]);
+      await client.query('COMMIT');
+      return result.rows[0] || null;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {}); throw error;
+    } finally { client.release(); }
   }
 }

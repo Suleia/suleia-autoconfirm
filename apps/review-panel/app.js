@@ -34,7 +34,7 @@ async function exchangeCode(code, returnedState) {
 }
 
 function activeToken() { const token = sessionStorage.getItem('suleia_access_token'); const expires = Number(sessionStorage.getItem('suleia_token_expires_at') || 0); return token && expires > Date.now() + 15000 ? token : null; }
-async function api(path, { signal } = {}) { const response = await fetch(`${operationsBase}${path}`, { headers: { Authorization: `Bearer ${state.token}`, Accept: 'application/json' }, signal }); if (response.status === 401 || response.status === 403) { signOut(false); throw new Error('Tu sesión ha caducado.'); } if (response.status === 429) throw new Error('Demasiadas actualizaciones seguidas. Espera unos segundos.'); if (!response.ok) throw new Error('La lectura no está disponible temporalmente.'); return (await response.json()).data; }
+async function api(path, { signal, method = 'GET', body } = {}) { const response = await fetch(`${operationsBase}${path}`, { method, headers: { Authorization: `Bearer ${state.token}`, Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal }); if (response.status === 401 || response.status === 403) { signOut(false); throw new Error('Tu sesión ha caducado.'); } if (response.status === 429) throw new Error('Demasiadas actualizaciones seguidas. Espera unos segundos.'); if (!response.ok) throw new Error('La operación no está disponible temporalmente.'); return (await response.json()).data; }
 function signOut(remote = true) { sessionStorage.removeItem('suleia_access_token'); sessionStorage.removeItem('suleia_token_expires_at'); state.token = null; $('app').hidden = true; $('login').hidden = false; if (remote && state.config) { const url = new URL(`${state.config.oauth.issuer}/protocol/openid-connect/logout`); url.searchParams.set('client_id', state.config.oauth.client_id); url.searchParams.set('post_logout_redirect_uri', redirectUri()); location.assign(url.toString()); } }
 
 function badge(value) { const v = text(value); const lower = v.toLowerCase(); let tone = 'gray'; if (/ready|pass|exact|verified|delivered|finish|resolved|responded|permitida/.test(lower)) tone = 'green'; else if (/wait|pending|medium|review|active|incidence/.test(lower)) tone = 'amber'; else if (/high|critical|blocked|error|stale|conflict|reject|return|cancel/.test(lower)) tone = 'red'; else if (/human|simulation/.test(lower)) tone = 'purple'; else if (/info|shipping|transit/.test(lower)) tone = 'blue'; return node('span', `badge ${tone}`, v); }
@@ -102,14 +102,11 @@ function renderSummary() {
     const activeScope = (data?.scope || 'ACTIVE') === 'ACTIVE';
     const updated = `Actualizado ${date(data?.last_sync_at)}`;
     root.append(
-      summaryCard(activeScope ? 'Pendientes' : 'Seleccionadas', data?.pending, `${activeScope ? 'Incidencias activas de Dropea' : `Alcance: ${translated(data?.scope)}`} · ${updated}`),
-      summaryCard('Con respuesta', data?.responded, `Respuesta posterior a la incidencia · ${updated}`, 'green'),
-      summaryCard('Alta prioridad', data?.high_risk, `Requiere atención · ${updated}`, 'red'),
-      summaryCard('Destinatario ausente', data?.recipient_absent, `Seguimiento de entrega · ${updated}`, 'amber'),
-      summaryCard('Dirección / datos', data?.address_issues, `Datos de envío a revisar · ${updated}`, 'amber'),
-      summaryCard('No acepta mercancía', data?.refused, `Rechazo del destinatario · ${updated}`, 'red'),
-      summaryCard('Sin Chatby', data?.without_conversation, `No es un fallo de conexión: falta asociación técnica · ${updated}`, 'purple'),
-      summaryCard('Fuente no vigente', data?.stale, `Dropea o Chatby no sincronizados recientemente · ${updated}`, 'red')
+      summaryCard(activeScope ? 'Pendientes reales en Dropea' : 'Seleccionadas', data?.pending, `${activeScope ? 'Cola actual de resolución' : `Alcance: ${translated(data?.scope)}`} · ${updated}`),
+      summaryCard('Cliente actuó', data?.responded, `Respuesta válida ligada a la incidencia · ${updated}`, 'green'),
+      summaryCard('Sin conversación exacta', data?.without_conversation, `No se presupone que el cliente no respondió · ${updated}`, 'purple'),
+      summaryCard('Dirección', data?.address_issues, `Requieren datos de entrega válidos · ${updated}`, 'amber'),
+      summaryCard('Atención prioritaria', data?.high_risk, `Riesgo alto o crítico · ${updated}`, 'red')
     );
   }
   const last = data?.last_sync_at || state.summary?.protections?.last_reconciled_at;
@@ -121,16 +118,9 @@ const filterDefinitions = {
   orders: [],
   incidents: [
     ['scope', 'Alcance', ['ACTIVE', 'HISTORICAL', 'ALL']],
-    ['active', 'Actividad', ['true', 'false']],
-    ['status', 'Estado', ['PENDING', 'RESOLVED', 'CLOSED']],
-    ['type', 'Tipo', ['RECIPIENT_ABSENT', 'ADDRESS_INCORRECT', 'PENDING_DATA', 'REFUSED_BY_RECIPIENT', 'POSSIBLE_RETURN', 'RETURN_REQUESTED', 'PICKUP_AT_AGENCY', 'DELIVERY_FAILED', 'ADMINISTRATIVE_ISSUE', 'PENDING_AUTHORIZATION', 'RETAINED', 'CUSTOMS_ISSUE', 'DAMAGED_PACKAGE', 'LOST_PACKAGE', 'GENERAL_INCIDENCE', 'UNKNOWN']],
-    ['mapping', 'Mapping GLS', ['MAPPED', 'VERIFIED', 'UNMAPPED', 'UNKNOWN']],
+    ['type', 'Qué ocurre', ['RECIPIENT_ABSENT', 'ADDRESS_INCORRECT', 'REFUSED_BY_RECIPIENT', 'GENERAL_INCIDENCE', 'UNKNOWN']],
     ['response', 'Evidencia cliente', ['VALID_RESPONSE', 'NO_VALID_RESPONSE', 'NO_CONVERSATION', 'NOT_VERIFIABLE']],
-    ['risk', 'Riesgo', ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']],
-    ['freshness', 'Datos', ['FRESH', 'STALE', 'UNAVAILABLE', 'UNKNOWN']],
-    ['qa', 'QA', ['PASS', 'REVIEW', 'BLOCKED']],
-    ['timer', 'Timer efectivo', ['ACTIVE', 'EXPIRED', 'COMPLETED', 'CANCELLED']],
-    ['decision', 'Situación', ['REVIEW_CHATBY_LINK', 'REVIEW_CUSTOMER_RESPONSE', 'WAITING_CUSTOMER', 'HUMAN_REVIEW']]
+    ['risk', 'Prioridad', ['HIGH', 'CRITICAL']]
   ]
 };
 function renderFilters() {
@@ -165,7 +155,7 @@ function renderFilters() {
     select.addEventListener('change', () => changed(key, select.value)); root.append(select);
   }
   if (state.view === 'incidents') {
-    for (const [key, label, type] of [['q', 'Pedido o incidencia', 'search'], ['carrier_code', 'Código GLS', 'search'], ['from', 'Desde', 'date'], ['to', 'Hasta', 'date']]) {
+    for (const [key, label, type] of [['q', 'Buscar pedido o incidencia', 'search']]) {
       const input = node('input', 'filter-select'); input.type = type; input.placeholder = label;
       input.setAttribute('aria-label', label); input.value = state.filters[key] || '';
       input.addEventListener('change', () => changed(key, input.value));
@@ -250,22 +240,18 @@ function rowOrder(item) {
 }
 function rowIncident(item) {
   const tr = node('tr'); tr.tabIndex = 0;
-  const customer = translated(item.operational_response_status);
-  const conversation = item.conversation_status === 'FOUND' ? 'Conversación localizada' : item.conversation_status === 'NONE' ? 'Sin conversación asociada' : 'Asociación no verificable';
-  const timer = item.effective_timer_status === 'EXPIRED' ? 'Plazo vencido; revisar' : translated(item.effective_timer_status);
-  const quality = node('div', 'stacked'); quality.append(badge(item.operational_freshness_status), node('small', '', `Actualizado ${date(item.panel_updated_at || item.updated_at)}`));
+  const customer = item.customer_evidence || {};
+  const recommendation = item.tailored_recommendation || {};
   tr.append(
-    cell(stacked(`#${short(item.dropea_issue_id)}`, `Pedido #${short(item.dropea_order_id)}`)),
-    cell(stacked(translated(item.interpreted_type), `${translated(item.status)} · ${item.is_active ? 'Activa' : 'Inactiva'} · ${text(item.carrier)}`)),
-    cell(stacked(customer, `${conversation} · ${Number(item.messages_used || 0)} mensaje(s)`)),
-    cell(stacked(translated(item.operational_decision_status), timer)),
-    cell(stacked(translated(item.operational_recommendation), 'Propuesta de revisión; ninguna acción ejecutada')),
-    cell(stacked(`Dropea ${item.dropea_sync_current ? 'conectado' : 'sincronización atrasada'}`, `Chatby ${item.chatby_sync_current ? 'conectado' : 'sincronización atrasada'}`)),
-    cell(quality)
+    cell(stacked(`Incidencia #${short(item.dropea_issue_id)}`, `Pedido Dropea #${short(item.dropea_order_id)} · ${date(item.created_at)}`)),
+    cell(stacked(translated(item.interpreted_type), item.initial_carrier_description_sanitized || 'Sin descripción adicional de Dropea')),
+    cell(stacked(customer.title, `${customer.summary} · ${Number(customer.messages || 0)} mensaje(s)`), 'signal-cell'),
+    cell(stacked(recommendation.title, recommendation.summary), 'decision-card'),
+    cell(stacked(item.source_truth === 'PENDING_IN_DROPEA' ? 'Pendiente en Dropea' : 'Fuera de la cola pendiente', `${item.operational_freshness_status === 'FRESH' ? 'Datos vigentes' : 'Revisar actualización'} · acción real: 0`))
   );
   tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
 }
-function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Motivo', 'Señal del cliente', 'Estado operativo', 'Acción recomendada', 'Conexiones', 'Calidad']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
+function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Qué ocurre', 'Qué hizo el cliente', 'Solución propuesta', 'Estado real']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
 
 async function loadQueue() {
   if (state.view === 'finance') return;
@@ -286,6 +272,7 @@ async function loadQueue() {
     if (data.total === 0) state.offset = 0;
     state.total = data.total; if (view === 'orders') renderSummary(); const items = data.items || []; const body = $('table-body');
     body.replaceChildren(...items.map(view === 'orders' ? rowOrder : rowIncident)); $('empty-state').hidden = items.length > 0;
+    if (!items.length && view === 'incidents') $('empty-state').textContent = state.filters.scope === 'ACTIVE' ? 'Dropea no tiene incidencias pendientes de resolver.' : 'No hay incidencias para los filtros seleccionados.';
     $('result-count').textContent = `${data.total} registros`; $('page-status').textContent = data.total ? `${state.offset + 1}–${Math.min(state.offset + state.limit, data.total)} de ${data.total}` : '0 de 0';
     $('prev-page').disabled = state.offset === 0; $('next-page').disabled = state.offset + state.limit >= data.total;
   } catch (error) { if (error.name !== 'AbortError' && request === state.queueRequest) showNotice(error.message); }
@@ -295,6 +282,25 @@ function field(label, value, asBadge = false) { const el = node('div', 'field');
 function section(title, fields, className = '') { const box = node('section', `detail-section ${className}`.trim()); box.append(node('h3', '', title)); const grid = node('div', 'field-grid'); fields.forEach((item) => grid.append(field(...item))); box.append(grid); return box; }
 function timeline(items) { const box = node('section', 'detail-section'); box.append(node('h3', '', 'Cronología')); const list = node('div', 'timeline'); for (const item of items || []) { const row = node('div', 'timeline-item'); row.append(node('strong', '', text(item.event_type)), node('span', '', `${date(item.occurred_at)} · ${text(item.source)} · ${text(item.freshness)}`)); list.append(row); } if (!(items || []).length) list.append(node('span', '', 'Sin eventos disponibles')); box.append(list); return box; }
 function relatedIncidents(items) { const box = node('section', 'detail-section'); box.append(node('h3', '', 'Incidencias relacionadas')); if (!(items || []).length) { box.append(node('p', 'muted', 'Este pedido no tiene incidencias registradas.')); return box; } const list = node('div', 'related-list'); for (const item of items) list.append(stacked(`${text(item.normalized_type)} · ${text(item.status)}`, `${text(item.carrier)} · ${date(item.updated_at)}`)); box.append(list); return box; }
+function recommendationPanel(incident, feedback = []) {
+  const recommendation = incident.tailored_recommendation || {};
+  const box = node('section', 'detail-section decision-card');
+  box.append(node('h3', '', 'Solución propuesta para esta incidencia'), stacked(recommendation.title, recommendation.summary));
+  const steps = node('ol', 'recommendation-steps');
+  for (const step of recommendation.steps || []) steps.append(node('li', '', step));
+  box.append(steps, node('p', 'muted', 'Propuesta basada en Dropea y la conversación exacta del pedido. No se ha ejecutado ninguna acción externa.'));
+  const controls = node('div', 'feedback-controls');
+  const status = node('small', 'feedback-status', feedback.length ? `Feedback registrado: ${feedback.length}` : 'Tu feedback se guarda como memoria operativa y no ejecuta acciones.');
+  for (const [label, feedbackType, reasonCode] of [['Útil', 'APPROVE', 'ACCURATE'], ['Tipo incorrecto', 'CORRECT', 'WRONG_TYPE'], ['Falta Chatby', 'CORRECT', 'MISSING_CHATBY'], ['Acción incorrecta', 'REJECT', 'WRONG_ACTION']]) {
+    const button = node('button', 'feedback-button', label); button.type = 'button';
+    button.addEventListener('click', async (event) => {
+      event.stopPropagation(); controls.querySelectorAll('button').forEach((item) => { item.disabled = true; }); status.textContent = 'Guardando feedback…';
+      try { await api(`/api/operations/incidents/${encodeURIComponent(incident.canonical_issue_id)}/feedback`, { method: 'POST', body: { feedback_type: feedbackType, reason_code: reasonCode, recommendation_code: recommendation.code } }); status.textContent = 'Feedback registrado para las siguientes revisiones.'; }
+      catch (error) { status.textContent = error.message; controls.querySelectorAll('button').forEach((item) => { item.disabled = false; }); }
+    }); controls.append(button);
+  }
+  box.append(controls, status); return box;
+}
 async function openDetail(id) {
   const view = state.view; const request = ++state.detailRequest;
   state.detailController?.abort(); state.detailController = new AbortController();
@@ -317,11 +323,10 @@ async function openDetail(id) {
     } else {
       const incident = data.incident; $('detail-title').textContent = `Incidencia ${short(incident.dropea_issue_id)}`;
       root.append(
-        section('Identidad y situación', [['ID canónico incidencia', incident.canonical_issue_id], ['ID Dropea incidencia', incident.dropea_issue_id], ['ID canónico pedido', incident.canonical_order_id], ['ID Dropea pedido', incident.dropea_order_id], ['Mercado / tienda', `${text(incident.market)} / ${text(incident.store_id)}`], ['Identidad', incident.identity_status, true], ['Estado', translated(incident.status), true], ['Activa', incident.is_active ? 'SÍ' : 'NO'], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)], ['Antigüedad', duration(incident.age_seconds)], ['Resolución', incident.resolution_status || 'NO DISPONIBLE']]),
-        section('Tipología, GLS y capacidad', [['Tipo normalizado', translated(incident.normalized_type)], ['Tipo original Dropea', translated(incident.raw_type)], ['Tipo interpretado', translated(incident.interpreted_type), true], ['Base de interpretación', incident.interpretation_basis], ['Transportista', incident.carrier], ['Código GLS original', incident.initial_carrier_code], ['Subestado GLS', incident.initial_carrier_substatus_code], ['Descripción observada', incident.initial_carrier_description_sanitized], ['Mapping gobernado', incident.mapping_status === 'UNMAPPED' ? 'Código GLS pendiente de gobernar' : translated(incident.mapping_status), true], ['Confianza mapping', incident.mapping_confidence ?? 'NO DISPONIBLE'], ['Intento', incident.delivery_attempt_number], ['Capacidad Dropea', incident.capability_status, true], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS']]),
-        section('Evidencia del cliente', [['Conversación', incident.conversation_status === 'FOUND' ? 'Conversación localizada' : incident.conversation_status === 'NONE' ? 'Sin conversación asociada' : 'Asociación no verificable', true], ['Motivo del enlace', incident.conversation_reason], ['Método de identidad', incident.conversation_identity_method], ['Estado operativo', translated(incident.operational_response_status), true], ['Intención', incident.operational_response_status === 'VALID_RESPONSE' ? incident.customer_intent : 'SIN SEÑAL VERIFICADA'], ['Mensajes usados', incident.messages_used ?? 0], ['Última actividad cliente', date(incident.latest_customer_activity_at)], ['Última actividad Suleia', date(incident.latest_suleia_activity_at)], ['Contradicción', incident.contradiction ? 'SÍ' : 'NO', true]]),
-        section('Decisión y propuesta', [['Situación operativa', translated(incident.operational_decision_status), true], ['Acción recomendada', translated(incident.operational_recommendation), true], ['Justificación', incident.reason_summary], ['Riesgo', incident.effective_risk || incident.risk || 'NO EVALUABLE', true], ['QA', incident.effective_qa_status, true], ['Bloqueos observados', translatedBlockers(incident.effective_blocking_reasons).join(', ') || 'NINGUNO'], ['Acción externa', 'NO EJECUTADA', true], ['Acciones ejecutadas', incident.actions_executed || 0], ['Escrituras externas', incident.production_writes || 0]], 'decision-card'),
-        section('Plazos y conexiones', [['Estado del plazo', translated(incident.effective_timer_status), true], ['Esperando cliente', incident.waiting_customer ? 'SÍ' : 'NO'], ['Inicio', date(incident.timer_started_at)], ['Vence', date(incident.timer_due_at)], ['Retraso', duration(incident.overdue_seconds)], ['Estado de datos', translated(incident.operational_freshness_status), true], ['Dropea', incident.dropea_sync_current ? 'CONECTADO' : 'SINCRONIZACIÓN ATRASADA', true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Chatby', incident.chatby_sync_current ? 'CONECTADO' : 'SINCRONIZACIÓN ATRASADA', true], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)]]),
+        section('Situación real', [['Incidencia Dropea', `#${incident.dropea_issue_id}`], ['Pedido Dropea', `#${incident.dropea_order_id}`], ['Estado en la cola', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Motivo', translated(incident.interpreted_type)], ['Descripción de Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADA'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada en origen', date(incident.updated_at)]]),
+        section('Acción del cliente', [['Resultado', incident.customer_evidence?.title, true], ['Qué consta', incident.customer_evidence?.summary], ['Mensajes asociados', incident.customer_evidence?.messages ?? 0], ['Última acción', date(incident.customer_evidence?.at)], ['Asociación', incident.conversation_status === 'FOUND' ? 'Conversación exacta del pedido' : 'NO VERIFICADA', true]]),
+        recommendationPanel(incident, data.feedback),
+        section('Trazabilidad', [['Tipo original', incident.raw_type], ['Tipo interpretado', translated(incident.interpreted_type)], ['Mapping', translated(incident.mapping_status), true], ['Código transportista', incident.initial_carrier_code], ['Opciones de Dropea', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Estado de datos', translated(incident.operational_freshness_status), true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)], ['Acciones externas', '0'], ['Escrituras externas', '0']]),
         timeline(data.timeline)
       );
     }
