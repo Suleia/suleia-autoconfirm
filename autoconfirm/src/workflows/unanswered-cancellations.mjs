@@ -80,6 +80,10 @@ function subscriberHasCustomerAction(subscriber) {
   });
 }
 
+export function hasAuthoritativeSubscriberAction(exactSubscriber) {
+  return Boolean(exactSubscriber && subscriberHasCustomerAction(exactSubscriber));
+}
+
 function isCustomerMessage(message) {
   const role = normalizeText(message?.role || message?.sender || message?.direction || message?.type || message?.from || message?.sent_by || message?.sentBy);
   const sender = normalizeText(message?.sender_type || message?.senderType || message?.from_type || message?.fromType || message?.source || message?.author_type || message?.authorType);
@@ -144,10 +148,12 @@ function classifyCustomerSignal(messages) {
 async function customerMessagesForOrder(order, createdAt) {
   if (!config.chatbyToken) return { ok: false, reason: 'missing_chatby_token', messages: [] };
   if (!order.customerPhone) return { ok: false, reason: 'missing_customer_phone', messages: [] };
-  const subscriber = await findSubscriberForOrder({
+  const exactSubscriber = await findSubscriberForOrder({
     phone: order.customerPhone,
-    orderId: order.orderId
-  }) || await findSubscriberByPhone({ phone: order.customerPhone });
+    orderId: order.orderId,
+    allowConfirmedPhoneFallback: false
+  });
+  const subscriber = exactSubscriber || await findSubscriberByPhone({ phone: order.customerPhone });
   if (!subscriber?.user_ns) {
     return {
       ok: true,
@@ -162,9 +168,13 @@ async function customerMessagesForOrder(order, createdAt) {
   const messages = await getChatMessages(subscriber.user_ns);
   return {
     ok: true,
-    reason: 'chatby_thread_checked',
+    reason: exactSubscriber ? 'chatby_exact_order_thread_checked' : 'chatby_phone_thread_checked',
+    association: exactSubscriber ? 'EXACT_ORDER' : 'PHONE_FALLBACK',
     subscriber,
-    hasCustomerAction: subscriberHasCustomerAction(subscriber),
+    // Statuses and labels on a phone-only fallback can belong to an older
+    // order. Only exact order metadata is authoritative here; phone fallback
+    // messages are still filtered by the current Dropea order creation time.
+    hasCustomerAction: hasAuthoritativeSubscriberAction(exactSubscriber),
     messages: (Array.isArray(messages) ? messages : [])
     .filter(isCustomerMessage)
     .filter((message) => {
@@ -279,7 +289,7 @@ async function collectCancellationCandidates({ limit, pages, orderIds = [] }) {
 export async function runUnansweredCancellationSweep({ store = config.defaultStore, limit = 100, pages = 5, orderIds = [] } = {}) {
   const enabled = Boolean(store.unansweredRejectRealEnabled ?? config.defaultStore.unansweredRejectRealEnabled);
   const dryRun = Boolean(store.agentDryRun ?? config.defaultStore.agentDryRun) && !enabled;
-  const limitHours = Number(store.unansweredCancelAfterHours ?? config.defaultStore.unansweredCancelAfterHours ?? 36);
+  const limitHours = Number(store.unansweredCancelAfterHours ?? config.defaultStore.unansweredCancelAfterHours ?? 48);
   const results = [];
 
   try {
@@ -391,7 +401,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         results.push({
           orderId: order.orderId,
           skipped: true,
-          reason: 'before_36h_window',
+          reason: 'before_unanswered_window',
           status: order.status,
           elapsedHours: Number(elapsedHours.toFixed(2))
         });
@@ -430,6 +440,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           skipped: true,
           reason: chatbyCheck.hasCustomerAction ? 'chatby_customer_action_detected' : `customer_signal_${signal.toLowerCase()}`,
           chatbyReason: chatbyCheck.reason,
+          association: chatbyCheck.association,
           customerMessages: chatbyCheck.messages.length,
           status: order.status,
           elapsedHours: Number(elapsedHours.toFixed(2)),
@@ -458,6 +469,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           dryRun: true,
           action: 'would_cancel_unanswered',
           chatbyReason: chatbyCheck.reason,
+          association: chatbyCheck.association,
           customerMessages: chatbyCheck.messages.length,
           elapsedHours: Number(elapsedHours.toFixed(2)),
           order: updated
@@ -487,8 +499,9 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
             orderId: String(order.orderId),
             cancelledAt,
             elapsedHours: Number(elapsedHours.toFixed(2)),
-            source: 'automatic_36h_unanswered_sweep',
+            source: 'automatic_unanswered_sweep',
             chatbyReason: chatbyCheck.reason,
+            association: chatbyCheck.association,
             customerMessages: chatbyCheck.messages.length
           }
         ].slice(-200);
@@ -498,6 +511,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           dryRun: false,
           action: 'cancelled_unanswered',
           chatbyReason: chatbyCheck.reason,
+          association: chatbyCheck.association,
           customerMessages: chatbyCheck.messages.length,
           elapsedHours: Number(elapsedHours.toFixed(2)),
           cancellation,
@@ -523,6 +537,7 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
           reason: 'dropea_cancellation_failed',
           error: message,
           chatbyReason: chatbyCheck.reason,
+          association: chatbyCheck.association,
           customerMessages: chatbyCheck.messages.length,
           elapsedHours: Number(elapsedHours.toFixed(2)),
           order: updated
@@ -534,10 +549,16 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
     state.lastUnansweredCancellationSweepAt = new Date().toISOString();
     state.lastUnansweredCancellationSweepError = null;
     state.lastUnansweredCancellationSweepSummary = {
+      thresholdHours: limitHours,
       checked: results.length,
       cancelled: results.filter((item) => item.action === 'cancelled_unanswered').length,
       skipped: results.filter((item) => item.skipped).length,
       dryRun: results.filter((item) => item.dryRun).length,
+      reasonCounts: results.reduce((counts, item) => {
+        const reason = item.reason || item.action || 'unknown';
+        counts[reason] = (counts[reason] || 0) + 1;
+        return counts;
+      }, {}),
       sample: results.slice(-50).map((item) => ({
         orderId: item.orderId,
         action: item.action || null,
@@ -546,7 +567,8 @@ export async function runUnansweredCancellationSweep({ store = config.defaultSto
         dryRun: Boolean(item.dryRun),
         customerMessages: item.customerMessages ?? null,
         elapsedHours: item.elapsedHours ?? null,
-        chatbyReason: item.chatbyReason ?? null
+        chatbyReason: item.chatbyReason ?? null,
+        association: item.association ?? null
       }))
     };
     saveState(state);

@@ -5,7 +5,26 @@ process.env.CHATBY_TOKEN = 'test-token';
 process.env.CHATBY_BASE_URL = 'https://chatby.test/api';
 process.env.CHATBY_REQUEST_MIN_INTERVAL_MS = '0';
 
-const { getChatMessages, sendWhatsappTemplate } = await import('./chatby.mjs');
+const { findSubscriberInIndexForOrder, getChatMessages, sendWhatsappTemplate } = await import('./chatby.mjs');
+
+test('strict order lookup never reuses a confirmed subscriber from another order', () => {
+  const subscriber = {
+    phone: '+34600000000',
+    lead_status: 'CONFIRMADO',
+    user_fields: [{ name: 'Dropea: Numero', value: 'older-order' }]
+  };
+  const index = { byPhone: new Map([['600000000', [subscriber]]]) };
+
+  assert.equal(findSubscriberInIndexForOrder(index, {
+    phone: '+34600000000',
+    orderId: 'current-order',
+    allowConfirmedPhoneFallback: false
+  }), null);
+  assert.equal(findSubscriberInIndexForOrder(index, {
+    phone: '+34600000000',
+    orderId: 'current-order'
+  })?.lead_status, 'CONFIRMADO');
+});
 
 test('never retries a template delivery after a rate-limit response', async () => {
   const originalFetch = globalThis.fetch;

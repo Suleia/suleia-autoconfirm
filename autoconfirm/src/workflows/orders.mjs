@@ -986,7 +986,7 @@ async function storedConfirmationResult(order, store) {
 }
 
 async function unansweredTimeoutCancellationResult(order, store, validFrom) {
-  // La cancelacion por 36h se ejecuta solo desde runUnansweredCancellationSweep,
+  // La cancelacion por falta de respuesta se ejecuta solo desde runUnansweredCancellationSweep,
   // que verifica Chatby en modo fail-safe antes de tocar Dropea.
   return null;
 }
