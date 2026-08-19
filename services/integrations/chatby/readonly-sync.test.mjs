@@ -187,5 +187,6 @@ test('Chatby deterministic classifier recognizes the supported operational inten
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'Quiero recogerlo en agencia' }), 'PICKUP_AT_AGENCY');
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'Necesito cambiar la dirección' }), 'CHANGE_ADDRESS');
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'Confirmo que quiero que se entregue mañana por la mañana o por la tarde y llamad antes de entregar' }), 'DELIVERY_RETRY');
+  assert.equal(chatbyReadOnlyInternals.classifyIntent({ payload: { title: 'Mañana por mañana / tarde' } }), 'DELIVERY_RETRY');
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'mensaje sin decisión' }), 'UNKNOWN');
 });

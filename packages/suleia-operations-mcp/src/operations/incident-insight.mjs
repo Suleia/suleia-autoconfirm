@@ -122,22 +122,23 @@ function recommendation(item, customer) {
       'El cliente solicita recoger el paquete. Debe usarse el punto verificado por el transportista.',
       option(item, 'PICKUP_AT_AGENCY'), ['Validar que el paquete admite recogida', 'Confirmar agencia y plazo de custodia', 'Seleccionar PICKUP_AT_AGENCY'], 'HIGH');
     if (customer.code === 'DELIVERY_RETRY' && customer.delivery_instruction?.requested_day === 'NEXT_DAY') {
+      const callBeforeDelivery = customer.delivery_instruction.call_before_delivery || Boolean(item.customer_phone);
       const window = customer.delivery_instruction.requested_window === 'MORNING_OR_AFTERNOON'
         ? 'en la franja de mañana o tarde indicada por el cliente'
         : customer.delivery_instruction.requested_window === 'MORNING' ? 'por la mañana'
           : customer.delivery_instruction.requested_window === 'AFTERNOON' ? 'por la tarde' : 'en la franja acordada';
-      const callInstruction = customer.delivery_instruction.call_before_delivery
+      const callInstruction = callBeforeDelivery
         ? ' y solicita una llamada antes de la entrega' : '';
       return proposal(
         'NOTIFY_DROPEA_NEXT_DAY_DELIVERY', 'Notificar a Dropea la entrega al día siguiente',
         `El cliente confirma que quiere recibir el pedido al día siguiente ${window}${callInstruction}.`,
         option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
         ['Seleccionar PROVIDE_SOLUTION en Dropea', `Indicar entrega al día siguiente ${window}`,
-          customer.delivery_instruction.call_before_delivery ? 'Indicar que deben llamar al teléfono del pedido antes de entregar' : 'Registrar la franja acordada',
+          callBeforeDelivery ? 'Indicar que deben llamar al teléfono del pedido antes de entregar' : 'Registrar la franja acordada',
           'Verificar que la incidencia sale de la cola pendiente'],
         'HIGH', { customer_instruction: {
           requested_day: 'NEXT_DAY', requested_window: customer.delivery_instruction.requested_window,
-          call_before_delivery: customer.delivery_instruction.call_before_delivery,
+          call_before_delivery: callBeforeDelivery,
           callback_phone_available: Boolean(item.customer_phone)
         } });
     }
