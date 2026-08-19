@@ -280,14 +280,16 @@ function storeSummary({ publicView = false } = {}) {
   const actionReadiness = getDropeaV2OrderActionReadiness();
   const cancellationSummary = state.lastUnansweredCancellationSweepSummary || null;
   const publicCancellationSummary = cancellationSummary ? {
+    thresholdHours: Number(cancellationSummary.thresholdHours || config.defaultStore.unansweredCancelAfterHours || 48),
     checked: Number(cancellationSummary.checked || 0),
     cancelled: Number(cancellationSummary.cancelled || 0),
     skipped: Number(cancellationSummary.skipped || 0),
     dryRun: Number(cancellationSummary.dryRun || 0)
   } : null;
-  const automaticCancellationHistory = Array.isArray(state.automaticUnansweredCancellations)
-    ? state.automaticUnansweredCancellations.slice(-50)
+  const automaticCancellationHistoryAll = Array.isArray(state.automaticUnansweredCancellations)
+    ? state.automaticUnansweredCancellations
     : [];
+  const automaticCancellationHistory = automaticCancellationHistoryAll.slice(-50);
   return {
     store: config.defaultStore.name,
     webhookTokenSuffix: config.defaultStore.webhookToken?.slice(-6) || null,
@@ -314,7 +316,7 @@ function storeSummary({ publicView = false } = {}) {
     lastUnansweredCancellationSweepError: state.lastUnansweredCancellationSweepError,
     lastUnansweredCancellationSweepSummary: publicView ? publicCancellationSummary : cancellationSummary,
     automaticUnansweredCancellations: publicView
-      ? { count: automaticCancellationHistory.length }
+      ? { count: automaticCancellationHistoryAll.length }
       : automaticCancellationHistory,
     lastIncidentsSyncAt: state.lastIncidentsSyncAt,
     lastIncidentsSyncError: state.lastIncidentsSyncError,
@@ -323,6 +325,7 @@ function storeSummary({ publicView = false } = {}) {
     lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
     lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
     unansweredCancellationIntervalMinutes: config.defaultStore.unansweredCancellationIntervalMinutes,
+    unansweredCancelAfterHours: config.defaultStore.unansweredCancelAfterHours,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
     dropeaV2Actions: actionReadiness,
     automationReadiness: {
@@ -1021,7 +1024,7 @@ async function runScheduledUnansweredCancellationSweep() {
 }
 
 function startUnansweredCancellationScheduler() {
-  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 300;
+  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 60;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;
