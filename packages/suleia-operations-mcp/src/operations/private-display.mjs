@@ -5,6 +5,17 @@ function cleanDisplayText(value, maxLength = 160) {
   return String(value).replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, maxLength) || null;
 }
 
+function cleanMessageText(value, maxLength = 1000) {
+  const cleaned = cleanDisplayText(value, maxLength);
+  if (!cleaned) return null;
+  const words = cleaned.split(' ');
+  if (words.length < 4 || words.length % 2 !== 0) return cleaned;
+  const midpoint = words.length / 2;
+  const first = words.slice(0, midpoint).join(' ');
+  const second = words.slice(midpoint).join(' ');
+  return first.localeCompare(second, 'es', { sensitivity: 'base' }) === 0 ? first : cleaned;
+}
+
 export function decryptOperationsPrivateJson(ciphertext, privateDataKey) {
   if (!ciphertext || typeof privateDataKey !== 'string' || privateDataKey.length < 32) return null;
   try {
@@ -49,7 +60,7 @@ export function privateIncidentDisplay(row = {}, privateDataKey) {
   const message = decryptOperationsPrivateJson(messageCiphertext, privateDataKey);
   return {
     ...display,
-    latest_customer_message: cleanDisplayText(message?.text, 1000)
+    latest_customer_message: cleanMessageText(message?.text, 1000)
   };
 }
 
@@ -57,6 +68,6 @@ export function privateIncidentMessages(rows = [], privateDataKey) {
   return rows.map((row) => {
     const { message_text_ciphertext: ciphertext, ...safe } = row;
     const message = decryptOperationsPrivateJson(ciphertext, privateDataKey);
-    return { ...safe, text: cleanDisplayText(message?.text, 1000) };
+    return { ...safe, text: cleanMessageText(message?.text, 1000) };
   }).filter((row) => row.text);
 }
