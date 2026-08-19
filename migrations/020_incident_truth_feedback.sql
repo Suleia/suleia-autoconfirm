@@ -19,5 +19,6 @@ GRANT USAGE ON SCHEMA decision_memory TO suleia_operations_readonly;
 GRANT SELECT,INSERT ON decision_memory.incident_recommendation_feedback TO suleia_operations_readonly;
 GRANT USAGE,SELECT ON SEQUENCE decision_memory.incident_recommendation_feedback_feedback_id_seq TO suleia_operations_readonly;
 GRANT SELECT ON decision_memory.incident_recommendation_feedback TO suleia_backup;
+GRANT SELECT ON SEQUENCE decision_memory.incident_recommendation_feedback_feedback_id_seq TO suleia_backup;
 
 COMMIT;
