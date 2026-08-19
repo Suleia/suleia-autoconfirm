@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { collectPaginated, createReadOnlyTransport } from '../../../packages/platform-core/src/read-only-transport.mjs';
+import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
 
 const ORDER_FIELD = 'dropea: numero';
 
@@ -99,7 +100,7 @@ function direction(message) {
   return 'SYSTEM';
 }
 
-function messageText(message) {
+function rawMessageText(message) {
   return [
     message?.content,
     message?.text,
@@ -107,7 +108,11 @@ function messageText(message) {
     message?.payload?.title,
     message?.button_text
   ].filter((value) => typeof value === 'string').join(' ')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
+}
+
+function messageText(message) {
+  return rawMessageText(message).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
 function classifyIntent(message) {
@@ -150,6 +155,11 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
   const templates = outbound.filter((item) => messageType(item.message) === 'TEMPLATE');
   const latest = valid.at(-1)?.at || null;
   const issueAt = new Date(issueCreatedAt).getTime();
+  const customerMessages = inbound.slice(-10).map((item) => ({
+    message: item.message,
+    at: item.at,
+    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT'
+  }));
   return Object.freeze({
     last_customer_message_at: inbound.at(-1)?.at || null,
     last_suleia_message_at: outbound.at(-1)?.at || null,
@@ -159,7 +169,8 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
     conversation_age_seconds: latest ? Math.max(0, Math.floor((now.getTime() - new Date(latest).getTime()) / 1000)) : null,
     conversation_freshness: latest && new Date(latest).getTime() >= issueAt ? 'FRESH' : latest ? 'STALE' : 'UNKNOWN',
     message_count: valid.length,
-    current_messages: valid.filter((item) => new Date(item.at).getTime() >= issueAt).map((item) => item.message)
+    current_messages: valid.filter((item) => new Date(item.at).getTime() >= issueAt).map((item) => item.message),
+    customer_messages: customerMessages
   });
 }
 
@@ -366,6 +377,23 @@ export async function syncChatbyReadOnly({
       const inserted = await projector.recordChatbyConversationEvent(event);
       if (inserted.inserted) eventsInserted += 1;
     }
+    for (const item of metrics.customer_messages) {
+      const text = rawMessageText(item.message);
+      if (!text || !projector.upsertChatbyPrivateMessageDisplay) continue;
+      const intent = classifyIntent(item.message);
+      const messageHash = technicalMessageId(item.message, issue.canonical_issue_id, hmacKey);
+      await projector.upsertChatbyPrivateMessageDisplay({
+        chatby_message_id_hash: messageHash,
+        canonical_order_id: issue.canonical_order_id,
+        canonical_issue_id: issue.canonical_issue_id,
+        direction: 'INBOUND',
+        message_type: messageType(item.message),
+        intent,
+        relation_to_issue: item.relation_to_issue,
+        message_text_ciphertext: encryptPrivateJson({ text }, hmacKey),
+        occurred_at: item.at
+      });
+    }
     await projector.upsertChatbyConversationLink?.({
       canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id,
       chatby_conversation_id_hash: conversationHash, chatby_contact_id_hash: contactHash,
@@ -415,6 +443,6 @@ export async function syncChatbyReadOnly({
 
 export const chatbyReadOnlyInternals = Object.freeze({
   normalizeLabel, normalizeReference, orderReference, occurredAt, direction,
-  messageType, classifyIntent, referenceHashes, payloadReferences, technicalReferences,
+  messageType, classifyIntent, rawMessageText, referenceHashes, payloadReferences, technicalReferences,
   conversationMetrics
 });

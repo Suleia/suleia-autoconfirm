@@ -150,3 +150,11 @@ test('TIPSA has no operational policy and is always blocked', () => {
   assert.ok(result.blocking_reasons.includes('CARRIER_POLICY_NOT_GLS'));
   assert.equal(result.actions_executed, 0);
 });
+
+test('an exact Dropea incident type is not discarded because the carrier code is unmapped', () => {
+  const result = simulateIncidentProcess(base({
+    issue: { ...base().issue, mapping_status: 'UNMAPPED' }
+  }), { now: AT });
+  assert.equal(result.blocking_reasons.includes('UNKNOWN_ISSUE_TYPE'), false);
+  assert.equal(result.process_status, 'WAITING_CUSTOMER_RESPONSE');
+});

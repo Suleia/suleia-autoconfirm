@@ -54,6 +54,10 @@ const labels = {
   FRESH: 'Vigente', STALE: 'Caducado', UNAVAILABLE: 'No disponible',
   EXPIRED: 'Vencido', BLOCKED: 'Bloqueada', REVIEW: 'Revisión',
   CONFIRM: 'Confirmación clara', REJECT: 'Rechazo o cancelación', ADDRESS_CHANGE: 'Cambio de dirección',
+  CUSTOMER_STILL_WANTS_ORDER: 'Quiere recibir el pedido', DELIVERY_RETRY: 'Solicita nueva entrega',
+  PICKUP_AT_AGENCY: 'Solicita recogida en agencia', FINAL_REJECTION: 'Rechazo definitivo',
+  RETURN_REQUEST: 'Solicita devolución', CHANGE_ADDRESS: 'Cambio de dirección',
+  PROVIDE_MISSING_DATA: 'Aporta los datos solicitados',
   PROMOTION_CHANGE: 'Cambio de promoción', NO_RESPONSE: 'Sin respuesta', UNCLEAR: 'Respuesta no concluyente',
   NOT_VERIFIABLE: 'No verificable', NO_CONVERSATION: 'Sin conversación asociada',
   REVIEW_CHATBY_LINK: 'Revisar enlace con Chatby', REVIEW_CUSTOMER_RESPONSE: 'Revisar respuesta del cliente',
@@ -242,16 +246,22 @@ function rowIncident(item) {
   const tr = node('tr'); tr.tabIndex = 0;
   const customer = item.customer_evidence || {};
   const recommendation = item.tailored_recommendation || {};
+  const identity = stacked(item.customer_name || 'Cliente no disponible', item.customer_phone || 'Teléfono no disponible', 'incident-identity');
+  const evidence = node('div', 'stacked incident-evidence');
+  evidence.append(node('strong', '', text(customer.title)), node('small', '', text(customer.summary)));
+  if (customer.latest_message) evidence.append(node('q', 'message-quote', customer.latest_message));
+  const resolution = recommendation.resolution_option ? `Opción Dropea: ${recommendation.resolution_option}` : 'Pendiente de validación humana';
   tr.append(
     cell(stacked(`Incidencia #${short(item.dropea_issue_id)}`, `Pedido Dropea #${short(item.dropea_order_id)} · ${date(item.created_at)}`)),
+    cell(identity, 'customer-cell'),
     cell(stacked(translated(item.interpreted_type), item.initial_carrier_description_sanitized || 'Sin descripción adicional de Dropea')),
-    cell(stacked(customer.title, `${customer.summary} · ${Number(customer.messages || 0)} mensaje(s)`), 'signal-cell'),
-    cell(stacked(recommendation.title, recommendation.summary), 'decision-card'),
+    cell(evidence, 'signal-cell'),
+    cell(stacked(recommendation.title, `${recommendation.summary} · ${resolution}`), 'decision-card'),
     cell(stacked(item.source_truth === 'PENDING_IN_DROPEA' ? 'Pendiente en Dropea' : 'Fuera de la cola pendiente', `${item.operational_freshness_status === 'FRESH' ? 'Datos vigentes' : 'Revisar actualización'} · acción real: 0`))
   );
   tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
 }
-function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Qué ocurre', 'Qué hizo el cliente', 'Solución propuesta', 'Estado real']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
+function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Cliente / teléfono', 'Qué ocurre', 'Evidencia de Chatby', 'Solución concreta', 'Estado real']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
 
 async function loadQueue() {
   if (state.view === 'finance') return;
@@ -280,12 +290,14 @@ async function loadQueue() {
 }
 function field(label, value, asBadge = false) { const el = node('div', 'field'); el.append(node('span', '', label), asBadge ? badge(value) : node('strong', '', text(value))); return el; }
 function section(title, fields, className = '') { const box = node('section', `detail-section ${className}`.trim()); box.append(node('h3', '', title)); const grid = node('div', 'field-grid'); fields.forEach((item) => grid.append(field(...item))); box.append(grid); return box; }
-function timeline(items) { const box = node('section', 'detail-section'); box.append(node('h3', '', 'Cronología')); const list = node('div', 'timeline'); for (const item of items || []) { const row = node('div', 'timeline-item'); row.append(node('strong', '', text(item.event_type)), node('span', '', `${date(item.occurred_at)} · ${text(item.source)} · ${text(item.freshness)}`)); list.append(row); } if (!(items || []).length) list.append(node('span', '', 'Sin eventos disponibles')); box.append(list); return box; }
+function timeline(items) { const box = node('details', 'detail-section technical-details'); const summary = node('summary', '', `Trazabilidad técnica · ${(items || []).length} evento(s)`); box.append(summary); const list = node('div', 'timeline'); for (const item of items || []) { const row = node('div', 'timeline-item'); row.append(node('strong', '', text(item.event_type)), node('span', '', `${date(item.occurred_at)} · ${text(item.source)} · ${text(item.freshness)}`)); list.append(row); } if (!(items || []).length) list.append(node('span', '', 'Sin eventos disponibles')); box.append(list); return box; }
 function relatedIncidents(items) { const box = node('section', 'detail-section'); box.append(node('h3', '', 'Incidencias relacionadas')); if (!(items || []).length) { box.append(node('p', 'muted', 'Este pedido no tiene incidencias registradas.')); return box; } const list = node('div', 'related-list'); for (const item of items) list.append(stacked(`${text(item.normalized_type)} · ${text(item.status)}`, `${text(item.carrier)} · ${date(item.updated_at)}`)); box.append(list); return box; }
 function recommendationPanel(incident, feedback = []) {
   const recommendation = incident.tailored_recommendation || {};
   const box = node('section', 'detail-section decision-card');
   box.append(node('h3', '', 'Solución propuesta para esta incidencia'), stacked(recommendation.title, recommendation.summary));
+  if (recommendation.resolution_option) box.append(badge(`Dropea · ${recommendation.resolution_option}`));
+  box.append(node('h4', 'recommendation-heading', 'Acción que propongo'));
   const steps = node('ol', 'recommendation-steps');
   for (const step of recommendation.steps || []) steps.append(node('li', '', step));
   box.append(steps, node('p', 'muted', 'Propuesta basada en Dropea y la conversación exacta del pedido. No se ha ejecutado ninguna acción externa.'));
@@ -300,6 +312,17 @@ function recommendationPanel(incident, feedback = []) {
     }); controls.append(button);
   }
   box.append(controls, status); return box;
+}
+function customerMessageHistory(items = []) {
+  const box = node('section', 'detail-section'); box.append(node('h3', '', 'Mensajes del cliente en Chatby'));
+  if (!items.length) { box.append(node('p', 'muted', 'No hay mensajes entrantes disponibles para esta conversación.')); return box; }
+  const list = node('div', 'customer-message-list');
+  for (const item of items) {
+    const card = node('article', `customer-message ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'current' : 'previous'}`);
+    card.append(node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'posterior a la incidencia' : 'anterior a la incidencia'} · ${translated(item.intent)}`));
+    list.append(card);
+  }
+  box.append(list); return box;
 }
 async function openDetail(id) {
   const view = state.view; const request = ++state.detailRequest;
@@ -323,10 +346,12 @@ async function openDetail(id) {
     } else {
       const incident = data.incident; $('detail-title').textContent = `Incidencia ${short(incident.dropea_issue_id)}`;
       root.append(
-        section('Situación real', [['Incidencia Dropea', `#${incident.dropea_issue_id}`], ['Pedido Dropea', `#${incident.dropea_order_id}`], ['Estado en la cola', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Motivo', translated(incident.interpreted_type)], ['Descripción de Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADA'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada en origen', date(incident.updated_at)]]),
-        section('Acción del cliente', [['Resultado', incident.customer_evidence?.title, true], ['Qué consta', incident.customer_evidence?.summary], ['Mensajes asociados', incident.customer_evidence?.messages ?? 0], ['Última acción', date(incident.customer_evidence?.at)], ['Asociación', incident.conversation_status === 'FOUND' ? 'Conversación exacta del pedido' : 'NO VERIFICADA', true]]),
+        section('Cliente y pedido', [['Cliente', incident.customer_name || 'NO DISPONIBLE'], ['Teléfono', incident.customer_phone || 'NO DISPONIBLE'], ['Pedido', incident.external_order_reference || `Dropea #${incident.dropea_order_id}`], ['Incidencia', `#${incident.dropea_issue_id}`]]),
+        section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
+        section('Acción del cliente', [['Resultado', incident.customer_evidence?.title, true], ['Conclusión', incident.customer_evidence?.summary], ['Último mensaje', incident.customer_evidence?.latest_message || 'No hay mensaje entrante disponible'], ['Fecha del mensaje', date(incident.customer_evidence?.at)], ['Relación temporal', incident.customer_evidence?.relation === 'AFTER_INCIDENT' ? 'POSTERIOR A LA INCIDENCIA' : incident.customer_evidence?.relation === 'BEFORE_INCIDENT' ? 'ANTERIOR A LA INCIDENCIA' : 'SIN MENSAJE', true], ['Asociación', incident.conversation_status === 'FOUND' ? 'CONVERSACIÓN EXACTA DEL PEDIDO' : 'NO VERIFICADA', true]]),
+        customerMessageHistory(data.customer_messages),
         recommendationPanel(incident, data.feedback),
-        section('Trazabilidad', [['Tipo original', incident.raw_type], ['Tipo interpretado', translated(incident.interpreted_type)], ['Mapping', translated(incident.mapping_status), true], ['Código transportista', incident.initial_carrier_code], ['Opciones de Dropea', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Estado de datos', translated(incident.operational_freshness_status), true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)], ['Acciones externas', '0'], ['Escrituras externas', '0']]),
+        section('Control y seguridad', [['Opción propuesta en Dropea', incident.tailored_recommendation?.resolution_option || 'PENDIENTE DE VALIDACIÓN'], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Datos', translated(incident.operational_freshness_status), true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)], ['Acciones externas', '0'], ['Escrituras externas', '0']]),
         timeline(data.timeline)
       );
     }

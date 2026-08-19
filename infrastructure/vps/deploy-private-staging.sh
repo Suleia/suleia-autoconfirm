@@ -190,6 +190,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/run-incident-panel-integrity-rollback-d
 bash "${INSTALL_ROOT}/infrastructure/vps/run-order-chatby-signal-projection-rollback-drill.sh" "${latest_backup}"
 bash "${INSTALL_ROOT}/infrastructure/vps/run-incident-truth-feedback-rollback-drill.sh" "${latest_backup}"
 bash "${INSTALL_ROOT}/infrastructure/vps/run-operations-private-order-display-rollback-drill.sh" "${latest_backup}"
+bash "${INSTALL_ROOT}/infrastructure/vps/run-private-incident-customer-context-rollback-drill.sh" "${latest_backup}"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-center-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operational-protections-migration.sh"
@@ -206,6 +207,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-panel-integrity-migratio
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-order-chatby-signal-projection-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-private-order-display-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-truth-feedback-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-private-incident-customer-context-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"

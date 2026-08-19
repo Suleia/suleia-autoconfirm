@@ -1,5 +1,5 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
-import { privateOrderDisplay } from './private-display.mjs';
+import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
@@ -26,6 +26,12 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
+  private_order.external_order_id_ciphertext,private_order.shipping_address_ciphertext,
+  private_message.message_text_ciphertext AS latest_customer_message_ciphertext,
+  private_message.occurred_at AS latest_private_customer_message_at,
+  private_message.relation_to_issue AS latest_customer_message_relation,
+  private_message.intent AS latest_private_customer_intent,
+  private_message.message_type AS latest_private_customer_message_type,
   CASE
     WHEN p.chatby_last_successful_sync_at IS NULL
       OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
@@ -66,7 +72,14 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
     WHEN p.interpreted_type='REFUSED_BY_RECIPIENT' THEN 'REVIEW_REJECTION'
     ELSE 'REVIEW_INCIDENT'
   END AS operational_recommendation
- FROM read_models.operations_incident_panel_context p)`;
+ FROM read_models.operations_incident_panel_context p
+ LEFT JOIN read_models.operations_private_order_display private_order USING(canonical_order_id)
+ LEFT JOIN LATERAL (
+   SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type
+   FROM read_models.operations_private_incident_messages m
+   WHERE m.canonical_issue_id=p.canonical_issue_id AND m.direction='INBOUND'
+   ORDER BY m.occurred_at DESC LIMIT 1
+ ) private_message ON true)`;
 
 function integer(value, fallback, min, max) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -340,7 +353,7 @@ export class OperationsRepository {
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
     );
-    return { items: result.rows.map(incidentInsight), total: result.rows[0]?.total_count || 0, limit, offset };
+    return { items: result.rows.map((row) => incidentInsight(privateIncidentDisplay(row, this.privateDataKey))), total: result.rows[0]?.total_count || 0, limit, offset };
   }
 
   async incidentOverview(searchParams) {
@@ -383,11 +396,11 @@ export class OperationsRepository {
       selected.values
     );
     const row = result.rows[0] || {};
-    return { items: (row.items || []).map(incidentInsight), total: row.total || 0, limit, offset, summary: row.summary || {} };
+    return { items: (row.items || []).map((item) => incidentInsight(privateIncidentDisplay(item, this.privateDataKey))), total: row.total || 0, limit, offset, summary: row.summary || {} };
   }
 
   async incidentDetail(id) {
-    const [detail, timeline, feedback] = await Promise.all([
+    const [detail, timeline, feedback, customerMessages] = await Promise.all([
       this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [id]),
       this.pool.query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_panel_context
@@ -397,9 +410,19 @@ export class OperationsRepository {
         FROM decision_memory.incident_recommendation_feedback
         WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
-        ORDER BY created_at DESC LIMIT 20`, [id])
+        ORDER BY created_at DESC LIMIT 20`, [id]),
+      this.pool.query(`SELECT direction,message_type,intent,relation_to_issue,
+          message_text_ciphertext,occurred_at
+        FROM read_models.operations_private_incident_messages
+        WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
+          WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
+        ORDER BY occurred_at DESC LIMIT 20`, [id])
     ]);
-    return detail.rows[0] ? { incident: incidentInsight(detail.rows[0]), timeline: timeline.rows, feedback: feedback.rows } : null;
+    return detail.rows[0] ? {
+      incident: incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)),
+      customer_messages: privateIncidentMessages(customerMessages.rows, this.privateDataKey),
+      timeline: timeline.rows, feedback: feedback.rows
+    } : null;
   }
 
   async recordIncidentFeedback(id, { feedbackType, reasonCode, recommendationCode, principalHash }) {
