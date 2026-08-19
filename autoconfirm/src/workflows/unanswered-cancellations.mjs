@@ -75,8 +75,9 @@ function subscriberHasCustomerAction(subscriber) {
     const name = normalizeText(field?.name || field?.label || '');
     const value = normalizeText(field?.value || '');
     if (!value) return false;
-    if (/dropea|pedido|order|telefono|phone|nombre|email|importe|total/.test(name)) return false;
-    return /(confirm|cancel|rechaz|direccion|direcc|datos_envio|datos envio|cambio direccion|accion cliente)/.test(name);
+    const ordinaryOrderData = /dropea|pedido|order|telefono|phone|nombre|email|importe|total|^direccion$|direccion de envio|direccion entrega|calle|referencia|barrio|localidad|ciudad|codigo postal|provincia|departamento|producto|metodo pago|moneda|maps/.test(name);
+    if (ordinaryOrderData) return false;
+    return /(confirm|cancel|rechaz|cambio.*direccion|direccion.*cambi|correg.*direccion|modific.*direccion|datos_envio|datos envio|accion cliente)/.test(name);
   });
 }
 
