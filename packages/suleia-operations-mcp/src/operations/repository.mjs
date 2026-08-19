@@ -78,7 +78,9 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
    SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type
    FROM read_models.operations_private_incident_messages m
    WHERE m.canonical_issue_id=p.canonical_issue_id AND m.direction='INBOUND'
-   ORDER BY m.occurred_at DESC LIMIT 1
+   ORDER BY (m.relation_to_issue='AFTER_INCIDENT') DESC,
+            (m.intent<>'UNKNOWN') DESC,
+            m.occurred_at DESC LIMIT 1
  ) private_message ON true)`;
 
 function integer(value, fallback, min, max) {
