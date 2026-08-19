@@ -545,6 +545,27 @@ export class OperationsProjector {
     return { inserted: (result?.rowCount || 0) > 0, actions_executed: 0, production_writes: 0 };
   }
 
+  async upsertChatbyPrivateMessageDisplay(record) {
+    assertSafe(record);
+    const result = await this.pool.query(`/* SHADOW_READ_ONLY: encrypted private display only */
+      INSERT INTO operations.chatby_private_message_display
+        (chatby_message_id_hash,canonical_order_id,canonical_issue_id,direction,message_type,
+         intent,relation_to_issue,message_text_ciphertext,occurred_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+      ON CONFLICT(canonical_issue_id,chatby_message_id_hash) DO UPDATE SET
+        direction=EXCLUDED.direction,message_type=EXCLUDED.message_type,intent=EXCLUDED.intent,
+        relation_to_issue=EXCLUDED.relation_to_issue,
+        message_text_ciphertext=EXCLUDED.message_text_ciphertext,
+        occurred_at=EXCLUDED.occurred_at,updated_at=now()
+      RETURNING (xmax = 0) AS inserted`, [
+      record.chatby_message_id_hash, record.canonical_order_id, record.canonical_issue_id,
+      record.direction, record.message_type, record.intent, record.relation_to_issue,
+      record.message_text_ciphertext, record.occurred_at
+    ]);
+    return { inserted: result.rows[0]?.inserted === true, encrypted_private_display: true,
+      actions_executed: 0, production_writes: 0 };
+  }
+
   async upsertChatbyConversationLink(record) {
     assertSafe(record);
     await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO operations.chatby_conversation_links

@@ -60,7 +60,7 @@ function nullableIso(value, field) {
   return timestamp.toISOString();
 }
 
-function encryptPrivateJson(value, hmacKey) {
+export function encryptPrivateJson(value, hmacKey) {
   if (!value || typeof value !== 'object' || Object.keys(value).length === 0) return null;
   const key = crypto.createHash('sha256').update(`suleia-private-v1|${hmacKey}`).digest();
   const iv = crypto.randomBytes(12);

@@ -30,10 +30,33 @@ export function privateOrderDisplay(row = {}, privateDataKey) {
   const external = decryptOperationsPrivateJson(externalCiphertext, privateDataKey);
   const address = decryptOperationsPrivateJson(addressCiphertext, privateDataKey) || {};
   const composedName = [address.first_name, address.last_name].map((part) => cleanDisplayText(part, 80)).filter(Boolean).join(' ');
+  const phone = address.phone_number || address.phone || address.mobile || address.telephone;
   return {
     ...safe,
     external_order_reference: cleanDisplayText(external?.value, 80),
     customer_name: cleanDisplayText(address.full_name || address.name || address.recipient_name || composedName, 160),
+    customer_phone: cleanDisplayText(phone, 40),
     private_display_source: externalCiphertext || addressCiphertext ? 'DROPEA_V2_ENCRYPTED' : 'UNAVAILABLE'
   };
+}
+
+export function privateIncidentDisplay(row = {}, privateDataKey) {
+  const {
+    latest_customer_message_ciphertext: messageCiphertext,
+    ...orderFields
+  } = row;
+  const display = privateOrderDisplay(orderFields, privateDataKey);
+  const message = decryptOperationsPrivateJson(messageCiphertext, privateDataKey);
+  return {
+    ...display,
+    latest_customer_message: cleanDisplayText(message?.text, 1000)
+  };
+}
+
+export function privateIncidentMessages(rows = [], privateDataKey) {
+  return rows.map((row) => {
+    const { message_text_ciphertext: ciphertext, ...safe } = row;
+    const message = decryptOperationsPrivateJson(ciphertext, privateDataKey);
+    return { ...safe, text: cleanDisplayText(message?.text, 1000) };
+  }).filter((row) => row.text);
 }

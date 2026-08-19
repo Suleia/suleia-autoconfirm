@@ -26,7 +26,7 @@ if docker volume ls --filter name=backup_data --format '{{.Name}}' | grep -q .; 
   backup_status="VOLUME_PRESENT_NOT_REVERIFIED"
 fi
 
-docker run --rm --network none --read-only --cap-drop ALL \
+docker run --rm --user "$(id -u):$(id -g)" --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges --pids-limit 64 --memory 256m --cpus 1.0 \
   --volume "${INSTALL_ROOT}/apps:/workspace/apps:ro" \
   --volume "${INSTALL_ROOT}/docs:/workspace/docs:ro" \

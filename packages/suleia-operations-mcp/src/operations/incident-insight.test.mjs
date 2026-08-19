@@ -24,3 +24,23 @@ test('stale Dropea evidence blocks any resolution proposal', () => {
   assert.equal(result.tailored_recommendation.code, 'REFRESH_DROPEA_SOURCE');
   assert.equal(result.tailored_recommendation.confidence, 'BLOCKED');
 });
+
+test('a known Dropea type remains actionable when only the carrier code mapping is pending', () => {
+  const result = incidentInsight({
+    ...base, interpreted_type: 'RECIPIENT_ABSENT', raw_type: 'RECIPIENT_ABSENT',
+    mapping_status: 'UNMAPPED', operational_response_status: 'NO_VALID_RESPONSE',
+    customer_intent: 'NO_RESPONSE', messages_used: 0,
+    initial_carrier_description_sanitized: 'AUSENTE SEGUNDA VEZ',
+    allowed_resolution_options: ['MANAGED_BY_CLIENT','RETURN_REQUESTED','PICKUP_AT_AGENCY']
+  });
+  assert.equal(result.tailored_recommendation.code, 'OFFER_PICKUP_THEN_RETURN');
+  assert.equal(result.tailored_recommendation.resolution_option, 'MANAGED_BY_CLIENT');
+});
+
+test('different incident facts produce different concrete solutions', () => {
+  const address = incidentInsight({ ...base, mapping_status: 'UNMAPPED', operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0, allowed_resolution_options: ['MANAGED_BY_CLIENT'] });
+  const data = incidentInsight({ ...base, interpreted_type: 'PENDING_DATA', mapping_status: 'UNMAPPED', operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0, allowed_resolution_options: ['MANAGED_BY_CLIENT','PROVIDE_SOLUTION'] });
+  assert.equal(address.tailored_recommendation.code, 'REQUEST_COMPLETE_ADDRESS');
+  assert.equal(data.tailored_recommendation.code, 'REQUEST_MISSING_DATA');
+  assert.notEqual(address.tailored_recommendation.summary, data.tailored_recommendation.summary);
+});

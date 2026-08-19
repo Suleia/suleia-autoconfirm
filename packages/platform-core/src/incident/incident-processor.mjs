@@ -136,7 +136,10 @@ export function simulateIncidentProcess(input, { now = new Date(), holidays = []
   if (chatby.contradiction_status && chatby.contradiction_status !== 'NONE') blockers.push('CHATBY_CONTRADICTION');
   if (chatby.fresh === false && inferred.resolution) blockers.push('CHATBY_EVIDENCE_STALE');
   if (chatby.intent === 'INSPECT_BEFORE_PAYMENT') blockers.push('INSPECTION_BEFORE_PAYMENT_NOT_ALLOWED');
-  if (issue.type === 'UNKNOWN' || issue.mapping_status === 'UNMAPPED') blockers.push('UNKNOWN_ISSUE_TYPE');
+  // A carrier code can still be pending governance while Dropea's canonical
+  // incident type is exact. Do not discard a usable type solely because the
+  // GLS code registry has not been completed yet.
+  if (!issue.type || ['UNKNOWN','UNMAPPED'].includes(issue.type)) blockers.push('UNKNOWN_ISSUE_TYPE');
   if (inferred.force_review) blockers.push('RECOVERY_EXCEPTION_REQUIRES_REVIEW');
 
   const timer = inferred.start_timer ? createIncidentTimer({

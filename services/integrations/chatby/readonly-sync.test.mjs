@@ -16,6 +16,7 @@ function response(payload) {
 test('Chatby mirror uses GET only, exact current-order identity and persists no raw content', async () => {
   const calls = [];
   const recorded = [];
+  const privateMessages = [];
   const available = [];
   const pool = { query: async () => ({ rows: [{
     canonical_order_id: 'order-hash-safe',
@@ -28,6 +29,7 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
   }] }) };
   const projector = {
     recordChatbyConversationEvent: async (event) => { recorded.push(event); return { inserted: true }; },
+    upsertChatbyPrivateMessageDisplay: async (event) => { privateMessages.push(event); return { inserted: true }; },
     markChatbyConversationAvailable: async (value) => { available.push(value); }
   };
   const fetchImpl = async (url, options) => {
@@ -59,6 +61,11 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
   assert.equal(recorded[0].button_payload, 'DISCOUNT_ACCEPTED');
   assert.equal(recorded[0].sanitized_text, 'INTENT:DISCOUNT_ACCEPTED');
   assert.doesNotMatch(JSON.stringify(recorded[0]), /customer@example|612345678|conversation-private-id|contact-private-id/);
+  assert.equal(privateMessages.length, 2);
+  assert.match(privateMessages[1].message_text_ciphertext, /^v1:/);
+  assert.doesNotMatch(JSON.stringify(privateMessages), /customer@example|612345678/);
+  assert.equal(privateMessages[0].relation_to_issue, 'BEFORE_INCIDENT');
+  assert.equal(privateMessages[1].relation_to_issue, 'AFTER_INCIDENT');
   assert.deepEqual(available, [{ canonical_order_id: 'order-hash-safe', canonical_issue_id: 'issue-hash-safe' }]);
   assert.deepEqual(calls.map((call) => call.options.method), ['GET', 'GET']);
   assert.equal(calls.every((call) => call.options.body === undefined), true);
@@ -170,6 +177,7 @@ test('conversation metrics separate existence, current reply and stale activity'
   assert.equal(metrics.conversation_freshness, 'STALE');
   assert.equal(metrics.last_button, 'FINAL_REJECTION');
   assert.equal(metrics.message_count, 2);
+  assert.equal(metrics.customer_messages[0].relation_to_issue, 'BEFORE_INCIDENT');
 });
 
 test('Chatby deterministic classifier recognizes the supported operational intents', () => {
