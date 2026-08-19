@@ -18,7 +18,8 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
   const recorded = [];
   const privateMessages = [];
   const available = [];
-  const pool = { query: async () => ({ rows: [{
+  let candidateQuery = '';
+  const pool = { query: async (statement) => { candidateQuery = statement; return ({ rows: [{
     canonical_order_id: 'order-hash-safe',
     external_order_id_hash: exactHash,
     dropea_order_id: 'DROPEA-24',
@@ -26,7 +27,7 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
     canonical_issue_id: 'issue-hash-safe',
     issue_created_at: '2026-08-01T09:00:00Z',
     issue_updated_at: '2026-08-01T09:05:00Z'
-  }] }) };
+  }] }); } };
   const projector = {
     recordChatbyConversationEvent: async (event) => { recorded.push(event); return { inserted: true }; },
     upsertChatbyPrivateMessageDisplay: async (event) => { privateMessages.push(event); return { inserted: true }; },
@@ -69,6 +70,7 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
   assert.deepEqual(available, [{ canonical_order_id: 'order-hash-safe', canonical_issue_id: 'issue-hash-safe' }]);
   assert.deepEqual(calls.map((call) => call.options.method), ['GET', 'GET']);
   assert.equal(calls.every((call) => call.options.body === undefined), true);
+  assert.match(candidateQuery, /i\.is_active=true OR i\.updated_at_utc >= now\(\)-interval '14 days'/);
 });
 
 test('Chatby mirror blocks ambiguous subscribers for the same current order', async () => {
@@ -184,5 +186,6 @@ test('Chatby deterministic classifier recognizes the supported operational inten
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ payload: { title: 'No quiero el pedido' } }), 'FINAL_REJECTION');
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'Quiero recogerlo en agencia' }), 'PICKUP_AT_AGENCY');
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'Necesito cambiar la dirección' }), 'CHANGE_ADDRESS');
+  assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'Confirmo que quiero que se entregue mañana por la mañana o por la tarde y llamad antes de entregar' }), 'DELIVERY_RETRY');
   assert.equal(chatbyReadOnlyInternals.classifyIntent({ content: 'mensaje sin decisión' }), 'UNKNOWN');
 });

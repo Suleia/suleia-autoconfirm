@@ -42,9 +42,9 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260819-incident-professional-v2">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260819-incident-professional-v3">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260819-incident-professional-v2" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260819-incident-professional-v3" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);

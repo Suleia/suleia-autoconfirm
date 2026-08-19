@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { collectPaginated, createReadOnlyTransport } from '../../../packages/platform-core/src/read-only-transport.mjs';
 import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
+import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 
 const ORDER_FIELD = 'dropea: numero';
 
@@ -116,16 +117,7 @@ function messageText(message) {
 }
 
 function classifyIntent(message) {
-  const text = messageText(message);
-  if (!text) return 'UNKNOWN';
-  if (/(quiero el descuento|acepto el descuento|descuento.*si)/.test(text)) return 'DISCOUNT_ACCEPTED';
-  if (/(no quiero el descuento|rechazo el descuento|sin descuento)/.test(text)) return 'DISCOUNT_REJECTED';
-  if (/(recoger.*agencia|recogida.*agencia|pickup)/.test(text)) return 'PICKUP_AT_AGENCY';
-  if (/(cambiar.*direccion|cambio.*direccion|direccion incorrecta)/.test(text)) return 'CHANGE_ADDRESS';
-  if (/(reintentar.*entrega|nuevo intento|volver.*entregar)/.test(text)) return 'DELIVERY_RETRY';
-  if (/(no quiero el pedido|cancel|rechaz|devolver|devolucion)/.test(text)) return 'FINAL_REJECTION';
-  if (/(si quiero el pedido|quiero mi pedido|confirmo|confirmado|lo quiero)/.test(text)) return 'CUSTOMER_STILL_WANTS_ORDER';
-  return 'UNKNOWN';
+  return interpretChatbyCustomerText(rawMessageText(message)).intent;
 }
 
 function messageType(message) {
@@ -242,7 +234,8 @@ export async function syncChatbyReadOnly({
       i.updated_at_utc AS issue_updated_at
     FROM integration.dropea_orders o
     JOIN integration.dropea_issues i USING(canonical_order_id)
-    WHERE i.status='PENDING' AND i.is_active=true
+    WHERE i.status='PENDING'
+      AND (i.is_active=true OR i.updated_at_utc >= now()-interval '14 days')
     ORDER BY i.updated_at_utc DESC`);
   const byExternalHash = new Map();
   const byDropeaOrderId = new Map();

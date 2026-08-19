@@ -44,3 +44,26 @@ test('different incident facts produce different concrete solutions', () => {
   assert.equal(data.tailored_recommendation.code, 'REQUEST_MISSING_DATA');
   assert.notEqual(address.tailored_recommendation.summary, data.tailored_recommendation.summary);
 });
+
+test('exact Chatby next-day delivery instruction overrides stale no-response projection', () => {
+  const result = incidentInsight({
+    ...base,
+    interpreted_type: 'RECIPIENT_ABSENT',
+    operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0,
+    latest_customer_message: 'Quiero que se entregue mañana por la mañana o por la tarde. Llamad antes de entregar.',
+    latest_customer_message_relation: 'AFTER_INCIDENT',
+    latest_private_customer_message_at: '2026-08-19T14:00:00Z',
+    customer_phone: '+34999999999',
+    allowed_resolution_options: ['MANAGED_BY_CLIENT','PROVIDE_SOLUTION']
+  });
+  assert.equal(result.customer_evidence.code, 'DELIVERY_RETRY');
+  assert.deepEqual(result.customer_evidence.delivery_instruction, {
+    requested_day: 'NEXT_DAY', requested_window: 'MORNING_OR_AFTERNOON',
+    call_before_delivery: true, is_delivery_request: true
+  });
+  assert.equal(result.tailored_recommendation.code, 'NOTIFY_DROPEA_NEXT_DAY_DELIVERY');
+  assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
+  assert.equal(result.tailored_recommendation.customer_instruction.call_before_delivery, true);
+  assert.equal(result.tailored_recommendation.customer_instruction.callback_phone_available, true);
+  assert.equal(result.external_action_status, 'NOT_EXECUTED');
+});
