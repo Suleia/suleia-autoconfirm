@@ -14,10 +14,14 @@ test('private incident context is encrypted, API-only and rollback protected', (
   assert.match(up, /REVOKE ALL ON read_models\.operations_private_incident_messages FROM suleia_mcp_readonly/);
   assert.match(up, /GRANT SELECT ON read_models\.operations_private_incident_messages TO suleia_operations_readonly/);
   assert.match(up, /GRANT SELECT,INSERT,UPDATE ON operations\.chatby_private_message_display TO suleia_ingestion/);
+  assert.match(up, /GRANT SELECT ON operations\.chatby_private_message_display TO suleia_backup/);
+  assert.match(up, /REVOKE ALL ON read_models\.operations_private_incident_messages FROM suleia_mcp_readonly,suleia_backup/);
   assert.doesNotMatch(up, /message_text\s+text/i);
   assert.match(down, /DROP TABLE IF EXISTS operations\.chatby_private_message_display/);
   assert.match(deploy, /run-private-incident-customer-context-rollback-drill\.sh/);
   assert.match(deploy, /apply-private-incident-customer-context-migration\.sh/);
   assert.match(drill, /mcp_read=0/);
+  assert.match(drill, /backup_ciphertext_read=1/);
+  assert.match(drill, /backup_private_view_read=0/);
   assert.match(feedback, /GRANT SELECT ON SEQUENCE decision_memory\.incident_recommendation_feedback_feedback_id_seq TO suleia_backup/);
 });

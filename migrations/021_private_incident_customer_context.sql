@@ -33,6 +33,9 @@ REVOKE ALL ON read_models.operations_private_incident_messages FROM PUBLIC;
 REVOKE ALL ON operations.chatby_private_message_display FROM suleia_mcp_readonly,suleia_backup;
 REVOKE ALL ON read_models.operations_private_incident_messages FROM suleia_mcp_readonly,suleia_backup;
 GRANT SELECT,INSERT,UPDATE ON operations.chatby_private_message_display TO suleia_ingestion;
+-- Restorable backups require access to the encrypted-at-rest source table. The
+-- backup role never receives the Operations API key or the private clear view.
+GRANT SELECT ON operations.chatby_private_message_display TO suleia_backup;
 GRANT SELECT ON read_models.operations_private_incident_messages TO suleia_operations_readonly;
 
 COMMIT;

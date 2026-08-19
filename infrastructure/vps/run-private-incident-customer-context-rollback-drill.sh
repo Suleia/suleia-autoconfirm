@@ -21,9 +21,11 @@ table_count="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --n
 ingestion_write="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select has_table_privilege('suleia_ingestion','operations.chatby_private_message_display','INSERT')::int;")"
 api_read="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select has_table_privilege('suleia_operations_readonly','read_models.operations_private_incident_messages','SELECT')::int;")"
 mcp_read="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select has_table_privilege('suleia_mcp_readonly','read_models.operations_private_incident_messages','SELECT')::int;")"
-[[ "${table_count}" = "1" && "${ingestion_write}" = "1" && "${api_read}" = "1" && "${mcp_read}" = "0" ]]
+backup_ciphertext_read="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select has_table_privilege('suleia_backup','operations.chatby_private_message_display','SELECT')::int;")"
+backup_private_view_read="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select has_table_privilege('suleia_backup','read_models.operations_private_incident_messages','SELECT')::int;")"
+[[ "${table_count}" = "1" && "${ingestion_write}" = "1" && "${api_read}" = "1" && "${mcp_read}" = "0" && "${backup_ciphertext_read}" = "1" && "${backup_private_view_read}" = "0" ]]
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN}" >/dev/null
 down_count="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select count(*) from pg_tables where schemaname='operations' and tablename='chatby_private_message_display';")"
 [[ "${down_count}" = "0" ]]
 cleanup; trap - EXIT
-echo 'PRIVATE_INCIDENT_CUSTOMER_CONTEXT_ROLLBACK_DRILL|PASS|table=1|ingestion_write=1|api_read=1|mcp_read=0|down=0|actions=0|production_writes=0'
+echo 'PRIVATE_INCIDENT_CUSTOMER_CONTEXT_ROLLBACK_DRILL|PASS|table=1|ingestion_write=1|api_read=1|mcp_read=0|backup_ciphertext_read=1|backup_private_view_read=0|down=0|actions=0|production_writes=0'
