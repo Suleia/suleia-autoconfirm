@@ -41,6 +41,18 @@ test('incident private display exposes clear customer context but never cipherte
   assert.equal('message_text_ciphertext' in messages[0], false);
 });
 
+test('incident private display collapses exact duplicated Chatby message bodies', () => {
+  const repeated = 'Calle Mar Mediterráneo número 3 Calle Mar Mediterráneo número 3';
+  const incident = privateIncidentDisplay({
+    latest_customer_message_ciphertext: encrypt({ text: repeated })
+  }, KEY);
+  assert.equal(incident.latest_customer_message, 'Calle Mar Mediterráneo número 3');
+  const messages = privateIncidentMessages([
+    { message_text_ciphertext: encrypt({ text: repeated }), occurred_at: '2026-08-19T10:00:00Z' }
+  ], KEY);
+  assert.equal(messages[0].text, 'Calle Mar Mediterráneo número 3');
+});
+
 test('private display fails closed with a missing or incorrect key', () => {
   const ciphertext = encrypt({ full_name: 'Cliente de Prueba' });
   assert.equal(decryptOperationsPrivateJson(ciphertext, 'incorrect-key-that-is-long-enough-for-this-test'), null);

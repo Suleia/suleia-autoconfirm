@@ -3,6 +3,7 @@ const operationsBase = location.pathname.startsWith('/operations') ? '/operation
 const $ = (id) => document.getElementById(id);
 const text = (value, fallback = '—') => value === undefined || value === null || value === '' ? fallback : String(value);
 const short = (value) => { const v = text(value); return v.length > 22 ? `${v.slice(0, 10)}…${v.slice(-7)}` : v; };
+const orderReferenceLabel = (value) => { const v = text(value); return v.startsWith('#') ? v : `#${v}`; };
 const date = (value, dateOnly = false) => { if (!value || typeof value === 'object') return '—'; const parsed = new Date(value); return Number.isFinite(parsed.getTime()) ? new Intl.DateTimeFormat('es-ES', dateOnly ? { dateStyle: 'medium', timeZone: 'Europe/Madrid' } : { dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Madrid' }).format(parsed) : '—'; };
 const money = (value, currency = 'EUR') => value === null || value === undefined ? 'No disponible' : new Intl.NumberFormat('es-ES', { style: 'currency', currency: currency || 'EUR' }).format(Number(value));
 const node = (tag, className, content) => { const el = document.createElement(tag); if (className) el.className = className; if (content !== undefined) el.textContent = content; return el; };
@@ -232,7 +233,7 @@ function rowOrder(item) {
     : `${date(item.created_at_utc)} · ID Dropea`;
   const quality = node('div', 'stacked'); quality.append(badge(item.data_quality_status || item.freshness), node('small', '', `Actualizado ${date(item.source_updated_at)}`));
   tr.append(
-    cell(stacked(`#${short(orderReference)}`, orderMeta), 'order-cell'),
+    cell(stacked(orderReferenceLabel(short(orderReference)), orderMeta), 'order-cell'),
     cell(stacked(productText(item.product_display_names), `${item.product_summary?.total_units ?? '—'} unidad(es) · Dropea + Chatby`)),
     cell(recommendation),
     cell(actionStatus(item)),
