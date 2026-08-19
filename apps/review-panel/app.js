@@ -297,6 +297,16 @@ function recommendationPanel(incident, feedback = []) {
   const box = node('section', 'detail-section decision-card');
   box.append(node('h3', '', 'Solución propuesta para esta incidencia'), stacked(recommendation.title, recommendation.summary));
   if (recommendation.resolution_option) box.append(badge(`Dropea · ${recommendation.resolution_option}`));
+  if (recommendation.customer_instruction) {
+    const instruction = recommendation.customer_instruction;
+    const windows = { MORNING: 'Mañana', AFTERNOON: 'Tarde', MORNING_OR_AFTERNOON: 'Mañana o tarde' };
+    box.append(section('Instrucción confirmada por el cliente', [
+      ['Día de entrega', instruction.requested_day === 'NEXT_DAY' ? 'DÍA SIGUIENTE' : 'NO ESPECIFICADO', true],
+      ['Franja', windows[instruction.requested_window] || 'NO ESPECIFICADA'],
+      ['Llamar antes de entregar', instruction.call_before_delivery ? 'SÍ' : 'NO', true],
+      ['Teléfono operativo', instruction.callback_phone_available ? incident.customer_phone || 'DISPONIBLE EN EL PEDIDO' : 'NO DISPONIBLE']
+    ], 'customer-instruction'));
+  }
   box.append(node('h4', 'recommendation-heading', 'Acción que propongo'));
   const steps = node('ol', 'recommendation-steps');
   for (const step of recommendation.steps || []) steps.append(node('li', '', step));

@@ -1,3 +1,5 @@
+import { interpretChatbyCustomerText } from '../../../platform-core/src/operational-truth/chatby-customer-instruction.mjs';
+
 const intentLabels = {
   CONFIRM: 'El cliente confirma que quiere recibir el pedido.',
   CUSTOMER_STILL_WANTS_ORDER: 'El cliente confirma que todavía quiere recibir el pedido.',
@@ -26,6 +28,9 @@ function customerEvidence(item) {
   const exactMessage = item.latest_customer_message || null;
   const messageAt = item.latest_private_customer_message_at || item.latest_customer_activity_at || null;
   const relation = item.latest_customer_message_relation || null;
+  const privateInterpretation = exactMessage ? interpretChatbyCustomerText(exactMessage) : null;
+  const privateIntent = normalizedIntent(privateInterpretation?.intent);
+  const privateCurrentSignal = exactMessage && relation === 'AFTER_INCIDENT' && privateIntent !== 'UNKNOWN';
   if (!item.chatby_sync_current) return {
     code: 'NOT_VERIFIABLE', title: 'Chatby pendiente de actualizar',
     summary: 'La última lectura de Chatby no está vigente; no se atribuye una acción nueva al cliente.',
@@ -36,8 +41,10 @@ function customerEvidence(item) {
     summary: 'No se ha localizado una conversación enlazada técnicamente con este pedido. Esto no equivale a que el cliente no haya contestado.',
     messages: 0, latest_message: null, at: null, relation: null
   };
-  if (item.operational_response_status === 'VALID_RESPONSE') {
-    const rawIntent = item.customer_intent || item.latest_private_customer_intent || 'UNKNOWN';
+  if (item.operational_response_status === 'VALID_RESPONSE' || privateCurrentSignal) {
+    const rawIntent = privateCurrentSignal
+      ? privateInterpretation.intent
+      : item.customer_intent || item.latest_private_customer_intent || 'UNKNOWN';
     const intent = normalizedIntent(rawIntent);
     const title = intent === 'CONFIRM' ? 'Cliente confirma'
       : intent === 'REJECT' ? 'Cliente rechaza'
@@ -48,7 +55,8 @@ function customerEvidence(item) {
       code: intent, raw_intent: rawIntent, title,
       summary: item.interpretation_summary || intentLabels[rawIntent] || intentLabels[intent] || intentLabels.UNKNOWN,
       messages: Number(item.messages_used || 0), latest_message: exactMessage,
-      at: messageAt, relation: relation || 'AFTER_INCIDENT'
+      at: messageAt, relation: relation || 'AFTER_INCIDENT',
+      delivery_instruction: privateInterpretation?.delivery || null
     };
   }
   if (item.conversation_status === 'FOUND') {
@@ -81,9 +89,9 @@ function option(item, ...preferred) {
   return preferred.find((value) => allowed.has(value)) || null;
 }
 
-function proposal(code, title, summary, resolutionOption, steps, confidence = 'MEDIUM') {
+function proposal(code, title, summary, resolutionOption, steps, confidence = 'MEDIUM', details = {}) {
   return { code, title, summary, resolution_option: resolutionOption,
-    steps, confidence, external_action_required: true };
+    steps, confidence, external_action_required: true, ...details };
 }
 
 function recommendation(item, customer) {
@@ -113,6 +121,26 @@ function recommendation(item, customer) {
       'PICKUP_AT_AGENCY', 'Gestionar recogida en agencia',
       'El cliente solicita recoger el paquete. Debe usarse el punto verificado por el transportista.',
       option(item, 'PICKUP_AT_AGENCY'), ['Validar que el paquete admite recogida', 'Confirmar agencia y plazo de custodia', 'Seleccionar PICKUP_AT_AGENCY'], 'HIGH');
+    if (customer.code === 'DELIVERY_RETRY' && customer.delivery_instruction?.requested_day === 'NEXT_DAY') {
+      const window = customer.delivery_instruction.requested_window === 'MORNING_OR_AFTERNOON'
+        ? 'en la franja de mañana o tarde indicada por el cliente'
+        : customer.delivery_instruction.requested_window === 'MORNING' ? 'por la mañana'
+          : customer.delivery_instruction.requested_window === 'AFTERNOON' ? 'por la tarde' : 'en la franja acordada';
+      const callInstruction = customer.delivery_instruction.call_before_delivery
+        ? ' y solicita una llamada antes de la entrega' : '';
+      return proposal(
+        'NOTIFY_DROPEA_NEXT_DAY_DELIVERY', 'Notificar a Dropea la entrega al día siguiente',
+        `El cliente confirma que quiere recibir el pedido al día siguiente ${window}${callInstruction}.`,
+        option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
+        ['Seleccionar PROVIDE_SOLUTION en Dropea', `Indicar entrega al día siguiente ${window}`,
+          customer.delivery_instruction.call_before_delivery ? 'Indicar que deben llamar al teléfono del pedido antes de entregar' : 'Registrar la franja acordada',
+          'Verificar que la incidencia sale de la cola pendiente'],
+        'HIGH', { customer_instruction: {
+          requested_day: 'NEXT_DAY', requested_window: customer.delivery_instruction.requested_window,
+          call_before_delivery: customer.delivery_instruction.call_before_delivery,
+          callback_phone_available: Boolean(item.customer_phone)
+        } });
+    }
     if (['CONFIRM','DELIVERY_RETRY'].includes(customer.code)) return proposal(
       secondAttempt ? 'FINAL_REDELIVERY_REVIEW' : 'SCHEDULE_REDELIVERY',
       secondAttempt ? 'Preparar un último reintento con revisión' : 'Pactar un nuevo intento de entrega',
