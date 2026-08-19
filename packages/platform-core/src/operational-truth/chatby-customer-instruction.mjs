@@ -5,9 +5,12 @@ function normalizedText(value) {
 
 export function deliveryInstructionFromText(value) {
   const text = normalizedText(value);
+  const tomorrowMentions = (text.match(/\bmanana\b/g) || []).length;
   const nextDay = /\b(manana|dia siguiente|siguiente dia)\b/.test(text);
-  const morning = /\b(por|durante|en) la manana\b|\bde manana\b/.test(text);
-  const afternoon = /\b(por|durante|en) la tarde\b|\bde tarde\b/.test(text);
+  const morning = /\b(por|durante|en) (?:la )?manana\b|\bde manana\b/.test(text)
+    || (tomorrowMentions >= 2 && /\btarde\b/.test(text));
+  const afternoon = /\b(por|durante|en) (?:la )?tarde\b|\bde tarde\b/.test(text)
+    || (morning && /\btarde\b/.test(text));
   const callBeforeDelivery = /(?:llam|avis).{0,45}(?:antes|previ).{0,45}(?:entreg|repart)|(?:antes|previ).{0,45}(?:entreg|repart).{0,45}(?:llam|avis)/.test(text);
   const deliveryLanguage = /\b(entreg|repart|recib|llevar)/.test(text);
   const requestedWindow = morning && afternoon ? 'MORNING_OR_AFTERNOON'
@@ -17,6 +20,7 @@ export function deliveryInstructionFromText(value) {
     requested_window: requestedWindow,
     call_before_delivery: callBeforeDelivery,
     is_delivery_request: deliveryLanguage && (nextDay || requestedWindow !== null || callBeforeDelivery)
+      || (nextDay && requestedWindow !== null)
   });
 }
 

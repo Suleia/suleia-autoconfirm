@@ -67,3 +67,16 @@ test('exact Chatby next-day delivery instruction overrides stale no-response pro
   assert.equal(result.tailored_recommendation.customer_instruction.callback_phone_available, true);
   assert.equal(result.external_action_status, 'NOT_EXECUTED');
 });
+
+test('real Chatby delivery-slot button becomes next-day redelivery with an order-phone call', () => {
+  const result = incidentInsight({
+    ...base, interpreted_type: 'RECIPIENT_ABSENT', operational_response_status: 'NO_VALID_RESPONSE',
+    customer_intent: 'NO_RESPONSE', messages_used: 0,
+    latest_customer_message: 'Mañana por mañana / tarde', latest_customer_message_relation: 'AFTER_INCIDENT',
+    customer_phone: '+34999999999', allowed_resolution_options: ['PROVIDE_SOLUTION','MANAGED_BY_CLIENT']
+  });
+  assert.equal(result.customer_evidence.code, 'DELIVERY_RETRY');
+  assert.equal(result.customer_evidence.delivery_instruction.requested_window, 'MORNING_OR_AFTERNOON');
+  assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
+  assert.equal(result.tailored_recommendation.customer_instruction.call_before_delivery, true);
+});
