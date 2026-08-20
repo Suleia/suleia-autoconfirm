@@ -10,6 +10,7 @@
     "sync-meta-dashboard": "node tools/sync-meta-dashboard.mjs",
     "send-chatby-template-orders": "node tools/send-chatby-template-orders.mjs",
     "confirm": "node tools/auto-confirm.mjs",
+    "test:confirmation-regression": "node --import ./tests/regression/confirmation-agent/isolated-env.mjs --test tests/regression/confirmation-agent/isolation-contract.test.mjs tests/regression/confirmation-agent/contract.test.mjs tests/regression/confirmation-agent/current-behavior.test.mjs tests/regression/confirmation-agent/legacy-flow-characterization.test.mjs tests/confirmation-freshness.test.mjs server-automation-cron.test.mjs src/storage.test.mjs src/clients/chatby.test.mjs src/clients/dropea-v2-order-actions.test.mjs src/workflows/unanswered-cancellations.test.mjs src/db/supabase-store.test.mjs",
     "cancel-unanswered": "node tools/unanswered-cancellations.mjs",
     "health": "node tools/healthcheck.mjs",
     "supabase:backfill": "node tools/supabase-backfill.mjs",
