@@ -40,7 +40,7 @@
       {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T10:00:00.000Z","source":"chatby","source_record_id":"4b","payload":{}},
       {"event_type":"CUSTOMER_CHANGED_MIND","occurred_at":"2026-07-26T10:20:00.000Z","source":"chatby","source_record_id":"4c","payload":{}}
     ],
-    "expected":{"action":"PROPOSE_CANCEL","route":"BLOCKED"}
+    "expected":{"action":"PROPOSE_CANCEL","route":"DETERMINISTIC"}
   },
   {
     "id": "explicit-cancellation",
@@ -227,7 +227,7 @@
       {"event_type":"CUSTOMER_CONFIRMED","occurred_at":"2026-07-26T09:00:00.000Z","source":"chatby","source_record_id":"22b","payload":{}},
       {"event_type":"CUSTOMER_CANCELLED","occurred_at":"2026-07-26T09:10:00.000Z","source":"chatby","source_record_id":"22c","payload":{}}
     ],
-    "expected":{"action":"PROPOSE_CANCEL","route":"BLOCKED"}
+    "expected":{"action":"PROPOSE_CANCEL","route":"DETERMINISTIC"}
   },
   {
     "id": "possible-wrong-customer",

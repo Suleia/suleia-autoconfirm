@@ -6,10 +6,12 @@ import { InMemoryEventStore } from '../src/event-store.mjs';
 import { OrderDigitalTwinBuilder } from '../src/digital-twin.mjs';
 import { DeterministicDecisionEngine } from '../src/decision-engine.mjs';
 
-const GOLDEN_DIGEST = '6a3f792cff4ecf0d8aae6ec79b38e02c9744e8bde32924158e4de5f592ce641f';
+// Deliberately updated in Phase 0.5 for shadow-only temporal precedence:
+// a later semantically valid customer fact supersedes the older opposite fact.
+const GOLDEN_DIGEST = '957cd5d2538203304d36b7879f01a3d5057e40c5254ff526e04b9859d24d7e1e';
 const fixtures = JSON.parse(fs.readFileSync(new URL('../fixtures/orders.json', import.meta.url), 'utf8'));
 
-test('CURRENT_PROD_CANONICAL_BEHAVIOUR remains byte-exact across all 32 anonymized cases', () => {
+test('CURRENT_SHADOW_CANONICAL_BEHAVIOUR remains byte-exact across all 32 anonymized cases', () => {
   const decisions = fixtures.map((fixture) => {
     const store = new InMemoryEventStore();
     for (const event of fixture.events) store.append({ ...event, order_id: fixture.order_id });

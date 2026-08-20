@@ -1,9 +1,12 @@
 import http from 'node:http';
+import { resolveExecutionMode } from '../packages/platform-core/src/execution-mode.mjs';
+import { evaluateScheduledRun } from '../packages/platform-core/src/scheduler-safety.mjs';
 
 const role = process.argv[2] || 'unknown';
 const port = Number(process.env.PORT || 3300);
 const allowedRoles = new Set(['decision-engine', 'ingestion-worker', 'scheduler']);
 if (!allowedRoles.has(role)) throw new Error(`Unsupported process role: ${role}`);
+const executionModeResolution = resolveExecutionMode(process.env);
 
 const disabled = {
   'decision-engine': process.env.ACTION_EXECUTOR_ENABLED !== 'true',
@@ -11,6 +14,7 @@ const disabled = {
   scheduler: process.env.LIVE_CRON_ENABLED !== 'true'
 };
 const implemented = role === 'ingestion-worker';
+const schedulerSafety = role === 'scheduler' ? evaluateScheduledRun({}) : null;
 
 const server = http.createServer((req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -20,6 +24,9 @@ const server = http.createServer((req, res) => {
       ok: implemented,
       service: role,
       mode: 'SIMULATION',
+      execution_mode: executionModeResolution.mode,
+      scheduler_disposition: schedulerSafety?.disposition || null,
+      scheduler_blockers: schedulerSafety?.blockers || [],
       health_status: implemented ? 'UNKNOWN' : 'NOT_IMPLEMENTED',
       functional_cycle_available: false,
       last_completed_cycle_at: null,

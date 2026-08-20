@@ -2,14 +2,18 @@ import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { OperationsRepository } from '../../packages/suleia-operations-mcp/src/operations/repository.mjs';
 import { createOperationsAuth, OperationsAuthError } from '../../packages/suleia-operations-mcp/src/operations/auth.mjs';
+import { EXECUTION_MODE, resolveExecutionMode } from '../../packages/platform-core/src/execution-mode.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
-  return value === undefined ? fallback : value === 'true';
+  if (value === undefined) return fallback;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`Unsafe Operations API configuration: ${name} must be true or false`);
 }
 
 export function loadOperationsConfig(overrides = {}) {
-  const config = {
+  const baseConfig = {
     port: Number(process.env.PORT || 3200),
     runMode: process.env.RUN_MODE || 'SIMULATION',
     simulationOnly: envBool('SIMULATION_ONLY', true),
@@ -25,8 +29,21 @@ export function loadOperationsConfig(overrides = {}) {
     privateDataKey: process.env.OPERATIONS_PRIVATE_DATA_KEY || '',
     ...overrides
   };
+  const executionModeResolution = resolveExecutionMode({
+    ...process.env,
+    RUN_MODE: baseConfig.runMode,
+    SIMULATION_ONLY: String(baseConfig.simulationOnly),
+    PRODUCTION_WRITES_ENABLED: String(baseConfig.productionWritesEnabled),
+    ACTION_EXECUTOR_ENABLED: String(baseConfig.actionExecutorEnabled)
+  });
+  const config = {
+    ...baseConfig,
+    executionMode: executionModeResolution.mode,
+    executionModeResolution
+  };
   const violations = [];
   if (!['SIMULATION', 'SHADOW_READ_ONLY'].includes(config.runMode)) violations.push('unsafe run mode');
+  if (![EXECUTION_MODE.SIMULATION, EXECUTION_MODE.READ_ONLY].includes(config.executionMode)) violations.push('unsafe canonical execution mode');
   if (!config.simulationOnly) violations.push('simulation-only must remain enabled');
   if (config.productionWritesEnabled || config.actionExecutorEnabled) violations.push('write/action execution is forbidden');
   if (!config.databaseUrl) violations.push('read-only database URL is required');
@@ -80,7 +97,14 @@ export function createOperationsServer({ config, repository, authenticate, audit
     if (req.method !== 'GET' && !(req.method === 'POST' && feedbackMatch)) return json(res, 405, { ok: false, error: 'method_not_allowed' });
     if (!allowRequest(req)) return json(res, 429, { ok: false, error: 'rate_limited' });
     if (requestUrl.pathname === '/health') {
-      return json(res, 200, { ok: true, service: 'suleia-operations-api', run_mode: config.runMode, actions_executed: 0, production_writes: 0 });
+      return json(res, 200, {
+        ok: true,
+        service: 'suleia-operations-api',
+        run_mode: config.runMode,
+        execution_mode: config.executionMode,
+        actions_executed: 0,
+        production_writes: 0
+      });
     }
     if (requestUrl.pathname === '/version') {
       return json(res, 200, {
@@ -90,6 +114,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
         version: process.env.SULEIA_BUILD_VERSION || 'UNKNOWN',
         branch: process.env.SULEIA_BUILD_BRANCH || 'UNKNOWN',
         run_mode: config.runMode,
+        execution_mode: config.executionMode,
         actions_executed: 0,
         production_writes: 0
       });
@@ -98,7 +123,8 @@ export function createOperationsServer({ config, repository, authenticate, audit
       return json(res, 200, {
         oauth: { issuer: config.oauthIssuer, client_id: config.oauthClientId, audience: config.oauthAudience, scope: 'openid operations:read' },
         refresh_interval_seconds: 45,
-        run_mode: 'SHADOW_READ_ONLY'
+        run_mode: config.runMode,
+        execution_mode: config.executionMode
       });
     }
     let principal;

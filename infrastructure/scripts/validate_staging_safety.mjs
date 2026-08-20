@@ -25,10 +25,13 @@ const eventStore = read('packages/platform-core/src/event-store.mjs');
 const decisionEngine = read('packages/platform-core/src/decision-engine.mjs');
 const ingestionPipeline = read('packages/platform-core/src/ingestion-pipeline.mjs');
 const actionExecutor = read('services/action-executor.mjs');
+const executionGateway = read('packages/platform-core/src/execution-gateway.mjs');
+const executionMode = read('packages/platform-core/src/execution-mode.mjs');
 const mcpConfig = read('packages/suleia-operations-mcp/src/config.mjs');
 
 const requiredValues = new Map([
   ['APP_ENV', 'staging'],
+  ['SULEIA_EXECUTION_MODE', 'READ_ONLY'],
   ['RUN_MODE', 'SHADOW_READ_ONLY'],
   ['SIMULATION_ONLY', 'true'],
   ['PRODUCTION_WRITES_ENABLED', 'false'],
@@ -163,9 +166,18 @@ requireMatch(
 );
 requireMatch(
   actionExecutor,
-  /throw new Error\('Action Executor is disabled/,
-  'Action Executor must fail closed'
+  /ExecutionGateway/,
+  'Action Executor must delegate to the Execution Gateway'
 );
+requireMatch(executionGateway, /PHASE_0_5_EXTERNAL_EXECUTION_DISABLED/, 'Execution Gateway must remain externally disabled');
+requireMatch(executionGateway, /canonicalActionIdempotencyKey/, 'Execution Gateway must enforce canonical idempotency');
+requireMatch(executionMode, /PRODUCTION_NOT_IMPLEMENTED/, 'Canonical PRODUCTION mode must remain unavailable');
+
+const shadowService = compose.split('ingestion-worker:')[1]?.split('\n  scheduler:')[0] || '';
+rejectMatch(shadowService, /SUPABASE_SERVICE_ROLE_KEY/, 'Shadow worker must not receive Supabase service-role');
+requireMatch(shadowService, /SUPABASE_PUBLISHABLE_KEY/, 'Shadow worker requires a separate publishable API key');
+requireMatch(shadowService, /SUPABASE_SHADOW_READER_TOKEN/, 'Shadow worker requires a dedicated reader bearer');
+rejectMatch(envExample, /^SUPABASE_SERVICE_ROLE_KEY=/m, 'Shadow env template must not contain Supabase service-role');
 
 const forbiddenImports = [];
 for (const relativeDirectory of ['apps', 'services', 'packages/platform-core', 'packages/suleia-operations-mcp/src']) {

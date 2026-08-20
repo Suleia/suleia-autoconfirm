@@ -8,8 +8,11 @@ export const SHADOW_TABLES = Object.freeze([
 ]);
 
 export class SupabaseReadSource {
-  constructor({ sourceUrl, sourceToken, fetchImpl = globalThis.fetch }) {
-    this.sourceUrl = sourceUrl; this.sourceToken = sourceToken; this.fetchImpl = fetchImpl;
+  constructor({ sourceUrl, sourceApiKey, sourceBearerToken, fetchImpl = globalThis.fetch }) {
+    this.sourceUrl = sourceUrl;
+    this.sourceApiKey = sourceApiKey;
+    this.sourceBearerToken = sourceBearerToken;
+    this.fetchImpl = fetchImpl;
   }
 
   async page(table, timestampField, { after = null, offset = 0, limit = 250 } = {}) {
@@ -17,7 +20,7 @@ export class SupabaseReadSource {
     if (after) query.set(timestampField, `gt.${after}`);
     const response = await this.fetchImpl(`${this.sourceUrl}/rest/v1/${table}?${query}`, {
       method: 'GET', redirect: 'error', headers: {
-        apikey: this.sourceToken, Authorization: `Bearer ${this.sourceToken}`,
+        apikey: this.sourceApiKey, Authorization: `Bearer ${this.sourceBearerToken}`,
         Accept: 'application/json', Prefer: 'count=exact'
       }
     });

@@ -21,6 +21,48 @@ function hasExpired(twin, workflow) {
 
 const AGENCY_PICKUP_MESSAGE = 'Tu pedido está disponible para recogida en la agencia indicada por el transportista. Revisa el aviso logístico antes de desplazarte.';
 
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+}
+
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
+function policyInputHash(policy) {
+  return crypto.createHash('sha256').update(JSON.stringify(canonical(policy))).digest('hex');
+}
+
+function decisionTwinInput(twin) {
+  const { built_at: _observationTime, ...decisionFields } = twin;
+  return decisionFields;
+}
+
+export function decisionInputHash(twin, policy = DEFAULT_POLICY) {
+  return crypto.createHash('sha256').update(JSON.stringify(canonical({
+    twin: decisionTwinInput(twin),
+    policy
+  }))).digest('hex');
+}
+
+export function isDecisionCurrent(decision, twin, { policy } = {}) {
+  if (!policy) return false;
+  return Boolean(
+    decision
+    && twin
+    && String(decision.order_id) === String(twin.order_id)
+    && Number(decision.state_version) === Number(twin.state_version)
+    && decision.policy_hash === policyInputHash(policy)
+    && decision.input_hash === decisionInputHash(twin, policy)
+  );
+}
+
 function incidentEvidenceProposal(twin) {
   const carrierState = twin.logistics.carrier_state;
   const customerIntent = twin.customer_intent;
@@ -177,11 +219,13 @@ export function classifyDecisionRoute(twin, proposal, policy = DEFAULT_POLICY) {
 }
 
 export class DeterministicDecisionEngine {
-  constructor({ policy = DEFAULT_POLICY } = {}) {
+  constructor({ policy = DEFAULT_POLICY, clock = () => new Date() } = {}) {
     this.policy = { ...DEFAULT_POLICY, ...policy };
+    this.clock = clock;
   }
 
   simulate(twin) {
+    const policySnapshot = deepFreeze(canonical(this.policy));
     const proposal = propose(twin, this.policy);
     const route = classifyDecisionRoute(twin, proposal, this.policy);
     const blocking = route === ROUTES.BLOCKED
@@ -190,6 +234,9 @@ export class DeterministicDecisionEngine {
     const result = {
       decision_id: crypto.randomUUID(),
       order_id: twin.order_id,
+      state_version: twin.state_version,
+      created_at: this.clock().toISOString(),
+      input_hash: decisionInputHash(twin, policySnapshot),
       snapshot_version: twin.snapshot_version,
       workflow: proposal.workflow || (twin.incident.active ? `INCIDENT_${twin.incident.type}` : 'ORDER_CONFIRMATION'),
       selected_workflow: proposal.workflow || (twin.incident.active ? `INCIDENT_${twin.incident.type}` : 'ORDER_CONFIRMATION'),
@@ -218,6 +265,8 @@ export class DeterministicDecisionEngine {
       evidence_event_ids: twin.evidence_event_ids,
       policy_version: this.policy.version,
       policy_versions: [this.policy.version],
+      policy_hash: policyInputHash(policySnapshot),
+      policy_snapshot: policySnapshot,
       alternatives: [{ action: 'MANUAL_REVIEW', reason: 'Disponible como salida segura.' }],
       risk_level: proposal.risk,
       risk_gate_result: route === ROUTES.BLOCKED ? 'BLOCKED' : [ROUTES.HUMAN_REVIEW].includes(route) ? 'REVIEW' : 'PASS',
@@ -235,7 +284,11 @@ export class DeterministicDecisionEngine {
       actions_executed: 0,
       run_mode: RUN_MODE
     };
-    return assertSimulationSafety(result);
+    return assertSimulationSafety(deepFreeze(result));
+  }
+
+  isCurrent(decision, twin) {
+    return isDecisionCurrent(decision, twin, { policy: this.policy });
   }
 }
 

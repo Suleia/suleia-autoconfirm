@@ -14,3 +14,14 @@ test('shadow deployment starts only ingestion and does not run production action
   assert.match(script, /up --detach --build --no-deps --wait ingestion-worker/);
   assert.doesNotMatch(script, /up[^\n]*(?:action-executor|autoconfirm)/);
 });
+
+test('credential preflight fails before any backup, extraction or container mutation', () => {
+  assert.match(script, /SUPABASE_SERVICE_ROLE_KEY/);
+  assert.match(script, /SUPABASE_PUBLISHABLE_KEY=sb_publishable_/);
+  assert.match(script, /SUPABASE_SHADOW_READER_TOKEN=/);
+  assert.match(script, /SULEIA_EXECUTION_MODE=READ_ONLY/);
+  const preflight = script.indexOf("grep -q '^SUPABASE_SERVICE_ROLE_KEY='");
+  assert.ok(preflight > 0);
+  assert.ok(preflight < script.indexOf('docker compose'));
+  assert.ok(preflight < script.indexOf('tar --extract'));
+});
