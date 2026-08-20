@@ -5,3 +5,7 @@ data/*.json
 !data/.gitkeep
 node_modules/
 autoconfirm-sync.log
+/autoconfirm/data/stores.json
+/autoconfirm/data/state.json
+/autoconfirm/data/orders.json
+/autoconfirm/data/webhook-events.json
