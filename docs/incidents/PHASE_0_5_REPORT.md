@@ -10,7 +10,9 @@
 PHASE: 0.5 — P0 CONTAINMENT
 DEPLOY BRANCH: hardening/phase-0.5-p0-containment
 LEGACY FREEZE BRANCH: hardening/phase-0.5a-confirmation-freeze
-COMMIT: pending intentional commits; no identifier claimed in this report
+DEPLOY IMPLEMENTATION COMMIT: 46ef9e0
+LEGACY FREEZE COMMIT: 6ea16b9
+REPORT CLOSURE: this document's containing PR head
 PRODUCTION IMPACT: none from this phase
 CONFIRMATION AGENT BEHAVIOR CHANGED: NO
 ```
