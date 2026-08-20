@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { loadShadowSourceCredential } from '../../packages/suleia-operations-mcp/src/shadow/source-credential.mjs';
 
 const TABLES = Object.freeze([
   ['app_state', 'updated_at'], ['orders', 'updated_at'], ['operational_orders', 'updated_at'],
@@ -8,9 +9,10 @@ const TABLES = Object.freeze([
 ]);
 
 export function assertSupabaseInventoryEnvironment(env) {
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Supabase read credentials are missing');
+  if (!env.SUPABASE_URL) throw new Error('Supabase technical read-only credentials are missing');
   const url = new URL(env.SUPABASE_URL);
   if (url.protocol !== 'https:' || !url.hostname.endsWith('.supabase.co')) throw new Error('Supabase host is not allowlisted');
+  return loadShadowSourceCredential(env, { expectedIssuer: `${url.href.replace(/\/$/, '')}/auth/v1` });
 }
 
 async function request(url, headers, fetchImpl) {
@@ -21,11 +23,11 @@ async function request(url, headers, fetchImpl) {
 }
 
 export async function inventorySupabase({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
-  assertSupabaseInventoryEnvironment(env);
+  const credential = assertSupabaseInventoryEnvironment(env);
   const base = env.SUPABASE_URL.replace(/\/$/, '');
   const headers = {
-    apikey: env.SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`,
+    apikey: credential.apiKey,
+    Authorization: `Bearer ${credential.bearerToken}`,
     Accept: 'application/json', Prefer: 'count=exact', Range: '0-0'
   };
   const results = [];

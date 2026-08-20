@@ -17,6 +17,28 @@ fi
 test -r "${ARCHIVE}"
 test -r "${ENV_FILE}"
 
+# Credential and execution-mode preflight must run before backup, extraction or
+# container changes. Values are never sourced or printed.
+if grep -q '^SUPABASE_SERVICE_ROLE_KEY=' "${ENV_FILE}"; then
+  echo "Shadow deploy blocked: Supabase service-role is forbidden." >&2
+  exit 1
+fi
+grep -Eq '^SUPABASE_URL=https://[^/]+\.supabase\.co/?$' "${ENV_FILE}" || {
+  echo "Shadow deploy blocked: allowlisted Supabase URL is missing." >&2; exit 1;
+}
+grep -q '^SUPABASE_PUBLISHABLE_KEY=sb_publishable_.\+$' "${ENV_FILE}" || {
+  echo "Shadow deploy blocked: publishable API key is missing." >&2; exit 1;
+}
+grep -Eq '^SUPABASE_SHADOW_READER_TOKEN=[^.]+\.[^.]+\.[^.]+$' "${ENV_FILE}" || {
+  echo "Shadow deploy blocked: reader bearer is missing or malformed." >&2; exit 1;
+}
+grep -q '^SULEIA_EXECUTION_MODE=READ_ONLY$' "${ENV_FILE}" || {
+  echo "Shadow deploy blocked: canonical READ_ONLY mode is required." >&2; exit 1;
+}
+grep -q '^RUN_MODE=SHADOW_READ_ONLY$' "${ENV_FILE}" || {
+  echo "Shadow deploy blocked: legacy read-only compatibility mode is required." >&2; exit 1;
+}
+
 cd "${INSTALL_ROOT}"
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" --profile maintenance run --rm --no-TTY backup </dev/null
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" --profile maintenance run --rm --no-TTY \

@@ -116,14 +116,16 @@ test('masking redacts contact and secret data', () => {
   assert.equal(containsDirectPii(masked), false);
 });
 
-test('a cancellation after confirmation blocks the decision', () => {
+test('a later valid cancellation supersedes confirmation in the shadow decision', () => {
   const fixture = fixtures.find((item) => item.id === 'changed-mind-within-hour');
   const store = new InMemoryEventStore();
   for (const event of fixture.events) store.append({ ...event, order_id: fixture.order_id });
   const twin = new OrderDigitalTwinBuilder(store).buildCurrentTwin(fixture.order_id, new Date(fixture.now));
   const decision = new DeterministicDecisionEngine().simulate(twin);
-  assert.equal(decision.route, 'BLOCKED');
-  assert.ok(decision.blocking_reasons.includes('CUSTOMER_INTENT_CONTRADICTION'));
+  assert.equal(decision.route, 'DETERMINISTIC');
+  assert.equal(decision.proposed_action, 'PROPOSE_CANCEL');
+  assert.equal(decision.blocking_reasons.includes('CUSTOMER_INTENT_CONTRADICTION'), false);
+  assert.equal(decision.actions_executed, 0);
 });
 
 test('local ingestion masks PII and deduplicates source records', () => {

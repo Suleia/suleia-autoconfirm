@@ -5,15 +5,39 @@ import { containsDirectPii, maskRecord } from '../src/shadow/masking.mjs';
 import { SupabaseReadSource } from '../src/shadow/source.mjs';
 import { syncShadow } from '../src/shadow/sync.mjs';
 
+function readerToken({ role = 'suleia_shadow_reader', exp = 1_900_000_000, alg = 'HS256', iss = 'https://fixture.supabase.co/auth/v1' } = {}) {
+  const encode = (value) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${encode({ alg, typ: 'JWT' })}.${encode({ role, exp, iss })}.fixture-signature`;
+}
+
 const safeEnv = () => ({ ...SHADOW_REQUIRED_FLAGS, SUPABASE_URL: 'https://fixture.supabase.co',
-  SUPABASE_SERVICE_ROLE_KEY: 'fixture-source-token', SHADOW_DATABASE_URL: 'postgres://reader:fixture@postgres:5432/suleia_staging',
+  SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_fixture', SUPABASE_SHADOW_READER_TOKEN: readerToken(),
+  SHADOW_DATABASE_URL: 'postgres://reader:fixture@postgres:5432/suleia_staging',
   MIGRATION_HASH_KEY: 'fixture-hash-key' });
 
 test('shadow config fails closed if any production capability is enabled', () => {
   assert.equal(loadShadowConfig(safeEnv()).pageSize, 250);
   assert.throws(() => loadShadowConfig({ ...safeEnv(), CUSTOMER_MESSAGES_ENABLED: 'true' }), /CUSTOMER_MESSAGES_ENABLED=false/);
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), READ_ONLY: 'false' }), { code: 'CONFIG_CONTRADICTION' });
   assert.throws(() => loadShadowConfig({ ...safeEnv(), OPENAI_API_KEY: 'forbidden' }), /must not be present/);
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SERVICE_ROLE_KEY: 'forbidden' }), { code: 'SERVICE_ROLE_FORBIDDEN' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SERVICE_ROLE_KEY: '' }), { code: 'SERVICE_ROLE_FORBIDDEN' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_PUBLISHABLE_KEY: '' }), { code: 'PUBLISHABLE_KEY_REQUIRED' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_PUBLISHABLE_KEY: 'sb_secret_forbidden' }), { code: 'SECRET_API_KEY_FORBIDDEN' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SHADOW_READER_TOKEN: '' }), { code: 'READER_JWT_REQUIRED' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SHADOW_READER_TOKEN: 'opaque-token' }), { code: 'READER_JWT_REQUIRED' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SHADOW_READER_TOKEN: 'sb_secret_forbidden' }), { code: 'SECRET_BEARER_FORBIDDEN' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SHADOW_READER_TOKEN: readerToken({ role: 'service_role' }) }), { code: 'READER_ROLE_INVALID' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SHADOW_READER_TOKEN: readerToken({ exp: 1 }) }), { code: 'READER_JWT_EXPIRED' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SHADOW_READER_TOKEN: readerToken({ alg: 'none' }) }), { code: 'READER_JWT_ALGORITHM_INVALID' });
+  assert.throws(() => loadShadowConfig({ ...safeEnv(), SUPABASE_SHADOW_READER_TOKEN: readerToken({ iss: 'https://other.supabase.co/auth/v1' }) }), { code: 'READER_ISSUER_INVALID' });
   assert.throws(() => loadShadowConfig({ ...safeEnv(), SHADOW_DATABASE_URL: 'postgres://x:y@remote.example/db' }), /local VPS/);
+  for (const value of ['', 'NaN', '25.5', '501', '9007199254740992']) {
+    assert.throws(() => loadShadowConfig({ ...safeEnv(), SHADOW_PAGE_SIZE: value }), /SHADOW_PAGE_SIZE/);
+  }
+  for (const value of ['', 'NaN', '60000.5', '59999', '86400001']) {
+    assert.throws(() => loadShadowConfig({ ...safeEnv(), SHADOW_POLL_INTERVAL_MS: value }), /SHADOW_POLL_INTERVAL_MS/);
+  }
 });
 
 test('masking removes secrets and direct customer identity before persistence', () => {
@@ -33,11 +57,18 @@ test('masking removes secrets and direct customer identity before persistence', 
 
 test('Supabase source can only issue GET reads', async () => {
   let observed;
-  const source = new SupabaseReadSource({ sourceUrl: 'https://fixture.supabase.co', sourceToken: 'fixture', fetchImpl: async (url, options) => {
+  const source = new SupabaseReadSource({
+    sourceUrl: 'https://fixture.supabase.co',
+    sourceApiKey: 'sb_publishable_fixture',
+    sourceBearerToken: readerToken(),
+    fetchImpl: async (url, options) => {
     observed = { url, options }; return new Response('[]', { status: 200, headers: { 'content-range': '0-0/0' } });
   }});
   await source.page('orders', 'updated_at');
   assert.equal(observed.options.method, 'GET'); assert.match(observed.url, /^https:\/\/fixture\.supabase\.co\/rest\/v1\/orders\?/);
+  assert.equal(observed.options.headers.apikey, 'sb_publishable_fixture');
+  assert.match(observed.options.headers.Authorization, /^Bearer ey/);
+  assert.notEqual(observed.options.headers.apikey, observed.options.headers.Authorization.replace(/^Bearer /, ''));
 });
 
 test('sync is incremental, idempotent at the repository boundary and executes zero actions', async () => {

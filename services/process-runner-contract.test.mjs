@@ -9,5 +9,7 @@ test('placeholder Decision Engine and Scheduler report NOT_IMPLEMENTED, never he
   assert.match(source, /if \(!implemented\) res\.statusCode = 501/);
   assert.match(source, /functional_cycle_available:\s*false/);
   assert.match(source, /production_writes:\s*0/);
+  assert.match(source, /evaluateScheduledRun\(\{\}\)/);
+  assert.match(source, /scheduler_disposition/);
   assert.doesNotMatch(source, /ok:\s*true/);
 });

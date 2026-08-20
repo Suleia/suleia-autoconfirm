@@ -1,3 +1,6 @@
+import { EXECUTION_MODE, resolveExecutionMode } from '../../../platform-core/src/execution-mode.mjs';
+import { loadShadowSourceCredential } from './source-credential.mjs';
+
 const REQUIRED = Object.freeze({
   APP_ENV: 'staging', RUN_MODE: 'SHADOW_READ_ONLY', SIMULATION_ONLY: 'true',
   REAL_DATA_READ_ENABLED: 'true', REAL_DATA_WRITE_ENABLED: 'false',
@@ -18,26 +21,52 @@ const REQUIRED = Object.freeze({
   AUDIT_LOGGING_ENABLED: 'true'
 });
 
+function boundedInteger(env, name, { fallback, minimum, maximum }) {
+  if (!Object.prototype.hasOwnProperty.call(env, name) || env[name] === undefined) return fallback;
+  const raw = String(env[name]);
+  if (!/^\d+$/.test(raw)) throw new Error(`Shadow safety gate requires ${name} to be an integer`);
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new Error(`Shadow safety gate requires ${name} between ${minimum} and ${maximum}`);
+  }
+  return value;
+}
+
 export function loadShadowConfig(env = process.env) {
   for (const [name, expected] of Object.entries(REQUIRED)) {
     if (env[name] !== expected) throw new Error(`Shadow safety gate requires ${name}=${expected}`);
   }
   if (env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY must not be present in the shadow worker');
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) throw new Error('Supabase read credentials are missing');
+  if (!env.SUPABASE_URL) throw new Error('Supabase source URL is missing');
   const sourceUrl = new URL(env.SUPABASE_URL);
   if (sourceUrl.protocol !== 'https:' || !sourceUrl.hostname.endsWith('.supabase.co')) {
     throw new Error('Supabase source host is not allowlisted');
   }
+  const sourceCredential = loadShadowSourceCredential(env, {
+    expectedIssuer: `${sourceUrl.href.replace(/\/$/, '')}/auth/v1`
+  });
   if (!env.SHADOW_DATABASE_URL || !env.MIGRATION_HASH_KEY) throw new Error('Shadow database and hashing credentials are missing');
   const databaseUrl = new URL(env.SHADOW_DATABASE_URL);
   if (!['postgres', '127.0.0.1', 'localhost'].includes(databaseUrl.hostname)) {
     throw new Error('Shadow database must be the local VPS PostgreSQL service');
   }
+  const executionModeResolution = resolveExecutionMode(env);
+  if (executionModeResolution.mode !== EXECUTION_MODE.READ_ONLY) {
+    throw new Error('Shadow safety gate requires canonical READ_ONLY execution mode');
+  }
   return Object.freeze({
-    sourceUrl: sourceUrl.href.replace(/\/$/, ''), sourceToken: env.SUPABASE_SERVICE_ROLE_KEY,
+    sourceUrl: sourceUrl.href.replace(/\/$/, ''),
+    sourceApiKey: sourceCredential.apiKey,
+    sourceBearerToken: sourceCredential.bearerToken,
     databaseUrl: env.SHADOW_DATABASE_URL, hashKey: env.MIGRATION_HASH_KEY,
-    pageSize: Math.min(500, Math.max(25, Number(env.SHADOW_PAGE_SIZE || 250))),
-    pollIntervalMs: Math.max(60000, Number(env.SHADOW_POLL_INTERVAL_MS || 300000))
+    pageSize: boundedInteger(env, 'SHADOW_PAGE_SIZE', { fallback: 250, minimum: 25, maximum: 500 }),
+    pollIntervalMs: boundedInteger(env, 'SHADOW_POLL_INTERVAL_MS', {
+      fallback: 300000,
+      minimum: 60000,
+      maximum: 86400000
+    }),
+    executionMode: executionModeResolution.mode,
+    executionModeResolution
   });
 }
 

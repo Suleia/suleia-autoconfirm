@@ -40,6 +40,11 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   assert.equal(typeof version.revision, 'string');
   assert.equal(typeof version.branch, 'string');
   assert.equal(version.production_writes, 0);
+  const publicConfig = await fetch(`${base}/api/config`).then((response) => response.json());
+  assert.equal(health.run_mode, version.run_mode);
+  assert.equal(version.run_mode, publicConfig.run_mode);
+  assert.equal(health.execution_mode, version.execution_mode);
+  assert.equal(version.execution_mode, publicConfig.execution_mode);
   const unauthorized = await fetch(`${base}/api/operations/summary`);
   assert.equal(unauthorized.status, 401);
   const allowed = await fetch(`${base}/api/operations/summary`, { headers: { Authorization: 'Bearer fixture' } });

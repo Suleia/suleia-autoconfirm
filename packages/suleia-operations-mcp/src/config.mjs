@@ -1,12 +1,15 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { EXECUTION_MODE, resolveExecutionMode } from '../../platform-core/src/execution-mode.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 function bool(name, fallback) {
   const value = process.env[name];
   if (value === undefined) return fallback;
-  return String(value).toLowerCase() === 'true';
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  throw new Error(`Unsafe MCP configuration: ${name} must be true or false`);
 }
 
 function integer(name, fallback) {
@@ -22,7 +25,7 @@ function list(name, fallback = []) {
 }
 
 export function loadConfig(overrides = {}) {
-  const config = {
+  const baseConfig = {
     environment: process.env.NODE_ENV || 'development',
     port: integer('PORT', 3100),
     dataMode: process.env.MCP_DATA_MODE || 'fixture',
@@ -75,6 +78,24 @@ export function loadConfig(overrides = {}) {
     connectorWriteEnabled: bool('CONNECTOR_WRITE_ENABLED', false),
     ...overrides
   };
+  const runMode = process.env.RUN_MODE || 'SHADOW_READ_ONLY';
+  const executionModeResolution = resolveExecutionMode({
+    ...process.env,
+    RUN_MODE: runMode,
+    READ_ONLY: String(baseConfig.readOnly),
+    SIMULATION_ONLY: String(baseConfig.simulationOnly),
+    PRODUCTION_WRITES_ENABLED: String(baseConfig.productionWritesEnabled),
+    ACTION_EXECUTOR_ENABLED: String(baseConfig.actionExecutorEnabled),
+    MCP_WRITE_TOOLS_ENABLED: String(baseConfig.writeToolsEnabled),
+    REAL_DATA_WRITE_ENABLED: String(baseConfig.realDataWriteEnabled),
+    CONNECTOR_WRITE_ENABLED: String(baseConfig.connectorWriteEnabled)
+  });
+  const config = {
+    ...baseConfig,
+    runMode,
+    executionMode: executionModeResolution.mode,
+    executionModeResolution
+  };
 
   assertSafetyInvariants(config);
   return Object.freeze(config);
@@ -83,6 +104,7 @@ export function loadConfig(overrides = {}) {
 export function assertSafetyInvariants(config) {
   const violations = [];
   if (!config.readOnly) violations.push('READ_ONLY must be true');
+  if (config.executionMode !== EXECUTION_MODE.READ_ONLY) violations.push('Canonical execution mode must be READ_ONLY');
   if (!config.simulationOnly) violations.push('SIMULATION_ONLY must be true');
   if (config.productionWritesEnabled) violations.push('PRODUCTION_WRITES_ENABLED must be false');
   if (config.actionExecutorEnabled) violations.push('ACTION_EXECUTOR_ENABLED must be false');

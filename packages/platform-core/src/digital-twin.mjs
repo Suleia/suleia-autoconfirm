@@ -64,15 +64,43 @@ function latestCarrierState(events) {
   return candidates.at(-1) || null;
 }
 
+function freshnessDomain(eventType = '') {
+  if (/^(?:CUSTOMER_|CHATBY_)/.test(eventType)) return 'CUSTOMER';
+  if (/^(?:CARRIER_|GLS_)/.test(eventType)) return 'LOGISTICS';
+  if (/^INCIDENT_/.test(eventType)) return 'INCIDENT';
+  if (/^ORDER_/.test(eventType)) return 'ORDER';
+  if (/^TIMER_/.test(eventType)) return 'TIMER';
+  if (/^ACTION_/.test(eventType)) return 'ACTION';
+  return eventType || 'UNKNOWN';
+}
+
 function sourceQuality(events) {
   const sources = new Set(events.map((event) => event.source));
-  const stale = events.filter((event) => event.freshness_status === 'STALE').map((event) => event.source);
+  const latestByDomain = new Map();
+  for (const event of events) {
+    const key = `${event.source}:${freshnessDomain(event.event_type)}`;
+    const previous = latestByDomain.get(key);
+    if (!previous
+      || new Date(event.occurred_at) > new Date(previous.occurred_at)
+      || (event.occurred_at === previous.occurred_at && event.stream_version > previous.stream_version)) {
+      latestByDomain.set(key, event);
+    }
+  }
+  const stale = [...latestByDomain.entries()]
+    .filter(([, event]) => event.freshness_status === 'STALE');
   return {
     sources: [...sources],
-    stale_sources: [...new Set(stale)],
+    stale_sources: [...new Set(stale.map(([, event]) => event.source))],
+    stale_domains: stale.map(([key]) => key),
     completeness: Math.min(1, sources.size / 4),
     freshness: stale.length ? 'STALE' : 'FRESH'
   };
+}
+
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
 }
 
 export class OrderDigitalTwinBuilder {
@@ -118,7 +146,16 @@ export class OrderDigitalTwinBuilder {
     const actionProposals = events.filter((event) => event.event_type === 'ACTION_PROPOSED');
     const quality = sourceQuality(events);
     const contradictions = [];
-    if (confirmed && (cancelled || changedMind)) contradictions.push('CUSTOMER_INTENT_CONTRADICTION');
+    const latestCancellation = [cancelled, changedMind]
+      .filter(Boolean)
+      .toSorted((left, right) => (
+        new Date(left.occurred_at) - new Date(right.occurred_at)
+        || Number(left.stream_version || 0) - Number(right.stream_version || 0)
+      ))
+      .at(-1);
+    if (confirmed && latestCancellation && confirmed.occurred_at === latestCancellation.occurred_at) {
+      contradictions.push('CUSTOMER_INTENT_CONTRADICTION');
+    }
     if (delivered && status !== 'DELIVERED') contradictions.push('DELIVERY_STATUS_CONTRADICTION');
     const incidentActive = Boolean(incidentOpened && (!incidentResolved || new Date(incidentResolved.occurred_at) < new Date(incidentOpened.occurred_at)));
     const intent = customerIntentEvidence?.value
@@ -139,13 +176,14 @@ export class OrderDigitalTwinBuilder {
     ].filter(Boolean).sort((left, right) => new Date(left.occurred_at) - new Date(right.occurred_at)).at(-1) || null;
     const snapshot = {
       order_id: String(orderId),
+      state_version: events.reduce((highest, event) => Math.max(highest, Number(event.stream_version || 0)), 0),
       snapshot_version: crypto.createHash('sha256').update(events.map((event) => event.checksum).join(':')).digest('hex').slice(0, 16),
       built_at: now.toISOString(),
       status: unknown(status),
       customer_intent: intent,
       customer_intent_evidence: customerIntentEvidence ? evidence(customerIntentEvidence.event, customerIntentEvidence.value) : null,
       confirmation_at: confirmed?.occurred_at || null,
-      cancellation_at: (changedMind || cancelled)?.occurred_at || null,
+      cancellation_at: latestCancellation?.occurred_at || null,
       incident: incidentActive
         ? { active: true, type: incidentOpened.payload?.type || 'UNKNOWN', opened_at: incidentOpened.occurred_at }
         : { active: false, type: 'UNKNOWN', opened_at: null },
@@ -171,6 +209,6 @@ export class OrderDigitalTwinBuilder {
       evidence_event_ids: events.map((event) => event.event_id),
       event_count: events.length
     };
-    return Object.freeze(snapshot);
+    return deepFreeze(snapshot);
   }
 }
