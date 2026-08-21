@@ -5,10 +5,15 @@ function normalizedText(value) {
 
 export function deliveryInstructionFromText(value) {
   const text = normalizedText(value);
+  const weekday = [
+    ['MONDAY', /\blunes\b/], ['TUESDAY', /\bmartes\b/], ['WEDNESDAY', /\bmiercoles\b/],
+    ['THURSDAY', /\bjueves\b/], ['FRIDAY', /\bviernes\b/], ['SATURDAY', /\bsabado\b/],
+    ['SUNDAY', /\bdomingo\b/]
+  ].find(([, pattern]) => pattern.test(text))?.[0] || null;
   const tomorrowMentions = (text.match(/\bmanana\b/g) || []).length;
   const nextDay = /\b(manana|dia siguiente|siguiente dia)\b/.test(text);
   const morning = /\b(por|durante|en) (?:la )?manana\b|\bde manana\b/.test(text)
-    || (tomorrowMentions >= 2 && /\btarde\b/.test(text));
+    || /\btemprano\b/.test(text) || (tomorrowMentions >= 2 && /\btarde\b/.test(text));
   const afternoon = /\b(por|durante|en) (?:la )?tarde\b|\bde tarde\b/.test(text)
     || (morning && /\btarde\b/.test(text));
   const callBeforeDelivery = /(?:llam|avis).{0,45}(?:antes|previ).{0,45}(?:entreg|repart)|(?:antes|previ).{0,45}(?:entreg|repart).{0,45}(?:llam|avis)/.test(text);
@@ -16,11 +21,11 @@ export function deliveryInstructionFromText(value) {
   const requestedWindow = morning && afternoon ? 'MORNING_OR_AFTERNOON'
     : morning ? 'MORNING' : afternoon ? 'AFTERNOON' : null;
   return Object.freeze({
-    requested_day: nextDay ? 'NEXT_DAY' : null,
+    requested_day: nextDay ? 'NEXT_DAY' : weekday,
     requested_window: requestedWindow,
     call_before_delivery: callBeforeDelivery,
-    is_delivery_request: deliveryLanguage && (nextDay || requestedWindow !== null || callBeforeDelivery)
-      || (nextDay && requestedWindow !== null)
+    is_delivery_request: deliveryLanguage && (nextDay || weekday || requestedWindow !== null || callBeforeDelivery)
+      || ((nextDay || weekday) && requestedWindow !== null)
   });
 }
 
@@ -36,6 +41,54 @@ export function interpretChatbyCustomerText(value) {
   else if (delivery.is_delivery_request || /(reintentar.*entrega|nuevo intento|volver.*entregar)/.test(text)) intent = 'DELIVERY_RETRY';
   else if (/(si quiero el pedido|quiero mi pedido|confirmo|confirmado|lo quiero)/.test(text)) intent = 'CUSTOMER_STILL_WANTS_ORDER';
   return Object.freeze({ intent, delivery });
+}
+
+function shortAnswer(value) {
+  return normalizedText(value).replace(/[.!¡¿?]+/g, '').trim();
+}
+
+export function interpretChatbyCustomerReply({ customerText, precedingOperatorText = '' } = {}) {
+  const direct = interpretChatbyCustomerText(customerText);
+  if (direct.intent !== 'UNKNOWN') {
+    return Object.freeze({ ...direct, interpretation_basis: 'DIRECT_CUSTOMER_TEXT' });
+  }
+
+  const answer = shortAnswer(customerText);
+  const prompt = normalizedText(precedingOperatorText);
+  const addressPrompt = /\b(direccion|codigo postal|datos (?:de )?(?:envio|entrega))\b/.test(prompt);
+  const looksLikeAddress = /\b(?:calle|avenida|avda|plaza|paseo|camino|carretera|urbanizacion|numero|nº|piso|puerta)\b/.test(normalizedText(customerText))
+    || /\b\d{5}\b/.test(String(customerText || ''));
+  if (addressPrompt && looksLikeAddress) {
+    return Object.freeze({
+      intent: 'CHANGE_ADDRESS',
+      delivery: direct.delivery,
+      interpretation_basis: 'ADDRESS_DATA_REPLY_TO_ADDRESS_REQUEST'
+    });
+  }
+  const affirmative = /^(si|sí|vale|correcto|de acuerdo|ok|okay)$/.test(answer);
+  if (!affirmative || !prompt) {
+    return Object.freeze({ ...direct, interpretation_basis: 'INSUFFICIENT_CONTEXT' });
+  }
+
+  const receiveQuestion = prompt.match(/(?:¿|\b)(?:quiere|desea|prefiere).{0,45}(?:recibir|entreg)[^¿?]*\?\s*$/)?.[0] || '';
+  const rejectionQuestion = prompt.match(/(?:¿|\b)(?:confirma|es eso cierto|quiere|desea).{0,55}(?:no quiere|rechaz|cancel|devol)[^¿?]*\?\s*$/)?.[0] || '';
+  const asksToReceive = Boolean(receiveQuestion) && !/no quiere|rechaz|cancel|devol/.test(receiveQuestion);
+  const asksToReject = Boolean(rejectionQuestion) && !/recibir|entreg/.test(rejectionQuestion);
+  if (asksToReceive && !asksToReject) {
+    return Object.freeze({
+      intent: 'CUSTOMER_STILL_WANTS_ORDER',
+      delivery: direct.delivery,
+      interpretation_basis: 'AFFIRMATIVE_REPLY_TO_RECEIVE_QUESTION'
+    });
+  }
+  if (asksToReject && !asksToReceive) {
+    return Object.freeze({
+      intent: 'FINAL_REJECTION',
+      delivery: direct.delivery,
+      interpretation_basis: 'AFFIRMATIVE_REPLY_TO_REJECTION_QUESTION'
+    });
+  }
+  return Object.freeze({ ...direct, interpretation_basis: 'AMBIGUOUS_OPERATOR_QUESTION' });
 }
 
 export const chatbyCustomerInstructionInternals = Object.freeze({ normalizedText });
