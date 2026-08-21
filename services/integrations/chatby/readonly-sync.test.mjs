@@ -46,6 +46,7 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
     }
     return response({ data: [
       { id: 'old-message', type: 'in', msg_type: 'text', ts: Date.parse('2026-07-01T09:00:00Z'), content: 'stale' },
+      { id: 'operator-question', type: 'out', msg_type: 'text', ts: Date.parse('2026-08-01T09:30:00Z'), content: '¿Quiere recibir el pedido?' },
       { id: 'current-message', type: 'in', msg_type: 'postback', ts: Date.parse('2026-08-01T10:00:00Z'), payload: { title: 'Quiero el descuento' }, content: 'customer@example.com +34612345678' }
     ], meta: { current_page: 1, last_page: 1 } });
   };
@@ -56,17 +57,19 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
 
   assert.equal(result.ok, true);
   assert.equal(result.exact_orders, 1);
-  assert.equal(result.events_inserted, 1);
-  assert.equal(recorded.length, 1);
-  assert.equal(recorded[0].intent, 'DISCOUNT_ACCEPTED');
-  assert.equal(recorded[0].button_payload, 'DISCOUNT_ACCEPTED');
-  assert.equal(recorded[0].sanitized_text, 'INTENT:DISCOUNT_ACCEPTED');
-  assert.doesNotMatch(JSON.stringify(recorded[0]), /customer@example|612345678|conversation-private-id|contact-private-id/);
-  assert.equal(privateMessages.length, 2);
-  assert.match(privateMessages[1].message_text_ciphertext, /^v1:/);
+  assert.equal(result.events_inserted, 2);
+  assert.equal(recorded.length, 2);
+  assert.equal(recorded[1].intent, 'DISCOUNT_ACCEPTED');
+  assert.equal(recorded[1].button_payload, 'DISCOUNT_ACCEPTED');
+  assert.equal(recorded[1].sanitized_text, 'INTENT:DISCOUNT_ACCEPTED');
+  assert.doesNotMatch(JSON.stringify(recorded), /customer@example|612345678|conversation-private-id|contact-private-id/);
+  assert.equal(privateMessages.length, 3);
+  assert.match(privateMessages[2].message_text_ciphertext, /^v1:/);
   assert.doesNotMatch(JSON.stringify(privateMessages), /customer@example|612345678/);
   assert.equal(privateMessages[0].relation_to_issue, 'BEFORE_INCIDENT');
-  assert.equal(privateMessages[1].relation_to_issue, 'AFTER_INCIDENT');
+  assert.equal(privateMessages[1].direction, 'INBOUND');
+  assert.equal(privateMessages[2].direction, 'OUTBOUND');
+  assert.equal(privateMessages[2].relation_to_issue, 'AFTER_INCIDENT');
   assert.deepEqual(available, [{ canonical_order_id: 'order-hash-safe', canonical_issue_id: 'issue-hash-safe' }]);
   assert.deepEqual(calls.map((call) => call.options.method), ['GET', 'GET']);
   assert.equal(calls.every((call) => call.options.body === undefined), true);

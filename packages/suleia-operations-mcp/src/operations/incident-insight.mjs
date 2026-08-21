@@ -1,4 +1,4 @@
-import { interpretChatbyCustomerText } from '../../../platform-core/src/operational-truth/chatby-customer-instruction.mjs';
+import { interpretChatbyCustomerReply } from '../../../platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 
 const intentLabels = {
   CONFIRM: 'El cliente confirma que quiere recibir el pedido.',
@@ -16,6 +16,11 @@ const intentLabels = {
   UNKNOWN: 'La intención de la respuesta no está determinada.'
 };
 
+const deliveryDayLabels = {
+  MONDAY: 'el lunes', TUESDAY: 'el martes', WEDNESDAY: 'el miércoles', THURSDAY: 'el jueves',
+  FRIDAY: 'el viernes', SATURDAY: 'el sábado', SUNDAY: 'el domingo'
+};
+
 function normalizedIntent(value) {
   const intent = String(value || 'UNKNOWN').toUpperCase();
   if (intent === 'CUSTOMER_STILL_WANTS_ORDER') return 'CONFIRM';
@@ -28,7 +33,10 @@ function customerEvidence(item) {
   const exactMessage = item.latest_customer_message || null;
   const messageAt = item.latest_private_customer_message_at || item.latest_customer_activity_at || null;
   const relation = item.latest_customer_message_relation || null;
-  const privateInterpretation = exactMessage ? interpretChatbyCustomerText(exactMessage) : null;
+  const privateInterpretation = exactMessage ? interpretChatbyCustomerReply({
+    customerText: exactMessage,
+    precedingOperatorText: item.latest_operator_message || ''
+  }) : null;
   const privateIntent = normalizedIntent(privateInterpretation?.intent);
   const privateCurrentSignal = exactMessage && relation === 'AFTER_INCIDENT' && privateIntent !== 'UNKNOWN';
   if (!item.chatby_sync_current) return {
@@ -56,7 +64,8 @@ function customerEvidence(item) {
       summary: item.interpretation_summary || intentLabels[rawIntent] || intentLabels[intent] || intentLabels.UNKNOWN,
       messages: Number(item.messages_used || 0), latest_message: exactMessage,
       at: messageAt, relation: relation || 'AFTER_INCIDENT',
-      delivery_instruction: privateInterpretation?.delivery || null
+      delivery_instruction: privateInterpretation?.delivery || null,
+      interpretation_basis: privateInterpretation?.interpretation_basis || null
     };
   }
   if (item.conversation_status === 'FOUND') {
@@ -142,6 +151,25 @@ function recommendation(item, customer) {
           callback_phone_available: Boolean(item.customer_phone)
         } });
     }
+    if (customer.code === 'DELIVERY_RETRY' && customer.delivery_instruction?.requested_day) {
+      const requestedDay = customer.delivery_instruction.requested_day;
+      const day = deliveryDayLabels[requestedDay] || 'en la fecha indicada por el cliente';
+      const window = customer.delivery_instruction.requested_window === 'MORNING_OR_AFTERNOON'
+        ? 'en horario de mañana o tarde'
+        : customer.delivery_instruction.requested_window === 'MORNING' ? 'por la mañana'
+          : customer.delivery_instruction.requested_window === 'AFTERNOON' ? 'por la tarde' : 'en la franja indicada';
+      return proposal(
+        'NOTIFY_DROPEA_SCHEDULED_DELIVERY', `Notificar a Dropea la entrega ${day}`,
+        `El cliente ha indicado de forma verificable que puede recibir el pedido ${day} ${window}.`,
+        option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
+        ['Comprobar que la fecha indicada sigue siendo operativamente viable', `Seleccionar PROVIDE_SOLUTION e indicar entrega ${day} ${window}`, 'Confirmar al cliente que la instrucción se ha trasladado', 'Verificar que la incidencia sale de la cola'],
+        'HIGH', {
+          decision_goal: 'COMPLETE_DELIVERY_IN_CUSTOMER_CONFIRMED_SLOT',
+          reasoning: 'La ausencia deja de ser un bloqueo cuando el cliente aporta una disponibilidad concreta y posterior a la incidencia.',
+          guardrail: 'No prometer la fecha si el transportista no la admite o si el mensaje es anterior a la incidencia.',
+          customer_instruction: { ...customer.delivery_instruction }
+        });
+    }
     if (['CONFIRM','DELIVERY_RETRY'].includes(customer.code)) return proposal(
       secondAttempt ? 'FINAL_REDELIVERY_REVIEW' : 'SCHEDULE_REDELIVERY',
       secondAttempt ? 'Preparar un último reintento con revisión' : 'Pactar un nuevo intento de entrega',
@@ -171,7 +199,11 @@ function recommendation(item, customer) {
       'VALIDATE_NEW_ADDRESS', 'Corregir la dirección con los datos del cliente',
       'El cliente ha aportado un cambio de dirección; debe validarse código postal, localidad, vía y número antes de enviarlo a Dropea.',
       option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
-      ['Comparar la respuesta con la dirección actual', 'Validar código postal y localidad', 'Registrar la dirección corregida y verificar la incidencia'], 'HIGH');
+      ['Comparar la respuesta con la dirección actual', 'Validar código postal y localidad', 'Registrar la dirección corregida y verificar la incidencia'], 'HIGH', {
+        decision_goal: 'RESTORE_DELIVERABILITY_WITH_VERIFIED_ADDRESS',
+        reasoning: 'La causa logística es una dirección inválida y el cliente ha aportado datos nuevos en respuesta a la solicitud exacta.',
+        guardrail: 'No cerrar la incidencia si faltan vía, número, localidad o código postal, o si los datos pertenecen a otro pedido.'
+      });
     return proposal(
       'REQUEST_COMPLETE_ADDRESS', 'Solicitar y validar la dirección completa',
       'Dropea marca la dirección como incorrecta y Chatby no contiene una corrección posterior. Deben pedirse los datos exactos antes de resolver.',
@@ -190,10 +222,34 @@ function recommendation(item, customer) {
       : ['Identificar el dato exigido por Dropea', 'Solicitarlo al cliente', 'Validarlo antes de seleccionar PROVIDE_SOLUTION'],
     customer.code === 'PROVIDE_MISSING_DATA' ? 'HIGH' : 'MEDIUM');
 
-  if (item.interpreted_type === 'REFUSED_BY_RECIPIENT' || customer.code === 'REJECT') return proposal(
-    'REVIEW_REJECTION', 'Devolver el paquete salvo nueva aceptación explícita',
-    'La evidencia indica rechazo; no debe reintentarse la entrega sin una confirmación nueva y verificable.',
-    option(item, 'RETURN_REQUESTED'), ['Confirmar el rechazo del pedido correcto', 'Validar el estado logístico', 'Seleccionar RETURN_REQUESTED'], 'HIGH');
+  if (item.interpreted_type === 'REFUSED_BY_RECIPIENT') {
+    if (['CONFIRM','DELIVERY_RETRY'].includes(customer.code)) return proposal(
+      'RECOVER_DELIVERY_AFTER_REFUSAL', 'Recuperar la entrega tras la nueva aceptación del cliente',
+      'El transportista registró un rechazo, pero el cliente ha confirmado después y de forma verificable que sí quiere recibir este pedido. La evidencia más reciente sustituye al rechazo anterior.',
+      option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
+      ['Comprobar que la respuesta corresponde al pedido y es posterior a la incidencia', 'Acordar una fecha o franja viable', 'Seleccionar PROVIDE_SOLUTION y trasladar literalmente la disponibilidad', 'Verificar que la incidencia sale de la cola'],
+      'HIGH', {
+        decision_goal: 'RECOVER_DELIVERY_AFTER_PRIOR_REFUSAL',
+        reasoning: 'Una aceptación posterior, fresca y exacta cambia la decisión; no se devuelve un pedido que el cliente aún quiere recibir.',
+        guardrail: 'Sin aceptación posterior verificable, mantener la devolución como propuesta y exigir revisión.'
+      });
+    return proposal(
+      'RETURN_AFTER_REJECTION', 'Solicitar devolución salvo aceptación posterior verificable',
+      customer.code === 'REJECT'
+        ? 'El cliente confirma el rechazo; insistir en otro reparto aumentaría coste y riesgo de un nuevo rechazo.'
+        : 'Dropea registra rechazo y no existe una aceptación posterior verificable del cliente.',
+      option(item, 'RETURN_REQUESTED'),
+      ['Confirmar que el rechazo pertenece a este pedido', 'Comprobar que no existe una aceptación posterior', 'Seleccionar RETURN_REQUESTED', 'Verificar la salida de la cola'],
+      'HIGH', {
+        decision_goal: 'STOP_UNWANTED_DELIVERY_AND_RETURN',
+        reasoning: 'El rechazo vigente prevalece mientras el cliente no lo revoque con una señal nueva y exacta.',
+        guardrail: 'Si el cliente revoca el rechazo después, recalcular y proponer recuperación de la entrega.'
+      });
+  }
+  if (customer.code === 'REJECT') return proposal(
+    'RETURN_AFTER_REJECTION', 'Solicitar devolución del paquete',
+    'El cliente rechaza el pedido; no corresponde programar otro intento de entrega.',
+    option(item, 'RETURN_REQUESTED'), ['Verificar que el rechazo corresponde a este pedido', 'Seleccionar RETURN_REQUESTED', 'Comprobar que Dropea lo retira de incidencias pendientes'], 'HIGH');
 
   if (['DAMAGED_PACKAGE','LOST_PACKAGE','CUSTOMS_ISSUE'].includes(item.interpreted_type)) return proposal(
     'ESCALATE_CARRIER_INCIDENT', 'Escalar la incidencia al transportista',

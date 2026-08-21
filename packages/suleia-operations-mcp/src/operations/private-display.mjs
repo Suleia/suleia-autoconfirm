@@ -54,13 +54,16 @@ export function privateOrderDisplay(row = {}, privateDataKey) {
 export function privateIncidentDisplay(row = {}, privateDataKey) {
   const {
     latest_customer_message_ciphertext: messageCiphertext,
+    latest_operator_message_ciphertext: operatorMessageCiphertext,
     ...orderFields
   } = row;
   const display = privateOrderDisplay(orderFields, privateDataKey);
   const message = decryptOperationsPrivateJson(messageCiphertext, privateDataKey);
+  const operatorMessage = decryptOperationsPrivateJson(operatorMessageCiphertext, privateDataKey);
   return {
     ...display,
-    latest_customer_message: cleanMessageText(message?.text, 1000)
+    latest_customer_message: cleanMessageText(message?.text, 1000),
+    latest_operator_message: cleanMessageText(operatorMessage?.text, 1000)
   };
 }
 

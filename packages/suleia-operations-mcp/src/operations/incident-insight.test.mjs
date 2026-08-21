@@ -80,3 +80,60 @@ test('real Chatby delivery-slot button becomes next-day redelivery with an order
   assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
   assert.equal(result.tailored_recommendation.customer_instruction.call_before_delivery, true);
 });
+
+test('a fresh affirmative answer to the exact receive question recovers a refused delivery', () => {
+  const result = incidentInsight({
+    ...base,
+    interpreted_type: 'REFUSED_BY_RECIPIENT',
+    customer_intent: 'UNKNOWN', messages_used: 1,
+    latest_customer_message: 'Sí',
+    latest_operator_message: 'Nos informan de que no quiere el pedido. ¿Quiere recibir el pedido?',
+    latest_customer_message_relation: 'AFTER_INCIDENT',
+    allowed_resolution_options: ['RETURN_REQUESTED','PROVIDE_SOLUTION','MANAGED_BY_CLIENT']
+  });
+  assert.equal(result.customer_evidence.code, 'CONFIRM');
+  assert.equal(result.customer_evidence.interpretation_basis, 'AFFIRMATIVE_REPLY_TO_RECEIVE_QUESTION');
+  assert.equal(result.tailored_recommendation.code, 'RECOVER_DELIVERY_AFTER_REFUSAL');
+  assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
+  assert.equal(result.tailored_recommendation.decision_goal, 'RECOVER_DELIVERY_AFTER_PRIOR_REFUSAL');
+});
+
+test('a refused delivery without later acceptance remains a return proposal', () => {
+  const result = incidentInsight({
+    ...base,
+    interpreted_type: 'REFUSED_BY_RECIPIENT',
+    operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0,
+    allowed_resolution_options: ['RETURN_REQUESTED','MANAGED_BY_CLIENT']
+  });
+  assert.equal(result.tailored_recommendation.code, 'RETURN_AFTER_REJECTION');
+  assert.equal(result.tailored_recommendation.resolution_option, 'RETURN_REQUESTED');
+  assert.equal(result.tailored_recommendation.decision_goal, 'STOP_UNWANTED_DELIVERY_AND_RETURN');
+});
+
+test('a weekday availability produces a literal scheduled-delivery solution with causal limits', () => {
+  const result = incidentInsight({
+    ...base, interpreted_type: 'RECIPIENT_ABSENT', operational_response_status: 'NO_VALID_RESPONSE',
+    customer_intent: 'NO_RESPONSE', messages_used: 0,
+    latest_customer_message: 'Miércoles temprano mejor', latest_customer_message_relation: 'AFTER_INCIDENT',
+    allowed_resolution_options: ['PROVIDE_SOLUTION','MANAGED_BY_CLIENT']
+  });
+  assert.equal(result.customer_evidence.code, 'DELIVERY_RETRY');
+  assert.equal(result.tailored_recommendation.code, 'NOTIFY_DROPEA_SCHEDULED_DELIVERY');
+  assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
+  assert.equal(result.tailored_recommendation.decision_goal, 'COMPLETE_DELIVERY_IN_CUSTOMER_CONFIRMED_SLOT');
+  assert.match(result.tailored_recommendation.guardrail, /transportista/i);
+});
+
+test('address supplied in reply to the exact request is evidence, not a generic message', () => {
+  const result = incidentInsight({
+    ...base, operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0,
+    latest_customer_message: 'Calle Ejemplo 31, 28001 Madrid',
+    latest_operator_message: 'Indíquenos la dirección completa y el código postal.',
+    latest_customer_message_relation: 'AFTER_INCIDENT',
+    allowed_resolution_options: ['PROVIDE_SOLUTION','MANAGED_BY_CLIENT']
+  });
+  assert.equal(result.customer_evidence.code, 'ADDRESS_CHANGE');
+  assert.equal(result.customer_evidence.interpretation_basis, 'ADDRESS_DATA_REPLY_TO_ADDRESS_REQUEST');
+  assert.equal(result.tailored_recommendation.code, 'VALIDATE_NEW_ADDRESS');
+  assert.equal(result.tailored_recommendation.decision_goal, 'RESTORE_DELIVERABILITY_WITH_VERIFIED_ADDRESS');
+});
