@@ -311,7 +311,10 @@ function recommendationPanel(incident, feedback = []) {
   box.append(node('h4', 'recommendation-heading', 'Acción que propongo'));
   const steps = node('ol', 'recommendation-steps');
   for (const step of recommendation.steps || []) steps.append(node('li', '', step));
-  box.append(steps, node('p', 'muted', 'Propuesta basada en Dropea y la conversación exacta del pedido. No se ha ejecutado ninguna acción externa.'));
+  box.append(steps);
+  if (recommendation.reasoning) box.append(stacked('Por qué propongo esta acción', recommendation.reasoning));
+  if (recommendation.guardrail) box.append(stacked('Cuándo no debe aplicarse', recommendation.guardrail));
+  box.append(node('p', 'muted', 'Propuesta basada en Dropea y la conversación exacta del pedido. No se ha ejecutado ninguna acción externa.'));
   const controls = node('div', 'feedback-controls');
   const status = node('small', 'feedback-status', feedback.length ? `Feedback registrado: ${feedback.length}` : 'Tu feedback se guarda como memoria operativa y no ejecuta acciones.');
   for (const [label, feedbackType, reasonCode] of [['Útil', 'APPROVE', 'ACCURATE'], ['Tipo incorrecto', 'CORRECT', 'WRONG_TYPE'], ['Falta Chatby', 'CORRECT', 'MISSING_CHATBY'], ['Acción incorrecta', 'REJECT', 'WRONG_ACTION']]) {
@@ -325,12 +328,13 @@ function recommendationPanel(incident, feedback = []) {
   box.append(controls, status); return box;
 }
 function customerMessageHistory(items = []) {
-  const box = node('section', 'detail-section'); box.append(node('h3', '', 'Mensajes del cliente en Chatby'));
-  if (!items.length) { box.append(node('p', 'muted', 'No hay mensajes entrantes disponibles para esta conversación.')); return box; }
+  const box = node('section', 'detail-section'); box.append(node('h3', '', 'Conversación de la incidencia en Chatby'));
+  if (!items.length) { box.append(node('p', 'muted', 'No hay mensajes disponibles para esta conversación.')); return box; }
   const list = node('div', 'customer-message-list');
   for (const item of items) {
-    const card = node('article', `customer-message ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'current' : 'previous'}`);
-    card.append(node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'posterior a la incidencia' : 'anterior a la incidencia'} · ${translated(item.intent)}`));
+    const speaker = item.direction === 'OUTBOUND' ? 'Suleia' : 'Cliente';
+    const card = node('article', `customer-message ${item.direction === 'OUTBOUND' ? 'operator-message' : 'customer-reply'} ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'current' : 'previous'}`);
+    card.append(node('strong', 'message-speaker', speaker), node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'posterior a la incidencia' : 'anterior a la incidencia'} · ${translated(item.intent)}`));
     list.append(card);
   }
   box.append(list); return box;

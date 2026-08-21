@@ -152,6 +152,11 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
     at: item.at,
     relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT'
   }));
+  const operatorMessages = outbound.slice(-10).map((item) => ({
+    message: item.message,
+    at: item.at,
+    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT'
+  }));
   return Object.freeze({
     last_customer_message_at: inbound.at(-1)?.at || null,
     last_suleia_message_at: outbound.at(-1)?.at || null,
@@ -162,7 +167,8 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
     conversation_freshness: latest && new Date(latest).getTime() >= issueAt ? 'FRESH' : latest ? 'STALE' : 'UNKNOWN',
     message_count: valid.length,
     current_messages: valid.filter((item) => new Date(item.at).getTime() >= issueAt).map((item) => item.message),
-    customer_messages: customerMessages
+    customer_messages: customerMessages,
+    operator_messages: operatorMessages
   });
 }
 
@@ -370,7 +376,7 @@ export async function syncChatbyReadOnly({
       const inserted = await projector.recordChatbyConversationEvent(event);
       if (inserted.inserted) eventsInserted += 1;
     }
-    for (const item of metrics.customer_messages) {
+    for (const item of [...metrics.customer_messages, ...metrics.operator_messages]) {
       const text = rawMessageText(item.message);
       if (!text || !projector.upsertChatbyPrivateMessageDisplay) continue;
       const intent = classifyIntent(item.message);
@@ -379,7 +385,7 @@ export async function syncChatbyReadOnly({
         chatby_message_id_hash: messageHash,
         canonical_order_id: issue.canonical_order_id,
         canonical_issue_id: issue.canonical_issue_id,
-        direction: 'INBOUND',
+        direction: direction(item.message),
         message_type: messageType(item.message),
         intent,
         relation_to_issue: item.relation_to_issue,

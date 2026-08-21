@@ -100,5 +100,8 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /customer_phone/);
   assert.match(script, /latest_message/);
   assert.match(script, /Opción Dropea/);
-  assert.match(script, /Mensajes del cliente en Chatby/);
+  assert.match(script, /Conversación de la incidencia en Chatby/);
+  assert.match(script, /Por qué propongo esta acción/);
+  assert.match(script, /Cuándo no debe aplicarse/);
+  assert.match(script, /item\.direction === 'OUTBOUND' \? 'Suleia' : 'Cliente'/);
 });
