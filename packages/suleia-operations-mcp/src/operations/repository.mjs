@@ -33,6 +33,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   private_message.relation_to_issue AS latest_customer_message_relation,
   private_message.intent AS latest_private_customer_intent,
   private_message.message_type AS latest_private_customer_message_type,
+  private_message.operator_message_text_ciphertext AS latest_operator_message_ciphertext,
+  private_message.operator_message_at AS latest_operator_message_at,
   CASE
     WHEN p.chatby_last_successful_sync_at IS NULL
       OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
@@ -76,7 +78,17 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
  FROM read_models.operations_incident_panel_context p
  LEFT JOIN read_models.operations_private_order_display private_order USING(canonical_order_id)
  LEFT JOIN LATERAL (
-   SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type
+   SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
+     (SELECT o.message_text_ciphertext
+        FROM read_models.operations_private_incident_messages o
+       WHERE o.canonical_issue_id=p.canonical_issue_id AND o.direction='OUTBOUND'
+         AND o.occurred_at<=m.occurred_at
+       ORDER BY o.occurred_at DESC LIMIT 1) AS operator_message_text_ciphertext,
+     (SELECT o.occurred_at
+        FROM read_models.operations_private_incident_messages o
+       WHERE o.canonical_issue_id=p.canonical_issue_id AND o.direction='OUTBOUND'
+         AND o.occurred_at<=m.occurred_at
+       ORDER BY o.occurred_at DESC LIMIT 1) AS operator_message_at
    FROM read_models.operations_private_incident_messages m
    WHERE m.canonical_issue_id=p.canonical_issue_id AND m.direction='INBOUND'
    ORDER BY (m.relation_to_issue='AFTER_INCIDENT') DESC,

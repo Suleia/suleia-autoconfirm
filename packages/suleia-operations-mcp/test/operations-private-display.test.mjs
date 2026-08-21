@@ -30,12 +30,15 @@ test('incident private display exposes clear customer context but never cipherte
   const incident = privateIncidentDisplay({
     canonical_issue_id: 'issue-safe',
     shipping_address_ciphertext: encrypt({ first_name: 'Ana', last_name: 'Prueba', phone_number: '+34600999888' }),
-    latest_customer_message_ciphertext: encrypt({ text: 'Mañana puedo recibirlo por la tarde.' })
+    latest_customer_message_ciphertext: encrypt({ text: 'Sí' }),
+    latest_operator_message_ciphertext: encrypt({ text: '¿Quiere recibir el pedido?' })
   }, KEY);
   assert.equal(incident.customer_name, 'Ana Prueba');
   assert.equal(incident.customer_phone, '+34600999888');
-  assert.equal(incident.latest_customer_message, 'Mañana puedo recibirlo por la tarde.');
+  assert.equal(incident.latest_customer_message, 'Sí');
+  assert.equal(incident.latest_operator_message, '¿Quiere recibir el pedido?');
   assert.equal('latest_customer_message_ciphertext' in incident, false);
+  assert.equal('latest_operator_message_ciphertext' in incident, false);
   const messages = privateIncidentMessages([{ message_text_ciphertext: encrypt({ text: 'Confirmo la dirección.' }), occurred_at: '2026-08-19T10:00:00Z' }], KEY);
   assert.equal(messages[0].text, 'Confirmo la dirección.');
   assert.equal('message_text_ciphertext' in messages[0], false);
