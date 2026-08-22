@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node autoconfirm/server.mjs",
+    "meta:read": "node services/meta-ads/cli/read-cycle.mjs",
     "test:shopify": "node scripts/test-shopify-connection.mjs"
   }
 }
