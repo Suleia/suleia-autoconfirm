@@ -13,6 +13,7 @@ import {
   cancelDropeaOrder,
   confirmDropeaOrder,
   getDropeaOrderById,
+  listDropeaOrdersByStatus,
   listRecentDropeaOrders,
   listPendingDropeaOrders,
   repairDropeaErrorReviewOrders,
@@ -32,8 +33,10 @@ import { sendMetaWhatsappTemplate } from '../clients/meta-whatsapp.mjs';
 import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clients/shopify.mjs';
+import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
 import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
+import { scanForBlockingActivePriorOrder } from '../policies/active-order-duplicates.mjs';
 import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
@@ -963,7 +966,94 @@ async function applyBlockedCustomerPolicy(order, store, source = 'blocked_custom
   }
 }
 
+async function activePriorOrderConfirmationGuard(order, store, source) {
+  const checkedAt = new Date().toISOString();
+  let finding;
+  try {
+    finding = await scanForBlockingActivePriorOrder({
+      currentOrder: order,
+      listByStatus: listDropeaOrdersByStatus,
+      listPendingIncidents: collectPendingDropeaV2Incidents
+    });
+  } catch (error) {
+    const code = String(error?.code || error?.message || 'ACTIVE_ORDER_CHECK_FAILED');
+    const updated = upsertOrder(store.id, {
+      ...order,
+      operationalNote: 'No se pudo completar la comprobacion de pedidos activos anteriores. La confirmacion queda bloqueada y se reintentara en el siguiente ciclo.',
+      raw: {
+        ...(order.raw || {}),
+        activePriorOrderGuard: {
+          checkedAt,
+          source,
+          result: 'UNAVAILABLE',
+          code
+        }
+      }
+    });
+    await safeUpsertSheetRow(updated, 'active_prior_order_guard');
+    return {
+      skipped: true,
+      action: 'active_prior_order_check_unavailable',
+      source,
+      reason: code,
+      analysis: {
+        intent: 'ACTIVE_PRIOR_ORDER_CHECK_UNAVAILABLE',
+        confidence: 0,
+        reason: 'No existe una lectura completa y fiable de pedidos activos; no se confirma.'
+      },
+      order: updated
+    };
+  }
+
+  if (!finding) return null;
+  const blockingOrder = finding.order || {};
+  const blockingId = String(blockingOrder.orderId || 'no disponible');
+  const blockingStatus = String(blockingOrder.status || 'estado no disponible').toUpperCase();
+  const isDefinitePrior = finding.kind === 'ACTIVE_PRIOR_ORDER';
+  const updated = upsertOrder(store.id, {
+    ...order,
+    status: isDefinitePrior ? 'MANUAL_REVIEW_ACTIVE_PRIOR_ORDER' : 'MANUAL_REVIEW_DUPLICATE_UNVERIFIABLE',
+    aiIntent: isDefinitePrior ? 'ACTIVE_PRIOR_ORDER_BLOCK' : 'ACTIVE_ORDER_SEQUENCE_UNVERIFIABLE',
+    operationalNote: isDefinitePrior
+      ? `Pedido anterior ${blockingId} sigue activo (${blockingStatus}). Este pedido no se confirma aunque el cliente lo haya confirmado en Chatby.`
+      : 'Existe otro pedido activo para el mismo telefono, pero no se puede demostrar con seguridad el orden temporal. Confirmacion bloqueada para revision manual.',
+    raw: {
+      ...(order.raw || {}),
+      activePriorOrderGuard: {
+        checkedAt,
+        source,
+        result: finding.kind,
+        reason: finding.reason,
+        blockingOrderId: blockingOrder.orderId || null,
+        blockingOrderStatus: blockingOrder.status || null,
+        blockingOrderCreatedAt: blockingOrder.createdAt || blockingOrder.raw?.created_at || null
+      }
+    }
+  });
+  await safeUpsertSheetRow(updated, 'active_prior_order_guard');
+  return {
+    dryRun: true,
+    action: isDefinitePrior ? 'hold_active_prior_order' : 'hold_duplicate_order_unverifiable',
+    source,
+    analysis: {
+      intent: isDefinitePrior ? 'ACTIVE_PRIOR_ORDER' : 'ACTIVE_ORDER_SEQUENCE_UNVERIFIABLE',
+      confidence: isDefinitePrior ? 100 : 0,
+      reason: updated.operationalNote
+    },
+    blockingOrder: blockingOrder.orderId
+      ? {
+          orderId: String(blockingOrder.orderId),
+          status: blockingStatus,
+          createdAt: blockingOrder.createdAt || blockingOrder.raw?.created_at || null
+        }
+      : null,
+    order: updated
+  };
+}
+
 async function storedConfirmationResult(order, store) {
+  const activePriorOrder = await activePriorOrderConfirmationGuard(order, store, 'stored_confirmation_guard');
+  if (activePriorOrder) return activePriorOrder;
   const analysis = {
     intent: 'CONFIRM',
     confidence: Number(order.aiConfidence ?? 100),
@@ -1127,6 +1217,9 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
       dueAt: order.confirmationDueAt
     };
   }
+
+  const activePriorOrder = await activePriorOrderConfirmationGuard(order, store, 'delayed_confirmation_guard');
+  if (activePriorOrder) return activePriorOrder;
 
   const delayedConfirmRealEnabled = Boolean(store.delayedConfirmRealEnabled ?? config.defaultStore.delayedConfirmRealEnabled);
   if (!delayedConfirmRealEnabled) {
@@ -2907,6 +3000,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   if (immediateCustomerIntent?.intent === 'CONFIRM') {
+    const activePriorOrder = await activePriorOrderConfirmationGuard(order, store, 'customer_message_confirmation_guard');
+    if (activePriorOrder) return activePriorOrder;
     const analysis = {
       ...immediateCustomerIntent,
       reason: immediateCustomerIntent.reason || 'El cliente confirma claramente el pedido.'
@@ -2955,6 +3050,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     sameOrderId(subscriberOrderId, order.orderId)
     && subscriberConfirmationIsCurrent(subscriber, order, latestConfirmationAt)
   ) {
+    const activePriorOrder = await activePriorOrderConfirmationGuard(order, store, 'chatby_button_confirmation_guard');
+    if (activePriorOrder) return activePriorOrder;
     const analysis = {
       intent: 'CONFIRM',
       confidence: 100,
@@ -3079,6 +3176,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   };
 
   if (intent === 'CONFIRM' && confidence >= threshold) {
+    const activePriorOrder = await activePriorOrderConfirmationGuard(order, store, 'classified_confirmation_guard');
+    if (activePriorOrder) return activePriorOrder;
     if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
       patch.status = 'MANUAL_REVIEW';
       const updated = upsertOrder(store.id, patch);
