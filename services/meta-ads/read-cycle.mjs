@@ -110,3 +110,56 @@ export async function runMetaAdsReadCycle({ config, client, now = new Date() }) 
     telegram_messages: 0
   });
 }
+
+export async function runMetaAdsFinanceSpendReadCycle({ config, client, now = new Date() }) {
+  if (config.executionMode !== 'SIMULATION' || config.writesEnabled !== false) {
+    throw new Error('Meta finance read cycle is restricted to SIMULATION with writes disabled');
+  }
+  const [account, permissions] = await Promise.all([client.readAccount(), client.readPermissions()]);
+  const permission = permissionState(permissions);
+  if (permission.ads_read !== 'granted') throw new Error('META_ADS_READ_PERMISSION_MISSING');
+  if (String(account.currency) !== config.expectedCurrency) throw new Error('META_ADS_CURRENCY_MISMATCH');
+  if (String(account.timezone_name) !== config.expectedTimezone) throw new Error('META_ADS_TIMEZONE_MISMATCH');
+  if (Number(account.account_status) !== 1) throw new Error('META_ADS_ACCOUNT_NOT_ACTIVE');
+
+  const businessDate = businessDateInTimezone(now, config.expectedTimezone);
+  const insights = await client.readCampaignInsights({ businessDate });
+  const rows = insights.map((insight) => {
+    const roas = selectPurchaseRoas(insight);
+    const purchases = selectWebsitePurchaseMetric(insight.actions);
+    const purchaseValue = selectWebsitePurchaseMetric(insight.action_values);
+    return {
+      campaign_id: String(insight.campaign_id),
+      purchase_roas: roas.value,
+      purchase_roas_status: roas.status,
+      purchase_roas_field: roas.field,
+      purchase_roas_action_type: roas.action_type,
+      purchases: purchases.value,
+      purchase_value: purchaseValue.value,
+      spend: parseSpend(insight.spend),
+      date_start: insight.date_start || businessDate,
+      date_stop: insight.date_stop || businessDate
+    };
+  });
+
+  return Object.freeze({
+    ok: true,
+    execution_mode: 'SIMULATION',
+    business_date: businessDate,
+    account: {
+      status: Number(account.account_status),
+      currency: account.currency,
+      timezone: account.timezone_name,
+      timezone_offset_hours_utc: Number(account.timezone_offset_hours_utc)
+    },
+    permissions: {
+      ads_read: permission.ads_read === 'granted',
+      broader_management_scope_present: permission.ads_management === 'granted'
+    },
+    campaign_count: rows.length,
+    campaigns: rows,
+    meta_reads: client.requestCount(),
+    meta_budget_writes: 0,
+    telegram_messages: 0
+  });
+}
