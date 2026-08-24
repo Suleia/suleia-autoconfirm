@@ -9,6 +9,8 @@ test('financial control schema is additive, reversible and isolated from MCP and
   const down = read('migrations/rollback/024_financial_control.down.sql');
   const apply = read('infrastructure/vps/apply-financial-control-migration.sh');
   const drill = read('infrastructure/vps/run-financial-control-rollback-drill.sh');
+  const deploy = read('infrastructure/vps/deploy-private-staging.sh');
+  const compose = read('infrastructure/docker/compose.yaml');
   for (const table of ['finance_cost_rates', 'finance_fixed_expenses', 'finance_ad_spend_daily', 'finance_sync_checkpoints']) {
     assert.match(up, new RegExp(`CREATE TABLE IF NOT EXISTS economics\\.${table}`));
     assert.match(down, new RegExp(`DROP TABLE IF EXISTS economics\\.${table}`));
@@ -19,4 +21,7 @@ test('financial control schema is additive, reversible and isolated from MCP and
   assert.match(apply, /024_financial_control\.sql/);
   assert.match(drill, /mcp_read=0/);
   assert.match(drill, /production_writes=0/);
+  assert.ok(deploy.indexOf('run-financial-control-rollback-drill.sh') < deploy.indexOf('apply-financial-control-migration.sh'));
+  assert.match(compose, /META_ADS_ACCESS_TOKEN: \$\{META_ADS_READ_ONLY_ACCESS_TOKEN:-\}/);
+  assert.match(compose, /FINANCE_STORE_ID: \$\{FINANCE_STORE_ID:-\}/);
 });

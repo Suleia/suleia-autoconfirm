@@ -266,6 +266,7 @@ export class OperationsRepository {
       orders: orders.rows,
       rates: rates.rows.map((row) => ({ ...row, effective_from: dateOnly(row.effective_from), effective_to: dateOnly(row.effective_to) })),
       fixedExpenses: fixed.rows.map((row) => ({ ...row, start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date), occurred_on: dateOnly(row.occurred_on) })),
+      fixedExpensesComplete: fixed.rows.length > 0,
       adSpend: advertising.rows.map((row) => ({ ...row, business_date: dateOnly(row.business_date) }))
     });
     return {

@@ -170,7 +170,7 @@ function logisticsRollup(orders, rates, timezone, currency) {
   });
 }
 
-export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixedExpenses = [], adSpend = [], now = new Date(), timezone = 'Europe/Madrid', currency = 'EUR' }) {
+export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixedExpenses = [], fixedExpensesComplete = fixedExpenses.length > 0, adSpend = [], now = new Date(), timezone = 'Europe/Madrid', currency = 'EUR' }) {
   const days = monthDays(month); const today = businessDate(now, timezone);
   const requiredDays = days.filter((day) => month < today.slice(0, 7) || day <= today);
   const ordersByDay = new Map(days.map((day) => [day, []]));
@@ -179,11 +179,12 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     if (ordersByDay.has(day)) ordersByDay.get(day).push(order);
   }
   const fixed = fixedDaily(fixedExpenses, days); const missing = new Set();
+  if (!fixedExpensesComplete) missing.add(`FIXED_EXPENSES:${month}`);
   const daily = days.map((day) => {
     const rows = ordersByDay.get(day); const relevant = day <= today; const ad = relevant ? sourceStatus(adSpend, day, currency) : { value: 0, status: 'FUTURE' };
     const counts = { orders_created: rows.length, orders_sent: 0, delivered: 0, in_air: 0, returned: 0, incidences: 0 };
     let estimatedRevenue = 0; let realRevenue = 0; let estimatedRevenueComplete = true; let realRevenueComplete = true;
-    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixed.get(day) || 0 };
+    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixedExpensesComplete ? fixed.get(day) || 0 : null };
     for (const order of rows) {
       const flags = orderFlags(order); const orderAmount = String(order.currency || currency).toUpperCase() === currency ? cents(order.total_amount) : null; const carrier = order.carrier;
       counts.orders_sent += flags.sent ? 1 : 0; counts.delivered += flags.delivered ? 1 : 0; counts.in_air += flags.in_air ? 1 : 0; counts.returned += flags.returned ? 1 : 0; counts.incidences += order.active_issue_id ? 1 : 0;

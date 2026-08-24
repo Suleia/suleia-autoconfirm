@@ -17,7 +17,7 @@ function order(id, lifecycle_status, day, extra = {}) {
 
 test('monthly report separates delivered, in-air and returned orders and applies costs by lifecycle', () => {
   const result = buildMonthlyFinanceReport({
-    month: '2026-08', now: new Date('2026-08-03T12:00:00Z'), rates,
+    month: '2026-08', now: new Date('2026-08-03T12:00:00Z'), rates, fixedExpensesComplete: true,
     orders: [
       order('delivered', 'DELIVERED', '2026-08-01', { delivered_at_utc: '2026-08-02T10:00:00Z' }),
       order('air', 'SHIPPING', '2026-08-01'),
@@ -45,9 +45,18 @@ test('missing rates and missing advertising days remain incomplete instead of be
   assert.match(result.missing_sources.join(','), /OUTBOUND_SHIPPING:GLS/);
 });
 
+test('an unconfigured fixed-expense source remains unknown instead of becoming zero', () => {
+  const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), adSpend: [
+    { business_date: '2026-08-01', platform: 'META', spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }
+  ] });
+  assert.equal(result.totals.costs.fixed, null);
+  assert.equal(result.totals.total_expenses, null);
+  assert.match(result.missing_sources.join(','), /FIXED_EXPENSES:2026-08/);
+});
+
 test('rejected but never returned orders are not charged as returns', () => {
   const rejected = order('rejected', 'REJECTED', '2026-08-01', { confirmed_at_utc: null });
-  const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), orders: [rejected], rates, adSpend: [{ business_date: '2026-08-01', spend: 0, sync_status: 'COMPLETE' }] });
+  const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), orders: [rejected], rates, fixedExpensesComplete: true, adSpend: [{ business_date: '2026-08-01', spend: 0, sync_status: 'COMPLETE' }] });
   assert.equal(result.totals.returned, 0);
   assert.equal(result.totals.costs.returns, 0);
 });
@@ -74,7 +83,7 @@ test('delivered orders without product lines or amounts block profit instead of 
 
 test('monthly rates are recalculated from monthly totals instead of averaging daily percentages', () => {
   const result = buildMonthlyFinanceReport({
-    month: '2026-08', now: new Date('2026-08-02T18:00:00Z'), rates,
+    month: '2026-08', now: new Date('2026-08-02T18:00:00Z'), rates, fixedExpensesComplete: true,
     orders: [
       order('d1-a', 'DELIVERED', '2026-08-01', { delivered_at_utc: '2026-08-01T13:00:00Z' }),
       order('d1-b', 'SHIPPING', '2026-08-01'),
@@ -90,7 +99,7 @@ test('monthly rates are recalculated from monthly totals instead of averaging da
 
 test('advertising totals combine complete platforms and reject a currency mismatch', () => {
   const complete = buildMonthlyFinanceReport({
-    month: '2026-08', now: new Date('2026-08-01T18:00:00Z'),
+    month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), fixedExpensesComplete: true,
     adSpend: [
       { business_date: '2026-08-01', platform: 'META', spend: 10, currency: 'EUR', sync_status: 'COMPLETE' },
       { business_date: '2026-08-01', platform: 'GOOGLE', spend: 5, currency: 'EUR', sync_status: 'COMPLETE' }
@@ -99,7 +108,7 @@ test('advertising totals combine complete platforms and reject a currency mismat
   assert.equal(complete.totals.costs.advertising, 15);
   assert.deepEqual(complete.advertising_by_platform, [{ platform: 'META', spend: 10 }, { platform: 'GOOGLE', spend: 5 }]);
 
-  const mismatch = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), adSpend: [
+  const mismatch = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), fixedExpensesComplete: true, adSpend: [
     { business_date: '2026-08-01', platform: 'META', spend: 10, currency: 'USD', sync_status: 'COMPLETE' }
   ] });
   assert.equal(mismatch.totals.costs.advertising, null);
