@@ -198,25 +198,26 @@ test('incident overview returns table and counters from one materialized selecti
   assert.equal(result.limit, 25);
 });
 
-test('financial summary is GET-only data with missing costs represented as unknown', async () => {
+test('monthly financial summary is GET-only and missing sources remain unknown', async () => {
   const calls = [];
   const pool = {
     query: async (sql, values = []) => {
       calls.push({ sql, values });
-      if (sql.includes('AS orders_total')) return { rows: [{ orders_total: 2, gross_order_value: '59.98', currency: 'EUR' }] };
+      if (sql.includes('finance_available_months')) return { rows: [{ month: '2026-08' }] };
       return { rows: [] };
     },
     end: async () => {}
   };
   const repository = new OperationsRepository(null, { pool });
-  const result = await repository.financialSummary(new URLSearchParams({ period: 'UNTRUSTED' }));
-  assert.equal(result.period, '30d');
-  assert.equal(result.costs.total, null);
-  assert.equal(result.profit, null);
-  assert.equal(result.roi, null);
+  const result = await repository.financialSummary(new URLSearchParams({ month: '2026-08' }));
+  assert.equal(result.month, '2026-08');
+  assert.equal(result.totals.costs.advertising, null);
+  assert.equal(result.totals.total_expenses, null);
+  assert.equal(result.totals.net_profit, null);
+  assert.equal(result.totals.roi, null);
   assert.equal(result.production_writes, 0);
-  assert.equal(calls.length, 3);
+  assert.equal(calls.length, 6);
   assert.equal(calls.every(({ sql }) => /^SELECT\b/i.test(sql.trim())), true);
   assert.equal(calls.every(({ sql }) => !/\b(?:INSERT|UPDATE|DELETE|UPSERT|CALL)\b/i.test(sql)), true);
-  assert.equal(calls.every(({ values }) => values.length === 1), true);
+  assert.deepEqual(calls.map(({ values }) => values.length), [3, 3, 3, 3, 1, 3]);
 });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { businessDateInTimezone, runMetaAdsReadCycle } from './read-cycle.mjs';
+import { businessDateInTimezone, runMetaAdsFinanceSpendReadCycle, runMetaAdsReadCycle } from './read-cycle.mjs';
 
 const config = Object.freeze({
   executionMode: 'SIMULATION',
@@ -66,6 +66,22 @@ test('read cycle blocks missing read scope, non-EUR, timezone drift and inactive
   await assert.rejects(() => runMetaAdsReadCycle({
     config, client: fakeClient({ readAccount: async () => ({ account_status: 2, currency: 'EUR', timezone_name: 'Europe\/Madrid' }) })
   }), /ACCOUNT_NOT_ACTIVE/);
+});
+
+test('finance spend cycle counts every campaign returned by daily insights, even if it is not currently active', async () => {
+  const client = fakeClient({
+    readActiveCampaigns: async () => [{ id: '1', name: 'Currently active' }],
+    readCampaignInsights: async () => [
+      { campaign_id: '1', spend: '5.39' },
+      { campaign_id: '9', spend: '12.50', actions: [{ action_type: 'purchase', value: '1' }] }
+    ]
+  });
+  const result = await runMetaAdsFinanceSpendReadCycle({ config, client, now: new Date('2026-08-22T07:00:00Z') });
+  assert.equal(result.campaign_count, 2);
+  assert.equal(result.campaigns.reduce((sum, row) => sum + row.spend, 0), 17.89);
+  assert.deepEqual(result.campaigns.map((row) => row.campaign_id), ['1', '9']);
+  assert.equal(result.meta_budget_writes, 0);
+  assert.equal(result.telegram_messages, 0);
 });
 
 test('Europe/Madrid business date is correct across midnight and daylight-saving seasons', () => {

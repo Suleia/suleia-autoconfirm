@@ -1,0 +1,10 @@
+[Unit]
+Description=Suleia daily financial source refresh
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/suleia-operations/infrastructure/vps/run-finance-daily-sync.sh
+TimeoutStartSec=15min
+NoNewPrivileges=true

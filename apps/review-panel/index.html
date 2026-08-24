@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260819-operations-audit-v4">
+  <link rel="stylesheet" href="styles.css?v=20260823-finance-monthly-v1">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -62,22 +62,17 @@
       <section id="finance-view" class="finance-view" hidden aria-label="Control de gasto">
         <div class="finance-toolbar">
           <div>
-            <p class="eyebrow">COHORTE DROPEA</p>
+            <p class="eyebrow">INFORME FINANCIERO MENSUAL</p>
             <h2>Control de gasto</h2>
-            <p>Valores de pedidos reales. Costes y beneficio solo cuando exista una fuente conciliada.</p>
+            <p>Un único motor para el resumen y el detalle diario. Ningún coste desconocido se convierte en cero.</p>
           </div>
-          <label>Periodo
-            <select id="finance-period" class="filter-select">
-              <option value="7d">Últimos 7 días</option>
-              <option value="30d" selected>Últimos 30 días</option>
-              <option value="90d">Últimos 90 días</option>
-              <option value="all">Todo el histórico</option>
-            </select>
+          <label>Mes
+            <select id="finance-month" class="filter-select" aria-label="Mes del informe financiero"></select>
           </label>
         </div>
         <section id="finance-hero" class="finance-hero"></section>
         <section class="finance-panel">
-          <div class="panel-heading"><div><p class="eyebrow">EMBUDO OPERATIVO</p><h3>Pedidos por estado</h3></div><span class="data-quality">Valores Dropea · Sin costes estimados</span></div>
+          <div class="panel-heading"><div><p class="eyebrow">EMBUDO OPERATIVO</p><h3>Pedidos por estado real</h3></div><span id="finance-exactness" class="data-quality"></span></div>
           <div id="finance-funnel" class="funnel-grid"></div>
         </section>
         <section class="finance-columns">
@@ -85,8 +80,16 @@
           <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">CALIDAD</p><h3>Cobertura y límites</h3></div></div><div id="finance-quality" class="quality-list"></div></article>
         </section>
         <section class="finance-panel">
-          <div class="panel-heading"><div><p class="eyebrow">INFORME DIARIO</p><h3>Valor operativo por día</h3></div></div>
-          <div class="table-wrap"><table class="finance-table"><thead><tr><th>Fecha</th><th>Pedidos</th><th>Entregados</th><th>Incidencias</th><th>Devueltos</th><th>Valor pedidos</th><th>Valor entregados</th><th>Costes</th><th>Beneficio</th><th>Calidad</th></tr></thead><tbody id="finance-daily"></tbody></table></div>
+          <div class="panel-heading"><div><p class="eyebrow">INFORME DIARIO</p><h3>P&amp;L por cohorte de creación</h3></div><span class="data-quality">Desplaza horizontalmente para ver todas las métricas</span></div>
+          <div class="table-wrap"><table class="finance-table finance-daily-table"><thead><tr><th>Fecha</th><th>Pedidos creados</th><th>Pedidos enviados</th><th>Fact. estimada</th><th>Entregados</th><th>Fact. real</th><th>Producto</th><th>Envío ida</th><th>COD</th><th>Fulfillment ida</th><th>Devoluciones</th><th>Publicidad</th><th>Gastos fijos</th><th>Gastos totales</th><th>Beneficio neto</th><th>ROI</th><th>CPA estimado</th><th>CPA real</th><th>Tasa confirm.</th><th>Tasa entrega</th><th>Calidad</th></tr></thead><tbody id="finance-daily"></tbody><tfoot id="finance-total"></tfoot></table></div>
+        </section>
+        <section class="finance-panel">
+          <div class="panel-heading"><div><p class="eyebrow">PRODUCTOS VENDIDOS</p><h3>Unidades y rentabilidad atribuible</h3></div><span class="data-quality">Los pedidos multiproducto sin precio por línea no se reparten artificialmente</span></div>
+          <div class="table-wrap"><table class="finance-table"><thead><tr><th>Producto</th><th>Pedidos</th><th>Unidades</th><th>Enviadas</th><th>Entregadas</th><th>Devueltas</th><th>Fact. estimada</th><th>Fact. real</th><th>Coste producto</th><th>Calidad</th></tr></thead><tbody id="finance-products"></tbody></table></div>
+        </section>
+        <section class="finance-columns">
+          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">LOGÍSTICA</p><h3>Coste por transportista</h3></div></div><div class="table-wrap"><table class="finance-table compact"><thead><tr><th>Transportista</th><th>Enviados</th><th>Entregados</th><th>En el aire</th><th>Devueltos</th><th>Coste total</th><th>Coste/pedido</th><th>Entrega</th><th>Calidad</th></tr></thead><tbody id="finance-logistics"></tbody></table></div></article>
+          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">PUBLICIDAD</p><h3>Gasto por plataforma</h3></div></div><div id="finance-advertising" class="cost-list"></div></article>
         </section>
       </section>
 
@@ -122,6 +125,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260819-operations-audit-v4" defer></script>
+  <script src="app.js?v=20260823-finance-monthly-v1" defer></script>
 </body>
 </html>

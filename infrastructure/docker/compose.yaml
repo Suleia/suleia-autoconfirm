@@ -273,6 +273,32 @@ services:
       - application_network
       - database_network
 
+  finance-daily-sync:
+    <<: *node-service
+    profiles: ["finance-sync"]
+    restart: "no"
+    command: ["node", "services/finance-control/cli/sync-daily.mjs"]
+    environment:
+      <<: *safety-environment
+      FINANCE_DATABASE_URL: postgres://suleia_ingestion_login:${SULEIA_INGESTION_PASSWORD}@postgres:5432/${POSTGRES_DB:-suleia_staging}
+      FINANCE_STORE_ID: ${FINANCE_STORE_ID:-}
+      FINANCE_INTERNAL_LEDGER_WRITES_ENABLED: "true"
+      META_ADS_EXECUTION_MODE: SIMULATION
+      META_ADS_WRITES_ENABLED: "false"
+      META_ADS_BUDGET_WRITES_ENABLED: "false"
+      META_ADS_TELEGRAM_SEND_ENABLED: "false"
+      META_ADS_ACCESS_TOKEN: ${META_ADS_READ_ONLY_ACCESS_TOKEN:-}
+      META_ADS_AD_ACCOUNT_ID: ${META_ADS_AD_ACCOUNT_ID:-}
+      META_ADS_API_VERSION: ${META_ADS_API_VERSION:-v25.0}
+      META_ADS_EXPECTED_CURRENCY: ${META_ADS_EXPECTED_CURRENCY:-EUR}
+      META_ADS_TIMEZONE: ${META_ADS_TIMEZONE:-Europe/Madrid}
+    networks:
+      - public_network
+      - database_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   review-panel:
     image: nginx:1.29-alpine
     restart: unless-stopped

@@ -1,0 +1,11 @@
+[Unit]
+Description=Refresh Suleia financial sources every day
+
+[Timer]
+OnCalendar=*-*-* 06:15:00 Europe/Madrid
+Persistent=true
+RandomizedDelaySec=180
+Unit=suleia-finance-daily.service
+
+[Install]
+WantedBy=timers.target

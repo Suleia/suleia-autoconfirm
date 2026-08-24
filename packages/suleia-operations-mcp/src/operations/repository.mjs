@@ -1,4 +1,5 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
+import { buildMonthlyFinanceReport } from '../../../platform-core/src/finance/monthly-report.mjs';
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 
@@ -137,11 +138,24 @@ function incidentSelection(searchParams) {
   return { ...selected, scope };
 }
 
-function financialWindow(searchParams) {
-  const period = searchParams.get('period') || '30d';
-  const days = { '7d': 7, '30d': 30, '90d': 90, all: null }[period];
-  if (days === undefined) return { period: '30d', from: new Date(Date.now() - 30 * 86_400_000).toISOString() };
-  return { period, from: days === null ? null : new Date(Date.now() - days * 86_400_000).toISOString() };
+function currentMonth() {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}`;
+}
+
+function financialMonth(searchParams) {
+  const requested = String(searchParams.get('month') || '').trim();
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(requested) ? requested : currentMonth();
+  const [year, monthNumber] = month.split('-').map(Number);
+  const next = monthNumber === 12 ? `${year + 1}-01-01` : `${year}-${String(monthNumber + 1).padStart(2, '0')}-01`;
+  return { month, from: `${month}-01`, to: next, storeId: searchParams.get('store_id')?.trim() || null };
+}
+
+function dateOnly(value) {
+  if (!value) return null;
+  if (typeof value === 'string') return value.slice(0, 10);
+  return value.toISOString().slice(0, 10);
 }
 
 export class OperationsRepository {
@@ -221,54 +235,49 @@ export class OperationsRepository {
   }
 
   async financialSummary(searchParams) {
-    const window = financialWindow(searchParams);
-    const values = [window.from];
-    const where = `WHERE ($1::timestamptz IS NULL OR coalesce(created_at_utc,source_updated_at,updated_at) >= $1::timestamptz)`;
-    const [totals, states, daily] = await Promise.all([
-      this.pool.query(`SELECT
-        count(*)::integer AS orders_total,
-        count(total_amount)::integer AS orders_with_amount,
-        coalesce(sum(total_amount),0)::numeric(14,2) AS gross_order_value,
-        count(*) FILTER (WHERE confirmed_at_utc IS NOT NULL)::integer AS confirmed,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='SHIPPING')::integer AS shipping,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED'))::integer AS delivered,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='INCIDENCE')::integer AS incidences,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='RETURNED')::integer AS returned,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('PENDING','CONFIRMED','PROCESSING','SHIPPING','INCIDENCE'))::integer AS open_orders,
-        coalesce(sum(total_amount) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED')),0)::numeric(14,2) AS delivered_order_value,
-        coalesce(sum(total_amount) FILTER (WHERE coalesce(lifecycle_status,status) IN ('PENDING','CONFIRMED','PROCESSING','SHIPPING','INCIDENCE')),0)::numeric(14,2) AS open_order_value,
-        count(DISTINCT currency)::integer AS currency_count,
-        min(currency) AS currency,
-        max(source_updated_at) AS source_updated_at
-      FROM read_models.operations_order_context ${where}`, values),
-      this.pool.query(`SELECT coalesce(lifecycle_status,status) AS state,count(*)::integer AS orders,
-        coalesce(sum(total_amount),0)::numeric(14,2) AS order_value
-      FROM read_models.operations_order_context ${where}
-      GROUP BY 1 ORDER BY orders DESC,state`, values),
-      this.pool.query(`SELECT date_trunc('day',coalesce(created_at_utc,source_updated_at,updated_at))::date AS day,
-        count(*)::integer AS orders,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED'))::integer AS delivered,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='INCIDENCE')::integer AS incidences,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='RETURNED')::integer AS returned,
-        coalesce(sum(total_amount),0)::numeric(14,2) AS gross_order_value,
-        coalesce(sum(total_amount) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED')),0)::numeric(14,2) AS delivered_order_value
-      FROM read_models.operations_order_context ${where}
-      GROUP BY 1 ORDER BY day DESC LIMIT 120`, values)
+    const window = financialMonth(searchParams); const values = [window.from, window.to, window.storeId];
+    const orderWhere = `WHERE created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid')
+      AND created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
+      AND ($3::text IS NULL OR store_id=$3)`;
+    const [orders, rates, fixed, advertising, months, checkpoints] = await Promise.all([
+      this.pool.query(`SELECT canonical_order_id,store_id,lifecycle_status,status,created_at_utc,source_updated_at,updated_at,
+        confirmed_at_utc,delivered_at_utc,returned_at_utc,total_amount,currency,carrier,product_summary,active_issue_id
+        FROM read_models.operations_order_context ${orderWhere}`, values),
+      this.pool.query(`SELECT store_id,cost_type,carrier,provider,product_id,variant_id,amount,currency,
+        effective_from,effective_to,source,updated_at FROM economics.finance_cost_rates
+        WHERE effective_from < $2::date AND (effective_to IS NULL OR effective_to >= $1::date)
+        AND ($3::text IS NULL OR store_id=$3)`, values),
+      this.pool.query(`SELECT store_id,label,category,expense_type,amount,currency,start_date,end_date,occurred_on,status,source,updated_at
+        FROM economics.finance_fixed_expenses WHERE start_date < $2::date AND (end_date IS NULL OR end_date >= $1::date)
+        AND ($3::text IS NULL OR store_id=$3)`, values),
+      this.pool.query(`SELECT store_id,business_date,platform,sum(spend)::numeric(14,2) AS spend,min(currency) AS currency,
+        CASE WHEN bool_and(sync_status='COMPLETE') THEN 'COMPLETE' ELSE max(sync_status) END AS sync_status,
+        max(source_observed_at) AS source_observed_at,max(ingested_at) AS ingested_at
+        FROM economics.finance_ad_spend_daily WHERE business_date >= $1::date AND business_date < $2::date
+        AND ($3::text IS NULL OR store_id=$3) GROUP BY store_id,business_date,platform`, values),
+      this.pool.query(`SELECT DISTINCT month FROM read_models.finance_available_months
+        WHERE ($1::text IS NULL OR store_id=$1) ORDER BY month DESC LIMIT 24`, [window.storeId]),
+      this.pool.query(`SELECT store_id,source,business_date,sync_status,records_read,last_success_at,last_failure_at,failure_code,updated_at
+        FROM economics.finance_sync_checkpoints WHERE business_date >= $1::date AND business_date < $2::date
+        AND ($3::text IS NULL OR store_id=$3) ORDER BY source,business_date`, values)
     ]);
-    const total = totals.rows[0] || {};
+    const report = buildMonthlyFinanceReport({
+      month: window.month,
+      orders: orders.rows,
+      rates: rates.rows.map((row) => ({ ...row, effective_from: dateOnly(row.effective_from), effective_to: dateOnly(row.effective_to) })),
+      fixedExpenses: fixed.rows.map((row) => ({ ...row, start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date), occurred_on: dateOnly(row.occurred_on) })),
+      fixedExpensesComplete: fixed.rows.length > 0,
+      adSpend: advertising.rows.map((row) => ({ ...row, business_date: dateOnly(row.business_date) }))
+    });
     return {
-      perspective: 'DROPEA_COHORT', period: window.period, from: window.from,
-      exactness: 'ORDER_VALUE_ONLY', provisional: true,
-      totals: total, states: states.rows, daily: daily.rows,
-      costs: {
-        availability: 'PENDING_SOURCE', product: null, transport: null, fulfillment: null,
-        cod: null, returns: null, advertising: null, external: null, total: null
-      },
-      profit: null, roi: null, margin: null,
+      ...report, perspective: 'ORDER_CREATION_COHORT', store_id: window.storeId,
+      available_months: months.rows.map((row) => row.month), checkpoints: checkpoints.rows,
+      shopify_orders_available: false,
       limitations: [
-        'Dropea aporta el valor de los pedidos y sus estados.',
-        'No hay todavía un ledger conciliado de costes, cargos, abonos o liquidaciones.',
-        'Beneficio, ROI y margen permanecen no disponibles para evitar cifras falsas.'
+        'La cohorte se agrupa por fecha original del pedido y se reevalúa con el estado Dropea vigente.',
+        'Pedidos en tránsito y devoluciones se contabilizan por separado.',
+        'Operations todavía no dispone del total independiente de pedidos de la plataforma de tienda; no se sustituye por un dato inventado.',
+        'Un coste o día publicitario sin fuente completa deja el beneficio y ROI como no calculables.'
       ],
       actions_executed: 0, production_writes: 0
     };
