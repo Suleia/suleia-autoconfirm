@@ -68,6 +68,14 @@ test('central order mapper keeps status and sub_status separate', () => {
   assert.equal('shipping_address' in result, false);
 });
 
+test('order mapper preserves Dropea wholesale cost for the authenticated finance report', () => {
+  const result = mapDropeaOrder(order({
+    line_items: [{ variant_id: 1, product_id: 8, product_name: 'Fixture product', quantity: 2, unit_price: 19.99, wholesale_price: 7.25 }]
+  }), { hmacKey: HMAC_KEY, market: 'ES', observedAt: AT });
+  assert.equal(result.line_items[0].wholesale_price, 7.25);
+  assert.equal(result.product_summary.products[0].wholesale_price, 7.25);
+});
+
 test('central mapper projects only masked operational protections and blocks test orders', () => {
   const result = mapDropeaOrder(order({ customer: { phone: '600000000' } }), {
     hmacKey: HMAC_KEY,

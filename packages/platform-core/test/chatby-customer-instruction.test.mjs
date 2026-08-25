@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { interpretChatbyCustomerReply } from '../src/operational-truth/chatby-customer-instruction.mjs';
+import { addressInstructionFromText, interpretChatbyCustomerReply } from '../src/operational-truth/chatby-customer-instruction.mjs';
 
 test('short affirmative answer inherits the exact receive question intent', () => {
   const result = interpretChatbyCustomerReply({
@@ -41,4 +41,17 @@ test('address data inherits the exact operator request without guessing from an 
   });
   assert.equal(result.intent, 'CHANGE_ADDRESS');
   assert.equal(result.interpretation_basis, 'ADDRESS_DATA_REPLY_TO_ADDRESS_REQUEST');
+  assert.equal(result.address.complete, true);
+  assert.equal(result.address.fields.street_number, '31');
+  assert.equal(result.address.fields.postal_code, '28001');
+  assert.equal(result.address.fields.locality, 'Madrid');
+});
+
+test('address extraction reports exactly which delivery fields are still missing', () => {
+  const result = addressInstructionFromText('La nueva es Calle Ejemplo 31');
+  assert.equal(result.has_address_data, true);
+  assert.equal(result.complete, false);
+  assert.deepEqual(result.missing_fields, ['POSTAL_CODE', 'LOCALITY']);
+  assert.equal(result.fields.postal_code, null);
+  assert.equal(result.fields.locality, null);
 });

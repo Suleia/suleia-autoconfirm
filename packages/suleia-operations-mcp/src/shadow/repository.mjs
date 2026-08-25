@@ -80,5 +80,51 @@ export class ShadowRepository {
       ON CONFLICT(source,source_object) DO UPDATE SET last_seen_at=EXCLUDED.last_seen_at,last_success_at=COALESCE(EXCLUDED.last_success_at,migration.checkpoints.last_success_at),
       last_failure_at=COALESCE(EXCLUDED.last_failure_at,migration.checkpoints.last_failure_at),lag_seconds=EXCLUDED.lag_seconds,status=EXCLUDED.status,updated_at=now()`,
     [report.sourceObject, report.rangeEnd, report.status]);
+    if (report.sourceObject === 'meta_campaign_insights' && report.status === 'COMPLETED') {
+      await this.projectMetaFinance();
+    }
+  }
+
+  async projectMetaFinance() {
+    await this.pool.query(`WITH enabled_store AS (
+        SELECT min(store_id) AS store_id FROM integration.dropea_store_config
+        WHERE enabled=true HAVING count(*)=1
+      ), current_meta AS (
+        SELECT e.entity_id,e.attributes_masked,
+          (e.attributes_masked->>'date_start')::date AS business_date,
+          (e.attributes_masked->>'spend')::numeric(14,2) AS spend,
+          e.valid_from AS source_observed_at
+        FROM enterprise_graph.entities e
+        WHERE e.entity_type='META_CAMPAIGN_INSIGHTS'
+          AND e.attributes_masked->>'date_start'=e.attributes_masked->>'date_stop'
+          AND e.attributes_masked->>'date_start' ~ '^\\d{4}-\\d{2}-\\d{2}$'
+          AND e.attributes_masked->>'spend' ~ '^\\d+(?:\\.\\d+)?$'
+      )
+      INSERT INTO economics.finance_ad_spend_daily
+        (store_id,business_date,platform,spend,currency,source,source_record_key,
+         campaign_breakdown,sync_status,source_observed_at,ingested_at)
+      SELECT s.store_id,m.business_date,'META',m.spend,'EUR','SUPABASE_META_CAMPAIGN_INSIGHTS',
+        m.entity_id,'[]'::jsonb,'COMPLETE',m.source_observed_at,now()
+      FROM current_meta m CROSS JOIN enabled_store s
+      ON CONFLICT(store_id,business_date,platform,source_record_key) DO UPDATE SET
+        spend=EXCLUDED.spend,currency=EXCLUDED.currency,sync_status='COMPLETE',
+        source_observed_at=EXCLUDED.source_observed_at,ingested_at=now()`);
+    await this.pool.query(`WITH enabled_store AS (
+        SELECT min(store_id) AS store_id FROM integration.dropea_store_config
+        WHERE enabled=true HAVING count(*)=1
+      ), coverage AS (
+        SELECT business_date,count(*)::integer AS records_read,max(source_observed_at) AS observed_at
+        FROM economics.finance_ad_spend_daily
+        WHERE source='SUPABASE_META_CAMPAIGN_INSIGHTS'
+        GROUP BY business_date
+      )
+      INSERT INTO economics.finance_sync_checkpoints
+        (store_id,source,business_date,sync_status,records_read,last_success_at,failure_code,updated_at)
+      SELECT s.store_id,'SUPABASE_META_CAMPAIGN_INSIGHTS',c.business_date,'COMPLETE',
+        c.records_read,coalesce(c.observed_at,now()),NULL,now()
+      FROM coverage c CROSS JOIN enabled_store s
+      ON CONFLICT(store_id,source,business_date) DO UPDATE SET
+        sync_status='COMPLETE',records_read=EXCLUDED.records_read,
+        last_success_at=EXCLUDED.last_success_at,last_failure_at=NULL,failure_code=NULL,updated_at=now()`);
   }
 }

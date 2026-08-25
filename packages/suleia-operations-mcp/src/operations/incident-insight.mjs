@@ -65,6 +65,7 @@ function customerEvidence(item) {
       messages: Number(item.messages_used || 0), latest_message: exactMessage,
       at: messageAt, relation: relation || 'AFTER_INCIDENT',
       delivery_instruction: privateInterpretation?.delivery || null,
+      address_instruction: privateInterpretation?.address || null,
       interpretation_basis: privateInterpretation?.interpretation_basis || null
     };
   }
@@ -195,14 +196,37 @@ function recommendation(item, customer) {
   }
 
   if (item.interpreted_type === 'ADDRESS_INCORRECT') {
-    if (customer.code === 'ADDRESS_CHANGE') return proposal(
-      'VALIDATE_NEW_ADDRESS', 'Corregir la dirección con los datos del cliente',
-      'El cliente ha aportado un cambio de dirección; debe validarse código postal, localidad, vía y número antes de enviarlo a Dropea.',
-      option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
-      ['Comparar la respuesta con la dirección actual', 'Validar código postal y localidad', 'Registrar la dirección corregida y verificar la incidencia'], 'HIGH', {
+    if (customer.code === 'ADDRESS_CHANGE' && customer.address_instruction?.complete) return proposal(
+      'PROVIDE_CORRECTED_ADDRESS_TO_DROPEA', 'Trasladar a Dropea la dirección facilitada por el cliente',
+      'El cliente ha contestado después de la incidencia con vía, número, código postal y localidad. La propuesta usa literalmente esos datos y no completa ningún campo por suposición.',
+      option(item, 'PROVIDE_SOLUTION'),
+      ['Comparar la respuesta con la dirección actual', 'Validar que el código postal y la localidad son coherentes', 'Seleccionar PROVIDE_SOLUTION y trasladar literalmente la nueva dirección', 'Verificar que Dropea conserva la dirección y saca la incidencia de la cola'], 'HIGH', {
         decision_goal: 'RESTORE_DELIVERABILITY_WITH_VERIFIED_ADDRESS',
         reasoning: 'La causa logística es una dirección inválida y el cliente ha aportado datos nuevos en respuesta a la solicitud exacta.',
-        guardrail: 'No cerrar la incidencia si faltan vía, número, localidad o código postal, o si los datos pertenecen a otro pedido.'
+        guardrail: 'No cerrar la incidencia si los datos pertenecen a otro pedido o Dropea no confirma que ha guardado la corrección.',
+        prepared_dropea_solution: {
+          resolution_option: 'PROVIDE_SOLUTION',
+          source: 'CHATBY_CUSTOMER_MESSAGE_AFTER_INCIDENT',
+          address: customer.address_instruction,
+          customer_message_at: customer.at,
+          execution_status: 'NOT_EXECUTED'
+        }
+      });
+    if (customer.code === 'ADDRESS_CHANGE' && customer.address_instruction?.has_address_data) return proposal(
+      'REQUEST_MISSING_ADDRESS_FIELDS', 'Completar los datos de dirección que faltan',
+      `El cliente ha aportado parte de la dirección, pero faltan: ${customer.address_instruction.missing_fields.join(', ')}. No debe enviarse una dirección incompleta a Dropea.`,
+      option(item, 'MANAGED_BY_CLIENT'),
+      ['Conservar literalmente los datos ya aportados', 'Solicitar únicamente los campos que faltan', 'Validar la respuesta posterior', 'Después, recalcular la propuesta para Dropea'], 'MEDIUM', {
+        decision_goal: 'COMPLETE_ADDRESS_BEFORE_DROPEA_UPDATE',
+        reasoning: 'La respuesta del cliente es relevante, pero no contiene todavía todos los campos mínimos de entrega.',
+        guardrail: 'No inventar localidad, código postal, vía ni número a partir de la dirección anterior.',
+        prepared_dropea_solution: {
+          resolution_option: null,
+          source: 'CHATBY_CUSTOMER_MESSAGE_AFTER_INCIDENT',
+          address: customer.address_instruction,
+          customer_message_at: customer.at,
+          execution_status: 'BLOCKED_INCOMPLETE_ADDRESS'
+        }
       });
     return proposal(
       'REQUEST_COMPLETE_ADDRESS', 'Solicitar y validar la dirección completa',

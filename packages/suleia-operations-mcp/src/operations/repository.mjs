@@ -289,7 +289,9 @@ export class OperationsRepository {
         'La cohorte se agrupa por fecha original del pedido y se reevalúa con el estado Dropea vigente.',
         'Pedidos en tránsito y devoluciones se contabilizan por separado.',
         'Operations todavía no dispone del total independiente de pedidos de la plataforma de tienda; no se sustituye por un dato inventado.',
-        'Un coste o día publicitario sin fuente completa deja el beneficio y ROI como no calculables.'
+        'El coste mayorista de producto se toma del pedido Dropea; si falta, se usa una tarifa PRODUCT_COGS vigente.',
+        'El beneficio operativo excluye publicidad y sigue disponible cuando Dropea, logística y gastos fijos están completos.',
+        'Un coste o día publicitario sin fuente completa deja únicamente el beneficio neto y ROI como no calculables.'
       ],
       actions_executed: 0, production_writes: 0
     };
