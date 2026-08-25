@@ -209,6 +209,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-order-chatby-signal-projection-mi
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-operations-private-order-display-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-truth-feedback-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-private-incident-customer-context-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-causal-learning-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-financial-control-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
