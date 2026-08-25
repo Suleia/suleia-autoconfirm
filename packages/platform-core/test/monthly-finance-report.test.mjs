@@ -62,6 +62,22 @@ test('Dropea wholesale price calculates operational profit while missing ads onl
   assert.match(result.missing_sources.join(','), /ADVERTISING:2026-08-01/);
 });
 
+test('a zero Dropea wholesale sentinel never fabricates a free product or inflated profit', () => {
+  const delivered = order('delivered-zero-wholesale', 'DELIVERED', '2026-08-01', {
+    delivered_at_utc: '2026-08-01T13:00:00Z',
+    product_summary: { products: [{ variant_id: 'unknown', product_id: 'legacy', name: 'Fixture legacy product', quantity: 1, wholesale_price: 0 }] }
+  });
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), orders: [delivered],
+    rates: rates.filter((rate) => rate.cost_type !== 'PRODUCT_COGS'), fixedExpensesComplete: true,
+    adSpend: [{ business_date: '2026-08-01', platform: 'META', spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }]
+  });
+  assert.equal(result.totals.costs.product, null);
+  assert.equal(result.totals.operational_profit, null);
+  assert.equal(result.totals.net_profit, null);
+  assert.match(result.missing_sources.join(','), /PRODUCT_COGS/);
+});
+
 test('an unconfigured fixed-expense source remains unknown instead of becoming zero', () => {
   const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), adSpend: [
     { business_date: '2026-08-01', platform: 'META', spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }

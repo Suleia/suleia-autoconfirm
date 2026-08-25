@@ -9,6 +9,7 @@ test('finance refresh is daily, persistent and uses the isolated compose profile
   assert.match(timer, /OnCalendar=.*Europe\/Madrid/);
   assert.match(timer, /Persistent=true/);
   assert.match(service, /Type=oneshot/);
-  assert.match(runner, /--profile finance-sync run --rm finance-daily-sync/);
+  assert.match(runner, /--env-file "\$env_file" -f "\$compose_file" --profile finance-sync run --rm finance-daily-sync/);
+  assert.match(runner, /test -f "\$env_file"/);
   assert.doesNotMatch(runner, /access_token|password|secret/i);
 });
