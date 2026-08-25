@@ -73,7 +73,10 @@ function addKnown(values) {
 }
 
 function productCost(product, rates, day, dimensions) {
-  if (Number.isFinite(product.wholesale_price) && product.wholesale_price >= 0) {
+  // Dropea uses zero for legacy/unavailable wholesale prices. Treating that
+  // sentinel as a free product inflates profit, so only a positive observed
+  // price is authoritative; otherwise require an explicit PRODUCT_COGS rate.
+  if (Number.isFinite(product.wholesale_price) && product.wholesale_price > 0) {
     return cents(product.wholesale_price);
   }
   const rate = rateFor(rates, 'PRODUCT_COGS', day, { ...product, ...dimensions });
