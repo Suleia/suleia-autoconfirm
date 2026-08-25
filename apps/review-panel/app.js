@@ -308,6 +308,19 @@ function recommendationPanel(incident, feedback = []) {
       ['Teléfono operativo', instruction.callback_phone_available ? incident.customer_phone || 'DISPONIBLE EN EL PEDIDO' : 'NO DISPONIBLE']
     ], 'customer-instruction'));
   }
+  if (recommendation.prepared_dropea_solution?.address) {
+    const prepared = recommendation.prepared_dropea_solution;
+    const address = prepared.address;
+    box.append(section('Dirección aportada en Chatby', [
+      ['Texto exacto del cliente', address.literal || 'NO DISPONIBLE'],
+      ['Vía y número', [address.fields?.street_line, address.fields?.street_number].filter(Boolean).join(' · ') || 'INCOMPLETO'],
+      ['Código postal', address.fields?.postal_code || 'INCOMPLETO'],
+      ['Localidad', address.fields?.locality || 'INCOMPLETO'],
+      ['Datos adicionales', address.fields?.unit || 'NO INDICADOS'],
+      ['Validación', address.complete ? 'COMPLETA' : `FALTAN: ${(address.missing_fields || []).join(', ')}`, true],
+      ['Acción en Dropea', prepared.execution_status === 'NOT_EXECUTED' ? 'PREPARADA, NO EJECUTADA' : 'BLOQUEADA HASTA COMPLETAR', true]
+    ], 'customer-instruction'));
+  }
   box.append(node('h4', 'recommendation-heading', 'Acción que propongo'));
   const steps = node('ol', 'recommendation-steps');
   for (const step of recommendation.steps || []) steps.append(node('li', '', step));
@@ -379,7 +392,7 @@ function financePercent(value) { return value === null || value === undefined ? 
 function monthLabel(value) { if (!/^\d{4}-\d{2}$/.test(String(value))) return value; const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' }).format(new Date(Date.UTC(year, month - 1, 2))); }
 function financeQuality(value) { return badge(value === 'COMPLETE' ? 'COMPLETO' : value === 'FUTURE' ? 'DÍA FUTURO' : 'INCOMPLETO'); }
 function financeCells(row, currency) {
-  return [date(row.day, true), row.orders_created, row.orders_sent, money(row.estimated_revenue, currency), row.delivered, money(row.real_revenue, currency), money(row.costs?.product, currency), money(row.costs?.outbound_shipping, currency), money(row.costs?.cod, currency), money(row.costs?.outbound_fulfillment, currency), money(row.costs?.returns, currency), money(row.costs?.advertising, currency), money(row.costs?.fixed, currency), money(row.total_expenses, currency), money(row.net_profit, currency), financePercent(row.roi), money(row.estimated_cpa, currency), money(row.real_cpa, currency), financePercent(row.confirmation_rate), financePercent(row.delivery_rate)];
+  return [date(row.day, true), row.orders_created, row.orders_sent, money(row.estimated_revenue, currency), row.delivered, money(row.real_revenue, currency), money(row.costs?.product, currency), money(row.costs?.outbound_shipping, currency), money(row.costs?.cod, currency), money(row.costs?.outbound_fulfillment, currency), money(row.costs?.returns, currency), money(row.costs?.advertising, currency), money(row.costs?.fixed, currency), money(row.total_expenses, currency), money(row.operational_profit, currency), money(row.net_profit, currency), financePercent(row.roi), money(row.estimated_cpa, currency), money(row.real_cpa, currency), financePercent(row.confirmation_rate), financePercent(row.delivery_rate)];
 }
 function renderFinance() {
   const data = state.finance; if (!data) return;
@@ -387,7 +400,8 @@ function renderFinance() {
   $('last-sync').textContent = date(data.generated_at);
   $('finance-exactness').textContent = data.exactness === 'COMPLETE' ? 'Fuentes completas' : `${(data.missing_sources || []).length} fuente(s) pendiente(s)`;
   $('finance-hero').replaceChildren(
-    financeMetric('Beneficio neto', money(totals.net_profit, currency), `ROI ${financePercent(totals.roi)} · margen ${financePercent(totals.margin)}`, totals.net_profit === null ? 'unknown' : Number(totals.net_profit) >= 0 ? 'primary' : 'negative'),
+    financeMetric('Beneficio operativo', money(totals.operational_profit, currency), `Después de producto, Dropea, transporte, devoluciones y gastos fijos · margen ${financePercent(totals.operational_margin)}`, totals.operational_profit === null ? 'unknown' : Number(totals.operational_profit) >= 0 ? 'primary' : 'negative'),
+    financeMetric('Beneficio neto', money(totals.net_profit, currency), totals.net_profit === null ? 'Pendiente de publicidad completa' : `ROI ${financePercent(totals.roi)} · margen ${financePercent(totals.margin)}`, totals.net_profit === null ? 'unknown' : Number(totals.net_profit) >= 0 ? 'positive' : 'negative'),
     financeMetric('Facturación estimada', money(totals.estimated_revenue, currency), `${text(totals.orders_sent, '0')} pedidos enviados`, 'warning'),
     financeMetric('Facturación real', money(totals.real_revenue, currency), `${text(totals.delivered, '0')} pedidos entregados`, 'positive'),
     financeMetric('Gastos totales', money(totals.total_expenses, currency), data.exactness === 'COMPLETE' ? 'Todas las fuentes disponibles' : 'No calculable hasta completar fuentes', totals.total_expenses === null ? 'unknown' : ''),
@@ -402,21 +416,21 @@ function renderFinance() {
   $('finance-costs').replaceChildren(...costs.map(([label, value]) => { const row = node('div', 'cost-row'); row.append(node('strong', '', label), badge(value === null ? 'PENDIENTE DE FUENTE' : money(value, currency))); return row; }));
   $('finance-quality').replaceChildren(
     stacked('Perspectiva', 'Cohorte por fecha original del pedido'),
-    stacked('Exactitud', data.exactness === 'COMPLETE' ? 'Todas las fuentes requeridas están completas' : 'Resultado parcial; beneficio y ROI permanecen bloqueados'),
+    stacked('Exactitud', data.exactness === 'COMPLETE' ? 'Todas las fuentes requeridas están completas' : 'Resultado parcial; se muestra el beneficio operativo si sus costes están completos y el neto queda pendiente de publicidad'),
     stacked('Publicidad', `${text(data.quality?.advertising_days_complete, '0')} de ${text(data.quality?.required_days, '0')} días transcurridos completos`),
     stacked('Fuentes pendientes', (data.missing_sources || []).slice(0, 8).join(' · ') || 'Ninguna'),
     stacked('Estado del mes', data.provisional ? 'ABIERTO' : 'HISTÓRICO'),
     ...((data.limitations || []).map((item) => stacked('Límite conocido', item)))
   );
   $('finance-daily').replaceChildren(...(data.daily || []).map((item) => { const tr = node('tr', item.quality === 'FUTURE' ? 'future-row' : ''); tr.append(...financeCells(item, currency).map((value) => cell(value)), cell(financeQuality(item.quality))); return tr; }));
-  const totalRow = { day: 'TOTAL', orders_created: totals.orders_created, orders_sent: totals.orders_sent, estimated_revenue: totals.estimated_revenue, delivered: totals.delivered, real_revenue: totals.real_revenue, costs: totals.costs, total_expenses: totals.total_expenses, net_profit: totals.net_profit, roi: totals.roi, estimated_cpa: totals.orders_sent && totals.costs?.advertising !== null ? Number(totals.costs.advertising) / Number(totals.orders_sent) : null, real_cpa: totals.delivered && totals.costs?.advertising !== null ? Number(totals.costs.advertising) / Number(totals.delivered) : null, confirmation_rate: totals.confirmation_rate, delivery_rate: totals.delivery_rate };
+  const totalRow = { day: 'TOTAL', orders_created: totals.orders_created, orders_sent: totals.orders_sent, estimated_revenue: totals.estimated_revenue, delivered: totals.delivered, real_revenue: totals.real_revenue, costs: totals.costs, total_expenses: totals.total_expenses, operational_profit: totals.operational_profit, net_profit: totals.net_profit, roi: totals.roi, estimated_cpa: totals.orders_sent && totals.costs?.advertising !== null ? Number(totals.costs.advertising) / Number(totals.orders_sent) : null, real_cpa: totals.delivered && totals.costs?.advertising !== null ? Number(totals.costs.advertising) / Number(totals.delivered) : null, confirmation_rate: totals.confirmation_rate, delivery_rate: totals.delivery_rate };
   const totalTr = node('tr', 'finance-total-row'); const totalValues = financeCells(totalRow, currency); totalValues[0] = 'TOTAL'; totalTr.append(...totalValues.map((value) => cell(value)), cell(financeQuality(data.exactness)));
   $('finance-total').replaceChildren(totalTr);
   $('finance-products').replaceChildren(...(data.products || []).map((item) => { const tr = node('tr'); tr.append(cell(item.name), cell(item.orders), cell(item.units), cell(item.sent_units), cell(item.delivered_units), cell(item.returned_units), cell(money(item.revenue_estimated, currency)), cell(money(item.revenue_real, currency)), cell(money(item.product_cost, currency)), cell(financeQuality(item.revenue_attribution_complete && item.product_cost_complete ? 'COMPLETE' : 'INCOMPLETE'))); return tr; }));
   $('finance-logistics').replaceChildren(...(data.logistics || []).map((item) => { const tr = node('tr'); tr.append(cell(item.carrier), cell(item.orders_sent), cell(item.delivered), cell(item.in_air), cell(item.returned), cell(money(item.total_cost, currency)), cell(money(item.cost_per_order, currency)), cell(financePercent(item.delivery_rate)), cell(financeQuality(item.quality))); return tr; }));
   const advertisingRows = (data.advertising_by_platform || []).length
     ? data.advertising_by_platform.map((item) => { const row = node('div', 'cost-row'); row.append(node('strong', '', item.platform), badge(money(item.spend, currency))); return row; })
-    : [stacked('Sin fuente publicitaria completa', 'El beneficio permanece no calculable hasta que la sincronización diaria esté acreditada.')];
+    : [stacked('Sin fuente publicitaria completa', 'El beneficio operativo sigue disponible; el beneficio neto y el ROI esperan la sincronización diaria de Meta.')];
   $('finance-advertising').replaceChildren(...advertisingRows);
 }
 async function loadFinance() { showNotice(''); const selected = $('finance-month').value; try { state.finance = await api(`/api/operations/finance${selected ? `?month=${encodeURIComponent(selected)}` : ''}`); const select = $('finance-month'); const months = state.finance.available_months?.length ? state.finance.available_months : [state.finance.month]; if (!select.options.length || !months.includes(select.value)) { select.replaceChildren(...months.map((month) => { const option = node('option', '', monthLabel(month)); option.value = month; option.selected = month === state.finance.month; return option; })); } renderFinance(); } catch (error) { showNotice(error.message); } }

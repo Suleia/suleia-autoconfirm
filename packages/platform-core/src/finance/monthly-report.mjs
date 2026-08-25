@@ -46,7 +46,9 @@ function normalizedProducts(order) {
     product_id: product.product_id === null || product.product_id === undefined ? null : String(product.product_id),
     variant_id: product.variant_id === null || product.variant_id === undefined ? null : String(product.variant_id),
     name: String(product.name || 'Producto sin nombre'),
-    quantity: Number.isFinite(Number(product.quantity)) ? Number(product.quantity) : 0
+    quantity: Number.isFinite(Number(product.quantity)) ? Number(product.quantity) : 0,
+    wholesale_price: product.wholesale_price === null || product.wholesale_price === undefined || product.wholesale_price === ''
+      ? null : Number(product.wholesale_price)
   })).filter((product) => product.quantity > 0);
 }
 
@@ -68,6 +70,14 @@ function rateFor(rates, type, day, dimensions = {}) {
 
 function addKnown(values) {
   return values.some((value) => value === null) ? null : values.reduce((sum, value) => sum + value, 0);
+}
+
+function productCost(product, rates, day, dimensions) {
+  if (Number.isFinite(product.wholesale_price) && product.wholesale_price >= 0) {
+    return cents(product.wholesale_price);
+  }
+  const rate = rateFor(rates, 'PRODUCT_COGS', day, { ...product, ...dimensions });
+  return rate ? cents(rate.amount) : null;
 }
 
 function fixedDaily(expenses, days) {
@@ -129,9 +139,9 @@ function productRollup(orders, rates, timezone, currency) {
         if (flags.delivered) row.revenue_real_cents += orderAmount;
       } else if (flags.sent || flags.delivered) row.revenue_attribution_complete = false;
       if (flags.delivered) {
-        const rate = rateFor(rates, 'PRODUCT_COGS', day, { ...product, store_id: order.store_id, currency });
-        if (!rate || cents(rate.amount) === null) row.product_cost_complete = false;
-        else row.product_cost_cents += cents(rate.amount) * product.quantity;
+        const unitCost = productCost(product, rates, day, { store_id: order.store_id, currency });
+        if (unitCost === null) row.product_cost_complete = false;
+        else row.product_cost_cents += unitCost * product.quantity;
       }
       products.set(key, row);
     }
@@ -203,17 +213,26 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
         const products = normalizedProducts(order);
         if (!products.length) { components.product = null; missing.add('PRODUCT_COGS:ORDER_ITEMS_MISSING'); }
         for (const product of products) {
-          const rate = rateFor(rates, 'PRODUCT_COGS', day, { ...product, store_id: order.store_id, currency }); const rateCents = rate ? cents(rate.amount) : null;
+          const rateCents = productCost(product, rates, day, { store_id: order.store_id, currency });
           if (rateCents === null) { components.product = null; missing.add(`PRODUCT_COGS:${product.variant_id || product.product_id || product.name}`); }
           else if (components.product !== null) components.product += rateCents * product.quantity;
         }
       }
     }
     if (relevant && ad.value === null) missing.add(`ADVERTISING:${day}`);
-    const expenseCents = addKnown(Object.values(components)); const profitCents = expenseCents === null || !realRevenueComplete ? null : realRevenue - expenseCents;
+    const operationalExpenseCents = addKnown([
+      components.product, components.outbound_shipping, components.cod,
+      components.outbound_fulfillment, components.returns, components.fixed
+    ]);
+    const operationalProfitCents = operationalExpenseCents === null || !realRevenueComplete
+      ? null : realRevenue - operationalExpenseCents;
+    const expenseCents = addKnown(Object.values(components));
+    const profitCents = expenseCents === null || !realRevenueComplete ? null : realRevenue - expenseCents;
     return {
       day, ...counts, estimated_revenue: estimatedRevenueComplete ? amount(estimatedRevenue) : null, real_revenue: realRevenueComplete ? amount(realRevenue) : null,
       costs: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, amount(value)])),
+      operational_expenses: amount(operationalExpenseCents), operational_profit: amount(operationalProfitCents),
+      operational_margin: realRevenue && operationalProfitCents !== null ? ratio(operationalProfitCents, realRevenue) : null,
       total_expenses: amount(expenseCents), net_profit: amount(profitCents), roi: expenseCents && profitCents !== null ? ratio(profitCents, expenseCents) : null,
       estimated_cpa: counts.orders_sent && ad.value !== null ? amount(Math.round(ad.value / counts.orders_sent)) : null,
       real_cpa: counts.delivered && ad.value !== null ? amount(Math.round(ad.value / counts.delivered)) : null,
@@ -229,12 +248,18 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   const sumCost = (field) => included.some((row) => row.costs[field] === null) ? null : Number(included.reduce((sum, row) => sum + Number(row.costs[field] || 0), 0).toFixed(2));
   const sumNullableField = (field) => included.some((row) => row[field] === null) ? null : sumField(field);
   const totalExpenses = sumNullableField('total_expenses');
+  const operationalExpenses = sumNullableField('operational_expenses');
   const realRevenue = sumNullableField('real_revenue'); const estimatedRevenue = sumNullableField('estimated_revenue');
+  const operationalProfit = operationalExpenses === null || realRevenue === null
+    ? null : Number((realRevenue - operationalExpenses).toFixed(2));
   const profit = totalExpenses === null || realRevenue === null ? null : Number((realRevenue - totalExpenses).toFixed(2));
   const totals = {
     orders_created: sumField('orders_created'), orders_sent: sumField('orders_sent'), delivered: sumField('delivered'), in_air: sumField('in_air'), returned: sumField('returned'), incidences: sumField('incidences'),
     estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
     costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising: sumCost('advertising'), fixed: sumCost('fixed') },
+    operational_expenses: operationalExpenses, operational_profit: operationalProfit,
+    operational_margin: realRevenue && operationalProfit !== null
+      ? ratio(Math.round(operationalProfit * 100), Math.round(realRevenue * 100)) : null,
     total_expenses: totalExpenses, net_profit: profit,
     roi: totalExpenses && profit !== null ? ratio(Math.round(profit * 100), Math.round(totalExpenses * 100)) : null,
     margin: realRevenue && profit !== null ? ratio(Math.round(profit * 100), Math.round(realRevenue * 100)) : null,

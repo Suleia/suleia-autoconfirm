@@ -29,9 +29,47 @@ export function deliveryInstructionFromText(value) {
   });
 }
 
+export function addressInstructionFromText(value) {
+  const literal = String(value || '').replace(/\r\n?/g, '\n').trim();
+  const text = normalizedText(literal);
+  const streetType = /\b(calle|c\/|avenida|avda\.?|plaza|paseo|camino|carretera|urbanizacion|ronda|travesia|via)\b/.exec(text);
+  const postalCode = /\b(\d{5})\b/.exec(literal)?.[1] || null;
+  const explicitNumber = /\b(?:numero|n[ºo]\.?|num\.?)\s*[:#-]?\s*(\d{1,4}[a-z]?)\b/i.exec(literal)?.[1] || null;
+  const streetNumber = streetType
+    ? new RegExp(`${streetType[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[^\n,;]{1,90}?(?:,|\\s)\\s*(\\d{1,4}[a-z]?)\\b`, 'i').exec(literal)?.[1] || null
+    : null;
+  const locality = /\b(?:localidad|ciudad|municipio)\s*[:#-]?\s*([a-záéíóúüñ][a-záéíóúüñ .'-]{1,79})/i.exec(literal)?.[1]?.trim()
+    || (postalCode ? new RegExp(`\\b${postalCode}\\b\\s*[,;-]?\\s*([a-záéíóúüñ][a-záéíóúüñ .'-]{1,79})`, 'i').exec(literal)?.[1]?.trim() : null)
+    || null;
+  const unit = /\b((?:piso|puerta|portal|bloque|escalera)\s*[:#-]?\s*[a-z0-9ºª .-]{1,40})/i.exec(literal)?.[1]?.trim() || null;
+  const streetLine = literal.split('\n').map((line) => line.trim()).find((line) =>
+    /\b(calle|c\/|avenida|avda\.?|plaza|paseo|camino|carretera|urbanizaci[oó]n|ronda|traves[ií]a|v[ií]a)\b/i.test(line)) || null;
+  const fields = Object.freeze({
+    street_line: streetLine,
+    street_number: explicitNumber || streetNumber,
+    postal_code: postalCode,
+    locality,
+    unit
+  });
+  const missing = [
+    !streetLine ? 'STREET' : null,
+    !(explicitNumber || streetNumber) ? 'NUMBER' : null,
+    !postalCode ? 'POSTAL_CODE' : null,
+    !locality ? 'LOCALITY' : null
+  ].filter(Boolean);
+  return Object.freeze({
+    literal: literal || null,
+    fields,
+    missing_fields: Object.freeze(missing),
+    complete: missing.length === 0,
+    has_address_data: Boolean(streetLine || postalCode || explicitNumber || locality)
+  });
+}
+
 export function interpretChatbyCustomerText(value) {
   const text = normalizedText(value);
   const delivery = deliveryInstructionFromText(text);
+  const address = addressInstructionFromText(value);
   let intent = 'UNKNOWN';
   if (/(quiero el descuento|acepto el descuento|descuento.*si)/.test(text)) intent = 'DISCOUNT_ACCEPTED';
   else if (/(no quiero el descuento|rechazo el descuento|sin descuento)/.test(text)) intent = 'DISCOUNT_REJECTED';
@@ -40,7 +78,7 @@ export function interpretChatbyCustomerText(value) {
   else if (/(no quiero el pedido|cancel|rechaz|devolver|devolucion)/.test(text)) intent = 'FINAL_REJECTION';
   else if (delivery.is_delivery_request || /(reintentar.*entrega|nuevo intento|volver.*entregar)/.test(text)) intent = 'DELIVERY_RETRY';
   else if (/(si quiero el pedido|quiero mi pedido|confirmo|confirmado|lo quiero)/.test(text)) intent = 'CUSTOMER_STILL_WANTS_ORDER';
-  return Object.freeze({ intent, delivery });
+  return Object.freeze({ intent, delivery, address });
 }
 
 function shortAnswer(value) {
@@ -62,6 +100,7 @@ export function interpretChatbyCustomerReply({ customerText, precedingOperatorTe
     return Object.freeze({
       intent: 'CHANGE_ADDRESS',
       delivery: direct.delivery,
+      address: direct.address,
       interpretation_basis: 'ADDRESS_DATA_REPLY_TO_ADDRESS_REQUEST'
     });
   }
@@ -78,6 +117,7 @@ export function interpretChatbyCustomerReply({ customerText, precedingOperatorTe
     return Object.freeze({
       intent: 'CUSTOMER_STILL_WANTS_ORDER',
       delivery: direct.delivery,
+      address: direct.address,
       interpretation_basis: 'AFFIRMATIVE_REPLY_TO_RECEIVE_QUESTION'
     });
   }
@@ -85,6 +125,7 @@ export function interpretChatbyCustomerReply({ customerText, precedingOperatorTe
     return Object.freeze({
       intent: 'FINAL_REJECTION',
       delivery: direct.delivery,
+      address: direct.address,
       interpretation_basis: 'AFFIRMATIVE_REPLY_TO_REJECTION_QUESTION'
     });
   }

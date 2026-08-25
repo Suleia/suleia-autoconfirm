@@ -24,6 +24,7 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /INFORME FINANCIERO MENSUAL/);
   assert.match(html, /Pedidos creados/);
   assert.match(html, /Beneficio neto/);
+  assert.match(html, /Beneficio operativo/);
   assert.match(html, /CPA estimado/);
   assert.match(html, /Tasa entrega/);
   assert.match(script, /totals\.costs/);
@@ -39,6 +40,8 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(script, /detailController\?\.abort/);
   assert.match(script, /state\.offset >= data\.total/);
   assert.match(script, /tailored_recommendation/);
+  assert.match(script, /prepared_dropea_solution/);
+  assert.match(script, /Dirección aportada en Chatby/);
   assert.match(script, /source_truth/);
   assert.match(script, /Solución propuesta para esta incidencia/);
   assert.match(script, /Tu feedback se guarda como memoria operativa/);
@@ -49,7 +52,7 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
   assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260823-finance-monthly-v1">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260823-finance-monthly-v1" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260825-finance-address-v2" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);

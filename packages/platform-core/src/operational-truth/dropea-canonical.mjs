@@ -86,6 +86,11 @@ function sanitizeBusinessLabel(value, maxLength = 200) {
 }
 
 function normalizeLineItem(item = {}) {
+  const wholesalePrice = item.wholesale_price === undefined || item.wholesale_price === null || item.wholesale_price === ''
+    ? null : Number(item.wholesale_price);
+  if (wholesalePrice !== null && (!Number.isFinite(wholesalePrice) || wholesalePrice < 0)) {
+    throw new Error('line_item.wholesale_price must be a non-negative number');
+  }
   return Object.freeze({
     product_id: item.product_id ?? null,
     variant_id: required(item.variant_id, 'line_item.variant_id'),
@@ -94,7 +99,8 @@ function normalizeLineItem(item = {}) {
     variant_name: sanitizeBusinessLabel(item.variant_name, 200),
     variant_type: item.variant_type ?? 'UNKNOWN',
     quantity: Number(required(item.quantity, 'line_item.quantity')),
-    unit_price: Number(required(item.unit_price, 'line_item.unit_price'))
+    unit_price: Number(required(item.unit_price, 'line_item.unit_price')),
+    wholesale_price: wholesalePrice
   });
 }
 
@@ -106,7 +112,8 @@ function productSummary(lineItems) {
       product_id: item.product_id,
       variant_id: item.variant_id,
       name: item.product_name,
-      quantity: item.quantity
+      quantity: item.quantity,
+      wholesale_price: item.wholesale_price
     }))
   });
 }
