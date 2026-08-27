@@ -76,6 +76,20 @@ test('order mapper preserves Dropea wholesale cost for the authenticated finance
   assert.equal(result.product_summary.products[0].wholesale_price, 7.25);
 });
 
+test('order mapper preserves only numeric Dropea fulfillment cost components', () => {
+  const result = mapDropeaOrder(order({ order_costs: {
+    tax_rate_provider: 21, fulfillment_outbound: 1.2,
+    fulfillment_quantity_cost: 0.35, fulfillment_return: 1.2
+  } }), { hmacKey: HMAC_KEY, market: 'ES', observedAt: AT });
+  assert.deepEqual(result.order_costs, {
+    tax_rate_provider: 21, fulfillment_outbound: 1.2,
+    fulfillment_quantity_cost: 0.35, fulfillment_return: 1.2
+  });
+  assert.throws(() => mapDropeaOrder(order({ order_costs: { fulfillment_outbound: -1 } }), {
+    hmacKey: HMAC_KEY, market: 'ES', observedAt: AT
+  }), /order_costs\.fulfillment_outbound/);
+});
+
 test('central mapper projects only masked operational protections and blocks test orders', () => {
   const result = mapDropeaOrder(order({ customer: { phone: '600000000' } }), {
     hmacKey: HMAC_KEY,

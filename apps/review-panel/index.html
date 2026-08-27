@@ -85,7 +85,7 @@
         </section>
         <section class="finance-panel">
           <div class="panel-heading"><div><p class="eyebrow">PRODUCTOS VENDIDOS</p><h3>Unidades y rentabilidad atribuible</h3></div><span class="data-quality">Los pedidos multiproducto sin precio por línea no se reparten artificialmente</span></div>
-          <div class="table-wrap"><table class="finance-table"><thead><tr><th>Producto</th><th>Pedidos</th><th>Unidades</th><th>Enviadas</th><th>Entregadas</th><th>Devueltas</th><th>Fact. estimada</th><th>Fact. real</th><th>Coste producto</th><th>Calidad</th></tr></thead><tbody id="finance-products"></tbody></table></div>
+          <div class="table-wrap"><table class="finance-table"><thead><tr><th>Producto</th><th>Pedidos</th><th>Unidades</th><th>Enviadas</th><th>Entregadas</th><th>En tránsito</th><th>Devueltas/rechazadas</th><th>Con incidencia</th><th>Fact. estimada</th><th>Fact. real</th><th>Coste producto</th><th>Coste operativo atribuible</th><th>Beneficio atribuible</th><th>Calidad</th></tr></thead><tbody id="finance-products"></tbody></table></div>
         </section>
         <section class="finance-columns">
           <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">LOGÍSTICA</p><h3>Coste por transportista</h3></div></div><div class="table-wrap"><table class="finance-table compact"><thead><tr><th>Transportista</th><th>Enviados</th><th>Entregados</th><th>En el aire</th><th>Devueltos</th><th>Coste total</th><th>Coste/pedido</th><th>Entrega</th><th>Calidad</th></tr></thead><tbody id="finance-logistics"></tbody></table></div></article>
@@ -95,7 +95,7 @@
 
       <section id="queue-card" class="queue-card">
         <div class="queue-head">
-          <div><p class="eyebrow">COLA ACTUAL</p><h2 id="queue-title">Pedidos observados</h2></div>
+          <div><p class="eyebrow">COLA ACTUAL</p><h2 id="queue-title">Pedidos pendientes en Dropea</h2><p id="queue-source" class="queue-source">Fuente: Dropea · Chatby por pedido · refresco automático</p></div>
           <div id="filters" class="filters"></div>
         </div>
         <div class="table-wrap">
@@ -125,6 +125,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260825-finance-address-v2" defer></script>
+  <script src="app.js?v=20260827-pending-finance-v3" defer></script>
 </body>
 </html>

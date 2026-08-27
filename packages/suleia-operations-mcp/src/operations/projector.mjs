@@ -150,12 +150,12 @@ export class OperationsProjector {
     const integrationResult = await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO integration.dropea_orders
       (market,store_id,dropea_order_id,canonical_order_id,external_order_id_hash,external_order_id_ciphertext,status,sub_status,
        lifecycle_status,total_amount,currency,payment_method,carrier,service_type,line_items_masked,
-       canonical_product_keys,product_display_names,normalized_address_hash,shipping_address_ciphertext,address_line_2_present,
+       canonical_product_keys,product_display_names,order_costs_masked,normalized_address_hash,shipping_address_ciphertext,address_line_2_present,
        created_at_utc,updated_at_utc,confirmed_at_utc,processing_at_utc,delivered_at_utc,
        cancelled_at_utc,returned_at_utc,source_system,source_version,
        schema_version,observed_at,payload_hash,data_freshness,historical_pre_cutover,customer_identity_hash)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,
-       $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35)
+       $23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36)
       ON CONFLICT(market,store_id,dropea_order_id) DO UPDATE SET
        canonical_order_id=EXCLUDED.canonical_order_id,external_order_id_hash=EXCLUDED.external_order_id_hash,
        external_order_id_ciphertext=EXCLUDED.external_order_id_ciphertext,
@@ -163,6 +163,7 @@ export class OperationsProjector {
        total_amount=EXCLUDED.total_amount,currency=EXCLUDED.currency,payment_method=EXCLUDED.payment_method,
        carrier=EXCLUDED.carrier,service_type=EXCLUDED.service_type,line_items_masked=EXCLUDED.line_items_masked,
        canonical_product_keys=EXCLUDED.canonical_product_keys,product_display_names=EXCLUDED.product_display_names,
+       order_costs_masked=EXCLUDED.order_costs_masked,
        normalized_address_hash=EXCLUDED.normalized_address_hash,
        shipping_address_ciphertext=EXCLUDED.shipping_address_ciphertext,
        address_line_2_present=EXCLUDED.address_line_2_present,
@@ -180,7 +181,7 @@ export class OperationsProjector {
       order.external_order_id_hash, order.external_order_id_ciphertext, order.status, order.sub_status, order.canonical_state,
       order.total_amount, order.currency, order.payment_method, order.carrier, order.service_type,
       JSON.stringify(order.line_items || []), [order.canonical_product_key].filter(Boolean),
-      JSON.stringify(order.product_display_names || []),
+      JSON.stringify(order.product_display_names || []), JSON.stringify(order.order_costs || null),
       order.normalized_address_hash, order.shipping_address_ciphertext, order.address_line_2_present === true, order.created_at,
        order.updated_at, order.confirmed_at, order.processing_at, order.delivered_at,
        order.cancelled_at, order.returned_at, order.source_system,

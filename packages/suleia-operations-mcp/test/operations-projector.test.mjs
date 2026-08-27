@@ -18,7 +18,7 @@ test('Operations projector writes only masked shadow read models with zero-actio
   const result = await projector.upsertOrder({
     canonical_order_id: 'order-fixture', dropea_order_id: '24', external_order_id_hash: 'a'.repeat(64),
     status: 'SHIPPING', sub_status: 'SHIPPED', canonical_state: 'IN_TRANSIT',
-    product_summary: { total_units: 1 }, total_amount: 10, currency: 'EUR', carrier: 'GLS',
+    product_summary: { total_units: 1 }, order_costs: { fulfillment_outbound: 1.2, fulfillment_quantity_cost: 0.3 }, total_amount: 10, currency: 'EUR', carrier: 'GLS',
     service_type: '74', tracking_reference_masked: 'b'.repeat(64), identity_status: 'EXACT',
     data_freshness: 'FRESH', updated_at: '2026-08-01T12:00:00Z', source_version: '0.1.0', schema_version: '1.0.0'
   });
@@ -28,6 +28,7 @@ test('Operations projector writes only masked shadow read models with zero-actio
   assert.doesNotMatch(calls[0].sql, /DELETE|TRUNCATE/);
   assert.deepEqual(JSON.parse(calls[0].values[14]), []);
   assert.deepEqual(JSON.parse(calls[0].values[16]), []);
+  assert.deepEqual(JSON.parse(calls[0].values[17]), { fulfillment_outbound: 1.2, fulfillment_quantity_cost: 0.3 });
   assert.deepEqual(JSON.parse(calls[2].values[3]), []);
   assert.ok(calls.some((call) => /INSERT INTO events\.order_events/.test(call.sql)));
   assert.ok(calls.some((call) => /INSERT INTO core\.order_digital_twins/.test(call.sql)));

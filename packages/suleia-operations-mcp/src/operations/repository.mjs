@@ -212,24 +212,23 @@ export class OperationsRepository {
       this.pool.query('SELECT * FROM read_models.operations_protection_summary'),
       this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector'),
       this.pool.query(`SELECT
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING')::integer AS pending,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('CONFIRMED','PROCESSING'))::integer AS confirmed,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='SHIPPING')::integer AS shipping,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('DELIVERED','FINISHED'))::integer AS delivered,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='INCIDENCE')::integer AS incidence,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status) IN ('CANCELLED','REJECTED'))::integer AS cancelled_or_rejected,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='RETURNED')::integer AS returned,
+        count(*)::integer AS pending,
+        0::integer AS confirmed,0::integer AS shipping,0::integer AS delivered,
+        count(*) FILTER (WHERE active_issue_id IS NOT NULL)::integer AS incidence,
+        0::integer AS cancelled_or_rejected,0::integer AS returned,
         count(*) FILTER (WHERE human_review)::integer AS human_review,
         count(*) FILTER (WHERE active_issue_id IS NOT NULL)::integer AS with_active_issue,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND customer_replied_after_issue)::integer AS with_customer_response,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND customer_response_status='NO_RESPONSE')::integer AS no_response,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND customer_response_status='NOT_VERIFIABLE')::integer AS response_not_verifiable,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='CONFIRM')::integer AS confirm_now,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='ADDRESS_CHANGE')::integer AS address_change,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent='REJECT')::integer AS reject_signal,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND latest_customer_intent IN ('UNCLEAR','UNKNOWN','NOT_VERIFIABLE'))::integer AS review_signal,
-        count(*) FILTER (WHERE coalesce(lifecycle_status,status)='PENDING' AND duplicate_status='DUPLICATE_ACTIVE_ORDER')::integer AS prior_order
-      FROM ${ORDER_OPERATIONAL_SOURCE} orders`)
+        count(*) FILTER (WHERE customer_response_status='RESPONDED')::integer AS with_customer_response,
+        count(*) FILTER (WHERE customer_response_status='NO_RESPONSE')::integer AS no_response,
+        count(*) FILTER (WHERE customer_response_status='NOT_VERIFIABLE')::integer AS response_not_verifiable,
+        count(*) FILTER (WHERE latest_customer_intent='CONFIRM')::integer AS confirm_now,
+        count(*) FILTER (WHERE latest_customer_intent='ADDRESS_CHANGE')::integer AS address_change,
+        count(*) FILTER (WHERE latest_customer_intent='REJECT')::integer AS reject_signal,
+        count(*) FILTER (WHERE latest_customer_intent IN ('UNCLEAR','UNKNOWN','NOT_VERIFIABLE'))::integer AS review_signal,
+        count(*) FILTER (WHERE duplicate_status='DUPLICATE_ACTIVE_ORDER')::integer AS prior_order,
+        max(source_updated_at) AS last_sync_at
+      FROM ${ORDER_OPERATIONAL_SOURCE} orders
+      WHERE coalesce(lifecycle_status,status)='PENDING'`)
     ]);
     const connectors = health.rows.map((row) => {
       const freshness = evaluateSourceFreshness({
@@ -248,13 +247,15 @@ export class OperationsRepository {
 
   async financialSummary(searchParams) {
     const window = financialMonth(searchParams); const values = [window.from, window.to, window.storeId];
-    const orderWhere = `WHERE created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid')
-      AND created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
-      AND ($3::text IS NULL OR store_id=$3)`;
+    const orderWhere = `WHERE c.created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid')
+      AND c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
+      AND ($3::text IS NULL OR c.store_id=$3)`;
     const [orders, rates, fixed, advertising, months, checkpoints] = await Promise.all([
-      this.pool.query(`SELECT canonical_order_id,store_id,lifecycle_status,status,created_at_utc,source_updated_at,updated_at,
-        confirmed_at_utc,delivered_at_utc,returned_at_utc,total_amount,currency,carrier,product_summary,active_issue_id
-        FROM read_models.operations_order_context ${orderWhere}`, values),
+      this.pool.query(`SELECT c.canonical_order_id,c.store_id,c.lifecycle_status,c.status,c.created_at_utc,c.source_updated_at,c.updated_at,
+        c.confirmed_at_utc,c.delivered_at_utc,c.returned_at_utc,c.total_amount,c.currency,c.carrier,c.product_summary,c.active_issue_id,
+        d.order_costs
+        FROM read_models.operations_order_context c
+        LEFT JOIN read_models.operations_order_financial_inputs d USING(canonical_order_id) ${orderWhere}`, values),
       this.pool.query(`SELECT store_id,cost_type,carrier,provider,product_id,variant_id,amount,currency,
         effective_from,effective_to,source,updated_at FROM economics.finance_cost_rates
         WHERE effective_from < $2::date AND (effective_to IS NULL OR effective_to >= $1::date)
@@ -301,9 +302,13 @@ export class OperationsRepository {
     const limit = integer(searchParams.get('limit'), 50, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
     const selected = filters(searchParams, {
-      status: 'status', lifecycle: 'coalesce(lifecycle_status,status)', risk: 'risk',
+      status: 'status', risk: 'risk',
       freshness: 'freshness', identity: 'identity_status'
     });
+    // The Operations orders queue is intentionally the authoritative Dropea
+    // pending queue. Historical lifecycle states belong in financial reports
+    // and detail timelines, never mixed into this operational worklist.
+    selected.clauses.push("coalesce(lifecycle_status,status)='PENDING'");
     const protection = searchParams.get('protection');
     const protectionClauses = {
       DUPLICATE_ACTIVE_ORDER: "duplicate_status = 'DUPLICATE_ACTIVE_ORDER'",
@@ -336,13 +341,15 @@ export class OperationsRepository {
     selected.values.push(limit, offset);
     const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
     const result = await this.pool.query(
-      `SELECT *, count(*) OVER()::integer AS total_count
+      `SELECT *, count(*) OVER()::integer AS total_count,
+         max(source_updated_at) OVER() AS pending_queue_last_sync_at
        FROM ${ORDER_OPERATIONAL_SOURCE} orders ${where}
        ORDER BY updated_at DESC, canonical_order_id
        LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
       selected.values
     );
-    return { items: result.rows.map((row) => privateOrderDisplay(row, this.privateDataKey)), total: result.rows[0]?.total_count || 0, limit, offset };
+    return { items: result.rows.map((row) => privateOrderDisplay(row, this.privateDataKey)), total: result.rows[0]?.total_count || 0,
+      limit, offset, scope: 'DROPEA_PENDING', last_sync_at: result.rows[0]?.pending_queue_last_sync_at || null };
   }
 
   async orderDetail(id) {
