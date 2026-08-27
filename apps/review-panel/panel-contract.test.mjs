@@ -52,7 +52,7 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
   assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260823-finance-monthly-v1">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260825-finance-address-v2" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260827-pending-finance-v3" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);
@@ -65,16 +65,16 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
 });
 
 test('orders open on the pending dropshipper queue and expose Chatby intent', () => {
+  const html = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
-  assert.match(script, /filters: \{ lifecycle: 'PENDING' \}/);
-  assert.match(script, /view === 'orders' \? \{ lifecycle: 'PENDING' \} : \{\}/);
-  assert.match(script, /Pendientes de Dropshipper/);
+  assert.match(script, /filters: \{\}/);
+  assert.match(script, /coincide con la cola Pend\. Dropshipper/i);
+  assert.match(script, /Solo pedidos pendientes en Dropea/);
   assert.match(script, /latest_customer_intent/);
   for (const label of ['Todos', 'Con respuesta', 'Confirmar', 'Dirección', 'Incidencias', 'No confirmar', 'Revisión', 'Sin respuesta', 'No verificable']) assert.match(script, new RegExp(label));
   for (const field of ['Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe']) assert.match(script, new RegExp(field));
-  assert.match(script, /Pend\. Dropshipper/);
-  assert.match(script, /Todos los estados/);
+  assert.doesNotMatch(script, /Todos los estados/);
   assert.match(script, /Buscar ID Dropea/);
   assert.match(script, /customer_name/);
   assert.match(script, /external_order_reference/);
@@ -90,6 +90,9 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
   assert.match(script, /association exacta al pedido|asociación exacta al pedido/);
   assert.match(css, /signal-confirm/);
   assert.match(css, /summary-card\.filterable/);
+  assert.match(html, /Devueltas\/rechazadas/);
+  assert.match(html, /Beneficio atribuible/);
+  assert.match(script, /attributable_operational_profit/);
 });
 
 test('incidents use current connector polls and distinguish a missing association from a connector error', () => {

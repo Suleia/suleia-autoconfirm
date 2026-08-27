@@ -23,6 +23,7 @@ button,select,input{font:inherit}.queue-card[aria-busy="true"] .table-wrap{opaci
 .filter-chip.active{border-color:var(--teal);background:var(--teal);color:#fff}
 #queue-card table{min-width:1180px}
 .filter-chip.scope{border-width:2px}
+.queue-source{margin:5px 0 0;color:var(--muted);font-size:12px}.queue-scope-label{display:inline-flex;align-items:center;padding:9px 13px;border-radius:999px;background:#e9f8f5;color:var(--teal-dark);font-size:11px;font-weight:900;border:1px solid #b9e5dd}
 .order-search{min-width:155px}
 .order-cell .stacked,.customer-cell .stacked,.signal-cell .stacked{padding:10px 12px;border-radius:12px;background:#f7fafb;border:1px solid #e6ecef}
 .order-cell .stacked{border-left:4px solid var(--blue);background:linear-gradient(135deg,#f7fbff,#fff)}

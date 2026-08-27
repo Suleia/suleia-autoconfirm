@@ -116,13 +116,32 @@ function sourceStatus(rows, day, currency) {
 
 function orderFlags(order) {
   const lifecycle = state(order);
-  const delivered = Boolean(order.delivered_at_utc) || DELIVERED_STATES.has(lifecycle);
-  const returned = Boolean(order.returned_at_utc) || lifecycle === 'RETURNED';
   const sent = Boolean(order.confirmed_at_utc) || SENT_STATES.has(lifecycle);
+  const returned = Boolean(order.returned_at_utc) || lifecycle === 'RETURNED' || (lifecycle === 'REJECTED' && sent);
+  const delivered = (Boolean(order.delivered_at_utc) || DELIVERED_STATES.has(lifecycle)) && !returned;
   return {
     sent, delivered, returned,
     in_air: sent && !delivered && !returned && !TERMINAL_NOT_DELIVERED.has(lifecycle)
   };
+}
+
+function observedFulfillmentCost(order, type) {
+  const costs = order.order_costs && typeof order.order_costs === 'object' ? order.order_costs : null;
+  if (!costs) return null;
+  if (type === 'OUTBOUND_FULFILLMENT') {
+    const outbound = cents(costs.fulfillment_outbound);
+    const quantity = cents(costs.fulfillment_quantity_cost);
+    return outbound === null || quantity === null ? null : outbound + quantity;
+  }
+  if (type === 'RETURN_FULFILLMENT') return cents(costs.fulfillment_return);
+  return null;
+}
+
+function exactOrderCost(order, rates, type, day, dimensions) {
+  const observed = observedFulfillmentCost(order, type);
+  if (observed !== null) return observed;
+  const rate = rateFor(rates, type, day, dimensions);
+  return rate ? cents(rate.amount) : null;
 }
 
 function productRollup(orders, rates, timezone, currency) {
@@ -132,11 +151,13 @@ function productRollup(orders, rates, timezone, currency) {
     const orderProducts = normalizedProducts(order); const orderAmount = String(order.currency || currency).toUpperCase() === currency ? cents(order.total_amount) : null;
     for (const product of orderProducts) {
       const key = product.variant_id || product.product_id || product.name;
-      const row = products.get(key) || { product_id: product.product_id, variant_id: product.variant_id, name: product.name, orders: 0, units: 0, sent_units: 0, delivered_units: 0, returned_units: 0, revenue_estimated_cents: 0, revenue_real_cents: 0, revenue_attribution_complete: true, product_cost_cents: 0, product_cost_complete: true };
+      const row = products.get(key) || { product_id: product.product_id, variant_id: product.variant_id, name: product.name, orders: 0, units: 0, sent_units: 0, delivered_units: 0, in_air_units: 0, returned_units: 0, incidence_orders: 0, revenue_estimated_cents: 0, revenue_real_cents: 0, revenue_attribution_complete: true, product_cost_cents: 0, product_cost_complete: true, attributable_operational_cost_cents: 0, attributable_profit_complete: true };
       row.orders += 1; row.units += product.quantity;
       if (flags.sent) row.sent_units += product.quantity;
       if (flags.delivered) row.delivered_units += product.quantity;
+      if (flags.in_air) row.in_air_units += product.quantity;
       if (flags.returned) row.returned_units += product.quantity;
+      if (order.active_issue_id) row.incidence_orders += 1;
       if (orderProducts.length === 1 && orderAmount !== null) {
         if (flags.sent) row.revenue_estimated_cents += orderAmount;
         if (flags.delivered) row.revenue_real_cents += orderAmount;
@@ -146,6 +167,25 @@ function productRollup(orders, rates, timezone, currency) {
         if (unitCost === null) row.product_cost_complete = false;
         else row.product_cost_cents += unitCost * product.quantity;
       }
+      if (orderProducts.length !== 1 && (flags.sent || flags.returned)) row.attributable_profit_complete = false;
+      if (orderProducts.length === 1) {
+        const dimensions = { carrier: order.carrier, store_id: order.store_id, currency };
+        const needed = [
+          ...(flags.sent ? ['OUTBOUND_SHIPPING', 'OUTBOUND_FULFILLMENT'] : []),
+          ...(flags.delivered ? ['COD'] : []),
+          ...(flags.returned ? ['RETURN_SHIPPING', 'RETURN_FULFILLMENT'] : [])
+        ];
+        for (const type of needed) {
+          const value = exactOrderCost(order, rates, type, day, dimensions);
+          if (value === null) row.attributable_profit_complete = false;
+          else row.attributable_operational_cost_cents += value;
+        }
+        if (flags.delivered) {
+          const unitCost = productCost(product, rates, day, { store_id: order.store_id, currency });
+          if (unitCost === null) row.attributable_profit_complete = false;
+          else row.attributable_operational_cost_cents += unitCost * product.quantity;
+        }
+      }
       products.set(key, row);
     }
   }
@@ -153,7 +193,10 @@ function productRollup(orders, rates, timezone, currency) {
     ...row,
     revenue_estimated: row.revenue_attribution_complete ? amount(row.revenue_estimated_cents) : null,
     revenue_real: row.revenue_attribution_complete ? amount(row.revenue_real_cents) : null,
-    product_cost: row.product_cost_complete ? amount(row.product_cost_cents) : null
+    product_cost: row.product_cost_complete ? amount(row.product_cost_cents) : null,
+    attributable_operational_cost: row.attributable_profit_complete ? amount(row.attributable_operational_cost_cents) : null,
+    attributable_operational_profit: row.attributable_profit_complete && row.revenue_attribution_complete
+      ? amount(row.revenue_real_cents - row.attributable_operational_cost_cents) : null
   }));
 }
 
@@ -167,7 +210,7 @@ function logisticsRollup(orders, rates, timezone, currency) {
     row.orders_sent += flags.sent ? 1 : 0; row.delivered += flags.delivered ? 1 : 0; row.returned += flags.returned ? 1 : 0; row.in_air += flags.in_air ? 1 : 0;
     for (const [appliesTo, type, target] of [['sent', 'OUTBOUND_SHIPPING', 'outbound_shipping_cents'], ['sent', 'OUTBOUND_FULFILLMENT', 'outbound_fulfillment_cents'], ['delivered', 'COD', 'cod_cents'], ['returned', 'RETURN_SHIPPING', 'returns_cents'], ['returned', 'RETURN_FULFILLMENT', 'returns_cents']]) {
       if (!flags[appliesTo]) continue;
-      const rate = rateFor(rates, type, day, { carrier, store_id: order.store_id, currency }); const value = rate ? cents(rate.amount) : null;
+      const value = exactOrderCost(order, rates, type, day, { carrier, store_id: order.store_id, currency });
       if (value === null) row.complete = false; else row[target] += value;
     }
     carriers.set(carrier, row);
@@ -207,7 +250,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
       else if (flags.delivered) { realRevenueComplete = false; missing.add(`ORDER_AMOUNT:${order.canonical_order_id || 'UNKNOWN'}`); }
       for (const [needed, type] of [['sent', 'OUTBOUND_SHIPPING'], ['sent', 'OUTBOUND_FULFILLMENT'], ['delivered', 'COD'], ['returned', 'RETURN_SHIPPING'], ['returned', 'RETURN_FULFILLMENT']]) {
         if (!flags[needed]) continue;
-        const rate = rateFor(rates, type, day, { carrier, store_id: order.store_id, currency }); const rateCents = rate ? cents(rate.amount) : null;
+        const rateCents = exactOrderCost(order, rates, type, day, { carrier, store_id: order.store_id, currency });
         const target = type === 'OUTBOUND_SHIPPING' ? 'outbound_shipping' : type === 'OUTBOUND_FULFILLMENT' ? 'outbound_fulfillment' : type === 'COD' ? 'cod' : 'returns';
         if (rateCents === null) { components[target] = null; missing.add(`${type}:${carrier || 'SIN_TRANSPORTISTA'}`); }
         else if (components[target] !== null) components[target] += rateCents;

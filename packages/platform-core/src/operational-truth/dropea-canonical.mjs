@@ -118,6 +118,19 @@ function productSummary(lineItems) {
   });
 }
 
+function normalizedOrderCosts(value) {
+  if (!value || typeof value !== 'object') return null;
+  const result = {};
+  for (const field of ['tax_rate_provider', 'fulfillment_outbound', 'fulfillment_quantity_cost', 'fulfillment_return']) {
+    const raw = value[field];
+    if (raw === undefined || raw === null || raw === '') { result[field] = null; continue; }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed < 0) throw new Error(`order_costs.${field} must be a non-negative number`);
+    result[field] = parsed;
+  }
+  return Object.freeze(result);
+}
+
 export function mapDropeaOrderState(status, subStatus) {
   const normalizedStatus = String(status || '').toUpperCase();
   const normalizedSubStatus = subStatus === undefined || subStatus === null ? null : String(subStatus).toUpperCase();
@@ -216,6 +229,7 @@ export function mapDropeaOrder(order, {
     payment_method: order.payment_method ?? 'UNKNOWN',
     supplier_id: order.supplier_id ?? null,
     fulfillment_type: order.fulfillment_type ?? 'UNKNOWN',
+    order_costs: normalizedOrderCosts(order.order_costs),
     carrier: order.carrier ?? 'UNKNOWN',
     service_type: order.service_type ?? 'UNKNOWN',
     tracking_reference_masked: order.tracking_number ? hashTechnical(order.tracking_number, hmacKey) : null,

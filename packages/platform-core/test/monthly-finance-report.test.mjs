@@ -94,6 +94,33 @@ test('rejected but never returned orders are not charged as returns', () => {
   assert.equal(result.totals.costs.returns, 0);
 });
 
+test('a rejected order that was already dispatched is counted as a return with exact return cost', () => {
+  const rejected = order('rejected-after-dispatch', 'REJECTED', '2026-08-01', {
+    order_costs: { fulfillment_outbound: 0.8, fulfillment_quantity_cost: 0.4, fulfillment_return: 1.5 }
+  });
+  const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'),
+    orders: [rejected], rates, fixedExpensesComplete: true,
+    adSpend: [{ business_date: '2026-08-01', spend: 0, sync_status: 'COMPLETE' }] });
+  assert.equal(result.totals.returned, 1);
+  assert.equal(result.totals.costs.outbound_fulfillment, 1.2);
+  assert.equal(result.totals.costs.returns, 5.5);
+});
+
+test('product report exposes lifecycle, incidences and only attributable profit', () => {
+  const delivered = order('product-profit', 'DELIVERED', '2026-08-01', {
+    delivered_at_utc: '2026-08-01T13:00:00Z', active_issue_id: 'issue-fixture',
+    order_costs: { fulfillment_outbound: 0.8, fulfillment_quantity_cost: 0.2, fulfillment_return: null }
+  });
+  const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'),
+    orders: [delivered], rates, fixedExpensesComplete: true,
+    adSpend: [{ business_date: '2026-08-01', spend: 0, sync_status: 'COMPLETE' }] });
+  assert.equal(result.products[0].delivered_units, 2);
+  assert.equal(result.products[0].in_air_units, 0);
+  assert.equal(result.products[0].incidence_orders, 1);
+  assert.equal(result.products[0].attributable_operational_cost, 11.5);
+  assert.equal(result.products[0].attributable_operational_profit, 8.5);
+});
+
 test('recurring fixed expenses are allocated without changing their exact monthly total', () => {
   const result = buildMonthlyFinanceReport({ month: '2026-07', now: new Date('2026-08-01T12:00:00Z'), fixedExpenses: [{ expense_type: 'RECURRING', amount: 10, status: 'ACTIVE', start_date: '2026-07-01' }], adSpend: Array.from({ length: 31 }, (_, index) => ({ business_date: `2026-07-${String(index + 1).padStart(2, '0')}`, spend: 0, sync_status: 'COMPLETE' })) });
   assert.equal(result.totals.costs.fixed, 10);

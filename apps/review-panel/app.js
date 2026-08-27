@@ -1,4 +1,4 @@
-const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: { lifecycle: 'PENDING' }, config: null, token: null, summary: null, finance: null, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
+const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
 const operationsBase = location.pathname.startsWith('/operations') ? '/operations' : '';
 const $ = (id) => document.getElementById(id);
 const text = (value, fallback = '—') => value === undefined || value === null || value === '' ? fallback : String(value);
@@ -97,7 +97,7 @@ function renderSummary() {
       categoryCard('Con respuesta', data?.with_customer_response, 'Abrir únicamente los pedidos respondidos', 'green', 'RESPONDED'),
       categoryCard('Sin respuesta', data?.no_response, 'Conversación del pedido sin mensajes del cliente', 'purple', 'NO_RESPONSE'),
       summaryCard('Pedido previo', data?.prior_order, 'Posible duplicidad a revisar', 'red'),
-      summaryCard('Cola operativa', data?.pending, 'Solo pendientes de Dropshipper'),
+      summaryCard('Pedidos pendientes en Dropea', data?.pending, 'Coincide con la cola Pend. Dropshipper de Dropea'),
       summaryCard('Confirmar ahora', data?.confirm_now, 'Señal clara; se respetan todas las reglas', 'green'),
       summaryCard('Dirección', data?.address_change, 'No confirmar hasta revisar', 'amber'),
       summaryCard('Incidencias', data?.with_active_issue ?? data?.incidence, 'Seguimiento antes de actuar', 'amber'),
@@ -137,10 +137,7 @@ function renderFilters() {
     renderFilters(); loadQueue();
   };
   if (state.view === 'orders') {
-    for (const [value, label] of [['PENDING', 'Pend. Dropshipper'], ['', 'Todos los estados']]) {
-      const button = node('button', `filter-chip scope ${(state.filters.lifecycle || '') === value ? 'active' : ''}`.trim(), label);
-      button.type = 'button'; button.addEventListener('click', () => changed('lifecycle', value)); root.append(button);
-    }
+    root.append(node('span', 'queue-scope-label', 'Solo pedidos pendientes en Dropea'));
     for (const [value, label] of [['', 'Todos'], ['RESPONDED', 'Con respuesta'], ['CONFIRM', 'Confirmar'], ['ADDRESS', 'Dirección'], ['INCIDENTS', 'Incidencias'], ['REJECT', 'No confirmar'], ['REVIEW', 'Revisión'], ['NO_RESPONSE', 'Sin respuesta'], ['NOT_VERIFIABLE', 'No verificable']]) {
       const button = node('button', `filter-chip ${(state.filters.category || '') === value ? 'active' : ''}`.trim(), label);
       button.type = 'button'; button.addEventListener('click', () => changed('category', value)); root.append(button);
@@ -284,7 +281,14 @@ async function loadQueue() {
     state.total = data.total; if (view === 'orders') renderSummary(); const items = data.items || []; const body = $('table-body');
     body.replaceChildren(...items.map(view === 'orders' ? rowOrder : rowIncident)); $('empty-state').hidden = items.length > 0;
     if (!items.length && view === 'incidents') $('empty-state').textContent = state.filters.scope === 'ACTIVE' ? 'Dropea no tiene incidencias pendientes de resolver.' : 'No hay incidencias para los filtros seleccionados.';
-    $('result-count').textContent = `${data.total} registros`; $('page-status').textContent = data.total ? `${state.offset + 1}–${Math.min(state.offset + state.limit, data.total)} de ${data.total}` : '0 de 0';
+    $('result-count').textContent = view === 'orders'
+      ? `${data.total} pedido(s) pendiente(s) en Dropea`
+      : `${data.total} incidencia(s) pendiente(s) de resolver`;
+    $('queue-source').textContent = view === 'orders'
+      ? `Fuente: Dropea · Chatby por pedido · refresco automático cada ${state.config.refresh_interval_seconds} s`
+      : `Fuente: incidencias pendientes de Dropea · refresco automático cada ${state.config.refresh_interval_seconds} s`;
+    if (data.last_sync_at) $('last-sync').textContent = date(data.last_sync_at);
+    $('page-status').textContent = data.total ? `${state.offset + 1}–${Math.min(state.offset + state.limit, data.total)} de ${data.total}` : '0 de 0';
     $('prev-page').disabled = state.offset === 0; $('next-page').disabled = state.offset + state.limit >= data.total;
   } catch (error) { if (error.name !== 'AbortError' && request === state.queueRequest) showNotice(error.message); }
   finally { if (request === state.queueRequest) $('queue-card').setAttribute('aria-busy', 'false'); }
@@ -426,7 +430,7 @@ function renderFinance() {
   const totalRow = { day: 'TOTAL', orders_created: totals.orders_created, orders_sent: totals.orders_sent, estimated_revenue: totals.estimated_revenue, delivered: totals.delivered, real_revenue: totals.real_revenue, costs: totals.costs, total_expenses: totals.total_expenses, operational_profit: totals.operational_profit, net_profit: totals.net_profit, roi: totals.roi, estimated_cpa: totals.orders_sent && totals.costs?.advertising !== null ? Number(totals.costs.advertising) / Number(totals.orders_sent) : null, real_cpa: totals.delivered && totals.costs?.advertising !== null ? Number(totals.costs.advertising) / Number(totals.delivered) : null, confirmation_rate: totals.confirmation_rate, delivery_rate: totals.delivery_rate };
   const totalTr = node('tr', 'finance-total-row'); const totalValues = financeCells(totalRow, currency); totalValues[0] = 'TOTAL'; totalTr.append(...totalValues.map((value) => cell(value)), cell(financeQuality(data.exactness)));
   $('finance-total').replaceChildren(totalTr);
-  $('finance-products').replaceChildren(...(data.products || []).map((item) => { const tr = node('tr'); tr.append(cell(item.name), cell(item.orders), cell(item.units), cell(item.sent_units), cell(item.delivered_units), cell(item.returned_units), cell(money(item.revenue_estimated, currency)), cell(money(item.revenue_real, currency)), cell(money(item.product_cost, currency)), cell(financeQuality(item.revenue_attribution_complete && item.product_cost_complete ? 'COMPLETE' : 'INCOMPLETE'))); return tr; }));
+  $('finance-products').replaceChildren(...(data.products || []).map((item) => { const tr = node('tr'); tr.append(cell(item.name), cell(item.orders), cell(item.units), cell(item.sent_units), cell(item.delivered_units), cell(item.in_air_units), cell(item.returned_units), cell(item.incidence_orders), cell(money(item.revenue_estimated, currency)), cell(money(item.revenue_real, currency)), cell(money(item.product_cost, currency)), cell(money(item.attributable_operational_cost, currency)), cell(money(item.attributable_operational_profit, currency)), cell(financeQuality(item.revenue_attribution_complete && item.product_cost_complete && item.attributable_operational_profit !== null ? 'COMPLETE' : 'INCOMPLETE'))); return tr; }));
   $('finance-logistics').replaceChildren(...(data.logistics || []).map((item) => { const tr = node('tr'); tr.append(cell(item.carrier), cell(item.orders_sent), cell(item.delivered), cell(item.in_air), cell(item.returned), cell(money(item.total_cost, currency)), cell(money(item.cost_per_order, currency)), cell(financePercent(item.delivery_rate)), cell(financeQuality(item.quality))); return tr; }));
   const advertisingRows = (data.advertising_by_platform || []).length
     ? data.advertising_by_platform.map((item) => { const row = node('div', 'cost-row'); row.append(node('strong', '', item.platform), badge(money(item.spend, currency))); return row; })
@@ -447,12 +451,12 @@ async function refresh() {
   finally { state.refreshing = false; $('refresh-button').disabled = false; $('refresh-button').textContent = 'Actualizar'; }
 }
 function setView(view) {
-  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : view === 'orders' ? { lifecycle: 'PENDING' } : {}; closeDetail();
+  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : {}; closeDetail();
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   const titles = { orders: 'Pedidos operativos', incidents: 'Incidencias', finance: 'Control de gasto' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance'; $('summary').hidden = finance; $('finance-view').hidden = !finance; $('queue-card').hidden = finance;
   if (finance) { loadFinance(); return; }
-  $('queue-title').textContent = view === 'orders' ? 'Pendientes de Dropshipper · Render + Dropea + Chatby' : 'Incidencias activas · Dropea + Chatby'; renderHead(); renderFilters(); renderSummary(); loadQueue();
+  $('queue-title').textContent = view === 'orders' ? 'Pedidos pendientes en Dropea · señal Chatby por pedido' : 'Incidencias pendientes de resolver en Dropea · contexto Chatby'; renderHead(); renderFilters(); renderSummary(); loadQueue();
 }
 
 async function init() {
