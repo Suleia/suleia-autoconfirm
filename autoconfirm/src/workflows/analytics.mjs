@@ -383,7 +383,7 @@ export async function syncMetaDashboard({ store = config.defaultStore } = {}) {
       lastMetaDashboardError: null
     };
     saveState(state);
-    syncMetaInsightsToSupabase({ account, campaigns, insights }).catch((error) => {
+    syncMetaInsightsToSupabase({ account, campaigns, insights, coverage: { since, until } }).catch((error) => {
       console.error('Supabase Meta mirror error:', error instanceof Error ? error.message : String(error));
     });
 
