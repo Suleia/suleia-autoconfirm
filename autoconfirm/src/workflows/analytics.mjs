@@ -355,7 +355,10 @@ export async function syncMetaDashboard({ store = config.defaultStore } = {}) {
     const [account, campaigns, insights] = await Promise.all([
       runStage('Meta cuenta publicitaria', () => getAdAccountSummary()),
       runStage('Meta campanas', () => getCampaigns()),
-      runStage('Meta metricas', () => getCampaignInsights({ since, until }))
+      // Finance needs one authoritative observation per Madrid business day.
+      // A rolling-period aggregate cannot be split across days without
+      // inventing spend, so request Meta's native daily breakdown here.
+      runStage('Meta metricas', () => getCampaignInsights({ since, until, timeIncrement: 1 }))
     ]);
 
     const dashboardOrders = await runStage('Pedidos del dashboard', () => loadDashboardOrders(store));

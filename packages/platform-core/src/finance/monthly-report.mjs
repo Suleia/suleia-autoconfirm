@@ -270,6 +270,17 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
       components.product, components.outbound_shipping, components.cod,
       components.outbound_fulfillment, components.returns, components.fixed
     ]);
+    // Dropea Statistics uses this perimeter: realised income minus delivery,
+    // COD, fulfilment and rejection/return logistics. Product acquisition,
+    // fixed expenses and Meta remain separate and explicit.
+    const dropeaExpenseCents = addKnown([
+      components.outbound_shipping, components.cod,
+      components.outbound_fulfillment, components.returns
+    ]);
+    const dropeaProfitCents = dropeaExpenseCents === null || !realRevenueComplete
+      ? null : realRevenue - dropeaExpenseCents;
+    const dropeaAfterMetaCents = dropeaProfitCents === null || ad.value === null
+      ? null : dropeaProfitCents - ad.value;
     const operationalProfitCents = operationalExpenseCents === null || !realRevenueComplete
       ? null : realRevenue - operationalExpenseCents;
     const expenseCents = addKnown(Object.values(components));
@@ -277,6 +288,9 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     return {
       day, ...counts, estimated_revenue: estimatedRevenueComplete ? amount(estimatedRevenue) : null, real_revenue: realRevenueComplete ? amount(realRevenue) : null,
       costs: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, amount(value)])),
+      dropea_expenses: amount(dropeaExpenseCents), dropea_profit: amount(dropeaProfitCents),
+      dropea_margin: realRevenue && dropeaProfitCents !== null ? ratio(dropeaProfitCents, realRevenue) : null,
+      dropea_profit_after_meta: amount(dropeaAfterMetaCents),
       operational_expenses: amount(operationalExpenseCents), operational_profit: amount(operationalProfitCents),
       operational_margin: realRevenue && operationalProfitCents !== null ? ratio(operationalProfitCents, realRevenue) : null,
       total_expenses: amount(expenseCents), net_profit: amount(profitCents), roi: expenseCents && profitCents !== null ? ratio(profitCents, expenseCents) : null,
@@ -295,7 +309,13 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   const sumNullableField = (field) => included.some((row) => row[field] === null) ? null : sumField(field);
   const totalExpenses = sumNullableField('total_expenses');
   const operationalExpenses = sumNullableField('operational_expenses');
+  const dropeaExpenses = sumNullableField('dropea_expenses');
   const realRevenue = sumNullableField('real_revenue'); const estimatedRevenue = sumNullableField('estimated_revenue');
+  const dropeaProfit = dropeaExpenses === null || realRevenue === null
+    ? null : Number((realRevenue - dropeaExpenses).toFixed(2));
+  const advertising = sumCost('advertising');
+  const dropeaProfitAfterMeta = dropeaProfit === null || advertising === null
+    ? null : Number((dropeaProfit - advertising).toFixed(2));
   const operationalProfit = operationalExpenses === null || realRevenue === null
     ? null : Number((realRevenue - operationalExpenses).toFixed(2));
   const profit = totalExpenses === null || realRevenue === null ? null : Number((realRevenue - totalExpenses).toFixed(2));
@@ -304,6 +324,10 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
     costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising: sumCost('advertising'), fixed: sumCost('fixed') },
     operational_expenses: operationalExpenses, operational_profit: operationalProfit,
+    dropea_expenses: dropeaExpenses, dropea_profit: dropeaProfit,
+    dropea_margin: realRevenue && dropeaProfit !== null
+      ? ratio(Math.round(dropeaProfit * 100), Math.round(realRevenue * 100)) : null,
+    dropea_profit_after_meta: dropeaProfitAfterMeta,
     operational_margin: realRevenue && operationalProfit !== null
       ? ratio(Math.round(operationalProfit * 100), Math.round(realRevenue * 100)) : null,
     total_expenses: totalExpenses, net_profit: profit,
