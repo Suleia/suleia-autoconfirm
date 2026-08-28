@@ -658,15 +658,53 @@ function metaInsightRow(insight = {}, campaign = {}) {
   };
 }
 
-export async function syncMetaInsightsToSupabase({ insights = [], campaigns = [], account = null } = {}) {
+export function buildMetaDailyCoverageRows({ since, until, updatedAt = nowIso() } = {}) {
+  const start = /^\d{4}-\d{2}-\d{2}$/.test(String(since || ''))
+    ? new Date(`${since}T00:00:00.000Z`)
+    : null;
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(String(until || ''))
+    ? new Date(`${until}T00:00:00.000Z`)
+    : null;
+  if (!start || !end || !Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime()) || start > end) return [];
+  const rows = [];
+  for (let cursor = start; cursor <= end; cursor = new Date(cursor.getTime() + 86_400_000)) {
+    const businessDate = cursor.toISOString().slice(0, 10);
+    rows.push({
+      meta_row_id: `${businessDate}|__SULEIA_FINANCE_COVERAGE__|adset|ad`,
+      date_start: businessDate,
+      date_stop: businessDate,
+      campaign_id: '__SULEIA_FINANCE_COVERAGE__',
+      campaign_name: 'Suleia daily finance coverage',
+      adset_id: null,
+      ad_id: null,
+      spend: 0,
+      impressions: 0,
+      clicks: 0,
+      purchases: 0,
+      purchase_value: 0,
+      roas: null,
+      cpa: null,
+      raw: safeJson({ coverage: true, businessDate }),
+      updated_at: updatedAt
+    });
+  }
+  return rows;
+}
+
+export async function syncMetaInsightsToSupabase({ insights = [], campaigns = [], account = null, coverage = null } = {}) {
   if (!isSupabaseEnabled()) return { skipped: true };
   const campaignById = new Map((Array.isArray(campaigns) ? campaigns : []).map((campaign) => [String(campaign.id), campaign]));
-  const rows = (Array.isArray(insights) ? insights : [])
+  const insightRows = (Array.isArray(insights) ? insights : [])
     .map((insight) => metaInsightRow(insight, campaignById.get(String(insight.campaignId || insight.campaign_id)) || {}))
     .filter((row) => row.campaign_id || row.campaign_name);
+  // A successful daily Meta read is authoritative for both spend and zero-spend
+  // days. Explicit zero rows prove coverage without distributing a rolling
+  // aggregate or treating a missing campaign row as an estimated zero.
+  const coverageRows = buildMetaDailyCoverageRows(coverage || {});
+  const rows = [...insightRows, ...coverageRows];
   const appState = upsertRows('app_state', {
     key: 'meta_dashboard_last_sync',
-    value: safeJson({ account, insights: rows.length, updatedAt: nowIso() }),
+    value: safeJson({ account, insights: insightRows.length, coverageDays: coverageRows.length, updatedAt: nowIso() }),
     updated_at: nowIso()
   }, { onConflict: 'key' });
   if (!rows.length) return appState;
