@@ -32,6 +32,10 @@ test('monthly report separates delivered, in-air and returned orders and applies
   assert.equal(result.totals.costs.outbound_shipping, 12);
   assert.equal(result.totals.costs.returns, 5);
   assert.equal(result.totals.costs.product, 6);
+  assert.equal(result.totals.dropea_expenses, 20.5);
+  assert.equal(result.totals.dropea_profit, -0.5);
+  assert.equal(result.totals.dropea_margin, -0.025);
+  assert.equal(result.totals.dropea_profit_after_meta, -6.5);
   assert.equal(result.exactness, 'COMPLETE');
 });
 
@@ -75,6 +79,9 @@ test('a zero Dropea wholesale sentinel never fabricates a free product or inflat
   assert.equal(result.totals.costs.product, null);
   assert.equal(result.totals.operational_profit, null);
   assert.equal(result.totals.net_profit, null);
+  assert.equal(result.totals.dropea_expenses, 5.5);
+  assert.equal(result.totals.dropea_profit, 14.5);
+  assert.equal(result.totals.dropea_profit_after_meta, 14.5);
   assert.match(result.missing_sources.join(','), /PRODUCT_COGS/);
 });
 

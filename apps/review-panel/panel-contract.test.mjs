@@ -52,7 +52,7 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
   assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260823-finance-monthly-v1">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260827-pending-finance-v3" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260828-dropea-meta-finance-v4" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);
@@ -93,6 +93,11 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
   assert.match(html, /Devueltas\/rechazadas/);
   assert.match(html, /Beneficio atribuible/);
   assert.match(script, /attributable_operational_profit/);
+  assert.match(html, /Ingresos Dropea/);
+  assert.match(html, /Costes Dropea/);
+  assert.match(html, /Publicidad Meta/);
+  assert.match(html, /Dropea − Meta/);
+  assert.match(script, /dropea_profit_after_meta/);
 });
 
 test('incidents use current connector polls and distinguish a missing association from a connector error', () => {
