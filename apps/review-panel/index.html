@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260823-finance-monthly-v1">
+  <link rel="stylesheet" href="styles.css?v=20260828-finance-audit-v2">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -66,9 +66,15 @@
             <h2>Control de gasto</h2>
             <p>Un único motor para el resumen y el detalle diario. Ningún coste desconocido se convierte en cero.</p>
           </div>
-          <label>Mes
-            <select id="finance-month" class="filter-select" aria-label="Mes del informe financiero"></select>
-          </label>
+          <div class="finance-month-control">
+            <span>Periodo del informe</span>
+            <div class="finance-month-navigation">
+              <button id="finance-prev-month" class="month-button" type="button">← Mes anterior</button>
+              <select id="finance-month" class="filter-select" aria-label="Mes del informe financiero"></select>
+              <button id="finance-next-month" class="month-button" type="button">Mes siguiente →</button>
+            </div>
+            <small id="finance-month-count">Cargando histórico…</small>
+          </div>
         </div>
         <section id="finance-hero" class="finance-hero"></section>
         <section class="finance-panel">
@@ -76,12 +82,12 @@
           <div id="finance-funnel" class="funnel-grid"></div>
         </section>
         <section class="finance-columns">
-          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">DESGLOSE ECONÓMICO</p><h3>Fuentes de coste</h3></div></div><div id="finance-costs" class="cost-list"></div></article>
-          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">CALIDAD</p><h3>Cobertura y límites</h3></div></div><div id="finance-quality" class="quality-list"></div></article>
+          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">PUENTE DE RENTABILIDAD</p><h3>De los ingresos al beneficio neto</h3></div></div><div id="finance-costs" class="cost-list"></div></article>
+          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">AUDITORÍA</p><h3>Fórmulas, cobertura y controles</h3></div></div><div id="finance-quality" class="quality-list"></div><div id="finance-audit" class="audit-checks"></div></article>
         </section>
         <section class="finance-panel">
-          <div class="panel-heading"><div><p class="eyebrow">INFORME DIARIO</p><h3>P&amp;L por cohorte de creación</h3></div><span class="data-quality">Desplaza horizontalmente para ver todas las métricas</span></div>
-          <div class="table-wrap"><table class="finance-table finance-daily-table"><thead><tr><th>Fecha</th><th>Pedidos creados</th><th>Pedidos enviados</th><th>Fact. estimada</th><th>Entregados</th><th>Ingresos Dropea</th><th>Producto</th><th>Envío ida</th><th>COD</th><th>Fulfillment ida</th><th>Devoluciones</th><th>Costes Dropea</th><th>Beneficio Dropea</th><th>% beneficio Dropea</th><th>Publicidad Meta</th><th>Dropea − Meta</th><th>Gastos fijos</th><th>Gastos totales</th><th>Beneficio operativo</th><th>Beneficio neto completo</th><th>ROI</th><th>CPA estimado</th><th>CPA real</th><th>Tasa confirm.</th><th>Tasa entrega</th><th>Calidad</th></tr></thead><tbody id="finance-daily"></tbody><tfoot id="finance-total"></tfoot></table></div>
+          <div class="panel-heading"><div><p class="eyebrow">INFORME DIARIO</p><h3>Ingresos, costes y beneficio</h3></div><span class="data-quality">Mismas definiciones del informe financiero auditado</span></div>
+          <div class="table-wrap"><table class="finance-table finance-daily-table"><thead><tr><th>Fecha</th><th>Pedidos</th><th>Enviados</th><th>Fact. estimada</th><th>Entregados</th><th>Fact. real</th><th>Producto</th><th>Envío ida</th><th>COD</th><th>Fulfillment ida</th><th>Devoluciones</th><th>Publicidad</th><th>Gastos fijos</th><th>Gastos totales</th><th>Beneficio neto</th><th>ROI</th><th>CPA estimado</th><th>CPA real</th><th>Confirmación</th><th>Entrega</th><th>Estado</th></tr></thead><tbody id="finance-daily"></tbody><tfoot id="finance-total"></tfoot></table></div>
         </section>
         <section class="finance-panel">
           <div class="panel-heading"><div><p class="eyebrow">PRODUCTOS VENDIDOS</p><h3>Unidades y rentabilidad atribuible</h3></div><span class="data-quality">Los pedidos multiproducto sin precio por línea no se reparten artificialmente</span></div>
@@ -125,6 +131,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260828-dropea-meta-finance-v4" defer></script>
+  <script src="app.js?v=20260828-finance-audit-v5" defer></script>
 </body>
 </html>

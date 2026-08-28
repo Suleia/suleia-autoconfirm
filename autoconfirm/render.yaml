@@ -25,6 +25,8 @@ services:
         value: true
       - key: META_DASHBOARD_INTERVAL_MINUTES
         value: 720
+      - key: META_DASHBOARD_LOOKBACK_DAYS
+        value: 150
       - key: AUTO_POLL_ENABLED
         value: true
       - key: AUTO_POLL_INTERVAL_MINUTES
@@ -85,6 +87,8 @@ services:
         value: true
       - key: META_DASHBOARD_INTERVAL_MINUTES
         value: 720
+      - key: META_DASHBOARD_LOOKBACK_DAYS
+        value: 150
       - key: AUTO_POLL_ENABLED
         value: true
       - key: AUTO_POLL_INTERVAL_MINUTES

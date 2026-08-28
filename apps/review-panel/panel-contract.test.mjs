@@ -22,11 +22,16 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /id="finance-view"/);
   assert.match(html, /id="finance-month"/);
   assert.match(html, /INFORME FINANCIERO MENSUAL/);
-  assert.match(html, /Pedidos creados/);
+  assert.match(script, /Pedidos creados/);
   assert.match(html, /Beneficio neto/);
-  assert.match(html, /Beneficio operativo/);
+  assert.match(html, /De los ingresos al beneficio neto/);
   assert.match(html, /CPA estimado/);
-  assert.match(html, /Tasa entrega/);
+  assert.match(html, />Entrega</);
+  assert.match(html, /id="finance-prev-month"/);
+  assert.match(html, /id="finance-next-month"/);
+  assert.match(html, /id="finance-audit"/);
+  assert.match(html, /Coste de producto|>Producto</);
+  assert.match(script, /Facturación real − producto − envío − COD − fulfillment − devoluciones − publicidad − gastos fijos/);
   assert.match(script, /totals\.costs/);
   assert.doesNotMatch(script, /total_expenses\s*\|\|\s*0/);
   assert.match(script, /lifecycle_status/);
@@ -50,9 +55,9 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260823-finance-monthly-v1">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260828-finance-audit-v2">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260828-dropea-meta-finance-v4" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260828-finance-audit-v5" defer><\/script>/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);
@@ -93,11 +98,11 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
   assert.match(html, /Devueltas\/rechazadas/);
   assert.match(html, /Beneficio atribuible/);
   assert.match(script, /attributable_operational_profit/);
-  assert.match(html, /Ingresos Dropea/);
-  assert.match(html, /Costes Dropea/);
-  assert.match(html, /Publicidad Meta/);
-  assert.match(html, /Dropea − Meta/);
-  assert.match(script, /dropea_profit_after_meta/);
+  assert.match(html, /Fact\. real/);
+  assert.match(html, /Gastos totales/);
+  assert.match(script, /Publicidad Meta/);
+  assert.match(html, /Beneficio neto/);
+  assert.match(script, /totals\.net_profit/);
 });
 
 test('incidents use current connector polls and distinguish a missing association from a connector error', () => {
