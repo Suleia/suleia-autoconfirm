@@ -181,3 +181,47 @@ test('advertising totals combine complete platforms and reject a currency mismat
   assert.equal(mismatch.totals.costs.advertising, null);
   assert.equal(mismatch.exactness, 'PARTIAL');
 });
+
+test('confirmed Collagum and NIDA unit costs reproduce the audited product subtotal', () => {
+  const productRates = [
+    ...rates.filter((rate) => rate.cost_type !== 'PRODUCT_COGS'),
+    { cost_type: 'PRODUCT_COGS', amount: 1.01, variant_id: '31666', effective_from: '2026-06-01' },
+    { cost_type: 'PRODUCT_COGS', amount: 1.44, variant_id: '31547', effective_from: '2026-06-01' }
+  ];
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), rates: productRates, fixedExpensesComplete: true,
+    orders: [
+      order('collagum-audit', 'DELIVERED', '2026-08-01', {
+        delivered_at_utc: '2026-08-01T13:00:00Z', total_amount: 2000,
+        product_summary: { products: [{ variant_id: '31666', product_id: '31666', name: 'Collagum', quantity: 125 }] }
+      }),
+      order('nida-audit', 'DELIVERED', '2026-08-01', {
+        delivered_at_utc: '2026-08-01T13:00:00Z', total_amount: 1100,
+        product_summary: { products: [{ variant_id: '31547', product_id: '31547', name: 'NIDA', quantity: 63 }] }
+      })
+    ],
+    adSpend: [{ business_date: '2026-08-01', platform: 'META', spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }]
+  });
+  assert.equal(result.products.find((item) => item.variant_id === '31666').product_cost, 126.25);
+  assert.equal(result.products.find((item) => item.variant_id === '31547').product_cost, 90.72);
+  assert.equal(result.totals.costs.product, 216.97);
+  assert.equal(2 * 1.01, 2.02);
+  assert.equal(2 * 1.44, 2.88);
+  assert.equal(result.audit.formula_version, 'FINANCE_EXCEL_PARITY_V1');
+  assert.ok(result.audit.checks.every((check) => check.status === 'PASS'));
+});
+
+test('monthly audit exposes the same seven cost blocks and ratios as the reference finance workbook', () => {
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), rates, fixedExpensesComplete: true,
+    orders: [order('audit-order', 'DELIVERED', '2026-08-01', { delivered_at_utc: '2026-08-01T13:00:00Z' })],
+    adSpend: [{ business_date: '2026-08-01', platform: 'META', spend: 10, currency: 'EUR', sync_status: 'COMPLETE' }]
+  });
+  assert.equal(result.totals.total_expenses, 21.5);
+  assert.equal(result.totals.net_profit, -1.5);
+  assert.equal(result.totals.estimated_cpa, 10);
+  assert.equal(result.totals.real_cpa, 10);
+  assert.equal(result.totals.confirmation_rate, 1);
+  assert.equal(result.totals.delivery_rate, 1);
+  assert.equal(result.audit.model_status, 'PASS');
+});

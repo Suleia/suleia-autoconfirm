@@ -17,6 +17,14 @@ function ratio(numerator, denominator) {
   return denominator > 0 ? Number((numerator / denominator).toFixed(4)) : null;
 }
 
+function auditCheck(key, actual, expected, tolerance = 0.01) {
+  if (actual === null || expected === null || actual === undefined || expected === undefined) {
+    return { key, status: 'BLOCKED', actual: actual ?? null, expected: expected ?? null, delta: null };
+  }
+  const delta = Number((Number(actual) - Number(expected)).toFixed(4));
+  return { key, status: Math.abs(delta) <= tolerance ? 'PASS' : 'FAIL', actual, expected, delta };
+}
+
 function businessDate(value, timezone) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -319,8 +327,11 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   const operationalProfit = operationalExpenses === null || realRevenue === null
     ? null : Number((realRevenue - operationalExpenses).toFixed(2));
   const profit = totalExpenses === null || realRevenue === null ? null : Number((realRevenue - totalExpenses).toFixed(2));
+  const ordersCreated = sumField('orders_created'); const ordersSent = sumField('orders_sent'); const delivered = sumField('delivered');
+  const estimatedCpa = ordersSent && advertising !== null ? Number((advertising / ordersSent).toFixed(2)) : null;
+  const realCpa = delivered && advertising !== null ? Number((advertising / delivered).toFixed(2)) : null;
   const totals = {
-    orders_created: sumField('orders_created'), orders_sent: sumField('orders_sent'), delivered: sumField('delivered'), in_air: sumField('in_air'), returned: sumField('returned'), incidences: sumField('incidences'),
+    orders_created: ordersCreated, orders_sent: ordersSent, delivered, in_air: sumField('in_air'), returned: sumField('returned'), incidences: sumField('incidences'),
     estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
     costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising: sumCost('advertising'), fixed: sumCost('fixed') },
     operational_expenses: operationalExpenses, operational_profit: operationalProfit,
@@ -333,11 +344,43 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     total_expenses: totalExpenses, net_profit: profit,
     roi: totalExpenses && profit !== null ? ratio(Math.round(profit * 100), Math.round(totalExpenses * 100)) : null,
     margin: realRevenue && profit !== null ? ratio(Math.round(profit * 100), Math.round(realRevenue * 100)) : null,
-    confirmation_rate: ratio(sumField('orders_sent'), sumField('orders_created')), delivery_rate: ratio(sumField('delivered'), sumField('orders_sent'))
+    estimated_cpa: estimatedCpa, real_cpa: realCpa,
+    confirmation_rate: ratio(ordersSent, ordersCreated), delivery_rate: ratio(delivered, ordersSent)
   };
+  const expenseComponents = [
+    totals.costs.product, totals.costs.outbound_shipping, totals.costs.cod,
+    totals.costs.outbound_fulfillment, totals.costs.returns,
+    totals.costs.advertising, totals.costs.fixed
+  ];
+  const expectedExpenses = expenseComponents.some((value) => value === null)
+    ? null : Number(expenseComponents.reduce((sum, value) => sum + Number(value), 0).toFixed(2));
+  const expectedProfit = totals.real_revenue === null || expectedExpenses === null
+    ? null : Number((totals.real_revenue - expectedExpenses).toFixed(2));
+  const audit = {
+    formula_version: 'FINANCE_EXCEL_PARITY_V1',
+    definitions: {
+      total_expenses: 'PRODUCT + OUTBOUND_SHIPPING + COD + OUTBOUND_FULFILLMENT + RETURNS + ADVERTISING + FIXED',
+      net_profit: 'REAL_REVENUE - TOTAL_EXPENSES',
+      roi: 'NET_PROFIT / TOTAL_EXPENSES',
+      estimated_cpa: 'ADVERTISING / ORDERS_SENT',
+      real_cpa: 'ADVERTISING / DELIVERED',
+      confirmation_rate: 'ORDERS_SENT / ORDERS_CREATED',
+      delivery_rate: 'DELIVERED / ORDERS_SENT'
+    },
+    checks: [
+      auditCheck('TOTAL_EXPENSES_EQUALS_COMPONENTS', totals.total_expenses, expectedExpenses),
+      auditCheck('NET_PROFIT_EQUALS_REVENUE_MINUS_EXPENSES', totals.net_profit, expectedProfit),
+      auditCheck('ROI_EQUALS_PROFIT_OVER_EXPENSES', totals.roi, totals.total_expenses && totals.net_profit !== null ? ratio(Math.round(totals.net_profit * 100), Math.round(totals.total_expenses * 100)) : null, 0.0001),
+      auditCheck('ESTIMATED_CPA_EQUALS_ADS_OVER_SENT', totals.estimated_cpa, ordersSent && advertising !== null ? Number((advertising / ordersSent).toFixed(2)) : null),
+      auditCheck('REAL_CPA_EQUALS_ADS_OVER_DELIVERED', totals.real_cpa, delivered && advertising !== null ? Number((advertising / delivered).toFixed(2)) : null),
+      auditCheck('CONFIRMATION_RATE_EQUALS_SENT_OVER_CREATED', totals.confirmation_rate, ratio(ordersSent, ordersCreated), 0.0001),
+      auditCheck('DELIVERY_RATE_EQUALS_DELIVERED_OVER_SENT', totals.delivery_rate, ratio(delivered, ordersSent), 0.0001)
+    ]
+  };
+  audit.model_status = missing.size || audit.checks.some((check) => check.status !== 'PASS') ? 'PARTIAL' : 'PASS';
   return Object.freeze({
     month, timezone, currency, generated_at: now.toISOString(), provisional: month >= today.slice(0, 7),
-    exactness: missing.size ? 'PARTIAL' : 'COMPLETE', totals, daily,
+    exactness: missing.size ? 'PARTIAL' : 'COMPLETE', totals, daily, audit,
     products: productRollup(orders, rates, timezone, currency), logistics: logisticsRollup(orders, rates, timezone, currency),
     advertising_by_platform: Object.entries(adSpend.reduce((totals, row) => {
       if (row.business_date < `${month}-01` || row.business_date > days.at(-1) || String(row.sync_status).toUpperCase() !== 'COMPLETE') return totals;

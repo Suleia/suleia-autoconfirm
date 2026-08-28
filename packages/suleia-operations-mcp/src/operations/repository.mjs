@@ -291,8 +291,8 @@ export class OperationsRepository {
         'Pedidos en tránsito y devoluciones se contabilizan por separado.',
         'Operations todavía no dispone del total independiente de pedidos de la plataforma de tienda; no se sustituye por un dato inventado.',
         'El coste mayorista de producto se toma del pedido Dropea; si falta, se usa una tarifa PRODUCT_COGS vigente.',
-        'El beneficio operativo excluye publicidad y sigue disponible cuando Dropea, logística y gastos fijos están completos.',
-        'Un coste o día publicitario sin fuente completa deja únicamente el beneficio neto y ROI como no calculables.'
+        'El beneficio neto resta coste de producto, envío, COD, fulfillment, devoluciones, publicidad y gastos fijos a la facturación real.',
+        'Un coste o día publicitario sin fuente completa deja el beneficio neto y el ROI como no calculables; nunca se sustituye por cero.'
       ],
       actions_executed: 0, production_writes: 0
     };

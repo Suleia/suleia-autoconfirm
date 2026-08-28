@@ -212,6 +212,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-private-incident-customer-context
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-causal-learning-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-financial-control-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-dropea-order-costs-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-product-cogs-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"
