@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260828-finance-audit-v2">
+  <link rel="stylesheet" href="styles.css?v=20260828-finance-daily-v3">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -17,7 +17,7 @@
       <p>Consulta segura de pedidos e incidencias desde la copia operativa del VPS.</p>
       <a id="login-button" class="primary-button" href="#" aria-disabled="true">Preparando acceso seguro…</a>
       <div id="login-notice" class="notice" role="alert" hidden></div>
-      <small>Solo lectura · Datos enmascarados · Cero acciones</small>
+      <small>Datos protegidos · Cero acciones externas</small>
     </main>
   </div>
 
@@ -34,7 +34,7 @@
       </nav>
       <div class="safety-card">
         <span class="live-dot"></span>
-        <div><strong>Solo lectura</strong><small>Acciones ejecutadas: 0</small></div>
+        <div><strong>Proveedores protegidos</strong><small>Acciones externas: 0</small></div>
       </div>
       <button id="logout-button" class="logout-button">Cerrar sesión</button>
     </aside>
@@ -52,9 +52,9 @@
       </header>
 
       <section class="simulation-banner" aria-label="Estado de seguridad">
-        <strong>MODO SOLO LECTURA</strong>
-        <span>LA LÓGICA PRODUCTIVA NO SE MODIFICA</span>
-        <span>ACCIONES EJECUTADAS: 0</span>
+        <strong>MODO OPERATIVO SEGURO</strong>
+        <span>CERO ACCIONES SOBRE PEDIDOS, CLIENTES O PROVEEDORES</span>
+        <span>LOS AJUSTES FINANCIEROS INTERNOS QUEDAN AUDITADOS</span>
       </section>
       <div id="notice" class="notice" role="status" hidden></div>
       <section id="summary" class="summary-grid" aria-label="Resumen operativo"></section>
@@ -86,15 +86,34 @@
           <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">AUDITORÍA</p><h3>Fórmulas, cobertura y controles</h3></div></div><div id="finance-quality" class="quality-list"></div><div id="finance-audit" class="audit-checks"></div></article>
         </section>
         <section class="finance-panel">
-          <div class="panel-heading"><div><p class="eyebrow">INFORME DIARIO</p><h3>Ingresos, costes y beneficio</h3></div><span class="data-quality">Mismas definiciones del informe financiero auditado</span></div>
-          <div class="table-wrap"><table class="finance-table finance-daily-table"><thead><tr><th>Fecha</th><th>Pedidos</th><th>Enviados</th><th>Fact. estimada</th><th>Entregados</th><th>Fact. real</th><th>Producto</th><th>Envío ida</th><th>COD</th><th>Fulfillment ida</th><th>Devoluciones</th><th>Publicidad</th><th>Gastos fijos</th><th>Gastos totales</th><th>Beneficio neto</th><th>ROI</th><th>CPA estimado</th><th>CPA real</th><th>Confirmación</th><th>Entrega</th><th>Estado</th></tr></thead><tbody id="finance-daily"></tbody><tfoot id="finance-total"></tfoot></table></div>
+          <div class="panel-heading"><div><p class="eyebrow">BENEFICIO DIARIO REALIZADO</p><h3>Ingresos y costes en la fecha económica real</h3></div><span class="data-quality">Sin desplazamiento horizontal</span></div>
+          <table class="finance-daily-table"><thead><tr><th>Día</th><th>Actividad</th><th>Ingresos</th><th>Costes del día</th><th>Beneficio neto</th><th>Rentabilidad y calidad</th></tr></thead><tbody id="finance-daily"></tbody><tfoot id="finance-total"></tfoot></table>
+        </section>
+        <section class="finance-panel fixed-expense-panel">
+          <div class="panel-heading"><div><p class="eyebrow">CONFIGURACIÓN FINANCIERA</p><h3>Gastos fijos mensuales</h3><p>Se incorporan automáticamente al beneficio del periodo y al reparto diario.</p></div><button id="finance-add-fixed" class="primary-button" type="button">+ Añadir gasto fijo</button></div>
+          <div class="fixed-expense-layout">
+            <div id="finance-fixed-expenses" class="fixed-expense-list"></div>
+            <form id="finance-fixed-form" class="fixed-expense-form" hidden>
+              <input id="finance-fixed-id" type="hidden">
+              <label>Concepto<input id="finance-fixed-label" maxlength="120" required placeholder="Ej. gestoría mensual"></label>
+              <label>Categoría<select id="finance-fixed-category"><option value="PLATFORM_FIXED_EXPENSES">Plataforma / operación</option><option value="SOFTWARE">Software</option><option value="PERSONAL">Personal</option><option value="SERVICIOS">Servicios</option><option value="ALMACEN">Almacén</option><option value="GESTORIA">Gestoría</option><option value="OTROS">Otros</option></select></label>
+              <label>Tipo<select id="finance-fixed-type"><option value="RECURRING">Mensual recurrente</option><option value="ONE_OFF">Puntual</option></select></label>
+              <label>Importe mensual (€)<input id="finance-fixed-amount" type="number" min="0.01" max="1000000" step="0.01" required></label>
+              <label>Desde<input id="finance-fixed-start" type="date" required></label>
+              <label>Hasta (opcional)<input id="finance-fixed-end" type="date"></label>
+              <label id="finance-fixed-occurred-label" hidden>Fecha del gasto puntual<input id="finance-fixed-occurred" type="date"></label>
+              <label>Estado<select id="finance-fixed-status"><option value="ACTIVE">Activo</option><option value="INACTIVE">Inactivo</option></select></label>
+              <div class="fixed-form-actions"><button id="finance-fixed-cancel" class="secondary-button" type="button">Cancelar</button><button class="primary-button" type="submit">Guardar gasto</button></div>
+              <small id="finance-fixed-feedback" role="status"></small>
+            </form>
+          </div>
         </section>
         <section class="finance-panel">
           <div class="panel-heading"><div><p class="eyebrow">PRODUCTOS VENDIDOS</p><h3>Unidades y rentabilidad atribuible</h3></div><span class="data-quality">Los pedidos multiproducto sin precio por línea no se reparten artificialmente</span></div>
-          <div class="table-wrap"><table class="finance-table"><thead><tr><th>Producto</th><th>Pedidos</th><th>Unidades</th><th>Enviadas</th><th>Entregadas</th><th>En tránsito</th><th>Devueltas/rechazadas</th><th>Con incidencia</th><th>Fact. estimada</th><th>Fact. real</th><th>Coste producto</th><th>Coste operativo atribuible</th><th>Beneficio atribuible</th><th>Calidad</th></tr></thead><tbody id="finance-products"></tbody></table></div>
+          <div id="finance-products" class="finance-product-grid"></div>
         </section>
         <section class="finance-columns">
-          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">LOGÍSTICA</p><h3>Coste por transportista</h3></div></div><div class="table-wrap"><table class="finance-table compact"><thead><tr><th>Transportista</th><th>Enviados</th><th>Entregados</th><th>En el aire</th><th>Devueltos</th><th>Coste total</th><th>Coste/pedido</th><th>Entrega</th><th>Calidad</th></tr></thead><tbody id="finance-logistics"></tbody></table></div></article>
+          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">LOGÍSTICA</p><h3>Coste por transportista</h3></div></div><div id="finance-logistics" class="logistics-grid"></div></article>
           <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">PUBLICIDAD</p><h3>Gasto por plataforma</h3></div></div><div id="finance-advertising" class="cost-list"></div></article>
         </section>
       </section>
@@ -131,6 +150,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260828-finance-audit-v5" defer></script>
+  <script src="app.js?v=20260828-finance-daily-v6" defer></script>
 </body>
 </html>

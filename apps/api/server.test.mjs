@@ -20,6 +20,7 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
     listIncidents: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
     incidentOverview: async () => ({ items: [], total: 0, limit: 25, offset: 0, summary: { pending: 0 } }),
     incidentDetail: async () => null,
+    saveFixedExpense: async (_id, value) => ({ expense_id: '11111111-1111-4111-8111-111111111111', label: value.label, amount: value.amount, external_actions: 0 }),
     recordIncidentFeedback: async (_id, value) => ({ feedback_id: 1, feedback_type: value.feedbackType, reason_code: value.reasonCode, actions_executed: 0, production_writes: 0 })
   };
   const server = createOperationsServer({
@@ -66,6 +67,14 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   assert.equal(feedback.status, 201);
   assert.equal(feedbackPayload.internal_feedback_writes, 1);
   assert.equal(feedbackPayload.production_writes, 0);
+  const fixedExpense = await fetch(`${base}/api/operations/finance/fixed-expenses`, {
+    method: 'POST', headers: { Authorization: 'Bearer fixture', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ label: 'Gestoría', category: 'GESTORIA', expense_type: 'RECURRING', amount: 25, start_date: '2026-08-01', status: 'ACTIVE' })
+  });
+  const fixedPayload = await fixedExpense.json();
+  assert.equal(fixedExpense.status, 201);
+  assert.equal(fixedPayload.internal_configuration_writes, 1);
+  assert.equal(fixedPayload.external_writes, 0);
 });
 
 test('incident feedback is structured, parameterized and cannot trigger external actions', async () => {
@@ -220,4 +229,21 @@ test('monthly financial summary is GET-only and missing sources remain unknown',
   assert.equal(calls.every(({ sql }) => /^SELECT\b/i.test(sql.trim())), true);
   assert.equal(calls.every(({ sql }) => !/\b(?:INSERT|UPDATE|DELETE|UPSERT|CALL)\b/i.test(sql)), true);
   assert.deepEqual(calls.map(({ values }) => values.length), [3, 3, 3, 3, 1, 3]);
+});
+
+test('fixed expenses are validated, parameterized, audited and never delete or call a provider', async () => {
+  const calls = [];
+  const row = { expense_id: '11111111-1111-4111-8111-111111111111', store_id: 'store-fixture', label: 'Gestoría',
+    category: 'GESTORIA', expense_type: 'RECURRING', amount: 25, currency: 'EUR', start_date: '2026-08-01',
+    end_date: null, occurred_on: null, status: 'ACTIVE', source: 'OPERATIONS_CENTER_USER', updated_at: new Date('2026-08-29T10:00:00Z') };
+  const client = { query: async (sql, values = []) => { calls.push({ sql, values }); return /(?:INSERT INTO|UPDATE) economics\.finance_fixed_expenses/.test(sql) ? { rows: [row] } : { rows: [] }; }, release() {} };
+  const repository = new OperationsRepository(null, { pool: { connect: async () => client, end: async () => {} } });
+  const result = await repository.saveFixedExpense(null, { label: 'Gestoría', category: 'GESTORIA', expense_type: 'RECURRING', amount: 25, start_date: '2026-08-01', status: 'ACTIVE' }, 'principal-hash-fixture');
+  assert.equal(calls[0].sql, 'BEGIN READ WRITE');
+  assert.match(calls[1].sql, /economics\.finance_fixed_expenses/);
+  assert.match(calls[2].sql, /economics\.finance_fixed_expense_audit/);
+  assert.equal(calls.some(({ sql }) => /\bDELETE\b|https?:\/\//i.test(sql)), false);
+  assert.equal(result.external_actions, 0);
+  await assert.rejects(() => repository.saveFixedExpense(null, { label: 'x', expense_type: 'RECURRING', amount: -1, start_date: 'bad' }, 'principal-hash-fixture'), { code: 'INVALID_FIXED_EXPENSE' });
+  await assert.rejects(() => repository.saveFixedExpense(null, { label: 'Gestoría', expense_type: 'RECURRING', amount: 25, start_date: '2026-02-31' }, 'principal-hash-fixture'), { code: 'INVALID_FIXED_EXPENSE' });
 });

@@ -77,7 +77,10 @@ export function createOperationsServer({ config, repository, authenticate, audit
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, 'http://operations.internal');
     const feedbackMatch = requestUrl.pathname.match(/^\/api\/operations\/incidents\/([^/]+)\/feedback$/);
-    if (req.method !== 'GET' && !(req.method === 'POST' && feedbackMatch)) return json(res, 405, { ok: false, error: 'method_not_allowed' });
+    const fixedExpenseCreate = requestUrl.pathname === '/api/operations/finance/fixed-expenses';
+    const fixedExpenseUpdate = requestUrl.pathname.match(/^\/api\/operations\/finance\/fixed-expenses\/([^/]+)$/);
+    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate)) || (req.method === 'PATCH' && fixedExpenseUpdate);
+    if (req.method !== 'GET' && !internalWrite) return json(res, 405, { ok: false, error: 'method_not_allowed' });
     if (!allowRequest(req)) return json(res, 429, { ok: false, error: 'rate_limited' });
     if (requestUrl.pathname === '/health') {
       return json(res, 200, { ok: true, service: 'suleia-operations-api', run_mode: config.runMode, actions_executed: 0, production_writes: 0 });
@@ -111,7 +114,15 @@ export function createOperationsServer({ config, repository, authenticate, audit
     }
     try {
       let data;
-      if (req.method === 'POST' && feedbackMatch) {
+      if ((req.method === 'POST' && fixedExpenseCreate) || (req.method === 'PATCH' && fixedExpenseUpdate)) {
+        const body = await jsonBody(req, 4096);
+        data = await repository.saveFixedExpense(fixedExpenseUpdate ? decodeURIComponent(fixedExpenseUpdate[1]) : null, body, principal.principal_hash);
+        if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
+        audit({ event: 'finance_fixed_expense_saved', principal_hash: principal.principal_hash,
+          expense_id: data.expense_id, outcome: fixedExpenseUpdate ? 'updated' : 'created', external_actions: 0 });
+        return json(res, fixedExpenseUpdate ? 200 : 201, { ok: true, data, actions_executed: 0,
+          production_writes: 0, external_writes: 0, internal_configuration_writes: 1 });
+      } else if (req.method === 'POST' && feedbackMatch) {
         const body = await jsonBody(req);
         data = await repository.recordIncidentFeedback(decodeURIComponent(feedbackMatch[1]), {
           feedbackType: body.feedback_type,
@@ -134,7 +145,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
       audit({ event: 'operations_read', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'ok' });
       return json(res, 200, { ok: true, data, actions_executed: 0, production_writes: 0 });
     } catch (error) {
-      if (error?.status === 400 || error?.status === 413 || error?.code === 'INVALID_FEEDBACK') {
+      if (error?.status === 400 || error?.status === 413 || error?.code === 'INVALID_FEEDBACK' || error?.code === 'INVALID_FIXED_EXPENSE') {
         return json(res, error.status || 400, { ok: false, error: error.message || 'invalid_feedback' });
       }
       audit({ event: 'operations_read_failed', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'error' });

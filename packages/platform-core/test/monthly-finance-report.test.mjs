@@ -103,6 +103,7 @@ test('rejected but never returned orders are not charged as returns', () => {
 
 test('a rejected order that was already dispatched is counted as a return with exact return cost', () => {
   const rejected = order('rejected-after-dispatch', 'REJECTED', '2026-08-01', {
+    returned_at_utc: '2026-08-01T16:00:00Z',
     order_costs: { fulfillment_outbound: 0.8, fulfillment_quantity_cost: 0.4, fulfillment_return: 1.5 }
   });
   const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'),
@@ -133,9 +134,11 @@ test('recurring fixed expenses are allocated without changing their exact monthl
   assert.equal(result.totals.costs.fixed, 10);
 });
 
-test('current month totals include the complete monthly fixed expense allocation', () => {
+test('current month uses accrued daily fixed expense and exposes the full commitment separately', () => {
   const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-03T12:00:00Z'), fixedExpenses: [{ expense_type: 'RECURRING', amount: 31, status: 'ACTIVE', start_date: '2026-08-01' }], adSpend: [1, 2, 3].map((day) => ({ business_date: `2026-08-0${day}`, spend: 0, sync_status: 'COMPLETE' })) });
-  assert.equal(result.totals.costs.fixed, 31);
+  assert.equal(result.totals.costs.fixed, 3);
+  assert.equal(result.totals.fixed_expenses_committed, 31);
+  assert.equal(result.totals.fixed_expenses_remaining, 28);
   assert.equal(result.daily.at(-1).costs.fixed, 1);
 });
 
@@ -207,8 +210,65 @@ test('confirmed Collagum and NIDA unit costs reproduce the audited product subto
   assert.equal(result.totals.costs.product, 216.97);
   assert.equal(2 * 1.01, 2.02);
   assert.equal(2 * 1.44, 2.88);
-  assert.equal(result.audit.formula_version, 'FINANCE_EXCEL_PARITY_V1');
+  assert.equal(result.audit.formula_version, 'FINANCE_REALIZED_DAILY_V2');
   assert.ok(result.audit.checks.every((check) => check.status === 'PASS'));
+});
+
+test('operator-confirmed product rates override a conflicting provider wholesale hint', () => {
+  const governedRates = [
+    ...rates.filter((rate) => rate.cost_type !== 'PRODUCT_COGS'),
+    { cost_type: 'PRODUCT_COGS', amount: 1.01, variant_id: '31666', effective_from: '2026-06-01' }
+  ];
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), rates: governedRates, fixedExpensesComplete: true,
+    orders: [order('governed-cogs', 'DELIVERED', '2026-08-01', {
+      delivered_at_utc: '2026-08-01T13:00:00Z',
+      product_summary: { products: [{ variant_id: '31666', product_id: '31666', name: 'Collagum', quantity: 2, wholesale_price: 9.99 }] }
+    })],
+    adSpend: [{ business_date: '2026-08-01', platform: 'META', spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }]
+  });
+  assert.equal(result.totals.costs.product, 2.02);
+});
+
+test('a delivered order returned later blocks revenue and profit until its refund value is known', () => {
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-03T18:00:00Z'), rates, fixedExpensesComplete: true,
+    orders: [order('delivered-then-returned', 'RETURNED', '2026-08-01', {
+      delivered_at_utc: '2026-08-02T13:00:00Z', returned_at_utc: '2026-08-03T13:00:00Z'
+    })],
+    adSpend: [1, 2, 3].map((day) => ({ business_date: `2026-08-0${day}`, spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }))
+  });
+  assert.equal(result.totals.real_revenue, null);
+  assert.equal(result.totals.net_profit, null);
+  assert.equal(result.exactness, 'PARTIAL');
+  assert.match(result.missing_sources.join(','), /REFUND_VALUE/);
+});
+
+test('historical product and carrier views never present the current in-air snapshot as a past fact', () => {
+  const result = buildMonthlyFinanceReport({
+    month: '2026-07', now: new Date('2026-08-29T12:00:00Z'), rates, fixedExpensesComplete: true,
+    orders: [order('still-shipping', 'SHIPPING', '2026-07-30')],
+    adSpend: Array.from({ length: 31 }, (_, index) => ({ business_date: `2026-07-${String(index + 1).padStart(2, '0')}`, spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }))
+  });
+  assert.equal(result.totals.in_air, null);
+  assert.equal(result.products[0].in_air_units, 0);
+  assert.equal(result.logistics[0].in_air, 0);
+});
+
+test('daily realised profit includes orders delivered in the month even when created in a prior month', () => {
+  const previousMonth = order('cross-month-delivery', 'DELIVERED', '2026-07-30', {
+    delivered_at_utc: '2026-08-02T13:00:00Z', confirmed_at_utc: '2026-07-30T11:00:00Z'
+  });
+  const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-02T18:00:00Z'),
+    orders: [previousMonth], rates, fixedExpensesComplete: true,
+    adSpend: [1, 2].map((day) => ({ business_date: `2026-08-0${day}`, spend: 0, currency: 'EUR', sync_status: 'COMPLETE' })) });
+  assert.equal(result.totals.orders_created, 0);
+  assert.equal(result.totals.delivered, 1);
+  assert.equal(result.totals.real_revenue, 20);
+  assert.equal(result.totals.costs.product, 6);
+  assert.equal(result.daily[1].delivered, 1);
+  assert.equal(result.daily[1].real_revenue, 20);
+  assert.equal(result.perspective, 'REALIZED_EVENT_DATE');
 });
 
 test('monthly audit exposes the same seven cost blocks and ratios as the reference finance workbook', () => {
