@@ -170,6 +170,33 @@ function dateOnly(value) {
   return value.toISOString().slice(0, 10);
 }
 
+function fixedExpenseInput(input = {}) {
+  const label = String(input.label || '').trim();
+  const category = String(input.category || 'OTROS').trim().toUpperCase();
+  const expenseType = String(input.expense_type || '').trim().toUpperCase();
+  const status = String(input.status || 'ACTIVE').trim().toUpperCase();
+  const amount = Number(input.amount);
+  const validDate = (value) => {
+    if (value === null || value === undefined || value === '') return true;
+    if (!/^\d{4}-(0[1-9]|1[0-2])-([012]\d|3[01])$/.test(String(value))) return false;
+    const [year, month, day] = String(value).split('-').map(Number);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
+  };
+  if (label.length < 2 || label.length > 120 || !/^[A-Z0-9ÁÉÍÓÚÜÑ _-]{2,40}$/i.test(category)
+    || !['RECURRING', 'ONE_OFF'].includes(expenseType) || !['ACTIVE', 'INACTIVE'].includes(status)
+    || !Number.isFinite(amount) || amount <= 0 || amount > 1_000_000
+    || !validDate(input.start_date) || !validDate(input.end_date) || !validDate(input.occurred_on)
+    || !input.start_date || (expenseType === 'ONE_OFF' && !input.occurred_on)
+    || (input.end_date && input.end_date < input.start_date)) {
+    const error = new Error('invalid_fixed_expense'); error.code = 'INVALID_FIXED_EXPENSE'; throw error;
+  }
+  return { label, category, expenseType, status, amount: Number(amount.toFixed(2)),
+    startDate: input.start_date, endDate: input.end_date || null,
+    occurredOn: expenseType === 'ONE_OFF' ? input.occurred_on : null,
+    storeId: input.store_id ? String(input.store_id).trim() : null };
+}
+
 export class OperationsRepository {
   constructor(databaseUrl, { pool = null, privateDataKey = '' } = {}) {
     if (!pool) throw new Error('Use OperationsRepository.connect for a database connection');
@@ -247,8 +274,14 @@ export class OperationsRepository {
 
   async financialSummary(searchParams) {
     const window = financialMonth(searchParams); const values = [window.from, window.to, window.storeId];
-    const orderWhere = `WHERE c.created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid')
-      AND c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
+    const orderWhere = `WHERE (
+        (c.created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
+        OR (c.confirmed_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.confirmed_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
+        OR (c.delivered_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.delivered_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
+        OR (c.returned_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.returned_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
+        OR (c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
+          AND coalesce(c.lifecycle_status,c.status) IN ('CONFIRMED','PROCESSING','PREPARING','PREPARED','SHIPPING','TRANSIT','IN_TRANSIT','INCIDENCE'))
+      )
       AND ($3::text IS NULL OR c.store_id=$3)`;
     const [orders, rates, fixed, advertising, months, checkpoints] = await Promise.all([
       this.pool.query(`SELECT c.canonical_order_id,c.store_id,c.lifecycle_status,c.status,c.created_at_utc,c.source_updated_at,c.updated_at,
@@ -260,7 +293,7 @@ export class OperationsRepository {
         effective_from,effective_to,source,updated_at FROM economics.finance_cost_rates
         WHERE effective_from < $2::date AND (effective_to IS NULL OR effective_to >= $1::date)
         AND ($3::text IS NULL OR store_id=$3)`, values),
-      this.pool.query(`SELECT store_id,label,category,expense_type,amount,currency,start_date,end_date,occurred_on,status,source,updated_at
+      this.pool.query(`SELECT expense_id,store_id,label,category,expense_type,amount,currency,start_date,end_date,occurred_on,status,source,updated_at
         FROM economics.finance_fixed_expenses WHERE start_date < $2::date AND (end_date IS NULL OR end_date >= $1::date)
         AND ($3::text IS NULL OR store_id=$3)`, values),
       this.pool.query(`SELECT store_id,business_date,platform,sum(spend)::numeric(14,2) AS spend,min(currency) AS currency,
@@ -283,14 +316,17 @@ export class OperationsRepository {
       adSpend: advertising.rows.map((row) => ({ ...row, business_date: dateOnly(row.business_date) }))
     });
     return {
-      ...report, perspective: 'ORDER_CREATION_COHORT', store_id: window.storeId,
+      ...report, store_id: window.storeId,
       available_months: months.rows.map((row) => row.month), checkpoints: checkpoints.rows,
+      fixed_expenses: fixed.rows.map((row) => ({ ...row,
+        start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date), occurred_on: dateOnly(row.occurred_on) })),
       shopify_orders_available: false,
       limitations: [
-        'La cohorte se agrupa por fecha original del pedido y se reevalúa con el estado Dropea vigente.',
-        'Pedidos en tránsito y devoluciones se contabilizan por separado.',
+        'El beneficio diario usa la fecha real de confirmación, entrega o devolución; no la fecha original del pedido.',
+        'Las tasas de confirmación y entrega se calculan sobre la cohorte creada en el mes para evitar mezclar conversiones entre meses.',
+        'Los pedidos en tránsito son una fotografía actual y no se suman como un flujo diario histórico.',
         'Operations todavía no dispone del total independiente de pedidos de la plataforma de tienda; no se sustituye por un dato inventado.',
-        'El coste mayorista de producto se toma del pedido Dropea; si falta, se usa una tarifa PRODUCT_COGS vigente.',
+        'Una tarifa PRODUCT_COGS confirmada por el operador prevalece sobre el dato mayorista de Dropea; si no existe, se exige un coste mayorista positivo.',
         'El beneficio neto resta coste de producto, envío, COD, fulfillment, devoluciones, publicidad y gastos fijos a la facturación real.',
         'Un coste o día publicitario sin fuente completa deja el beneficio neto y el ROI como no calculables; nunca se sustituye por cero.'
       ],
@@ -475,6 +511,42 @@ export class OperationsRepository {
       [id, recommendationCode, feedbackType, reasonCode, principalHash]);
       await client.query('COMMIT');
       return result.rows[0] || null;
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {}); throw error;
+    } finally { client.release(); }
+  }
+
+  async saveFixedExpense(id, input, principalHash) {
+    const value = fixedExpenseInput(input);
+    if (id !== null && id !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(id))) {
+      const error = new Error('invalid_fixed_expense'); error.code = 'INVALID_FIXED_EXPENSE'; throw error;
+    }
+    if (typeof principalHash !== 'string' || principalHash.length < 8 || principalHash.length > 256) {
+      const error = new Error('invalid_fixed_expense'); error.code = 'INVALID_FIXED_EXPENSE'; throw error;
+    }
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN READ WRITE');
+      const values = [value.storeId, value.label, value.category, value.expenseType, value.amount,
+        value.startDate, value.endDate, value.occurredOn, value.status];
+      const result = id ? await client.query(`UPDATE economics.finance_fixed_expenses SET
+          label=$2,category=$3,expense_type=$4,amount=$5,currency='EUR',start_date=$6,end_date=$7,
+          occurred_on=$8,status=$9,source='OPERATIONS_CENTER_USER',updated_at=now()
+        WHERE expense_id=$10 AND ($1::text IS NULL OR store_id=$1)
+        RETURNING expense_id,store_id,label,category,expense_type,amount,currency,start_date,end_date,occurred_on,status,source,updated_at`,
+      [...values, id]) : await client.query(`INSERT INTO economics.finance_fixed_expenses
+          (store_id,label,category,expense_type,amount,currency,start_date,end_date,occurred_on,status,source)
+        SELECT coalesce($1,(SELECT min(store_id) FROM integration.dropea_store_config WHERE enabled=true)),
+          $2,$3,$4,$5,'EUR',$6,$7,$8,$9,'OPERATIONS_CENTER_USER'
+        WHERE coalesce($1,(SELECT min(store_id) FROM integration.dropea_store_config WHERE enabled=true)) IS NOT NULL
+        RETURNING expense_id,store_id,label,category,expense_type,amount,currency,start_date,end_date,occurred_on,status,source,updated_at`, values);
+      const row = result.rows[0] || null;
+      if (row) await client.query(`INSERT INTO economics.finance_fixed_expense_audit
+          (expense_id,operation,snapshot,principal_hash)
+        VALUES ($1,$2,$3::jsonb,$4)`, [row.expense_id, id ? 'UPDATE' : 'CREATE', JSON.stringify(row), principalHash]);
+      await client.query('COMMIT');
+      return row ? { ...row, start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date),
+        occurred_on: dateOnly(row.occurred_on), external_actions: 0, provider_writes: 0 } : null;
     } catch (error) {
       await client.query('ROLLBACK').catch(() => {}); throw error;
     } finally { client.release(); }

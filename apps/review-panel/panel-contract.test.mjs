@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-test('Operations Center exposes Pedidos, Incidencias and truthful Control de gasto with no write controls', () => {
+test('Operations Center exposes Pedidos, Incidencias and audited finance configuration without provider writes', () => {
   const html = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
@@ -12,25 +12,24 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, />Incidencias</);
   assert.match(html, />Control de gasto</);
   assert.doesNotMatch(`${html}\n${script}\n${css}`, /shopify/i);
-  assert.equal((script.match(/method\s*:\s*['"]POST['"]/gi) || []).length, 2);
+  assert.equal((script.match(/['"]POST['"]/gi) || []).length, 3);
   assert.match(script, /openid-connect\/token/);
-  assert.doesNotMatch(script, /method\s*:\s*['"](?:PUT|PATCH|DELETE)['"]/i);
-  assert.match(html, /Acciones ejecutadas: 0/);
-  assert.match(html, /MODO SOLO LECTURA/);
-  assert.match(html, /LA LÓGICA PRODUCTIVA NO SE MODIFICA/);
-  assert.match(html, /ACCIONES EJECUTADAS: 0/);
+  assert.doesNotMatch(script, /method\s*:\s*['"](?:PUT|DELETE)['"]/i);
+  assert.match(script, /id \? 'PATCH' : 'POST'/);
+  assert.match(html, /MODO OPERATIVO SEGURO/);
+  assert.match(html, /CERO ACCIONES SOBRE PEDIDOS, CLIENTES O PROVEEDORES/);
+  assert.match(html, /AJUSTES FINANCIEROS INTERNOS QUEDAN AUDITADOS/);
   assert.match(html, /id="finance-view"/);
   assert.match(html, /id="finance-month"/);
   assert.match(html, /INFORME FINANCIERO MENSUAL/);
   assert.match(script, /Pedidos creados/);
   assert.match(html, /Beneficio neto/);
   assert.match(html, /De los ingresos al beneficio neto/);
-  assert.match(html, /CPA estimado/);
-  assert.match(html, />Entrega</);
+  assert.match(html, /Rentabilidad y calidad/);
   assert.match(html, /id="finance-prev-month"/);
   assert.match(html, /id="finance-next-month"/);
   assert.match(html, /id="finance-audit"/);
-  assert.match(html, /Coste de producto|>Producto</);
+  assert.match(`${html}\n${script}`, /Coste de producto|Producto/);
   assert.match(script, /Facturación real − producto − envío − COD − fulfillment − devoluciones − publicidad − gastos fijos/);
   assert.match(script, /totals\.costs/);
   assert.doesNotMatch(script, /total_expenses\s*\|\|\s*0/);
@@ -55,9 +54,12 @@ test('Operations Center exposes Pedidos, Incidencias and truthful Control de gas
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260828-finance-audit-v2">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260828-finance-daily-v3">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260828-finance-audit-v5" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260828-finance-daily-v6" defer><\/script>/);
+  assert.match(html, /id="finance-fixed-form"/);
+  assert.match(script, /saveFixedExpense/);
+  assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);
@@ -95,13 +97,13 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
   assert.match(script, /association exacta al pedido|asociación exacta al pedido/);
   assert.match(css, /signal-confirm/);
   assert.match(css, /summary-card\.filterable/);
-  assert.match(html, /Devueltas\/rechazadas/);
-  assert.match(html, /Beneficio atribuible/);
+  assert.match(script, /\['Devueltas', item\.returned_units\]/);
+  assert.match(script, /Beneficio atribuible/);
   assert.match(script, /attributable_operational_profit/);
-  assert.match(html, /Fact\. real/);
-  assert.match(html, /Gastos totales/);
+  assert.match(script, /Facturación real/);
+  assert.match(script, /Gastos totales/);
   assert.match(script, /Publicidad Meta/);
-  assert.match(html, /Beneficio neto/);
+  assert.match(`${html}\n${script}`, /Beneficio neto/);
   assert.match(script, /totals\.net_profit/);
 });
 

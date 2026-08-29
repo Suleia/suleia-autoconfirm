@@ -395,20 +395,64 @@ function financeMetric(label, value, detail, tone = '') { const card = node('art
 function financePercent(value) { return value === null || value === undefined ? 'No disponible' : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(Number(value) * 100)} %`; }
 function monthLabel(value) { if (!/^\d{4}-\d{2}$/.test(String(value))) return value; const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' }).format(new Date(Date.UTC(year, month - 1, 2))); }
 function financeQuality(value) { return badge(value === 'COMPLETE' ? 'COMPLETO' : value === 'FUTURE' ? 'DÍA FUTURO' : 'INCOMPLETO'); }
-function financeCells(row, currency) {
-  return [date(row.day, true), row.orders_created, row.orders_sent, money(row.estimated_revenue, currency), row.delivered, money(row.real_revenue, currency), money(row.costs?.product, currency), money(row.costs?.outbound_shipping, currency), money(row.costs?.cod, currency), money(row.costs?.outbound_fulfillment, currency), money(row.costs?.returns, currency), money(row.costs?.advertising, currency), money(row.costs?.fixed, currency), money(row.total_expenses, currency), money(row.net_profit, currency), financePercent(row.roi), money(row.estimated_cpa, currency), money(row.real_cpa, currency), financePercent(row.confirmation_rate), financePercent(row.delivery_rate)];
+function financeLines(lines, className = '') { const root = node('div', `finance-lines ${className}`.trim()); lines.forEach(([label, value, strong = false]) => { const line = node('div'); line.append(node('span', '', label), node(strong ? 'strong' : 'b', '', value)); root.append(line); }); return root; }
+function financeDailyRow(row, currency, total = false) {
+  const tr = node('tr', `${total ? 'finance-total-row' : ''} ${row.quality === 'FUTURE' ? 'future-row' : row.net_profit === null ? '' : Number(row.net_profit) >= 0 ? 'profit-positive' : 'profit-negative'}`.trim());
+  const day = total ? 'TOTAL DEL PERIODO' : date(row.day, true);
+  const activity = financeLines([['Creados', text(row.orders_created, '0')], ['Confirmados', text(row.orders_sent, '0')], ['Entregados', text(row.delivered, '0'), true], ['Devueltos', text(row.returned, '0')]]);
+  const income = financeLines([['Estimada', money(row.estimated_revenue, currency)], ['Realizada', money(row.real_revenue, currency), true]]);
+  const logistics = Number(row.costs?.outbound_shipping || 0) + Number(row.costs?.cod || 0) + Number(row.costs?.outbound_fulfillment || 0) + Number(row.costs?.returns || 0);
+  const costs = financeLines([['Producto', money(row.costs?.product, currency)], ['Logística', [row.costs?.outbound_shipping, row.costs?.cod, row.costs?.outbound_fulfillment, row.costs?.returns].some((value) => value === null) ? 'No disponible' : money(logistics, currency)], ['Publicidad', money(row.costs?.advertising, currency)], ['Fijos', money(row.costs?.fixed, currency)], ['Total', money(row.total_expenses, currency), true]], 'daily-cost-lines');
+  const profit = financeLines([['Neto', money(row.net_profit, currency), true], ['Margen', financePercent(row.margin)]]);
+  const quality = node('div', 'daily-quality'); quality.append(financeQuality(total ? state.finance?.exactness : row.quality), node('small', '', `ROI ${financePercent(row.roi)} · CPA real ${money(row.real_cpa, currency)}`));
+  tr.append(cell(node('strong', 'daily-date', day)), cell(activity), cell(income), cell(costs), cell(profit, 'daily-profit-cell'), cell(quality));
+  return tr;
 }
 function financeCostRow(label, value, total, currency) { const row = node('div', `cost-row ${value === null ? 'unknown-cost' : ''}`); const header = node('div', 'cost-row-head'); header.append(node('strong', '', label), badge(value === null ? 'PENDIENTE DE FUENTE' : money(value, currency))); const track = node('span', 'cost-share-track'); const fill = node('span', 'cost-share-fill'); fill.style.width = value === null || !total ? '0%' : `${Math.min(100, Math.max(2, Number(value) / Number(total) * 100))}%`; track.append(fill); row.append(header, track); return row; }
+function productFinanceCard(item, currency) { const card = node('article', 'product-finance-card'); const head = node('header'); head.append(node('div', '', item.name), financeQuality(item.revenue_attribution_complete && item.product_cost_complete && item.attributable_operational_profit !== null ? 'COMPLETE' : 'INCOMPLETE')); const metrics = node('div', 'product-finance-metrics'); [['Entregadas', item.delivered_units], ['En tránsito', item.in_air_units], ['Devueltas', item.returned_units], ['Facturación real', money(item.revenue_real, currency)], ['Coste producto', money(item.product_cost, currency)], ['Beneficio atribuible', money(item.attributable_operational_profit, currency)]].forEach(([label, value], index) => metrics.append(financeMetric(label, value, index === 5 ? 'Sin publicidad ni gastos fijos' : '', index === 5 ? 'primary compact' : 'compact'))); card.append(head, metrics); return card; }
+function logisticsCard(item, currency) { const card = node('article', 'logistics-card'); card.append(node('header', '', item.carrier), financeLines([['Confirmados', item.orders_sent], ['Entregados', item.delivered], ['Devueltos', item.returned], ['Coste total', money(item.total_cost, currency), true], ['Coste por envío', money(item.cost_per_order, currency)]]), financeQuality(item.quality)); return card; }
 function updateFinanceMonthNavigation() { const select = $('finance-month'); const months = state.financeMonths; const index = months.indexOf(select.value); $('finance-prev-month').disabled = index < 0 || index >= months.length - 1; $('finance-next-month').disabled = index <= 0; $('finance-month-count').textContent = `${months.length} mes(es) disponibles · ${select.value === months[0] ? 'mes más reciente' : 'histórico'}`; }
 function moveFinanceMonth(direction) { const select = $('finance-month'); const index = state.financeMonths.indexOf(select.value); const target = direction === 'older' ? index + 1 : index - 1; if (target < 0 || target >= state.financeMonths.length) return; select.value = state.financeMonths[target]; updateFinanceMonthNavigation(); loadFinance(); }
+function closeFixedExpenseForm() { $('finance-fixed-form').hidden = true; $('finance-fixed-form').reset(); $('finance-fixed-id').value = ''; $('finance-fixed-feedback').textContent = ''; }
+function openFixedExpenseForm(item = null) {
+  const form = $('finance-fixed-form'); form.hidden = false; form.reset();
+  const month = state.finance?.month || new Date().toISOString().slice(0, 7);
+  $('finance-fixed-id').value = item?.expense_id || '';
+  $('finance-fixed-label').value = item?.label || '';
+  $('finance-fixed-category').value = [...$('finance-fixed-category').options].some((option) => option.value === item?.category) ? item.category : 'OTROS';
+  $('finance-fixed-type').value = item?.expense_type || 'RECURRING';
+  $('finance-fixed-amount').value = item?.amount || '';
+  $('finance-fixed-start').value = item?.start_date || `${month}-01`;
+  $('finance-fixed-end').value = item?.end_date || '';
+  $('finance-fixed-occurred').value = item?.occurred_on || `${month}-01`;
+  $('finance-fixed-status').value = item?.status || 'ACTIVE';
+  const oneOff = $('finance-fixed-type').value === 'ONE_OFF'; $('finance-fixed-occurred-label').hidden = !oneOff; $('finance-fixed-occurred').required = oneOff;
+  $('finance-fixed-feedback').textContent = item ? 'Editando un gasto existente. Todos los cambios quedan auditados.' : 'El gasto se incorporará al cálculo tras guardarlo.';
+  $('finance-fixed-label').focus();
+}
+function renderFixedExpenses(data, currency) {
+  const items = data.fixed_expenses || []; const root = $('finance-fixed-expenses');
+  if (!items.length) { root.replaceChildren(stacked('No hay gastos fijos configurados', 'El beneficio permanecerá incompleto hasta añadirlos o verificar la fuente.')); return; }
+  root.replaceChildren(...items.map((item) => { const card = node('article', `fixed-expense-card ${item.status === 'INACTIVE' ? 'inactive' : ''}`); const title = node('div'); title.append(node('strong', '', item.label), node('small', '', `${item.expense_type === 'RECURRING' ? 'Mensual recurrente' : `Puntual · ${date(item.occurred_on, true)}`} · ${item.status === 'ACTIVE' ? 'Activo' : 'Inactivo'}`)); const amountBox = node('div', 'fixed-expense-amount'); amountBox.append(node('strong', '', money(item.amount, currency)), node('small', '', item.category === 'PLATFORM_FIXED_EXPENSES' ? 'Plataforma / operación' : item.category)); const edit = node('button', 'secondary-button', 'Editar'); edit.type = 'button'; edit.addEventListener('click', () => openFixedExpenseForm(item)); card.append(title, amountBox, edit); return card; }));
+}
+async function saveFixedExpense(event) {
+  event.preventDefault(); const id = $('finance-fixed-id').value; const oneOff = $('finance-fixed-type').value === 'ONE_OFF';
+  const body = { store_id: state.finance?.store_id || null, label: $('finance-fixed-label').value, category: $('finance-fixed-category').value,
+    expense_type: $('finance-fixed-type').value, amount: Number($('finance-fixed-amount').value), start_date: $('finance-fixed-start').value,
+    end_date: $('finance-fixed-end').value || null, occurred_on: oneOff ? $('finance-fixed-occurred').value : null, status: $('finance-fixed-status').value };
+  const submit = $('finance-fixed-form').querySelector('button[type="submit"]'); submit.disabled = true; $('finance-fixed-feedback').textContent = 'Guardando y recalculando…';
+  try { await api(`/api/operations/finance/fixed-expenses${id ? `/${encodeURIComponent(id)}` : ''}`, { method: id ? 'PATCH' : 'POST', body }); closeFixedExpenseForm(); await loadFinance(); showNotice('Gasto fijo guardado. El beneficio se ha recalculado con trazabilidad.'); }
+  catch (error) { $('finance-fixed-feedback').textContent = error.message; }
+  finally { submit.disabled = false; }
+}
 function renderFinance() {
   const data = state.finance; if (!data) return;
   const totals = data.totals || {}; const currency = data.currency || 'EUR';
   $('last-sync').textContent = date(data.generated_at);
   $('finance-exactness').textContent = data.exactness === 'COMPLETE' ? 'Fuentes completas' : `${(data.missing_sources || []).length} fuente(s) pendiente(s)`;
   $('finance-hero').replaceChildren(
-    financeMetric('Beneficio neto', money(totals.net_profit, currency), totals.net_profit === null ? 'No se calcula mientras falte una fuente' : `Facturación real menos todos los costes · margen ${financePercent(totals.margin)}`, totals.net_profit === null ? 'unknown' : Number(totals.net_profit) >= 0 ? 'primary' : 'negative'),
-    financeMetric('Facturación real', money(totals.real_revenue, currency), `${text(totals.delivered, '0')} pedidos entregados`, 'positive'),
+    financeMetric('Beneficio neto realizado', money(totals.net_profit, currency), totals.net_profit === null ? 'No se calcula mientras falte una fuente' : `Ingresos entregados menos todos los costes imputados · margen ${financePercent(totals.margin)}`, totals.net_profit === null ? 'unknown' : Number(totals.net_profit) >= 0 ? 'primary' : 'negative'),
+    financeMetric('Facturación entregada', money(totals.real_revenue, currency), `${text(totals.delivered, '0')} entregas realizadas en el mes`, 'positive'),
     financeMetric('Gastos totales', money(totals.total_expenses, currency), 'Producto + logística + publicidad + gastos fijos', totals.total_expenses === null ? 'unknown' : 'warning'),
     financeMetric('ROI', financePercent(totals.roi), 'Beneficio neto ÷ gastos totales', totals.roi === null ? 'unknown' : Number(totals.roi) >= 0 ? 'positive' : 'negative'),
     financeMetric('CPA real', money(totals.real_cpa, currency), 'Publicidad ÷ pedidos entregados', totals.real_cpa === null ? 'unknown' : ''),
@@ -416,15 +460,17 @@ function renderFinance() {
     financeMetric('Publicidad', money(totals.costs?.advertising, currency), `${text(data.quality?.advertising_days_complete, '0')} días verificados`, ''),
     financeMetric('Mes analizado', monthLabel(data.month), data.provisional ? 'Mes abierto · se actualiza diariamente' : 'Mes histórico', '')
   );
+  const cohort = totals.cohort || {};
   const funnel = [
-    ['Pedidos creados', totals.orders_created], ['Enviados', totals.orders_sent], ['Entregados', totals.delivered],
+    ['Pedidos creados', cohort.orders_created ?? totals.orders_created], ['Confirmados', cohort.orders_sent ?? totals.orders_sent], ['Entregados', cohort.delivered ?? totals.delivered],
     ['En el aire', totals.in_air], ['Devueltos', totals.returned], ['Incidencias', totals.incidences]
   ];
-  $('finance-funnel').replaceChildren(...funnel.map(([label, value]) => summaryCard(label, value, percentage(value, totals.orders_created))));
-  const costs = [['Coste de producto entregado', totals.costs?.product], ['Envío de ida', totals.costs?.outbound_shipping], ['Tarifa contra reembolso', totals.costs?.cod], ['Fulfillment de ida', totals.costs?.outbound_fulfillment], ['Devoluciones', totals.costs?.returns], ['Publicidad Meta', totals.costs?.advertising], ['Gastos fijos', totals.costs?.fixed]];
+  $('finance-funnel').replaceChildren(...funnel.map(([label, value]) => summaryCard(label, value, label === 'En el aire' ? 'Fotografía actual' : percentage(value, cohort.orders_created ?? totals.orders_created))));
+  const fixedLabel = data.provisional && totals.fixed_expenses_committed !== totals.costs?.fixed ? `Gastos fijos imputados (${money(totals.fixed_expenses_committed, currency)} comprometidos)` : 'Gastos fijos';
+  const costs = [['Coste de producto entregado', totals.costs?.product], ['Envío de ida', totals.costs?.outbound_shipping], ['Tarifa contra reembolso', totals.costs?.cod], ['Fulfillment de ida', totals.costs?.outbound_fulfillment], ['Devoluciones', totals.costs?.returns], ['Publicidad Meta', totals.costs?.advertising], [fixedLabel, totals.costs?.fixed]];
   $('finance-costs').replaceChildren(...costs.map(([label, value]) => financeCostRow(label, value, totals.total_expenses, currency)));
   $('finance-quality').replaceChildren(
-    stacked('Perspectiva', 'Cohorte por fecha original del pedido'),
+    stacked('Perspectiva', 'Beneficio realizado por fecha real de confirmación, entrega y devolución'),
     stacked('Estado del modelo', data.audit?.model_status === 'PASS' ? 'AUDITADO · todas las fórmulas cuadran' : 'PARCIAL · existe alguna fuente pendiente'),
     stacked('Fórmula del beneficio', 'Facturación real − producto − envío − COD − fulfillment − devoluciones − publicidad − gastos fijos'),
     stacked('Publicidad', `${text(data.quality?.advertising_days_complete, '0')} de ${text(data.quality?.required_days, '0')} días transcurridos completos`),
@@ -433,22 +479,14 @@ function renderFinance() {
     ...((data.limitations || []).map((item) => stacked('Límite conocido', item)))
   );
   $('finance-audit').replaceChildren(...(data.audit?.checks || []).map((check) => { const row = node('div', `audit-check ${String(check.status).toLowerCase()}`); row.append(badge(check.status === 'PASS' ? 'OK' : check.status), node('span', '', check.key.replaceAll('_', ' ').toLowerCase())); return row; }));
-  $('finance-daily').replaceChildren(...(data.daily || []).map((item) => {
-    const classes = [
-      item.quality === 'FUTURE' ? 'future-row' : '',
-      item.net_profit === null || item.net_profit === undefined
-        ? ''
-        : Number(item.net_profit) >= 0 ? 'profit-positive' : 'profit-negative'
-    ].filter(Boolean).join(' ');
-    const tr = node('tr', classes);
-    tr.append(...financeCells(item, currency).map((value) => cell(value)), cell(financeQuality(item.quality)));
-    return tr;
-  }));
-  const totalRow = { day: 'TOTAL', orders_created: totals.orders_created, orders_sent: totals.orders_sent, estimated_revenue: totals.estimated_revenue, delivered: totals.delivered, real_revenue: totals.real_revenue, costs: totals.costs, total_expenses: totals.total_expenses, net_profit: totals.net_profit, roi: totals.roi, estimated_cpa: totals.estimated_cpa, real_cpa: totals.real_cpa, confirmation_rate: totals.confirmation_rate, delivery_rate: totals.delivery_rate };
-  const totalTr = node('tr', 'finance-total-row'); const totalValues = financeCells(totalRow, currency); totalValues[0] = 'TOTAL'; totalTr.append(...totalValues.map((value) => cell(value)), cell(financeQuality(data.exactness)));
-  $('finance-total').replaceChildren(totalTr);
-  $('finance-products').replaceChildren(...(data.products || []).map((item) => { const tr = node('tr'); tr.append(cell(item.name), cell(item.orders), cell(item.units), cell(item.sent_units), cell(item.delivered_units), cell(item.in_air_units), cell(item.returned_units), cell(item.incidence_orders), cell(money(item.revenue_estimated, currency)), cell(money(item.revenue_real, currency)), cell(money(item.product_cost, currency)), cell(money(item.attributable_operational_cost, currency)), cell(money(item.attributable_operational_profit, currency)), cell(financeQuality(item.revenue_attribution_complete && item.product_cost_complete && item.attributable_operational_profit !== null ? 'COMPLETE' : 'INCOMPLETE'))); return tr; }));
-  $('finance-logistics').replaceChildren(...(data.logistics || []).map((item) => { const tr = node('tr'); tr.append(cell(item.carrier), cell(item.orders_sent), cell(item.delivered), cell(item.in_air), cell(item.returned), cell(money(item.total_cost, currency)), cell(money(item.cost_per_order, currency)), cell(financePercent(item.delivery_rate)), cell(financeQuality(item.quality))); return tr; }));
+  $('finance-daily').replaceChildren(...(data.daily || []).filter((item) => item.quality !== 'FUTURE').map((item) => financeDailyRow(item, currency)));
+  const totalRow = { orders_created: totals.orders_created, orders_sent: totals.orders_sent, delivered: totals.delivered, returned: totals.returned,
+    estimated_revenue: totals.estimated_revenue, real_revenue: totals.real_revenue, costs: totals.costs, total_expenses: totals.total_expenses,
+    net_profit: totals.net_profit, margin: totals.margin, roi: totals.roi, real_cpa: totals.real_cpa };
+  $('finance-total').replaceChildren(financeDailyRow(totalRow, currency, true));
+  $('finance-products').replaceChildren(...(data.products || []).map((item) => productFinanceCard(item, currency)));
+  $('finance-logistics').replaceChildren(...(data.logistics || []).map((item) => logisticsCard(item, currency)));
+  renderFixedExpenses(data, currency);
   const advertisingRows = (data.advertising_by_platform || []).length
     ? data.advertising_by_platform.map((item) => { const row = node('div', 'cost-row'); row.append(node('strong', '', item.platform), badge(money(item.spend, currency))); return row; })
     : [stacked('Sin fuente publicitaria completa', 'El beneficio operativo sigue disponible; el beneficio neto y el ROI esperan la sincronización diaria de Meta.')];
@@ -486,4 +524,8 @@ async function init() {
   setInterval(() => { if (document.visibilityState === 'visible' && activeToken()) refresh(); }, state.config.refresh_interval_seconds * 1000);
 }
 $('logout-button').addEventListener('click', () => signOut(true)); $('refresh-button').addEventListener('click', refresh); $('finance-month').addEventListener('change', () => { updateFinanceMonthNavigation(); loadFinance(); }); $('finance-prev-month').addEventListener('click', () => moveFinanceMonth('older')); $('finance-next-month').addEventListener('click', () => moveFinanceMonth('newer')); $('page-size').addEventListener('change', (event) => { state.limit = Number(event.target.value); state.offset = 0; loadQueue(); }); $('prev-page').addEventListener('click', () => { state.offset = Math.max(0, state.offset - state.limit); loadQueue(); }); $('next-page').addEventListener('click', () => { state.offset += state.limit; loadQueue(); }); document.querySelectorAll('.nav-item').forEach((item) => item.addEventListener('click', () => setView(item.dataset.view))); $('close-drawer').addEventListener('click', closeDetail); $('drawer-backdrop').addEventListener('click', closeDetail); document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeDetail(); });
+$('finance-add-fixed').addEventListener('click', () => openFixedExpenseForm());
+$('finance-fixed-cancel').addEventListener('click', closeFixedExpenseForm);
+$('finance-fixed-form').addEventListener('submit', saveFixedExpense);
+$('finance-fixed-type').addEventListener('change', () => { const oneOff = $('finance-fixed-type').value === 'ONE_OFF'; $('finance-fixed-occurred-label').hidden = !oneOff; $('finance-fixed-occurred').required = oneOff; });
 init().catch(async (error) => { $('login').hidden = false; $('app').hidden = true; try { if (state.config) await prepareLogin(); } catch {} showLoginError(error.message); });
