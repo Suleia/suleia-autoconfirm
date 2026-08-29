@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { subscriberConfirmationIsCurrent } from '../src/workflows/orders.mjs';
+import {
+  subscriberConfirmationIsCurrent,
+  workflowStatusForPolledOrder
+} from '../src/workflows/orders.mjs';
 
 function subscriber(confirmedAt) {
   return {
@@ -49,5 +52,23 @@ test('accepts a current inbound confirmation even if the subscriber field is sta
       '2026-07-23T20:01:00.000Z'
     ),
     true
+  );
+});
+
+test('a still-pending Dropea order leaves stale manual review and is reevaluated', () => {
+  assert.equal(
+    workflowStatusForPolledOrder({ status: 'MANUAL_REVIEW' }, 'PENDING'),
+    'PENDING'
+  );
+});
+
+test('address correction and terminal safety states remain blocked', () => {
+  assert.equal(
+    workflowStatusForPolledOrder({ status: 'PENDING_ADDRESS_CHANGE' }, 'PENDING'),
+    'PENDING_ADDRESS_CHANGE'
+  );
+  assert.equal(
+    workflowStatusForPolledOrder({ status: 'REJECTED_BLOCKED_CUSTOMER' }, 'PENDING'),
+    'REJECTED_BLOCKED_CUSTOMER'
   );
 });

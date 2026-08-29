@@ -702,7 +702,7 @@ function confirmedStoredOrder(order, store) {
   return String(order.aiIntent || '').toUpperCase() === 'CONFIRM' && confidence >= threshold;
 }
 
-function workflowStatusForPolledOrder(existing, polledStatus) {
+export function workflowStatusForPolledOrder(existing, polledStatus) {
   const remoteStatus = String(polledStatus || 'PENDING').toUpperCase();
   const localStatus = String(existing?.status || '').toUpperCase();
 
@@ -716,9 +716,13 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
     'REJECTED_BLOCKED_CUSTOMER',
     'BLOCKED_CUSTOMER_NO_DROPEA_ID',
     'BLOCKED_CUSTOMER_CANCELLATION_FAILED',
-    'MANUAL_REVIEW',
     'PENDING_ADDRESS_CHANGE'
   ].includes(localStatus)) return localStatus;
+  // MANUAL_REVIEW is a decision snapshot, not a terminal Dropea state. When
+  // Dropea still reports the order as pending, put it back through the current
+  // Chatby evidence evaluation so a later explicit confirmation or rejection
+  // can supersede the earlier signal. Address corrections and terminal safety
+  // outcomes remain preserved above.
   return remoteStatus;
 }
 
