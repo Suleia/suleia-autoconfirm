@@ -536,13 +536,23 @@ function agentCustomerSignal(order) {
     order.feedbackNote
   ].filter(Boolean).join(' '));
 
-  if (text.includes('would_cancel_unanswered') || text.includes('would_reject_unanswered') || text.includes('cancel_unanswered_timeout') || text.includes('reject_unanswered_timeout') || text.includes('36h') || text.includes('sin confirmacion ni cambio de direccion')) {
+  if (text.includes('would_cancel_unanswered') || text.includes('would_reject_unanswered') || text.includes('cancel_unanswered_timeout') || text.includes('reject_unanswered_timeout') || text.includes('36h') || text.includes('48h') || text.includes('sin confirmacion ni cambio de direccion')) {
     return {
       code: 'unanswered_timeout',
-      label: 'Sin respuesta 36h',
+      label: 'Sin respuesta 48h',
       detail: 'No hay confirmacion ni cambio de direccion tras el plazo operativo.',
       confidence: 100,
       tone: 'danger'
+    };
+  }
+
+  if (text.includes('no_response') || text.includes('wait_customer') || text.includes('sin respuesta del cliente')) {
+    return {
+      code: 'no_response',
+      label: 'Sin respuesta del cliente',
+      detail: 'No hay mensajes entrantes ni botones pulsados por el cliente.',
+      confidence: Number(order.agentConfidence) || 25,
+      tone: 'neutral'
     };
   }
 
@@ -651,8 +661,8 @@ function agentRecommendation(order) {
     return {
       code: 'reject_timeout',
       label: 'Rechazar en Dropea',
-      nextStep: 'Si no hay confirmacion ni cambio de direccion tras 36h, ejecutar rechazo/cancelacion en Dropea.',
-      explanation: 'No hay confirmacion ni cambio de direccion despues de 36 horas. La regla operativa indica rechazar el pedido.',
+      nextStep: 'Si no hay confirmacion ni cambio de direccion tras 48h, ejecutar rechazo/cancelacion en Dropea.',
+      explanation: 'No hay confirmacion ni cambio de direccion despues de 48 horas. La regla operativa indica rechazar el pedido.',
       tone: 'danger',
       confidence: 100
     };
@@ -734,7 +744,7 @@ function realActionForOrder(order) {
     return { label: 'Rechazado tras cancelar', tone: 'danger', detail: 'Cliente cancelo durante la espera de 1h' };
   }
   if (status.includes('rejected_unanswered') || intent.includes('reject_unanswered_timeout') || action.includes('rejected_unanswered_timeout')) {
-    return { label: 'Rechazado 36h sin respuesta', tone: 'danger', detail: 'Cancelacion ejecutada por silencio operativo' };
+    return { label: 'Rechazado 48h sin respuesta', tone: 'danger', detail: 'Cancelacion ejecutada por silencio operativo' };
   }
   if (intent.includes('confirm_delay_pending') || status.includes('confirm_delay')) {
     return { label: 'Programado', tone: 'warning', detail: order.confirmationDueAt ? `Confirmar desde ${order.confirmationDueAt}` : 'Esperando ventana de seguridad' };
@@ -825,9 +835,9 @@ function uniqueLessons(...groups) {
 function systemAgentMemoryRules() {
   return [
     {
-      id: 'system_unanswered_cancel_36h',
+      id: 'system_unanswered_cancel_48h',
       type: 'unanswered_timeout_cancel',
-      text: 'Si un pedido de Dropea permanece 36 horas sin confirmacion clara del cliente y sin solicitud de cambio de direccion/datos, el agente debe rechazarlo/cancelarlo automaticamente en Dropea. La accion operativa equivale a seleccionar el pedido, pulsar Cancelar y aceptar, ejecutada por API.',
+      text: 'Si un pedido de Dropea permanece 48 horas sin confirmacion clara del cliente y sin solicitud de cambio de direccion/datos, el agente debe rechazarlo/cancelarlo automaticamente en Dropea. La accion operativa equivale a seleccionar el pedido, pulsar Cancelar y aceptar, ejecutada por API.',
       source: 'system_rule',
       createdAt: '2026-06-23T00:00:00.000Z'
     }

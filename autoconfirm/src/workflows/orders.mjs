@@ -519,7 +519,9 @@ const ADDRESS_CHANGE_PATTERNS = [
   /\bcambio direccion\b/,
   /\bdireccion (mal|incorrecta|equivocada)\b/,
   /\bcambiar datos\b/,
+  /\bcambiar los datos\b/,
   /\bmodificar datos\b/,
+  /\bmodificar los datos\b/,
   /\bcambiar envio\b/,
   /\bcambiar el envio\b/,
   /\bcorregir direccion\b/,
@@ -1027,7 +1029,7 @@ async function storedConfirmationResult(order, store) {
 }
 
 async function unansweredTimeoutCancellationResult(order, store, validFrom) {
-  // La cancelacion por 36h se ejecuta solo desde runUnansweredCancellationSweep,
+  // La cancelacion por falta de respuesta se ejecuta solo desde runUnansweredCancellationSweep,
   // que verifica Chatby en modo fail-safe antes de tocar Dropea.
   return null;
 }
@@ -1326,7 +1328,7 @@ export function subscriberConfirmationIsCurrent(subscriber, order, inboundConfir
   return Boolean(subscriberAt && subscriberAt >= validFrom);
 }
 
-function customerConversationIntentForOrder(messages, order) {
+export function customerConversationIntentForOrder(messages, order) {
   const orderedMessages = [...messages].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
   const customerOnly = orderedMessages.filter((message) => isCustomerMessage(message));
 

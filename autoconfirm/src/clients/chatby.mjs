@@ -450,9 +450,14 @@ export function subscriberConfirmsOrder(subscriber) {
     || Boolean(confirmedAt);
 }
 
-export async function findSubscriberForOrderRobust({ phone, orderId, maxPages = 10 } = {}) {
+export async function findSubscriberForOrderRobust({
+  phone,
+  orderId,
+  maxPages = 10,
+  allowConfirmedPhoneFallback = true
+} = {}) {
   const index = await loadSubscriberIndex({ maxPages, limit: 100 });
-  return findSubscriberInIndexForOrder(index, { phone, orderId });
+  return findSubscriberInIndexForOrder(index, { phone, orderId, allowConfirmedPhoneFallback });
 }
 
 export async function findSubscriberByPhone({ phone, maxPages = 20 } = {}) {

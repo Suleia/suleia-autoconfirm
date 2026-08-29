@@ -8,6 +8,7 @@ import crypto from 'node:crypto';
 import { getAppConfig } from './src/config.mjs';
 import { findOrder, listOrders, loadState, saveState, upsertOrder } from './src/storage.mjs';
 import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs';
+import { getDropeaV2OrderActionReadiness } from './src/clients/dropea-v2-order-actions.mjs';
 import {
   backfillTodayMissingInitialTemplates,
   backfillMissingPreparedTemplates,
@@ -270,8 +271,21 @@ async function sendDashboardFile(res, reqUrl) {
   return sendJson(res, 404, { ok: false, error: 'not_found' });
 }
 
-function storeSummary() {
+function storeSummary({ publicView = false } = {}) {
   const state = loadState();
+  const actionReadiness = getDropeaV2OrderActionReadiness();
+  const cancellationSummary = state.lastUnansweredCancellationSweepSummary || null;
+  const publicCancellationSummary = cancellationSummary ? {
+    thresholdHours: Number(cancellationSummary.thresholdHours || config.defaultStore.unansweredCancelAfterHours || 48),
+    checked: Number(cancellationSummary.checked || 0),
+    cancelled: Number(cancellationSummary.cancelled || 0),
+    skipped: Number(cancellationSummary.skipped || 0),
+    dryRun: Number(cancellationSummary.dryRun || 0)
+  } : null;
+  const automaticCancellationHistoryAll = Array.isArray(state.automaticUnansweredCancellations)
+    ? state.automaticUnansweredCancellations
+    : [];
+  const automaticCancellationHistory = automaticCancellationHistoryAll.slice(-50);
   return {
     store: config.defaultStore.name,
     webhookTokenSuffix: config.defaultStore.webhookToken?.slice(-6) || null,
@@ -296,10 +310,10 @@ function storeSummary() {
     lastAutoConfirmError: state.lastAutoConfirmError,
     lastUnansweredCancellationSweepAt: state.lastUnansweredCancellationSweepAt,
     lastUnansweredCancellationSweepError: state.lastUnansweredCancellationSweepError,
-    lastUnansweredCancellationSweepSummary: state.lastUnansweredCancellationSweepSummary || null,
-    automaticUnansweredCancellations: Array.isArray(state.automaticUnansweredCancellations)
-      ? state.automaticUnansweredCancellations.slice(-50)
-      : [],
+    lastUnansweredCancellationSweepSummary: publicView ? publicCancellationSummary : cancellationSummary,
+    automaticUnansweredCancellations: publicView
+      ? { count: automaticCancellationHistoryAll.length }
+      : automaticCancellationHistory,
     lastIncidentsSyncAt: state.lastIncidentsSyncAt,
     lastIncidentsSyncError: state.lastIncidentsSyncError,
     lastIncidentsSyncCount: state.lastIncidentsSyncCount,
@@ -307,7 +321,26 @@ function storeSummary() {
     lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
     lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
     unansweredCancellationIntervalMinutes: config.defaultStore.unansweredCancellationIntervalMinutes,
+    unansweredCancelAfterHours: config.defaultStore.unansweredCancelAfterHours,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
+    dropeaV2Actions: actionReadiness,
+    automationReadiness: {
+      confirmation: {
+        enabled: Boolean(config.defaultStore.agentEnabled && config.defaultStore.delayedConfirmRealEnabled),
+        ready: Boolean(config.defaultStore.agentEnabled
+          && config.defaultStore.delayedConfirmRealEnabled
+          && chatbyHealth.ready
+          && actionReadiness.ready
+          && !state.lastIngestError)
+      },
+      unansweredCancellation: {
+        enabled: Boolean(config.defaultStore.unansweredRejectRealEnabled),
+        ready: Boolean(config.defaultStore.unansweredRejectRealEnabled
+          && chatbyHealth.ready
+          && actionReadiness.ready
+          && !state.lastUnansweredCancellationSweepError)
+      }
+    },
     incidentsSyncIntervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
     operationalDashboardIntervalMinutes: config.defaultStore.operationalDashboardIntervalMinutes,
     metaDashboardEnabled: config.metaDashboardEnabled,
@@ -325,7 +358,27 @@ function storeSummary() {
 async function runAutomationAndUnansweredSweep(context = 'automation') {
   const cycle = await runStoreAutomationCycle({ store: config.defaultStore });
   const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
-  return { context, cycle, unanswered };
+  let operationalOrders;
+  try {
+    const runtimeState = loadState();
+    const configuredMinutes = Number(config.defaultStore.operationalDashboardIntervalMinutes);
+    const refreshMinutes = Math.min(Number.isFinite(configuredMinutes) && configuredMinutes > 0 ? configuredMinutes : 15, 15);
+    const lastRefreshAt = new Date(runtimeState.lastOperationalOrdersSyncAt || 0).getTime();
+    const refreshDue = Boolean(runtimeState.lastOperationalOrdersSyncError)
+      || !Number.isFinite(lastRefreshAt)
+      || lastRefreshAt <= Date.now() - (refreshMinutes * 60 * 1000);
+    if (refreshDue) {
+      operationalOrders = await syncOperationalOrders();
+      dashboardBuildCacheAt = 0;
+    } else {
+      operationalOrders = { ok: true, skipped: true, reason: 'fresh_cache', refreshMinutes };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[${context}] Operational orders refresh failed:`, error);
+    operationalOrders = { ok: false, error: message };
+  }
+  return { context, cycle, unanswered, operationalOrders };
 }
 
 async function runAutomationOnly(context = 'automation') {
@@ -417,9 +470,11 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') {
       return sendJson(res, 200, {
         ok: true,
-        operational: chatbyHealth.ready,
+        operational: Boolean(chatbyHealth.ready
+          && getDropeaV2OrderActionReadiness().ready
+          && !loadState().lastIngestError),
         integrations: { chatby: { ...chatbyHealth } },
-        ...storeSummary()
+        ...storeSummary({ publicView: true })
       });
     }
 
@@ -759,6 +814,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/automation-cycle') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await runAutomationAndUnansweredSweep('cron_automation_cycle');
+      return sendJson(res, 200, { ok: true, result });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/backfill-today-messages') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await backfillTodayMissingInitialTemplates({
@@ -941,7 +1002,7 @@ async function runScheduledUnansweredCancellationSweep() {
 }
 
 function startUnansweredCancellationScheduler() {
-  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 300;
+  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 60;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;
@@ -1010,7 +1071,7 @@ async function runScheduledOperationalOrdersSync() {
 }
 
 function startOperationalOrdersScheduler() {
-  const intervalMinutes = config.defaultStore.operationalDashboardIntervalMinutes || 240;
+  const intervalMinutes = config.defaultStore.operationalDashboardIntervalMinutes || 15;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;

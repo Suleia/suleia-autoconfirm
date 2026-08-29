@@ -160,8 +160,8 @@ function friendlyOrderState(order) {
 
   if (status.includes('would_cancel_unanswered') || status.includes('would_reject_unanswered') || status.includes('rejected_unanswered') || intent.includes('cancel_unanswered_timeout') || intent.includes('reject_unanswered_timeout') || action.includes('cancel_unanswered_timeout') || action.includes('reject_unanswered_timeout')) {
     return {
-      label: status.includes('rejected_unanswered') ? 'Rechazado por 36h sin respuesta' : 'Rechazar por 36h sin respuesta',
-      detail: 'Sin confirmacion ni cambio de direccion tras 36h. Accion en Dropea: cancelar/rechazar pedido.',
+      label: status.includes('rejected_unanswered') ? 'Rechazado por 48h sin respuesta' : 'Rechazar por 48h sin respuesta',
+      detail: 'Sin confirmacion ni cambio de direccion tras 48h. Accion en Dropea: cancelar/rechazar pedido.',
       tone: 'danger'
     };
   }

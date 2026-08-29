@@ -31,16 +31,18 @@ services:
         value: true
       - key: AUTO_POLL_INTERVAL_MINUTES
         value: 5
+      - key: OPERATIONAL_DASHBOARD_INTERVAL_MINUTES
+        value: 15
       - key: DELAYED_CONFIRM_REAL_ENABLED
         value: true
       - key: CONFIRMATION_DELAY_HOURS
         value: 1
       - key: UNANSWERED_CANCEL_AFTER_HOURS
-        value: 36
+        value: 48
       - key: UNANSWERED_CANCELLATION_STATUSES
         value: PENDING
       - key: UNANSWERED_CANCELLATION_INTERVAL_MINUTES
-        value: 300
+        value: 60
       - key: UNANSWERED_REJECT_REAL_ENABLED
         value: true
       - key: INCIDENTS_SYNC_INTERVAL_MINUTES
@@ -60,6 +62,14 @@ services:
       - key: DROPEA_API_KEY
         sync: false
       - key: DROPEA_ACCESS_TOKEN
+        sync: false
+      - key: DROPEA_STORES_CONFIG
+        sync: false
+      - key: DROPEA_READ_JWT_ES
+        sync: false
+      - key: DROPEA_ACTIONS_STORES_CONFIG
+        sync: false
+      - key: DROPEA_ACTION_JWT_ES
         sync: false
   - type: cron
     name: suleia-unanswered-cancellations
@@ -93,16 +103,18 @@ services:
         value: true
       - key: AUTO_POLL_INTERVAL_MINUTES
         value: 5
+      - key: OPERATIONAL_DASHBOARD_INTERVAL_MINUTES
+        value: 15
       - key: DELAYED_CONFIRM_REAL_ENABLED
         value: true
       - key: CONFIRMATION_DELAY_HOURS
         value: 1
       - key: UNANSWERED_CANCEL_AFTER_HOURS
-        value: 36
+        value: 48
       - key: UNANSWERED_CANCELLATION_STATUSES
         value: PENDING
       - key: UNANSWERED_CANCELLATION_INTERVAL_MINUTES
-        value: 300
+        value: 60
       - key: UNANSWERED_REJECT_REAL_ENABLED
         value: true
       - key: INCIDENTS_SYNC_INTERVAL_MINUTES
@@ -122,4 +134,12 @@ services:
       - key: DROPEA_API_KEY
         sync: false
       - key: DROPEA_ACCESS_TOKEN
+        sync: false
+      - key: DROPEA_STORES_CONFIG
+        sync: false
+      - key: DROPEA_READ_JWT_ES
+        sync: false
+      - key: DROPEA_ACTIONS_STORES_CONFIG
+        sync: false
+      - key: DROPEA_ACTION_JWT_ES
         sync: false
