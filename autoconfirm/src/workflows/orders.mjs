@@ -1304,6 +1304,7 @@ export function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'ADDRESS_CHANGE') {
       return {
         ...intent,
+        occurred_at: messageDate(message)?.toISOString() || null,
         customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_change_address_button'
@@ -1314,6 +1315,7 @@ export function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'CANCEL') {
       return {
         ...intent,
+        occurred_at: messageDate(message)?.toISOString() || null,
         customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_change_address_button'
@@ -1324,6 +1326,7 @@ export function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'CONFIRM') {
       return {
         ...intent,
+        occurred_at: messageDate(message)?.toISOString() || null,
         customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_button'
@@ -1333,6 +1336,21 @@ export function customerConversationIntentForOrder(messages, order) {
   }
 
   return null;
+}
+
+export function currentConfirmationSupersedesIntent({
+  subscriber,
+  order,
+  intent,
+  inboundConfirmationAt = null
+} = {}) {
+  if (String(intent?.intent || '').toUpperCase() !== 'CANCEL') return false;
+  if (!sameOrderId(currentSubscriberOrderId(subscriber), order?.orderId)) return false;
+  if (!subscriberConfirmationIsCurrent(subscriber, order, inboundConfirmationAt)) return false;
+
+  const intentAt = parseDate(intent?.occurred_at);
+  const confirmationAt = parseDate(inboundConfirmationAt) || subscriberConfirmationTimestamp(subscriber);
+  return Boolean(intentAt && confirmationAt && confirmationAt > intentAt);
 }
 
 function firstName(name) {
@@ -2884,7 +2902,16 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
 
   const immediateCustomerIntent = customerConversationIntentForOrder(inboundCustomerMessages, order)
     || deterministicCustomerIntent(inboundCustomerMessages);
-  if (['CANCEL', 'ADDRESS_CHANGE'].includes(immediateCustomerIntent?.intent)) {
+  const laterCurrentConfirmation = currentConfirmationSupersedesIntent({
+    subscriber,
+    order,
+    intent: immediateCustomerIntent,
+    inboundConfirmationAt: latestConfirmationAt
+  });
+  if (
+    immediateCustomerIntent?.intent === 'ADDRESS_CHANGE'
+    || (immediateCustomerIntent?.intent === 'CANCEL' && !laterCurrentConfirmation)
+  ) {
     const isAddressChange = immediateCustomerIntent.intent === 'ADDRESS_CHANGE';
     const patch = {
       ...order,
