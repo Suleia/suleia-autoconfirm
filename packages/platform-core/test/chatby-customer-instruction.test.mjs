@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addressInstructionFromText, interpretChatbyCustomerReply } from '../src/operational-truth/chatby-customer-instruction.mjs';
+import { addressInstructionFromText, interpretChatbyCustomerReply, interpretChatbyCustomerText } from '../src/operational-truth/chatby-customer-instruction.mjs';
 
 test('short affirmative answer inherits the exact receive question intent', () => {
   const result = interpretChatbyCustomerReply({
@@ -54,4 +54,9 @@ test('address extraction reports exactly which delivery fields are still missing
   assert.deepEqual(result.missing_fields, ['POSTAL_CODE', 'LOCALITY']);
   assert.equal(result.fields.postal_code, null);
   assert.equal(result.fields.locality, null);
+});
+
+test('negative discount wording cannot be misclassified as acceptance', () => {
+  assert.equal(interpretChatbyCustomerText('No quiero el descuento').intent, 'DISCOUNT_REJECTED');
+  assert.equal(interpretChatbyCustomerText('Quiero el descuento').intent, 'DISCOUNT_ACCEPTED');
 });
