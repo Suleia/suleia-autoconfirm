@@ -396,17 +396,41 @@ function financePercent(value) { return value === null || value === undefined ? 
 function monthLabel(value) { if (!/^\d{4}-\d{2}$/.test(String(value))) return value; const [year, month] = value.split('-').map(Number); return new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' }).format(new Date(Date.UTC(year, month - 1, 2))); }
 function financeQuality(value) { return badge(value === 'COMPLETE' ? 'COMPLETO' : value === 'FUTURE' ? 'DÍA FUTURO' : 'INCOMPLETO'); }
 function financeLines(lines, className = '') { const root = node('div', `finance-lines ${className}`.trim()); lines.forEach(([label, value, strong = false]) => { const line = node('div'); line.append(node('span', '', label), node(strong ? 'strong' : 'b', '', value)); root.append(line); }); return root; }
-function financeDailyRow(row, currency, total = false) {
-  const tr = node('tr', `${total ? 'finance-total-row' : ''} ${row.quality === 'FUTURE' ? 'future-row' : row.net_profit === null ? '' : Number(row.net_profit) >= 0 ? 'profit-positive' : 'profit-negative'}`.trim());
-  const day = total ? 'TOTAL DEL PERIODO' : date(row.day, true);
-  const activity = financeLines([['Creados', text(row.orders_created, '0')], ['Confirmados', text(row.orders_sent, '0')], ['Entregados', text(row.delivered, '0'), true], ['Devueltos', text(row.returned, '0')]]);
-  const income = financeLines([['Estimada', money(row.estimated_revenue, currency)], ['Realizada', money(row.real_revenue, currency), true]]);
-  const logistics = Number(row.costs?.outbound_shipping || 0) + Number(row.costs?.cod || 0) + Number(row.costs?.outbound_fulfillment || 0) + Number(row.costs?.returns || 0);
-  const costs = financeLines([['Producto', money(row.costs?.product, currency)], ['Logística', [row.costs?.outbound_shipping, row.costs?.cod, row.costs?.outbound_fulfillment, row.costs?.returns].some((value) => value === null) ? 'No disponible' : money(logistics, currency)], ['Publicidad', money(row.costs?.advertising, currency)], ['Fijos', money(row.costs?.fixed, currency)], ['Total', money(row.total_expenses, currency), true]], 'daily-cost-lines');
-  const profit = financeLines([['Neto', money(row.net_profit, currency), true], ['Margen', financePercent(row.margin)]]);
-  const quality = node('div', 'daily-quality'); quality.append(financeQuality(total ? state.finance?.exactness : row.quality), node('small', '', `ROI ${financePercent(row.roi)} · CPA real ${money(row.real_cpa, currency)}`));
-  tr.append(cell(node('strong', 'daily-date', day)), cell(activity), cell(income), cell(costs), cell(profit, 'daily-profit-cell'), cell(quality));
-  return tr;
+function financeKpi(label, value, detail = '') { const item = node('div', 'daily-kpi'); item.append(node('span', '', label), node('strong', '', value)); if (detail) item.append(node('small', '', detail)); return item; }
+function financeDailyCard(row, currency) {
+  const tone = row.net_profit === null ? 'unknown' : Number(row.net_profit) >= 0 ? 'profit-positive' : 'profit-negative';
+  const card = node('article', `daily-profit-card ${tone}`);
+  const header = node('header', 'daily-card-header');
+  const title = node('div'); title.append(node('span', 'daily-date-label', date(row.day, true)), node('small', '', 'Resultado realizado del día'));
+  header.append(title, financeQuality(row.quality));
+  const headline = node('div', 'daily-profit-headline');
+  headline.append(node('div', '', 'Beneficio neto'), node('strong', '', money(row.net_profit, currency)), node('span', '', `Margen ${financePercent(row.margin)} · ROI ${financePercent(row.roi)}`));
+  const business = node('div', 'daily-business-grid');
+  business.append(
+    financeKpi('Facturación', money(row.real_revenue, currency), `${text(row.delivered, '0')} pedidos entregados`),
+    financeKpi('Gastos', money(row.total_expenses, currency), 'Todos los costes imputados'),
+    financeKpi('Publicidad', money(row.costs?.advertising, currency), `CPA ${money(row.real_cpa, currency)}`)
+  );
+  const activity = node('div', 'daily-activity-strip');
+  [['Creados', row.orders_created], ['Confirmados', row.orders_sent], ['Entregados', row.delivered], ['Unidades entregadas', row.delivered_units], ['Pedidos devueltos', row.returned], ['Unidades devueltas', row.returned_units]].forEach(([label, value]) => activity.append(financeKpi(label, text(value, '0'))));
+  const logistics = [row.costs?.outbound_shipping, row.costs?.cod, row.costs?.outbound_fulfillment, row.costs?.returns];
+  const logisticsTotal = logistics.some((value) => value === null || value === undefined) ? null : logistics.reduce((sum, value) => sum + Number(value), 0);
+  const details = node('details', 'daily-cost-details');
+  const summary = node('summary', '', 'Ver desglose de costes');
+  details.append(summary, financeLines([
+    ['Producto', money(row.costs?.product, currency)], ['Logística total', money(logisticsTotal, currency)],
+    ['Devoluciones incluidas', money(row.costs?.returns, currency)], ['Publicidad', money(row.costs?.advertising, currency)],
+    ['Gastos fijos', money(row.costs?.fixed, currency)], ['Total', money(row.total_expenses, currency), true]
+  ], 'daily-cost-lines'));
+  card.append(header, headline, business, activity, details);
+  return card;
+}
+function financePeriodSummary(row, currency) {
+  const root = node('section', `period-summary-card ${row.net_profit === null ? 'unknown' : Number(row.net_profit) >= 0 ? 'profit-positive' : 'profit-negative'}`);
+  const lead = node('div', 'period-summary-lead'); lead.append(node('span', '', 'RESULTADO DEL PERIODO'), node('strong', '', money(row.net_profit, currency)), node('small', '', `Margen ${financePercent(row.margin)} · ROI ${financePercent(row.roi)}`));
+  const metrics = node('div', 'period-summary-metrics');
+  metrics.append(financeKpi('Facturación', money(row.real_revenue, currency)), financeKpi('Gastos', money(row.total_expenses, currency)), financeKpi('Entregados', text(row.delivered, '0'), `${text(row.delivered_units, '0')} unidades`), financeKpi('Devueltos', text(row.returned, '0'), `${text(row.returned_units, '0')} unidades`));
+  root.append(lead, metrics); return root;
 }
 function financeCostRow(label, value, total, currency) { const row = node('div', `cost-row ${value === null ? 'unknown-cost' : ''}`); const header = node('div', 'cost-row-head'); header.append(node('strong', '', label), badge(value === null ? 'PENDIENTE DE FUENTE' : money(value, currency))); const track = node('span', 'cost-share-track'); const fill = node('span', 'cost-share-fill'); fill.style.width = value === null || !total ? '0%' : `${Math.min(100, Math.max(2, Number(value) / Number(total) * 100))}%`; track.append(fill); row.append(header, track); return row; }
 function productFinanceCard(item, currency) { const card = node('article', 'product-finance-card'); const head = node('header'); head.append(node('div', '', item.name), financeQuality(item.revenue_attribution_complete && item.product_cost_complete && item.attributable_operational_profit !== null ? 'COMPLETE' : 'INCOMPLETE')); const metrics = node('div', 'product-finance-metrics'); [['Entregadas', item.delivered_units], ['En tránsito', item.in_air_units], ['Devueltas', item.returned_units], ['Facturación real', money(item.revenue_real, currency)], ['Coste producto', money(item.product_cost, currency)], ['Beneficio atribuible', money(item.attributable_operational_profit, currency)]].forEach(([label, value], index) => metrics.append(financeMetric(label, value, index === 5 ? 'Sin publicidad ni gastos fijos' : '', index === 5 ? 'primary compact' : 'compact'))); card.append(head, metrics); return card; }
@@ -463,7 +487,7 @@ function renderFinance() {
   const cohort = totals.cohort || {};
   const funnel = [
     ['Pedidos creados', cohort.orders_created ?? totals.orders_created], ['Confirmados', cohort.orders_sent ?? totals.orders_sent], ['Entregados', cohort.delivered ?? totals.delivered],
-    ['En el aire', totals.in_air], ['Devueltos', totals.returned], ['Incidencias', totals.incidences]
+    ['En el aire', totals.in_air], ['Pedidos devueltos', totals.returned], ['Unidades devueltas', totals.returned_units], ['Incidencias', totals.incidences]
   ];
   $('finance-funnel').replaceChildren(...funnel.map(([label, value]) => summaryCard(label, value, label === 'En el aire' ? 'Fotografía actual' : percentage(value, cohort.orders_created ?? totals.orders_created))));
   const fixedLabel = data.provisional && totals.fixed_expenses_committed !== totals.costs?.fixed ? `Gastos fijos imputados (${money(totals.fixed_expenses_committed, currency)} comprometidos)` : 'Gastos fijos';
@@ -479,11 +503,12 @@ function renderFinance() {
     ...((data.limitations || []).map((item) => stacked('Límite conocido', item)))
   );
   $('finance-audit').replaceChildren(...(data.audit?.checks || []).map((check) => { const row = node('div', `audit-check ${String(check.status).toLowerCase()}`); row.append(badge(check.status === 'PASS' ? 'OK' : check.status), node('span', '', check.key.replaceAll('_', ' ').toLowerCase())); return row; }));
-  $('finance-daily').replaceChildren(...(data.daily || []).filter((item) => item.quality !== 'FUTURE').map((item) => financeDailyRow(item, currency)));
-  const totalRow = { orders_created: totals.orders_created, orders_sent: totals.orders_sent, delivered: totals.delivered, returned: totals.returned,
+  $('finance-daily').replaceChildren(...(data.daily || []).filter((item) => item.quality !== 'FUTURE').slice().reverse().map((item) => financeDailyCard(item, currency)));
+  const totalRow = { orders_created: totals.orders_created, orders_sent: totals.orders_sent, delivered: totals.delivered, delivered_units: totals.delivered_units,
+    returned: totals.returned, returned_units: totals.returned_units,
     estimated_revenue: totals.estimated_revenue, real_revenue: totals.real_revenue, costs: totals.costs, total_expenses: totals.total_expenses,
     net_profit: totals.net_profit, margin: totals.margin, roi: totals.roi, real_cpa: totals.real_cpa };
-  $('finance-total').replaceChildren(financeDailyRow(totalRow, currency, true));
+  $('finance-total').replaceChildren(financePeriodSummary(totalRow, currency));
   $('finance-products').replaceChildren(...(data.products || []).map((item) => productFinanceCard(item, currency)));
   $('finance-logistics').replaceChildren(...(data.logistics || []).map((item) => logisticsCard(item, currency)));
   renderFixedExpenses(data, currency);

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260828-finance-daily-v3">
+  <link rel="stylesheet" href="styles.css?v=20260830-finance-returns-v4">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -87,7 +87,8 @@
         </section>
         <section class="finance-panel">
           <div class="panel-heading"><div><p class="eyebrow">BENEFICIO DIARIO REALIZADO</p><h3>Ingresos y costes en la fecha económica real</h3></div><span class="data-quality">Sin desplazamiento horizontal</span></div>
-          <table class="finance-daily-table"><thead><tr><th>Día</th><th>Actividad</th><th>Ingresos</th><th>Costes del día</th><th>Beneficio neto</th><th>Rentabilidad y calidad</th></tr></thead><tbody id="finance-daily"></tbody><tfoot id="finance-total"></tfoot></table>
+          <div id="finance-total" class="finance-period-total" aria-label="Totales del periodo"></div>
+          <div id="finance-daily" class="finance-daily-grid" aria-label="Resultados financieros diarios"></div>
         </section>
         <section class="finance-panel fixed-expense-panel">
           <div class="panel-heading"><div><p class="eyebrow">CONFIGURACIÓN FINANCIERA</p><h3>Gastos fijos mensuales</h3><p>Se incorporan automáticamente al beneficio del periodo y al reparto diario.</p></div><button id="finance-add-fixed" class="primary-button" type="button">+ Añadir gasto fijo</button></div>
@@ -150,6 +151,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260828-finance-daily-v6" defer></script>
+  <script src="app.js?v=20260830-finance-returns-v7" defer></script>
 </body>
 </html>
