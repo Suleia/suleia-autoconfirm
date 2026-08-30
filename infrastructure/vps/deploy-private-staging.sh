@@ -215,6 +215,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-dropea-order-costs-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-product-cogs-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-daily-profit-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-august-fixed-expenses-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-fixed-expense-deduplication-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"

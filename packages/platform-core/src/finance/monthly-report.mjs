@@ -443,7 +443,20 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   // Current-month headline values are genuinely month-to-date. Future shares
   // of recurring expenses remain visible as a commitment, but never distort a
   // daily realised result before their calendar day arrives.
-  const included = daily.filter((row) => row.day <= today);
+  const observed = daily.filter((row) => row.day <= today);
+  // Meta's current business day is not final until its source checkpoint is
+  // complete. If every earlier day is complete, keep the open day visible in
+  // the daily cards but close the headline totals through yesterday. This
+  // avoids both inventing today's ad spend as zero and blanking an otherwise
+  // fully audited month-to-date result.
+  const currentMonth = month === today.slice(0, 7);
+  const openTrailingDay = currentMonth && observed.length > 1
+    && observed.at(-1)?.day === today
+    && observed.at(-1)?.quality === 'INCOMPLETE'
+    && observed.slice(0, -1).every((row) => row.quality === 'COMPLETE');
+  const included = openTrailingDay ? observed.slice(0, -1) : observed;
+  const accountingClosedThrough = included.length && included.every((row) => row.quality === 'COMPLETE')
+    ? included.at(-1).day : null;
   const sumField = (field) => Number(included.reduce((sum, row) => sum + Number(row[field] || 0), 0).toFixed(2));
   const sumCost = (field) => included.some((row) => row.costs[field] === null) ? null : Number(included.reduce((sum, row) => sum + Number(row.costs[field] || 0), 0).toFixed(2));
   const sumNullableField = (field) => included.some((row) => row[field] === null) ? null : sumField(field);
@@ -465,7 +478,6 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   const cohortOrders = orders.filter((order) => inMonth(eventDays(order, timezone).created, month));
   const cohortSent = cohortOrders.filter((order) => orderFlags(order).sent).length;
   const cohortDelivered = cohortOrders.filter((order) => orderFlags(order).delivered).length;
-  const currentMonth = month === today.slice(0, 7);
   const currentInAir = currentMonth ? orders.filter((order) => {
     const created = eventDays(order, timezone).created;
     return orderFlags(order).in_air && created && created <= today;
@@ -531,6 +543,8 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   audit.model_status = missing.size || audit.checks.some((check) => check.status !== 'PASS') ? 'PARTIAL' : 'PASS';
   return Object.freeze({
     month, timezone, currency, generated_at: now.toISOString(), provisional: month >= today.slice(0, 7), perspective: 'REALIZED_EVENT_DATE',
+    accounting_closed_through: accountingClosedThrough,
+    pending_accounting_days: observed.length - included.length,
     exactness: missing.size ? 'PARTIAL' : 'COMPLETE', totals, daily, audit,
     products: productEventRollup(orders, rates, month, timezone, currency, currentMonth), logistics: logisticsEventRollup(orders, rates, month, timezone, currency, currentMonth),
     advertising_by_platform: Object.entries(adSpend.reduce((totals, row) => {
