@@ -71,8 +71,8 @@ export function interpretChatbyCustomerText(value) {
   const delivery = deliveryInstructionFromText(text);
   const address = addressInstructionFromText(value);
   let intent = 'UNKNOWN';
-  if (/(quiero el descuento|acepto el descuento|descuento.*si)/.test(text)) intent = 'DISCOUNT_ACCEPTED';
-  else if (/(no quiero el descuento|rechazo el descuento|sin descuento)/.test(text)) intent = 'DISCOUNT_REJECTED';
+  if (/(no quiero el descuento|rechazo el descuento|sin descuento)/.test(text)) intent = 'DISCOUNT_REJECTED';
+  else if (/(quiero el descuento|acepto el descuento|descuento.*si)/.test(text)) intent = 'DISCOUNT_ACCEPTED';
   else if (/(recoger.*agencia|recogida.*agencia|pickup)/.test(text)) intent = 'PICKUP_AT_AGENCY';
   else if (/(cambiar.*direccion|cambio.*direccion|direccion incorrecta)/.test(text)) intent = 'CHANGE_ADDRESS';
   else if (/(no quiero el pedido|cancel|rechaz|devolver|devolucion)/.test(text)) intent = 'FINAL_REJECTION';

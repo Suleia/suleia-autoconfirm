@@ -59,6 +59,7 @@ const labels = {
   PICKUP_AT_AGENCY: 'Solicita recogida en agencia', FINAL_REJECTION: 'Rechazo definitivo',
   RETURN_REQUEST: 'Solicita devolución', CHANGE_ADDRESS: 'Cambio de dirección',
   PROVIDE_MISSING_DATA: 'Aporta los datos solicitados',
+  DISCOUNT_ACCEPTED: 'Descuento de 5 € aceptado', DISCOUNT_REJECTED: 'Descuento rechazado',
   PROMOTION_CHANGE: 'Cambio de promoción', NO_RESPONSE: 'Sin respuesta', UNCLEAR: 'Respuesta no concluyente',
   NOT_VERIFIABLE: 'No verificable', NO_CONVERSATION: 'Sin conversación asociada',
   REVIEW_CHATBY_LINK: 'Revisar enlace con Chatby', REVIEW_CUSTOMER_RESPONSE: 'Revisar respuesta del cliente',

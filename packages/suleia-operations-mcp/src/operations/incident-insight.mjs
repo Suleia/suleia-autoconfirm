@@ -11,6 +11,8 @@ const intentLabels = {
   ADDRESS_CHANGE: 'El cliente solicita cambiar los datos de entrega.',
   CHANGE_ADDRESS: 'El cliente facilita o solicita cambiar los datos de entrega.',
   PROVIDE_MISSING_DATA: 'El cliente aporta los datos que faltaban.',
+  DISCOUNT_ACCEPTED: 'El cliente ha aceptado expresamente el descuento de 5 EUR.',
+  DISCOUNT_REJECTED: 'El cliente ha rechazado expresamente el descuento.',
   PROMOTION_CHANGE: 'El cliente solicita modificar la oferta o el contenido del pedido.',
   UNCLEAR: 'La respuesta existe, pero no permite decidir con seguridad.',
   UNKNOWN: 'La intención de la respuesta no está determinada.'
@@ -50,7 +52,11 @@ function customerEvidence(item) {
     messages: 0, latest_message: null, at: null, relation: null
   };
   if (item.operational_response_status === 'VALID_RESPONSE' || privateCurrentSignal) {
-    const rawIntent = privateCurrentSignal
+    const rawIntent = item.discount_accepted === true
+      ? 'DISCOUNT_ACCEPTED'
+      : item.discount_rejected === true
+        ? 'DISCOUNT_REJECTED'
+        : privateCurrentSignal
       ? privateInterpretation.intent
       : item.customer_intent || item.latest_private_customer_intent || 'UNKNOWN';
     const intent = normalizedIntent(rawIntent);
@@ -58,7 +64,9 @@ function customerEvidence(item) {
       : intent === 'REJECT' ? 'Cliente rechaza'
       : intent === 'ADDRESS_CHANGE' ? 'Cliente cambia datos'
       : intent === 'PICKUP_AT_AGENCY' ? 'Cliente pide recogida en agencia'
-      : intent === 'DELIVERY_RETRY' ? 'Cliente pide nueva entrega' : 'Cliente respondió';
+      : intent === 'DELIVERY_RETRY' ? 'Cliente pide nueva entrega'
+      : intent === 'DISCOUNT_ACCEPTED' ? 'Descuento de 5 € aceptado'
+      : intent === 'DISCOUNT_REJECTED' ? 'Descuento rechazado' : 'Cliente respondió';
     return {
       code: intent, raw_intent: rawIntent, title,
       summary: item.interpretation_summary || intentLabels[rawIntent] || intentLabels[intent] || intentLabels.UNKNOWN,
@@ -109,6 +117,21 @@ function recommendation(item, customer) {
   const secondAttempt = /SEGUNDA\s+VEZ|SEGUNDO\s+INTENTO/i.test(description)
     || Number(item.delivery_attempt_number || 0) >= 2;
   const mentionsTomorrow = /\bMA[NÑ]ANA\b/i.test(description);
+  if (customer.code === 'DISCOUNT_ACCEPTED') return proposal(
+    'APPLY_ACCEPTED_DISCOUNT_AND_REDELIVER', 'Cliente ha aceptado el descuento de 5 €',
+    'La respuesta posterior y asociada a esta incidencia acepta expresamente la oferta. Debe aplicarse una sola vez un descuento máximo de 5 € y gestionarse una nueva entrega.',
+    option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
+    ['Verificar que la aceptación pertenece a este pedido y es posterior a la oferta', 'Comprobar que el descuento no se aplicó anteriormente', 'Aplicar exactamente 5 € sin superar el total del pedido', 'Trasladar a Dropea la nueva entrega y verificar que la incidencia sale de la cola'],
+    'HIGH', {
+      decision_goal: 'RECOVER_REJECTED_DELIVERY_WITH_ACCEPTED_FIXED_DISCOUNT',
+      reasoning: 'El cliente ha revocado el rechazo al aceptar de forma explícita la oferta comercial vinculada a esta incidencia.',
+      guardrail: 'No aplicar más de 5 €, no repetir el descuento y no actuar si la respuesta pertenece a otro pedido.'
+    });
+  if (customer.code === 'DISCOUNT_REJECTED') return proposal(
+    'RETURN_AFTER_DISCOUNT_REJECTION', 'Solicitar devolución tras rechazar la oferta',
+    'El cliente ha rechazado expresamente el descuento; no corresponde insistir con otra oferta ni programar una nueva entrega.',
+    option(item, 'RETURN_REQUESTED'),
+    ['Verificar que el rechazo corresponde a esta incidencia', 'No enviar más descuentos', 'Seleccionar RETURN_REQUESTED', 'Comprobar la salida de la cola pendiente'], 'HIGH');
   if (!item.dropea_sync_current) return proposal(
     'REFRESH_DROPEA_SOURCE', 'Actualizar Dropea antes de resolver',
     'La incidencia no tiene una lectura vigente. La solución queda bloqueada hasta confirmar que sigue pendiente.',
