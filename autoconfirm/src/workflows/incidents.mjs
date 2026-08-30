@@ -2018,10 +2018,14 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       realEnabled: config.incidentDiscountRealEnabled === true,
       checked: sortedIncidents.filter((incident) => incident.incidentType === 'rejected_goods').length,
       sent: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'sent').length,
+      wouldSend: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'would_send').length,
       alreadySent: sortedIncidents.filter((incident) => ['already_sent', 'persistent_sent'].includes(incident.incidentDiscountRecoveryStatus)).length,
       accepted: sortedIncidents.filter((incident) => incident.incidentDiscountResponseStatus === 'DISCOUNT_ACCEPTED').length,
       blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'customer_interaction_after_merchandise_template').length,
       failed: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'failed').length,
+      waiting24Hours: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'waiting_discount_window').length,
+      missingVerifiedInitialTemplate: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'merchandise_template_not_verified').length,
+      crossSourceMismatch: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'cross_source_order_mismatch').length,
       discountAmountEur: 5,
       delayHours: 24
     };
