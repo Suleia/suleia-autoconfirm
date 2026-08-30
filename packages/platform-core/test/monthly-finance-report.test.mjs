@@ -158,6 +158,24 @@ test('current month uses accrued daily fixed expense and exposes the full commit
   assert.equal(result.daily.at(-1).costs.fixed, 1);
 });
 
+test('an open Meta day stays provisional without blanking the audited month-to-date profit', () => {
+  const delivered = order('closed-day-delivery', 'DELIVERED', '2026-08-01', {
+    delivered_at_utc: '2026-08-01T13:00:00Z'
+  });
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-02T18:00:00Z'), orders: [delivered], rates,
+    fixedExpenses: [{ expense_type: 'RECURRING', amount: 31, status: 'ACTIVE', start_date: '2026-08-01' }],
+    adSpend: [{ business_date: '2026-08-01', platform: 'META', spend: 2, currency: 'EUR', sync_status: 'COMPLETE' }]
+  });
+  assert.equal(result.accounting_closed_through, '2026-08-01');
+  assert.equal(result.pending_accounting_days, 1);
+  assert.equal(result.totals.real_revenue, 20);
+  assert.equal(result.totals.total_expenses, 14.5);
+  assert.equal(result.totals.net_profit, 5.5);
+  assert.equal(result.daily[1].net_profit, null);
+  assert.match(result.missing_sources.join(','), /ADVERTISING:2026-08-02/);
+});
+
 test('delivered orders without product lines or amounts block profit instead of fabricating zero', () => {
   const incomplete = order('missing', 'DELIVERED', '2026-08-01', { total_amount: null, product_summary: {}, delivered_at_utc: '2026-08-01T13:00:00Z' });
   const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-01T18:00:00Z'), orders: [incomplete], rates, adSpend: [{ business_date: '2026-08-01', spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }] });

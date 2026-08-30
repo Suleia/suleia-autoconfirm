@@ -11,9 +11,12 @@ DOWN="${INSTALL_ROOT}/migrations/rollback/024_financial_control.down.sql"
 DOWN_025="${INSTALL_ROOT}/migrations/rollback/025_dropea_order_costs.down.sql"
 DOWN_026="${INSTALL_ROOT}/migrations/rollback/026_finance_product_cogs.down.sql"
 DOWN_027="${INSTALL_ROOT}/migrations/rollback/027_finance_daily_profit_and_fixed_expenses.down.sql"
+DOWN_028="${INSTALL_ROOT}/migrations/rollback/028_finance_august_fixed_expenses.down.sql"
+DOWN_029="${INSTALL_ROOT}/migrations/rollback/029_finance_fixed_expense_deduplication.down.sql"
 [[ "${BACKUP_FILE}" =~ ^/backups/suleia-[0-9TZ]+\.dump$ ]]
 test -r "${ENV_FILE}"; test -r "${UP}"; test -r "${DOWN}"
 test -r "${DOWN_025}"; test -r "${DOWN_026}"; test -r "${DOWN_027}"
+test -r "${DOWN_028}"; test -r "${DOWN_029}"
 compose() { docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" "$@"; }
 cleanup() { compose exec --no-TTY postgres dropdb --if-exists --username suleia_admin "${DRILL_DATABASE}" >/dev/null; }
 trap cleanup EXIT
@@ -26,9 +29,11 @@ ingestion_write="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only
 api_read="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select has_table_privilege('suleia_operations_readonly','economics.finance_ad_spend_daily','SELECT')::int;")"
 mcp_read="$(compose exec --no-TTY postgres psql --no-psqlrc --tuples-only --no-align --username suleia_admin --dbname "${DRILL_DATABASE}" --command "select has_table_privilege('suleia_mcp_readonly','economics.finance_ad_spend_daily','SELECT')::int;")"
 [[ "${table_count}" = "4" && "${ingestion_write}" = "1" && "${api_read}" = "1" && "${mcp_read}" = "0" ]]
-# The verified backup may already contain additive finance migrations 025-027.
+# The verified backup may already contain additive finance migrations 025-029.
 # Roll them back in reverse dependency order inside the isolated drill before
 # testing the base 024 rollback. The production database is never touched.
+compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN_029}" >/dev/null
+compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN_028}" >/dev/null
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN_027}" >/dev/null
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN_026}" >/dev/null
 compose exec --no-TTY postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin --dbname "${DRILL_DATABASE}" < "${DOWN_025}" >/dev/null

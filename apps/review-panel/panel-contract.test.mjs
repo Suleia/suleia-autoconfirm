@@ -54,9 +54,9 @@ test('Operations Center exposes Pedidos, Incidencias and audited finance configu
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260830-finance-returns-v4">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260830-finance-returns-v5">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260830-finance-returns-v7" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260830-finance-returns-v8" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);

@@ -428,6 +428,7 @@ function financeDailyCard(row, currency) {
 function financePeriodSummary(row, currency) {
   const root = node('section', `period-summary-card ${row.net_profit === null ? 'unknown' : Number(row.net_profit) >= 0 ? 'profit-positive' : 'profit-negative'}`);
   const lead = node('div', 'period-summary-lead'); lead.append(node('span', '', 'RESULTADO DEL PERIODO'), node('strong', '', money(row.net_profit, currency)), node('small', '', `Margen ${financePercent(row.margin)} · ROI ${financePercent(row.roi)}`));
+  if (row.closed_through) lead.append(node('small', 'accounting-close-label', `Cierre contable verificado hasta ${date(row.closed_through, true)}`));
   const metrics = node('div', 'period-summary-metrics');
   metrics.append(financeKpi('Facturación', money(row.real_revenue, currency)), financeKpi('Gastos', money(row.total_expenses, currency)), financeKpi('Entregados', text(row.delivered, '0'), `${text(row.delivered_units, '0')} unidades`), financeKpi('Devueltos', text(row.returned, '0'), `${text(row.returned_units, '0')} unidades`));
   root.append(lead, metrics); return root;
@@ -473,16 +474,17 @@ function renderFinance() {
   const data = state.finance; if (!data) return;
   const totals = data.totals || {}; const currency = data.currency || 'EUR';
   $('last-sync').textContent = date(data.generated_at);
-  $('finance-exactness').textContent = data.exactness === 'COMPLETE' ? 'Fuentes completas' : `${(data.missing_sources || []).length} fuente(s) pendiente(s)`;
+  const closedThrough = data.accounting_closed_through ? date(data.accounting_closed_through, true) : null;
+  $('finance-exactness').textContent = data.exactness === 'COMPLETE' ? 'Fuentes completas' : closedThrough ? `Cierre verificado hasta ${closedThrough} · ${text(data.pending_accounting_days, '0')} día provisional` : `${(data.missing_sources || []).length} fuente(s) pendiente(s)`;
   $('finance-hero').replaceChildren(
-    financeMetric('Beneficio neto realizado', money(totals.net_profit, currency), totals.net_profit === null ? 'No se calcula mientras falte una fuente' : `Ingresos entregados menos todos los costes imputados · margen ${financePercent(totals.margin)}`, totals.net_profit === null ? 'unknown' : Number(totals.net_profit) >= 0 ? 'primary' : 'negative'),
+    financeMetric('Beneficio neto realizado', money(totals.net_profit, currency), totals.net_profit === null ? 'No se calcula mientras falte una fuente cerrada' : `Cierre ${closedThrough || 'del periodo'} · ingresos entregados menos todos los costes · margen ${financePercent(totals.margin)}`, totals.net_profit === null ? 'unknown' : Number(totals.net_profit) >= 0 ? 'primary' : 'negative'),
     financeMetric('Facturación entregada', money(totals.real_revenue, currency), `${text(totals.delivered, '0')} entregas realizadas en el mes`, 'positive'),
     financeMetric('Gastos totales', money(totals.total_expenses, currency), 'Producto + logística + publicidad + gastos fijos', totals.total_expenses === null ? 'unknown' : 'warning'),
     financeMetric('ROI', financePercent(totals.roi), 'Beneficio neto ÷ gastos totales', totals.roi === null ? 'unknown' : Number(totals.roi) >= 0 ? 'positive' : 'negative'),
     financeMetric('CPA real', money(totals.real_cpa, currency), 'Publicidad ÷ pedidos entregados', totals.real_cpa === null ? 'unknown' : ''),
     financeMetric('Facturación estimada', money(totals.estimated_revenue, currency), `${text(totals.orders_sent, '0')} pedidos enviados`, 'warning'),
     financeMetric('Publicidad', money(totals.costs?.advertising, currency), `${text(data.quality?.advertising_days_complete, '0')} días verificados`, ''),
-    financeMetric('Mes analizado', monthLabel(data.month), data.provisional ? 'Mes abierto · se actualiza diariamente' : 'Mes histórico', '')
+    financeMetric('Mes analizado', monthLabel(data.month), data.provisional ? `Mes abierto · ${closedThrough ? `cerrado hasta ${closedThrough}` : 'pendiente de cierre'}` : 'Mes histórico', '')
   );
   const cohort = totals.cohort || {};
   const funnel = [
@@ -498,6 +500,7 @@ function renderFinance() {
     stacked('Estado del modelo', data.audit?.model_status === 'PASS' ? 'AUDITADO · todas las fórmulas cuadran' : 'PARCIAL · existe alguna fuente pendiente'),
     stacked('Fórmula del beneficio', 'Facturación real − producto − envío − COD − fulfillment − devoluciones − publicidad − gastos fijos'),
     stacked('Publicidad', `${text(data.quality?.advertising_days_complete, '0')} de ${text(data.quality?.required_days, '0')} días transcurridos completos`),
+    stacked('Cierre contable', closedThrough ? `${closedThrough}${data.pending_accounting_days ? ` · ${data.pending_accounting_days} día provisional visible sin inventar gasto` : ''}` : 'PENDIENTE'),
     stacked('Fuentes pendientes', (data.missing_sources || []).slice(0, 8).join(' · ') || 'Ninguna'),
     stacked('Estado del mes', data.provisional ? 'ABIERTO' : 'HISTÓRICO'),
     ...((data.limitations || []).map((item) => stacked('Límite conocido', item)))
@@ -507,7 +510,7 @@ function renderFinance() {
   const totalRow = { orders_created: totals.orders_created, orders_sent: totals.orders_sent, delivered: totals.delivered, delivered_units: totals.delivered_units,
     returned: totals.returned, returned_units: totals.returned_units,
     estimated_revenue: totals.estimated_revenue, real_revenue: totals.real_revenue, costs: totals.costs, total_expenses: totals.total_expenses,
-    net_profit: totals.net_profit, margin: totals.margin, roi: totals.roi, real_cpa: totals.real_cpa };
+    net_profit: totals.net_profit, margin: totals.margin, roi: totals.roi, real_cpa: totals.real_cpa, closed_through: data.accounting_closed_through };
   $('finance-total').replaceChildren(financePeriodSummary(totalRow, currency));
   $('finance-products').replaceChildren(...(data.products || []).map((item) => productFinanceCard(item, currency)));
   $('finance-logistics').replaceChildren(...(data.logistics || []).map((item) => logisticsCard(item, currency)));
