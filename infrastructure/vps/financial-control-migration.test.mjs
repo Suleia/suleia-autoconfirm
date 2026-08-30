@@ -21,6 +21,9 @@ test('financial control schema is additive, reversible and isolated from MCP and
   assert.match(apply, /024_financial_control\.sql/);
   assert.match(drill, /mcp_read=0/);
   assert.match(drill, /production_writes=0/);
+  assert.ok(drill.indexOf(' < "${DOWN_027}"') < drill.indexOf(' < "${DOWN_026}"'));
+  assert.ok(drill.indexOf(' < "${DOWN_026}"') < drill.indexOf(' < "${DOWN_025}"'));
+  assert.ok(drill.indexOf(' < "${DOWN_025}"') < drill.indexOf(' < "${DOWN}"'));
   assert.ok(deploy.indexOf('run-financial-control-rollback-drill.sh') < deploy.indexOf('apply-financial-control-migration.sh'));
   assert.match(compose, /META_ADS_ACCESS_TOKEN: \$\{META_ADS_READ_ONLY_ACCESS_TOKEN:-\}/);
   assert.match(compose, /FINANCE_STORE_ID: \$\{FINANCE_STORE_ID:-\}/);
