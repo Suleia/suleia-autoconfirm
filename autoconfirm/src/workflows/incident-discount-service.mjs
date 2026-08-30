@@ -17,15 +17,19 @@ import {
 import {
   classifyIncidentDiscountResponse,
   extractWamid,
-  findVerifiedTemplateDelivery
+  findVerifiedTemplateDelivery,
+  incidentDiscountPolicy
 } from './incident-discount-policy.mjs';
 import {
   selectIncidentDiscountOrderPair,
+  selectShopifyOrderForDropeaOrder,
   selectRecentShopifyOnlyTestOrder
 } from './incident-discount-order-match.mjs';
 
 const config = getAppConfig();
 const activeTestSends = new Set();
+const activeRecoverySends = new Set();
+let cachedDiscountTemplate = null;
 
 function digits(value) {
   return String(value || '').replace(/\D/g, '');
@@ -73,17 +77,18 @@ function parseDefaultValues(value) {
 }
 
 async function findTemplate() {
+  if (cachedDiscountTemplate) return cachedDiscountTemplate;
   const target = normalizedTemplate(INCIDENT_DISCOUNT_TEMPLATE_NAME);
   let compatible = null;
   for (let page = 1; page <= 30 && !compatible; page += 1) {
     const templates = templateRows(await listWhatsappTemplates({ page, limit: 200 }));
     const exact = templates.find((item) => normalizedTemplate(item?.name) === target);
-    compatible = exact || templates.find((item) => normalizedTemplate(item?.name).includes('dropea_incidencia_descuento_5')) || null;
+    compatible = exact || null;
     if (!templates.length) break;
   }
   if (!compatible) return null;
   const defaults = parseDefaultValues(compatible.default_values);
-  return {
+  cachedDiscountTemplate = {
     name: compatible.name,
     language: defaults.lang || compatible.language || 'es_ES',
     namespace: compatible.namespace || null,
@@ -93,6 +98,7 @@ async function findTemplate() {
       .filter((item) => /^BODY_/i.test(String(item?.label || '')))
       .map((item) => item.label)
   };
+  return cachedDiscountTemplate;
 }
 
 async function findDropeaOrders(phone) {
@@ -108,7 +114,7 @@ async function findDropeaOrders(phone) {
 
 async function findShopifyOrders(phone) {
   const target = digits(phone).slice(-9);
-  const orders = await listRecentShopifyOrders({ first: 100 });
+  const orders = await listRecentShopifyOrders({ first: 250 });
   return orders.filter((order) => digits(order.customerPhone).endsWith(target));
 }
 
@@ -351,5 +357,237 @@ export async function sendAuthorizedIncidentDiscountTest({
     throw error;
   } finally {
     activeTestSends.delete(activeKey);
+  }
+}
+
+function recoveryResult(result = {}) {
+  return {
+    status: result.status || 'skipped',
+    reason: result.reason || null,
+    templateName: result.templateName || null,
+    initialTemplateSentAt: result.initialTemplateSentAt || null,
+    dueAt: result.dueAt || null,
+    attemptedAt: result.attemptedAt || null,
+    sentAt: result.sentAt || null,
+    verified: result.verified === true,
+    responseStatus: result.responseStatus || 'NOT_SENT',
+    respondedAt: result.respondedAt || null,
+    originalPrice: result.originalPrice || null,
+    finalPrice: result.finalPrice || null,
+    discountAmountEur: result.discountAmountEur ?? 5,
+    crossSourceVerified: result.crossSourceVerified === true,
+    error: result.error || null
+  };
+}
+
+export async function processIncidentDiscountRecovery({
+  incident,
+  order,
+  messages = [],
+  realEnabled = false,
+  now = Date.now(),
+  dependencies = {}
+} = {}) {
+  const deps = {
+    getMessages: dependencies.getMessages || getChatMessages,
+    getTemplate: dependencies.getTemplate || findTemplate,
+    getShopifyOrders: dependencies.getShopifyOrders || findShopifyOrders,
+    claim: dependencies.claim || claimTemplateDelivery,
+    finish: dependencies.finish || finishTemplateDelivery,
+    send: dependencies.send || sendWhatsappTemplate,
+    waitForDelivery: dependencies.waitForDelivery || waitForVerifiedDelivery
+  };
+  if (!incident?.orderId || !order) {
+    return recoveryResult({ reason: 'missing_current_incident_order' });
+  }
+  if (!incident?.chatbyUserNs) {
+    return recoveryResult({ reason: 'missing_chatby_conversation' });
+  }
+
+  let template;
+  try {
+    template = await deps.getTemplate();
+  } catch (error) {
+    return recoveryResult({ reason: 'discount_template_catalog_unavailable', error: error instanceof Error ? error.message : String(error) });
+  }
+  if (!template) return recoveryResult({ reason: 'discount_template_not_found' });
+  if (template.status !== 'APPROVED') {
+    return recoveryResult({ reason: 'discount_template_not_approved', templateName: template.name });
+  }
+
+  let freshMessages;
+  try {
+    freshMessages = await deps.getMessages(incident.chatbyUserNs);
+  } catch (error) {
+    return recoveryResult({ reason: 'chatby_final_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+  }
+  const policy = incidentDiscountPolicy({
+    incident: { ...incident, chatbyReadVerified: true },
+    messages: freshMessages,
+    now,
+    discountTemplateName: template.name
+  });
+  const response = classifyIncidentDiscountResponse(freshMessages, template.name);
+  if (!policy.eligible) {
+    return recoveryResult({
+      reason: policy.reason,
+      status: policy.reason === 'discount_template_already_sent' ? 'already_sent' : 'skipped',
+      templateName: template.name,
+      initialTemplateSentAt: policy.merchandiseTemplateSentAt,
+      dueAt: policy.dueAt,
+      sentAt: policy.discountTemplateSentAt,
+      verified: policy.reason === 'discount_template_already_sent',
+      responseStatus: response.status,
+      respondedAt: response.respondedAt
+    });
+  }
+
+  let shopifyOrders;
+  try {
+    shopifyOrders = await deps.getShopifyOrders(incident.phone || order.customerPhone || '');
+  } catch (error) {
+    return recoveryResult({ reason: 'shopify_order_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+  }
+  const exactPair = selectShopifyOrderForDropeaOrder({ dropeaOrder: order, shopifyOrders });
+  if (!exactPair) {
+    return recoveryResult({ reason: 'cross_source_order_mismatch', templateName: template.name });
+  }
+
+  let templateData;
+  try {
+    templateData = incidentDiscountTemplateData({
+      order: exactPair.order,
+      customerName: exactPair.order.customerName || incident.customerName,
+      productSummary: null
+    });
+  } catch (error) {
+    return recoveryResult({ reason: error?.code || 'discount_template_data_invalid', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+  }
+  const preview = {
+    templateName: template.name,
+    initialTemplateSentAt: policy.merchandiseTemplateSentAt,
+    dueAt: policy.dueAt,
+    originalPrice: templateData.originalPrice,
+    finalPrice: templateData.finalPrice,
+    discountAmountEur: 5,
+    crossSourceVerified: true,
+    responseStatus: response.status,
+    respondedAt: response.respondedAt
+  };
+  if (!realEnabled) return recoveryResult({ ...preview, status: 'would_send', reason: 'real_delivery_disabled' });
+
+  // Re-read immediately before claiming and sending. Any message or button after
+  // the initial template closes the lane, including an ambiguous reply.
+  const finalMessages = await deps.getMessages(incident.chatbyUserNs).catch(() => null);
+  if (!Array.isArray(finalMessages)) {
+    return recoveryResult({ ...preview, reason: 'chatby_pre_send_read_failed' });
+  }
+  const finalPolicy = incidentDiscountPolicy({
+    incident: { ...incident, chatbyReadVerified: true },
+    messages: finalMessages,
+    now: Date.now(),
+    discountTemplateName: template.name
+  });
+  if (!finalPolicy.eligible) {
+    const finalResponse = classifyIncidentDiscountResponse(finalMessages, template.name);
+    return recoveryResult({
+      ...preview,
+      status: finalPolicy.reason === 'discount_template_already_sent' ? 'already_sent' : 'skipped',
+      reason: finalPolicy.reason,
+      sentAt: finalPolicy.discountTemplateSentAt,
+      verified: finalPolicy.reason === 'discount_template_already_sent',
+      responseStatus: finalResponse.status,
+      respondedAt: finalResponse.respondedAt
+    });
+  }
+
+  const activeKey = `${incident.orderId}|${normalizedTemplate(template.name)}`;
+  if (activeRecoverySends.has(activeKey)) return recoveryResult({ ...preview, status: 'already_in_flight', reason: 'process_dedupe_guard' });
+  activeRecoverySends.add(activeKey);
+  const attemptedAt = new Date().toISOString();
+  let claim = null;
+  try {
+    claim = await deps.claim({
+      storeId: config.defaultStore.id,
+      orderId: incident.orderId,
+      customerPhone: incident.phone || order.customerPhone || '',
+      templateName: template.name,
+      provider: 'chatby',
+      chatbyUserNs: incident.chatbyUserNs
+    });
+    if (!claim?.acquired) {
+      return recoveryResult({
+        ...preview,
+        status: `persistent_${claim?.existing?.status || 'blocked'}`,
+        reason: claim?.reason || 'persistent_dedupe_guard',
+        attemptedAt: claim?.existing?.attempted_at || null,
+        sentAt: claim?.existing?.sent_at || null,
+        verified: ['sent', 'already_seen'].includes(String(claim?.existing?.status || ''))
+      });
+    }
+
+    const providerResponse = await deps.send({
+      user_ns: incident.chatbyUserNs,
+      user_id: incident.phone || order.customerPhone || '',
+      content: {
+        name: template.name,
+        lang: template.language,
+        namespace: template.namespace,
+        params: { ...template.defaultParams, ...templateData.params }
+      }
+    });
+    const responseWamid = extractWamid(providerResponse);
+    const delivery = responseWamid
+      ? { wamid: responseWamid, sentAt: new Date().toISOString() }
+      : await deps.waitForDelivery(incident.chatbyUserNs, template.name, attemptedAt);
+    const status = delivery ? 'sent' : 'delivery_unverified';
+    const sentAt = delivery?.sentAt || null;
+    await deps.finish({
+      storeId: config.defaultStore.id,
+      orderId: incident.orderId,
+      customerPhone: incident.phone || order.customerPhone || '',
+      templateName: template.name,
+      provider: 'chatby',
+      chatbyUserNs: incident.chatbyUserNs,
+      status,
+      attemptedAt,
+      sentAt,
+      lastError: delivery ? null : 'Chatby no devolvio un wamid verificable; no se reintentara automaticamente.',
+      raw: {
+        mode: 'INCIDENT_DISCOUNT_RECOVERY_REAL',
+        initialTemplateSentAt: policy.merchandiseTemplateSentAt,
+        crossSourceVerified: true,
+        discountAmountEur: 5,
+        originalAmount: templateData.originalAmount,
+        finalAmount: templateData.finalAmount,
+        providerAccepted: Boolean(providerResponse)
+      }
+    });
+    return recoveryResult({
+      ...preview,
+      status,
+      reason: delivery ? 'discount_template_sent' : 'delivery_unverified_no_retry',
+      attemptedAt,
+      sentAt,
+      verified: Boolean(delivery)
+    });
+  } catch (error) {
+    if (claim?.acquired) {
+      await deps.finish({
+        storeId: config.defaultStore.id,
+        orderId: incident.orderId,
+        customerPhone: incident.phone || order.customerPhone || '',
+        templateName: template.name,
+        provider: 'chatby',
+        chatbyUserNs: incident.chatbyUserNs,
+        status: 'failed',
+        attemptedAt,
+        lastError: error instanceof Error ? error.message : String(error),
+        raw: { mode: 'INCIDENT_DISCOUNT_RECOVERY_REAL', crossSourceVerified: true }
+      }).catch(() => null);
+    }
+    return recoveryResult({ ...preview, status: 'failed', reason: 'discount_template_send_failed', attemptedAt, error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    activeRecoverySends.delete(activeKey);
   }
 }

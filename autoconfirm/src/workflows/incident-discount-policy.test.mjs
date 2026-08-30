@@ -23,26 +23,37 @@ function incident(overrides = {}) {
   };
 }
 
-test('waits four hours from the verified merchandise template delivery', () => {
+test('waits twenty-four hours from the verified merchandise template delivery', () => {
   const result = incidentDiscountPolicy({
     incident: incident(),
     messages: [initialTemplate],
-    now: Date.parse('2026-07-28T11:59:59.000Z'),
+    now: Date.parse('2026-07-29T07:59:59.000Z'),
     discountTemplateName: 'es_es_dropea_incidencia_descuento_5'
   });
   assert.equal(result.eligible, false);
   assert.equal(result.reason, 'waiting_discount_window');
 });
 
-test('allows the discount exactly four hours later with no interaction', () => {
+test('allows the discount exactly twenty-four hours later with no interaction', () => {
   const result = incidentDiscountPolicy({
     incident: incident(),
     messages: [initialTemplate],
-    now: Date.parse('2026-07-28T12:00:00.000Z'),
+    now: Date.parse('2026-07-29T08:00:00.000Z'),
     discountTemplateName: 'es_es_dropea_incidencia_descuento_5'
   });
   assert.equal(result.eligible, true);
   assert.equal(result.discountAmountEur, 5);
+});
+
+test('does not reuse a merchandise template sent before the current incident', () => {
+  const result = incidentDiscountPolicy({
+    incident: incident({ incidenceDate: '2026-07-28T10:00:00.000Z' }),
+    messages: [initialTemplate],
+    now: Date.parse('2026-07-29T12:00:00.000Z'),
+    discountTemplateName: 'es_es_dropea_incidencia_descuento_5'
+  });
+  assert.equal(result.eligible, false);
+  assert.equal(result.reason, 'merchandise_template_before_current_incident');
 });
 
 test('any customer message or button after the merchandise template blocks the discount', () => {

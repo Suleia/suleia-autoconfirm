@@ -1,4 +1,4 @@
-export const INCIDENT_DISCOUNT_DELAY_HOURS = 4;
+export const INCIDENT_DISCOUNT_DELAY_HOURS = 24;
 export const INCIDENT_DISCOUNT_MAX_EUR = 5;
 export const INCIDENT_MERCHANDISE_TEMPLATE = 'dropea_incidencia_mercancia_v1';
 
@@ -151,10 +151,19 @@ export function incidentDiscountPolicy({
   discountTemplateName
 } = {}) {
   if (!rejectedGoodsIncident(incident)) return { eligible: false, reason: 'incident_not_rejected_goods' };
+  const status = normalize(incident?.issueStatus || incident?.status || 'pending');
+  if (!/pending|pendiente|open|abiert|unresolved|resolver/.test(status)) {
+    return { eligible: false, reason: 'incident_not_pending' };
+  }
   if (incident?.chatbyReadVerified !== true) return { eligible: false, reason: 'chatby_context_unverified' };
 
   const merchandiseDelivery = findVerifiedTemplateDelivery(messages, INCIDENT_MERCHANDISE_TEMPLATE);
   if (!merchandiseDelivery?.sentAt) return { eligible: false, reason: 'merchandise_template_not_verified' };
+  const incidentAtMs = parseDateMs(incident?.incidenceDate || incident?.createdAt);
+  const merchandiseAtMs = parseDateMs(merchandiseDelivery.sentAt);
+  if (Number.isFinite(incidentAtMs) && merchandiseAtMs < incidentAtMs - (5 * 60 * 1000)) {
+    return { eligible: false, reason: 'merchandise_template_before_current_incident' };
+  }
 
   const existingDiscount = discountTemplateName
     ? findVerifiedTemplateDelivery(messages, discountTemplateName)

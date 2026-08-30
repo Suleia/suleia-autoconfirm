@@ -28,13 +28,16 @@ test('fails closed when Shopify has no valid amount', () => {
 test('never allows a discount above the strict 5 EUR limit', () => {
   assert.throws(
     () => calculateIncidentDiscount({ totalAmount: 29.99 }, 5.01),
-    { code: 'INCIDENT_DISCOUNT_LIMIT_EXCEEDED' }
+    { code: 'INCIDENT_DISCOUNT_AMOUNT_NOT_ALLOWED' }
   );
 });
 
-test('accepts a localized Shopify amount and never produces a negative final price', () => {
+test('accepts a localized Shopify amount and blocks totals below the offer', () => {
   assert.equal(calculateIncidentDiscount({ totalAmount: '29,99 EUR' }).finalAmount, 24.99);
-  assert.equal(calculateIncidentDiscount({ totalAmount: 3 }).finalAmount, 0);
+  assert.throws(
+    () => calculateIncidentDiscount({ totalAmount: 3 }),
+    { code: 'INCIDENT_DISCOUNT_EXCEEDS_ORDER_TOTAL' }
+  );
 });
 
 test('rejects an already discounted order to prevent a duplicate discount', () => {
@@ -65,7 +68,7 @@ test('builds three ordered dynamic body values and stable internal button action
   assert.equal(data.defaultBindings['BODY_{{3}}'], INCIDENT_DISCOUNT_TEMPLATE_BINDINGS['BODY_{{3}}']);
   assert.equal(data.buttonActions.ACCEPT, 'ACCEPT_DISCOUNT_5');
   assert.equal(data.buttonActions.REJECT, 'REJECT_ORDER');
-  assert.match(data.dedupeKey, /es_es_dropea_incidencia_descuento_5$/);
+  assert.match(data.dedupeKey, /es_es_dropea_incidencia_descuento_5_v1$/);
 });
 
 test('extracts the product from a raw Dropea order when products is absent', () => {

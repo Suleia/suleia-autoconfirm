@@ -321,6 +321,12 @@ function storeSummary({ publicView = false } = {}) {
     lastIncidentsSyncAt: state.lastIncidentsSyncAt,
     lastIncidentsSyncError: state.lastIncidentsSyncError,
     lastIncidentsSyncCount: state.lastIncidentsSyncCount,
+    incidentDiscountRecoveryEnabled: config.enableIncidentDiscountTemplate === true,
+    incidentDiscountRealEnabled: config.incidentDiscountRealEnabled === true,
+    incidentDiscountDelayHours: 24,
+    incidentDiscountIntervalMinutes: config.incidentDiscountIntervalMinutes,
+    lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
+    lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,
     lastOperationalOrdersSyncAt: state.lastOperationalOrdersSyncAt,
     lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
     lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
@@ -941,6 +947,7 @@ let unansweredCancellationTimer = null;
 let unansweredCancellationRunning = false;
 let incidentsSyncTimer = null;
 let incidentNotificationsTimer = null;
+let incidentDiscountRecoveryTimer = null;
 let incidentsSyncRunning = false;
 let operationalOrdersSyncTimer = null;
 let operationalOrdersSyncRunning = false;
@@ -1079,6 +1086,22 @@ function startIncidentNotificationsScheduler() {
   }, 90000);
 }
 
+function startIncidentDiscountRecoveryScheduler() {
+  if (!config.enableIncidentDiscountTemplate) return;
+  const intervalMinutes = config.incidentDiscountIntervalMinutes || 15;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    scheduleNetworkJob('incident_discount_recovery', runScheduledIncidentsSync);
+    incidentDiscountRecoveryTimer = setInterval(
+      () => scheduleNetworkJob('incident_discount_recovery', runScheduledIncidentsSync),
+      intervalMs
+    );
+    incidentDiscountRecoveryTimer.unref?.();
+  }, 45000);
+}
+
 async function runScheduledOperationalOrdersSync() {
   if (operationalOrdersSyncRunning) return;
   operationalOrdersSyncRunning = true;
@@ -1146,5 +1169,6 @@ server.listen(config.port, async () => {
   startOperationalOrdersScheduler();
   startIncidentsScheduler();
   startIncidentNotificationsScheduler();
+  startIncidentDiscountRecoveryScheduler();
   startMetaDashboardSync();
 });

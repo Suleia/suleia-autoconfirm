@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   selectIncidentDiscountOrderPair,
+  selectShopifyOrderForDropeaOrder,
   selectRecentShopifyOnlyTestOrder
 } from './incident-discount-order-match.mjs';
 
@@ -35,6 +36,29 @@ test('fails closed when either source has no trustworthy creation timestamp', ()
   assert.equal(selectIncidentDiscountOrderPair({
     shopifyOrders: [{ id: 'shop', createdAt: '' }],
     dropeaOrders: [{ orderId: 'drop', createdAt: '2026-07-28T18:00:00.000Z' }]
+  }), null);
+});
+
+test('matches the exact Dropea incident order instead of a newer order from the same phone', () => {
+  const selected = selectShopifyOrderForDropeaOrder({
+    dropeaOrder: {
+      orderId: 'drop-incident',
+      createdAt: '2026-08-18T10:00:00.000Z',
+      raw: { external_order_id: '#2007' }
+    },
+    shopifyOrders: [
+      { id: 'gid://shopify/Order/new', name: '#2028', createdAt: '2026-08-21T10:00:00.000Z' },
+      { id: 'gid://shopify/Order/incident', name: '#2007', createdAt: '2026-08-18T10:01:00.000Z' }
+    ]
+  });
+  assert.equal(selected.order.name, '#2007');
+  assert.equal(selected.exactReference, true);
+});
+
+test('fails closed when the incident order cannot be correlated to Shopify', () => {
+  assert.equal(selectShopifyOrderForDropeaOrder({
+    dropeaOrder: { createdAt: '2026-08-18T10:00:00.000Z' },
+    shopifyOrders: [{ name: '#9999', createdAt: '2026-08-25T10:00:00.000Z' }]
   }), null);
 });
 

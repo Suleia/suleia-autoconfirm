@@ -10,6 +10,58 @@ function dropeaCreatedAt(order) {
   return order?.raw?.created_at || order?.createdAt || '';
 }
 
+function normalizedReference(value) {
+  return String(value || '').trim().replace(/^#/, '').toLowerCase();
+}
+
+function dropeaExternalReferences(order = {}) {
+  const raw = order?.raw || {};
+  return new Set([
+    raw.external_order_id,
+    raw.external_id,
+    raw.shopify_order_id,
+    raw.shopify_order_name,
+    raw.order_number,
+    order.externalOrderId,
+    order.shopifyOrderId
+  ].map(normalizedReference).filter(Boolean));
+}
+
+function shopifyReferences(order = {}) {
+  return new Set([order.id, order.name].map(normalizedReference).filter(Boolean));
+}
+
+export function selectShopifyOrderForDropeaOrder({
+  dropeaOrder,
+  shopifyOrders = [],
+  maxDifferenceMs = INCIDENT_DISCOUNT_ORDER_MATCH_WINDOW_MS
+} = {}) {
+  if (!dropeaOrder) return null;
+  const dropeaAt = timestamp(dropeaCreatedAt(dropeaOrder));
+  if (!Number.isFinite(dropeaAt)) return null;
+  const external = dropeaExternalReferences(dropeaOrder);
+  const candidates = shopifyOrders
+    .map((order) => {
+      const createdAtMs = timestamp(order?.createdAt);
+      const exactReference = [...shopifyReferences(order)].some((reference) => external.has(reference));
+      return {
+        order,
+        createdAtMs,
+        exactReference,
+        differenceMs: Math.abs(createdAtMs - dropeaAt)
+      };
+    })
+    .filter((entry) => Number.isFinite(entry.createdAtMs))
+    .sort((left, right) => (
+      Number(right.exactReference) - Number(left.exactReference)
+      || left.differenceMs - right.differenceMs
+      || right.createdAtMs - left.createdAtMs
+    ));
+  const selected = candidates[0];
+  if (!selected || (!selected.exactReference && selected.differenceMs > maxDifferenceMs)) return null;
+  return selected;
+}
+
 export function selectIncidentDiscountOrderPair({
   dropeaOrders = [],
   shopifyOrders = [],

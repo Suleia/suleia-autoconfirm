@@ -1,6 +1,6 @@
 import { setSubscriberUserFieldByName } from '../clients/chatby.mjs';
 
-export const INCIDENT_DISCOUNT_TEMPLATE_NAME = 'es_es_dropea_incidencia_descuento_5';
+export const INCIDENT_DISCOUNT_TEMPLATE_NAME = 'es_es_dropea_incidencia_descuento_5_v1';
 export const INCIDENT_DISCOUNT_FIELD_NAME = 'Dropea: Valor Total - 5 EUR';
 export const INCIDENT_DISCOUNT_FIELD_NS = 'f273883v15902977';
 export const INCIDENT_DISCOUNT_TEMPLATE_BINDINGS = Object.freeze({
@@ -57,10 +57,14 @@ export function calculateIncidentDiscount(order, discountAmount = 5) {
     error.code = 'SHOPIFY_ORDER_AMOUNT_INVALID';
     throw error;
   }
-  if (discount === null || discount < 0) throw new Error('El descuento no es valido.');
-  if (discount > 5) {
-    const error = new Error('El descuento de incidencia no puede superar 5 EUR.');
-    error.code = 'INCIDENT_DISCOUNT_LIMIT_EXCEEDED';
+  if (discount === null || discount !== 5) {
+    const error = new Error('El descuento de recuperacion debe ser exactamente de 5 EUR.');
+    error.code = 'INCIDENT_DISCOUNT_AMOUNT_NOT_ALLOWED';
+    throw error;
+  }
+  if (originalAmount < discount) {
+    const error = new Error('El importe del pedido es inferior al descuento ofertado.');
+    error.code = 'INCIDENT_DISCOUNT_EXCEEDS_ORDER_TOTAL';
     throw error;
   }
   const finalAmount = Math.max(0, Math.round((originalAmount - discount + Number.EPSILON) * 100) / 100);

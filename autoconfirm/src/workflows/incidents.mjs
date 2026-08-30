@@ -18,6 +18,7 @@ import { loadState, saveState } from '../storage.mjs';
 import { syncAgentMemoryRuleToSupabase, syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
 import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
 import { carrierIncidentDisplay } from './incident-carrier-history.mjs';
+import { processIncidentDiscountRecovery } from './incident-discount-service.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -1936,8 +1937,34 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       };
     });
     for (const item of analyzed) {
+      let discountRecovery = {
+        status: 'disabled',
+        reason: 'incident_discount_recovery_disabled',
+        templateName: null,
+        verified: false,
+        responseStatus: 'NOT_SENT',
+        discountAmountEur: 5
+      };
+      if (config.enableIncidentDiscountTemplate) {
+        try {
+          discountRecovery = await processIncidentDiscountRecovery({
+            incident: item.incident,
+            order: item.order,
+            messages: item.messages,
+            realEnabled: config.incidentDiscountRealEnabled === true
+          });
+        } catch (error) {
+          discountRecovery = {
+            ...discountRecovery,
+            status: 'failed',
+            reason: 'incident_discount_recovery_failed',
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
       // This V2 dashboard path is a hard read-only boundary. It never invokes
-      // notification delivery or any Dropea resolution/action function.
+      // any Dropea resolution/action function. The only optional external write
+      // is the separately gated, idempotent Chatby recovery template above.
       const notification = {
         status: 'disabled',
         reason: 'dropea_v2_dashboard_read_only',
@@ -1954,6 +1981,20 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       };
       const enrichedIncident = {
         ...item.incident,
+        incidentDiscountRecovery: discountRecovery,
+        incidentDiscountRecoveryStatus: discountRecovery.status,
+        incidentDiscountRecoveryReason: discountRecovery.reason,
+        incidentDiscountTemplate: discountRecovery.templateName,
+        incidentDiscountInitialTemplateSentAt: discountRecovery.initialTemplateSentAt || null,
+        incidentDiscountDueAt: discountRecovery.dueAt || null,
+        incidentDiscountSentAt: discountRecovery.sentAt || null,
+        incidentDiscountVerified: discountRecovery.verified === true,
+        incidentDiscountResponseStatus: discountRecovery.responseStatus || 'NOT_SENT',
+        incidentDiscountRespondedAt: discountRecovery.respondedAt || null,
+        incidentDiscountOriginalPrice: discountRecovery.originalPrice || null,
+        incidentDiscountFinalPrice: discountRecovery.finalPrice || null,
+        incidentDiscountAmountEur: 5,
+        incidentDiscountCrossSourceVerified: discountRecovery.crossSourceVerified === true,
         incidentNotification: notification,
         incidentNotificationStatus: notification.status,
         incidentNotificationTemplate: notification.templateName,
@@ -1972,15 +2013,32 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
     }
 
     const sortedIncidents = sortIncidentsByIncidenceDesc(incidents);
+    const discountRecoverySummary = {
+      enabled: config.enableIncidentDiscountTemplate === true,
+      realEnabled: config.incidentDiscountRealEnabled === true,
+      checked: sortedIncidents.filter((incident) => incident.incidentType === 'rejected_goods').length,
+      sent: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'sent').length,
+      alreadySent: sortedIncidents.filter((incident) => ['already_sent', 'persistent_sent'].includes(incident.incidentDiscountRecoveryStatus)).length,
+      accepted: sortedIncidents.filter((incident) => incident.incidentDiscountResponseStatus === 'DISCOUNT_ACCEPTED').length,
+      blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'customer_interaction_after_merchandise_template').length,
+      failed: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'failed').length,
+      discountAmountEur: 5,
+      delayHours: 24
+    };
     const payload = {
       ok: true,
       updatedAt,
       intervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
       agentName: 'Agente de incidencias',
-      agentMode: 'training_read_only',
-      agentModeLabel: 'Lectura V2 y analisis; sin mensajes ni acciones automaticas',
-      notificationMode: 'disabled',
-      notificationModeLabel: 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
+      agentMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'training_read_only',
+      agentModeLabel: config.incidentDiscountRealEnabled
+        ? 'Lectura V2 y recuperacion comercial de 5 EUR tras 24 h; sin acciones en Dropea'
+        : 'Lectura V2 y analisis; sin mensajes ni acciones automaticas',
+      notificationMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'disabled',
+      notificationModeLabel: config.incidentDiscountRealEnabled
+        ? 'Plantilla de descuento real, una sola vez, tras 24 h sin respuesta'
+        : 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
+      discountRecoverySummary,
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
@@ -1994,6 +2052,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
     state.lastIncidentsSyncAt = updatedAt;
     state.lastIncidentsSyncError = null;
     state.lastIncidentsSyncCount = sortedIncidents.length;
+    state.lastIncidentDiscountRecoveryAt = updatedAt;
+    state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
     saveState(state);
     return payload;
   } catch (error) {

@@ -149,6 +149,8 @@ export function getAppConfig() {
     whatsappTemplateName: process.env.WHATSAPP_TEMPLATE_NAME || null,
     preparedWhatsappTemplateName: process.env.PREPARED_WHATSAPP_TEMPLATE_NAME || 'es_ES dropea_pedido_preparado_v1',
     enableIncidentDiscountTemplate: bool(process.env.ENABLE_INCIDENT_DISCOUNT_TEMPLATE, false),
+    incidentDiscountRealEnabled: bool(process.env.INCIDENT_DISCOUNT_REAL_ENABLED, false),
+    incidentDiscountIntervalMinutes: int(process.env.INCIDENT_DISCOUNT_INTERVAL_MINUTES, 15),
     whatsappProvider: process.env.WHATSAPP_PROVIDER || 'chatby',
     metaWhatsappPhoneNumberId: process.env.META_WHATSAPP_PHONE_NUMBER_ID || null,
     metaWhatsappLanguage: process.env.META_WHATSAPP_LANGUAGE || 'es_ES',
