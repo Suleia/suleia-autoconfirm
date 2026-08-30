@@ -90,6 +90,24 @@ test('order mapper preserves only numeric Dropea fulfillment cost components', (
   }), /order_costs\.fulfillment_outbound/);
 });
 
+test('refused delivery preserves rejected_at as the exact finance return milestone', () => {
+  const result = mapDropeaOrder(order({
+    status: 'SHIPPING', sub_status: 'REFUSED',
+    rejected_at: '2026-08-20T14:35:00+02:00'
+  }), { hmacKey: HMAC_KEY, market: 'ES', observedAt: AT });
+  assert.equal(result.canonical_state, 'REFUSED');
+  assert.equal(result.rejected_at, '2026-08-20T12:35:00.000Z');
+  assert.equal(result.returned_at, '2026-08-20T12:35:00.000Z');
+});
+
+test('rejected status without an explicit rejection date never invents a return date', () => {
+  const result = mapDropeaOrder(order({ status: 'ERROR', sub_status: 'REJECTED' }), {
+    hmacKey: HMAC_KEY, market: 'ES', observedAt: AT
+  });
+  assert.equal(result.rejected_at, null);
+  assert.equal(result.returned_at, null);
+});
+
 test('central mapper projects only masked operational protections and blocks test orders', () => {
   const result = mapDropeaOrder(order({ customer: { phone: '600000000' } }), {
     hmacKey: HMAC_KEY,

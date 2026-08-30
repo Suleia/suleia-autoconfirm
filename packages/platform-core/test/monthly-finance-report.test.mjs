@@ -29,6 +29,8 @@ test('monthly report separates delivered, in-air and returned orders and applies
   assert.equal(result.totals.delivered, 1);
   assert.equal(result.totals.in_air, 1);
   assert.equal(result.totals.returned, 1);
+  assert.equal(result.totals.returned_units, 2);
+  assert.equal(result.totals.delivered_units, 2);
   assert.equal(result.totals.costs.outbound_shipping, 12);
   assert.equal(result.totals.costs.returns, 5);
   assert.equal(result.totals.costs.product, 6);
@@ -112,6 +114,20 @@ test('a rejected order that was already dispatched is counted as a return with e
   assert.equal(result.totals.returned, 1);
   assert.equal(result.totals.costs.outbound_fulfillment, 1.2);
   assert.equal(result.totals.costs.returns, 5.5);
+});
+
+test('Dropea refused lifecycle is shown as a returned order and returned product units', () => {
+  const refused = order('refused-after-dispatch', 'REFUSED', '2026-08-01', {
+    returned_at_utc: '2026-08-02T16:00:00Z'
+  });
+  const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-02T18:00:00Z'),
+    orders: [refused], rates, fixedExpensesComplete: true,
+    adSpend: [1, 2].map((day) => ({ business_date: `2026-08-0${day}`, spend: 0, sync_status: 'COMPLETE' })) });
+  assert.equal(result.totals.returned, 1);
+  assert.equal(result.totals.returned_units, 2);
+  assert.equal(result.daily[1].returned, 1);
+  assert.equal(result.daily[1].returned_units, 2);
+  assert.equal(result.products[0].returned_units, 2);
 });
 
 test('product report exposes lifecycle, incidences and only attributable profit', () => {

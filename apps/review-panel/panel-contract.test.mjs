@@ -23,9 +23,9 @@ test('Operations Center exposes Pedidos, Incidencias and audited finance configu
   assert.match(html, /id="finance-month"/);
   assert.match(html, /INFORME FINANCIERO MENSUAL/);
   assert.match(script, /Pedidos creados/);
-  assert.match(html, /Beneficio neto/);
+  assert.match(`${html}\n${script}`, /Beneficio neto/);
   assert.match(html, /De los ingresos al beneficio neto/);
-  assert.match(html, /Rentabilidad y calidad/);
+  assert.match(html, /Resultados financieros diarios/);
   assert.match(html, /id="finance-prev-month"/);
   assert.match(html, /id="finance-next-month"/);
   assert.match(html, /id="finance-audit"/);
@@ -54,12 +54,14 @@ test('Operations Center exposes Pedidos, Incidencias and audited finance configu
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260828-finance-daily-v3">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260830-finance-returns-v4">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260828-finance-daily-v6" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260830-finance-returns-v7" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
+  assert.doesNotMatch(html, /class="finance-daily-table"/);
+  assert.match(script, /Unidades devueltas/);
   assert.match(html, /id="page-size"/);
   assert.match(html, /id="page-status"/);
   assert.match(script, /async function prepareLogin\(\)/);

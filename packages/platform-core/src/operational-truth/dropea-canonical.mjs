@@ -211,6 +211,16 @@ export function mapDropeaOrder(order, {
     order.line_items[index]?.external_name || item.product_name,
     200
   ));
+  const rejectedAt = nullableIso(order.rejected_at, 'order.rejected_at');
+  const explicitReturnedAt = nullableIso(order.returned_at, 'order.returned_at');
+  // Dropea Statistics groups refused/rejected deliveries under "Rechazados"
+  // and charges their return logistics on rejected_at. Preserve that exact
+  // source timestamp as the return milestone; never infer it from updated_at.
+  const returnedAt = explicitReturnedAt || (
+    ['REFUSED', 'REJECTED', 'REFUSED_LOST_OR_DAMAGED'].includes(state.canonical_state)
+      ? rejectedAt
+      : null
+  );
   return Object.freeze({
     canonical_order_id: canonicalOrderIdOverride || identity.canonical_order_id,
     dropea_order_id: String(order.id),
@@ -242,7 +252,9 @@ export function mapDropeaOrder(order, {
     confirmed_at: nullableIso(order.confirmed_at, 'order.confirmed_at'),
     processing_at: nullableIso(order.processing_at, 'order.processing_at'),
     delivered_at: nullableIso(order.delivered_at, 'order.delivered_at'),
-    rejected_at: nullableIso(order.rejected_at, 'order.rejected_at'),
+    cancelled_at: nullableIso(order.cancelled_at, 'order.cancelled_at'),
+    rejected_at: rejectedAt,
+    returned_at: returnedAt,
     identity_status: canonicalOrderIdOverride ? 'VERIFIED' : identity.status,
     identity,
     lifecycle_classification: lifecycle.lifecycle,

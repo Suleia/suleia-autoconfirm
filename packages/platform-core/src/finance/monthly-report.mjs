@@ -1,7 +1,7 @@
 const DAY_MS = 86_400_000;
-const SENT_STATES = new Set(['CONFIRMED', 'PROCESSING', 'PREPARING', 'PREPARED', 'SHIPPING', 'TRANSIT', 'IN_TRANSIT', 'DELIVERED', 'FINISHED', 'INCIDENCE', 'RETURNED']);
+const SENT_STATES = new Set(['CONFIRMED', 'PROCESSING', 'PREPARING', 'PREPARED', 'SHIPPING', 'TRANSIT', 'IN_TRANSIT', 'DELIVERED', 'FINISHED', 'INCIDENCE', 'RETURNED', 'REFUSED', 'REFUSED_LOST_OR_DAMAGED']);
 const DELIVERED_STATES = new Set(['DELIVERED', 'FINISHED']);
-const TERMINAL_NOT_DELIVERED = new Set(['CANCELLED', 'REJECTED', 'RETURNED', 'INDEMNIFIED']);
+const TERMINAL_NOT_DELIVERED = new Set(['CANCELLED', 'REJECTED', 'REFUSED', 'REFUSED_LOST_OR_DAMAGED', 'RETURNED', 'INDEMNIFIED']);
 
 function cents(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -127,7 +127,7 @@ function sourceStatus(rows, day, currency) {
 function orderFlags(order) {
   const lifecycle = state(order);
   const sent = Boolean(order.confirmed_at_utc) || SENT_STATES.has(lifecycle);
-  const returned = Boolean(order.returned_at_utc) || lifecycle === 'RETURNED' || (lifecycle === 'REJECTED' && sent);
+  const returned = Boolean(order.returned_at_utc) || ['RETURNED', 'REFUSED', 'REFUSED_LOST_OR_DAMAGED'].includes(lifecycle) || (lifecycle === 'REJECTED' && sent);
   const delivered = (Boolean(order.delivered_at_utc) || DELIVERED_STATES.has(lifecycle)) && !returned;
   return {
     sent, delivered, returned,
@@ -363,7 +363,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   }
   const daily = days.map((day) => {
     const events = eventsByDay.get(day); const relevant = day <= today; const ad = relevant ? sourceStatus(adSpend, day, currency) : { value: 0, status: 'FUTURE' };
-    const counts = { orders_created: 0, orders_sent: 0, delivered: 0, in_air: 0, returned: 0, incidences: 0 };
+    const counts = { orders_created: 0, orders_sent: 0, delivered: 0, delivered_units: 0, in_air: 0, returned: 0, returned_units: 0, incidences: 0 };
     let estimatedRevenue = 0; let realRevenue = 0; let estimatedRevenueComplete = true; let realRevenueComplete = true;
     const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixedExpensesComplete ? fixed.get(day) || 0 : null };
     for (const { type: eventType, order } of events) {
@@ -376,12 +376,14 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
       }
       if (eventType === 'delivered') {
         counts.delivered += 1;
+        counts.delivered_units += normalizedProducts(order).reduce((sum, product) => sum + product.quantity, 0);
         if (order.returned_at_utc) realRevenueComplete = false;
         else if (orderAmount !== null) realRevenue += orderAmount;
         else { realRevenueComplete = false; missing.add(`ORDER_AMOUNT:${order.canonical_order_id || 'UNKNOWN'}`); }
       }
       if (eventType === 'returned') {
         counts.returned += 1;
+        counts.returned_units += normalizedProducts(order).reduce((sum, product) => sum + product.quantity, 0);
         if (order.delivered_at_utc) realRevenueComplete = false;
       }
       const neededTypes = eventType === 'sent' ? ['OUTBOUND_SHIPPING', 'OUTBOUND_FULFILLMENT']
@@ -471,7 +473,8 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   const fixedCommitted = fixedExpensesComplete
     ? amount([...fixed.values()].reduce((sum, value) => sum + value, 0)) : null;
   const totals = {
-    orders_created: ordersCreated, orders_sent: ordersSent, delivered, in_air: currentInAir, returned: sumField('returned'), incidences: sumField('incidences'),
+    orders_created: ordersCreated, orders_sent: ordersSent, delivered, delivered_units: sumField('delivered_units'), in_air: currentInAir,
+    returned: sumField('returned'), returned_units: sumField('returned_units'), incidences: sumField('incidences'),
     cohort: { orders_created: cohortOrders.length, orders_sent: cohortSent, delivered: cohortDelivered },
     estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
     costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising: sumCost('advertising'), fixed: sumCost('fixed') },
