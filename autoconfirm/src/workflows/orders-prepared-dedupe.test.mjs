@@ -1,6 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { nativeLifecycleAudit, preparedTemplateRecoveryWaitMs } from './orders.mjs';
+import {
+  initialTemplateBlockedByLegacyOwnership,
+  nativeLifecycleAudit,
+  preparedTemplateRecoveryWaitMs
+} from './orders.mjs';
+
+test('recognizes only the historical initial-template ownership failure', () => {
+  assert.equal(initialTemplateBlockedByLegacyOwnership({
+    chatbyTemplateSendStatus: 'failed',
+    chatbyTemplateLastError: 'Lifecycle template blocked: Chatby native automation is the configured single sender.'
+  }), true);
+  assert.equal(initialTemplateBlockedByLegacyOwnership({
+    chatbyTemplateSendStatus: 'failed',
+    chatbyTemplateLastError: 'Chatby 401'
+  }), false);
+  assert.equal(initialTemplateBlockedByLegacyOwnership({
+    chatbyTemplateSendStatus: 'sent',
+    chatbyTemplateLastError: 'Lifecycle template blocked: Chatby native automation is the configured single sender.'
+  }), false);
+});
 
 test('waits for the normal Chatby prepared flow before recovery sends', () => {
   const now = Date.parse('2026-07-19T10:02:00.000Z');

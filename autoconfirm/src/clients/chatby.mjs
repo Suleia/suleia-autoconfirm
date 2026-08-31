@@ -11,7 +11,6 @@ let nextRequestAt = 0;
 let rateLimitedUntil = 0;
 
 const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
-  'dropea_pedido_nuevo_v1',
   'dropea_pedido_preparado_v1',
   'dropea_incidencia_mercancia_v1'
 ]);

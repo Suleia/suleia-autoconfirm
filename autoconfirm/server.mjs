@@ -278,16 +278,22 @@ async function sendDashboardFile(res, reqUrl) {
 function lifecycleTemplateReadiness(state = loadState()) {
   const owner = String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository').trim().toLowerCase();
   const audit = state.lastLifecycleTemplateAudit || null;
+  const ownership = {
+    initial: 'repository_via_chatby_api',
+    prepared: owner === 'chatby_native' ? 'chatby_native' : 'repository_via_chatby_api',
+    incident: owner === 'chatby_native' ? 'chatby_native' : 'repository_via_chatby_api'
+  };
   if (owner !== 'chatby_native') {
-    return { owner, ready: true, status: 'repository_sender', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
+    return { owner, ownership, ready: true, status: 'repository_sender', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
   }
   if (!audit || audit.owner !== owner) {
-    return { owner, ready: false, status: 'audit_pending', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
+    return { owner, ownership, ready: false, status: 'audit_pending', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
   }
   const overdue = Number(audit.overdue || 0);
   const pending = Number(audit.pending || 0);
   return {
     owner,
+    ownership,
     ready: overdue === 0,
     status: overdue > 0 ? 'native_delivery_overdue' : pending > 0 ? 'native_delivery_pending' : 'native_delivery_verified',
     checkedAt: audit.checkedAt || null,

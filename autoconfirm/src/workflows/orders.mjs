@@ -1691,6 +1691,13 @@ function templateAlreadyAttempted(order, templateName) {
     && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.chatbyTemplateSendStatus));
 }
 
+export function initialTemplateBlockedByLegacyOwnership(order) {
+  const status = normalizeText(order?.chatbyTemplateSendStatus);
+  const error = String(order?.chatbyTemplateLastError || '');
+  return status === 'failed'
+    && /Lifecycle template blocked:\s*Chatby native automation is the configured single sender\.?/i.test(error);
+}
+
 function retryableTemplateFailure(order) {
   const status = normalizeText(order?.chatbyTemplateSendStatus);
   return status === 'failed';
@@ -1811,7 +1818,8 @@ async function markTemplateAlreadySeen(order, userNs, store, templateName) {
       chatbyTemplateSentAt: order.chatbyTemplateSentAt || markedAt,
       chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || markedAt,
       chatbyTemplateName: templateName,
-      chatbyTemplateSendStatus: 'already_seen'
+      chatbyTemplateSendStatus: 'already_seen',
+      chatbyTemplateLastError: null
     });
     rememberInitialTemplateAttempt(updated, templateName, {
       status: 'already_seen',
@@ -1836,7 +1844,8 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
       chatbyTemplateSentAt: order.chatbyTemplateSentAt || markedAt,
       chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || markedAt,
       chatbyTemplateName: templateName,
-      chatbyTemplateSendStatus: 'already_seen'
+      chatbyTemplateSendStatus: 'already_seen',
+      chatbyTemplateLastError: null
     });
     rememberInitialTemplateAttempt(updated, templateName, {
       status: 'already_seen',
@@ -1998,6 +2007,14 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       chatbyNativeAuditAgeMinutes: audit.ageMinutes,
       chatbyNativeAuditGraceMinutes: audit.graceMinutes
     });
+  }
+  if (initialTemplateBlockedByLegacyOwnership(order)) {
+    const legacyUserNs = await resolveExistingChatbyUserNs(order);
+    if (legacyUserNs) {
+      const alreadySeen = await markTemplateAlreadySeenForOrder(order, legacyUserNs, store, templateName);
+      if (alreadySeen) return alreadySeen;
+    }
+    return order;
   }
   if (templateAlreadyAttempted(order, templateName)) {
     const status = normalizeText(order.chatbyTemplateSendStatus);
@@ -2599,6 +2616,8 @@ export async function reconcileCriticalOrderTemplates({
           initialAction = 'already_seen';
         } else if (['native_pending', 'native_overdue'].includes(normalizeText(afterStatus))) {
           initialAction = normalizeText(afterStatus);
+        } else if (initialTemplateBlockedByLegacyOwnership(current)) {
+          initialAction = 'owner_policy_blocked';
         } else if (beforeStatus || beforeAttemptedAt) {
           initialAction = 'already_recorded';
         } else {
@@ -2643,9 +2662,12 @@ export async function reconcileCriticalOrderTemplates({
     pending: results.filter((item) => item.initial === 'native_pending'
       || item.prepared === 'native_pending').length,
     overdue: results.filter((item) => item.initial === 'native_overdue'
+      || item.initial === 'owner_policy_blocked'
       || item.prepared === 'native_overdue').length,
     sampleOrderIds: results
-      .filter((item) => item.initial === 'native_overdue' || item.prepared === 'native_overdue')
+      .filter((item) => item.initial === 'native_overdue'
+        || item.initial === 'owner_policy_blocked'
+        || item.prepared === 'native_overdue')
       .slice(0, 10)
       .map((item) => String(item.orderId))
   };
@@ -2908,7 +2930,11 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
 
   const templateName = configuredWhatsappTemplate(store);
   const nativeLifecycleOwner = templateName && chatbyNativeOwnsLifecycleTemplate(templateName);
-  if (templateName && (nativeLifecycleOwner || !templateAlreadyAttempted(order, templateName))) {
+  if (templateName && (
+    nativeLifecycleOwner
+    || initialTemplateBlockedByLegacyOwnership(order)
+    || !templateAlreadyAttempted(order, templateName)
+  )) {
     let userNs = order.chatbyUserNs || null;
     if (config.chatbyToken && order.customerPhone) {
       const existingSubscriber = await resolveSubscriberForOrder(order)
