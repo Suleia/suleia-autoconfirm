@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260830-finance-returns-v5">
+  <link rel="stylesheet" href="styles.css?v=20260831-finance-profit-v9">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -77,19 +77,24 @@
           </div>
         </div>
         <section id="finance-hero" class="finance-hero"></section>
+        <section class="finance-panel daily-profit-panel">
+          <div class="panel-heading"><div><p class="eyebrow">EVOLUCIÓN MENSUAL</p><h3>Beneficio neto diario</h3><p>Solo se muestra como cerrado cuando ingresos, logística, producto, Meta y gastos fijos están completos.</p></div><span id="finance-exactness" class="data-quality"></span></div>
+          <div id="finance-total" class="finance-period-total" aria-label="Totales del periodo"></div>
+          <div id="finance-trend" aria-label="Gráfico de beneficio neto diario"></div>
+          <details class="daily-detail-disclosure"><summary>Consultar el detalle de cada día</summary><div id="finance-daily" class="finance-daily-grid" aria-label="Resultados financieros diarios"></div></details>
+        </section>
         <section class="finance-panel">
-          <div class="panel-heading"><div><p class="eyebrow">EMBUDO OPERATIVO</p><h3>Pedidos por estado real</h3></div><span id="finance-exactness" class="data-quality"></span></div>
+          <div class="panel-heading"><div><p class="eyebrow">ESTRUCTURA DE COSTES</p><h3>En qué se ha gastado el dinero</h3></div></div>
+          <div id="finance-costs" class="cost-card-grid"></div>
+        </section>
+        <section class="finance-panel">
+          <div class="panel-heading"><div><p class="eyebrow">EMBUDO OPERATIVO</p><h3>Pedidos por estado real</h3></div></div>
           <div id="finance-funnel" class="funnel-grid"></div>
         </section>
-        <section class="finance-columns">
-          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">PUENTE DE RENTABILIDAD</p><h3>De los ingresos al beneficio neto</h3></div></div><div id="finance-costs" class="cost-list"></div></article>
-          <article class="finance-panel"><div class="panel-heading"><div><p class="eyebrow">AUDITORÍA</p><h3>Fórmulas, cobertura y controles</h3></div></div><div id="finance-quality" class="quality-list"></div><div id="finance-audit" class="audit-checks"></div></article>
-        </section>
-        <section class="finance-panel">
-          <div class="panel-heading"><div><p class="eyebrow">BENEFICIO DIARIO REALIZADO</p><h3>Ingresos y costes en la fecha económica real</h3></div><span class="data-quality">Sin desplazamiento horizontal</span></div>
-          <div id="finance-total" class="finance-period-total" aria-label="Totales del periodo"></div>
-          <div id="finance-daily" class="finance-daily-grid" aria-label="Resultados financieros diarios"></div>
-        </section>
+        <details class="finance-panel finance-audit-disclosure">
+          <summary><span><span class="eyebrow">AUDITORÍA</span><strong>Fórmulas, cobertura y controles</strong></span><span class="data-quality">Ver detalle técnico</span></summary>
+          <div class="finance-audit-content"><div id="finance-quality" class="quality-list"></div><div id="finance-audit" class="audit-checks"></div></div>
+        </details>
         <section class="finance-panel fixed-expense-panel">
           <div class="panel-heading"><div><p class="eyebrow">CONFIGURACIÓN FINANCIERA</p><h3>Gastos fijos mensuales</h3><p>Se incorporan automáticamente al beneficio del periodo y al reparto diario.</p></div><button id="finance-add-fixed" class="primary-button" type="button">+ Añadir gasto fijo</button></div>
           <div class="fixed-expense-layout">
@@ -151,6 +156,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260830-finance-returns-v8" defer></script>
+  <script src="app.js?v=20260831-finance-profit-v9" defer></script>
 </body>
 </html>
