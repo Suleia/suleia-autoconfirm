@@ -173,6 +173,35 @@ test('Chatby mirror records the exact cause when no technical conversation refer
   assert.equal(result.external_methods[0], 'GET');
 });
 
+test('Chatby mirror reuses the subscriber catalogue while continuing current-issue cycles', async () => {
+  let fetchCalls = 0;
+  let clock = 1_000;
+  const subscriberCache = {};
+  const pool = { query: async () => ({ rows: [{
+    canonical_order_id: 'order-safe', external_order_id_hash: 'a'.repeat(64),
+    dropea_order_id: '198765', canonical_issue_id: 'issue-safe',
+    issue_created_at: '2026-08-01T09:00:00Z', issue_updated_at: '2026-08-01T09:05:00Z'
+  }] }) };
+  const input = {
+    pool,
+    projector: { upsertChatbyConversationLink: async () => {} },
+    token: 'test-token', hmacKey: key,
+    subscriberCache, subscriberCacheTtlMs: 900_000,
+    minRequestIntervalMs: 0, retryBaseMs: 0,
+    now: () => clock,
+    fetchImpl: async () => {
+      fetchCalls += 1;
+      return response({ data: [{ user_ns: 'unrelated', user_fields: [] }], meta: { current_page: 1, last_page: 1 } });
+    }
+  };
+  const first = await syncChatbyReadOnly(input);
+  clock += 300_000;
+  const second = await syncChatbyReadOnly(input);
+  assert.equal(first.subscriber_cache_hit, false);
+  assert.equal(second.subscriber_cache_hit, true);
+  assert.equal(fetchCalls, 1);
+});
+
 test('conversation metrics separate existence, current reply and stale activity', () => {
   const metrics = chatbyReadOnlyInternals.conversationMetrics([
     { id: 'old-out', type: 'out', msg_type: 'template', ts: Date.parse('2026-07-01T10:00:00Z') },

@@ -7,6 +7,14 @@ function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function retryAfterMilliseconds(value, now = Date.now()) {
+  if (value === null || value === undefined || String(value).trim() === '') return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds * 1000);
+  const at = Date.parse(String(value));
+  return Number.isFinite(at) ? Math.max(0, at - now) : null;
+}
+
 export class ReadOnlyViolation extends Error {
   constructor(message, code = 'READ_ONLY_VIOLATION') {
     super(message);
@@ -41,15 +49,23 @@ export function createReadOnlyTransport({
   allowedHosts = [],
   timeoutMs = 15_000,
   maxRetries = 3,
-  retryBaseMs = 250
+  retryBaseMs = 250,
+  maxRetryDelayMs = 60_000,
+  minRequestIntervalMs = 0,
+  waitImpl = wait,
+  now = Date.now
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new Error('fetch implementation is required');
   const hosts = allowedHosts.map((host) => String(host).toLowerCase());
+  let nextRequestAt = 0;
 
   return async function readOnlyFetch(url, options = {}) {
     const { method } = assertReadOnlyRequest(url, options, hosts);
     let lastError;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const pacingDelay = Math.max(0, nextRequestAt - now());
+      if (pacingDelay > 0) await waitImpl(pacingDelay);
+      nextRequestAt = now() + Math.max(0, minRequestIntervalMs);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -63,11 +79,13 @@ export function createReadOnlyTransport({
         if (![429, 500, 502, 503, 504].includes(response.status) || attempt === maxRetries) {
           return response;
         }
-        await wait(retryBaseMs * (2 ** attempt));
+        const exponentialDelay = retryBaseMs * (2 ** attempt);
+        const providerDelay = retryAfterMilliseconds(response.headers.get('retry-after'), now());
+        await waitImpl(Math.min(maxRetryDelayMs, Math.max(exponentialDelay, providerDelay || 0)));
       } catch (error) {
         lastError = error;
         if (attempt === maxRetries) throw error;
-        await wait(retryBaseMs * (2 ** attempt));
+        await waitImpl(Math.min(maxRetryDelayMs, retryBaseMs * (2 ** attempt)));
       } finally {
         clearTimeout(timer);
       }

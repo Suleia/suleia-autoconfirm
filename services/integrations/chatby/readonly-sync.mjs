@@ -204,6 +204,11 @@ export async function syncChatbyReadOnly({
   baseUrl = 'https://app.chatby.io/api',
   maxPages = 200,
   maxConversations = 500,
+  minRequestIntervalMs = 1_500,
+  retryBaseMs = 5_000,
+  subscriberCache = null,
+  subscriberCacheTtlMs = 900_000,
+  now = Date.now,
   fetchImpl = globalThis.fetch
 }) {
   if (!token) return Object.freeze({
@@ -214,25 +219,41 @@ export async function syncChatbyReadOnly({
   if (base.protocol !== 'https:' || base.hostname !== 'app.chatby.io') {
     throw new Error('CHATBY_READ_HOST_NOT_ALLOWLISTED');
   }
-  const transport = createReadOnlyTransport({ fetchImpl, allowedHosts: [base.hostname], maxRetries: 3 });
-  const subscribers = await collectPaginated({
-    firstCursor: 1,
-    maxPages,
-    fetchPage: async (page) => {
-      const url = new URL('/api/subscribers', base.origin);
-      url.searchParams.set('limit', '100');
-      url.searchParams.set('page', String(page));
-      const payload = await responseJson(await transport(url, {
-        method: 'GET', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }
-      }), 'chatby_subscribers');
-      const rows = responseRows(payload);
-      return { items: rows, next_cursor: nextPage(payload, rows, Number(page)) };
-    }
+  const transport = createReadOnlyTransport({
+    fetchImpl,
+    allowedHosts: [base.hostname],
+    maxRetries: 4,
+    retryBaseMs,
+    maxRetryDelayMs: 60_000,
+    minRequestIntervalMs
   });
+  const cacheHit = Boolean(subscriberCache?.items && Number.isFinite(subscriberCache.fetchedAt)
+    && now() - subscriberCache.fetchedAt < subscriberCacheTtlMs);
+  const subscribers = cacheHit
+    ? { complete: true, reason: null, items: subscriberCache.items, page_count: subscriberCache.pageCount }
+    : await collectPaginated({
+      firstCursor: 1,
+      maxPages,
+      fetchPage: async (page) => {
+        const url = new URL('/api/subscribers', base.origin);
+        url.searchParams.set('limit', '100');
+        url.searchParams.set('page', String(page));
+        const payload = await responseJson(await transport(url, {
+          method: 'GET', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }
+        }), 'chatby_subscribers');
+        const rows = responseRows(payload);
+        return { items: rows, next_cursor: nextPage(payload, rows, Number(page)) };
+      }
+    });
   if (!subscribers.complete) {
     const error = new Error(`Chatby subscriber pagination incomplete: ${subscribers.reason}`);
     error.code = 'CHATBY_SUBSCRIBER_PAGINATION_INCOMPLETE';
     throw error;
+  }
+  if (!cacheHit && subscriberCache) {
+    subscriberCache.items = subscribers.items;
+    subscriberCache.pageCount = subscribers.page_count;
+    subscriberCache.fetchedAt = now();
   }
 
   const candidates = await pool.query(`SELECT o.canonical_order_id,o.external_order_id_hash,o.dropea_order_id,
@@ -425,6 +446,7 @@ export async function syncChatbyReadOnly({
     consultable: true,
     subscribers_read: subscribers.items.length,
     subscriber_pages: subscribers.page_count,
+    subscriber_cache_hit: cacheHit,
     exact_orders: foundOrders.size,
     available_issues: availableIssues,
     conversations_read: conversationsRead,

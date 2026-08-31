@@ -28,7 +28,19 @@ const dropeaClients = dropeaStores.map((store) => ({ store, client: createDropea
 }) }));
 const operationsProjector = new OperationsProjector(repository.pool);
 let running = false, lastResult = null, lastError = null;
+// Ephemeral process-local cache only: it is never logged, persisted or exposed
+// through health/API responses.
+const chatbySubscriberCache = {};
 const webhookRate = new Map();
+
+function boundedMilliseconds(value, fallback, minimum) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed >= minimum ? parsed : fallback;
+}
+
+const chatbySubscriberCacheTtlMs = boundedMilliseconds(process.env.CHATBY_SUBSCRIBER_CACHE_TTL_MS, 900_000, config.pollIntervalMs);
+const chatbyMinRequestIntervalMs = boundedMilliseconds(process.env.CHATBY_READ_MIN_REQUEST_INTERVAL_MS, 1_500, 0);
+const chatbyRetryBaseMs = boundedMilliseconds(process.env.CHATBY_READ_RETRY_BASE_MS, 5_000, 250);
 
 function webhookRateAllowed(key, now = Date.now()) {
   const values = (webhookRate.get(key) || []).filter((timestamp) => now - timestamp < 60_000);
@@ -92,15 +104,33 @@ async function run() {
       ok: dropeaResults.every((result) => result.ok), actions_executed: 0, production_writes: 0
     } : { enabled: false, actions_executed: 0, production_writes: 0 };
     const chatbyEnabled = String(process.env.CHATBY_READ_ENABLED || 'false').toLowerCase() === 'true';
-    const chatby = chatbyEnabled ? await syncChatbyReadOnly({
-      pool: repository.pool,
-      projector: operationsProjector,
-      token: process.env.CHATBY_TOKEN,
-      hmacKey: config.hashKey,
-      baseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
-      maxPages: Number(process.env.CHATBY_READ_MAX_PAGES || 200),
-      maxConversations: Number(process.env.CHATBY_READ_MAX_CONVERSATIONS || 500)
-    }) : { enabled: false, ok: true, actions_executed: 0, production_writes: 0, messages_sent: 0 };
+    let chatby;
+    if (!chatbyEnabled) {
+      chatby = { enabled: false, ok: true, actions_executed: 0, production_writes: 0, messages_sent: 0 };
+    } else {
+      try {
+        chatby = await syncChatbyReadOnly({
+          pool: repository.pool,
+          projector: operationsProjector,
+          token: process.env.CHATBY_TOKEN,
+          hmacKey: config.hashKey,
+          baseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
+          maxPages: Number(process.env.CHATBY_READ_MAX_PAGES || 200),
+          maxConversations: Number(process.env.CHATBY_READ_MAX_CONVERSATIONS || 500),
+          minRequestIntervalMs: chatbyMinRequestIntervalMs,
+          retryBaseMs: chatbyRetryBaseMs,
+          subscriberCache: chatbySubscriberCache,
+          subscriberCacheTtlMs: chatbySubscriberCacheTtlMs
+        });
+      } catch (error) {
+        const safeChatbyError = /^CHATBY_[A-Z0-9_]+$/.test(String(error?.code || ''))
+          ? error.code
+          : 'CHATBY_READ_FAILED';
+        chatby = { enabled: true, ok: false, error: safeChatbyError,
+          actions_executed: 0, production_writes: 0, messages_sent: 0 };
+        audit({ event: 'chatby_sync_failed', reason: safeChatbyError });
+      }
+    }
     const operationalSignals = dropeaStores.length
       ? await syncOperationalOrderSignals({
           source, projector: operationsProjector, stores: dropeaStores,

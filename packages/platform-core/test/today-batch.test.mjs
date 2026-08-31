@@ -45,6 +45,42 @@ test('read-only transport blocks every mutating method before fetch', async () =
   assert.equal(calls, 0);
 });
 
+test('read-only transport honors Retry-After before retrying a 429', async () => {
+  const waits = [];
+  let calls = 0;
+  const transport = createReadOnlyTransport({
+    allowedHosts: ['example.test'],
+    maxRetries: 1,
+    retryBaseMs: 250,
+    waitImpl: async (milliseconds) => waits.push(milliseconds),
+    fetchImpl: async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response('{}', { status: 429, headers: { 'Retry-After': '2' } })
+        : new Response('{}', { status: 200 });
+    }
+  });
+  const response = await transport('https://example.test/orders', { method: 'GET' });
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2);
+  assert.deepEqual(waits, [2_000]);
+});
+
+test('read-only transport paces consecutive provider reads', async () => {
+  let clock = 0;
+  const waits = [];
+  const transport = createReadOnlyTransport({
+    allowedHosts: ['example.test'],
+    minRequestIntervalMs: 1_500,
+    now: () => clock,
+    waitImpl: async (milliseconds) => { waits.push(milliseconds); clock += milliseconds; },
+    fetchImpl: async () => new Response('{}', { status: 200 })
+  });
+  await transport('https://example.test/first');
+  await transport('https://example.test/second');
+  assert.deepEqual(waits, [1_500]);
+});
+
 test('pagination detects repeated pages and never declares completeness', async () => {
   const result = await collectPaginated({
     firstCursor: 1,
