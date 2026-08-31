@@ -444,17 +444,20 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   // of recurring expenses remain visible as a commitment, but never distort a
   // daily realised result before their calendar day arrives.
   const observed = daily.filter((row) => row.day <= today);
-  // Meta's current business day is not final until its source checkpoint is
-  // complete. If every earlier day is complete, keep the open day visible in
-  // the daily cards but close the headline totals through yesterday. This
-  // avoids both inventing today's ad spend as zero and blanking an otherwise
-  // fully audited month-to-date result.
+  // Meta can close more than one day late. For an open month, headline values
+  // therefore use the longest contiguous audited prefix and leave every later
+  // day visible as provisional. This never invents missing spend as zero and
+  // never promotes the larger pre-advertising profit as the net result.
   const currentMonth = month === today.slice(0, 7);
-  const openTrailingDay = currentMonth && observed.length > 1
-    && observed.at(-1)?.day === today
-    && observed.at(-1)?.quality === 'INCOMPLETE'
-    && observed.slice(0, -1).every((row) => row.quality === 'COMPLETE');
-  const included = openTrailingDay ? observed.slice(0, -1) : observed;
+  const firstIncompleteDay = currentMonth
+    ? observed.findIndex((row) => row.quality !== 'COMPLETE')
+    : -1;
+  // If the very first day is incomplete there is no closed accounting period
+  // to publish. Keep the observed operational values, but leave net profit
+  // blocked instead of presenting an empty zero-period as a valid close.
+  const nonAdvertisingGap = [...missing].some((key) => !key.startsWith('ADVERTISING:'));
+  const partialClose = currentMonth && firstIncompleteDay > 0 && !nonAdvertisingGap;
+  const included = partialClose ? observed.slice(0, firstIncompleteDay) : observed;
   const accountingClosedThrough = included.length && included.every((row) => row.quality === 'COMPLETE')
     ? included.at(-1).day : null;
   const sumField = (field) => Number(included.reduce((sum, row) => sum + Number(row[field] || 0), 0).toFixed(2));
@@ -505,6 +508,15 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     estimated_cpa: estimatedCpa, real_cpa: realCpa,
     confirmation_rate: ratio(cohortSent, cohortOrders.length), delivery_rate: ratio(cohortDelivered, cohortSent)
   };
+  totals.return_cost_per_order = totals.returned > 0 && totals.costs.returns !== null
+    ? Number((totals.costs.returns / totals.returned).toFixed(2)) : null;
+  const observedReturnCost = observed.some((row) => row.costs.returns === null)
+    ? null : Number(observed.reduce((sum, row) => sum + Number(row.costs.returns || 0), 0).toFixed(2));
+  const observedSnapshot = {
+    returned: Number(observed.reduce((sum, row) => sum + Number(row.returned || 0), 0).toFixed(2)),
+    returned_units: Number(observed.reduce((sum, row) => sum + Number(row.returned_units || 0), 0).toFixed(2)),
+    return_cost: observedReturnCost
+  };
   const expenseComponents = [
     totals.costs.product, totals.costs.outbound_shipping, totals.costs.cod,
     totals.costs.outbound_fulfillment, totals.costs.returns,
@@ -534,6 +546,10 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
       auditCheck('MARGIN_EQUALS_PROFIT_OVER_REVENUE', totals.margin, totals.real_revenue && totals.net_profit !== null ? ratio(Math.round(totals.net_profit * 100), Math.round(totals.real_revenue * 100)) : null, 0.0001),
       auditCheck('ESTIMATED_CPA_EQUALS_ADS_OVER_SENT', totals.estimated_cpa, ordersSent && advertising !== null ? Number((advertising / ordersSent).toFixed(2)) : null),
       auditCheck('REAL_CPA_EQUALS_ADS_OVER_DELIVERED', totals.real_cpa, delivered && advertising !== null ? Number((advertising / delivered).toFixed(2)) : null),
+      auditCheck('RETURNED_COUNT_EQUALS_DAILY_RETURNED', totals.returned,
+        Number(included.reduce((sum, row) => sum + Number(row.returned || 0), 0).toFixed(2))),
+      auditCheck('RETURN_COST_EQUALS_DAILY_RETURN_COST', totals.costs.returns,
+        included.some((row) => row.costs.returns === null) ? null : Number(included.reduce((sum, row) => sum + Number(row.costs.returns || 0), 0).toFixed(2))),
       auditCheck('CONFIRMATION_RATE_EQUALS_COHORT_SENT_OVER_CREATED', totals.confirmation_rate, ratio(cohortSent, cohortOrders.length), 0.0001),
       auditCheck('DELIVERY_RATE_EQUALS_COHORT_DELIVERED_OVER_SENT', totals.delivery_rate, ratio(cohortDelivered, cohortSent), 0.0001),
       auditCheck('DAILY_PROFIT_SUM_EQUALS_MONTH_PROFIT', totals.net_profit,
@@ -544,8 +560,8 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   return Object.freeze({
     month, timezone, currency, generated_at: now.toISOString(), provisional: month >= today.slice(0, 7), perspective: 'REALIZED_EVENT_DATE',
     accounting_closed_through: accountingClosedThrough,
-    pending_accounting_days: observed.length - included.length,
-    exactness: missing.size ? 'PARTIAL' : 'COMPLETE', totals, daily, audit,
+    pending_accounting_days: currentMonth && firstIncompleteDay >= 0 ? observed.length - firstIncompleteDay : 0,
+    exactness: missing.size ? 'PARTIAL' : 'COMPLETE', totals, observed_snapshot: observedSnapshot, daily, audit,
     products: productEventRollup(orders, rates, month, timezone, currency, currentMonth), logistics: logisticsEventRollup(orders, rates, month, timezone, currency, currentMonth),
     advertising_by_platform: Object.entries(adSpend.reduce((totals, row) => {
       if (row.business_date < `${month}-01` || row.business_date > days.at(-1) || String(row.sync_status).toUpperCase() !== 'COMPLETE') return totals;

@@ -128,6 +128,9 @@ test('Dropea refused lifecycle is shown as a returned order and returned product
   assert.equal(result.daily[1].returned, 1);
   assert.equal(result.daily[1].returned_units, 2);
   assert.equal(result.products[0].returned_units, 2);
+  assert.equal(result.totals.return_cost_per_order, 5);
+  assert.equal(result.audit.checks.find((check) => check.key === 'RETURNED_COUNT_EQUALS_DAILY_RETURNED').status, 'PASS');
+  assert.equal(result.audit.checks.find((check) => check.key === 'RETURN_COST_EQUALS_DAILY_RETURN_COST').status, 'PASS');
 });
 
 test('product report exposes lifecycle, incidences and only attributable profit', () => {
@@ -174,6 +177,41 @@ test('an open Meta day stays provisional without blanking the audited month-to-d
   assert.equal(result.totals.net_profit, 5.5);
   assert.equal(result.daily[1].net_profit, null);
   assert.match(result.missing_sources.join(','), /ADVERTISING:2026-08-02/);
+});
+
+test('multiple trailing Meta days keep the last contiguous audited close instead of inflating benefit', () => {
+  const delivered = order('closed-day-delivery', 'DELIVERED', '2026-08-01', {
+    delivered_at_utc: '2026-08-01T13:00:00Z'
+  });
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-03T18:00:00Z'), orders: [delivered], rates,
+    fixedExpenses: [{ expense_type: 'RECURRING', amount: 31, status: 'ACTIVE', start_date: '2026-08-01' }],
+    adSpend: [{ business_date: '2026-08-01', platform: 'META', spend: 2, currency: 'EUR', sync_status: 'COMPLETE' }]
+  });
+  assert.equal(result.accounting_closed_through, '2026-08-01');
+  assert.equal(result.pending_accounting_days, 2);
+  assert.equal(result.totals.real_revenue, 20);
+  assert.equal(result.totals.total_expenses, 14.5);
+  assert.equal(result.totals.net_profit, 5.5);
+  assert.equal(result.daily[1].net_profit, null);
+  assert.equal(result.daily[2].net_profit, null);
+});
+
+test('rejections after the accounting close remain visible without entering closed benefit', () => {
+  const rejected = order('provisional-return', 'REFUSED', '2026-08-01', {
+    returned_at_utc: '2026-08-02T13:00:00Z'
+  });
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-02T18:00:00Z'), orders: [rejected], rates,
+    fixedExpensesComplete: true,
+    adSpend: [{ business_date: '2026-08-01', platform: 'META', spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }]
+  });
+  assert.equal(result.accounting_closed_through, '2026-08-01');
+  assert.equal(result.totals.returned, 0);
+  assert.equal(result.totals.costs.returns, 0);
+  assert.equal(result.observed_snapshot.returned, 1);
+  assert.equal(result.observed_snapshot.returned_units, 2);
+  assert.equal(result.observed_snapshot.return_cost, 5);
 });
 
 test('delivered orders without product lines or amounts block profit instead of fabricating zero', () => {
