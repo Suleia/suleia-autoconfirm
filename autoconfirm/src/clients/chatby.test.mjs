@@ -5,7 +5,26 @@ process.env.CHATBY_TOKEN = 'test-token';
 process.env.CHATBY_BASE_URL = 'https://chatby.test/api';
 process.env.CHATBY_REQUEST_MIN_INTERVAL_MS = '0';
 
-const { findSubscriberInIndexForOrder, getChatMessages, sendWhatsappTemplate } = await import('./chatby.mjs');
+const {
+  chatbyLifecycleTemplateOwner,
+  chatbyNativeOwnsLifecycleTemplate,
+  findSubscriberInIndexForOrder,
+  getChatMessages,
+  sendWhatsappTemplate
+} = await import('./chatby.mjs');
+
+test('reports the single lifecycle owner without exposing credentials', () => {
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  try {
+    process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = ' chatby_native ';
+    assert.equal(chatbyLifecycleTemplateOwner(), 'chatby_native');
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_nuevo_v1'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('dropea_incidencia_descuento_5_v1'), false);
+  } finally {
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
 
 test('strict order lookup never reuses a confirmed subscriber from another order', () => {
   const subscriber = {

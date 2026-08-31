@@ -20,6 +20,7 @@ import {
 } from '../clients/dropea.mjs';
 import {
   clearSubscriberOrderConfirmationState,
+  chatbyNativeOwnsLifecycleTemplate,
   createSubscriber,
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
@@ -1704,6 +1705,27 @@ function staleTemplateAttempt(order) {
   return (Date.now() - attemptedAt.getTime()) / 60000 >= Number(process.env.INITIAL_TEMPLATE_RETRY_AFTER_MINUTES || 10);
 }
 
+function nativeLifecycleGraceMinutes() {
+  const configured = Number(process.env.CHATBY_NATIVE_TEMPLATE_GRACE_MINUTES || 10);
+  return Number.isFinite(configured) && configured >= 1 ? configured : 10;
+}
+
+export function nativeLifecycleAudit({ order, templateName, referenceAt, nowMs = Date.now() }) {
+  const reference = parseDate(referenceAt) || parseDate(dropeaCreatedAt(order));
+  const ageMinutes = reference ? Math.max(0, (Number(nowMs) - reference.getTime()) / 60000) : null;
+  const graceMinutes = nativeLifecycleGraceMinutes();
+  const overdue = ageMinutes === null || ageMinutes >= graceMinutes;
+  return {
+    status: overdue ? 'native_overdue' : 'native_pending',
+    overdue,
+    ageMinutes,
+    graceMinutes,
+    error: overdue
+      ? `Chatby nativo no ha generado ${templateName} con WAMID dentro de ${graceMinutes} minutos.`
+      : null
+  };
+}
+
 function messageLooksLikeTemplate(message, templateName) {
   const target = normalizeText(String(templateName || '').split(/\s+/).pop() || templateName);
   if (!target) return false;
@@ -1954,6 +1976,29 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
 
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName) return order;
+  if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
+    const nativeUserNs = await resolveExistingChatbyUserNs(order);
+    if (nativeUserNs) {
+      const alreadySeen = await markTemplateAlreadySeenForOrder(order, nativeUserNs, store, templateName);
+      if (alreadySeen) return alreadySeen;
+    }
+
+    const audit = nativeLifecycleAudit({
+      order,
+      templateName,
+      referenceAt: dropeaCreatedAt(order)
+    });
+    return upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: nativeUserNs || order.chatbyUserNs || null,
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: audit.status,
+      chatbyTemplateLastError: audit.error,
+      chatbyNativeAuditAt: new Date().toISOString(),
+      chatbyNativeAuditAgeMinutes: audit.ageMinutes,
+      chatbyNativeAuditGraceMinutes: audit.graceMinutes
+    });
+  }
   if (templateAlreadyAttempted(order, templateName)) {
     const status = normalizeText(order.chatbyTemplateSendStatus);
     if (!order.chatbyTemplateSentAt && ['attempted', 'delivery_unverified'].includes(status)) {
@@ -2277,6 +2322,39 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   }
 
   const userNs = await resolveExistingChatbyUserNs(order);
+  if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
+    if (userNs) {
+      const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
+      if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
+    }
+
+    const audit = nativeLifecycleAudit({
+      order,
+      templateName,
+      referenceAt: order?.raw?.updated_at
+        || order?.raw?.updatedAt
+        || order?.statusUpdatedAt
+        || order?.updatedAt
+        || dropeaCreatedAt(order)
+    });
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs || order.chatbyUserNs || null,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: audit.status,
+      preparedTemplateLastError: audit.error,
+      preparedTemplateNativeAuditAt: new Date().toISOString(),
+      preparedTemplateNativeAuditAgeMinutes: audit.ageMinutes,
+      preparedTemplateNativeAuditGraceMinutes: audit.graceMinutes
+    });
+    return {
+      order: updated,
+      skipped: !audit.overdue,
+      failed: audit.overdue,
+      reason: audit.status,
+      error: audit.error
+    };
+  }
   if (!userNs) {
     const updated = upsertOrder(store.id, {
       ...order,
@@ -2519,6 +2597,8 @@ export async function reconcileCriticalOrderTemplates({
           initialAction = 'sent';
         } else if (afterStatus === 'already_seen') {
           initialAction = 'already_seen';
+        } else if (['native_pending', 'native_overdue'].includes(normalizeText(afterStatus))) {
+          initialAction = normalizeText(afterStatus);
         } else if (beforeStatus || beforeAttemptedAt) {
           initialAction = 'already_recorded';
         } else {
@@ -2554,14 +2634,29 @@ export async function reconcileCriticalOrderTemplates({
   const state = { ...loadState() };
   state.lastCriticalTemplateDeliveryAt = new Date().toISOString();
   state.lastCriticalTemplateDeliveryCount = results.length;
+  state.lastLifecycleTemplateAudit = {
+    checkedAt: state.lastCriticalTemplateDeliveryAt,
+    owner: String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository').trim().toLowerCase(),
+    processed: results.length,
+    verified: results.filter((item) => ['sent', 'already_seen'].includes(item.initial)
+      || ['sent', 'already_seen'].includes(item.prepared)).length,
+    pending: results.filter((item) => item.initial === 'native_pending'
+      || item.prepared === 'native_pending').length,
+    overdue: results.filter((item) => item.initial === 'native_overdue'
+      || item.prepared === 'native_overdue').length,
+    sampleOrderIds: results
+      .filter((item) => item.initial === 'native_overdue' || item.prepared === 'native_overdue')
+      .slice(0, 10)
+      .map((item) => String(item.orderId))
+  };
   saveState(state);
 
   return {
     processed: results.length,
     initialSent: results.filter((item) => item.initial === 'sent').length,
     preparedSent: results.filter((item) => item.prepared === 'sent').length,
-    failed: results.filter((item) => ['failed', 'verification_failed_closed'].includes(item.initial)
-      || ['failed', 'verification_failed_closed'].includes(item.prepared)).length,
+    failed: results.filter((item) => ['failed', 'verification_failed_closed', 'native_overdue'].includes(item.initial)
+      || ['failed', 'verification_failed_closed', 'native_overdue'].includes(item.prepared)).length,
     results
   };
 }
@@ -2812,7 +2907,8 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   if (blocked) return blocked.order || order;
 
   const templateName = configuredWhatsappTemplate(store);
-  if (templateName && !templateAlreadyAttempted(order, templateName)) {
+  const nativeLifecycleOwner = templateName && chatbyNativeOwnsLifecycleTemplate(templateName);
+  if (templateName && (nativeLifecycleOwner || !templateAlreadyAttempted(order, templateName))) {
     let userNs = order.chatbyUserNs || null;
     if (config.chatbyToken && order.customerPhone) {
       const existingSubscriber = await resolveSubscriberForOrder(order)

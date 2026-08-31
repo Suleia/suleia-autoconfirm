@@ -26,10 +26,19 @@ function templateSlug(value) {
     .replace(/^_+|_+$/g, '');
 }
 
-function assertRepositoryOwnsTemplate(payload) {
-  const owner = String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository')
+export function chatbyLifecycleTemplateOwner() {
+  return String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository')
     .trim()
     .toLowerCase();
+}
+
+export function chatbyNativeOwnsLifecycleTemplate(templateName) {
+  return chatbyLifecycleTemplateOwner() === 'chatby_native'
+    && CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(templateName));
+}
+
+function assertRepositoryOwnsTemplate(payload) {
+  const owner = chatbyLifecycleTemplateOwner();
   const name = payload?.template_name
     || payload?.templateName
     || payload?.content?.name

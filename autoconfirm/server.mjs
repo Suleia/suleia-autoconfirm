@@ -275,9 +275,34 @@ async function sendDashboardFile(res, reqUrl) {
   return sendJson(res, 404, { ok: false, error: 'not_found' });
 }
 
+function lifecycleTemplateReadiness(state = loadState()) {
+  const owner = String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository').trim().toLowerCase();
+  const audit = state.lastLifecycleTemplateAudit || null;
+  if (owner !== 'chatby_native') {
+    return { owner, ready: true, status: 'repository_sender', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
+  }
+  if (!audit || audit.owner !== owner) {
+    return { owner, ready: false, status: 'audit_pending', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
+  }
+  const overdue = Number(audit.overdue || 0);
+  const pending = Number(audit.pending || 0);
+  return {
+    owner,
+    ready: overdue === 0,
+    status: overdue > 0 ? 'native_delivery_overdue' : pending > 0 ? 'native_delivery_pending' : 'native_delivery_verified',
+    checkedAt: audit.checkedAt || null,
+    processed: Number(audit.processed || 0),
+    verified: Number(audit.verified || 0),
+    pending,
+    overdue,
+    sampleOrderIds: Array.isArray(audit.sampleOrderIds) ? audit.sampleOrderIds.slice(0, 10) : []
+  };
+}
+
 function storeSummary({ publicView = false } = {}) {
   const state = loadState();
   const actionReadiness = getDropeaV2OrderActionReadiness();
+  const lifecycleTemplates = lifecycleTemplateReadiness(state);
   const cancellationSummary = state.lastUnansweredCancellationSweepSummary || null;
   const publicCancellationSummary = cancellationSummary ? {
     thresholdHours: Number(cancellationSummary.thresholdHours || config.defaultStore.unansweredCancelAfterHours || 48),
@@ -334,6 +359,9 @@ function storeSummary({ publicView = false } = {}) {
     unansweredCancelAfterHours: config.defaultStore.unansweredCancelAfterHours,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
     dropeaV2Actions: actionReadiness,
+    lifecycleTemplates: publicView
+      ? { ...lifecycleTemplates, sampleOrderIds: undefined }
+      : lifecycleTemplates,
     automationReadiness: {
       confirmation: {
         enabled: Boolean(config.defaultStore.agentEnabled && config.defaultStore.delayedConfirmRealEnabled),
@@ -478,12 +506,15 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
+      const state = loadState();
+      const lifecycleTemplates = lifecycleTemplateReadiness(state);
       return sendJson(res, 200, {
         ok: true,
         operational: Boolean(chatbyHealth.ready
           && getDropeaV2OrderActionReadiness().ready
-          && !loadState().lastIngestError),
-        integrations: { chatby: { ...chatbyHealth } },
+          && lifecycleTemplates.ready
+          && !state.lastIngestError),
+        integrations: { chatby: { ...chatbyHealth, lifecycleTemplates } },
         ...storeSummary({ publicView: true })
       });
     }
