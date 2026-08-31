@@ -20,7 +20,7 @@ test -r "${ENV_FILE}"
 cd "${INSTALL_ROOT}"
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" --profile maintenance run --rm --no-TTY backup </dev/null
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" --profile maintenance run --rm --no-TTY \
-  --entrypoint /bin/sh backup -c 'latest=$(find /backups -maxdepth 1 -type f -name "suleia-*.dump" | sort | tail -n 1); test -n "$latest"; /opt/suleia/backup/verify_backup.sh "$latest"' </dev/null
+  --entrypoint /bin/sh backup -c 'latest=$(find /backups -maxdepth 1 -type f -name "suleia-*.dump" | sort | tail -n 1); test -n "$latest"; /bin/sh /opt/suleia/backup/verify_backup.sh "$latest"' </dev/null
 
 tar --extract --file "${ARCHIVE}" --directory "${INSTALL_ROOT}"
 chmod 0755 "${INSTALL_ROOT}/infrastructure/scripts/verify-shadow-state.sh" \
