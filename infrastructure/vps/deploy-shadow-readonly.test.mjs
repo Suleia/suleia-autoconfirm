@@ -7,7 +7,7 @@ const script = fs.readFileSync(new URL('./deploy-shadow-readonly.sh', import.met
 test('shadow deployment requires confirmation, backup verification and an exact archive path', () => {
   assert.match(script, /CONFIRM_SHADOW_DEPLOY/);
   assert.match(script, /\/tmp\/suleia-c1-shadow-deploy\.tar/);
-  assert.match(script, /verify_backup\.sh/);
+  assert.match(script, /\/bin\/sh \/opt\/suleia\/backup\/verify_backup\.sh/);
 });
 
 test('shadow deployment starts only ingestion and does not run production action services', () => {
