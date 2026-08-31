@@ -1538,18 +1538,20 @@ function orderAfterRejectedInitialTemplateClaim(order, store, templateName, clai
   const existing = claim?.existing || {};
   if (claim?.reason === 'already_claimed') {
     const attemptedAt = existing.attempted_at || order.chatbyTemplateAttemptedAt || new Date().toISOString();
+    const persistentError = existing.last_error || null;
     const updated = upsertOrder(store.id, {
       ...order,
       chatbyTemplateAttemptedAt: attemptedAt,
       chatbyTemplateSentAt: existing.sent_at || order.chatbyTemplateSentAt || null,
       chatbyTemplateName: templateName,
       chatbyTemplateSendStatus: `persistent_${existing.status || 'claimed'}`,
-      chatbyTemplateLastError: null
+      chatbyTemplateLastError: persistentError
     });
     rememberInitialTemplateAttempt(updated, templateName, {
       status: existing.status || 'attempted',
       attemptedAt,
       sentAt: existing.sent_at || null,
+      lastError: persistentError,
       provider: existing.provider || null
     });
     return updated;
@@ -1694,7 +1696,7 @@ function templateAlreadyAttempted(order, templateName) {
 export function initialTemplateBlockedByLegacyOwnership(order) {
   const status = normalizeText(order?.chatbyTemplateSendStatus);
   const error = String(order?.chatbyTemplateLastError || '');
-  return status === 'failed'
+  return ['failed', 'persistent_failed'].includes(status)
     && /Lifecycle template blocked:\s*Chatby native automation is the configured single sender\.?/i.test(error);
 }
 

@@ -12,6 +12,10 @@ test('recognizes only the historical initial-template ownership failure', () => 
     chatbyTemplateLastError: 'Lifecycle template blocked: Chatby native automation is the configured single sender.'
   }), true);
   assert.equal(initialTemplateBlockedByLegacyOwnership({
+    chatbyTemplateSendStatus: 'persistent_failed',
+    chatbyTemplateLastError: 'Lifecycle template blocked: Chatby native automation is the configured single sender.'
+  }), true);
+  assert.equal(initialTemplateBlockedByLegacyOwnership({
     chatbyTemplateSendStatus: 'failed',
     chatbyTemplateLastError: 'Chatby 401'
   }), false);
