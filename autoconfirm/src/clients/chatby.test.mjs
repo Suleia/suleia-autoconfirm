@@ -8,6 +8,7 @@ process.env.CHATBY_REQUEST_MIN_INTERVAL_MS = '0';
 const {
   chatbyLifecycleTemplateOwner,
   chatbyNativeOwnsLifecycleTemplate,
+  findSubscriberInIndexForExactOrder,
   findSubscriberInIndexForOrder,
   getChatMessages,
   sendWhatsappTemplate
@@ -26,6 +27,25 @@ test('reports the single lifecycle owner without exposing credentials', () => {
     if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
     else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
   }
+});
+
+test('exact incident lookup accepts only the explicit Dropea order field', () => {
+  const explicit = {
+    phone: '+34600000000',
+    user_fields: [{ name: 'Dropea: Numero', value: 'current-order' }]
+  };
+  const incidental = {
+    phone: '+34600000000',
+    notes: 'current-order',
+    user_fields: [{ name: 'Dropea: Numero', value: 'older-order' }]
+  };
+  const index = { byPhone: new Map([['600000000', [incidental, explicit]]]) };
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: 'current-order'
+  }), explicit);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: 'missing-order'
+  }), null);
 });
 
 test('strict order lookup never reuses a confirmed subscriber from another order', () => {

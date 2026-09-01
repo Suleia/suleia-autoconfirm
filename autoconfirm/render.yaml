@@ -47,6 +47,8 @@ services:
         value: 480
       - key: INCIDENT_RESPONSE_TIMEOUT_HOURS
         value: 48
+      - key: INCIDENT_ADDRESS_RESOLUTION_REAL_ENABLED
+        value: true
       - key: ENABLE_INCIDENT_DISCOUNT_TEMPLATE
         value: true
       - key: INCIDENT_DISCOUNT_REAL_ENABLED

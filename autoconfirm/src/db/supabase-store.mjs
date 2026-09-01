@@ -183,6 +183,44 @@ export async function claimTemplateDelivery({
   }
 }
 
+const INCIDENT_ADDRESS_RESOLUTION_LEDGER = 'dropea_issue_address_solution_v1';
+
+export function claimIncidentAddressResolution({ storeId = 'suleia', orderId, incidenceId } = {}) {
+  return claimTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_ADDRESS_RESOLUTION_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: ''
+  });
+}
+
+export function finishIncidentAddressResolution({
+  storeId = 'suleia',
+  orderId,
+  incidenceId,
+  status,
+  attemptedAt,
+  completedAt = null,
+  lastError = null,
+  evidence = null
+} = {}) {
+  return finishTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_ADDRESS_RESOLUTION_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: '',
+    status,
+    attemptedAt,
+    sentAt: completedAt,
+    lastError,
+    raw: evidence
+  });
+}
+
 export async function finishTemplateDelivery({
   storeId = 'suleia',
   orderId,

@@ -12,13 +12,19 @@ import {
   returnDropeaIssueToOrigin
 } from '../clients/dropea.mjs';
 import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
-import { findSubscriberInIndexByPhone, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
+import { findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
-import { syncAgentMemoryRuleToSupabase, syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
+import {
+  claimIncidentAddressResolution,
+  finishIncidentAddressResolution,
+  syncAgentMemoryRuleToSupabase,
+  syncIncidentsCacheToSupabase
+} from '../db/supabase-store.mjs';
 import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
 import { carrierIncidentDisplay } from './incident-carrier-history.mjs';
 import { processIncidentDiscountRecovery } from './incident-discount-service.mjs';
+import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -1000,6 +1006,169 @@ async function executeIncidentOperationalDecision(incident, decision) {
   }
 }
 
+async function currentPendingIncident(incidenceId, orderId) {
+  const rows = await collectPendingDropeaV2Incidents({ limit: 100, pages: 3 });
+  return rows.find(({ issue, order }) => (
+    String(issue?.id || issue?.incidenceId || '') === String(incidenceId || '')
+    && String(order?.orderId || issue?.orderId || '') === String(orderId || '')
+  )) || null;
+}
+
+function safeIncidentActionError(error) {
+  const code = String(error?.code || '').trim();
+  if (code) return code.slice(0, 120);
+  const message = error instanceof Error ? error.message : String(error || 'unknown_error');
+  const match = message.match(/\b(?:DROPEA|CHATBY|SUPABASE)_[A-Z0-9_]+\b/);
+  return match?.[0] || 'INCIDENT_ADDRESS_RESOLUTION_FAILED';
+}
+
+async function verifyAddressIncidentLeftPending(incidenceId, orderId) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+    const current = await currentPendingIncident(incidenceId, orderId);
+    if (!current) return true;
+  }
+  return false;
+}
+
+async function auditAddressIncidentAction(incident, decision, result) {
+  const timestamp = result.verifiedAt || result.completedAt || result.attemptedAt || new Date().toISOString();
+  await syncAgentMemoryRuleToSupabase({
+    id: `incident_address_action_${incident.incidenceId}`,
+    type: 'incident_address_action_audit',
+    source: 'suleia_incident_agent',
+    incidenceId: incident.incidenceId,
+    orderId: incident.orderId,
+    text: `${decision.ruleId}: ${result.status}`,
+    createdAt: timestamp,
+    raw: {
+      incidenceId: incident.incidenceId,
+      orderId: incident.orderId,
+      ruleId: decision.ruleId,
+      status: result.status,
+      attemptedAt: result.attemptedAt || null,
+      completedAt: result.completedAt || null,
+      verifiedAt: result.verifiedAt || null
+    }
+  }).catch(() => null);
+}
+
+export async function executeIncorrectAddressResolution(incident, analyzedDecision, dependencies = {}) {
+  const readCurrent = dependencies.readCurrent || currentPendingIncident;
+  const readMessages = dependencies.readMessages || getChatMessages;
+  const claimResolution = dependencies.claimResolution || claimIncidentAddressResolution;
+  const resolveIssue = dependencies.resolveIssue || resolveDropeaIssue;
+  const verifyResolution = dependencies.verifyResolution || verifyAddressIncidentLeftPending;
+  const finishResolution = dependencies.finishResolution || finishIncidentAddressResolution;
+  const auditResolution = dependencies.auditResolution || auditAddressIncidentAction;
+  const realEnabled = dependencies.realEnabled ?? config.defaultStore.incidentAddressResolutionRealEnabled;
+  const manualStatus = analyzedDecision?.status || 'MANUAL_REVIEW';
+  if (!analyzedDecision?.eligible || analyzedDecision.ruleId !== 'core_incident_incorrect_address_customer_solution') {
+    return { status: manualStatus, verified: false, reason: analyzedDecision?.reason || 'Revision manual.' };
+  }
+  if (realEnabled !== true) {
+    return { status: 'WOULD_RESOLVE_ADDRESS', verified: false, reason: 'Resolucion real de direccion desactivada.' };
+  }
+  if (!incident.incidenceId || !incident.orderId || !incident.chatbyUserNs) {
+    return { status: 'MANUAL_REVIEW_MISSING_IDENTIFIERS', verified: false, reason: 'Faltan identificadores verificables.' };
+  }
+
+  let current;
+  try {
+    current = await readCurrent(incident.incidenceId, incident.orderId);
+  } catch (error) {
+    return { status: 'MANUAL_REVIEW_DROPEA_UNVERIFIED', verified: false, reason: safeIncidentActionError(error) };
+  }
+  if (!current) {
+    return { status: 'ALREADY_RESOLVED', verified: true, reason: 'La incidencia ya no esta pendiente en Dropea.' };
+  }
+  const currentClassification = classifyIncident(current.issue, current.order);
+  if (currentClassification.type !== 'address' || !isPendingIssue(current.issue)) {
+    return { status: 'MANUAL_REVIEW_DROPEA_CHANGED', verified: false, reason: 'La incidencia vigente ya no es una direccion pendiente.' };
+  }
+
+  let refreshedChatby;
+  try {
+    const messages = await readMessages(incident.chatbyUserNs);
+    refreshedChatby = scopeChatbyToCurrentIncident({
+      ...summarizeConversation(messages),
+      messagesForNotification: messages,
+      chatbyReadVerified: true,
+      chatbyReadAttempts: 1,
+      orderAssociation: 'EXACT_ORDER',
+      userNs: incident.chatbyUserNs
+    }, incident.incidenceDate);
+  } catch (error) {
+    return { status: 'MANUAL_REVIEW_CHATBY_UNVERIFIED', verified: false, reason: safeIncidentActionError(error) };
+  }
+  const freshDecision = incorrectAddressOperationalDecision({
+    classification: currentClassification,
+    chatby: refreshedChatby,
+    phone: current.order?.customerPhone || incident.phone
+  });
+  if (!freshDecision.eligible) {
+    return { status: freshDecision.status || 'MANUAL_REVIEW', verified: false, reason: freshDecision.reason };
+  }
+
+  const attemptedAt = new Date().toISOString();
+  let claim;
+  try {
+    claim = await claimResolution({
+      storeId: config.defaultStore.id || 'suleia',
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId
+    });
+  } catch (error) {
+    return { status: 'MANUAL_REVIEW_IDEMPOTENCY_UNAVAILABLE', verified: false, reason: safeIncidentActionError(error) };
+  }
+  if (!claim?.acquired || claim?.persistent !== true) {
+    const priorStatus = String(claim?.existing?.status || '').toLowerCase();
+    return {
+      status: ['verified', 'applied_unverified', 'already_resolved'].includes(priorStatus)
+        ? 'ALREADY_RESOLVED'
+        : 'MANUAL_REVIEW_ALREADY_CLAIMED',
+      verified: priorStatus === 'verified' || priorStatus === 'already_resolved',
+      reason: claim?.reason || 'La incidencia ya tiene una reclamacion persistente.'
+    };
+  }
+
+  try {
+    await resolveIssue(incident.incidenceId, freshDecision.text);
+    const completedAt = new Date().toISOString();
+    const verified = await verifyResolution(incident.incidenceId, incident.orderId);
+    const status = verified ? 'AUTO_RESOLVED' : 'AUTO_APPLIED_PENDING_VERIFICATION';
+    const verifiedAt = verified ? new Date().toISOString() : null;
+    await finishResolution({
+      storeId: config.defaultStore.id || 'suleia',
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId,
+      status: verified ? 'verified' : 'applied_unverified',
+      attemptedAt,
+      completedAt,
+      evidence: { ruleId: freshDecision.ruleId, verified }
+    });
+    const result = { status, verified, attemptedAt, completedAt, verifiedAt, reason: freshDecision.reason };
+    await auditResolution(incident, freshDecision, result);
+    console.log(`Incident address action ${incident.incidenceId} ${incident.orderId}: ${status}`);
+    return result;
+  } catch (error) {
+    const safeError = safeIncidentActionError(error);
+    await finishResolution({
+      storeId: config.defaultStore.id || 'suleia',
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId,
+      status: 'failed_manual_review',
+      attemptedAt,
+      lastError: safeError,
+      evidence: { ruleId: freshDecision.ruleId, verified: false }
+    }).catch(() => null);
+    const result = { status: 'MANUAL_REVIEW_ACTION_FAILED', verified: false, attemptedAt, error: safeError, reason: safeError };
+    await auditResolution(incident, freshDecision, result);
+    console.error(`Incident address action ${incident.incidenceId} ${incident.orderId}: ${result.status} (${safeError})`);
+    return result;
+  }
+}
+
 function customerSignalForIncident(chatby) {
   const messages = Number(chatby.customerMessages || 0);
   const intent = chatby.intent || '';
@@ -1551,7 +1720,11 @@ function summarizeConversation(messages = []) {
   };
 }
 
-async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = new Map(), { since = null, orderId = null } = {}) {
+async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = new Map(), {
+  since = null,
+  orderId = null,
+  requireExactOrder = false
+} = {}) {
   if (!digits(phone)) {
     return {
       ok: false,
@@ -1564,11 +1737,14 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
     };
   }
 
-  const subscriber = findSubscriberInIndexForOrder(subscriberIndex, {
-    phone,
-    orderId,
-    allowConfirmedPhoneFallback: true
-  }) || findSubscriberInIndexByPhone(subscriberIndex, { phone });
+  const exactSubscriber = findSubscriberInIndexForExactOrder(subscriberIndex, { phone, orderId });
+  const subscriber = exactSubscriber || (requireExactOrder ? null : (
+    findSubscriberInIndexForOrder(subscriberIndex, {
+      phone,
+      orderId,
+      allowConfirmedPhoneFallback: true
+    }) || findSubscriberInIndexByPhone(subscriberIndex, { phone })
+  ));
   if (!subscriber) {
     return {
       ok: false,
@@ -1613,6 +1789,7 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
   return {
     ok: true,
     userNs,
+    orderAssociation: exactSubscriber ? 'EXACT_ORDER' : 'PHONE_FALLBACK',
     subscriberName: subscriber.name || subscriber.full_name || null,
     chatbyReadVerified: chatRead.verified,
     chatbyReadAttempts: chatRead.attempts,
@@ -1631,6 +1808,7 @@ function scopeChatbyToCurrentIncident(chatby, incidentAt) {
     ...chatby,
     messagesForNotification: allMessages,
     messagesAfterCurrentIncident: scopedMessages,
+    customerTextsAfterIncident: scopedMessages.filter(isCustomerMessage).map(messageText).filter(Boolean),
     incidentConversationStartAt: incidentAt || null,
     ...summarizeConversation(scopedMessages)
   };
@@ -1717,7 +1895,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         if (!chatbyByPhone.has(phoneKey)) {
           chatbyByPhone.set(phoneKey, chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs, {
             since: incidentStartedAt,
-            orderId
+            orderId,
+            requireExactOrder: true
           }));
         }
         chatby = await chatbyByPhone.get(phoneKey);
@@ -1793,13 +1972,16 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         timeoutHours: config.defaultStore.incidentResponseTimeoutHours
       });
       const baseRecommendation = typeAwareIncidentSolution(classification, chatby, issue, responseWait);
-      const operationalDecision = incidentOperationalDecision({
+      const genericOperationalDecision = incidentOperationalDecision({
         classification,
         chatby,
         transportHistory,
         phone,
         incidentDate: currentIncidenceDate
       });
+      const operationalDecision = classification.type === 'address'
+        ? incorrectAddressOperationalDecision({ classification, chatby, phone })
+        : genericOperationalDecision;
       const recommendation = recommendationWithOperationalDecision(baseRecommendation, operationalDecision);
       const customerSignal = customerSignalForIncident(chatby);
       const confidence = confidenceForIncident({ classification, chatby, recommendation });
@@ -1884,6 +2066,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         customerResponded: Number(chatby.customerMessages || 0) > 0,
         alertLevel: Number(chatby.customerMessages || 0) > 0 ? 'customer_response' : 'no_response',
         chatbyUserNs: chatby.userNs || null,
+        chatbyOrderAssociation: chatby.orderAssociation || 'NONE',
         chatbyReadVerified: chatby.chatbyReadVerified === true,
         chatbyReadAttempts: Number(chatby.chatbyReadAttempts || 0),
         operationalDecisionAction: operationalDecision.action,
@@ -1962,9 +2145,9 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
           };
         }
       }
-      // This V2 dashboard path is a hard read-only boundary. It never invokes
-      // any Dropea resolution/action function. The only optional external write
-      // is the separately gated, idempotent Chatby recovery template above.
+      // The V2 dashboard stays read-only except for the separately gated and
+      // idempotent incorrect-address solution path. Every other Dropea action
+      // remains blocked here.
       const notification = {
         status: 'disabled',
         reason: 'dropea_v2_dashboard_read_only',
@@ -1974,11 +2157,13 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         verified: false,
         error: null
       };
-      const actionResult = {
-        status: 'blocked_read_only',
-        verified: false,
-        reason: 'Dropea V2 dashboard sync is GET-only.'
-      };
+      const actionResult = item.incident.incidentType === 'address'
+        ? await executeIncorrectAddressResolution(item.incident, item.operationalDecision)
+        : {
+            status: 'BLOCKED_READ_ONLY',
+            verified: false,
+            reason: 'Solo la resolucion gobernada de direccion incorrecta puede escribir en esta ruta.'
+          };
       const enrichedIncident = {
         ...item.incident,
         incidentDiscountRecovery: discountRecovery,
@@ -2009,7 +2194,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         operationalActionCompletedAt: actionResult.completedAt || null,
         operationalActionVerifiedAt: actionResult.verifiedAt || null
       };
-      if (!['verified', 'already_verified'].includes(actionResult.status)) incidents.push(enrichedIncident);
+      incidents.push(enrichedIncident);
     }
 
     const sortedIncidents = sortIncidentsByIncidenceDesc(incidents);

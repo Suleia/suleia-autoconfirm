@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyIncident,
+  executeIncorrectAddressResolution,
   incidentOperationalDecision,
   sortIncidentsByIncidenceDesc
 } from './incidents.mjs';
@@ -42,6 +43,74 @@ test('orders the incident panel by incidence id descending', () => {
 test('classifies Dropea NAM as rejected goods and FD as address data', () => {
   assert.equal(classifyIncident({ incidence_code: 'NAM' }, {}).type, 'rejected_goods');
   assert.equal(classifyIncident({ incidence_code: 'FD' }, {}).type, 'address');
+});
+
+test('executes only a freshly re-read exact address decision and records a persistent result', async () => {
+  const calls = { resolved: 0, finished: null, audited: null };
+  const incident = {
+    incidenceId: 'fixture-issue',
+    orderId: 'fixture-order',
+    incidenceDate: '2026-07-16T10:00:00.000Z',
+    chatbyUserNs: 'fixture-chat',
+    phone: '+34600111222'
+  };
+  const decision = {
+    eligible: true,
+    action: 'accept_solution',
+    ruleId: 'core_incident_incorrect_address_customer_solution',
+    status: 'READY_FOR_DROPEA'
+  };
+  const result = await executeIncorrectAddressResolution(incident, decision, {
+    realEnabled: true,
+    readCurrent: async () => ({
+      issue: { id: 'fixture-issue', incidence_code: 'FD', status: 'PENDING', description: 'Direccion incorrecta' },
+      order: { orderId: 'fixture-order', customerPhone: '+34600111222' }
+    }),
+    readMessages: async () => [{
+      type: 'in',
+      created_at: '2026-07-16T10:15:00.000Z',
+      content: 'Calle Prueba portal 4 piso 2 B'
+    }],
+    claimResolution: async () => ({ acquired: true, persistent: true }),
+    resolveIssue: async (_issueId, text) => {
+      calls.resolved += 1;
+      assert.match(text, /Calle Prueba portal 4 piso 2 B/);
+      assert.match(text, /600111222/);
+    },
+    verifyResolution: async () => true,
+    finishResolution: async (value) => { calls.finished = value; },
+    auditResolution: async (_incident, _decision, value) => { calls.audited = value; }
+  });
+  assert.equal(result.status, 'AUTO_RESOLVED');
+  assert.equal(result.verified, true);
+  assert.equal(calls.resolved, 1);
+  assert.equal(calls.finished.status, 'verified');
+  assert.deepEqual(calls.finished.evidence, {
+    ruleId: 'core_incident_incorrect_address_customer_solution',
+    verified: true
+  });
+  assert.equal(calls.audited.status, 'AUTO_RESOLVED');
+});
+
+test('does not retry an address incident after a persistent claim already exists', async () => {
+  let resolved = 0;
+  const result = await executeIncorrectAddressResolution({
+    incidenceId: 'fixture-issue', orderId: 'fixture-order', incidenceDate: '2026-07-16T10:00:00.000Z',
+    chatbyUserNs: 'fixture-chat', phone: '+34600111222'
+  }, {
+    eligible: true, action: 'accept_solution', ruleId: 'core_incident_incorrect_address_customer_solution', status: 'READY_FOR_DROPEA'
+  }, {
+    realEnabled: true,
+    readCurrent: async () => ({
+      issue: { id: 'fixture-issue', incidence_code: 'FD', status: 'PENDING', description: 'Direccion incorrecta' },
+      order: { orderId: 'fixture-order', customerPhone: '+34600111222' }
+    }),
+    readMessages: async () => [{ type: 'in', created_at: '2026-07-16T10:15:00.000Z', content: 'Calle Prueba portal 4 piso 2 B' }],
+    claimResolution: async () => ({ acquired: false, persistent: true, existing: { status: 'claimed' }, reason: 'already_claimed' }),
+    resolveIssue: async () => { resolved += 1; }
+  });
+  assert.equal(result.status, 'MANUAL_REVIEW_ALREADY_CLAIMED');
+  assert.equal(resolved, 0);
 });
 
 test('turns an exact before-time reply into an accepted delivery solution', () => {

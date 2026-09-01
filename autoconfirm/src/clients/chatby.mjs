@@ -449,6 +449,16 @@ export function findSubscriberInIndexForOrder(index, { phone, orderId, allowConf
   return null;
 }
 
+export function findSubscriberInIndexForExactOrder(index, { phone, orderId } = {}) {
+  const phoneKey = digits(phone).slice(-9);
+  const targetOrder = String(orderId || '').trim();
+  if (!phoneKey || !targetOrder) return null;
+  const samePhoneSubscribers = index?.byPhone?.get(phoneKey) || [];
+  return samePhoneSubscribers.find((subscriber) => (
+    String(dropeaOrderFieldValue(subscriber) || '').trim() === targetOrder
+  )) || null;
+}
+
 export function findSubscriberInIndexByPhone(index, { phone } = {}) {
   const phoneKey = digits(phone).slice(-9);
   return phoneKey ? (index?.byPhone?.get(phoneKey) || [])[0] || null : null;

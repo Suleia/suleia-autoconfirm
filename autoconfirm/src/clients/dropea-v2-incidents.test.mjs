@@ -155,13 +155,15 @@ test('Dropea V2 normalization preserves the dashboard shape without creating act
   assert.equal(row.issue.tracking, 'TRACK-MASKED');
 });
 
-test('dashboard workflow contains a hard V2 read-only boundary', () => {
+test('dashboard workflow keeps a hard V2 boundary around the single governed address action', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const source = fs.readFileSync(path.resolve(here, '../workflows/incidents.mjs'), 'utf8');
   assert.match(source, /collectPendingDropeaV2Incidents/);
   assert.doesNotMatch(source, /listDropeaIncidences|listDropeaOrdersByStatus\(/);
   assert.doesNotMatch(source, /processIncidentNotification/);
-  assert.match(source, /status: 'blocked_read_only'/);
+  assert.match(source, /status: 'BLOCKED_READ_ONLY'/);
   assert.match(source, /reason: 'dropea_v2_dashboard_read_only'/);
+  assert.match(source, /executeIncorrectAddressResolution/);
+  assert.match(source, /incidentAddressResolutionRealEnabled/);
   assert.equal((source.match(/executeIncidentOperationalDecision\(/g) || []).length, 1);
 });
