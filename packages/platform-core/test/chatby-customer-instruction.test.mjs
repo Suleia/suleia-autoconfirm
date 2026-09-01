@@ -54,6 +54,15 @@ test('address extraction reports exactly which delivery fields are still missing
   assert.deepEqual(result.missing_fields, ['POSTAL_CODE', 'LOCALITY']);
   assert.equal(result.fields.postal_code, null);
   assert.equal(result.fields.locality, null);
+  assert.equal(result.actionable_correction, true);
+});
+
+test('dictated portal and floor details are an actionable correction without invented postal data', () => {
+  const result = addressInstructionFromText('Calle Prueba por tal dos primero d, hay una referencia enfrente');
+  assert.equal(result.complete, false);
+  assert.equal(result.actionable_correction, true);
+  assert.deepEqual(result.missing_fields, ['NUMBER', 'POSTAL_CODE', 'LOCALITY']);
+  assert.equal(result.fields.postal_code, null);
 });
 
 test('negative discount wording cannot be misclassified as acceptance', () => {

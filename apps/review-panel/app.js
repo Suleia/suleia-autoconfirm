@@ -65,7 +65,17 @@ const labels = {
   REVIEW_CHATBY_LINK: 'Revisar enlace con Chatby', REVIEW_CUSTOMER_RESPONSE: 'Revisar respuesta del cliente',
   WAITING_CUSTOMER: 'Esperando al cliente', HUMAN_REVIEW: 'Revisión humana',
   REVIEW_ADDRESS_CHANGE: 'Revisar dirección', REVIEW_DELIVERY_AVAILABILITY: 'Revisar disponibilidad',
-  REVIEW_REJECTION: 'Revisar rechazo', REVIEW_INCIDENT: 'Revisar incidencia'
+  REVIEW_REJECTION: 'Revisar rechazo', REVIEW_INCIDENT: 'Revisar incidencia',
+  READY_FOR_ADDRESS_AUTOMATION: 'Lista para resolución automática',
+  AUTO_RESOLVED: 'Resuelta automáticamente',
+  AUTO_APPLIED_PENDING_VERIFICATION: 'Solución enviada · verificación pendiente',
+  MANUAL_REVIEW_NO_RESPONSE: 'Revisión manual · sin respuesta',
+  MANUAL_REVIEW_NO_EXACT_CONVERSATION: 'Revisión manual · conversación no vinculada',
+  MANUAL_REVIEW_CHATBY_UNVERIFIED: 'Revisión manual · Chatby no verificable',
+  MANUAL_REVIEW_INCOMPLETE_ADDRESS: 'Revisión manual · dirección incompleta',
+  MANUAL_REVIEW_AMBIGUOUS_ADDRESS: 'Revisión manual · dirección ambigua',
+  MANUAL_REVIEW_MISSING_PHONE: 'Revisión manual · teléfono no disponible',
+  MANUAL_REVIEW: 'Revisión manual', CLOSED_OUTSIDE_PENDING_QUEUE: 'Cerrada fuera de la cola pendiente'
 };
 const blockerLabels = {
   CHATBY_AUTH_401: 'Chatby no autorizado (HTTP 401)', CHATBY_EVIDENCE_STALE: 'Evidencia de Chatby caducada',
@@ -256,7 +266,7 @@ function rowIncident(item) {
     cell(stacked(translated(item.interpreted_type), item.initial_carrier_description_sanitized || 'Sin descripción adicional de Dropea')),
     cell(evidence, 'signal-cell'),
     cell(stacked(recommendation.title, `${recommendation.summary} · ${resolution}`), 'decision-card'),
-    cell(stacked(item.source_truth === 'PENDING_IN_DROPEA' ? 'Pendiente en Dropea' : 'Fuera de la cola pendiente', `${item.operational_freshness_status === 'FRESH' ? 'Datos vigentes' : 'Revisar actualización'} · acción real: 0`))
+    cell(stacked(translated(item.handling_status), `${item.source_truth === 'PENDING_IN_DROPEA' ? 'Pendiente en Dropea' : 'Fuera de la cola pendiente'} · ${item.operational_freshness_status === 'FRESH' ? 'datos vigentes' : 'revisar actualización'}`))
   );
   tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
 }
@@ -323,7 +333,9 @@ function recommendationPanel(incident, feedback = []) {
       ['Localidad', address.fields?.locality || 'INCOMPLETO'],
       ['Datos adicionales', address.fields?.unit || 'NO INDICADOS'],
       ['Validación', address.complete ? 'COMPLETA' : `FALTAN: ${(address.missing_fields || []).join(', ')}`, true],
-      ['Acción en Dropea', prepared.execution_status === 'NOT_EXECUTED' ? 'PREPARADA, NO EJECUTADA' : 'BLOQUEADA HASTA COMPLETAR', true]
+      ['Acción en Dropea', prepared.execution_status === 'READY_FOR_GOVERNED_AUTOMATION'
+        ? 'LISTA PARA EL AGENTE AUTOMÁTICO'
+        : prepared.execution_status === 'NOT_EXECUTED' ? 'PREPARADA, NO EJECUTADA' : 'BLOQUEADA HASTA COMPLETAR', true]
     ], 'customer-instruction'));
   }
   box.append(node('h4', 'recommendation-heading', 'Acción que propongo'));
@@ -332,7 +344,9 @@ function recommendationPanel(incident, feedback = []) {
   box.append(steps);
   if (recommendation.reasoning) box.append(stacked('Por qué propongo esta acción', recommendation.reasoning));
   if (recommendation.guardrail) box.append(stacked('Cuándo no debe aplicarse', recommendation.guardrail));
-  box.append(node('p', 'muted', 'Propuesta basada en Dropea y la conversación exacta del pedido. No se ha ejecutado ninguna acción externa.'));
+  box.append(node('p', 'muted', recommendation.code === 'PROVIDE_CORRECTED_ADDRESS_TO_DROPEA'
+    ? 'Propuesta basada en Dropea y la conversación exacta del pedido. La ejecución corresponde al agente gobernado; el panel no escribe en Dropea.'
+    : 'Propuesta basada en Dropea y la conversación exacta del pedido. El panel no ejecuta acciones externas.'));
   const controls = node('div', 'feedback-controls');
   const status = node('small', 'feedback-status', feedback.length ? `Feedback registrado: ${feedback.length}` : 'Tu feedback se guarda como memoria operativa y no ejecuta acciones.');
   for (const [label, feedbackType, reasonCode] of [['Útil', 'APPROVE', 'ACCURATE'], ['Tipo incorrecto', 'CORRECT', 'WRONG_TYPE'], ['Falta Chatby', 'CORRECT', 'MISSING_CHATBY'], ['Acción incorrecta', 'REJECT', 'WRONG_ACTION']]) {
@@ -384,7 +398,7 @@ async function openDetail(id) {
         section('Acción del cliente', [['Resultado', incident.customer_evidence?.title, true], ['Conclusión', incident.customer_evidence?.summary], ['Último mensaje', incident.customer_evidence?.latest_message || 'No hay mensaje entrante disponible'], ['Fecha del mensaje', date(incident.customer_evidence?.at)], ['Relación temporal', incident.customer_evidence?.relation === 'AFTER_INCIDENT' ? 'POSTERIOR A LA INCIDENCIA' : incident.customer_evidence?.relation === 'BEFORE_INCIDENT' ? 'ANTERIOR A LA INCIDENCIA' : 'SIN MENSAJE', true], ['Asociación', incident.conversation_status === 'FOUND' ? 'CONVERSACIÓN EXACTA DEL PEDIDO' : 'NO VERIFICADA', true]]),
         customerMessageHistory(data.customer_messages),
         recommendationPanel(incident, data.feedback),
-        section('Control y seguridad', [['Opción propuesta en Dropea', incident.tailored_recommendation?.resolution_option || 'PENDIENTE DE VALIDACIÓN'], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Datos', translated(incident.operational_freshness_status), true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)], ['Acciones externas', '0'], ['Escrituras externas', '0']]),
+        section('Control y seguridad', [['Gestión', translated(incident.handling_status), true], ['Opción propuesta en Dropea', incident.tailored_recommendation?.resolution_option || 'PENDIENTE DE VALIDACIÓN'], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Datos', translated(incident.operational_freshness_status), true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)], ['Estado de acción externa', translated(incident.external_action_status || 'NOT_EXECUTED'), true]]),
         timeline(data.timeline)
       );
     }

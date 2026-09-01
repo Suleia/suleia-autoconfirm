@@ -46,11 +46,14 @@ test('Operations Center exposes Pedidos, Incidencias and audited finance configu
   assert.match(script, /state\.offset >= data\.total/);
   assert.match(script, /tailored_recommendation/);
   assert.match(script, /prepared_dropea_solution/);
+  assert.match(script, /READY_FOR_ADDRESS_AUTOMATION/);
+  assert.match(script, /MANUAL_REVIEW_NO_RESPONSE/);
+  assert.match(script, /LISTA PARA EL AGENTE AUTOMÁTICO/);
   assert.match(script, /Dirección aportada en Chatby/);
   assert.match(script, /source_truth/);
   assert.match(script, /Solución propuesta para esta incidencia/);
   assert.match(script, /Tu feedback se guarda como memoria operativa/);
-  assert.match(script, /Acciones externas', '0'/);
+  assert.match(script, /Estado de acción externa/);
   assert.doesNotMatch(script, /\b(?:canonical_state|proposed_resolution)\b/);
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
@@ -122,7 +125,7 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /operational_freshness_status/);
   assert.match(script, /Sin conversación asociada/);
   assert.match(script, /no se presupone que el cliente no respondió/i);
-  assert.match(script, /No se ha ejecutado ninguna acción externa/i);
+  assert.match(script, /Estado de acción externa/i);
   assert.match(script, /Cliente \/ teléfono/);
   assert.match(script, /customer_phone/);
   assert.match(script, /latest_message/);

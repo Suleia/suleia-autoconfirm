@@ -16,8 +16,9 @@ test('incident insight uses the exact customer action for a tailored address pro
   assert.equal(result.customer_evidence.code, 'ADDRESS_CHANGE');
   assert.equal(result.tailored_recommendation.code, 'PROVIDE_CORRECTED_ADDRESS_TO_DROPEA');
   assert.equal(result.tailored_recommendation.prepared_dropea_solution.address.complete, true);
-  assert.equal(result.tailored_recommendation.prepared_dropea_solution.execution_status, 'NOT_EXECUTED');
+  assert.equal(result.tailored_recommendation.prepared_dropea_solution.execution_status, 'READY_FOR_GOVERNED_AUTOMATION');
   assert.equal(result.external_action_status, 'NOT_EXECUTED');
+  assert.equal(result.handling_status, 'READY_FOR_ADDRESS_AUTOMATION');
 });
 
 test('missing conversation is explicit and never standardized as no response', () => {
@@ -178,7 +179,7 @@ test('address supplied in reply to the exact request is evidence, not a generic 
   assert.equal(result.tailored_recommendation.decision_goal, 'RESTORE_DELIVERABILITY_WITH_VERIFIED_ADDRESS');
 });
 
-test('partial address reply is retained but blocks Dropea until missing fields are supplied', () => {
+test('street and number are treated as an actionable correction without inventing missing postal data', () => {
   const result = incidentInsight({
     ...base, operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0,
     latest_customer_message: 'La nueva es Calle Ejemplo 31',
@@ -187,7 +188,20 @@ test('partial address reply is retained but blocks Dropea until missing fields a
     allowed_resolution_options: ['PROVIDE_SOLUTION','MANAGED_BY_CLIENT']
   });
   assert.equal(result.customer_evidence.code, 'ADDRESS_CHANGE');
-  assert.equal(result.tailored_recommendation.code, 'REQUEST_MISSING_ADDRESS_FIELDS');
+  assert.equal(result.tailored_recommendation.code, 'PROVIDE_CORRECTED_ADDRESS_TO_DROPEA');
   assert.deepEqual(result.tailored_recommendation.prepared_dropea_solution.address.missing_fields, ['POSTAL_CODE', 'LOCALITY']);
-  assert.equal(result.tailored_recommendation.prepared_dropea_solution.execution_status, 'BLOCKED_INCOMPLETE_ADDRESS');
+  assert.equal(result.tailored_recommendation.prepared_dropea_solution.execution_status, 'READY_FOR_GOVERNED_AUTOMATION');
+});
+
+test('an address with no delivery locator remains manual review', () => {
+  const result = incidentInsight({
+    ...base, operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0,
+    latest_customer_message: 'Es en Calle Ejemplo',
+    latest_operator_message: 'Indíquenos la dirección completa y el código postal.',
+    latest_customer_message_relation: 'AFTER_INCIDENT',
+    allowed_resolution_options: ['PROVIDE_SOLUTION','MANAGED_BY_CLIENT']
+  });
+  assert.equal(result.customer_evidence.code, 'ADDRESS_CHANGE');
+  assert.equal(result.tailored_recommendation.code, 'REQUEST_MISSING_ADDRESS_FIELDS');
+  assert.equal(result.handling_status, 'MANUAL_REVIEW');
 });

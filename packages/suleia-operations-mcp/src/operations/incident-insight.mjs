@@ -219,11 +219,13 @@ function recommendation(item, customer) {
   }
 
   if (item.interpreted_type === 'ADDRESS_INCORRECT') {
-    if (customer.code === 'ADDRESS_CHANGE' && customer.address_instruction?.complete) return proposal(
+    if (customer.code === 'ADDRESS_CHANGE' && (customer.address_instruction?.complete || customer.address_instruction?.actionable_correction)) return proposal(
       'PROVIDE_CORRECTED_ADDRESS_TO_DROPEA', 'Trasladar a Dropea la dirección facilitada por el cliente',
-      'El cliente ha contestado después de la incidencia con vía, número, código postal y localidad. La propuesta usa literalmente esos datos y no completa ningún campo por suposición.',
+      customer.address_instruction.complete
+        ? 'El cliente ha contestado después de la incidencia con una dirección completa. La propuesta usa literalmente esos datos y no completa ningún campo por suposición.'
+        : 'El cliente ha aportado después de la incidencia una corrección accionable de vía y número, portal, piso o puerta. Se conserva literalmente y no se inventan código postal ni localidad.',
       option(item, 'PROVIDE_SOLUTION'),
-      ['Comparar la respuesta con la dirección actual', 'Validar que el código postal y la localidad son coherentes', 'Seleccionar PROVIDE_SOLUTION y trasladar literalmente la nueva dirección', 'Verificar que Dropea conserva la dirección y saca la incidencia de la cola'], 'HIGH', {
+      ['Confirmar que la respuesta pertenece a este pedido y es posterior a la incidencia', 'Comparar la corrección con la dirección actual sin sustituir datos no mencionados', 'Seleccionar PROVIDE_SOLUTION y trasladar literalmente la indicación', 'Añadir la llamada previa al teléfono del pedido', 'Verificar que Dropea saca la incidencia de la cola'], 'HIGH', {
         decision_goal: 'RESTORE_DELIVERABILITY_WITH_VERIFIED_ADDRESS',
         reasoning: 'La causa logística es una dirección inválida y el cliente ha aportado datos nuevos en respuesta a la solicitud exacta.',
         guardrail: 'No cerrar la incidencia si los datos pertenecen a otro pedido o Dropea no confirma que ha guardado la corrección.',
@@ -232,7 +234,7 @@ function recommendation(item, customer) {
           source: 'CHATBY_CUSTOMER_MESSAGE_AFTER_INCIDENT',
           address: customer.address_instruction,
           customer_message_at: customer.at,
-          execution_status: 'NOT_EXECUTED'
+          execution_status: 'READY_FOR_GOVERNED_AUTOMATION'
         }
       });
     if (customer.code === 'ADDRESS_CHANGE' && customer.address_instruction?.has_address_data) return proposal(
@@ -313,11 +315,22 @@ function recommendation(item, customer) {
 export function incidentInsight(item) {
   const customer = customerEvidence(item);
   const proposed = recommendation(item, customer);
+  const existingStatus = String(item.operational_action_status || item.external_action_status || '').toUpperCase();
+  const handlingStatus = existingStatus && existingStatus !== 'NOT_EXECUTED'
+    ? existingStatus
+    : item.is_active !== true || item.status !== 'PENDING'
+      ? 'CLOSED_OUTSIDE_PENDING_QUEUE'
+      : proposed.code === 'PROVIDE_CORRECTED_ADDRESS_TO_DROPEA'
+        ? 'READY_FOR_ADDRESS_AUTOMATION'
+        : customer.code === 'NO_VALID_RESPONSE' || customer.code === 'NO_CONVERSATION'
+          ? 'MANUAL_REVIEW_NO_RESPONSE'
+          : 'MANUAL_REVIEW';
   return {
     ...item,
     customer_evidence: customer,
     tailored_recommendation: proposed,
     source_truth: item.is_active && item.status === 'PENDING' ? 'PENDING_IN_DROPEA' : 'NOT_PENDING_IN_DROPEA',
-    external_action_status: 'NOT_EXECUTED'
+    external_action_status: existingStatus || 'NOT_EXECUTED',
+    handling_status: handlingStatus
   };
 }

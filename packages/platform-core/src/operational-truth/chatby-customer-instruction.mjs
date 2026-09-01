@@ -44,6 +44,8 @@ export function addressInstructionFromText(value) {
   const unit = /\b((?:piso|puerta|portal|bloque|escalera)\s*[:#-]?\s*[a-z0-9ºª .-]{1,40})/i.exec(literal)?.[1]?.trim() || null;
   const streetLine = literal.split('\n').map((line) => line.trim()).find((line) =>
     /\b(calle|c\/|avenida|avda\.?|plaza|paseo|camino|carretera|urbanizaci[oó]n|ronda|traves[ií]a|v[ií]a)\b/i.test(line)) || null;
+  const actionableLocator = /\b(?:n(?:ú|u)mero|n[ºo]\.?|portal|por\s+tal|piso|puerta|bloque|escalera)\s*[:#-]?\s*(?:\d{1,4}[a-z]?|uno|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|primero|primera|segundo|segunda)\b/i.test(literal)
+    || Boolean(streetNumber || explicitNumber);
   const fields = Object.freeze({
     street_line: streetLine,
     street_number: explicitNumber || streetNumber,
@@ -62,7 +64,8 @@ export function addressInstructionFromText(value) {
     fields,
     missing_fields: Object.freeze(missing),
     complete: missing.length === 0,
-    has_address_data: Boolean(streetLine || postalCode || explicitNumber || locality)
+    has_address_data: Boolean(streetLine || postalCode || explicitNumber || locality),
+    actionable_correction: Boolean(streetLine && actionableLocator)
   });
 }
 
