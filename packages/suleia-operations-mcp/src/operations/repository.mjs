@@ -1,5 +1,5 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
-import { buildMonthlyFinanceReport } from '../../../platform-core/src/finance/monthly-report.mjs';
+import { buildOrderCreationCohortFinanceReport } from '../../../platform-core/src/finance/monthly-report.mjs';
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 
@@ -274,14 +274,8 @@ export class OperationsRepository {
 
   async financialSummary(searchParams) {
     const window = financialMonth(searchParams); const values = [window.from, window.to, window.storeId];
-    const orderWhere = `WHERE (
-        (c.created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
-        OR (c.confirmed_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.confirmed_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
-        OR (c.delivered_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.delivered_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
-        OR (c.returned_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid') AND c.returned_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid'))
-        OR (c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
-          AND coalesce(c.lifecycle_status,c.status) IN ('CONFIRMED','PROCESSING','PREPARING','PREPARED','SHIPPING','TRANSIT','IN_TRANSIT','INCIDENCE'))
-      )
+    const orderWhere = `WHERE c.created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid')
+      AND c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
       AND ($3::text IS NULL OR c.store_id=$3)`;
     const [orders, rates, fixed, advertising, months, checkpoints] = await Promise.all([
       this.pool.query(`SELECT c.canonical_order_id,c.store_id,c.lifecycle_status,c.status,c.created_at_utc,c.source_updated_at,c.updated_at,
@@ -307,7 +301,7 @@ export class OperationsRepository {
         FROM economics.finance_sync_checkpoints WHERE business_date >= $1::date AND business_date < $2::date
         AND ($3::text IS NULL OR store_id=$3) ORDER BY source,business_date`, values)
     ]);
-    const report = buildMonthlyFinanceReport({
+    const report = buildOrderCreationCohortFinanceReport({
       month: window.month,
       orders: orders.rows,
       rates: rates.rows.map((row) => ({ ...row, effective_from: dateOnly(row.effective_from), effective_to: dateOnly(row.effective_to) })),
@@ -322,9 +316,9 @@ export class OperationsRepository {
         start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date), occurred_on: dateOnly(row.occurred_on) })),
       shopify_orders_available: false,
       limitations: [
-        'El beneficio diario usa la fecha real de confirmación, entrega o devolución; no la fecha original del pedido.',
-        'Las tasas de confirmación y entrega se calculan sobre la cohorte creada en el mes para evitar mezclar conversiones entre meses.',
-        'Los pedidos en tránsito son una fotografía actual y no se suman como un flujo diario histórico.',
+        'Cada fila diaria corresponde a la fecha de creación del pedido y refleja su estado actual; así ninguna devolución de otra cohorte contamina el mes.',
+        'La tasa de entrega se calcula sobre los pedidos de Dropea creados en el mes. El total independiente de Shopify permanece separado hasta disponer de un lector con alcance técnicamente sólo lectura.',
+        'Entregados + en el aire + devueltos debe cuadrar exactamente con los pedidos enviados de la cohorte.',
         'Operations todavía no dispone del total independiente de pedidos de la plataforma de tienda; no se sustituye por un dato inventado.',
         'Una tarifa PRODUCT_COGS confirmada por el operador prevalece sobre el dato mayorista de Dropea; si no existe, se exige un coste mayorista positivo.',
         'El beneficio neto resta coste de producto, envío, COD, fulfillment, devoluciones, publicidad y gastos fijos a la facturación real.',

@@ -528,7 +528,7 @@ function renderFinance() {
   $('finance-exactness').textContent = data.exactness === 'COMPLETE' ? 'Fuentes completas' : closedThrough ? `Cierre verificado hasta ${closedThrough} · ${text(data.pending_accounting_days, '0')} día provisional` : `${(data.missing_sources || []).length} fuente(s) pendiente(s)`;
   $('finance-hero').replaceChildren(
     financeMetric('Beneficio neto cerrado', money(totals.net_profit, currency), totals.net_profit === null ? 'No se calcula mientras falte una fuente cerrada' : `Hasta ${closedThrough || 'el cierre del periodo'} · ya descuenta producto, logística, Meta y gastos fijos`, totals.net_profit === null ? 'unknown' : Number(totals.net_profit) >= 0 ? 'primary' : 'negative'),
-    financeMetric('Facturación entregada', money(totals.real_revenue, currency), `${text(totals.delivered, '0')} entregas realizadas en el mes`, 'positive'),
+    financeMetric('Facturación realizada', money(totals.real_revenue, currency), `${text(totals.delivered, '0')} pedidos de la cohorte ya entregados`, 'positive'),
     financeMetric('Gastos totales', money(totals.total_expenses, currency), 'Producto + logística + publicidad + gastos fijos', totals.total_expenses === null ? 'unknown' : 'warning'),
     financeMetric('ROI', financePercent(totals.roi), 'Beneficio neto ÷ gastos totales', totals.roi === null ? 'unknown' : Number(totals.roi) >= 0 ? 'positive' : 'negative'),
     financeMetric('CPA real', money(totals.real_cpa, currency), 'Publicidad ÷ pedidos entregados', totals.real_cpa === null ? 'unknown' : ''),
@@ -538,7 +538,7 @@ function renderFinance() {
   );
   const cohort = totals.cohort || {};
   const funnel = [
-    ['Pedidos creados', cohort.orders_created ?? totals.orders_created], ['Confirmados', cohort.orders_sent ?? totals.orders_sent], ['Entregados', cohort.delivered ?? totals.delivered],
+    ['Pedidos en Dropea', cohort.orders_created ?? totals.orders_created], ['Enviados', cohort.orders_sent ?? totals.orders_sent], ['Entregados', cohort.delivered ?? totals.delivered],
     ['En el aire', totals.in_air], ['Pedidos devueltos', observed.returned ?? totals.returned], ['Unidades devueltas', observed.returned_units ?? totals.returned_units], ['Incidencias', totals.incidences]
   ];
   $('finance-funnel').replaceChildren(...funnel.map(([label, value]) => summaryCard(label, value, label === 'En el aire' ? 'Fotografía actual' : percentage(value, cohort.orders_created ?? totals.orders_created))));
@@ -557,7 +557,7 @@ function renderFinance() {
   ];
   $('finance-costs').replaceChildren(...costs.map(([label, value, detail, tone]) => financeCostCard(label, value, detail, currency, tone)));
   $('finance-quality').replaceChildren(
-    stacked('Perspectiva', 'Beneficio realizado por fecha real de confirmación, entrega y devolución'),
+    stacked('Perspectiva', 'Cohorte por fecha de creación; cada pedido conserva su estado actual verificado'),
     stacked('Estado del modelo', data.audit?.model_status === 'PASS' ? 'AUDITADO · todas las fórmulas cuadran' : 'PARCIAL · existe alguna fuente pendiente'),
     stacked('Fórmula del beneficio', 'Facturación real − producto − envío − COD − fulfillment − devoluciones − publicidad − gastos fijos'),
     stacked('Publicidad', `${text(data.quality?.advertising_days_complete, '0')} de ${text(data.quality?.required_days, '0')} días transcurridos completos`),

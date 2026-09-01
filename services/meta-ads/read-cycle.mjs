@@ -11,6 +11,13 @@ export function businessDateInTimezone(now = new Date(), timezone = 'Europe/Madr
   const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${value.year}-${value.month}-${value.day}`;
 }
+
+export function previousBusinessDateInTimezone(now = new Date(), timezone = 'Europe/Madrid') {
+  const current = businessDateInTimezone(now, timezone);
+  const previous = new Date(`${current}T12:00:00.000Z`);
+  previous.setUTCDate(previous.getUTCDate() - 1);
+  return previous.toISOString().slice(0, 10);
+}
 function permissionState(rows) {
   return Object.fromEntries((Array.isArray(rows) ? rows : [])
     .filter((row) => ['ads_read', 'ads_management', 'business_management'].includes(row?.permission))
@@ -111,7 +118,7 @@ export async function runMetaAdsReadCycle({ config, client, now = new Date() }) 
   });
 }
 
-export async function runMetaAdsFinanceSpendReadCycle({ config, client, now = new Date() }) {
+export async function runMetaAdsFinanceSpendReadCycle({ config, client, now = new Date(), businessDate = null }) {
   if (config.executionMode !== 'SIMULATION' || config.writesEnabled !== false) {
     throw new Error('Meta finance read cycle is restricted to SIMULATION with writes disabled');
   }
@@ -122,8 +129,12 @@ export async function runMetaAdsFinanceSpendReadCycle({ config, client, now = ne
   if (String(account.timezone_name) !== config.expectedTimezone) throw new Error('META_ADS_TIMEZONE_MISMATCH');
   if (Number(account.account_status) !== 1) throw new Error('META_ADS_ACCOUNT_NOT_ACTIVE');
 
-  const businessDate = businessDateInTimezone(now, config.expectedTimezone);
-  const insights = await client.readCampaignInsights({ businessDate });
+  const targetDate = businessDate || previousBusinessDateInTimezone(now, config.expectedTimezone);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(targetDate)
+    || targetDate >= businessDateInTimezone(now, config.expectedTimezone)) {
+    throw new Error('FINANCE_SYNC_BUSINESS_DATE_NOT_CLOSED');
+  }
+  const insights = await client.readCampaignInsights({ businessDate: targetDate });
   const rows = insights.map((insight) => {
     const roas = selectPurchaseRoas(insight);
     const purchases = selectWebsitePurchaseMetric(insight.actions);
@@ -137,15 +148,15 @@ export async function runMetaAdsFinanceSpendReadCycle({ config, client, now = ne
       purchases: purchases.value,
       purchase_value: purchaseValue.value,
       spend: parseSpend(insight.spend),
-      date_start: insight.date_start || businessDate,
-      date_stop: insight.date_stop || businessDate
+      date_start: insight.date_start || targetDate,
+      date_stop: insight.date_stop || targetDate
     };
   });
 
   return Object.freeze({
     ok: true,
     execution_mode: 'SIMULATION',
-    business_date: businessDate,
+    business_date: targetDate,
     account: {
       status: Number(account.account_status),
       currency: account.currency,

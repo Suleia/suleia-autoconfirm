@@ -22,7 +22,7 @@ test('Operations Center exposes Pedidos, Incidencias and audited finance configu
   assert.match(html, /id="finance-view"/);
   assert.match(html, /id="finance-month"/);
   assert.match(html, /INFORME FINANCIERO MENSUAL/);
-  assert.match(script, /Pedidos creados/);
+  assert.match(script, /Pedidos en Dropea/);
   assert.match(`${html}\n${script}`, /Beneficio neto/);
   assert.match(html, /Beneficio neto diario/);
   assert.match(html, /En qué se ha gastado el dinero/);

@@ -347,6 +347,168 @@ function logisticsEventRollup(orders, rates, month, timezone, currency, includeC
   });
 }
 
+export function buildOrderCreationCohortFinanceReport({ month, orders = [], rates = [], fixedExpenses = [], fixedExpensesComplete = fixedExpenses.length > 0, adSpend = [], now = new Date(), timezone = 'Europe/Madrid', currency = 'EUR' }) {
+  const days = monthDays(month); const today = businessDate(now, timezone);
+  const monthEnd = days.at(-1); const currentMonth = month === today.slice(0, 7);
+  const requiredDays = days.filter((day) => day <= today);
+  const fixed = fixedDaily(fixedExpenses, days); const missing = new Set();
+  if (!fixedExpensesComplete) missing.add(`FIXED_EXPENSES:${month}`);
+  const cohortOrders = orders.filter((order) => inMonth(eventDays(order, timezone).created, month));
+  const ordersByCreationDay = new Map(days.map((day) => [day, []]));
+  for (const order of cohortOrders) ordersByCreationDay.get(eventDays(order, timezone).created)?.push(order);
+
+  const daily = days.map((day) => {
+    const relevant = day <= today; const ad = relevant ? sourceStatus(adSpend, day, currency) : { value: 0, status: 'FUTURE' };
+    const counts = { orders_created: 0, orders_sent: 0, delivered: 0, delivered_units: 0, in_air: 0, returned: 0, returned_units: 0, incidences: 0 };
+    let estimatedRevenue = 0; let realRevenue = 0; let estimatedRevenueComplete = true; let realRevenueComplete = true;
+    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixedExpensesComplete ? fixed.get(day) || 0 : null };
+    for (const order of ordersByCreationDay.get(day)) {
+      const flags = orderFlags(order); const products = normalizedProducts(order);
+      const orderAmount = String(order.currency || currency).toUpperCase() === currency ? cents(order.total_amount) : null;
+      const dimensions = { carrier: order.carrier, store_id: order.store_id, currency };
+      counts.orders_created += 1; counts.incidences += order.active_issue_id ? 1 : 0;
+      counts.orders_sent += flags.sent ? 1 : 0; counts.delivered += flags.delivered ? 1 : 0;
+      counts.returned += flags.returned ? 1 : 0; counts.in_air += flags.in_air ? 1 : 0;
+      if (flags.delivered) counts.delivered_units += products.reduce((sum, product) => sum + product.quantity, 0);
+      if (flags.returned) counts.returned_units += products.reduce((sum, product) => sum + product.quantity, 0);
+      if (flags.sent) {
+        if (orderAmount === null) { estimatedRevenueComplete = false; missing.add(`ORDER_AMOUNT:${order.canonical_order_id || 'UNKNOWN'}`); }
+        else estimatedRevenue += orderAmount;
+      }
+      if (flags.delivered) {
+        if (orderAmount === null) { realRevenueComplete = false; missing.add(`ORDER_AMOUNT:${order.canonical_order_id || 'UNKNOWN'}`); }
+        else realRevenue += orderAmount;
+        if (!products.length) { components.product = null; missing.add('PRODUCT_COGS:ORDER_ITEMS_MISSING'); }
+        for (const product of products) {
+          const value = productCost(product, rates, day, { store_id: order.store_id, currency });
+          if (value === null) { components.product = null; missing.add(`PRODUCT_COGS:${product.variant_id || product.product_id || product.name}`); }
+          else if (components.product !== null) components.product += value * product.quantity;
+        }
+      }
+      const needed = [
+        ...(flags.sent ? [['OUTBOUND_SHIPPING', 'outbound_shipping'], ['OUTBOUND_FULFILLMENT', 'outbound_fulfillment']] : []),
+        ...(flags.delivered ? [['COD', 'cod']] : []),
+        ...(flags.returned ? [['RETURN_SHIPPING', 'returns'], ['RETURN_FULFILLMENT', 'returns']] : [])
+      ];
+      for (const [type, target] of needed) {
+        const value = exactOrderCost(order, rates, type, day, dimensions);
+        if (value === null) { components[target] = null; missing.add(`${type}:${order.carrier || 'SIN_TRANSPORTISTA'}`); }
+        else if (components[target] !== null) components[target] += value;
+      }
+    }
+    if (relevant && ad.value === null) missing.add(`ADVERTISING:${day}`);
+    const operationalExpenseCents = addKnown([components.product, components.outbound_shipping, components.cod, components.outbound_fulfillment, components.returns, components.fixed]);
+    const dropeaExpenseCents = addKnown([components.outbound_shipping, components.cod, components.outbound_fulfillment, components.returns]);
+    const expenseCents = addKnown(Object.values(components));
+    const profitCents = expenseCents === null || !realRevenueComplete ? null : realRevenue - expenseCents;
+    const operationalProfitCents = operationalExpenseCents === null || !realRevenueComplete ? null : realRevenue - operationalExpenseCents;
+    const dropeaProfitCents = dropeaExpenseCents === null || !realRevenueComplete ? null : realRevenue - dropeaExpenseCents;
+    return {
+      day, ...counts,
+      estimated_revenue: estimatedRevenueComplete ? amount(estimatedRevenue) : null,
+      real_revenue: realRevenueComplete ? amount(realRevenue) : null,
+      costs: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, amount(value)])),
+      dropea_expenses: amount(dropeaExpenseCents), dropea_profit: amount(dropeaProfitCents),
+      dropea_margin: realRevenue && dropeaProfitCents !== null ? ratio(dropeaProfitCents, realRevenue) : null,
+      dropea_profit_after_meta: dropeaProfitCents === null || ad.value === null ? null : amount(dropeaProfitCents - ad.value),
+      operational_expenses: amount(operationalExpenseCents), operational_profit: amount(operationalProfitCents),
+      operational_margin: realRevenue && operationalProfitCents !== null ? ratio(operationalProfitCents, realRevenue) : null,
+      total_expenses: amount(expenseCents), net_profit: amount(profitCents),
+      roi: expenseCents && profitCents !== null ? ratio(profitCents, expenseCents) : null,
+      margin: realRevenue && profitCents !== null ? ratio(profitCents, realRevenue) : null,
+      estimated_cpa: counts.orders_sent && ad.value !== null ? amount(Math.round(ad.value / counts.orders_sent)) : null,
+      real_cpa: counts.delivered && ad.value !== null ? amount(Math.round(ad.value / counts.delivered)) : null,
+      confirmation_rate: ratio(counts.orders_sent, counts.orders_created), delivery_rate: ratio(counts.delivered, counts.orders_sent),
+      quality: relevant && (expenseCents === null || !estimatedRevenueComplete || !realRevenueComplete) ? 'INCOMPLETE' : relevant ? 'COMPLETE' : 'FUTURE',
+      advertising_status: ad.status
+    };
+  });
+
+  const observed = daily.filter((row) => row.day <= today);
+  const firstIncompleteDay = observed.findIndex((row) => row.quality !== 'COMPLETE');
+  const nonAdvertisingGap = [...missing].some((key) => !key.startsWith('ADVERTISING:'));
+  const partialClose = currentMonth && firstIncompleteDay > 0 && !nonAdvertisingGap;
+  const included = partialClose ? observed.slice(0, firstIncompleteDay) : observed;
+  const accountingClosedThrough = included.length && included.every((row) => row.quality === 'COMPLETE') ? included.at(-1).day : null;
+  const sumField = (field) => Number(included.reduce((sum, row) => sum + Number(row[field] || 0), 0).toFixed(2));
+  const sumCost = (field) => included.some((row) => row.costs[field] === null) ? null : Number(included.reduce((sum, row) => sum + Number(row.costs[field] || 0), 0).toFixed(2));
+  const sumNullableField = (field) => included.some((row) => row[field] === null) ? null : sumField(field);
+  const totalExpenses = sumNullableField('total_expenses'); const realRevenue = sumNullableField('real_revenue');
+  const estimatedRevenue = sumNullableField('estimated_revenue'); const advertising = sumCost('advertising');
+  const operationalExpenses = sumNullableField('operational_expenses'); const dropeaExpenses = sumNullableField('dropea_expenses');
+  const ordersCreated = sumField('orders_created'); const ordersSent = sumField('orders_sent'); const delivered = sumField('delivered');
+  const profit = totalExpenses === null || realRevenue === null ? null : Number((realRevenue - totalExpenses).toFixed(2));
+  const operationalProfit = operationalExpenses === null || realRevenue === null ? null : Number((realRevenue - operationalExpenses).toFixed(2));
+  const dropeaProfit = dropeaExpenses === null || realRevenue === null ? null : Number((realRevenue - dropeaExpenses).toFixed(2));
+  const fixedCommitted = fixedExpensesComplete ? amount([...fixed.values()].reduce((sum, value) => sum + value, 0)) : null;
+  const totals = {
+    orders_created: ordersCreated, orders_sent: ordersSent, delivered, delivered_units: sumField('delivered_units'),
+    in_air: sumField('in_air'), returned: sumField('returned'), returned_units: sumField('returned_units'), incidences: sumField('incidences'),
+    cohort: { orders_created: ordersCreated, orders_sent: ordersSent, delivered },
+    estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
+    costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising, fixed: sumCost('fixed') },
+    fixed_expenses_committed: fixedCommitted,
+    fixed_expenses_remaining: fixedCommitted === null || sumCost('fixed') === null ? null : Number((fixedCommitted - sumCost('fixed')).toFixed(2)),
+    operational_expenses: operationalExpenses, operational_profit: operationalProfit,
+    dropea_expenses: dropeaExpenses, dropea_profit: dropeaProfit,
+    dropea_margin: realRevenue && dropeaProfit !== null ? ratio(Math.round(dropeaProfit * 100), Math.round(realRevenue * 100)) : null,
+    dropea_profit_after_meta: dropeaProfit === null || advertising === null ? null : Number((dropeaProfit - advertising).toFixed(2)),
+    operational_margin: realRevenue && operationalProfit !== null ? ratio(Math.round(operationalProfit * 100), Math.round(realRevenue * 100)) : null,
+    total_expenses: totalExpenses, net_profit: profit,
+    roi: totalExpenses && profit !== null ? ratio(Math.round(profit * 100), Math.round(totalExpenses * 100)) : null,
+    margin: realRevenue && profit !== null ? ratio(Math.round(profit * 100), Math.round(realRevenue * 100)) : null,
+    estimated_cpa: ordersSent && advertising !== null ? Number((advertising / ordersSent).toFixed(2)) : null,
+    real_cpa: delivered && advertising !== null ? Number((advertising / delivered).toFixed(2)) : null,
+    confirmation_rate: ratio(ordersSent, ordersCreated), delivery_rate: ratio(delivered, ordersSent)
+  };
+  totals.return_cost_per_order = totals.returned > 0 && totals.costs.returns !== null ? Number((totals.costs.returns / totals.returned).toFixed(2)) : null;
+  const expenseComponents = [totals.costs.product, totals.costs.outbound_shipping, totals.costs.cod, totals.costs.outbound_fulfillment, totals.costs.returns, totals.costs.advertising, totals.costs.fixed];
+  const expectedExpenses = expenseComponents.some((value) => value === null) ? null : Number(expenseComponents.reduce((sum, value) => sum + Number(value), 0).toFixed(2));
+  const expectedProfit = totals.real_revenue === null || expectedExpenses === null ? null : Number((totals.real_revenue - expectedExpenses).toFixed(2));
+  const audit = {
+    formula_version: 'FINANCE_ORDER_CREATION_COHORT_V1',
+    definitions: {
+      perspective: 'Cada pedido se imputa al día en que fue creado y se valora con su estado actual verificable',
+      total_expenses: 'PRODUCT + OUTBOUND_SHIPPING + COD + OUTBOUND_FULFILLMENT + RETURNS + ADVERTISING + FIXED',
+      net_profit: 'REAL_REVENUE - TOTAL_EXPENSES', roi: 'NET_PROFIT / TOTAL_EXPENSES', margin: 'NET_PROFIT / REAL_REVENUE',
+      estimated_cpa: 'ADVERTISING / ORDERS_SENT', real_cpa: 'ADVERTISING / DELIVERED',
+      confirmation_rate: 'DROPEA_ORDERS_SENT / DROPEA_ORDERS_CREATED', delivery_rate: 'DELIVERED / ORDERS_SENT'
+    },
+    checks: [
+      auditCheck('COHORT_PARTITION_SENT_EQUALS_DELIVERED_PLUS_IN_AIR_PLUS_RETURNED', totals.orders_sent, totals.delivered + totals.in_air + totals.returned, 0),
+      auditCheck('TOTAL_EXPENSES_EQUALS_COMPONENTS', totals.total_expenses, expectedExpenses),
+      auditCheck('NET_PROFIT_EQUALS_REVENUE_MINUS_EXPENSES', totals.net_profit, expectedProfit),
+      auditCheck('ROI_EQUALS_PROFIT_OVER_EXPENSES', totals.roi, totals.total_expenses && totals.net_profit !== null ? ratio(Math.round(totals.net_profit * 100), Math.round(totals.total_expenses * 100)) : null, 0.0001),
+      auditCheck('MARGIN_EQUALS_PROFIT_OVER_REVENUE', totals.margin, totals.real_revenue && totals.net_profit !== null ? ratio(Math.round(totals.net_profit * 100), Math.round(totals.real_revenue * 100)) : null, 0.0001),
+      auditCheck('RETURN_COST_EQUALS_DAILY_RETURN_COST', totals.costs.returns,
+        included.some((row) => row.costs.returns === null) ? null : Number(included.reduce((sum, row) => sum + Number(row.costs.returns || 0), 0).toFixed(2))),
+      auditCheck('DAILY_PROFIT_SUM_EQUALS_MONTH_PROFIT', totals.net_profit, included.some((row) => row.net_profit === null) ? null : Number(included.reduce((sum, row) => sum + Number(row.net_profit), 0).toFixed(2)))
+    ]
+  };
+  audit.model_status = missing.size || audit.checks.some((check) => check.status !== 'PASS') ? 'PARTIAL' : 'PASS';
+  const observedReturnCost = observed.some((row) => row.costs.returns === null) ? null : Number(observed.reduce((sum, row) => sum + Number(row.costs.returns || 0), 0).toFixed(2));
+  return Object.freeze({
+    month, timezone, currency, generated_at: now.toISOString(), provisional: currentMonth,
+    perspective: 'ORDER_CREATION_COHORT_CURRENT_STATUS', accounting_closed_through: accountingClosedThrough,
+    pending_accounting_days: currentMonth && firstIncompleteDay >= 0 ? observed.length - firstIncompleteDay : 0,
+    exactness: missing.size ? 'PARTIAL' : 'COMPLETE', totals,
+    observed_snapshot: {
+      returned: Number(observed.reduce((sum, row) => sum + Number(row.returned || 0), 0).toFixed(2)),
+      returned_units: Number(observed.reduce((sum, row) => sum + Number(row.returned_units || 0), 0).toFixed(2)),
+      return_cost: observedReturnCost
+    },
+    daily, audit, products: productRollup(cohortOrders, rates, timezone, currency), logistics: logisticsRollup(cohortOrders, rates, timezone, currency),
+    advertising_by_platform: Object.entries(adSpend.reduce((result, row) => {
+      if (row.business_date < `${month}-01` || row.business_date > monthEnd || String(row.sync_status).toUpperCase() !== 'COMPLETE') return result;
+      const key = String(row.platform || 'OTHER').toUpperCase(); const value = cents(row.spend);
+      if (value !== null) result[key] = (result[key] || 0) + value;
+      return result;
+    }, {})).map(([platform, value]) => ({ platform, spend: amount(value) })).sort((a, b) => b.spend - a.spend),
+    missing_sources: [...missing].sort(),
+    quality: { required_days: requiredDays.length, advertising_days_complete: included.filter((row) => row.advertising_status === 'COMPLETE').length, actions_executed: 0, production_writes: 0 }
+  });
+}
+
 export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixedExpenses = [], fixedExpensesComplete = fixedExpenses.length > 0, adSpend = [], now = new Date(), timezone = 'Europe/Madrid', currency = 'EUR' }) {
   const days = monthDays(month); const today = businessDate(now, timezone);
   const requiredDays = days.filter((day) => month < today.slice(0, 7) || day <= today);

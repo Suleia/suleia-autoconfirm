@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { businessDateInTimezone, runMetaAdsFinanceSpendReadCycle, runMetaAdsReadCycle } from './read-cycle.mjs';
+import { businessDateInTimezone, previousBusinessDateInTimezone, runMetaAdsFinanceSpendReadCycle, runMetaAdsReadCycle } from './read-cycle.mjs';
 
 const config = Object.freeze({
   executionMode: 'SIMULATION',
@@ -69,14 +69,20 @@ test('read cycle blocks missing read scope, non-EUR, timezone drift and inactive
 });
 
 test('finance spend cycle counts every campaign returned by daily insights, even if it is not currently active', async () => {
+  let requestedDate = null;
   const client = fakeClient({
     readActiveCampaigns: async () => [{ id: '1', name: 'Currently active' }],
-    readCampaignInsights: async () => [
+    readCampaignInsights: async ({ businessDate }) => {
+      requestedDate = businessDate;
+      return [
       { campaign_id: '1', spend: '5.39' },
       { campaign_id: '9', spend: '12.50', actions: [{ action_type: 'purchase', value: '1' }] }
-    ]
+      ];
+    }
   });
   const result = await runMetaAdsFinanceSpendReadCycle({ config, client, now: new Date('2026-08-22T07:00:00Z') });
+  assert.equal(requestedDate, '2026-08-21');
+  assert.equal(result.business_date, '2026-08-21');
   assert.equal(result.campaign_count, 2);
   assert.equal(result.campaigns.reduce((sum, row) => sum + row.spend, 0), 17.89);
   assert.deepEqual(result.campaigns.map((row) => row.campaign_id), ['1', '9']);
@@ -87,6 +93,18 @@ test('finance spend cycle counts every campaign returned by daily insights, even
 test('Europe/Madrid business date is correct across midnight and daylight-saving seasons', () => {
   assert.equal(businessDateInTimezone(new Date('2026-08-21T22:30:00Z')), '2026-08-22');
   assert.equal(businessDateInTimezone(new Date('2026-12-31T23:30:00Z')), '2027-01-01');
+  assert.equal(previousBusinessDateInTimezone(new Date('2026-08-21T22:30:00Z')), '2026-08-21');
+  assert.equal(previousBusinessDateInTimezone(new Date('2026-01-01T08:00:00Z')), '2025-12-31');
+});
+
+test('finance spend backfill accepts a closed explicit date and rejects today or future', async () => {
+  let requestedDate = null;
+  const client = fakeClient({ readCampaignInsights: async ({ businessDate }) => { requestedDate = businessDate; return []; } });
+  const now = new Date('2026-09-01T12:00:00Z');
+  const result = await runMetaAdsFinanceSpendReadCycle({ config, client, now, businessDate: '2026-08-30' });
+  assert.equal(requestedDate, '2026-08-30');
+  assert.equal(result.business_date, '2026-08-30');
+  await assert.rejects(() => runMetaAdsFinanceSpendReadCycle({ config, client, now, businessDate: '2026-09-01' }), /NOT_CLOSED/);
 });
 
 test('Meta Ads package is isolated from order, Dropea, GLS, Chatby and incident modules', () => {

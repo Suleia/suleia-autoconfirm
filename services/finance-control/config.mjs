@@ -15,7 +15,11 @@ export function loadFinanceSyncConfig(env = process.env) {
   for (const key of ['PRODUCTION_WRITES_ENABLED', 'CONNECTOR_WRITE_ENABLED', 'META_ADS_WRITES_ENABLED', 'META_ADS_BUDGET_WRITES_ENABLED', 'META_ADS_TELEGRAM_SEND_ENABLED']) {
     if (String(env[key] || 'false') !== 'false') throw new FinanceSyncConfigurationError(`${key} must be false`, 'FINANCE_EXTERNAL_WRITE_BLOCKED');
   }
-  return Object.freeze({ databaseUrl: required(env, 'FINANCE_DATABASE_URL'), storeId: required(env, 'FINANCE_STORE_ID'), sourceRecordKey: required(env, 'META_ADS_AD_ACCOUNT_ID').replace(/^act_/, '') });
+  const businessDate = String(env.FINANCE_SYNC_BUSINESS_DATE || '').trim() || null;
+  if (businessDate && !/^\d{4}-\d{2}-\d{2}$/.test(businessDate)) {
+    throw new FinanceSyncConfigurationError('FINANCE_SYNC_BUSINESS_DATE must use YYYY-MM-DD', 'FINANCE_SYNC_CONFIG_INVALID');
+  }
+  return Object.freeze({ databaseUrl: required(env, 'FINANCE_DATABASE_URL'), storeId: required(env, 'FINANCE_STORE_ID'), sourceRecordKey: required(env, 'META_ADS_AD_ACCOUNT_ID').replace(/^act_/, ''), businessDate });
 }
 
 export function assertDedicatedMetaReadScope(result) {
