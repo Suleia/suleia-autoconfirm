@@ -127,10 +127,18 @@ test('an accepted 5 EUR discount becomes a prominent incident-specific recovery 
     messages_used: 1,
     latest_customer_message: 'Quiero el descuento',
     latest_customer_message_relation: 'AFTER_INCIDENT',
+    discount_recovery_response_status: 'DISCOUNT_ACCEPTED',
+    discount_delivery_verified: true,
+    discount_signal_quality: 'VERIFIED',
+    discount_sent_at: '2026-08-01T10:00:00Z',
+    discount_responded_at: '2026-08-01T11:00:00Z',
+    discount_amount_eur: 5,
     allowed_resolution_options: ['RETURN_REQUESTED','PROVIDE_SOLUTION','MANAGED_BY_CLIENT']
   });
   assert.equal(result.customer_evidence.code, 'DISCOUNT_ACCEPTED');
   assert.equal(result.customer_evidence.title, 'Descuento de 5 € aceptado');
+  assert.equal(result.discount_recovery.status, 'DISCOUNT_ACCEPTED');
+  assert.equal(result.discount_recovery.tone, 'accepted');
   assert.equal(result.tailored_recommendation.code, 'APPLY_ACCEPTED_DISCOUNT_AND_REDELIVER');
   assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
   assert.match(result.tailored_recommendation.guardrail, /no aplicar más de 5/i);
@@ -144,11 +152,47 @@ test('a rejected discount stops further offers and proposes return', () => {
     messages_used: 1,
     latest_customer_message: 'No quiero el descuento',
     latest_customer_message_relation: 'AFTER_INCIDENT',
+    discount_recovery_response_status: 'DISCOUNT_REJECTED',
+    discount_delivery_verified: true,
+    discount_signal_quality: 'VERIFIED',
+    discount_sent_at: '2026-08-01T10:00:00Z',
+    discount_responded_at: '2026-08-01T11:00:00Z',
     allowed_resolution_options: ['RETURN_REQUESTED','MANAGED_BY_CLIENT']
   });
   assert.equal(result.customer_evidence.code, 'DISCOUNT_REJECTED');
+  assert.equal(result.discount_recovery.status, 'DISCOUNT_REJECTED');
+  assert.equal(result.discount_recovery.tone, 'rejected');
   assert.equal(result.tailored_recommendation.code, 'RETURN_AFTER_DISCOUNT_REJECTION');
   assert.equal(result.tailored_recommendation.resolution_option, 'RETURN_REQUESTED');
+});
+
+test('discount acceptance is never inferred without verified delivery evidence', () => {
+  const result = incidentInsight({
+    ...base,
+    interpreted_type: 'REFUSED_BY_RECIPIENT',
+    customer_intent: 'DISCOUNT_ACCEPTED',
+    discount_accepted: true,
+    discount_recovery_response_status: 'DISCOUNT_ACCEPTED',
+    discount_delivery_verified: false,
+    discount_signal_quality: 'NOT_VERIFIABLE',
+    discount_responded_at: '2026-08-01T11:00:00Z'
+  });
+  assert.equal(result.discount_recovery.status, 'NOT_VERIFIABLE');
+  assert.notEqual(result.customer_evidence.code, 'DISCOUNT_ACCEPTED');
+  assert.notEqual(result.tailored_recommendation.code, 'APPLY_ACCEPTED_DISCOUNT_AND_REDELIVER');
+});
+
+test('waiting for a discount response is distinct from an explicit rejection', () => {
+  const result = incidentInsight({
+    ...base,
+    interpreted_type: 'REFUSED_BY_RECIPIENT',
+    discount_recovery_response_status: 'NO_RESPONSE',
+    discount_delivery_verified: true,
+    discount_signal_quality: 'VERIFIED',
+    discount_sent_at: '2026-08-01T10:00:00Z'
+  });
+  assert.equal(result.discount_recovery.status, 'NO_RESPONSE');
+  assert.equal(result.discount_recovery.tone, 'waiting');
 });
 
 test('a weekday availability produces a literal scheduled-delivery solution with causal limits', () => {

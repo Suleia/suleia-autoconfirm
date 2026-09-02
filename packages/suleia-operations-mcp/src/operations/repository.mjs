@@ -28,6 +28,19 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   private_order.external_order_id_ciphertext,private_order.shipping_address_ciphertext,
+  discount.recovery_status AS discount_recovery_status,
+  discount.response_status AS discount_recovery_response_status,
+  discount.initial_template_sent_at AS discount_initial_template_sent_at,
+  discount.discount_due_at AS discount_due_at,
+  discount.discount_sent_at AS discount_sent_at,
+  discount.responded_at AS discount_responded_at,
+  discount.delivery_verified AS discount_delivery_verified,
+  discount.cross_source_verified AS discount_cross_source_verified,
+  discount.original_amount AS discount_original_amount,
+  discount.discount_amount AS discount_amount_eur,
+  discount.final_amount AS discount_final_amount,
+  discount.signal_quality AS discount_signal_quality,
+  discount.source_updated_at AS discount_source_updated_at,
   private_message.message_text_ciphertext AS latest_customer_message_ciphertext,
   private_message.occurred_at AS latest_private_customer_message_at,
   private_message.relation_to_issue AS latest_customer_message_relation,
@@ -78,6 +91,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   END AS operational_recommendation
  FROM read_models.operations_incident_panel_context p
  LEFT JOIN read_models.operations_private_order_display private_order USING(canonical_order_id)
+ LEFT JOIN read_models.operations_incident_discount_recovery_latest discount USING(canonical_issue_id)
  LEFT JOIN LATERAL (
    SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
      (SELECT o.message_text_ciphertext
@@ -120,7 +134,8 @@ function incidentSelection(searchParams) {
     status: 'status', type: 'interpreted_type', risk: 'effective_risk',
     freshness: 'operational_freshness_status', mapping: 'mapping_status',
     response: 'operational_response_status', timer: 'effective_timer_status',
-    decision: 'operational_decision_status', qa: 'effective_qa_status', carrier_code: 'initial_carrier_code'
+    decision: 'operational_decision_status', qa: 'effective_qa_status', carrier_code: 'initial_carrier_code',
+    discount_response: 'discount_recovery_response_status'
   });
   const scope = String(searchParams.get('scope') || 'ACTIVE').toUpperCase();
   if (scope === 'ACTIVE') selected.clauses.push("status='PENDING' AND is_active=true");
@@ -233,6 +248,11 @@ export class OperationsRepository {
         count(*) FILTER (WHERE interpreted_type='RECIPIENT_ABSENT')::integer AS recipient_absent,
         count(*) FILTER (WHERE interpreted_type='ADDRESS_INCORRECT')::integer AS address_issues,
         count(*) FILTER (WHERE interpreted_type='REFUSED_BY_RECIPIENT')::integer AS refused,
+        count(*) FILTER (WHERE discount_recovery_response_status='DISCOUNT_ACCEPTED')::integer AS discount_accepted,
+        count(*) FILTER (WHERE discount_recovery_response_status='DISCOUNT_REJECTED')::integer AS discount_rejected,
+        count(*) FILTER (WHERE discount_recovery_response_status='NO_RESPONSE')::integer AS discount_no_response,
+        count(*) FILTER (WHERE discount_recovery_response_status='OTHER_RESPONSE')::integer AS discount_other_response,
+        count(*) FILTER (WHERE discount_recovery_response_status='NOT_SENT')::integer AS discount_not_sent,
         max(panel_updated_at) AS last_sync_at,$${incidentFilters.values.length + 1}::text AS scope,
         0::integer AS actions_executed,0::integer AS production_writes
       FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${incidentWhere}`,
@@ -448,6 +468,11 @@ export class OperationsRepository {
            count(*) FILTER (WHERE interpreted_type='RECIPIENT_ABSENT')::integer AS recipient_absent,
            count(*) FILTER (WHERE interpreted_type='ADDRESS_INCORRECT')::integer AS address_issues,
            count(*) FILTER (WHERE interpreted_type='REFUSED_BY_RECIPIENT')::integer AS refused,
+           count(*) FILTER (WHERE discount_recovery_response_status='DISCOUNT_ACCEPTED')::integer AS discount_accepted,
+           count(*) FILTER (WHERE discount_recovery_response_status='DISCOUNT_REJECTED')::integer AS discount_rejected,
+           count(*) FILTER (WHERE discount_recovery_response_status='NO_RESPONSE')::integer AS discount_no_response,
+           count(*) FILTER (WHERE discount_recovery_response_status='OTHER_RESPONSE')::integer AS discount_other_response,
+           count(*) FILTER (WHERE discount_recovery_response_status='NOT_SENT')::integer AS discount_not_sent,
            max(panel_updated_at) AS last_sync_at,$${scopeParameter}::text AS scope,
            0::integer AS actions_executed,0::integer AS production_writes
          FROM selected

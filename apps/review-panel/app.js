@@ -120,6 +120,18 @@ function renderSummary() {
     root.append(
       summaryCard(activeScope ? 'Pendientes reales en Dropea' : 'Seleccionadas', data?.pending, `${activeScope ? 'Cola actual de resolución' : `Alcance: ${translated(data?.scope)}`} · ${updated}`),
       summaryCard('Cliente actuó', data?.responded, `Respuesta válida ligada a la incidencia · ${updated}`, 'green'),
+      summaryCard('Aceptaron 5 €', data?.discount_accepted, 'Oferta entregada y aceptación posterior verificada', 'green', () => {
+        state.filters.discount_response = state.filters.discount_response === 'DISCOUNT_ACCEPTED' ? '' : 'DISCOUNT_ACCEPTED';
+        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+      }, state.filters.discount_response === 'DISCOUNT_ACCEPTED'),
+      summaryCard('No aceptaron 5 €', data?.discount_rejected, 'Rechazo explícito posterior a la oferta', 'red', () => {
+        state.filters.discount_response = state.filters.discount_response === 'DISCOUNT_REJECTED' ? '' : 'DISCOUNT_REJECTED';
+        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+      }, state.filters.discount_response === 'DISCOUNT_REJECTED'),
+      summaryCard('Esperando descuento', data?.discount_no_response, 'Plantilla entregada; todavía sin respuesta', 'amber', () => {
+        state.filters.discount_response = state.filters.discount_response === 'NO_RESPONSE' ? '' : 'NO_RESPONSE';
+        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+      }, state.filters.discount_response === 'NO_RESPONSE'),
       summaryCard('Sin conversación exacta', data?.without_conversation, `No se presupone que el cliente no respondió · ${updated}`, 'purple'),
       summaryCard('Dirección', data?.address_issues, `Requieren datos de entrega válidos · ${updated}`, 'amber'),
       summaryCard('Atención prioritaria', data?.high_risk, `Riesgo alto o crítico · ${updated}`, 'red')
@@ -136,6 +148,7 @@ const filterDefinitions = {
     ['scope', 'Alcance', ['ACTIVE', 'HISTORICAL', 'ALL']],
     ['type', 'Qué ocurre', ['RECIPIENT_ABSENT', 'ADDRESS_INCORRECT', 'REFUSED_BY_RECIPIENT', 'GENERAL_INCIDENCE', 'UNKNOWN']],
     ['response', 'Evidencia cliente', ['VALID_RESPONSE', 'NO_VALID_RESPONSE', 'NO_CONVERSATION', 'NOT_VERIFIABLE']],
+    ['discount_response', 'Descuento 5 €', ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'NO_RESPONSE', 'OTHER_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE']],
     ['risk', 'Prioridad', ['HIGH', 'CRITICAL']]
   ]
 };
@@ -251,6 +264,18 @@ function rowOrder(item) {
   );
   tr.addEventListener('click', () => openDetail(item.canonical_order_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_order_id); }); return tr;
 }
+function discountStatusCard(item) {
+  const discount = item.discount_recovery || {};
+  if (!discount.applies) return stacked('No aplica', 'La incidencia no es de rechazo de mercancía', 'discount-state not-applicable');
+  const status = discount.status || 'NOT_AVAILABLE';
+  const card = node('div', `stacked discount-state ${discount.tone || 'review'}`);
+  const icon = status === 'DISCOUNT_ACCEPTED' ? '✓' : status === 'DISCOUNT_REJECTED' ? '×'
+    : status === 'NO_RESPONSE' ? '◷' : status === 'OTHER_RESPONSE' ? '!' : '–';
+  card.append(node('strong', 'discount-state-title', `${icon} ${text(discount.title)}`), node('small', '', text(discount.summary)));
+  if (discount.sent_at) card.append(node('small', 'discount-evidence', `Enviado ${date(discount.sent_at)}`));
+  if (discount.responded_at) card.append(node('small', 'discount-evidence', `Respondió ${date(discount.responded_at)}`));
+  return card;
+}
 function rowIncident(item) {
   const tr = node('tr'); tr.tabIndex = 0;
   const customer = item.customer_evidence || {};
@@ -265,12 +290,13 @@ function rowIncident(item) {
     cell(identity, 'customer-cell'),
     cell(stacked(translated(item.interpreted_type), item.initial_carrier_description_sanitized || 'Sin descripción adicional de Dropea')),
     cell(evidence, 'signal-cell'),
+    cell(discountStatusCard(item), 'discount-cell'),
     cell(stacked(recommendation.title, `${recommendation.summary} · ${resolution}`), 'decision-card'),
     cell(stacked(translated(item.handling_status), `${item.source_truth === 'PENDING_IN_DROPEA' ? 'Pendiente en Dropea' : 'Fuera de la cola pendiente'} · ${item.operational_freshness_status === 'FRESH' ? 'datos vigentes' : 'revisar actualización'}`))
   );
   tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
 }
-function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Cliente / teléfono', 'Qué ocurre', 'Evidencia de Chatby', 'Solución concreta', 'Estado real']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
+function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Cliente / teléfono', 'Qué ocurre', 'Evidencia de Chatby', 'Descuento 5 €', 'Solución concreta', 'Estado real']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
 
 async function loadQueue() {
   if (state.view === 'finance') return;
@@ -371,6 +397,30 @@ function customerMessageHistory(items = []) {
   }
   box.append(list); return box;
 }
+function discountRecoveryDetail(incident) {
+  const discount = incident.discount_recovery || {};
+  if (!discount.applies) return document.createDocumentFragment();
+  const box = node('section', `detail-section discount-detail ${discount.tone || 'review'}`);
+  const heading = node('div', 'discount-detail-heading');
+  heading.append(node('h3', '', 'Recuperación con descuento de 5 €'), discountStatusCard(incident));
+  box.append(heading);
+  const priceVerified = discount.cross_source_verified === true;
+  const fields = [
+    ['Resultado', discount.title || 'NO DISPONIBLE', true],
+    ['Plantilla inicial', discount.initial_template_sent_at ? `ENTREGADA · ${date(discount.initial_template_sent_at)}` : 'NO VERIFICADA'],
+    ['Plantilla descuento', discount.sent_at ? `ENTREGADA · ${date(discount.sent_at)}` : 'NO VERIFICADA'],
+    ['Respuesta posterior', discount.responded_at ? date(discount.responded_at) : 'SIN RESPUESTA'],
+    ['Precio original', priceVerified ? money(discount.original_amount) : 'NO VERIFICADO'],
+    ['Descuento', priceVerified && discount.discount_amount !== null ? money(discount.discount_amount) : 'NO VERIFICADO'],
+    ['Precio final', priceVerified ? money(discount.final_amount) : 'NO VERIFICADO'],
+    ['Cruce de fuentes', priceVerified ? 'VERIFICADO' : 'NO VERIFICADO', true],
+    ['Última comprobación', date(discount.source_updated_at)]
+  ];
+  const grid = node('div', 'field-grid');
+  fields.forEach((item) => grid.append(field(...item)));
+  box.append(grid, node('p', 'muted discount-proof-note', 'Sólo se muestra “aceptado” o “no aceptado” cuando la plantilla fue entregada y la respuesta del cliente es posterior y está vinculada al mismo pedido.'));
+  return box;
+}
 async function openDetail(id) {
   const view = state.view; const request = ++state.detailRequest;
   state.detailController?.abort(); state.detailController = new AbortController();
@@ -396,6 +446,7 @@ async function openDetail(id) {
         section('Cliente y pedido', [['Cliente', incident.customer_name || 'NO DISPONIBLE'], ['Teléfono', incident.customer_phone || 'NO DISPONIBLE'], ['Pedido', incident.external_order_reference || `Dropea #${incident.dropea_order_id}`], ['Incidencia', `#${incident.dropea_issue_id}`]]),
         section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
         section('Acción del cliente', [['Resultado', incident.customer_evidence?.title, true], ['Conclusión', incident.customer_evidence?.summary], ['Último mensaje', incident.customer_evidence?.latest_message || 'No hay mensaje entrante disponible'], ['Fecha del mensaje', date(incident.customer_evidence?.at)], ['Relación temporal', incident.customer_evidence?.relation === 'AFTER_INCIDENT' ? 'POSTERIOR A LA INCIDENCIA' : incident.customer_evidence?.relation === 'BEFORE_INCIDENT' ? 'ANTERIOR A LA INCIDENCIA' : 'SIN MENSAJE', true], ['Asociación', incident.conversation_status === 'FOUND' ? 'CONVERSACIÓN EXACTA DEL PEDIDO' : 'NO VERIFICADA', true]]),
+        discountRecoveryDetail(incident),
         customerMessageHistory(data.customer_messages),
         recommendationPanel(incident, data.feedback),
         section('Control y seguridad', [['Gestión', translated(incident.handling_status), true], ['Opción propuesta en Dropea', incident.tailored_recommendation?.resolution_option || 'PENDIENTE DE VALIDACIÓN'], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Datos', translated(incident.operational_freshness_status), true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)], ['Estado de acción externa', translated(incident.external_action_status || 'NOT_EXECUTED'), true]]),

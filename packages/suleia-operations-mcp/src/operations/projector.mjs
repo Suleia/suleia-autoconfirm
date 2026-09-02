@@ -288,6 +288,37 @@ export class OperationsProjector {
     return { projected: true, resource: 'operational_order_signal', actions_executed: 0, production_writes: 0 };
   }
 
+  async upsertIncidentDiscountRecoverySignal(signal) {
+    assertSafe(signal);
+    const result = await this.pool.query(`INSERT INTO operations.incident_discount_recovery_observations
+      (canonical_issue_id,dropea_issue_id,dropea_order_id,incident_type,recovery_status,
+       response_status,initial_template_sent_at,discount_due_at,discount_sent_at,responded_at,
+       delivery_verified,cross_source_verified,original_amount,discount_amount,final_amount,
+       signal_quality,source_updated_at,actions_executed,production_writes,run_mode)
+      SELECT canonical_issue_id,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+             0,0,'SHADOW_READ_ONLY'
+      FROM read_models.operations_incident_records
+      WHERE dropea_issue_id=$1 AND dropea_order_id=$2
+      ON CONFLICT(canonical_issue_id) DO UPDATE SET
+       recovery_status=EXCLUDED.recovery_status,response_status=EXCLUDED.response_status,
+       initial_template_sent_at=EXCLUDED.initial_template_sent_at,
+       discount_due_at=EXCLUDED.discount_due_at,discount_sent_at=EXCLUDED.discount_sent_at,
+       responded_at=EXCLUDED.responded_at,delivery_verified=EXCLUDED.delivery_verified,
+       cross_source_verified=EXCLUDED.cross_source_verified,original_amount=EXCLUDED.original_amount,
+       discount_amount=EXCLUDED.discount_amount,final_amount=EXCLUDED.final_amount,
+       signal_quality=EXCLUDED.signal_quality,source_updated_at=EXCLUDED.source_updated_at,
+       ingested_at=now()
+      RETURNING canonical_issue_id`, [
+      signal.dropea_issue_id, signal.dropea_order_id, signal.incident_type,
+      signal.recovery_status, signal.response_status, signal.initial_template_sent_at,
+      signal.discount_due_at, signal.discount_sent_at, signal.responded_at,
+      signal.delivery_verified, signal.cross_source_verified, signal.original_amount,
+      signal.discount_amount, signal.final_amount, signal.signal_quality, signal.source_updated_at
+    ]);
+    return { matched: result.rowCount === 1, resource: 'incident_discount_recovery_signal',
+      actions_executed: 0, production_writes: 0 };
+  }
+
   async upsertIssue(issue) {
     assertSafe(issue);
     const integrationResult = await this.pool.query(`/* SHADOW_READ_ONLY */ INSERT INTO integration.dropea_issues

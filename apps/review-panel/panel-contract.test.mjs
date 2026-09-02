@@ -58,9 +58,9 @@ test('Operations Center exposes Pedidos, Incidencias and audited finance configu
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260831-finance-profit-v9">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260902-discount-status-v1">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260831-finance-profit-v9" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260902-discount-status-v1" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
@@ -121,6 +121,7 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
 
 test('incidents use current connector polls and distinguish a missing association from a connector error', () => {
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
   assert.match(script, /customer_evidence/);
   assert.match(script, /operational_freshness_status/);
   assert.match(script, /Sin conversación asociada/);
@@ -134,4 +135,13 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /Por qué propongo esta acción/);
   assert.match(script, /Cuándo no debe aplicarse/);
   assert.match(script, /item\.direction === 'OUTBOUND' \? 'Suleia' : 'Cliente'/);
+  assert.match(script, /Aceptaron 5 €/);
+  assert.match(script, /No aceptaron 5 €/);
+  assert.match(script, /Esperando descuento/);
+  assert.match(script, /discount_recovery/);
+  assert.match(script, /Sólo se muestra “aceptado” o “no aceptado”/);
+  assert.match(script, /Descuento 5 €/);
+  assert.match(css, /discount-state\.accepted/);
+  assert.match(css, /discount-state\.rejected/);
+  assert.match(css, /discount-state\.waiting/);
 });

@@ -17,6 +17,8 @@ test('one-shot Dropea phase runner is confirmation-gated and reports zero extern
 test('periodic worker cannot persist store configuration during dry-run', () => {
   const source = fs.readFileSync(new URL('../services/shadow-readonly-worker.mjs', import.meta.url), 'utf8');
   assert.match(source, /if \(!dropeaDryRun\) await operationsProjector\.upsertStoreConfig\(store\)/);
+  assert.match(source, /syncRenderIncidentDiscountSignals/);
+  assert.match(source, /incidentDiscountSignals\.ok/);
 });
 
 test('one-shot runner is included explicitly in the production Node image', () => {

@@ -31,6 +31,44 @@ function normalizedIntent(value) {
   return intent;
 }
 
+function discountRecovery(item) {
+  const observed = item.discount_recovery_response_status !== null
+    && item.discount_recovery_response_status !== undefined;
+  const rawStatus = String(item.discount_recovery_response_status || 'NOT_SENT').toUpperCase();
+  const deliveryVerified = item.discount_delivery_verified === true;
+  const qualityVerified = item.discount_signal_quality === 'VERIFIED';
+  const responseVerified = qualityVerified && deliveryVerified
+    && (!['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'OTHER_RESPONSE'].includes(rawStatus)
+      || Boolean(item.discount_responded_at));
+  const status = observed && responseVerified ? rawStatus
+    : observed && rawStatus === 'NOT_SENT' && qualityVerified ? 'NOT_SENT'
+      : observed ? 'NOT_VERIFIABLE' : 'NOT_AVAILABLE';
+  const presentations = {
+    DISCOUNT_ACCEPTED: ['Descuento aceptado', 'El cliente aceptó expresamente el descuento de 5 € después de recibir la plantilla.', 'accepted'],
+    DISCOUNT_REJECTED: ['Descuento no aceptado', 'El cliente rechazó expresamente la oferta después de recibirla.', 'rejected'],
+    NO_RESPONSE: ['Sin respuesta al descuento', 'La plantilla de descuento está entregada, pero el cliente aún no ha contestado.', 'waiting'],
+    OTHER_RESPONSE: ['Respondió · revisar', 'El cliente contestó después de la oferta, pero no aceptó ni rechazó de forma inequívoca.', 'review'],
+    NOT_SENT: ['Descuento aún no enviado', 'No existe una entrega verificada de la plantilla de descuento para esta incidencia.', 'not-sent'],
+    NOT_VERIFIABLE: ['Estado no verificable', 'La evidencia disponible no permite atribuir una aceptación o rechazo con seguridad.', 'review'],
+    NOT_AVAILABLE: ['Seguimiento no disponible', 'Esta incidencia todavía no tiene una observación del automatismo de descuento.', 'not-sent']
+  };
+  const [title, summary, tone] = presentations[status] || presentations.NOT_VERIFIABLE;
+  return {
+    applies: observed || item.interpreted_type === 'REFUSED_BY_RECIPIENT',
+    status, title, summary, tone,
+    delivery_verified: deliveryVerified,
+    initial_template_sent_at: item.discount_initial_template_sent_at || null,
+    due_at: item.discount_due_at || null,
+    sent_at: item.discount_sent_at || null,
+    responded_at: item.discount_responded_at || null,
+    original_amount: item.discount_original_amount ?? null,
+    discount_amount: item.discount_amount_eur ?? null,
+    final_amount: item.discount_final_amount ?? null,
+    cross_source_verified: item.discount_cross_source_verified === true,
+    source_updated_at: item.discount_source_updated_at || null
+  };
+}
+
 function customerEvidence(item) {
   const exactMessage = item.latest_customer_message || null;
   const messageAt = item.latest_private_customer_message_at || item.latest_customer_activity_at || null;
@@ -52,13 +90,18 @@ function customerEvidence(item) {
     messages: 0, latest_message: null, at: null, relation: null
   };
   if (item.operational_response_status === 'VALID_RESPONSE' || privateCurrentSignal) {
-    const rawIntent = item.discount_accepted === true
-      ? 'DISCOUNT_ACCEPTED'
-      : item.discount_rejected === true
-        ? 'DISCOUNT_REJECTED'
-        : privateCurrentSignal
+    const discount = discountRecovery(item);
+    const fallbackIntent = privateCurrentSignal
       ? privateInterpretation.intent
       : item.customer_intent || item.latest_private_customer_intent || 'UNKNOWN';
+    const fallbackNormalized = normalizedIntent(fallbackIntent);
+    const rawIntent = discount.status === 'DISCOUNT_ACCEPTED'
+      ? 'DISCOUNT_ACCEPTED'
+      : discount.status === 'DISCOUNT_REJECTED'
+        ? 'DISCOUNT_REJECTED'
+        : ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED'].includes(fallbackNormalized)
+          ? 'UNKNOWN'
+          : fallbackIntent;
     const intent = normalizedIntent(rawIntent);
     const title = intent === 'CONFIRM' ? 'Cliente confirma'
       : intent === 'REJECT' ? 'Cliente rechaza'
@@ -313,6 +356,7 @@ function recommendation(item, customer) {
 }
 
 export function incidentInsight(item) {
+  const discount = discountRecovery(item);
   const customer = customerEvidence(item);
   const proposed = recommendation(item, customer);
   const existingStatus = String(item.operational_action_status || item.external_action_status || '').toUpperCase();
@@ -328,6 +372,7 @@ export function incidentInsight(item) {
   return {
     ...item,
     customer_evidence: customer,
+    discount_recovery: discount,
     tailored_recommendation: proposed,
     source_truth: item.is_active && item.status === 'PENDING' ? 'PENDING_IN_DROPEA' : 'NOT_PENDING_IN_DROPEA',
     external_action_status: existingStatus || 'NOT_EXECUTED',

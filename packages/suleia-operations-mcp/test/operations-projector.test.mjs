@@ -130,3 +130,24 @@ test('Operations projector stores only a masked Chatby category with zero writes
   assert.match(calls[0].sql, /operations_conversation_summaries/);
   assert.doesNotMatch(JSON.stringify(calls), /customer@example|\+34/);
 });
+
+test('Operations projector joins a discount result by exact Dropea issue and order IDs', async () => {
+  const calls = [];
+  const projector = new OperationsProjector({ query: async (sql, values) => {
+    calls.push({ sql, values }); return { rowCount: 1, rows: [{ canonical_issue_id: 'issue-fixture' }] };
+  } });
+  const result = await projector.upsertIncidentDiscountRecoverySignal({
+    dropea_issue_id: '1252293', dropea_order_id: '1355049', incident_type: 'REJECTED_GOODS',
+    recovery_status: 'ALREADY_SENT', response_status: 'DISCOUNT_ACCEPTED',
+    initial_template_sent_at: '2026-09-01T09:00:00Z', discount_due_at: '2026-09-02T09:00:00Z',
+    discount_sent_at: '2026-09-02T09:01:00Z', responded_at: '2026-09-02T09:15:00Z',
+    delivery_verified: true, cross_source_verified: true, original_amount: 29.99,
+    discount_amount: 5, final_amount: 24.99, signal_quality: 'VERIFIED',
+    source_updated_at: '2026-09-02T09:16:00Z', actions_executed: 0, production_writes: 0
+  });
+  assert.equal(result.matched, true);
+  assert.match(calls[0].sql, /dropea_issue_id=\$1 AND dropea_order_id=\$2/);
+  assert.match(calls[0].sql, /incident_discount_recovery_observations/);
+  assert.equal(calls[0].values[12], 5);
+  assert.equal(result.production_writes, 0);
+});

@@ -202,9 +202,20 @@ test('incident overview returns table and counters from one materialized selecti
   assert.match(calls[0].sql, /operational_response_status/);
   assert.match(calls[0].sql, /operational_freshness_status/);
   assert.match(calls[0].sql, /NO_CONVERSATION/);
+  assert.match(calls[0].sql, /discount_recovery_response_status='DISCOUNT_ACCEPTED'/);
   assert.equal(result.total, 1);
   assert.equal(result.summary.pending, 1);
   assert.equal(result.limit, 25);
+});
+
+test('incident discount filter is parameterized and uses only verified recovery status', async () => {
+  const calls = [];
+  const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
+  const repository = new OperationsRepository(null, { pool });
+  await repository.listIncidents(new URLSearchParams({ scope: 'ACTIVE', discount_response: 'DISCOUNT_ACCEPTED' }));
+  assert.match(calls[0].sql, /discount_recovery_response_status = \$1/);
+  assert.equal(calls[0].values[0], 'DISCOUNT_ACCEPTED');
+  assert.match(calls[0].sql, /operations_incident_discount_recovery_latest/);
 });
 
 test('monthly financial summary is GET-only and missing sources remain unknown', async () => {
