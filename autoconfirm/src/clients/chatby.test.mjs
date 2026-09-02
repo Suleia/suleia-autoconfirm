@@ -9,6 +9,7 @@ process.env.CHATBY_READ_RETRY_BASE_MS = '1';
 const {
   chatbyLifecycleTemplateOwner,
   chatbyNativeOwnsLifecycleTemplate,
+  chatbyRepositoryOwnsIncidentTemplate,
   findSubscriberInIndexForExactOrder,
   findSubscriberInIndexForOrder,
   getChatMessages,
@@ -40,11 +41,25 @@ test('incident sender ownership can be restored without changing prepared-order 
   try {
     process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
     process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = 'repository';
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate(), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), false);
   } finally {
     if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
     else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+    if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
+  }
+});
+
+test('incident repository ownership is fail-closed unless explicitly configured', () => {
+  const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+  try {
+    delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate(), false);
+    process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = 'chatby_native';
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate(), false);
+  } finally {
     if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
     else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
   }

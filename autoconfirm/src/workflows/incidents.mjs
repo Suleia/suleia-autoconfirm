@@ -12,7 +12,7 @@ import {
   returnDropeaIssueToOrigin
 } from '../clients/dropea.mjs';
 import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
-import { findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
+import { chatbyRepositoryOwnsIncidentTemplate, findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import {
@@ -2132,7 +2132,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       };
       const rejectedGoodsCommunicationEnabled = item.incident.incidentType === 'rejected_goods'
         && config.enableIncidentDiscountTemplate === true
-        && config.incidentDiscountRealEnabled === true;
+        && config.incidentDiscountRealEnabled === true
+        && chatbyRepositoryOwnsIncidentTemplate();
       if (rejectedGoodsCommunicationEnabled) {
         try {
           notification = await processIncidentNotification({

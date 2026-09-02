@@ -46,6 +46,10 @@ export function chatbyNativeOwnsLifecycleTemplate(templateName) {
     && CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(templateName));
 }
 
+export function chatbyRepositoryOwnsIncidentTemplate() {
+  return String(process.env.CHATBY_INCIDENT_TEMPLATE_OWNER || '').trim().toLowerCase() === 'repository';
+}
+
 function assertRepositoryOwnsTemplate(payload) {
   const name = payload?.template_name
     || payload?.templateName

@@ -163,6 +163,7 @@ test('dashboard workflow keeps Dropea V2 writes blocked while allowing the gated
   assert.match(source, /processIncidentNotification/);
   assert.match(source, /rejectedGoodsCommunicationEnabled/);
   assert.match(source, /incidentDiscountRealEnabled === true/);
+  assert.match(source, /chatbyRepositoryOwnsIncidentTemplate/);
   assert.match(source, /status: 'BLOCKED_READ_ONLY'/);
   assert.match(source, /reason: 'dropea_v2_dashboard_read_only'/);
   assert.match(source, /executeIncorrectAddressResolution/);
