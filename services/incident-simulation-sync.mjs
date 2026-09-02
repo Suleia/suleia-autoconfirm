@@ -16,7 +16,7 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
   let blocked = 0;
   for (const row of candidates.rows) {
     const events = await pool.query(`SELECT canonical_issue_id,direction,message_type,button_payload,
-      sanitized_text,occurred_at AS created_at,incident_version,intent,intent_confidence,
+      sanitized_text,occurred_at AS created_at,incident_version,relevance_status,intent,intent_confidence,
       chatby_message_id_hash AS chatby_message_id
       FROM operations.chatby_conversation_events
       WHERE canonical_issue_id=$1 ORDER BY occurred_at`, [row.canonical_issue_id]);
