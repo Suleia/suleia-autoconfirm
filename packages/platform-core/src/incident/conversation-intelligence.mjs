@@ -45,7 +45,10 @@ export function interpretIncidentConversation({ events = [], issueId, issueVersi
   const ignored = [];
   for (const event of sorted) {
     const currentIssue = String(event.canonical_issue_id || '') === String(issueId);
-    const currentVersion = !event.incident_version || sameIssueVersion(event.incident_version, issueVersion);
+    const exactCurrentOrder = event.relevance_status === 'CURRENT_ORDER_EXACT_MATCH';
+    const currentVersion = !event.incident_version
+      || sameIssueVersion(event.incident_version, issueVersion)
+      || exactCurrentOrder;
     const customerInput = event.direction === 'INBOUND' || event.message_type === 'BUTTON';
     if (!currentIssue || !currentVersion || !customerInput) {
       ignored.push(event);

@@ -48,3 +48,24 @@ test('timestamp issue versions match across database Date and ISO event formats'
   assert.equal(result.customer_intent, 'DELIVERY_RETRY');
   assert.equal(result.messages_used, 1);
 });
+
+test('an exact current-order association survives a later Dropea incident timestamp update', () => {
+  const result = interpretIncidentConversation({
+    events: [{
+      canonical_issue_id: 'issue-1',
+      incident_version: '2026-09-01T09:49:50.992Z',
+      relevance_status: 'CURRENT_ORDER_EXACT_MATCH',
+      direction: 'INBOUND',
+      message_type: 'TEXT',
+      intent: 'UNKNOWN',
+      chatby_message_id: 'message-after-incident',
+      created_at: '2026-09-01T17:04:11.000Z'
+    }],
+    issueId: 'issue-1',
+    issueVersion: new Date('2026-09-01T17:07:03.475Z'),
+    now: '2026-09-02T17:00:00.000Z'
+  });
+  assert.equal(result.has_customer_replied, true);
+  assert.equal(result.messages_used, 1);
+  assert.equal(result.customer_intent, 'UNKNOWN');
+});
