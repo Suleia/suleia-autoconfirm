@@ -49,6 +49,50 @@ test('exact incident lookup accepts only the explicit Dropea order field', () =>
   }), null);
 });
 
+test('exact incident lookup treats the Chatby ES prefix as the same Dropea order', () => {
+  const current = {
+    phone: '+34600000000',
+    user_fields: [{ name: 'Dropea: Número', value: 'ES1381873' }]
+  };
+  const other = {
+    phone: '+34600000000',
+    user_fields: [{ name: 'Dropea: Número', value: 'ES1381874' }]
+  };
+  const index = { byPhone: new Map([['600000000', [other, current]]]) };
+
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '1381873'
+  }), current);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '138187'
+  }), null);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000001', orderId: '1381873'
+  }), null);
+});
+
+test('exact incident lookup accepts the live Chatby #Pedido field without falling back to phone only', () => {
+  const current = {
+    phone: '+34600000000',
+    user_fields: [
+      { name: '#Pedido', value: '1381873' },
+      { name: 'Incidencia: Motivo', value: 'fixture' }
+    ]
+  };
+  const older = {
+    phone: '+34600000000',
+    user_fields: [{ name: '#Pedido', value: '1370000' }]
+  };
+  const index = { byPhone: new Map([['600000000', [older, current]]]) };
+
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '1381873'
+  }), current);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '1381874'
+  }), null);
+});
+
 test('strict order lookup never reuses a confirmed subscriber from another order', () => {
   const subscriber = {
     phone: '+34600000000',

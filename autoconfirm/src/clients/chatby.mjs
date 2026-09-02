@@ -421,17 +421,34 @@ function fieldValue(subscriber, fieldName) {
 function dropeaOrderFieldValue(subscriber) {
   const field = (subscriber.user_fields || []).find((item) => {
     const name = normalizeText(item.name);
-    return name.includes('dropea')
-      && (
+    const compactName = name.replace(/[^a-z0-9]+/g, '');
+    const explicitOrderField = compactName === 'pedido' || compactName === 'idpedido';
+    return explicitOrderField || (
+      name.includes('dropea') && (
         name.includes('numero')
         || name.includes('n mero')
         || name.includes('nã')
         || name.includes('num')
         || name.includes('order')
         || name.includes('pedido')
-      );
+      )
+    );
   });
   return field?.value ?? null;
+}
+
+function canonicalDropeaOrderId(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  const compact = source.replace(/[\s#_-]+/g, '').toUpperCase();
+  const numeric = compact.match(/^(?:ES)?(\d+)$/);
+  return numeric ? numeric[1] : compact;
+}
+
+function sameDropeaOrderId(left, right) {
+  const leftId = canonicalDropeaOrderId(left);
+  const rightId = canonicalDropeaOrderId(right);
+  return Boolean(leftId && rightId && leftId === rightId);
 }
 
 function subscriberContainsOrderId(subscriber, orderId) {
@@ -457,7 +474,7 @@ export function findSubscriberInIndexForOrder(index, { phone, orderId, allowConf
   const samePhoneSubscribers = phoneKey ? (index?.byPhone?.get(phoneKey) || []) : [];
 
   for (const subscriber of samePhoneSubscribers) {
-    if (String(dropeaOrderFieldValue(subscriber) || '') === String(orderId)) return subscriber;
+    if (sameDropeaOrderId(dropeaOrderFieldValue(subscriber), orderId)) return subscriber;
     if (subscriberContainsOrderId(subscriber, orderId)) return withSyntheticOrderField(subscriber, orderId);
   }
 
@@ -470,11 +487,11 @@ export function findSubscriberInIndexForOrder(index, { phone, orderId, allowConf
 
 export function findSubscriberInIndexForExactOrder(index, { phone, orderId } = {}) {
   const phoneKey = digits(phone).slice(-9);
-  const targetOrder = String(orderId || '').trim();
+  const targetOrder = canonicalDropeaOrderId(orderId);
   if (!phoneKey || !targetOrder) return null;
   const samePhoneSubscribers = index?.byPhone?.get(phoneKey) || [];
   return samePhoneSubscribers.find((subscriber) => (
-    String(dropeaOrderFieldValue(subscriber) || '').trim() === targetOrder
+    sameDropeaOrderId(dropeaOrderFieldValue(subscriber), targetOrder)
   )) || null;
 }
 
