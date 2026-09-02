@@ -164,7 +164,11 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
     latest_template_message: templates.at(-1)?.message || null,
     customer_replied: inbound.some((item) => new Date(item.at).getTime() >= issueAt),
     conversation_age_seconds: latest ? Math.max(0, Math.floor((now.getTime() - new Date(latest).getTime()) / 1000)) : null,
-    conversation_freshness: latest && new Date(latest).getTime() >= issueAt ? 'FRESH' : latest ? 'STALE' : 'UNKNOWN',
+    // This field describes the freshness of the successful conversation read,
+    // not the age of the last message. Message age and relation to the issue are
+    // preserved separately so a freshly verified "no response" is not mistaken
+    // for an unavailable Chatby source.
+    conversation_freshness: 'FRESH',
     message_count: valid.length,
     current_messages: valid.filter((item) => new Date(item.at).getTime() >= issueAt).map((item) => item.message),
     customer_messages: customerMessages,

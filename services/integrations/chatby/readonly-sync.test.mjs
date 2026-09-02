@@ -202,13 +202,13 @@ test('Chatby mirror reuses the subscriber catalogue while continuing current-iss
   assert.equal(fetchCalls, 1);
 });
 
-test('conversation metrics separate existence, current reply and stale activity', () => {
+test('conversation metrics keep a successful read fresh while separating old activity', () => {
   const metrics = chatbyReadOnlyInternals.conversationMetrics([
     { id: 'old-out', type: 'out', msg_type: 'template', ts: Date.parse('2026-07-01T10:00:00Z') },
     { id: 'old-in', type: 'in', msg_type: 'postback', ts: Date.parse('2026-07-01T11:00:00Z'), payload: { title: 'No quiero el pedido' } }
   ], '2026-08-01T09:00:00Z', new Date('2026-08-02T09:00:00Z'));
   assert.equal(metrics.customer_replied, false);
-  assert.equal(metrics.conversation_freshness, 'STALE');
+  assert.equal(metrics.conversation_freshness, 'FRESH');
   assert.equal(metrics.last_button, 'FINAL_REJECTION');
   assert.equal(metrics.message_count, 2);
   assert.equal(metrics.customer_messages[0].relation_to_issue, 'BEFORE_INCIDENT');

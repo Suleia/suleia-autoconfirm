@@ -45,7 +45,7 @@ SELECT c.*,
   END AS interpretation_basis,
   CASE
     WHEN cb.last_successful_sync_at IS NULL
-      OR cb.last_successful_sync_at < now()-interval '300 seconds'
+      OR cb.last_successful_sync_at < now()-interval '900 seconds'
       OR cb.last_failure_at >= cb.last_successful_sync_at
       OR c.conversation_freshness IN ('STALE','UNAVAILABLE','UNKNOWN') THEN 'NOT_VERIFIABLE'
     WHEN c.customer_replied_after_issue=true AND coalesce(c.messages_used,0)>0 THEN 'VALID_RESPONSE'
@@ -54,7 +54,7 @@ SELECT c.*,
   CASE
     WHEN cb.last_successful_sync_at IS NULL THEN 'CHATBY_LAST_SUCCESS_MISSING'
     WHEN cb.last_failure_at >= cb.last_successful_sync_at THEN 'CHATBY_LATEST_SYNC_FAILED'
-    WHEN cb.last_successful_sync_at < now()-interval '300 seconds' THEN 'CHATBY_EVIDENCE_STALE'
+    WHEN cb.last_successful_sync_at < now()-interval '900 seconds' THEN 'CHATBY_EVIDENCE_STALE'
     WHEN c.conversation_freshness='STALE' THEN 'CHATBY_EVIDENCE_STALE'
     WHEN c.conversation_freshness='UNAVAILABLE' THEN 'CHATBY_UNAVAILABLE'
     WHEN c.conversation_freshness='UNKNOWN' THEN 'CHATBY_FRESHNESS_UNKNOWN'
@@ -64,7 +64,7 @@ SELECT c.*,
   CASE WHEN c.conversation_status IN ('FOUND','NONE','MULTIPLE') THEN 1.0000::numeric(5,4) END
     AS evidence_classification_confidence,
   CASE WHEN c.conversation_freshness='FRESH'
-             AND cb.last_successful_sync_at >= now()-interval '300 seconds'
+             AND cb.last_successful_sync_at >= now()-interval '900 seconds'
              AND (cb.last_failure_at IS NULL OR cb.last_failure_at < cb.last_successful_sync_at)
              AND c.customer_replied_after_issue=true
              AND coalesce(c.messages_used,0)>0 THEN c.interpretation_confidence END
@@ -79,14 +79,14 @@ SELECT c.*,
   CASE WHEN c.timer_type IN ('CUSTOMER_INITIAL_RESPONSE_48H','CUSTOMER_DISCOUNT_RESPONSE_48H')
              AND c.timer_status='ACTIVE' AND c.timer_due_at>now()
              AND c.conversation_freshness='FRESH'
-             AND cb.last_successful_sync_at>=now()-interval '300 seconds'
+             AND cb.last_successful_sync_at>=now()-interval '900 seconds'
              AND (cb.last_failure_at IS NULL OR cb.last_failure_at<cb.last_successful_sync_at)
              AND NOT (c.customer_replied_after_issue=true AND coalesce(c.messages_used,0)>0)
        THEN true ELSE false END AS waiting_customer,
   CASE
     WHEN cb.last_successful_sync_at IS NULL THEN 'UNKNOWN'
     WHEN cb.last_failure_at >= cb.last_successful_sync_at THEN 'UNAVAILABLE'
-    WHEN cb.last_successful_sync_at < now()-interval '300 seconds' THEN 'STALE'
+    WHEN cb.last_successful_sync_at < now()-interval '900 seconds' THEN 'STALE'
     WHEN c.conversation_freshness IN ('STALE','UNAVAILABLE','UNKNOWN') THEN c.conversation_freshness
     WHEN ds.last_successful_sync_at IS NULL THEN 'UNKNOWN'
     WHEN ds.sync_complete=false THEN 'UNAVAILABLE'
@@ -99,7 +99,7 @@ SELECT c.*,
   CASE
     WHEN cb.last_successful_sync_at IS NULL THEN 'UNKNOWN'
     WHEN cb.last_failure_at >= cb.last_successful_sync_at THEN 'UNAVAILABLE'
-    WHEN cb.last_successful_sync_at < now()-interval '300 seconds' THEN 'STALE'
+    WHEN cb.last_successful_sync_at < now()-interval '900 seconds' THEN 'STALE'
     ELSE c.conversation_freshness
   END AS effective_conversation_freshness,
   CASE
@@ -125,7 +125,7 @@ SELECT c.*,
   CASE
     WHEN cb.last_successful_sync_at IS NULL THEN 'CHATBY_LAST_SUCCESS_MISSING'
     WHEN cb.last_failure_at >= cb.last_successful_sync_at THEN 'CHATBY_LATEST_SYNC_FAILED'
-    WHEN cb.last_successful_sync_at < now()-interval '300 seconds' THEN 'CHATBY_EVIDENCE_STALE'
+    WHEN cb.last_successful_sync_at < now()-interval '900 seconds' THEN 'CHATBY_EVIDENCE_STALE'
     WHEN c.conversation_freshness='STALE' THEN 'CHATBY_EVIDENCE_STALE'
     WHEN c.conversation_freshness='UNAVAILABLE' THEN 'CHATBY_UNAVAILABLE'
     WHEN c.conversation_freshness='UNKNOWN' THEN 'CHATBY_FRESHNESS_UNKNOWN'
@@ -194,7 +194,7 @@ SELECT c.*,
   ARRAY(SELECT DISTINCT reason FROM unnest(ARRAY_REMOVE(ARRAY[
     CASE WHEN cb.last_successful_sync_at IS NULL THEN 'CHATBY_EVIDENCE_NOT_VERIFIABLE' END,
     CASE WHEN cb.last_failure_at >= cb.last_successful_sync_at THEN 'CHATBY_UNAVAILABLE' END,
-    CASE WHEN cb.last_successful_sync_at < now()-interval '300 seconds' THEN 'CHATBY_EVIDENCE_STALE' END,
+    CASE WHEN cb.last_successful_sync_at < now()-interval '900 seconds' THEN 'CHATBY_EVIDENCE_STALE' END,
     CASE WHEN c.conversation_freshness='STALE' THEN 'CHATBY_EVIDENCE_STALE' END,
     CASE WHEN c.conversation_freshness='UNAVAILABLE' THEN 'CHATBY_UNAVAILABLE' END,
     CASE WHEN c.conversation_freshness='UNKNOWN' THEN 'CHATBY_EVIDENCE_NOT_VERIFIABLE' END,
@@ -208,7 +208,7 @@ SELECT c.*,
                     WHERE legacy_reason<>'UNKNOWN_ISSUE_TYPE')) reason ORDER BY reason) AS effective_blocking_reasons,
   CASE
     WHEN coalesce(c.mapping_status,'UNMAPPED') NOT IN ('MAPPED','VERIFIED') THEN 'Código GLS pendiente de gobernar'
-    WHEN cb.last_successful_sync_at IS NULL OR cb.last_successful_sync_at < now()-interval '300 seconds'
+    WHEN cb.last_successful_sync_at IS NULL OR cb.last_successful_sync_at < now()-interval '900 seconds'
       OR cb.last_failure_at >= cb.last_successful_sync_at
       OR c.conversation_freshness IN ('STALE','UNAVAILABLE','UNKNOWN') THEN 'Evidencia del cliente no verificable'
     WHEN c.customer_replied_after_issue=false THEN 'Sin respuesta válida posterior a la incidencia'

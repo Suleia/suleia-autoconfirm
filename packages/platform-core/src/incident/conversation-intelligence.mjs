@@ -26,6 +26,13 @@ function iso(value) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
+function sameIssueVersion(left, right) {
+  const leftIso = iso(left);
+  const rightIso = iso(right);
+  if (leftIso && rightIso) return leftIso === rightIso;
+  return String(left ?? '') === String(right ?? '');
+}
+
 function eventIntent(event) {
   const explicit = String(event.intent || '').toUpperCase();
   if (INCIDENT_INTENTS.includes(explicit)) return explicit;
@@ -38,7 +45,7 @@ export function interpretIncidentConversation({ events = [], issueId, issueVersi
   const ignored = [];
   for (const event of sorted) {
     const currentIssue = String(event.canonical_issue_id || '') === String(issueId);
-    const currentVersion = !event.incident_version || String(event.incident_version) === String(issueVersion);
+    const currentVersion = !event.incident_version || sameIssueVersion(event.incident_version, issueVersion);
     const customerInput = event.direction === 'INBOUND' || event.message_type === 'BUTTON';
     if (!currentIssue || !currentVersion || !customerInput) {
       ignored.push(event);

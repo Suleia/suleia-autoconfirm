@@ -37,7 +37,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   private_message.operator_message_at AS latest_operator_message_at,
   CASE
     WHEN p.chatby_last_successful_sync_at IS NULL
-      OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
+      OR p.chatby_last_successful_sync_at < now()-interval '900 seconds'
       OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN false
     ELSE true
   END AS chatby_sync_current,
@@ -48,9 +48,10 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   END AS dropea_sync_current,
   CASE
     WHEN p.chatby_last_successful_sync_at IS NULL
-      OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
+      OR p.chatby_last_successful_sync_at < now()-interval '900 seconds'
       OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN 'NOT_VERIFIABLE'
-    WHEN p.conversation_status='FOUND' AND p.response_evidence_status='VALID_RESPONSE' THEN 'VALID_RESPONSE'
+    WHEN p.conversation_status='FOUND' AND p.customer_replied_after_issue=true
+      AND coalesce(p.messages_used,0)>0 THEN 'VALID_RESPONSE'
     WHEN p.conversation_status='FOUND' THEN 'NO_VALID_RESPONSE'
     WHEN p.conversation_status='NONE' THEN 'NO_CONVERSATION'
     ELSE 'NOT_VERIFIABLE'
@@ -59,7 +60,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
     WHEN p.last_successful_sync_at IS NULL
       OR p.last_successful_sync_at < now()-interval '900 seconds' THEN 'STALE'
     WHEN p.chatby_last_successful_sync_at IS NULL
-      OR p.chatby_last_successful_sync_at < now()-interval '600 seconds'
+      OR p.chatby_last_successful_sync_at < now()-interval '900 seconds'
       OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN 'STALE'
     ELSE 'FRESH'
   END AS operational_freshness_status,

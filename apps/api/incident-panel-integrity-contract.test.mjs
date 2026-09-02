@@ -24,6 +24,7 @@ test('incident panel projection preserves separate source semantics and safe exe
   assert.match(migration, /snapshot_status/);
   assert.match(migration, /TIMER_EXPIRED_NOT_RECONCILED/);
   assert.match(migration, /CHATBY_EVIDENCE_STALE/);
+  assert.doesNotMatch(migration, /CHATBY_EVIDENCE_STALE[\s\S]{0,500}300 seconds/);
   assert.match(migration, /GLS_CODE_UNMAPPED/);
   assert.match(migration, /'NOT_EXECUTED'::text AS external_action_status/);
   assert.match(migration, /status='PENDING' AND is_active=true/);
@@ -35,6 +36,8 @@ test('API table and cards share the same incident selection builder', () => {
   assert.equal((repository.match(/incidentSelection\(searchParams\)/g) || []).length, 4);
   assert.match(repository, /scope === 'ACTIVE'.*status='PENDING' AND is_active=true/s);
   assert.match(repository, /operations_incident_panel_context/);
+  assert.match(repository, /customer_replied_after_issue=true[\s\S]{0,100}messages_used,0\)>0 THEN 'VALID_RESPONSE'/);
+  assert.equal((repository.match(/chatby_last_successful_sync_at < now\(\)-interval '900 seconds'/g) || []).length, 3);
   assert.match(repository, /WITH selected AS MATERIALIZED/);
   assert.match(repository, /jsonb_agg\(to_jsonb\(p\)/);
   assert.match(repository, /AT TIME ZONE 'Europe\/Madrid'/);

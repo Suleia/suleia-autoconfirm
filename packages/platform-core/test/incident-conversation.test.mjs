@@ -33,3 +33,18 @@ test('PII is masked before any conversational summary is returned', () => {
   ]));
   assert.doesNotMatch(result.latest_relevant_message_sanitized, /600111222/);
 });
+
+test('timestamp issue versions match across database Date and ISO event formats', () => {
+  const issueVersion = new Date('2026-09-01T18:30:00.000Z');
+  const result = interpretIncidentConversation({
+    events: [{
+      canonical_issue_id: 'issue-1', incident_version: issueVersion.toISOString(),
+      direction: 'INBOUND', intent: 'DELIVERY_RETRY', chatby_message_id: 'm-date',
+      created_at: '2026-09-01T18:31:00.000Z'
+    }],
+    issueId: 'issue-1', issueVersion, now: '2026-09-01T18:32:00.000Z'
+  });
+  assert.equal(result.has_customer_replied, true);
+  assert.equal(result.customer_intent, 'DELIVERY_RETRY');
+  assert.equal(result.messages_used, 1);
+});
