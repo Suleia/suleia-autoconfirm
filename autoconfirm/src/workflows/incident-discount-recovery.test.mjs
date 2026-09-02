@@ -50,6 +50,7 @@ function fixture() {
       products: [{ title: 'Producto Fixture', quantity: 1 }]
     }],
     claim: async () => ({ acquired: true }),
+    getDelivery: async () => null,
     finish: async (value) => { finished.push(value); return { ok: true }; },
     send: async (value) => { sent.push(value); return { message_id: 'wamid.DISCOUNT_FIXTURE' }; }
   };
@@ -123,5 +124,38 @@ test('persistent claim blocks duplicates across restarts', async () => {
   });
   assert.equal(result.status, 'persistent_sent');
   assert.equal(result.verified, true);
+  assert.equal(data.sent.length, 0);
+});
+
+test('uses a verified persistent initial send and still performs the final no-response read', async () => {
+  const data = fixture();
+  data.dependencies.getMessages = async () => [];
+  data.dependencies.getDelivery = async ({ templateName }) => (
+    templateName.includes('mercancia')
+      ? { status: 'sent', sent_at: '2026-08-28T08:00:00.000Z' }
+      : null
+  );
+  const result = await processIncidentDiscountRecovery({
+    incident: data.incident,
+    order: data.order,
+    realEnabled: true,
+    now: Date.parse('2026-08-29T08:00:00.000Z'),
+    dependencies: data.dependencies
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(data.sent.length, 1);
+});
+
+test('fails closed when the persistent delivery ledger cannot be read', async () => {
+  const data = fixture();
+  data.dependencies.getDelivery = async () => { throw new Error('ledger unavailable'); };
+  const result = await processIncidentDiscountRecovery({
+    incident: data.incident,
+    order: data.order,
+    realEnabled: true,
+    now: Date.parse('2026-08-29T08:00:00.000Z'),
+    dependencies: data.dependencies
+  });
+  assert.equal(result.reason, 'template_delivery_ledger_read_failed');
   assert.equal(data.sent.length, 0);
 });

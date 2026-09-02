@@ -1,6 +1,7 @@
 export const INCIDENT_DISCOUNT_DELAY_HOURS = 24;
 export const INCIDENT_DISCOUNT_MAX_EUR = 5;
 export const INCIDENT_MERCHANDISE_TEMPLATE = 'dropea_incidencia_mercancia_v1';
+export const INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME = 'es_ES dropea_incidencia_mercancia_v1';
 
 function normalize(value) {
   return String(value || '')
@@ -122,6 +123,27 @@ export function findVerifiedTemplateDelivery(messages = [], templateName) {
     : null;
 }
 
+function verifiedPersistentDelivery(delivery) {
+  const status = normalize(delivery?.status);
+  const timestamp = parseDateMs(delivery?.sent_at || delivery?.sentAt);
+  if (!['sent', 'already_seen'].includes(status) || !Number.isFinite(timestamp)) return null;
+  return {
+    sentAt: new Date(timestamp).toISOString(),
+    wamid: extractWamid(delivery?.raw) || null,
+    source: 'persistent_delivery_ledger'
+  };
+}
+
+function latestVerifiedDelivery(messages, templateName, persistentDelivery = null) {
+  return [
+    findVerifiedTemplateDelivery(messages, templateName),
+    verifiedPersistentDelivery(persistentDelivery)
+  ]
+    .filter((entry) => entry?.sentAt)
+    .sort((left, right) => parseDateMs(left.sentAt) - parseDateMs(right.sentAt))
+    .at(-1) || null;
+}
+
 export function customerInteractionAfter(messages = [], since) {
   const sinceMs = parseDateMs(since);
   return (Array.isArray(messages) ? messages : [])
@@ -148,7 +170,9 @@ export function incidentDiscountPolicy({
   incident,
   messages = [],
   now = Date.now(),
-  discountTemplateName
+  discountTemplateName,
+  merchandisePersistentDelivery = null,
+  discountPersistentDelivery = null
 } = {}) {
   if (!rejectedGoodsIncident(incident)) return { eligible: false, reason: 'incident_not_rejected_goods' };
   const status = normalize(incident?.issueStatus || incident?.status || 'pending');
@@ -157,7 +181,11 @@ export function incidentDiscountPolicy({
   }
   if (incident?.chatbyReadVerified !== true) return { eligible: false, reason: 'chatby_context_unverified' };
 
-  const merchandiseDelivery = findVerifiedTemplateDelivery(messages, INCIDENT_MERCHANDISE_TEMPLATE);
+  const merchandiseDelivery = latestVerifiedDelivery(
+    messages,
+    INCIDENT_MERCHANDISE_TEMPLATE,
+    merchandisePersistentDelivery
+  );
   if (!merchandiseDelivery?.sentAt) return { eligible: false, reason: 'merchandise_template_not_verified' };
   const incidentAtMs = parseDateMs(incident?.incidenceDate || incident?.createdAt);
   const merchandiseAtMs = parseDateMs(merchandiseDelivery.sentAt);
@@ -166,7 +194,7 @@ export function incidentDiscountPolicy({
   }
 
   const existingDiscount = discountTemplateName
-    ? findVerifiedTemplateDelivery(messages, discountTemplateName)
+    ? latestVerifiedDelivery(messages, discountTemplateName, discountPersistentDelivery)
     : null;
   if (existingDiscount) {
     return {
@@ -208,8 +236,8 @@ export function incidentDiscountPolicy({
   };
 }
 
-export function classifyIncidentDiscountResponse(messages = [], discountTemplateName) {
-  const delivery = findVerifiedTemplateDelivery(messages, discountTemplateName);
+export function classifyIncidentDiscountResponse(messages = [], discountTemplateName, discountPersistentDelivery = null) {
+  const delivery = latestVerifiedDelivery(messages, discountTemplateName, discountPersistentDelivery);
   if (!delivery?.sentAt) return { status: 'NOT_SENT', respondedAt: null };
   const interaction = customerInteractionAfter(messages, delivery.sentAt);
   if (!interaction) return { status: 'NO_RESPONSE', respondedAt: null };

@@ -261,6 +261,21 @@ export async function listTemplateDeliveries({ limit = 200 } = {}) {
   });
 }
 
+export async function getTemplateDelivery({
+  storeId = 'suleia',
+  orderId,
+  templateName
+} = {}) {
+  if (!isSupabaseEnabled()) return null;
+  if (!String(orderId || '').trim() || !String(templateName || '').trim()) return null;
+  const templateKey = deliveryKey({ storeId, orderId, templateName });
+  const rows = await selectRows('template_delivery_ledger', {
+    query: { template_key: `eq.${templateKey}`, limit: 1 },
+    limit: 1
+  });
+  return rows[0] || null;
+}
+
 function operationalOrderRow(order = {}) {
   return {
     order_id: String(order.orderId || '').trim(),

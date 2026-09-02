@@ -155,12 +155,14 @@ test('Dropea V2 normalization preserves the dashboard shape without creating act
   assert.equal(row.issue.tracking, 'TRACK-MASKED');
 });
 
-test('dashboard workflow keeps a hard V2 boundary around the single governed address action', () => {
+test('dashboard workflow keeps Dropea V2 writes blocked while allowing the gated Chatby incident sequence', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const source = fs.readFileSync(path.resolve(here, '../workflows/incidents.mjs'), 'utf8');
   assert.match(source, /collectPendingDropeaV2Incidents/);
   assert.doesNotMatch(source, /listDropeaIncidences|listDropeaOrdersByStatus\(/);
-  assert.doesNotMatch(source, /processIncidentNotification/);
+  assert.match(source, /processIncidentNotification/);
+  assert.match(source, /rejectedGoodsCommunicationEnabled/);
+  assert.match(source, /incidentDiscountRealEnabled === true/);
   assert.match(source, /status: 'BLOCKED_READ_ONLY'/);
   assert.match(source, /reason: 'dropea_v2_dashboard_read_only'/);
   assert.match(source, /executeIncorrectAddressResolution/);

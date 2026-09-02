@@ -49,12 +49,18 @@ services:
         value: 48
       - key: INCIDENT_ADDRESS_RESOLUTION_REAL_ENABLED
         value: true
+      - key: INCIDENT_NOTIFICATIONS_ENABLED
+        value: true
+      - key: INCIDENT_NOTIFICATION_DELAY_HOURS
+        value: 0
       - key: ENABLE_INCIDENT_DISCOUNT_TEMPLATE
         value: true
       - key: INCIDENT_DISCOUNT_REAL_ENABLED
         value: true
       - key: INCIDENT_DISCOUNT_INTERVAL_MINUTES
         value: 15
+      - key: CHATBY_INCIDENT_TEMPLATE_OWNER
+        value: repository
       - key: CHATBY_TOKEN
         sync: false
       - key: WHATSAPP_PROVIDER

@@ -9,7 +9,7 @@ import {
   sendWhatsappTemplate
 } from '../clients/chatby.mjs';
 import { listRecentShopifyOrders } from '../clients/shopify.mjs';
-import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
+import { claimTemplateDelivery, finishTemplateDelivery, getTemplateDelivery } from '../db/supabase-store.mjs';
 import {
   INCIDENT_DISCOUNT_TEMPLATE_NAME,
   incidentDiscountTemplateData
@@ -18,6 +18,7 @@ import {
   classifyIncidentDiscountResponse,
   extractWamid,
   findVerifiedTemplateDelivery,
+  INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME,
   incidentDiscountPolicy
 } from './incident-discount-policy.mjs';
 import {
@@ -394,6 +395,7 @@ export async function processIncidentDiscountRecovery({
     getShopifyOrders: dependencies.getShopifyOrders || findShopifyOrders,
     claim: dependencies.claim || claimTemplateDelivery,
     finish: dependencies.finish || finishTemplateDelivery,
+    getDelivery: dependencies.getDelivery || getTemplateDelivery,
     send: dependencies.send || sendWhatsappTemplate,
     waitForDelivery: dependencies.waitForDelivery || waitForVerifiedDelivery
   };
@@ -421,13 +423,33 @@ export async function processIncidentDiscountRecovery({
   } catch (error) {
     return recoveryResult({ reason: 'chatby_final_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
   }
+  let merchandisePersistentDelivery;
+  let discountPersistentDelivery;
+  try {
+    [merchandisePersistentDelivery, discountPersistentDelivery] = await Promise.all([
+      deps.getDelivery({
+        storeId: config.defaultStore.id,
+        orderId: incident.orderId,
+        templateName: INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
+      }),
+      deps.getDelivery({
+        storeId: config.defaultStore.id,
+        orderId: incident.orderId,
+        templateName: template.name
+      })
+    ]);
+  } catch (error) {
+    return recoveryResult({ reason: 'template_delivery_ledger_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+  }
   const policy = incidentDiscountPolicy({
     incident: { ...incident, chatbyReadVerified: true },
     messages: freshMessages,
     now,
-    discountTemplateName: template.name
+    discountTemplateName: template.name,
+    merchandisePersistentDelivery,
+    discountPersistentDelivery
   });
-  const response = classifyIncidentDiscountResponse(freshMessages, template.name);
+  const response = classifyIncidentDiscountResponse(freshMessages, template.name, discountPersistentDelivery);
   if (!policy.eligible) {
     return recoveryResult({
       reason: policy.reason,
@@ -486,10 +508,12 @@ export async function processIncidentDiscountRecovery({
     incident: { ...incident, chatbyReadVerified: true },
     messages: finalMessages,
     now: Date.now(),
-    discountTemplateName: template.name
+    discountTemplateName: template.name,
+    merchandisePersistentDelivery,
+    discountPersistentDelivery
   });
   if (!finalPolicy.eligible) {
-    const finalResponse = classifyIncidentDiscountResponse(finalMessages, template.name);
+    const finalResponse = classifyIncidentDiscountResponse(finalMessages, template.name, discountPersistentDelivery);
     return recoveryResult({
       ...preview,
       status: finalPolicy.reason === 'discount_template_already_sent' ? 'already_sent' : 'skipped',

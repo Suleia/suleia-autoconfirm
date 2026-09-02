@@ -17,8 +17,10 @@ const {
 
 test('reports the single lifecycle owner without exposing credentials', () => {
   const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
   try {
     process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = ' chatby_native ';
+    delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
     assert.equal(chatbyLifecycleTemplateOwner(), 'chatby_native');
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_nuevo_v1'), false);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
@@ -27,6 +29,24 @@ test('reports the single lifecycle owner without exposing credentials', () => {
   } finally {
     if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
     else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+    if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
+  }
+});
+
+test('incident sender ownership can be restored without changing prepared-order ownership', () => {
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+  try {
+    process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+    process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = 'repository';
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), false);
+  } finally {
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+    if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
   }
 });
 

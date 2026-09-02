@@ -24,6 +24,7 @@ import {
 import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
 import { carrierIncidentDisplay } from './incident-carrier-history.mjs';
 import { processIncidentDiscountRecovery } from './incident-discount-service.mjs';
+import { processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 
 const config = getAppConfig();
@@ -2120,6 +2121,35 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       };
     });
     for (const item of analyzed) {
+      let notification = {
+        status: 'disabled',
+        reason: 'dropea_v2_dashboard_read_only',
+        templateName: null,
+        attemptedAt: null,
+        sentAt: null,
+        verified: false,
+        error: null
+      };
+      const rejectedGoodsCommunicationEnabled = item.incident.incidentType === 'rejected_goods'
+        && config.enableIncidentDiscountTemplate === true
+        && config.incidentDiscountRealEnabled === true;
+      if (rejectedGoodsCommunicationEnabled) {
+        try {
+          notification = await processIncidentNotification({
+            incident: item.incident,
+            order: item.order,
+            messages: item.messages,
+            dryRun: false
+          });
+        } catch (error) {
+          notification = {
+            ...notification,
+            status: 'failed',
+            reason: 'incident_merchandise_template_failed',
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
       let discountRecovery = {
         status: 'disabled',
         reason: 'incident_discount_recovery_disabled',
@@ -2145,18 +2175,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
           };
         }
       }
-      // The V2 dashboard stays read-only except for the separately gated and
-      // idempotent incorrect-address solution path. Every other Dropea action
-      // remains blocked here.
-      const notification = {
-        status: 'disabled',
-        reason: 'dropea_v2_dashboard_read_only',
-        templateName: null,
-        attemptedAt: null,
-        sentAt: null,
-        verified: false,
-        error: null
-      };
+      // Dropea stays read-only here. The only additional egress is the separately
+      // gated, idempotent Chatby template sequence for rejected-goods incidents.
       const actionResult = item.incident.incidentType === 'address'
         ? await executeIncorrectAddressResolution(item.incident, item.operationalDecision)
         : {

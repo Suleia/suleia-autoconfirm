@@ -32,17 +32,26 @@ export function chatbyLifecycleTemplateOwner() {
     .toLowerCase();
 }
 
+function chatbyLifecycleTemplateOwnerFor(templateName) {
+  if (templateSlug(templateName) === 'dropea_incidencia_mercancia_v1') {
+    return String(process.env.CHATBY_INCIDENT_TEMPLATE_OWNER || chatbyLifecycleTemplateOwner())
+      .trim()
+      .toLowerCase();
+  }
+  return chatbyLifecycleTemplateOwner();
+}
+
 export function chatbyNativeOwnsLifecycleTemplate(templateName) {
-  return chatbyLifecycleTemplateOwner() === 'chatby_native'
+  return chatbyLifecycleTemplateOwnerFor(templateName) === 'chatby_native'
     && CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(templateName));
 }
 
 function assertRepositoryOwnsTemplate(payload) {
-  const owner = chatbyLifecycleTemplateOwner();
   const name = payload?.template_name
     || payload?.templateName
     || payload?.content?.name
     || payload?.content?.template_name;
+  const owner = chatbyLifecycleTemplateOwnerFor(name);
   if (owner !== 'chatby_native' || !CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(name))) return;
 
   const error = new Error('Lifecycle template blocked: Chatby native automation is the configured single sender.');
