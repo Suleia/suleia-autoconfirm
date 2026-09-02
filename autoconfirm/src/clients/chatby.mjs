@@ -4,6 +4,7 @@ const config = getAppConfig();
 
 const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 120000));
 const requestMinIntervalMs = Math.max(0, Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || 100));
+const readRetryBaseMs = Math.max(0, Number(process.env.CHATBY_READ_RETRY_BASE_MS || 500));
 let subscriberIndexCache = null;
 let subscriberIndexInFlight = null;
 let requestQueue = Promise.resolve();
@@ -53,6 +54,14 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function readRetryDelay(attempt) {
+  return Math.min(5000, readRetryBaseMs * (2 ** Math.max(0, attempt - 1)));
+}
+
+function retryableReadStatus(status) {
+  return status === 429 || [500, 502, 503, 504].includes(status);
+}
+
 async function scheduleRequest(task) {
   const previous = requestQueue;
   let release;
@@ -77,12 +86,14 @@ async function request(path, options = {}) {
   const {
     maxAttempts: configuredAttempts,
     timeoutMs: configuredTimeout = 20000,
+    retrySafe = false,
     signal: providedSignal,
     ...requestOptions
   } = options;
   const method = String(requestOptions.method || 'GET').toUpperCase();
   const methodIsReadOnly = method === 'GET' || method === 'HEAD';
-  const maxAttempts = Math.max(1, Number(configuredAttempts ?? (methodIsReadOnly ? 3 : 1)));
+  const canRetry = methodIsReadOnly || retrySafe === true;
+  const maxAttempts = Math.max(1, Number(configuredAttempts ?? (canRetry ? 3 : 1)));
   const timeoutMs = Math.max(1000, Number(configuredTimeout || 20000));
   let response;
   let text = '';
@@ -102,6 +113,10 @@ async function request(path, options = {}) {
         }
       }));
     } catch (error) {
+      if (canRetry && !providedSignal && attempt < maxAttempts) {
+        await sleep(readRetryDelay(attempt));
+        continue;
+      }
       if (error?.name === 'AbortError') {
         throw new Error(`Chatby no respondio en ${timeoutMs} ms para ${path}.`);
       }
@@ -117,12 +132,14 @@ async function request(path, options = {}) {
       data = text;
     }
 
-    if (response.status !== 429 || attempt === maxAttempts) break;
+    if (!canRetry || !retryableReadStatus(response.status) || attempt === maxAttempts) break;
     const retryAfter = Number(response.headers.get('retry-after'));
-    const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
+    const backoffMs = response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0
       ? retryAfter * 1000
-      : Math.min(30000, 2500 * (2 ** (attempt - 1)));
-    rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
+      : readRetryDelay(attempt);
+    if (response.status === 429) {
+      rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
+    }
     await sleep(backoffMs);
   }
 
@@ -252,6 +269,7 @@ export async function listWhatsappTemplates({ page = 1, limit = 200 } = {}) {
     method: 'POST',
     body: JSON.stringify({ page, limit }),
     // This POST is a read-only listing operation and is safe to retry.
+    retrySafe: true,
     maxAttempts: 3
   });
   return response?.data ?? response;
@@ -262,6 +280,7 @@ export async function checkChatbyConnection() {
     method: 'POST',
     body: JSON.stringify({ page: 1, limit: 1 }),
     // This POST is a read-only health query and is safe to retry.
+    retrySafe: true,
     maxAttempts: 2,
     timeoutMs: 10000
   });

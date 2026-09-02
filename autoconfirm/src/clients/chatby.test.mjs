@@ -4,6 +4,7 @@ import test from 'node:test';
 process.env.CHATBY_TOKEN = 'test-token';
 process.env.CHATBY_BASE_URL = 'https://chatby.test/api';
 process.env.CHATBY_REQUEST_MIN_INTERVAL_MS = '0';
+process.env.CHATBY_READ_RETRY_BASE_MS = '1';
 
 const {
   chatbyLifecycleTemplateOwner,
@@ -107,6 +108,54 @@ test('keeps bounded retries for read-only Chatby requests', async () => {
       ? new Response(JSON.stringify({ error: 'rate_limited' }), {
           status: 429,
           headers: { 'content-type': 'application/json', 'retry-after': '0.001' }
+        })
+      : new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+  };
+
+  try {
+    assert.deepEqual(await getChatMessages('test-user'), []);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('retries a read-only Chatby timeout but never exceeds the attempt bound', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      const error = new Error('fixture timeout');
+      error.name = 'AbortError';
+      throw error;
+    }
+    return new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    assert.deepEqual(await getChatMessages('test-user'), []);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('retries a transient Chatby 503 only for read-only requests', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return calls === 1
+      ? new Response(JSON.stringify({ error: 'temporarily_unavailable' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' }
         })
       : new Response(JSON.stringify({ data: [] }), {
           status: 200,
