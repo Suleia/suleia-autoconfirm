@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { processIncidentDiscountRecovery } from './incident-discount-service.mjs';
+import {
+  processIncidentDiscountRecovery,
+  warmIncidentDiscountTemplateCache
+} from './incident-discount-service.mjs';
 
 const initial = {
   type: 'agent',
@@ -207,4 +210,8 @@ test('fails closed when the persistent delivery ledger cannot be read', async ()
   });
   assert.equal(result.reason, 'template_delivery_ledger_read_failed');
   assert.equal(data.sent.length, 0);
+});
+
+test('exposes one shared template warm-up entry point for an incident batch', () => {
+  assert.equal(typeof warmIncidentDiscountTemplateCache, 'function');
 });

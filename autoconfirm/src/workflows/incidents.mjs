@@ -23,7 +23,10 @@ import {
 } from '../db/supabase-store.mjs';
 import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
 import { carrierIncidentDisplay } from './incident-carrier-history.mjs';
-import { processIncidentDiscountRecovery } from './incident-discount-service.mjs';
+import {
+  processIncidentDiscountRecovery,
+  warmIncidentDiscountTemplateCache
+} from './incident-discount-service.mjs';
 import { processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 
@@ -1889,6 +1892,15 @@ export async function syncPendingIncidents({
     const previousByOrderId = new Map((previousCache.incidents || []).map((incident) => [String(incident.orderId), incident]));
     const chatbyByPhone = new Map();
     const messagesByUserNs = new Map();
+    let discountTemplate = null;
+    let discountTemplateError = null;
+    if (config.enableIncidentDiscountTemplate) {
+      try {
+        discountTemplate = await warmIncidentDiscountTemplateCache();
+      } catch (error) {
+        discountTemplateError = error;
+      }
+    }
     const pending = await collectPendingIncidents({ limit, pages });
     const prepared = await preparePendingIncidentsForAnalysis({ pending });
     const subscriberIndex = prepared.subscriberIndex;
@@ -2177,7 +2189,13 @@ export async function syncPendingIncidents({
             order: item.order,
             messages: item.messages,
             realEnabled: config.incidentDiscountRealEnabled === true,
-            authorizedImmediate: authorizedImmediateDiscounts === true
+            authorizedImmediate: authorizedImmediateDiscounts === true,
+            dependencies: {
+              getTemplate: async () => {
+                if (discountTemplateError) throw discountTemplateError;
+                return discountTemplate;
+              }
+            }
           });
         } catch (error) {
           discountRecovery = {

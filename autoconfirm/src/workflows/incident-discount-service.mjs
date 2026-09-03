@@ -102,6 +102,10 @@ async function findTemplate() {
   return cachedDiscountTemplate;
 }
 
+export async function warmIncidentDiscountTemplateCache() {
+  return findTemplate();
+}
+
 async function findDropeaOrders(phone) {
   const target = digits(phone).slice(-9);
   const matches = [];
