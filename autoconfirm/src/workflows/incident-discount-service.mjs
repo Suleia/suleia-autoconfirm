@@ -392,6 +392,14 @@ function evaluateRecoveryPolicy(input, { authorizedImmediate = false } = {}) {
   return incidentDiscountPolicy({ ...input, now: dueAt });
 }
 
+function verifiedSameCycleMessages(incident, messages, now = Date.now()) {
+  if (incident?.chatbyReadVerified !== true || !Array.isArray(messages)) return null;
+  const readAt = Date.parse(incident?.chatbyReadAt || '');
+  if (!Number.isFinite(readAt)) return null;
+  const ageMs = Number(now) - readAt;
+  return ageMs >= 0 && ageMs <= 15_000 ? messages : null;
+}
+
 export async function processIncidentDiscountRecovery({
   incident,
   order,
@@ -429,11 +437,13 @@ export async function processIncidentDiscountRecovery({
     return recoveryResult({ reason: 'discount_template_not_approved', templateName: template.name });
   }
 
-  let freshMessages;
-  try {
-    freshMessages = await deps.getMessages(incident.chatbyUserNs);
-  } catch (error) {
-    return recoveryResult({ reason: 'chatby_final_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+  let freshMessages = verifiedSameCycleMessages(incident, messages);
+  if (!freshMessages) {
+    try {
+      freshMessages = await deps.getMessages(incident.chatbyUserNs);
+    } catch (error) {
+      return recoveryResult({ reason: 'chatby_final_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+    }
   }
   let merchandisePersistentDelivery;
   let discountPersistentDelivery;
@@ -512,7 +522,8 @@ export async function processIncidentDiscountRecovery({
 
   // Re-read immediately before claiming and sending. Any message or button after
   // the initial template closes the lane, including an ambiguous reply.
-  const finalMessages = await deps.getMessages(incident.chatbyUserNs).catch(() => null);
+  const finalMessages = verifiedSameCycleMessages(incident, freshMessages)
+    || await deps.getMessages(incident.chatbyUserNs).catch(() => null);
   if (!Array.isArray(finalMessages)) {
     return recoveryResult({ ...preview, reason: 'chatby_pre_send_read_failed' });
   }

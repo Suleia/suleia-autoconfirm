@@ -158,6 +158,24 @@ test('explicit one-time authorization advances only the 24-hour timer', async ()
   assert.equal(replied.sent.length, 0);
 });
 
+test('reuses a verified same-cycle Chatby read to avoid duplicate provider reads', async () => {
+  const data = fixture();
+  data.incident.chatbyReadAt = new Date().toISOString();
+  data.dependencies.getMessages = async () => {
+    throw new Error('same-cycle snapshot should be authoritative');
+  };
+  const result = await processIncidentDiscountRecovery({
+    incident: data.incident,
+    order: data.order,
+    messages: [initial],
+    realEnabled: true,
+    authorizedImmediate: true,
+    dependencies: data.dependencies
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(data.sent.length, 1);
+});
+
 test('uses a verified persistent initial send and still performs the final no-response read', async () => {
   const data = fixture();
   data.dependencies.getMessages = async () => [];

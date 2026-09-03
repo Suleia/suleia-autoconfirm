@@ -1766,7 +1766,12 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
         try {
           const loaded = await getChatMessages(userNs);
           if (loaded.length || attempt === 3) {
-            return { messages: loaded, verified: true, attempts: attempt };
+            return {
+              messages: loaded,
+              verified: true,
+              attempts: attempt,
+              readAt: new Date().toISOString()
+            };
           }
         } catch (error) {
           lastError = error;
@@ -1794,6 +1799,7 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
     subscriberName: subscriber.name || subscriber.full_name || null,
     chatbyReadVerified: chatRead.verified,
     chatbyReadAttempts: chatRead.attempts,
+    chatbyReadAt: chatRead.readAt || null,
     messagesForNotification: Array.isArray(allMessages) ? allMessages : [],
     ...summarizeConversation(Array.isArray(messages) ? messages : [])
   };
@@ -2074,6 +2080,7 @@ export async function syncPendingIncidents({
         chatbyOrderAssociation: chatby.orderAssociation || 'NONE',
         chatbyReadVerified: chatby.chatbyReadVerified === true,
         chatbyReadAttempts: Number(chatby.chatbyReadAttempts || 0),
+        chatbyReadAt: chatby.chatbyReadAt || null,
         operationalDecisionAction: operationalDecision.action,
         operationalDecisionEligible: operationalDecision.eligible,
         operationalDecisionConfidence: operationalDecision.confidence,
