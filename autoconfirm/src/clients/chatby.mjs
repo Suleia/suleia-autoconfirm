@@ -2,7 +2,7 @@ import { getAppConfig } from '../config.mjs';
 
 const config = getAppConfig();
 
-const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 120000));
+const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 600000));
 const requestMinIntervalMs = Math.max(0, Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || 100));
 const readRetryBaseMs = Math.max(0, Number(process.env.CHATBY_READ_RETRY_BASE_MS || 500));
 let subscriberIndexCache = null;
@@ -83,10 +83,16 @@ async function scheduleRequest(task) {
   });
 
   await previous.catch(() => {});
-  const waitMs = Math.max(0, nextRequestAt - Date.now(), rateLimitedUntil - Date.now());
-  if (waitMs) await sleep(waitMs);
-
   try {
+    const rateLimitWaitMs = Math.max(0, rateLimitedUntil - Date.now());
+    if (rateLimitWaitMs > 0) {
+      const error = new Error(`Chatby rate limited; retry after ${Math.ceil(rateLimitWaitMs / 1000)} seconds.`);
+      error.code = 'CHATBY_RATE_LIMITED';
+      error.retryAfterMs = rateLimitWaitMs;
+      throw error;
+    }
+    const requestWaitMs = Math.max(0, nextRequestAt - Date.now());
+    if (requestWaitMs) await sleep(requestWaitMs);
     return await task();
   } finally {
     nextRequestAt = Date.now() + requestMinIntervalMs;
@@ -145,7 +151,6 @@ async function request(path, options = {}) {
       data = text;
     }
 
-    if (!canRetry || !retryableReadStatus(response.status) || attempt === maxAttempts) break;
     const retryAfter = Number(response.headers.get('retry-after'));
     const backoffMs = response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0
       ? retryAfter * 1000
@@ -153,6 +158,8 @@ async function request(path, options = {}) {
     if (response.status === 429) {
       rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
     }
+    if (!canRetry || !retryableReadStatus(response.status) || attempt === maxAttempts) break;
+    if (response.status === 429 && backoffMs > 5000) break;
     await sleep(backoffMs);
   }
 
@@ -294,7 +301,7 @@ export async function checkChatbyConnection() {
     body: JSON.stringify({ page: 1, limit: 1 }),
     // This POST is a read-only health query and is safe to retry.
     retrySafe: true,
-    maxAttempts: 2,
+    maxAttempts: 1,
     timeoutMs: 10000
   });
   const rows = response?.data ?? response;

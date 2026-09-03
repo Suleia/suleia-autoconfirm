@@ -10,6 +10,7 @@ const {
   chatbyLifecycleTemplateOwner,
   chatbyNativeOwnsLifecycleTemplate,
   chatbyRepositoryOwnsIncidentTemplate,
+  checkChatbyConnection,
   findSubscribersByPhone,
   findSubscriberInIndexForExactOrder,
   findSubscriberInIndexForOrder,
@@ -355,5 +356,30 @@ test('does not block unrelated templates when Chatby owns lifecycle sends', asyn
     globalThis.fetch = originalFetch;
     if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
     else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
+
+test('a long Chatby Retry-After fails fast and does not block the automation queue', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ error: 'rate_limited' }), {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'retry-after': '6' }
+    });
+  };
+
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(checkChatbyConnection(), /429/);
+    await assert.rejects(
+      getChatMessages('test-user'),
+      (error) => error?.code === 'CHATBY_RATE_LIMITED'
+    );
+    assert.equal(calls, 1);
+    assert.ok(Date.now() - startedAt < 1000);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
