@@ -100,6 +100,29 @@ test('does not cancel when the prior order became terminal during the final read
   assert.equal(result.action, 'active_duplicate_freshness_blocked');
 });
 
+test('rechecks an accepted cancellation until Dropea reports a terminal status', async () => {
+  const current = fixtureOrder({ id: 200, createdAt: '2026-09-03T12:00:00Z' });
+  current.aiIntent = 'ACTIVE_DUPLICATE_CANCELLATION_REQUESTED';
+  const prior = fixtureOrder({ id: 100, status: 'TRANSIT', createdAt: '2026-09-01T12:00:00Z' });
+  let currentReads = 0;
+  let cancelCalls = 0;
+  const result = await activeDuplicateOrderPolicy(current, store, 'fixture', {
+    loadSnapshot: async () => [current, prior],
+    getOrderById: async (id) => {
+      if (String(id) === '100') return prior;
+      currentReads += 1;
+      return currentReads === 1 ? current : { ...current, status: 'CANCELLED' };
+    },
+    cancelOrder: async () => {
+      cancelCalls += 1;
+      return { status: 'accepted' };
+    }
+  });
+
+  assert.equal(cancelCalls, 1);
+  assert.equal(result.action, 'cancelled_active_duplicate');
+});
+
 test('all template and confirmation paths invoke the active duplicate policy first', () => {
   const source = fs.readFileSync(new URL('./orders.mjs', import.meta.url), 'utf8');
   for (const marker of [

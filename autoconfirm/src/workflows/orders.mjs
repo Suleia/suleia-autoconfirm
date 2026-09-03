@@ -1001,8 +1001,7 @@ async function loadActiveOrderSnapshot({ force = false } = {}) {
 }
 
 function duplicateOrderAlreadyHandled(order) {
-  return ['ACTIVE_DUPLICATE_CANCELLED', 'ACTIVE_DUPLICATE_CANCELLATION_REQUESTED']
-    .includes(String(order?.aiIntent || '').toUpperCase());
+  return String(order?.aiIntent || '').toUpperCase() === 'ACTIVE_DUPLICATE_CANCELLED';
 }
 
 function duplicateOrderAudit(finding, checkedAt, source) {
