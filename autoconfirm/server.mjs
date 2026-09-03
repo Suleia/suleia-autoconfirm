@@ -949,6 +949,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/send-pending-rejected-discounts-now') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'SEND_PENDING_REJECTED_DISCOUNTS_NOW') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const result = await syncPendingIncidents({ authorizedImmediateDiscounts: true });
+      dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-operational-orders') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await syncOperationalOrders();

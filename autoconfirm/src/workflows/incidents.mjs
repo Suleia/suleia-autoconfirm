@@ -1870,7 +1870,11 @@ export async function preparePendingIncidentsForAnalysis({
   }
 }
 
-export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
+export async function syncPendingIncidents({
+  limit = 100,
+  pages = 3,
+  authorizedImmediateDiscounts = false
+} = {}) {
   const updatedAt = new Date().toISOString();
   const incidents = [];
 
@@ -2165,7 +2169,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
             incident: item.incident,
             order: item.order,
             messages: item.messages,
-            realEnabled: config.incidentDiscountRealEnabled === true
+            realEnabled: config.incidentDiscountRealEnabled === true,
+            authorizedImmediate: authorizedImmediateDiscounts === true
           });
         } catch (error) {
           discountRecovery = {
@@ -2235,6 +2240,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       discountAmountEur: 5,
       delayHours: 24
     };
+    discountRecoverySummary.authorizedImmediate = authorizedImmediateDiscounts === true;
     const payload = {
       ok: true,
       updatedAt,

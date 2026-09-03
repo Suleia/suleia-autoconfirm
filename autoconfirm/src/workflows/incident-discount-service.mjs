@@ -381,11 +381,23 @@ function recoveryResult(result = {}) {
   };
 }
 
+function evaluateRecoveryPolicy(input, { authorizedImmediate = false } = {}) {
+  const policy = incidentDiscountPolicy(input);
+  if (!authorizedImmediate || policy.reason !== 'waiting_discount_window' || !policy.dueAt) return policy;
+  const dueAt = Date.parse(policy.dueAt);
+  if (!Number.isFinite(dueAt)) return policy;
+  // This is an explicitly authorized one-time advance of the timer only. All
+  // other eligibility checks (current rejection, verified initial template,
+  // no customer activity and no prior discount) remain inside the policy.
+  return incidentDiscountPolicy({ ...input, now: dueAt });
+}
+
 export async function processIncidentDiscountRecovery({
   incident,
   order,
   messages = [],
   realEnabled = false,
+  authorizedImmediate = false,
   now = Date.now(),
   dependencies = {}
 } = {}) {
@@ -441,14 +453,14 @@ export async function processIncidentDiscountRecovery({
   } catch (error) {
     return recoveryResult({ reason: 'template_delivery_ledger_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
   }
-  const policy = incidentDiscountPolicy({
+  const policy = evaluateRecoveryPolicy({
     incident: { ...incident, chatbyReadVerified: true },
     messages: freshMessages,
     now,
     discountTemplateName: template.name,
     merchandisePersistentDelivery,
     discountPersistentDelivery
-  });
+  }, { authorizedImmediate });
   const response = classifyIncidentDiscountResponse(freshMessages, template.name, discountPersistentDelivery);
   if (!policy.eligible) {
     return recoveryResult({
@@ -504,14 +516,14 @@ export async function processIncidentDiscountRecovery({
   if (!Array.isArray(finalMessages)) {
     return recoveryResult({ ...preview, reason: 'chatby_pre_send_read_failed' });
   }
-  const finalPolicy = incidentDiscountPolicy({
+  const finalPolicy = evaluateRecoveryPolicy({
     incident: { ...incident, chatbyReadVerified: true },
     messages: finalMessages,
     now: Date.now(),
     discountTemplateName: template.name,
     merchandisePersistentDelivery,
     discountPersistentDelivery
-  });
+  }, { authorizedImmediate });
   if (!finalPolicy.eligible) {
     const finalResponse = classifyIncidentDiscountResponse(finalMessages, template.name, discountPersistentDelivery);
     return recoveryResult({
@@ -578,7 +590,9 @@ export async function processIncidentDiscountRecovery({
       sentAt,
       lastError: delivery ? null : 'Chatby no devolvio un wamid verificable; no se reintentara automaticamente.',
       raw: {
-        mode: 'INCIDENT_DISCOUNT_RECOVERY_REAL',
+        mode: authorizedImmediate
+          ? 'INCIDENT_DISCOUNT_AUTHORIZED_IMMEDIATE_REAL'
+          : 'INCIDENT_DISCOUNT_RECOVERY_REAL',
         initialTemplateSentAt: policy.merchandiseTemplateSentAt,
         crossSourceVerified: true,
         discountAmountEur: 5,
@@ -607,7 +621,12 @@ export async function processIncidentDiscountRecovery({
         status: 'failed',
         attemptedAt,
         lastError: error instanceof Error ? error.message : String(error),
-        raw: { mode: 'INCIDENT_DISCOUNT_RECOVERY_REAL', crossSourceVerified: true }
+        raw: {
+          mode: authorizedImmediate
+            ? 'INCIDENT_DISCOUNT_AUTHORIZED_IMMEDIATE_REAL'
+            : 'INCIDENT_DISCOUNT_RECOVERY_REAL',
+          crossSourceVerified: true
+        }
       }).catch(() => null);
     }
     return recoveryResult({ ...preview, status: 'failed', reason: 'discount_template_send_failed', attemptedAt, error: error instanceof Error ? error.message : String(error) });

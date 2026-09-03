@@ -18,3 +18,10 @@ test('existing confirmation and cancellation entry points remain present', () =>
   assert.match(source, /url\.pathname === '\/api\/cron\/unanswered-cancellations'/);
   assert.match(source, /confirmationDelayHours/);
 });
+
+test('immediate rejected-discount batch requires cron auth and an explicit one-time authorization', () => {
+  assert.match(source, /url\.pathname === '\/api\/cron\/send-pending-rejected-discounts-now'/);
+  assert.match(source, /send-pending-rejected-discounts-now'[\s\S]{0,180}isAuthorizedCron\(req\)/);
+  assert.match(source, /body\.authorization !== 'SEND_PENDING_REJECTED_DISCOUNTS_NOW'/);
+  assert.match(source, /syncPendingIncidents\(\{ authorizedImmediateDiscounts: true \}\)/);
+});

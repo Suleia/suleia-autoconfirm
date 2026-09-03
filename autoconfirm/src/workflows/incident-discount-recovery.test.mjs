@@ -127,6 +127,37 @@ test('persistent claim blocks duplicates across restarts', async () => {
   assert.equal(data.sent.length, 0);
 });
 
+test('explicit one-time authorization advances only the 24-hour timer', async () => {
+  const eligible = fixture();
+  const eligibleResult = await processIncidentDiscountRecovery({
+    incident: eligible.incident,
+    order: eligible.order,
+    realEnabled: true,
+    authorizedImmediate: true,
+    now: Date.parse('2026-08-28T09:00:00.000Z'),
+    dependencies: eligible.dependencies
+  });
+  assert.equal(eligibleResult.status, 'sent');
+  assert.equal(eligible.sent.length, 1);
+  assert.equal(eligible.finished[0].raw.mode, 'INCIDENT_DISCOUNT_AUTHORIZED_IMMEDIATE_REAL');
+
+  const replied = fixture();
+  replied.dependencies.getMessages = async () => [
+    initial,
+    { direction: 'inbound', created_at: '2026-08-28T08:30:00.000Z', text: 'Ya he respondido' }
+  ];
+  const repliedResult = await processIncidentDiscountRecovery({
+    incident: replied.incident,
+    order: replied.order,
+    realEnabled: true,
+    authorizedImmediate: true,
+    now: Date.parse('2026-08-28T09:00:00.000Z'),
+    dependencies: replied.dependencies
+  });
+  assert.equal(repliedResult.reason, 'customer_interaction_after_merchandise_template');
+  assert.equal(replied.sent.length, 0);
+});
+
 test('uses a verified persistent initial send and still performs the final no-response read', async () => {
   const data = fixture();
   data.dependencies.getMessages = async () => [];
