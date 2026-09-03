@@ -13,6 +13,7 @@ import {
   cancelDropeaOrder,
   confirmDropeaOrder,
   getDropeaOrderById,
+  listDropeaOrdersByStatus,
   listRecentDropeaOrders,
   listPendingDropeaOrders,
   repairDropeaErrorReviewOrders,
@@ -24,6 +25,7 @@ import {
   createSubscriber,
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
+  findSubscribersByPhone,
   getChatMessages,
   sendTextMessage,
   sendWhatsappTemplate,
@@ -33,7 +35,12 @@ import { sendMetaWhatsappTemplate } from '../clients/meta-whatsapp.mjs';
 import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clients/shopify.mjs';
+import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
+import {
+  collectActiveOrderSnapshot,
+  findBlockingActivePriorOrder
+} from '../policies/active-order-duplicates.mjs';
 import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
 import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
 
@@ -41,6 +48,9 @@ const config = getAppConfig();
 let automationCycleRunning = false;
 const activeInitialTemplateClaims = new Set();
 const activePreparedTemplateClaims = new Set();
+let activeOrderSnapshotCache = null;
+let activeOrderSnapshotInFlight = null;
+const ACTIVE_ORDER_SNAPSHOT_CACHE_MS = 60 * 1000;
 const DROPEA_REPAIR_BACKOFF_MS = 15 * 60 * 1000;
 const DROPEA_REPAIR_BLOCKED_BACKOFF_MS = 6 * 60 * 60 * 1000;
 const DROPEA_REPAIR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -968,7 +978,195 @@ async function applyBlockedCustomerPolicy(order, store, source = 'blocked_custom
   }
 }
 
+async function loadActiveOrderSnapshot({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && activeOrderSnapshotCache && now - activeOrderSnapshotCache.loadedAt < ACTIVE_ORDER_SNAPSHOT_CACHE_MS) {
+    return activeOrderSnapshotCache.orders;
+  }
+  if (!force && activeOrderSnapshotInFlight) return activeOrderSnapshotInFlight;
+
+  activeOrderSnapshotInFlight = collectActiveOrderSnapshot({
+    listByStatus: listDropeaOrdersByStatus,
+    listPendingIncidents: collectPendingDropeaV2Incidents
+  }).then((orders) => {
+    activeOrderSnapshotCache = { loadedAt: Date.now(), orders };
+    return orders;
+  });
+
+  try {
+    return await activeOrderSnapshotInFlight;
+  } finally {
+    activeOrderSnapshotInFlight = null;
+  }
+}
+
+function duplicateOrderAlreadyHandled(order) {
+  return ['ACTIVE_DUPLICATE_CANCELLED', 'ACTIVE_DUPLICATE_CANCELLATION_REQUESTED']
+    .includes(String(order?.aiIntent || '').toUpperCase());
+}
+
+function duplicateOrderAudit(finding, checkedAt, source) {
+  const blockingOrder = finding?.order || {};
+  return {
+    checkedAt,
+    source,
+    result: finding?.kind || 'UNKNOWN',
+    reason: finding?.reason || null,
+    blockingOrderId: blockingOrder.orderId || null,
+    blockingOrderStatus: blockingOrder.status || null,
+    blockingOrderCreatedAt: blockingOrder.createdAt || blockingOrder.raw?.created_at || null,
+    matchBasis: finding?.kind === 'ACTIVE_PRIOR_SAME_PRODUCT_ORDER'
+      ? 'same_phone_and_same_product'
+      : 'manual_review_only'
+  };
+}
+
+export async function activeDuplicateOrderPolicy(order, store, source, deps = {}) {
+  if (duplicateOrderAlreadyHandled(order)) {
+    return { skipped: true, action: 'active_duplicate_already_handled', source, order };
+  }
+
+  const checkedAt = new Date().toISOString();
+  let snapshot;
+  let finding;
+  try {
+    snapshot = await (deps.loadSnapshot || loadActiveOrderSnapshot)();
+    finding = findBlockingActivePriorOrder(order, snapshot);
+  } catch (error) {
+    const code = String(error?.code || error?.message || 'ACTIVE_ORDER_CHECK_FAILED');
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'MANUAL_REVIEW_ACTIVE_ORDER_CHECK_UNAVAILABLE',
+      aiIntent: 'ACTIVE_ORDER_CHECK_UNAVAILABLE',
+      operationalNote: 'No se pudo completar la comprobacion de pedidos activos. No se envia plantilla, no se confirma y no se cancela hasta disponer de una lectura completa.',
+      raw: {
+        ...(order.raw || {}),
+        activeDuplicateOrderPolicy: { checkedAt, source, result: 'UNAVAILABLE', code }
+      }
+    });
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+    return { skipped: true, action: 'active_order_check_unavailable', source, reason: code, order: updated };
+  }
+
+  if (!finding) return null;
+  const blockingOrder = finding.order || {};
+  const audit = duplicateOrderAudit(finding, checkedAt, source);
+  const isExactDuplicate = finding.kind === 'ACTIVE_PRIOR_SAME_PRODUCT_ORDER';
+  const currentId = String(order.orderId || '');
+  const currentStatus = String(order.status || '').toUpperCase();
+
+  if (!isExactDuplicate || !/^\d+$/.test(currentId) || currentStatus !== 'PENDING') {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: isExactDuplicate ? 'MANUAL_REVIEW_ACTIVE_DUPLICATE_NOT_PENDING' : 'MANUAL_REVIEW_ACTIVE_DUPLICATE_UNVERIFIABLE',
+      aiIntent: isExactDuplicate ? 'ACTIVE_DUPLICATE_NOT_PENDING' : 'ACTIVE_DUPLICATE_UNVERIFIABLE',
+      chatbyTemplateSendStatus: 'blocked_active_duplicate_review',
+      operationalNote: isExactDuplicate
+        ? `Existe un pedido anterior activo del mismo producto (${blockingOrder.orderId || 'ID no disponible'}), pero el pedido posterior ya no esta pendiente. Se bloquean plantilla y confirmacion para revision manual.`
+        : 'Existe otro pedido activo para el mismo cliente, pero no se pudo demostrar de forma exacta producto u orden temporal. Se bloquean plantilla, confirmacion y cancelacion automatica.',
+      raw: { ...(order.raw || {}), activeDuplicateOrderPolicy: audit }
+    });
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+    return { skipped: true, action: 'active_duplicate_manual_review', source, finding, order: updated };
+  }
+
+  try {
+    const getOrderById = deps.getOrderById || getDropeaOrderById;
+    const cancelOrder = deps.cancelOrder || cancelDropeaOrder;
+    const [freshCurrent, freshBlocking] = await Promise.all([
+      getOrderById(currentId),
+      getOrderById(blockingOrder.orderId)
+    ]);
+    const freshFinding = freshCurrent && freshBlocking
+      ? findBlockingActivePriorOrder(freshCurrent, [freshBlocking])
+      : null;
+    if (!freshCurrent || String(freshCurrent.status || '').toUpperCase() !== 'PENDING' || freshFinding?.kind !== 'ACTIVE_PRIOR_SAME_PRODUCT_ORDER') {
+      const updated = upsertOrder(store.id, {
+        ...order,
+        status: 'MANUAL_REVIEW_ACTIVE_DUPLICATE_CHANGED',
+        aiIntent: 'ACTIVE_DUPLICATE_FRESHNESS_BLOCK',
+        chatbyTemplateSendStatus: 'blocked_active_duplicate_changed',
+        operationalNote: 'La situacion del pedido duplicado cambio durante la comprobacion final. No se ha cancelado ni confirmado; requiere una nueva lectura.',
+        raw: {
+          ...(order.raw || {}),
+          activeDuplicateOrderPolicy: { ...audit, result: 'FRESHNESS_BLOCKED' }
+        }
+      });
+      await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+      return { skipped: true, action: 'active_duplicate_freshness_blocked', source, order: updated };
+    }
+
+    const cancellation = await cancelOrder(currentId);
+    const after = await getOrderById(currentId).catch(() => null);
+    const verifiedCancelled = ['CANCELLED', 'REJECTED'].includes(String(after?.status || '').toUpperCase());
+    const cancelledAt = new Date().toISOString();
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: verifiedCancelled ? 'CANCELLED_ACTIVE_DUPLICATE' : 'CANCELLATION_REQUESTED_ACTIVE_DUPLICATE',
+      aiIntent: verifiedCancelled ? 'ACTIVE_DUPLICATE_CANCELLED' : 'ACTIVE_DUPLICATE_CANCELLATION_REQUESTED',
+      aiConfidence: 100,
+      cancelledAt,
+      chatbyTemplateSendStatus: 'blocked_active_duplicate_cancelled',
+      chatbyTemplateLastError: null,
+      operationalNote: `Pedido posterior cancelado por duplicidad: el cliente mantiene activo el pedido ${blockingOrder.orderId} del mismo producto. No se envia una segunda plantilla ni se confirma este pedido.`,
+      raw: {
+        ...(order.raw || {}),
+        activeDuplicateOrderPolicy: {
+          ...audit,
+          result: verifiedCancelled ? 'CANCELLED_AND_VERIFIED' : 'CANCELLATION_ACCEPTED_PENDING_VERIFICATION',
+          cancelledAt,
+          cancellation,
+          statusAfter: after?.status || null
+        }
+      }
+    });
+    activeOrderSnapshotCache = null;
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+
+    const state = { ...loadState() };
+    const history = Array.isArray(state.automaticActiveDuplicateCancellations)
+      ? state.automaticActiveDuplicateCancellations
+      : [];
+    state.automaticActiveDuplicateCancellations = [
+      ...history,
+      {
+        orderId: currentId,
+        blockingOrderId: String(blockingOrder.orderId || ''),
+        cancelledAt,
+        verified: verifiedCancelled,
+        source
+      }
+    ].slice(-200);
+    saveState(state);
+    return {
+      dryRun: false,
+      action: verifiedCancelled ? 'cancelled_active_duplicate' : 'active_duplicate_cancellation_requested',
+      source,
+      blockingOrderId: String(blockingOrder.orderId || ''),
+      cancellation,
+      order: updated
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'ACTIVE_DUPLICATE_CANCELLATION_FAILED',
+      aiIntent: 'ACTIVE_DUPLICATE_CANCELLATION_FAILED',
+      chatbyTemplateSendStatus: 'blocked_active_duplicate_cancellation_failed',
+      operationalNote: 'Se detecto un pedido posterior duplicado, pero Dropea no confirmo la cancelacion. Se bloquean plantilla y confirmacion y se reintentara de forma idempotente.',
+      raw: {
+        ...(order.raw || {}),
+        activeDuplicateOrderPolicy: { ...audit, result: 'CANCELLATION_FAILED', error: message }
+      }
+    });
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+    return { skipped: true, action: 'active_duplicate_cancellation_failed', source, error: message, order: updated };
+  }
+}
+
 async function storedConfirmationResult(order, store) {
+  const duplicate = await activeDuplicateOrderPolicy(order, store, 'stored_confirmation_guard');
+  if (duplicate) return duplicate;
   const analysis = {
     intent: 'CONFIRM',
     confidence: Number(order.aiConfidence ?? 100),
@@ -1132,6 +1330,9 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
       dueAt: order.confirmationDueAt
     };
   }
+
+  const duplicate = await activeDuplicateOrderPolicy(order, store, 'delayed_confirmation_guard');
+  if (duplicate) return duplicate;
 
   const delayedConfirmRealEnabled = Boolean(store.delayedConfirmRealEnabled ?? config.defaultStore.delayedConfirmRealEnabled);
   if (!delayedConfirmRealEnabled) {
@@ -1861,6 +2062,28 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
   }
 }
 
+async function markTemplateSeenAcrossCustomerThreads(order, store, templateName) {
+  if (!config.chatbyToken || !order.customerPhone) return null;
+  const subscribers = await findSubscribersByPhone({ phone: order.customerPhone, maxPages: 20, limit: 100 });
+  const checked = new Set();
+  for (const subscriber of subscribers) {
+    const userNs = String(subscriber?.user_ns || '');
+    if (!userNs || checked.has(userNs)) continue;
+    checked.add(userNs);
+    const exactOrderThread = sameOrderId(currentSubscriberOrderId(subscriber), order.orderId)
+      || subscriberContainsOrderId(subscriber, order.orderId);
+    if (!exactOrderThread) continue;
+    const messages = normalizeChatMessages(await getChatMessages(userNs));
+    const alreadyDelivered = messages.some((message) => (
+      messageLooksLikeTemplateForOrder(message, templateName, order)
+      && messageAcceptedByWhatsapp(message)
+    ));
+    if (!alreadyDelivered) continue;
+    return markTemplateAlreadySeenForOrder(order, userNs, store, templateName);
+  }
+  return null;
+}
+
 function createdChatbyUserNs(created) {
   return created?.data?.user_ns || created?.user_ns || created?.userNs || created?.id || null;
 }
@@ -1985,6 +2208,9 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   const blocked = await applyBlockedCustomerPolicy(order, store, 'chatby_template_send_guard');
   if (blocked) return blocked.order || order;
 
+  const duplicateOrder = await activeDuplicateOrderPolicy(order, store, 'chatby_template_send_guard');
+  if (duplicateOrder) return duplicateOrder.order || order;
+
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName) return order;
   if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
@@ -2029,6 +2255,8 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     }
     return order;
   }
+  const deliveredInAnyThread = await markTemplateSeenAcrossCustomerThreads(order, store, templateName);
+  if (deliveredInAnyThread) return deliveredInAnyThread;
 
   const resolvedUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
   const staleConfirmationReset = await clearStaleChatbyConfirmationBeforeInitialTemplate(
@@ -2736,6 +2964,12 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
       continue;
     }
 
+    const duplicate = await activeDuplicateOrderPolicy(merged, store, 'dropea_pending_ingest');
+    if (duplicate) {
+      processed.push(duplicate.order || merged);
+      continue;
+    }
+
     await safeUpsertSheetRow(merged);
     processed.push(merged);
   }
@@ -2801,6 +3035,12 @@ export async function backfillTodayMissingInitialTemplates({
     const blocked = await applyBlockedCustomerPolicy(merged, store, 'initial_template_backfill_guard');
     if (blocked) {
       results.push({ orderId: order.orderId, action: blocked.action || 'blocked_customer', skipped: Boolean(blocked.skipped) });
+      continue;
+    }
+
+    const duplicate = await activeDuplicateOrderPolicy(merged, store, 'initial_template_backfill_guard');
+    if (duplicate) {
+      results.push({ orderId: order.orderId, action: duplicate.action, skipped: Boolean(duplicate.skipped) });
       continue;
     }
 
@@ -3062,6 +3302,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   if (immediateCustomerIntent?.intent === 'CONFIRM') {
+    const duplicate = await activeDuplicateOrderPolicy(order, store, 'customer_message_confirmation_guard');
+    if (duplicate) return duplicate;
     const analysis = {
       ...immediateCustomerIntent,
       reason: immediateCustomerIntent.reason || 'El cliente confirma claramente el pedido.'
@@ -3110,6 +3352,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     sameOrderId(subscriberOrderId, order.orderId)
     && subscriberConfirmationIsCurrent(subscriber, order, latestConfirmationAt)
   ) {
+    const duplicate = await activeDuplicateOrderPolicy(order, store, 'chatby_button_confirmation_guard');
+    if (duplicate) return duplicate;
     const analysis = {
       intent: 'CONFIRM',
       confidence: 100,
@@ -3234,6 +3478,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   };
 
   if (intent === 'CONFIRM' && confidence >= threshold) {
+    const duplicate = await activeDuplicateOrderPolicy(order, store, 'classified_confirmation_guard');
+    if (duplicate) return duplicate;
     if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
       patch.status = 'MANUAL_REVIEW';
       const updated = upsertOrder(store.id, patch);

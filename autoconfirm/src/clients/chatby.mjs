@@ -414,6 +414,13 @@ export async function loadSubscriberIndex({ maxPages = 20, limit = 100, force = 
   }
 }
 
+export async function findSubscribersByPhone({ phone, maxPages = 20, limit = 100 } = {}) {
+  const phoneKey = digits(phone).slice(-9);
+  if (!phoneKey) return [];
+  const index = await loadSubscriberIndex({ maxPages, limit });
+  return [...(index.byPhone.get(phoneKey) || [])];
+}
+
 function digits(value) {
   return String(value || '').replace(/\D/g, '');
 }

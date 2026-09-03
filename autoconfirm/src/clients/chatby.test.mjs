@@ -10,9 +10,11 @@ const {
   chatbyLifecycleTemplateOwner,
   chatbyNativeOwnsLifecycleTemplate,
   chatbyRepositoryOwnsIncidentTemplate,
+  findSubscribersByPhone,
   findSubscriberInIndexForExactOrder,
   findSubscriberInIndexForOrder,
   getChatMessages,
+  invalidateSubscriberIndexCache,
   sendWhatsappTemplate
 } = await import('./chatby.mjs');
 
@@ -145,6 +147,26 @@ test('strict order lookup never reuses a confirmed subscriber from another order
     phone: '+34600000000',
     orderId: 'current-order'
   })?.lead_status, 'CONFIRMADO');
+});
+
+test('returns every Chatby conversation for a phone so delivery checks cannot miss an older thread', async () => {
+  const originalFetch = globalThis.fetch;
+  invalidateSubscriberIndexCache();
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    data: [
+      { user_ns: 'thread-current', phone: '+34 600 000 000' },
+      { user_ns: 'thread-older', user_id: '0034600000000' },
+      { user_ns: 'other-phone', phone: '+34 600 000 001' }
+    ]
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+
+  try {
+    const subscribers = await findSubscribersByPhone({ phone: '600 000 000', maxPages: 1 });
+    assert.deepEqual(subscribers.map((item) => item.user_ns), ['thread-current', 'thread-older']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    invalidateSubscriberIndexCache();
+  }
 });
 
 test('never retries a template delivery after a rate-limit response', async () => {
