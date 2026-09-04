@@ -16,7 +16,9 @@ import { chatbyRepositoryOwnsIncidentTemplate, findSubscriberInIndexByPhone, fin
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import {
+  claimIncidentDiscountReturn,
   claimIncidentAddressResolution,
+  finishIncidentDiscountReturn,
   finishIncidentAddressResolution,
   syncAgentMemoryRuleToSupabase,
   syncIncidentsCacheToSupabase
@@ -27,6 +29,7 @@ import {
   processIncidentDiscountRecovery,
   warmIncidentDiscountTemplateCache
 } from './incident-discount-service.mjs';
+import { classifyIncidentDiscountResponse } from './incident-discount-policy.mjs';
 import { processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 
@@ -1016,6 +1019,166 @@ async function currentPendingIncident(incidenceId, orderId) {
     String(issue?.id || issue?.incidenceId || '') === String(incidenceId || '')
     && String(order?.orderId || issue?.orderId || '') === String(orderId || '')
   )) || null;
+}
+
+const INCIDENT_DISCOUNT_RETURN_AFTER_HOURS = 24;
+const activeIncidentDiscountReturns = new Set();
+
+export function incidentDiscountNoResponseReturnDecision({ incident, discountRecovery, now = Date.now() } = {}) {
+  if (incident?.incidentType !== 'rejected_goods') {
+    return { eligible: false, status: 'NOT_APPLICABLE', reason: 'incident_not_rejected_goods' };
+  }
+  if (!incident?.incidenceId || !incident?.orderId) {
+    return { eligible: false, status: 'BLOCKED', reason: 'missing_incident_identifiers' };
+  }
+  if (incident?.chatbyReadVerified !== true) {
+    return { eligible: false, status: 'BLOCKED', reason: 'chatby_context_unverified' };
+  }
+  if (discountRecovery?.verified !== true) {
+    return { eligible: false, status: 'WAITING', reason: 'discount_delivery_not_verified' };
+  }
+  const sentAtMs = Date.parse(String(discountRecovery?.sentAt || ''));
+  if (!Number.isFinite(sentAtMs)) {
+    return { eligible: false, status: 'BLOCKED', reason: 'discount_delivery_time_invalid' };
+  }
+  const dueAt = new Date(sentAtMs + INCIDENT_DISCOUNT_RETURN_AFTER_HOURS * 3_600_000).toISOString();
+  if (discountRecovery?.responseStatus !== 'NO_RESPONSE') {
+    return {
+      eligible: false,
+      status: 'BLOCKED_CUSTOMER_ACTIVITY',
+      reason: 'customer_interaction_after_discount',
+      dueAt
+    };
+  }
+  const nowMs = Number(now);
+  if (!Number.isFinite(nowMs)) {
+    return { eligible: false, status: 'BLOCKED', reason: 'evaluation_time_invalid', dueAt };
+  }
+  if (nowMs < Date.parse(dueAt)) {
+    return { eligible: false, status: 'WAITING_24_HOURS', reason: 'waiting_return_window', dueAt };
+  }
+  return {
+    eligible: true,
+    status: 'READY_FOR_RETURN',
+    action: 'return_to_origin',
+    ruleId: 'core_incident_discount_no_response_return_24h',
+    confidence: 100,
+    reason: 'Han transcurrido 24 horas desde la entrega verificada del descuento sin mensajes, botones ni acciones del cliente.',
+    dueAt
+  };
+}
+
+export async function executeIncidentDiscountNoResponseReturn(incident, discountRecovery, dependencies = {}) {
+  const decision = incidentDiscountNoResponseReturnDecision({
+    incident,
+    discountRecovery,
+    now: dependencies.now ?? Date.now()
+  });
+  if (!decision.eligible) return { ...decision, verified: false };
+
+  const realEnabled = dependencies.realEnabled ?? config.defaultStore.incidentDiscountReturnRealEnabled;
+  if (realEnabled !== true) {
+    return { ...decision, status: 'WOULD_RETURN', verified: false, reason: 'Devolucion automatica desactivada por configuracion.' };
+  }
+  const credentialAvailable = dependencies.credentialAvailable ?? Boolean(config.dropeaAccessToken);
+  if (!credentialAvailable) {
+    return { ...decision, status: 'BLOCKED_MISSING_CREDENTIAL', verified: false, reason: 'No hay credencial Dropea disponible.' };
+  }
+
+  const readCurrent = dependencies.readCurrent || currentPendingIncident;
+  const current = await readCurrent(incident.incidenceId, incident.orderId).catch(() => null);
+  if (!current) {
+    return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o no coincide exactamente con el pedido.' };
+  }
+
+  const readMessages = dependencies.readMessages || getChatMessages;
+  const finalMessages = await readMessages(incident.chatbyUserNs).catch(() => null);
+  if (!Array.isArray(finalMessages)) {
+    return { ...decision, status: 'BLOCKED_CHATBY_READ_FAILED', verified: false, reason: 'No se pudo verificar Chatby inmediatamente antes de solicitar la devolucion.' };
+  }
+  const finalResponse = classifyIncidentDiscountResponse(
+    finalMessages,
+    discountRecovery.templateName,
+    { status: 'sent', sent_at: discountRecovery.sentAt }
+  );
+  if (finalResponse.status !== 'NO_RESPONSE') {
+    return {
+      ...decision,
+      status: 'BLOCKED_CUSTOMER_ACTIVITY',
+      verified: false,
+      reason: 'El cliente ha contestado o realizado una accion despues del descuento.',
+      responseStatus: finalResponse.status,
+      respondedAt: finalResponse.respondedAt
+    };
+  }
+
+  const activeKey = `${incident.orderId}|${incident.incidenceId}`;
+  if (activeIncidentDiscountReturns.has(activeKey)) {
+    return { ...decision, status: 'ALREADY_IN_FLIGHT', verified: false, reason: 'La devolucion ya se esta procesando.' };
+  }
+  activeIncidentDiscountReturns.add(activeKey);
+  const claimReturn = dependencies.claimReturn || claimIncidentDiscountReturn;
+  const finishReturn = dependencies.finishReturn || finishIncidentDiscountReturn;
+  const returnIssue = dependencies.returnIssue || returnDropeaIssueToOrigin;
+  const verifyReturn = dependencies.verifyReturn || verifyIncidentLeftPending;
+  const auditReturn = dependencies.auditReturn || auditIncidentAction;
+  const attemptedAt = new Date(dependencies.now ?? Date.now()).toISOString();
+  try {
+    const claim = await claimReturn({
+      storeId: config.defaultStore.id,
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId
+    });
+    if (!claim?.acquired || claim?.persistent !== true) {
+      return {
+        ...decision,
+        status: claim?.reason === 'already_claimed' ? 'ALREADY_CLAIMED' : 'BLOCKED_PERSISTENT_LEDGER',
+        verified: false,
+        reason: claim?.reason === 'already_claimed'
+          ? 'La devolucion ya fue solicitada o reclamada anteriormente.'
+          : 'No esta disponible el registro persistente; no se actua para evitar duplicados.'
+      };
+    }
+
+    let response;
+    try {
+      response = await returnIssue(incident.incidenceId);
+    } catch (error) {
+      const errorCode = safeIncidentActionError(error);
+      await finishReturn({
+        storeId: config.defaultStore.id,
+        orderId: incident.orderId,
+        incidenceId: incident.incidenceId,
+        status: 'manual_reconciliation_required',
+        attemptedAt,
+        lastError: errorCode,
+        evidence: { ruleId: decision.ruleId, responseStatus: 'NO_RESPONSE' }
+      }).catch(() => null);
+      const result = { ...decision, status: 'MANUAL_RECONCILIATION_REQUIRED', attemptedAt, verified: false, error: errorCode };
+      await auditReturn(incident, decision, result).catch(() => null);
+      return result;
+    }
+
+    const completedAt = new Date().toISOString();
+    const verification = await verifyReturn(incident);
+    const verified = verification?.verified === true || verification === true;
+    const status = verified ? 'RETURN_REQUESTED_VERIFIED' : 'RETURN_REQUESTED_UNVERIFIED';
+    await finishReturn({
+      storeId: config.defaultStore.id,
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId,
+      status: verified ? 'verified' : 'applied_unverified',
+      attemptedAt,
+      completedAt,
+      lastError: verified ? null : 'INCIDENT_STILL_PENDING_AFTER_RETURN_REQUEST',
+      evidence: { ruleId: decision.ruleId, verified, responseStatus: 'NO_RESPONSE' }
+    });
+    const result = { ...decision, status, attemptedAt, completedAt, verified, response };
+    await auditReturn(incident, decision, result).catch(() => null);
+    return result;
+  } finally {
+    activeIncidentDiscountReturns.delete(activeKey);
+  }
 }
 
 function safeIncidentActionError(error) {
@@ -2206,15 +2369,17 @@ export async function syncPendingIncidents({
           };
         }
       }
-      // Dropea stays read-only here. The only additional egress is the separately
-      // gated, idempotent Chatby template sequence for rejected-goods incidents.
+      let discountReturn = {
+        status: 'NOT_APPLICABLE',
+        verified: false,
+        reason: 'La regla de devolucion solo aplica a incidencias de rechazo con descuento verificado.'
+      };
+      if (item.incident.incidentType === 'rejected_goods') {
+        discountReturn = await executeIncidentDiscountNoResponseReturn(item.incident, discountRecovery);
+      }
       const actionResult = item.incident.incidentType === 'address'
         ? await executeIncorrectAddressResolution(item.incident, item.operationalDecision)
-        : {
-            status: 'BLOCKED_READ_ONLY',
-            verified: false,
-            reason: 'Solo la resolucion gobernada de direccion incorrecta puede escribir en esta ruta.'
-          };
+        : discountReturn;
       const enrichedIncident = {
         ...item.incident,
         incidentDiscountRecovery: discountRecovery,
@@ -2231,6 +2396,12 @@ export async function syncPendingIncidents({
         incidentDiscountFinalPrice: discountRecovery.finalPrice || null,
         incidentDiscountAmountEur: 5,
         incidentDiscountCrossSourceVerified: discountRecovery.crossSourceVerified === true,
+        incidentDiscountReturnStatus: discountReturn.status,
+        incidentDiscountReturnReason: discountReturn.reason,
+        incidentDiscountReturnDueAt: discountReturn.dueAt || null,
+        incidentDiscountReturnAttemptedAt: discountReturn.attemptedAt || null,
+        incidentDiscountReturnCompletedAt: discountReturn.completedAt || null,
+        incidentDiscountReturnVerified: discountReturn.verified === true,
         incidentNotification: notification,
         incidentNotificationStatus: notification.status,
         incidentNotificationTemplate: notification.templateName,
@@ -2266,6 +2437,16 @@ export async function syncPendingIncidents({
       delayHours: 24
     };
     discountRecoverySummary.authorizedImmediate = authorizedImmediateDiscounts === true;
+    const discountReturnSummary = {
+      realEnabled: config.defaultStore.incidentDiscountReturnRealEnabled === true,
+      delayHoursAfterDiscount: INCIDENT_DISCOUNT_RETURN_AFTER_HOURS,
+      waiting: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'WAITING_24_HOURS').length,
+      blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'BLOCKED_CUSTOMER_ACTIVITY').length,
+      requestedVerified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_VERIFIED').length,
+      requestedUnverified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_UNVERIFIED').length,
+      manualReconciliation: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'MANUAL_RECONCILIATION_REQUIRED').length,
+      alreadyClaimed: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'ALREADY_CLAIMED').length
+    };
     const payload = {
       ok: true,
       updatedAt,
@@ -2273,13 +2454,14 @@ export async function syncPendingIncidents({
       agentName: 'Agente de incidencias',
       agentMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'training_read_only',
       agentModeLabel: config.incidentDiscountRealEnabled
-        ? 'Lectura V2 y recuperacion comercial de 5 EUR tras 24 h; sin acciones en Dropea'
+        ? 'Recuperacion comercial de 5 EUR y devolucion gobernada tras otras 24 h sin respuesta'
         : 'Lectura V2 y analisis; sin mensajes ni acciones automaticas',
       notificationMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'disabled',
       notificationModeLabel: config.incidentDiscountRealEnabled
         ? 'Plantilla de descuento real, una sola vez, tras 24 h sin respuesta'
         : 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
       discountRecoverySummary,
+      discountReturnSummary,
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
@@ -2295,6 +2477,7 @@ export async function syncPendingIncidents({
     state.lastIncidentsSyncCount = sortedIncidents.length;
     state.lastIncidentDiscountRecoveryAt = updatedAt;
     state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
+    state.lastIncidentDiscountReturnSummary = discountReturnSummary;
     saveState(state);
     return payload;
   } catch (error) {

@@ -59,6 +59,8 @@ services:
         value: true
       - key: INCIDENT_DISCOUNT_INTERVAL_MINUTES
         value: 15
+      - key: INCIDENT_DISCOUNT_RETURN_REAL_ENABLED
+        value: true
       - key: CHATBY_INCIDENT_TEMPLATE_OWNER
         value: repository
       - key: CHATBY_TOKEN

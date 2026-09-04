@@ -184,6 +184,7 @@ export async function claimTemplateDelivery({
 }
 
 const INCIDENT_ADDRESS_RESOLUTION_LEDGER = 'dropea_issue_address_solution_v1';
+const INCIDENT_DISCOUNT_RETURN_LEDGER = 'dropea_issue_discount_no_response_return_v1';
 
 export function claimIncidentAddressResolution({ storeId = 'suleia', orderId, incidenceId } = {}) {
   return claimTemplateDelivery({
@@ -211,6 +212,42 @@ export function finishIncidentAddressResolution({
     orderId,
     customerPhone: '',
     templateName: `${INCIDENT_ADDRESS_RESOLUTION_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: '',
+    status,
+    attemptedAt,
+    sentAt: completedAt,
+    lastError,
+    raw: evidence
+  });
+}
+
+export function claimIncidentDiscountReturn({ storeId = 'suleia', orderId, incidenceId } = {}) {
+  return claimTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_DISCOUNT_RETURN_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: ''
+  });
+}
+
+export function finishIncidentDiscountReturn({
+  storeId = 'suleia',
+  orderId,
+  incidenceId,
+  status,
+  attemptedAt,
+  completedAt = null,
+  lastError = null,
+  evidence = null
+} = {}) {
+  return finishTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_DISCOUNT_RETURN_LEDGER}:${String(incidenceId || '')}`,
     provider: 'dropea',
     chatbyUserNs: '',
     status,

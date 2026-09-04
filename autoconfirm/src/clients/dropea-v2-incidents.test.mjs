@@ -155,7 +155,7 @@ test('Dropea V2 normalization preserves the dashboard shape without creating act
   assert.equal(row.issue.tracking, 'TRACK-MASKED');
 });
 
-test('dashboard workflow keeps Dropea V2 writes blocked while allowing the gated Chatby incident sequence', () => {
+test('dashboard workflow permits only the separately gated and persistently claimed Dropea incident actions', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const source = fs.readFileSync(path.resolve(here, '../workflows/incidents.mjs'), 'utf8');
   assert.match(source, /collectPendingDropeaV2Incidents/);
@@ -164,9 +164,12 @@ test('dashboard workflow keeps Dropea V2 writes blocked while allowing the gated
   assert.match(source, /rejectedGoodsCommunicationEnabled/);
   assert.match(source, /incidentDiscountRealEnabled === true/);
   assert.match(source, /chatbyRepositoryOwnsIncidentTemplate/);
-  assert.match(source, /status: 'BLOCKED_READ_ONLY'/);
   assert.match(source, /reason: 'dropea_v2_dashboard_read_only'/);
   assert.match(source, /executeIncorrectAddressResolution/);
   assert.match(source, /incidentAddressResolutionRealEnabled/);
+  assert.match(source, /executeIncidentDiscountNoResponseReturn/);
+  assert.match(source, /incidentDiscountReturnRealEnabled/);
+  assert.match(source, /claimIncidentDiscountReturn/);
+  assert.match(source, /BLOCKED_PERSISTENT_LEDGER/);
   assert.equal((source.match(/executeIncidentOperationalDecision\(/g) || []).length, 1);
 });

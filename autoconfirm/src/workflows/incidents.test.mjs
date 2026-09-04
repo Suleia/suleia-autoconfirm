@@ -2,12 +2,124 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   classifyIncident,
+  executeIncidentDiscountNoResponseReturn,
   executeIncorrectAddressResolution,
+  incidentDiscountNoResponseReturnDecision,
   incidentOperationalDecision,
   sortIncidentsByIncidenceDesc
 } from './incidents.mjs';
 
 const now = Date.parse('2026-07-16T16:00:00.000Z');
+
+const rejectedDiscountIncident = {
+  incidenceId: 'fixture-discount-issue',
+  orderId: 'fixture-discount-order',
+  incidentType: 'rejected_goods',
+  chatbyUserNs: 'fixture-chat',
+  chatbyReadVerified: true
+};
+
+const verifiedDiscount = {
+  templateName: 'es_ES dropea_incidencia_descuento_5',
+  sentAt: '2026-07-15T16:00:00.000Z',
+  verified: true,
+  responseStatus: 'NO_RESPONSE'
+};
+
+test('requests a return only after 24 hours from a verified discount with no customer activity', () => {
+  const before = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: verifiedDiscount,
+    now: Date.parse('2026-07-16T15:59:59.999Z')
+  });
+  assert.equal(before.eligible, false);
+  assert.equal(before.status, 'WAITING_24_HOURS');
+
+  const due = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: verifiedDiscount,
+    now: Date.parse('2026-07-16T16:00:00.000Z')
+  });
+  assert.equal(due.eligible, true);
+  assert.equal(due.action, 'return_to_origin');
+  assert.equal(due.ruleId, 'core_incident_discount_no_response_return_24h');
+});
+
+test('any response or unverified Chatby read blocks the discount return rule', () => {
+  const customerActed = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: { ...verifiedDiscount, responseStatus: 'OTHER_RESPONSE' },
+    now: Date.parse('2026-07-16T17:00:00.000Z')
+  });
+  assert.equal(customerActed.eligible, false);
+  assert.equal(customerActed.status, 'BLOCKED_CUSTOMER_ACTIVITY');
+
+  const unverified = incidentDiscountNoResponseReturnDecision({
+    incident: { ...rejectedDiscountIncident, chatbyReadVerified: false },
+    discountRecovery: verifiedDiscount,
+    now: Date.parse('2026-07-16T17:00:00.000Z')
+  });
+  assert.equal(unverified.eligible, false);
+  assert.equal(unverified.reason, 'chatby_context_unverified');
+});
+
+test('re-reads Chatby and requests one persistently claimed Dropea return', async () => {
+  const calls = { claimed: 0, returned: 0, finished: null };
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    readCurrent: async () => ({ issue: { id: 'fixture-discount-issue' }, order: { orderId: 'fixture-discount-order' } }),
+    readMessages: async () => [],
+    claimReturn: async () => { calls.claimed += 1; return { acquired: true, persistent: true }; },
+    returnIssue: async () => { calls.returned += 1; return { ok: true }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async (value) => { calls.finished = value; },
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(result.verified, true);
+  assert.equal(calls.claimed, 1);
+  assert.equal(calls.returned, 1);
+  assert.equal(calls.finished.status, 'verified');
+});
+
+test('a last-second Chatby action blocks the return before the persistent claim', async () => {
+  const calls = { claimed: 0, returned: 0 };
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    readCurrent: async () => ({ issue: { id: 'fixture-discount-issue' }, order: { orderId: 'fixture-discount-order' } }),
+    readMessages: async () => [{ type: 'in', created_at: '2026-07-16T16:30:00.000Z', content: 'Necesito ayuda' }],
+    claimReturn: async () => { calls.claimed += 1; return { acquired: true, persistent: true }; },
+    returnIssue: async () => { calls.returned += 1; }
+  });
+  assert.equal(result.status, 'BLOCKED_CUSTOMER_ACTIVITY');
+  assert.equal(result.responseStatus, 'OTHER_RESPONSE');
+  assert.equal(calls.claimed, 0);
+  assert.equal(calls.returned, 0);
+});
+
+test('does not call Dropea when the durable return claim is unavailable or already exists', async () => {
+  for (const claim of [
+    { acquired: false, persistent: false, reason: 'persistent_dedupe_unavailable' },
+    { acquired: false, persistent: true, reason: 'already_claimed' }
+  ]) {
+    let returned = 0;
+    const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+      now: Date.parse('2026-07-16T17:00:00.000Z'),
+      realEnabled: true,
+      credentialAvailable: true,
+      readCurrent: async () => ({ issue: { id: 'fixture-discount-issue' }, order: { orderId: 'fixture-discount-order' } }),
+      readMessages: async () => [],
+      claimReturn: async () => claim,
+      returnIssue: async () => { returned += 1; }
+    });
+    assert.equal(returned, 0);
+    assert.match(result.status, /ALREADY_CLAIMED|BLOCKED_PERSISTENT_LEDGER/);
+  }
+});
 
 function chatby(lastCustomerMessage, operationalDetails = {}) {
   return {
