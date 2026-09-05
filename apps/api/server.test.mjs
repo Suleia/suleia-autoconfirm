@@ -184,6 +184,7 @@ test('incident active=false is applied and does not silently fall back to the ac
   assert.doesNotMatch(calls[0].sql, /status='PENDING' AND is_active=true/);
   assert.match(calls[0].sql, /\(m\.relation_to_issue='AFTER_INCIDENT'\) DESC/);
   assert.match(calls[0].sql, /\(m\.intent<>'UNKNOWN'\) DESC/);
+  assert.match(calls[0].sql, /m\.incident_relevance IN \('INCIDENT_RELEVANT','DISCOUNT_RESPONSE'\)/);
 });
 
 test('incident overview returns table and counters from one materialized selection', async () => {
@@ -216,6 +217,17 @@ test('incident discount filter is parameterized and uses only verified recovery 
   assert.match(calls[0].sql, /discount_recovery_response_status = \$1/);
   assert.equal(calls[0].values[0], 'DISCOUNT_ACCEPTED');
   assert.match(calls[0].sql, /operations_incident_discount_recovery_latest/);
+});
+
+test('incident summary-card filters support offered discounts and combined high priority', async () => {
+  const calls = [];
+  const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
+  const repository = new OperationsRepository(null, { pool });
+  await repository.listIncidents(new URLSearchParams({ scope: 'ACTIVE', discount_response: 'OFFERED', risk: 'HIGH_OR_CRITICAL' }));
+  assert.match(calls[0].sql, /discount_delivery_verified=true AND discount_sent_at IS NOT NULL/);
+  assert.match(calls[0].sql, /effective_risk IN \('HIGH','CRITICAL'\)/);
+  assert.equal(calls[0].values.includes('OFFERED'), false);
+  assert.equal(calls[0].values.includes('HIGH_OR_CRITICAL'), false);
 });
 
 test('monthly financial summary is GET-only and missing sources remain unknown', async () => {

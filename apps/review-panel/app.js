@@ -60,6 +60,7 @@ const labels = {
   RETURN_REQUEST: 'Solicita devolución', CHANGE_ADDRESS: 'Cambio de dirección',
   PROVIDE_MISSING_DATA: 'Aporta los datos solicitados',
   DISCOUNT_ACCEPTED: 'Descuento de 5 € aceptado', DISCOUNT_REJECTED: 'Descuento rechazado',
+  OFFERED: 'Oferta enviada', HIGH_OR_CRITICAL: 'Alta o crítica',
   PROMOTION_CHANGE: 'Cambio de promoción', NO_RESPONSE: 'Sin respuesta', UNCLEAR: 'Respuesta no concluyente',
   NOT_VERIFIABLE: 'No verificable', NO_CONVERSATION: 'Sin conversación asociada',
   REVIEW_CHATBY_LINK: 'Revisar enlace con Chatby', REVIEW_CUSTOMER_RESPONSE: 'Revisar respuesta del cliente',
@@ -117,24 +118,30 @@ function renderSummary() {
   } else {
     const activeScope = (data?.scope || 'ACTIVE') === 'ACTIVE';
     const updated = `Actualizado ${date(data?.last_sync_at)}`;
+    const setIncidentFilter = (key, value, { reset = false } = {}) => {
+      if (reset) state.filters = { scope: 'ACTIVE' };
+      else state.filters[key] = state.filters[key] === value ? '' : value;
+      state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+    };
+    const onlyActiveScope = activeScope && Object.entries(state.filters)
+      .every(([key, value]) => !value || (key === 'scope' && value === 'ACTIVE'));
     root.append(
-      summaryCard(activeScope ? 'Pendientes reales en Dropea' : 'Seleccionadas', data?.pending, `${activeScope ? 'Cola actual de resolución' : `Alcance: ${translated(data?.scope)}`} · ${updated}`),
-      summaryCard('Cliente actuó', data?.responded, `Respuesta válida ligada a la incidencia · ${updated}`, 'green'),
+      summaryCard(activeScope ? 'Pendientes reales en Dropea' : 'Seleccionadas', data?.pending, `${activeScope ? 'Cola actual de resolución' : `Alcance: ${translated(data?.scope)}`} · pulsa para ver toda la cola · ${updated}`, '', () => setIncidentFilter('scope', 'ACTIVE', { reset: true }), onlyActiveScope),
+      summaryCard('Cliente actuó', data?.responded, `Respuesta posterior y válida ligada a la incidencia · ${updated}`, 'green', () => setIncidentFilter('response', 'VALID_RESPONSE'), state.filters.response === 'VALID_RESPONSE'),
+      summaryCard('Oferta de 5 € enviada', data?.discount_offered, 'Entrega verificada; incluye aceptadas, rechazadas y pendientes', 'green', () => setIncidentFilter('discount_response', 'OFFERED'), state.filters.discount_response === 'OFFERED'),
       summaryCard('Aceptaron 5 €', data?.discount_accepted, 'Oferta entregada y aceptación posterior verificada', 'green', () => {
-        state.filters.discount_response = state.filters.discount_response === 'DISCOUNT_ACCEPTED' ? '' : 'DISCOUNT_ACCEPTED';
-        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+        setIncidentFilter('discount_response', 'DISCOUNT_ACCEPTED');
       }, state.filters.discount_response === 'DISCOUNT_ACCEPTED'),
       summaryCard('No aceptaron 5 €', data?.discount_rejected, 'Rechazo explícito posterior a la oferta', 'red', () => {
-        state.filters.discount_response = state.filters.discount_response === 'DISCOUNT_REJECTED' ? '' : 'DISCOUNT_REJECTED';
-        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+        setIncidentFilter('discount_response', 'DISCOUNT_REJECTED');
       }, state.filters.discount_response === 'DISCOUNT_REJECTED'),
       summaryCard('Esperando descuento', data?.discount_no_response, 'Plantilla entregada; todavía sin respuesta', 'amber', () => {
-        state.filters.discount_response = state.filters.discount_response === 'NO_RESPONSE' ? '' : 'NO_RESPONSE';
-        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
+        setIncidentFilter('discount_response', 'NO_RESPONSE');
       }, state.filters.discount_response === 'NO_RESPONSE'),
-      summaryCard('Sin conversación exacta', data?.without_conversation, `No se presupone que el cliente no respondió · ${updated}`, 'purple'),
-      summaryCard('Dirección', data?.address_issues, `Requieren datos de entrega válidos · ${updated}`, 'amber'),
-      summaryCard('Atención prioritaria', data?.high_risk, `Riesgo alto o crítico · ${updated}`, 'red')
+      summaryCard('Descuento aún no enviado', data?.discount_not_sent, 'Rechazos sin entrega verificada de la oferta', 'amber', () => setIncidentFilter('discount_response', 'NOT_SENT'), state.filters.discount_response === 'NOT_SENT'),
+      summaryCard('Sin conversación exacta', data?.without_conversation, `No se presupone que el cliente no respondió · ${updated}`, 'purple', () => setIncidentFilter('response', 'NO_CONVERSATION'), state.filters.response === 'NO_CONVERSATION'),
+      summaryCard('Dirección', data?.address_issues, `Requieren datos de entrega válidos · ${updated}`, 'amber', () => setIncidentFilter('type', 'ADDRESS_INCORRECT'), state.filters.type === 'ADDRESS_INCORRECT'),
+      summaryCard('Atención prioritaria', data?.high_risk, `Riesgo alto o crítico · ${updated}`, 'red', () => setIncidentFilter('risk', 'HIGH_OR_CRITICAL'), state.filters.risk === 'HIGH_OR_CRITICAL')
     );
   }
   const last = data?.last_sync_at || state.summary?.protections?.last_reconciled_at;
@@ -148,8 +155,8 @@ const filterDefinitions = {
     ['scope', 'Alcance', ['ACTIVE', 'HISTORICAL', 'ALL']],
     ['type', 'Qué ocurre', ['RECIPIENT_ABSENT', 'ADDRESS_INCORRECT', 'REFUSED_BY_RECIPIENT', 'GENERAL_INCIDENCE', 'UNKNOWN']],
     ['response', 'Evidencia cliente', ['VALID_RESPONSE', 'NO_VALID_RESPONSE', 'NO_CONVERSATION', 'NOT_VERIFIABLE']],
-    ['discount_response', 'Descuento 5 €', ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'NO_RESPONSE', 'OTHER_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE']],
-    ['risk', 'Prioridad', ['HIGH', 'CRITICAL']]
+    ['discount_response', 'Descuento 5 €', ['OFFERED', 'DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'NO_RESPONSE', 'OTHER_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE']],
+    ['risk', 'Prioridad', ['HIGH_OR_CRITICAL', 'HIGH', 'CRITICAL']]
   ]
 };
 function renderFilters() {
@@ -274,6 +281,7 @@ function discountStatusCard(item) {
   card.append(node('strong', 'discount-state-title', `${icon} ${text(discount.title)}`), node('small', '', text(discount.summary)));
   if (discount.sent_at) card.append(node('small', 'discount-evidence', `Enviado ${date(discount.sent_at)}`));
   if (discount.responded_at) card.append(node('small', 'discount-evidence', `Respondió ${date(discount.responded_at)}`));
+  else if (discount.response_due_at) card.append(node('small', 'discount-evidence', `Límite de respuesta ${date(discount.response_due_at)}`));
   return card;
 }
 function rowIncident(item) {
@@ -283,7 +291,7 @@ function rowIncident(item) {
   const identity = stacked(item.customer_name || 'Cliente no disponible', item.customer_phone || 'Teléfono no disponible', 'incident-identity');
   const evidence = node('div', 'stacked incident-evidence');
   evidence.append(node('strong', '', text(customer.title)), node('small', '', text(customer.summary)));
-  if (customer.latest_message) evidence.append(node('q', 'message-quote', customer.latest_message));
+  if (customer.latest_message) evidence.append(node('small', 'message-label', 'Respuesta exacta del cliente'), node('q', 'message-quote', customer.latest_message));
   const resolution = recommendation.resolution_option ? `Opción Dropea: ${recommendation.resolution_option}` : 'Pendiente de validación humana';
   tr.append(
     cell(stacked(`Incidencia #${short(item.dropea_issue_id)}`, `Pedido Dropea #${short(item.dropea_order_id)} · ${date(item.created_at)}`)),

@@ -31,6 +31,16 @@ function normalizedIntent(value) {
   return intent;
 }
 
+function isInitialOrderTemplateAction(item, exactMessage, privateIntent) {
+  if (item.latest_customer_message_relevance === 'ORDER_LIFECYCLE_ONLY') return true;
+  const context = String(item.latest_customer_context_template_slug || '').toLowerCase();
+  const normalized = String(exactMessage || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const exactInitialButton = item.latest_private_customer_message_type === 'BUTTON'
+    && ['confirmar mi pedido', 'confirmar pedido'].includes(normalized);
+  return exactInitialButton || (context.includes('dropea_pedido_nuevo_v1') && privateIntent === 'CONFIRM');
+}
+
 function discountRecovery(item) {
   const observed = item.discount_recovery_response_status !== null
     && item.discount_recovery_response_status !== undefined;
@@ -53,6 +63,7 @@ function discountRecovery(item) {
     NOT_AVAILABLE: ['Seguimiento no disponible', 'Esta incidencia todavía no tiene una observación del automatismo de descuento.', 'not-sent']
   };
   const [title, summary, tone] = presentations[status] || presentations.NOT_VERIFIABLE;
+  const discountSentMs = Date.parse(item.discount_sent_at || '');
   return {
     applies: observed || item.interpreted_type === 'REFUSED_BY_RECIPIENT',
     status, title, summary, tone,
@@ -61,6 +72,9 @@ function discountRecovery(item) {
     due_at: item.discount_due_at || null,
     sent_at: item.discount_sent_at || null,
     responded_at: item.discount_responded_at || null,
+    response_due_at: Number.isFinite(discountSentMs)
+      ? new Date(discountSentMs + 24 * 60 * 60 * 1000).toISOString()
+      : null,
     original_amount: item.discount_original_amount ?? null,
     discount_amount: item.discount_amount_eur ?? null,
     final_amount: item.discount_final_amount ?? null,
@@ -79,6 +93,12 @@ function customerEvidence(item) {
   }) : null;
   const privateIntent = normalizedIntent(privateInterpretation?.intent);
   const privateCurrentSignal = exactMessage && relation === 'AFTER_INCIDENT' && privateIntent !== 'UNKNOWN';
+  if (isInitialOrderTemplateAction(item, exactMessage, privateIntent)) return {
+    code: 'NO_VALID_RESPONSE', title: 'Sin respuesta válida a la incidencia',
+    summary: 'La acción pertenece a la plantilla inicial del pedido y no resuelve esta incidencia.',
+    messages: 0, latest_message: null, at: null, relation: null,
+    ignored_reason: 'INITIAL_ORDER_TEMPLATE_ACTION'
+  };
   if (!item.chatby_sync_current) return {
     code: 'NOT_VERIFIABLE', title: 'Chatby pendiente de actualizar',
     summary: 'La última lectura de Chatby no está vigente; no se atribuye una acción nueva al cliente.',
@@ -155,7 +175,7 @@ function proposal(code, title, summary, resolutionOption, steps, confidence = 'M
     steps, confidence, external_action_required: true, ...details };
 }
 
-function recommendation(item, customer) {
+function recommendation(item, customer, discount, nowMs) {
   const description = String(item.initial_carrier_description_sanitized || '');
   const secondAttempt = /SEGUNDA\s+VEZ|SEGUNDO\s+INTENTO/i.test(description)
     || Number(item.delivery_attempt_number || 0) >= 2;
@@ -315,28 +335,40 @@ function recommendation(item, customer) {
     customer.code === 'PROVIDE_MISSING_DATA' ? 'HIGH' : 'MEDIUM');
 
   if (item.interpreted_type === 'REFUSED_BY_RECIPIENT') {
-    if (['CONFIRM','DELIVERY_RETRY'].includes(customer.code)) return proposal(
-      'RECOVER_DELIVERY_AFTER_REFUSAL', 'Recuperar la entrega tras la nueva aceptación del cliente',
-      'El transportista registró un rechazo, pero el cliente ha confirmado después y de forma verificable que sí quiere recibir este pedido. La evidencia más reciente sustituye al rechazo anterior.',
-      option(item, 'PROVIDE_SOLUTION','MANAGED_BY_CLIENT'),
-      ['Comprobar que la respuesta corresponde al pedido y es posterior a la incidencia', 'Acordar una fecha o franja viable', 'Seleccionar PROVIDE_SOLUTION y trasladar literalmente la disponibilidad', 'Verificar que la incidencia sale de la cola'],
-      'HIGH', {
-        decision_goal: 'RECOVER_DELIVERY_AFTER_PRIOR_REFUSAL',
-        reasoning: 'Una aceptación posterior, fresca y exacta cambia la decisión; no se devuelve un pedido que el cliente aún quiere recibir.',
-        guardrail: 'Sin aceptación posterior verificable, mantener la devolución como propuesta y exigir revisión.'
+    if (discount.status === 'NO_RESPONSE') {
+      const deadlineMs = Date.parse(discount.response_due_at || '');
+      if (Number.isFinite(deadlineMs) && nowMs >= deadlineMs) return proposal(
+        'RETURN_AFTER_DISCOUNT_SILENCE', 'Solicitar devolución tras 24 h sin respuesta al descuento',
+        'La oferta de 5 € fue entregada y han pasado 24 horas completas sin ninguna respuesta ni acción posterior del cliente.',
+        option(item, 'RETURN_REQUESTED'),
+        ['Verificar la entrega de la oferta y la hora límite', 'Confirmar que no existe ninguna respuesta posterior en Chatby', 'Seleccionar RETURN_REQUESTED', 'Comprobar que la incidencia sale de la cola'],
+        'HIGH', {
+          decision_goal: 'RETURN_ONLY_AFTER_VERIFIED_DISCOUNT_SILENCE',
+          guardrail: 'No devolver si aparece cualquier respuesta posterior o si la entrega de la plantilla no es verificable.'
+        });
+      return proposal(
+        'WAIT_FOR_DISCOUNT_RESPONSE', 'Esperar la respuesta al descuento de 5 €',
+        `La oferta está entregada y el plazo de 24 horas sigue abierto${discount.response_due_at ? ` hasta ${discount.response_due_at}` : ''}. No debe solicitarse la devolución todavía.`,
+        null, ['Mantener la incidencia abierta', 'Vigilar cualquier respuesta o botón posterior en Chatby', 'Recalcular al aceptar, rechazar o vencer el plazo'], 'MEDIUM', {
+          decision_goal: 'WAIT_FOR_DISCOUNT_RECOVERY_RESPONSE',
+          guardrail: 'Una respuesta posterior detiene la devolución automática y obliga a recalcular.'
+        });
+    }
+    if (discount.status === 'OTHER_RESPONSE') return proposal(
+      'REVIEW_POST_DISCOUNT_RESPONSE', 'Revisar la respuesta posterior al descuento',
+      'El cliente ha contestado después de recibir la oferta, pero la respuesta no acepta ni rechaza de forma inequívoca. No debe solicitarse la devolución.',
+      null, ['Leer la respuesta exacta mostrada en Chatby', 'Aclarar únicamente lo necesario', 'Recalcular cuando exista una decisión inequívoca'], 'REVIEW');
+    if (discount.status === 'NOT_SENT') return proposal(
+      'OFFER_FIXED_DISCOUNT', 'Ofrecer el descuento único de 5 €',
+      'Dropea registra el rechazo y todavía no existe una entrega verificada de la oferta. El siguiente paso es el descuento fijo de 5 €, no la devolución inmediata.',
+      null, ['Comprobar que la incidencia y el pedido siguen activos', 'Enviar una sola vez la oferta de exactamente 5 € mediante el automatismo autorizado', 'Esperar 24 horas desde la entrega verificada', 'No solicitar devolución mientras el plazo siga abierto'], 'HIGH', {
+        decision_goal: 'RECOVER_REFUSED_DELIVERY_WITH_FIXED_DISCOUNT',
+        guardrail: 'Nunca superar 5 €, nunca repetir la oferta y no atribuir respuestas anteriores a su envío.'
       });
     return proposal(
-      'RETURN_AFTER_REJECTION', 'Solicitar devolución salvo aceptación posterior verificable',
-      customer.code === 'REJECT'
-        ? 'El cliente confirma el rechazo; insistir en otro reparto aumentaría coste y riesgo de un nuevo rechazo.'
-        : 'Dropea registra rechazo y no existe una aceptación posterior verificable del cliente.',
-      option(item, 'RETURN_REQUESTED'),
-      ['Confirmar que el rechazo pertenece a este pedido', 'Comprobar que no existe una aceptación posterior', 'Seleccionar RETURN_REQUESTED', 'Verificar la salida de la cola'],
-      'HIGH', {
-        decision_goal: 'STOP_UNWANTED_DELIVERY_AND_RETURN',
-        reasoning: 'El rechazo vigente prevalece mientras el cliente no lo revoque con una señal nueva y exacta.',
-        guardrail: 'Si el cliente revoca el rechazo después, recalcular y proponer recuperación de la entrega.'
-      });
+      'VERIFY_DISCOUNT_RECOVERY_STATE', 'Actualizar el seguimiento del descuento antes de actuar',
+      'No se puede comprobar de forma vigente si la oferta de 5 € fue entregada o si el cliente respondió. La devolución queda bloqueada.',
+      null, ['Actualizar las señales del automatismo', 'Comprobar entrega, importe y respuesta posterior', 'Recalcular la solución con evidencia vigente'], 'BLOCKED');
   }
   if (customer.code === 'REJECT') return proposal(
     'RETURN_AFTER_REJECTION', 'Solicitar devolución del paquete',
@@ -355,10 +387,10 @@ function recommendation(item, customer) {
     ['Revisar el motivo y la descripción de Dropea', 'Contrastar la última evidencia del cliente', 'Aplicar la opción permitida y verificar el resultado'], 'REVIEW');
 }
 
-export function incidentInsight(item) {
+export function incidentInsight(item, { nowMs = Date.now() } = {}) {
   const discount = discountRecovery(item);
   const customer = customerEvidence(item);
-  const proposed = recommendation(item, customer);
+  const proposed = recommendation(item, customer, discount, nowMs);
   const existingStatus = String(item.operational_action_status || item.external_action_status || '').toUpperCase();
   const handlingStatus = existingStatus && existingStatus !== 'NOT_EXECUTED'
     ? existingStatus

@@ -58,9 +58,9 @@ test('Operations Center exposes Pedidos, Incidencias and audited finance configu
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260902-discount-status-v1">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260905-incident-filters-v2">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260902-discount-status-v1" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260905-incident-filters-v2" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
@@ -138,6 +138,12 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /Aceptaron 5 €/);
   assert.match(script, /No aceptaron 5 €/);
   assert.match(script, /Esperando descuento/);
+  assert.match(script, /Oferta de 5 € enviada/);
+  assert.match(script, /Descuento aún no enviado/);
+  assert.match(script, /setIncidentFilter\('response', 'VALID_RESPONSE'\)/);
+  assert.match(script, /setIncidentFilter\('type', 'ADDRESS_INCORRECT'\)/);
+  assert.match(script, /setIncidentFilter\('risk', 'HIGH_OR_CRITICAL'\)/);
+  assert.match(script, /Respuesta exacta del cliente/);
   assert.match(script, /discount_recovery/);
   assert.match(script, /Sólo se muestra “aceptado” o “no aceptado”/);
   assert.match(script, /Descuento 5 €/);

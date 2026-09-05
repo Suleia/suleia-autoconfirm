@@ -36,7 +36,10 @@ test('API table and cards share the same incident selection builder', () => {
   assert.equal((repository.match(/incidentSelection\(searchParams\)/g) || []).length, 4);
   assert.match(repository, /scope === 'ACTIVE'.*status='PENDING' AND is_active=true/s);
   assert.match(repository, /operations_incident_panel_context/);
-  assert.match(repository, /customer_replied_after_issue=true[\s\S]{0,100}messages_used,0\)>0 THEN 'VALID_RESPONSE'/);
+  assert.match(repository, /private_message\.occurred_at IS NOT NULL[\s\S]{0,100}relation_to_issue='AFTER_INCIDENT' THEN 'VALID_RESPONSE'/);
+  assert.match(repository, /private_message\.occurred_at IS NOT NULL[\s\S]{0,100}relation_to_issue='AFTER_INCIDENT' THEN 'REVIEW_CUSTOMER_RESPONSE'/);
+  assert.match(repository, /incident_relevance IN \('INCIDENT_RELEVANT','DISCOUNT_RESPONSE'\)/);
+  assert.match(repository, /incident_relevance<>'ORDER_LIFECYCLE_ONLY'/);
   assert.equal((repository.match(/chatby_last_successful_sync_at < now\(\)-interval '900 seconds'/g) || []).length, 3);
   assert.match(repository, /WITH selected AS MATERIALIZED/);
   assert.match(repository, /jsonb_agg\(to_jsonb\(p\)/);

@@ -90,7 +90,7 @@ test('real Chatby delivery-slot button becomes next-day redelivery with an order
   assert.equal(result.tailored_recommendation.customer_instruction.call_before_delivery, true);
 });
 
-test('a fresh affirmative answer to the exact receive question recovers a refused delivery', () => {
+test('a fresh affirmative answer does not bypass the refused-delivery discount workflow', () => {
   const result = incidentInsight({
     ...base,
     interpreted_type: 'REFUSED_BY_RECIPIENT',
@@ -102,21 +102,21 @@ test('a fresh affirmative answer to the exact receive question recovers a refuse
   });
   assert.equal(result.customer_evidence.code, 'CONFIRM');
   assert.equal(result.customer_evidence.interpretation_basis, 'AFFIRMATIVE_REPLY_TO_RECEIVE_QUESTION');
-  assert.equal(result.tailored_recommendation.code, 'RECOVER_DELIVERY_AFTER_REFUSAL');
-  assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
-  assert.equal(result.tailored_recommendation.decision_goal, 'RECOVER_DELIVERY_AFTER_PRIOR_REFUSAL');
+  assert.equal(result.tailored_recommendation.code, 'VERIFY_DISCOUNT_RECOVERY_STATE');
+  assert.equal(result.tailored_recommendation.resolution_option, null);
 });
 
-test('a refused delivery without later acceptance remains a return proposal', () => {
+test('a refused delivery without an offered discount proposes the fixed recovery offer, not return', () => {
   const result = incidentInsight({
     ...base,
     interpreted_type: 'REFUSED_BY_RECIPIENT',
     operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0,
+    discount_recovery_response_status: 'NOT_SENT', discount_signal_quality: 'VERIFIED',
     allowed_resolution_options: ['RETURN_REQUESTED','MANAGED_BY_CLIENT']
   });
-  assert.equal(result.tailored_recommendation.code, 'RETURN_AFTER_REJECTION');
-  assert.equal(result.tailored_recommendation.resolution_option, 'RETURN_REQUESTED');
-  assert.equal(result.tailored_recommendation.decision_goal, 'STOP_UNWANTED_DELIVERY_AND_RETURN');
+  assert.equal(result.tailored_recommendation.code, 'OFFER_FIXED_DISCOUNT');
+  assert.equal(result.tailored_recommendation.resolution_option, null);
+  assert.equal(result.tailored_recommendation.decision_goal, 'RECOVER_REFUSED_DELIVERY_WITH_FIXED_DISCOUNT');
 });
 
 test('an accepted 5 EUR discount becomes a prominent incident-specific recovery proposal', () => {
@@ -190,9 +190,39 @@ test('waiting for a discount response is distinct from an explicit rejection', (
     discount_delivery_verified: true,
     discount_signal_quality: 'VERIFIED',
     discount_sent_at: '2026-08-01T10:00:00Z'
-  });
+  }, { nowMs: Date.parse('2026-08-01T20:00:00Z') });
   assert.equal(result.discount_recovery.status, 'NO_RESPONSE');
   assert.equal(result.discount_recovery.tone, 'waiting');
+  assert.equal(result.tailored_recommendation.code, 'WAIT_FOR_DISCOUNT_RESPONSE');
+  assert.equal(result.tailored_recommendation.resolution_option, null);
+});
+
+test('verified silence for 24 hours after the discount proposes return', () => {
+  const result = incidentInsight({
+    ...base,
+    interpreted_type: 'REFUSED_BY_RECIPIENT',
+    discount_recovery_response_status: 'NO_RESPONSE',
+    discount_delivery_verified: true,
+    discount_signal_quality: 'VERIFIED',
+    discount_sent_at: '2026-08-01T10:00:00Z',
+    allowed_resolution_options: ['RETURN_REQUESTED','MANAGED_BY_CLIENT']
+  }, { nowMs: Date.parse('2026-08-02T10:00:00Z') });
+  assert.equal(result.tailored_recommendation.code, 'RETURN_AFTER_DISCOUNT_SILENCE');
+  assert.equal(result.tailored_recommendation.resolution_option, 'RETURN_REQUESTED');
+});
+
+test('initial order confirmation button is never shown as incident evidence', () => {
+  const result = incidentInsight({
+    ...base,
+    latest_customer_message: 'CONFIRMAR MI PEDIDO',
+    latest_customer_message_relation: 'AFTER_INCIDENT',
+    latest_private_customer_message_type: 'BUTTON',
+    latest_customer_context_template_slug: 'dropea_pedido_nuevo_v1',
+    latest_customer_message_relevance: 'ORDER_LIFECYCLE_ONLY'
+  });
+  assert.equal(result.customer_evidence.code, 'NO_VALID_RESPONSE');
+  assert.equal(result.customer_evidence.latest_message, null);
+  assert.equal(result.customer_evidence.ignored_reason, 'INITIAL_ORDER_TEMPLATE_ACTION');
 });
 
 test('a weekday availability produces a literal scheduled-delivery solution with causal limits', () => {

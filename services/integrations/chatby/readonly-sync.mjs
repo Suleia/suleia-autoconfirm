@@ -107,7 +107,11 @@ function rawMessageText(message) {
     message?.text,
     message?.payload?.text,
     message?.payload?.title,
-    message?.button_text
+    message?.button_text,
+    message?.template_name,
+    message?.template?.name,
+    message?.payload?.template_name,
+    message?.payload?.template?.name
   ].filter((value) => typeof value === 'string').join(' ')
     .replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
 }
@@ -134,8 +138,36 @@ function technicalMessageId(message, issueId, key) {
 }
 
 function templateHash(message, key) {
-  const value = message?.template_name ?? message?.template?.name ?? message?.payload?.template_name;
+  const value = message?.template_name ?? message?.template?.name
+    ?? message?.payload?.template_name ?? message?.payload?.template?.name;
   return value ? hmac(value, key) : null;
+}
+
+function templateSlug(message) {
+  const value = message?.template_name ?? message?.template?.name
+    ?? message?.payload?.template_name ?? message?.payload?.template?.name;
+  if (typeof value !== 'string') return null;
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/^\s*[a-z]{2}[_-][a-z]{2}\s+/, '').replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '').slice(0, 160);
+  return normalized || null;
+}
+
+function incidentMessageRelevance({ message, relationToIssue, contextTemplateSlug }) {
+  if (relationToIssue !== 'AFTER_INCIDENT') return 'BEFORE_INCIDENT';
+  const normalized = messageText(message).replace(/[^a-z0-9]+/g, ' ').trim();
+  const initialOrderTemplate = String(contextTemplateSlug || '').includes('dropea_pedido_nuevo_v1');
+  const initialOrderConfirmation = normalized === 'confirmar mi pedido'
+    || normalized === 'confirmar pedido';
+  if ((initialOrderTemplate && normalized.includes('confirmar'))
+      || (messageType(message) === 'BUTTON' && initialOrderConfirmation)) {
+    return 'ORDER_LIFECYCLE_ONLY';
+  }
+  if (String(contextTemplateSlug || '').includes('descuento')
+      || ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED'].includes(classifyIntent(message))) {
+    return 'DISCOUNT_RESPONSE';
+  }
+  return 'INCIDENT_RELEVANT';
 }
 
 function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
@@ -147,15 +179,26 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
   const templates = outbound.filter((item) => messageType(item.message) === 'TEMPLATE');
   const latest = valid.at(-1)?.at || null;
   const issueAt = new Date(issueCreatedAt).getTime();
-  const customerMessages = inbound.slice(-10).map((item) => ({
-    message: item.message,
-    at: item.at,
-    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT'
-  }));
+  const customerMessages = inbound.slice(-10).map((item) => {
+    const relationToIssue = new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT';
+    const precedingOperator = outbound.filter((out) => new Date(out.at).getTime() <= new Date(item.at).getTime()).at(-1);
+    const contextTemplateSlug = precedingOperator ? templateSlug(precedingOperator.message) : null;
+    return {
+      message: item.message,
+      at: item.at,
+      relation_to_issue: relationToIssue,
+      context_template_slug: contextTemplateSlug,
+      incident_relevance: incidentMessageRelevance({
+        message: item.message, relationToIssue, contextTemplateSlug
+      })
+    };
+  });
   const operatorMessages = outbound.slice(-10).map((item) => ({
     message: item.message,
     at: item.at,
-    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT'
+    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT',
+    context_template_slug: templateSlug(item.message),
+    incident_relevance: new Date(item.at).getTime() >= issueAt ? 'INCIDENT_RELEVANT' : 'BEFORE_INCIDENT'
   }));
   return Object.freeze({
     last_customer_message_at: inbound.at(-1)?.at || null,
@@ -265,8 +308,7 @@ export async function syncChatbyReadOnly({
       i.updated_at_utc AS issue_updated_at
     FROM integration.dropea_orders o
     JOIN integration.dropea_issues i USING(canonical_order_id)
-    WHERE i.status='PENDING'
-      AND (i.is_active=true OR i.updated_at_utc >= now()-interval '14 days')
+    WHERE i.status='PENDING' AND i.is_active=true
     ORDER BY i.updated_at_utc DESC`);
   const byExternalHash = new Map();
   const byDropeaOrderId = new Map();
@@ -414,6 +456,8 @@ export async function syncChatbyReadOnly({
         message_type: messageType(item.message),
         intent,
         relation_to_issue: item.relation_to_issue,
+        context_template_slug: item.context_template_slug,
+        incident_relevance: item.incident_relevance,
         message_text_ciphertext: encryptPrivateJson({ text }, hmacKey),
         occurred_at: item.at
       });
@@ -469,5 +513,5 @@ export async function syncChatbyReadOnly({
 export const chatbyReadOnlyInternals = Object.freeze({
   normalizeLabel, normalizeReference, orderReference, occurredAt, direction,
   messageType, classifyIntent, rawMessageText, referenceHashes, payloadReferences, technicalReferences,
-  conversationMetrics
+  templateSlug, incidentMessageRelevance, conversationMetrics
 });

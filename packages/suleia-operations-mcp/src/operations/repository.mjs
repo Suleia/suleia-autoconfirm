@@ -46,6 +46,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   private_message.relation_to_issue AS latest_customer_message_relation,
   private_message.intent AS latest_private_customer_intent,
   private_message.message_type AS latest_private_customer_message_type,
+  private_message.context_template_slug AS latest_customer_context_template_slug,
+  private_message.incident_relevance AS latest_customer_message_relevance,
   private_message.operator_message_text_ciphertext AS latest_operator_message_ciphertext,
   private_message.operator_message_at AS latest_operator_message_at,
   CASE
@@ -63,8 +65,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
     WHEN p.chatby_last_successful_sync_at IS NULL
       OR p.chatby_last_successful_sync_at < now()-interval '900 seconds'
       OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN 'NOT_VERIFIABLE'
-    WHEN p.conversation_status='FOUND' AND p.customer_replied_after_issue=true
-      AND coalesce(p.messages_used,0)>0 THEN 'VALID_RESPONSE'
+    WHEN p.conversation_status='FOUND' AND private_message.occurred_at IS NOT NULL
+      AND private_message.relation_to_issue='AFTER_INCIDENT' THEN 'VALID_RESPONSE'
     WHEN p.conversation_status='FOUND' THEN 'NO_VALID_RESPONSE'
     WHEN p.conversation_status='NONE' THEN 'NO_CONVERSATION'
     ELSE 'NOT_VERIFIABLE'
@@ -79,7 +81,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
   END AS operational_freshness_status,
   CASE
     WHEN p.conversation_status='NONE' THEN 'REVIEW_CHATBY_LINK'
-    WHEN p.response_evidence_status='VALID_RESPONSE' THEN 'REVIEW_CUSTOMER_RESPONSE'
+    WHEN private_message.occurred_at IS NOT NULL
+      AND private_message.relation_to_issue='AFTER_INCIDENT' THEN 'REVIEW_CUSTOMER_RESPONSE'
     WHEN p.timer_status='ACTIVE' AND p.timer_due_at>now() THEN 'WAITING_CUSTOMER'
     ELSE 'HUMAN_REVIEW'
   END AS operational_decision_status,
@@ -94,6 +97,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount USING(canonical_issue_id)
  LEFT JOIN LATERAL (
    SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
+     m.context_template_slug,m.incident_relevance,
      (SELECT o.message_text_ciphertext
         FROM read_models.operations_private_incident_messages o
        WHERE o.canonical_issue_id=p.canonical_issue_id AND o.direction='OUTBOUND'
@@ -106,6 +110,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
        ORDER BY o.occurred_at DESC LIMIT 1) AS operator_message_at
    FROM read_models.operations_private_incident_messages m
    WHERE m.canonical_issue_id=p.canonical_issue_id AND m.direction='INBOUND'
+     AND m.incident_relevance IN ('INCIDENT_RELEVANT','DISCOUNT_RESPONSE')
    ORDER BY (m.relation_to_issue='AFTER_INCIDENT') DESC,
             (m.intent<>'UNKNOWN') DESC,
             m.occurred_at DESC LIMIT 1
@@ -131,11 +136,10 @@ function filters(searchParams, allowlist) {
 
 function incidentSelection(searchParams) {
   const selected = filters(searchParams, {
-    status: 'status', type: 'interpreted_type', risk: 'effective_risk',
+    status: 'status', type: 'interpreted_type',
     freshness: 'operational_freshness_status', mapping: 'mapping_status',
     response: 'operational_response_status', timer: 'effective_timer_status',
-    decision: 'operational_decision_status', qa: 'effective_qa_status', carrier_code: 'initial_carrier_code',
-    discount_response: 'discount_recovery_response_status'
+    decision: 'operational_decision_status', qa: 'effective_qa_status', carrier_code: 'initial_carrier_code'
   });
   const scope = String(searchParams.get('scope') || 'ACTIVE').toUpperCase();
   if (scope === 'ACTIVE') selected.clauses.push("status='PENDING' AND is_active=true");
@@ -146,6 +150,19 @@ function incidentSelection(searchParams) {
   if (active === 'true' || active === 'false') {
     selected.values.push(active === 'true');
     selected.clauses.push(`is_active=$${selected.values.length}::boolean`);
+  }
+  const risk = String(searchParams.get('risk') || '').toUpperCase();
+  if (risk === 'HIGH_OR_CRITICAL') selected.clauses.push("effective_risk IN ('HIGH','CRITICAL')");
+  else if (risk) {
+    selected.values.push(risk);
+    selected.clauses.push(`effective_risk = $${selected.values.length}`);
+  }
+  const discountResponse = String(searchParams.get('discount_response') || '').toUpperCase();
+  if (discountResponse === 'OFFERED') {
+    selected.clauses.push('discount_delivery_verified=true AND discount_sent_at IS NOT NULL');
+  } else if (discountResponse) {
+    selected.values.push(discountResponse);
+    selected.clauses.push(`discount_recovery_response_status = $${selected.values.length}`);
   }
   const from = searchParams.get('from');
   if (from) {
@@ -253,6 +270,7 @@ export class OperationsRepository {
         count(*) FILTER (WHERE discount_recovery_response_status='NO_RESPONSE')::integer AS discount_no_response,
         count(*) FILTER (WHERE discount_recovery_response_status='OTHER_RESPONSE')::integer AS discount_other_response,
         count(*) FILTER (WHERE discount_recovery_response_status='NOT_SENT')::integer AS discount_not_sent,
+        count(*) FILTER (WHERE discount_delivery_verified=true AND discount_sent_at IS NOT NULL)::integer AS discount_offered,
         max(panel_updated_at) AS last_sync_at,$${incidentFilters.values.length + 1}::text AS scope,
         0::integer AS actions_executed,0::integer AS production_writes
       FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${incidentWhere}`,
@@ -473,6 +491,7 @@ export class OperationsRepository {
            count(*) FILTER (WHERE discount_recovery_response_status='NO_RESPONSE')::integer AS discount_no_response,
            count(*) FILTER (WHERE discount_recovery_response_status='OTHER_RESPONSE')::integer AS discount_other_response,
            count(*) FILTER (WHERE discount_recovery_response_status='NOT_SENT')::integer AS discount_not_sent,
+           count(*) FILTER (WHERE discount_delivery_verified=true AND discount_sent_at IS NOT NULL)::integer AS discount_offered,
            max(panel_updated_at) AS last_sync_at,$${scopeParameter}::text AS scope,
            0::integer AS actions_executed,0::integer AS production_writes
          FROM selected
@@ -500,10 +519,11 @@ export class OperationsRepository {
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
         ORDER BY created_at DESC LIMIT 20`, [id]),
       this.pool.query(`SELECT direction,message_type,intent,relation_to_issue,
-          message_text_ciphertext,occurred_at
+          context_template_slug,incident_relevance,message_text_ciphertext,occurred_at
         FROM read_models.operations_private_incident_messages
         WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
+          AND incident_relevance<>'ORDER_LIFECYCLE_ONLY'
         ORDER BY occurred_at DESC LIMIT 20`, [id])
     ]);
     return detail.rows[0] ? {
