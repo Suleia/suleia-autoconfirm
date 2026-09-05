@@ -2552,6 +2552,9 @@ async function resolveExistingChatbyUserNs(order) {
 export async function sendPreparedTemplateForOrder(order, store = config.defaultStore) {
   const templateName = configuredPreparedWhatsappTemplate();
   if (!templateName) return { order, skipped: true, reason: 'missing_prepared_template_name' };
+  if (store?.preparedTemplateEnabled === false) {
+    return { order, skipped: true, reason: 'prepared_template_disabled' };
+  }
   if (!orderNeedsPreparedTemplate(order)) return { order, skipped: true, reason: 'order_not_prepared' };
 
   const blocked = await applyBlockedCustomerPolicy(order, store, 'prepared_template_send_guard');

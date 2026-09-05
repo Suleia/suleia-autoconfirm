@@ -64,7 +64,9 @@ services:
       - key: CHATBY_INCIDENT_TEMPLATE_OWNER
         value: repository
       - key: CHATBY_LIFECYCLE_TEMPLATE_OWNER
-        value: repository
+        value: chatby_native
+      - key: PREPARED_TEMPLATE_ENABLED
+        value: false
       - key: PREPARED_TEMPLATE_RECOVERY_GRACE_SECONDS
         value: 120
       - key: CHATBY_TOKEN

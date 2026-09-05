@@ -4,8 +4,21 @@ import {
   initialTemplateBlockedByLegacyOwnership,
   nativeLifecycleAudit,
   orderNeedsPreparedTemplate,
-  preparedTemplateRecoveryWaitMs
+  preparedTemplateRecoveryWaitMs,
+  sendPreparedTemplateForOrder
 } from './orders.mjs';
+
+test('hard-disables prepared-template delivery before any provider action', async () => {
+  const order = { orderId: 'fixture-order', status: 'TRANSIT' };
+  const result = await sendPreparedTemplateForOrder(order, {
+    id: 'fixture-store',
+    preparedTemplateEnabled: false
+  });
+
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, 'prepared_template_disabled');
+  assert.equal(result.order, order);
+});
 
 test('recognizes every prepared and shipping status emitted by Dropea V2', () => {
   for (const status of ['PROCESSING', 'PREPARING', 'PREPARED', 'SHIPPING', 'TRANSIT', 'IN_TRANSIT']) {
