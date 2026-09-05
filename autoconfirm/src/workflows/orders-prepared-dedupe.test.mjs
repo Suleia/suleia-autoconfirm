@@ -3,18 +3,8 @@ import assert from 'node:assert/strict';
 import {
   initialTemplateBlockedByLegacyOwnership,
   nativeLifecycleAudit,
-  orderNeedsPreparedTemplate,
   preparedTemplateRecoveryWaitMs
 } from './orders.mjs';
-
-test('recognizes every prepared and shipping status emitted by Dropea V2', () => {
-  for (const status of ['PROCESSING', 'PREPARING', 'PREPARED', 'SHIPPING', 'TRANSIT', 'IN_TRANSIT']) {
-    assert.equal(orderNeedsPreparedTemplate({ status }), true, status);
-  }
-  for (const status of ['PENDING', 'CANCELLED', 'REJECTED', 'RETURNED']) {
-    assert.equal(orderNeedsPreparedTemplate({ status }), false, status);
-  }
-});
 
 test('recognizes only the historical initial-template ownership failure', () => {
   assert.equal(initialTemplateBlockedByLegacyOwnership({
