@@ -2505,8 +2505,18 @@ async function finishPreparedTemplateClaim(order, store, templateName, claim, pa
   }
 }
 
-function orderNeedsPreparedTemplate(order) {
-  return ['CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT', 'DELIVERED']
+export function orderNeedsPreparedTemplate(order) {
+  return [
+    'CONFIRMED',
+    'PROCESSING',
+    'PREPARING',
+    'IN_PREPARATION',
+    'PREPARED',
+    'SHIPPING',
+    'TRANSIT',
+    'IN_TRANSIT',
+    'DELIVERED'
+  ]
     .includes(String(order?.status || '').toUpperCase());
 }
 

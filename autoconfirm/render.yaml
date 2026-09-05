@@ -63,6 +63,10 @@ services:
         value: true
       - key: CHATBY_INCIDENT_TEMPLATE_OWNER
         value: repository
+      - key: CHATBY_LIFECYCLE_TEMPLATE_OWNER
+        value: repository
+      - key: PREPARED_TEMPLATE_RECOVERY_GRACE_SECONDS
+        value: 120
       - key: CHATBY_TOKEN
         sync: false
       - key: WHATSAPP_PROVIDER
