@@ -72,7 +72,7 @@ test('reports the single lifecycle owner without exposing credentials', () => {
     process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = ' chatby_native ';
     delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
     assert.equal(chatbyLifecycleTemplateOwner(), 'chatby_native');
-    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_nuevo_v1'), false);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_nuevo_v1'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('dropea_incidencia_descuento_5_v1'), false);
@@ -331,6 +331,7 @@ test('blocks every repository path for Chatby-owned lifecycle templates', async 
 
   try {
     for (const name of [
+      'dropea_pedido_nuevo_v1',
       'dropea_pedido_preparado_v1',
       'dropea_incidencia_mercancia_v1'
     ]) {
@@ -344,33 +345,6 @@ test('blocks every repository path for Chatby-owned lifecycle templates', async 
       );
     }
     assert.equal(calls, 0);
-  } finally {
-    globalThis.fetch = originalFetch;
-    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
-    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
-  }
-});
-
-test('allows the repository to request the initial order template through Chatby', async () => {
-  const originalFetch = globalThis.fetch;
-  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
-  let calls = 0;
-  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
-  globalThis.fetch = async () => {
-    calls += 1;
-    return new Response(JSON.stringify({ ok: true, mid: 'wamid.initial' }), {
-      status: 200,
-      headers: { 'content-type': 'application/json' }
-    });
-  };
-
-  try {
-    await sendWhatsappTemplate({
-      user_ns: 'test-user',
-      user_id: 'test-recipient',
-      content: { name: 'dropea_pedido_nuevo_v1', lang: 'es_ES', params: {} }
-    });
-    assert.equal(calls, 1);
   } finally {
     globalThis.fetch = originalFetch;
     if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
