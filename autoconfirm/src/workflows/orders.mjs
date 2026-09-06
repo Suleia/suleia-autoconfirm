@@ -27,6 +27,7 @@ import {
   findSubscriberForOrderRobust as findSubscriberForOrder,
   findSubscribersByPhone,
   getChatMessages,
+  sendInitialTemplateRecovery,
   sendPreparedTemplateRecovery,
   sendTextMessage,
   sendWhatsappTemplate,
@@ -2232,7 +2233,13 @@ async function clearStaleChatbyConfirmationBeforeInitialTemplate(order, userNs, 
   }
 }
 
-async function sendInitialTemplateWithFallback({ order, templateName, params, userNs }) {
+async function sendInitialTemplateWithFallback({
+  order,
+  templateName,
+  params,
+  userNs,
+  nativeRecoveryVerifiedMissingAt = null
+}) {
   // Chatby is the source of truth for this flow. Sending directly through Meta
   // creates a second conversation event that Chatby can attempt to deliver again.
   const preferredProvider = config.chatbyToken
@@ -2243,12 +2250,17 @@ async function sendInitialTemplateWithFallback({ order, templateName, params, us
     if (!chatbyUserNs) {
       throw new Error('No se pudo resolver o crear contacto en Chatby para enviar plantilla.');
     }
-    const response = await sendWhatsappTemplate({
+    const payload = {
       user_ns: chatbyUserNs,
       user_id: order.customerPhone,
       template_name: templateName,
       params
-    });
+    };
+    const response = nativeRecoveryVerifiedMissingAt
+      ? await sendInitialTemplateRecovery(payload, {
+          verifiedMissingAt: nativeRecoveryVerifiedMissingAt
+        })
+      : await sendWhatsappTemplate(payload);
     return { provider: 'chatby', response, userNs: chatbyUserNs };
   }
 
@@ -2290,6 +2302,8 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
 
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName) return order;
+  let nativeRecoveryVerifiedMissingAt = null;
+  let nativeRecoveryUserNs = null;
   if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
     let nativeUserNs = order?.chatbyUserNs || null;
     let nativeContactProvisionedAt = order?.chatbyNativeContactProvisionedAt || null;
@@ -2302,6 +2316,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     if (nativeUserNs) {
       const alreadySeen = await markTemplateAlreadySeenForOrder(order, nativeUserNs, store, templateName);
       if (alreadySeen) return alreadySeen;
+      nativeRecoveryVerifiedMissingAt = new Date().toISOString();
     }
 
     const audit = nativeLifecycleAudit({
@@ -2309,7 +2324,7 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       templateName,
       referenceAt: nativeContactProvisionedAt || dropeaCreatedAt(order)
     });
-    return upsertOrder(store.id, {
+    const auditedOrder = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: nativeUserNs || order.chatbyUserNs || null,
       chatbyNativeContactProvisionedAt: nativeContactProvisionedAt,
@@ -2320,6 +2335,11 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       chatbyNativeAuditAgeMinutes: audit.ageMinutes,
       chatbyNativeAuditGraceMinutes: audit.graceMinutes
     });
+    if (!audit.overdue || !nativeUserNs || !nativeRecoveryVerifiedMissingAt) {
+      return auditedOrder;
+    }
+    order = auditedOrder;
+    nativeRecoveryUserNs = nativeUserNs;
   }
   if (initialTemplateBlockedByLegacyOwnership(order)) {
     const legacyUserNs = await resolveExistingChatbyUserNs(order);
@@ -2340,10 +2360,13 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     }
     return order;
   }
-  const deliveredInAnyThread = await markTemplateSeenAcrossCustomerThreads(order, store, templateName);
-  if (deliveredInAnyThread) return deliveredInAnyThread;
+  if (!nativeRecoveryVerifiedMissingAt) {
+    const deliveredInAnyThread = await markTemplateSeenAcrossCustomerThreads(order, store, templateName);
+    if (deliveredInAnyThread) return deliveredInAnyThread;
+  }
 
-  const resolvedUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
+  const resolvedUserNs = nativeRecoveryUserNs
+    || await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
   const staleConfirmationReset = await clearStaleChatbyConfirmationBeforeInitialTemplate(
     order,
     resolvedUserNs,
@@ -2422,7 +2445,8 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       order,
       templateName,
       params,
-      userNs: resolvedUserNs
+      userNs: resolvedUserNs,
+      nativeRecoveryVerifiedMissingAt
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

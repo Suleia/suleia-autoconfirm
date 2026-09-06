@@ -17,6 +17,7 @@ const {
   findSubscriberInIndexForOrder,
   getChatMessages,
   invalidateSubscriberIndexCache,
+  sendInitialTemplateRecovery,
   sendPreparedTemplateRecovery,
   sendWhatsappTemplate
 } = await import('./chatby.mjs');
@@ -67,6 +68,47 @@ test('allows one narrowly-scoped prepared recovery only after a current verifica
     globalThis.fetch = originalFetch;
     if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
     else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
+
+test('allows one narrowly-scoped initial recovery only after a current verification', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true, mid: 'wamid.initial-recovery' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    await sendInitialTemplateRecovery({
+      user_ns: 'fixture-user',
+      user_id: 'fixture-recipient',
+      content: { name: 'dropea_pedido_nuevo_v1', lang: 'es_ES', params: {} }
+    }, { verifiedMissingAt: new Date().toISOString() });
+    assert.equal(calls, 1);
+
+    await assert.rejects(
+      sendInitialTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+      }, { verifiedMissingAt: new Date().toISOString() }),
+      (error) => error?.code === 'CHATBY_INITIAL_RECOVERY_TEMPLATE_BLOCKED'
+    );
+    await assert.rejects(
+      sendInitialTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_nuevo_v1', lang: 'es_ES', params: {} }
+      }),
+      (error) => error?.code === 'CHATBY_INITIAL_RECOVERY_VERIFICATION_REQUIRED'
+    );
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 
