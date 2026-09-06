@@ -870,7 +870,23 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/cron/template-delivery') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-      const result = await runCriticalTemplateDeliverySweep('cron_template_delivery');
+      const requestedOrderId = String(url.searchParams.get('orderId') || url.searchParams.get('order_id') || '').trim();
+      if (requestedOrderId && !/^\d+$/.test(requestedOrderId)) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_order_id' });
+      }
+      const result = requestedOrderId
+        ? {
+            context: 'cron_template_delivery_targeted',
+            delivery: await reconcileCriticalOrderTemplates({
+              store: config.defaultStore,
+              limit: 100,
+              pages: 2,
+              lookbackHours: 48,
+              orderIds: [requestedOrderId]
+            }),
+            error: null
+          }
+        : await runCriticalTemplateDeliverySweep('cron_template_delivery');
       return sendJson(res, 200, { ok: true, result });
     }
 

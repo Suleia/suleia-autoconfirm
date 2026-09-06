@@ -25,6 +25,13 @@ test('prepared-template recovery can be limited to one exact Dropea order', () =
   assert.match(source, /orderIds:\s*url\.searchParams\.get\('orderId'\)/);
 });
 
+test('critical template repair can be restricted to one authenticated exact order', () => {
+  assert.match(source, /url\.pathname === '\/api\/cron\/template-delivery'/);
+  assert.match(source, /template-delivery'[\s\S]{0,180}isAuthorizedCron\(req\)/);
+  assert.match(source, /requestedOrderId && !\/\^\\d\+\$\//);
+  assert.match(source, /orderIds:\s*\[requestedOrderId\]/);
+});
+
 test('immediate rejected-discount batch requires cron auth and an explicit one-time authorization', () => {
   assert.match(source, /url\.pathname === '\/api\/cron\/send-pending-rejected-discounts-now'/);
   assert.match(source, /send-pending-rejected-discounts-now'[\s\S]{0,180}isAuthorizedCron\(req\)/);

@@ -2905,8 +2905,12 @@ export async function reconcileCriticalOrderTemplates({
   store = config.defaultStore,
   limit = 100,
   pages = 1,
-  lookbackHours = 48
+  lookbackHours = 48,
+  orderIds = []
 } = {}) {
+  const requestedOrderIds = new Set((Array.isArray(orderIds) ? orderIds : [orderIds])
+    .map((value) => String(value || '').replace(/\D/g, ''))
+    .filter(Boolean));
   const orders = await listRecentDropeaOrders({
     limit,
     pages,
@@ -2917,6 +2921,7 @@ export async function reconcileCriticalOrderTemplates({
   const results = [];
 
   for (const order of orders) {
+    if (requestedOrderIds.size && !requestedOrderIds.has(String(order.orderId || '').replace(/\D/g, ''))) continue;
     const createdAt = parseDate(dropeaCreatedAt(order));
     if (createdAt && createdAt.getTime() < cutoffMs) continue;
 
@@ -3015,6 +3020,7 @@ export async function reconcileCriticalOrderTemplates({
 
   return {
     processed: results.length,
+    targeted: requestedOrderIds.size > 0,
     initialSent: results.filter((item) => item.initial === 'sent').length,
     preparedSent: results.filter((item) => item.prepared === 'sent').length,
     failed: results.filter((item) => ['failed', 'verification_failed_closed', 'native_overdue'].includes(item.initial)
