@@ -5,11 +5,61 @@ import {
   chatbyNativeSubscriberPayload,
   initialTemplateIsTerminal,
   initialTemplateBlockedByLegacyOwnership,
+  mergeLifecycleTemplateStateFromLedger,
   nativeLifecycleAudit,
   nativeLifecycleVerificationRequired,
   orderNeedsPreparedTemplate,
   preparedTemplateRecoveryWaitMs
 } from './orders.mjs';
+
+test('restores both lifecycle delivery states from the persistent ledger after restart', () => {
+  const restored = mergeLifecycleTemplateStateFromLedger({
+    orderId: 'fixture-order',
+    chatbyTemplateSendStatus: 'native_pending',
+    preparedTemplateSendStatus: 'native_pending'
+  }, {
+    initialTemplateName: 'es_ES dropea_pedido_nuevo_v1',
+    preparedTemplateName: 'es_ES dropea_pedido_preparado_v1',
+    initialDelivery: {
+      status: 'sent',
+      sent_at: '2026-09-06T10:01:00.000Z',
+      attempted_at: '2026-09-06T10:00:59.000Z',
+      chatby_user_ns: 'fixture-user'
+    },
+    preparedDelivery: {
+      status: 'already_seen',
+      sent_at: '2026-09-06T10:05:00.000Z',
+      attempted_at: '2026-09-06T10:04:59.000Z',
+      chatby_user_ns: 'fixture-user'
+    }
+  });
+
+  assert.equal(restored.chatbyTemplateSendStatus, 'sent');
+  assert.equal(restored.chatbyTemplateSentAt, '2026-09-06T10:01:00.000Z');
+  assert.equal(restored.preparedTemplateSendStatus, 'already_seen');
+  assert.equal(restored.preparedTemplateSentAt, '2026-09-06T10:05:00.000Z');
+  assert.equal(restored.chatbyUserNs, 'fixture-user');
+  assert.equal(restored.chatbyTemplateLastError, null);
+  assert.equal(restored.preparedTemplateLastError, null);
+});
+
+test('does not trust failed or incomplete persistent delivery rows as sent', () => {
+  const order = { orderId: 'fixture-order', chatbyTemplateSendStatus: 'native_pending' };
+  const restored = mergeLifecycleTemplateStateFromLedger(order, {
+    initialTemplateName: 'es_ES dropea_pedido_nuevo_v1',
+    initialDelivery: {
+      status: 'failed',
+      sent_at: '2026-09-06T10:01:00.000Z'
+    },
+    preparedTemplateName: 'es_ES dropea_pedido_preparado_v1',
+    preparedDelivery: {
+      status: 'sent',
+      sent_at: null
+    }
+  });
+
+  assert.equal(restored, order);
+});
 
 test('bounds native contact lookup to the newest Chatby page before provisioning', () => {
   assert.equal(CHATBY_NATIVE_CONTACT_LOOKUP_PAGES, 1);

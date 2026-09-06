@@ -44,7 +44,11 @@ import {
   findBlockingActivePriorOrder
 } from '../policies/active-order-duplicates.mjs';
 import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
-import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
+import {
+  claimTemplateDelivery,
+  finishTemplateDelivery,
+  getTemplateDelivery
+} from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
@@ -1671,6 +1675,76 @@ function configuredPreparedWhatsappTemplate() {
   return config.preparedWhatsappTemplateName || 'es_ES dropea_pedido_preparado_v1';
 }
 
+function acceptedPersistentDelivery(delivery) {
+  if (!delivery || typeof delivery !== 'object') return null;
+  const status = normalizeText(delivery.status);
+  const sentAt = parseDate(delivery.sent_at);
+  if (!['sent', 'already_seen'].includes(status) || !sentAt) return null;
+  return {
+    status,
+    sentAt: sentAt.toISOString(),
+    attemptedAt: parseDate(delivery.attempted_at)?.toISOString() || sentAt.toISOString(),
+    chatbyUserNs: String(delivery.chatby_user_ns || '').trim() || null
+  };
+}
+
+export function mergeLifecycleTemplateStateFromLedger(order, {
+  initialDelivery = null,
+  preparedDelivery = null,
+  initialTemplateName = null,
+  preparedTemplateName = null
+} = {}) {
+  const initial = acceptedPersistentDelivery(initialDelivery);
+  const prepared = acceptedPersistentDelivery(preparedDelivery);
+  if (!initial && !prepared) return order;
+
+  const restored = { ...order };
+  if (initial) {
+    restored.chatbyTemplateName = initialTemplateName || initialDelivery.template_name || restored.chatbyTemplateName || null;
+    restored.chatbyTemplateSentAt = initial.sentAt;
+    restored.chatbyTemplateAttemptedAt = initial.attemptedAt;
+    restored.chatbyTemplateSendStatus = initial.status;
+    restored.chatbyTemplateLastError = null;
+    restored.chatbyUserNs = restored.chatbyUserNs || initial.chatbyUserNs;
+  }
+  if (prepared) {
+    restored.preparedTemplateName = preparedTemplateName || preparedDelivery.template_name || restored.preparedTemplateName || null;
+    restored.preparedTemplateSentAt = prepared.sentAt;
+    restored.preparedTemplateAttemptedAt = prepared.attemptedAt;
+    restored.preparedTemplateSendStatus = prepared.status;
+    restored.preparedTemplateLastError = null;
+    restored.chatbyUserNs = restored.chatbyUserNs || prepared.chatbyUserNs;
+  }
+  return restored;
+}
+
+async function restoreLifecycleTemplateState(order, store, {
+  initial = false,
+  prepared = false
+} = {}) {
+  const initialTemplateName = initial ? configuredWhatsappTemplate(store) : null;
+  const preparedTemplateName = prepared ? configuredPreparedWhatsappTemplate() : null;
+  const needsInitial = Boolean(initialTemplateName) && !initialTemplateIsTerminal(order, initialTemplateName);
+  const needsPrepared = Boolean(preparedTemplateName) && !preparedTemplateIsTerminal(order, preparedTemplateName);
+  if (!needsInitial && !needsPrepared) return order;
+
+  const [initialDelivery, preparedDelivery] = await Promise.all([
+    needsInitial
+      ? getTemplateDelivery({ storeId: store.id, orderId: order.orderId, templateName: initialTemplateName })
+      : null,
+    needsPrepared
+      ? getTemplateDelivery({ storeId: store.id, orderId: order.orderId, templateName: preparedTemplateName })
+      : null
+  ]);
+  const restored = mergeLifecycleTemplateStateFromLedger(order, {
+    initialDelivery,
+    preparedDelivery,
+    initialTemplateName,
+    preparedTemplateName
+  });
+  return restored === order ? order : upsertOrder(store.id, restored);
+}
+
 function initialTemplateProvider() {
   return config.chatbyToken ? 'chatby' : String(config.whatsappProvider || 'meta').toLowerCase();
 }
@@ -2301,6 +2375,7 @@ async function sendInitialTemplateWithFallback({
 }
 
 async function sendChatbyTemplateForOrder(order, userNs, store) {
+  order = await restoreLifecycleTemplateState(order, store, { initial: true });
   const blocked = await applyBlockedCustomerPolicy(order, store, 'chatby_template_send_guard');
   if (blocked) return blocked.order || order;
 
@@ -2686,6 +2761,7 @@ export function nativeLifecycleVerificationRequired(audit = {}) {
 }
 
 export async function sendPreparedTemplateForOrder(order, store = config.defaultStore) {
+  order = await restoreLifecycleTemplateState(order, store, { prepared: true });
   const templateName = configuredPreparedWhatsappTemplate();
   if (!templateName) return { order, skipped: true, reason: 'missing_prepared_template_name' };
   if (!orderNeedsPreparedTemplate(order)) return { order, skipped: true, reason: 'order_not_prepared' };
