@@ -1974,6 +1974,12 @@ function templateAlreadyAttempted(order, templateName) {
     && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.chatbyTemplateSendStatus));
 }
 
+export function initialTemplateIsTerminal(order, templateName) {
+  if (!order?.chatbyTemplateSentAt || !templateName) return false;
+  return normalizeText(order.chatbyTemplateName) === normalizeText(templateName)
+    && ['sent', 'already_seen'].includes(normalizeText(order.chatbyTemplateSendStatus));
+}
+
 export function initialTemplateBlockedByLegacyOwnership(order) {
   const status = normalizeText(order?.chatbyTemplateSendStatus);
   const error = String(order?.chatbyTemplateLastError || '');
@@ -2305,6 +2311,12 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   let nativeRecoveryVerifiedMissingAt = null;
   let nativeRecoveryUserNs = null;
   if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
+    if (initialTemplateIsTerminal(order, templateName)) {
+      return Object.hasOwn(order, 'chatbyTemplateLastError') && order.chatbyTemplateLastError === null
+        ? order
+        : upsertOrder(store.id, { ...order, chatbyTemplateLastError: null });
+    }
+
     let nativeUserNs = order?.chatbyUserNs || null;
     let nativeContactProvisionedAt = order?.chatbyNativeContactProvisionedAt || null;
     if (!nativeUserNs) {
@@ -2312,11 +2324,6 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
         maxPages: CHATBY_NATIVE_CONTACT_LOOKUP_PAGES
       });
       if (nativeUserNs) nativeContactProvisionedAt = new Date().toISOString();
-    }
-    if (nativeUserNs) {
-      const alreadySeen = await markTemplateAlreadySeenForOrder(order, nativeUserNs, store, templateName);
-      if (alreadySeen) return alreadySeen;
-      nativeRecoveryVerifiedMissingAt = new Date().toISOString();
     }
 
     const audit = nativeLifecycleAudit({
@@ -2335,9 +2342,18 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       chatbyNativeAuditAgeMinutes: audit.ageMinutes,
       chatbyNativeAuditGraceMinutes: audit.graceMinutes
     });
-    if (!audit.overdue || !nativeUserNs || !nativeRecoveryVerifiedMissingAt) {
+    if (!audit.overdue || !nativeUserNs) {
       return auditedOrder;
     }
+
+    const alreadySeen = await markTemplateAlreadySeenForOrder(
+      auditedOrder,
+      nativeUserNs,
+      store,
+      templateName
+    );
+    if (alreadySeen) return alreadySeen;
+    nativeRecoveryVerifiedMissingAt = new Date().toISOString();
     order = auditedOrder;
     nativeRecoveryUserNs = nativeUserNs;
   }
@@ -3327,8 +3343,11 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
     || initialTemplateBlockedByLegacyOwnership(order)
     || !templateAlreadyAttempted(order, templateName)
   )) {
+    if (nativeLifecycleOwner && initialTemplateIsTerminal(order, templateName)) {
+      return order;
+    }
     let userNs = order.chatbyUserNs || null;
-    if (config.chatbyToken && order.customerPhone) {
+    if (!nativeLifecycleOwner && config.chatbyToken && order.customerPhone) {
       const existingSubscriber = await resolveSubscriberForOrder(order)
         || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
       if (existingSubscriber?.user_ns) {

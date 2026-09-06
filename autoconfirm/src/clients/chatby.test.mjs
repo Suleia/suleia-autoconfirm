@@ -295,6 +295,7 @@ test('never retries a template delivery after a rate-limit response', async () =
 });
 
 test('keeps bounded retries for read-only Chatby requests', async () => {
+  await new Promise((resolve) => setTimeout(resolve, 5));
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {

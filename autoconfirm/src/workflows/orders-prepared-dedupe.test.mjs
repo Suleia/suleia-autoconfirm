@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   CHATBY_NATIVE_CONTACT_LOOKUP_PAGES,
   chatbyNativeSubscriberPayload,
+  initialTemplateIsTerminal,
   initialTemplateBlockedByLegacyOwnership,
   nativeLifecycleAudit,
   orderNeedsPreparedTemplate,
@@ -48,6 +49,24 @@ test('builds one complete native Chatby contact for the exact Dropea order', () 
   assert.equal(fields['Método Pago'], 'COD');
   assert.equal(fields.Moneda, 'EUR');
   assert.equal(payload.address, 'Calle Fixture 1 Puerta A');
+});
+
+test('trusts only a persisted accepted initial template as terminal', () => {
+  assert.equal(initialTemplateIsTerminal({
+    chatbyTemplateName: 'es_ES dropea_pedido_nuevo_v1',
+    chatbyTemplateSendStatus: 'already_seen',
+    chatbyTemplateSentAt: '2026-09-06T18:00:00.000Z'
+  }, 'es_ES dropea_pedido_nuevo_v1'), true);
+  assert.equal(initialTemplateIsTerminal({
+    chatbyTemplateName: 'es_ES dropea_pedido_nuevo_v1',
+    chatbyTemplateSendStatus: 'native_pending',
+    chatbyTemplateSentAt: null
+  }, 'es_ES dropea_pedido_nuevo_v1'), false);
+  assert.equal(initialTemplateIsTerminal({
+    chatbyTemplateName: 'es_ES dropea_pedido_nuevo_v1',
+    chatbyTemplateSendStatus: 'sent',
+    chatbyTemplateSentAt: null
+  }, 'es_ES dropea_pedido_nuevo_v1'), false);
 });
 
 test('recognizes every canonical and Dropea V2 prepared-order status', () => {

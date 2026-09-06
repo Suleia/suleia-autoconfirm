@@ -32,6 +32,12 @@ test('critical template repair can be restricted to one authenticated exact orde
   assert.match(source, /orderIds:\s*\[requestedOrderId\]/);
 });
 
+test('Dropea webhooks reconcile only their exact order instead of starting a global Chatby sweep', () => {
+  assert.match(source, /const webhookOrderId = String\(webhookResult\?\.orderId/);
+  assert.match(source, /orderIds:\s*\[webhookOrderId\]/);
+  assert.doesNotMatch(source, /runCriticalTemplateDeliverySweep\('dropea_webhook'\)/);
+});
+
 test('immediate rejected-discount batch requires cron auth and an explicit one-time authorization', () => {
   assert.match(source, /url\.pathname === '\/api\/cron\/send-pending-rejected-discounts-now'/);
   assert.match(source, /send-pending-rejected-discounts-now'[\s\S]{0,180}isAuthorizedCron\(req\)/);

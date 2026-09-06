@@ -788,10 +788,19 @@ const server = http.createServer(async (req, res) => {
         }
 
         try {
-          const templateResult = await runCriticalTemplateDeliverySweep('dropea_webhook');
-          console.log('Critical template delivery processed:', JSON.stringify(templateResult));
+          const webhookOrderId = String(webhookResult?.orderId || '').replace(/\D/g, '');
+          const templateResult = webhookOrderId
+            ? await reconcileCriticalOrderTemplates({
+                store: config.defaultStore,
+                limit: 100,
+                pages: 2,
+                lookbackHours: 48,
+                orderIds: [webhookOrderId]
+              })
+            : { processed: 0, targeted: true, results: [] };
+          console.log('Exact webhook template delivery processed:', JSON.stringify(templateResult));
         } catch (error) {
-          console.error('Critical template delivery error:', error);
+          console.error('Exact webhook template delivery error:', error);
         }
 
         try {
