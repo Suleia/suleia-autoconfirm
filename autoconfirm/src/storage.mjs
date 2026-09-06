@@ -193,7 +193,9 @@ export function upsertOrder(storeId, order, extras = {}) {
     chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || previous.chatbyTemplateAttemptedAt || null,
     chatbyTemplateName: order.chatbyTemplateName || previous.chatbyTemplateName || null,
     chatbyTemplateSendStatus: order.chatbyTemplateSendStatus || previous.chatbyTemplateSendStatus || null,
-    chatbyTemplateLastError: order.chatbyTemplateLastError || previous.chatbyTemplateLastError || null,
+    chatbyTemplateLastError: Object.hasOwn(order, 'chatbyTemplateLastError')
+      ? order.chatbyTemplateLastError
+      : previous.chatbyTemplateLastError || null,
     chatbyLastSendResponse: order.chatbyLastSendResponse || previous.chatbyLastSendResponse || null,
     chatbyConfirmationStateResetAt: order.chatbyConfirmationStateResetAt || previous.chatbyConfirmationStateResetAt || null,
     chatbyConfirmationStateResetError: order.chatbyConfirmationStateResetError ?? previous.chatbyConfirmationStateResetError ?? null,

@@ -74,6 +74,26 @@ test('clears a stale prepared-template error after a verified delivery', () => {
   assert.equal(updated.preparedTemplateLastError, null);
 });
 
+test('clears a stale initial-template error after a verified delivery', () => {
+  upsertOrder('fixture-store', {
+    orderId: 'initial-error-fixture',
+    status: 'PENDING',
+    chatbyTemplateSendStatus: 'native_overdue',
+    chatbyTemplateLastError: 'fixture overdue error'
+  });
+
+  const updated = upsertOrder('fixture-store', {
+    orderId: 'initial-error-fixture',
+    status: 'PENDING',
+    chatbyTemplateSendStatus: 'already_seen',
+    chatbyTemplateSentAt: new Date().toISOString(),
+    chatbyTemplateLastError: null
+  });
+
+  assert.equal(updated.chatbyTemplateSendStatus, 'already_seen');
+  assert.equal(updated.chatbyTemplateLastError, null);
+});
+
 test.after(async () => {
   await new Promise((resolve) => setTimeout(resolve, 450));
   fs.rmSync(testDir, { recursive: true, force: true });
