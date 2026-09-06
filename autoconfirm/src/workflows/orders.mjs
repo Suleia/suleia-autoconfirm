@@ -1577,15 +1577,16 @@ function subscriberContainsOrderId(subscriber, orderId) {
   return text.replace(/\D/g, ' ').split(/\s+/).includes(target);
 }
 
-async function resolveSubscriberForOrder(order) {
+async function resolveSubscriberForOrder(order, { maxPages = 10 } = {}) {
   const exact = await findSubscriberForOrder({
     phone: order.customerPhone,
-    orderId: order.orderId
+    orderId: order.orderId,
+    maxPages
   });
   if (exact) return exact;
 
   if (!order.customerPhone) return null;
-  const byPhone = await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  const byPhone = await findSubscriberByPhone({ phone: order.customerPhone, maxPages });
   if (!byPhone) return null;
 
   const sameThread = order.chatbyUserNs && String(byPhone.user_ns || byPhone.userNs || '') === String(order.chatbyUserNs);
@@ -2670,9 +2671,18 @@ async function resolveExistingChatbyUserNs(order) {
   if (order.chatbyUserNs) return order.chatbyUserNs;
   if (!config.chatbyToken || !order.customerPhone) return null;
 
-  const subscriber = await resolveSubscriberForOrder(order)
-    || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  const subscriber = await resolveSubscriberForOrder(order, {
+    maxPages: CHATBY_NATIVE_CONTACT_LOOKUP_PAGES
+  })
+    || await findSubscriberByPhone({
+      phone: order.customerPhone,
+      maxPages: CHATBY_NATIVE_CONTACT_LOOKUP_PAGES
+    });
   return subscriber?.user_ns || null;
+}
+
+export function nativeLifecycleVerificationRequired(audit = {}) {
+  return audit?.overdue === true;
 }
 
 export async function sendPreparedTemplateForOrder(order, store = config.defaultStore) {
@@ -2711,43 +2721,56 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
     };
   }
 
+  const nativeOwner = chatbyNativeOwnsLifecycleTemplate(templateName);
+  const nativeAudit = nativeOwner
+    ? nativeLifecycleAudit({
+        order,
+        templateName,
+        referenceAt: order?.raw?.updated_at
+          || order?.raw?.updatedAt
+          || order?.statusUpdatedAt
+          || order?.updatedAt
+          || dropeaCreatedAt(order)
+      })
+    : null;
+  if (nativeOwner && !nativeLifecycleVerificationRequired(nativeAudit)) {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: nativeAudit.status,
+      preparedTemplateLastError: nativeAudit.error,
+      preparedTemplateNativeAuditAt: new Date().toISOString(),
+      preparedTemplateNativeAuditAgeMinutes: nativeAudit.ageMinutes,
+      preparedTemplateNativeAuditGraceMinutes: nativeAudit.graceMinutes
+    });
+    return { order: updated, skipped: true, reason: nativeAudit.status };
+  }
+
   const userNs = await resolveExistingChatbyUserNs(order);
   let nativeRecoveryVerifiedMissingAt = null;
-  if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
+  if (nativeOwner) {
     if (userNs) {
       const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
       if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
       nativeRecoveryVerifiedMissingAt = new Date().toISOString();
     }
 
-    const audit = nativeLifecycleAudit({
-      order,
-      templateName,
-      referenceAt: order?.raw?.updated_at
-        || order?.raw?.updatedAt
-        || order?.statusUpdatedAt
-        || order?.updatedAt
-        || dropeaCreatedAt(order)
-    });
     const updated = upsertOrder(store.id, {
       ...order,
       chatbyUserNs: userNs || order.chatbyUserNs || null,
       preparedTemplateName: templateName,
-      preparedTemplateSendStatus: audit.status,
-      preparedTemplateLastError: audit.error,
+      preparedTemplateSendStatus: nativeAudit.status,
+      preparedTemplateLastError: nativeAudit.error,
       preparedTemplateNativeAuditAt: new Date().toISOString(),
-      preparedTemplateNativeAuditAgeMinutes: audit.ageMinutes,
-      preparedTemplateNativeAuditGraceMinutes: audit.graceMinutes
+      preparedTemplateNativeAuditAgeMinutes: nativeAudit.ageMinutes,
+      preparedTemplateNativeAuditGraceMinutes: nativeAudit.graceMinutes
     });
-    if (!audit.overdue) {
-      return { order: updated, skipped: true, reason: audit.status };
-    }
     if (!userNs || !nativeRecoveryVerifiedMissingAt) {
       return {
         order: updated,
         skipped: true,
         reason: 'native_overdue_missing_chatby_contact',
-        error: audit.error
+        error: nativeAudit.error
       };
     }
   }

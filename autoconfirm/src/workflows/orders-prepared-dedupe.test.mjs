@@ -6,6 +6,7 @@ import {
   initialTemplateIsTerminal,
   initialTemplateBlockedByLegacyOwnership,
   nativeLifecycleAudit,
+  nativeLifecycleVerificationRequired,
   orderNeedsPreparedTemplate,
   preparedTemplateRecoveryWaitMs
 } from './orders.mjs';
@@ -154,4 +155,10 @@ test('raises an actionable failure when Chatby-native delivery is overdue', () =
     if (previous === undefined) delete process.env.CHATBY_NATIVE_TEMPLATE_GRACE_MINUTES;
     else process.env.CHATBY_NATIVE_TEMPLATE_GRACE_MINUTES = previous;
   }
+});
+
+test('reads the prepared conversation only after the native grace window expires', () => {
+  assert.equal(nativeLifecycleVerificationRequired({ status: 'native_pending', overdue: false }), false);
+  assert.equal(nativeLifecycleVerificationRequired({ status: 'native_overdue', overdue: true }), true);
+  assert.equal(nativeLifecycleVerificationRequired({}), false);
 });
