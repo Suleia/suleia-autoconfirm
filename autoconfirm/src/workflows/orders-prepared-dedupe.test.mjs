@@ -1,12 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CHATBY_NATIVE_CONTACT_LOOKUP_PAGES,
   chatbyNativeSubscriberPayload,
   initialTemplateBlockedByLegacyOwnership,
   nativeLifecycleAudit,
   orderNeedsPreparedTemplate,
   preparedTemplateRecoveryWaitMs
 } from './orders.mjs';
+
+test('bounds native contact lookup to the newest Chatby page before provisioning', () => {
+  assert.equal(CHATBY_NATIVE_CONTACT_LOOKUP_PAGES, 1);
+});
 
 test('builds one complete native Chatby contact for the exact Dropea order', () => {
   const payload = chatbyNativeSubscriberPayload({

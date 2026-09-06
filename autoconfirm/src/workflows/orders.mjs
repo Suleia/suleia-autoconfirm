@@ -2172,12 +2172,20 @@ function shouldFallbackToChatby(error) {
   return /authorization error|oauth|meta whatsapp respondio 400|meta whatsapp respondio 401|meta whatsapp respondio 403/i.test(message);
 }
 
-async function resolveOrCreateChatbyUserNsForTemplate(order, userNs) {
+export const CHATBY_NATIVE_CONTACT_LOOKUP_PAGES = 1;
+
+async function resolveOrCreateChatbyUserNsForTemplate(order, userNs, { maxPages = 10 } = {}) {
   if (userNs) return userNs;
   if (!config.chatbyToken || !order.customerPhone) return null;
 
-  const subscriber = await resolveSubscriberForOrder(order);
-  if (subscriber?.user_ns) return subscriber.user_ns;
+  const exactSubscriber = maxPages === 10
+    ? await resolveSubscriberForOrder(order)
+    : await findSubscriberForOrder({
+        phone: order.customerPhone,
+        orderId: order.orderId,
+        maxPages
+      });
+  if (exactSubscriber?.user_ns) return exactSubscriber.user_ns;
 
   const created = await createSubscriber(chatbyNativeSubscriberPayload(order));
 
@@ -2283,10 +2291,12 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName) return order;
   if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
-    let nativeUserNs = await resolveExistingChatbyUserNs(order);
+    let nativeUserNs = order?.chatbyUserNs || null;
     let nativeContactProvisionedAt = order?.chatbyNativeContactProvisionedAt || null;
     if (!nativeUserNs) {
-      nativeUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, null);
+      nativeUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, null, {
+        maxPages: CHATBY_NATIVE_CONTACT_LOOKUP_PAGES
+      });
       if (nativeUserNs) nativeContactProvisionedAt = new Date().toISOString();
     }
     if (nativeUserNs) {
