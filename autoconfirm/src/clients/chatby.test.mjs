@@ -8,6 +8,8 @@ process.env.CHATBY_READ_RETRY_BASE_MS = '1';
 
 const {
   CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS,
+  CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+  chatbyRateLimitBackoffMs,
   chatbyLifecycleTemplateOwner,
   chatbyNativeOwnsLifecycleTemplate,
   chatbyRepositoryOwnsIncidentTemplate,
@@ -24,6 +26,12 @@ const {
 
 test('uses a conservative production request interval to stay below the Chatby burst limit', () => {
   assert.equal(CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS, 1200);
+});
+
+test('uses a fail-fast one-minute cooldown when Chatby omits Retry-After', () => {
+  assert.equal(CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS, 60_000);
+  assert.equal(chatbyRateLimitBackoffMs(null), 60_000);
+  assert.equal(chatbyRateLimitBackoffMs('0.001'), 1);
 });
 
 test('allows one narrowly-scoped prepared recovery only after a current verification', async () => {

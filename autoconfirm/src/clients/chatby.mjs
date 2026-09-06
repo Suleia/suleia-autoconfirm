@@ -4,9 +4,14 @@ const config = getAppConfig();
 
 const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 600000));
 export const CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS = 1200;
+export const CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
 const requestMinIntervalMs = Math.max(
   0,
   Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS)
+);
+const rateLimitCooldownMs = Math.max(
+  5000,
+  Number(process.env.CHATBY_RATE_LIMIT_COOLDOWN_MS || CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS)
 );
 const readRetryBaseMs = Math.max(0, Number(process.env.CHATBY_READ_RETRY_BASE_MS || 500));
 let subscriberIndexCache = null;
@@ -78,6 +83,13 @@ function readRetryDelay(attempt) {
 
 function retryableReadStatus(status) {
   return status === 429 || [500, 502, 503, 504].includes(status);
+}
+
+export function chatbyRateLimitBackoffMs(retryAfterSeconds, attempt = 1) {
+  const retryAfter = Number(retryAfterSeconds);
+  return Number.isFinite(retryAfter) && retryAfter > 0
+    ? retryAfter * 1000
+    : rateLimitCooldownMs;
 }
 
 async function scheduleRequest(task) {
@@ -156,9 +168,8 @@ async function request(path, options = {}) {
       data = text;
     }
 
-    const retryAfter = Number(response.headers.get('retry-after'));
-    const backoffMs = response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0
-      ? retryAfter * 1000
+    const backoffMs = response.status === 429
+      ? chatbyRateLimitBackoffMs(response.headers.get('retry-after'), attempt)
       : readRetryDelay(attempt);
     if (response.status === 429) {
       rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
