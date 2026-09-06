@@ -7,6 +7,7 @@ process.env.CHATBY_REQUEST_MIN_INTERVAL_MS = '0';
 process.env.CHATBY_READ_RETRY_BASE_MS = '1';
 
 const {
+  CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS,
   chatbyLifecycleTemplateOwner,
   chatbyNativeOwnsLifecycleTemplate,
   chatbyRepositoryOwnsIncidentTemplate,
@@ -19,6 +20,10 @@ const {
   sendPreparedTemplateRecovery,
   sendWhatsappTemplate
 } = await import('./chatby.mjs');
+
+test('uses a conservative production request interval to stay below the Chatby burst limit', () => {
+  assert.equal(CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS, 1200);
+});
 
 test('allows one narrowly-scoped prepared recovery only after a current verification', async () => {
   const originalFetch = globalThis.fetch;

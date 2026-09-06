@@ -3,7 +3,11 @@ import { getAppConfig } from '../config.mjs';
 const config = getAppConfig();
 
 const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 600000));
-const requestMinIntervalMs = Math.max(0, Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || 100));
+export const CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS = 1200;
+const requestMinIntervalMs = Math.max(
+  0,
+  Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS)
+);
 const readRetryBaseMs = Math.max(0, Number(process.env.CHATBY_READ_RETRY_BASE_MS || 500));
 let subscriberIndexCache = null;
 let subscriberIndexInFlight = null;
