@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  chatbyContextFromExactDiscountDelivery,
   classifyIncident,
   executeIncidentDiscountNoResponseReturn,
   executeIncorrectAddressResolution,
@@ -25,6 +26,61 @@ const verifiedDiscount = {
   verified: true,
   responseStatus: 'NO_RESPONSE'
 };
+
+test('recovers an exact Chatby conversation only from the current incident discount delivery', async () => {
+  let reads = 0;
+  const recovered = await chatbyContextFromExactDiscountDelivery({
+    orderId: 'fixture-discount-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    delivery: {
+      order_id: 'fixture-discount-order',
+      status: 'sent',
+      sent_at: '2026-07-15T16:00:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async (userNs) => {
+      reads += 1;
+      assert.equal(userNs, 'fixture-chat');
+      return [];
+    }
+  });
+
+  assert.equal(reads, 1);
+  assert.equal(recovered.chatbyReadVerified, true);
+  assert.equal(recovered.orderAssociation, 'EXACT_ORDER_DISCOUNT_LEDGER');
+  assert.equal(recovered.userNs, 'fixture-chat');
+});
+
+test('never recovers Chatby from a different order, failed delivery or older incident', async () => {
+  let reads = 0;
+  const readMessages = async () => { reads += 1; return []; };
+  const base = {
+    order_id: 'fixture-discount-order',
+    status: 'sent',
+    sent_at: '2026-07-15T16:00:00.000Z',
+    chatby_user_ns: 'fixture-chat'
+  };
+
+  assert.equal(await chatbyContextFromExactDiscountDelivery({
+    orderId: 'another-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    delivery: base,
+    readMessages
+  }), null);
+  assert.equal(await chatbyContextFromExactDiscountDelivery({
+    orderId: 'fixture-discount-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    delivery: { ...base, status: 'failed' },
+    readMessages
+  }), null);
+  assert.equal(await chatbyContextFromExactDiscountDelivery({
+    orderId: 'fixture-discount-order',
+    incidentAt: '2026-07-15T17:00:00.000Z',
+    delivery: base,
+    readMessages
+  }), null);
+  assert.equal(reads, 0);
+});
 
 test('requests a return only after 24 hours from a verified discount with no customer activity', () => {
   const before = incidentDiscountNoResponseReturnDecision({

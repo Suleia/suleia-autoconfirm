@@ -20,6 +20,7 @@ import {
   claimIncidentAddressResolution,
   finishIncidentDiscountReturn,
   finishIncidentAddressResolution,
+  getTemplateDelivery,
   syncAgentMemoryRuleToSupabase,
   syncIncidentsCacheToSupabase
 } from '../db/supabase-store.mjs';
@@ -29,6 +30,7 @@ import {
   processIncidentDiscountRecovery,
   warmIncidentDiscountTemplateCache
 } from './incident-discount-service.mjs';
+import { INCIDENT_DISCOUNT_TEMPLATE_NAME } from './incident-discount-template.mjs';
 import { classifyIncidentDiscountResponse } from './incident-discount-policy.mjs';
 import { processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
@@ -1887,6 +1889,61 @@ function summarizeConversation(messages = []) {
   };
 }
 
+export async function chatbyContextFromExactDiscountDelivery({
+  orderId,
+  incidentAt,
+  delivery,
+  messagesByUserNs = new Map(),
+  readMessages = getChatMessages
+} = {}) {
+  const normalizedOrderId = String(orderId || '').trim();
+  const deliveryOrderId = String(delivery?.order_id || '').trim();
+  const userNs = String(delivery?.chatby_user_ns || '').trim();
+  const deliveryStatus = String(delivery?.status || '').trim().toLowerCase();
+  const sentAtMs = Date.parse(String(delivery?.sent_at || ''));
+  const incidentAtMs = Date.parse(String(incidentAt || ''));
+  if (!normalizedOrderId || deliveryOrderId !== normalizedOrderId) return null;
+  if (!['sent', 'already_seen'].includes(deliveryStatus) || !userNs) return null;
+  if (!Number.isFinite(sentAtMs) || !Number.isFinite(incidentAtMs) || sentAtMs < incidentAtMs) return null;
+
+  if (!messagesByUserNs.has(userNs)) {
+    messagesByUserNs.set(userNs, (async () => {
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const loaded = await readMessages(userNs);
+          if (Array.isArray(loaded)) {
+            return {
+              messages: loaded,
+              verified: true,
+              attempts: attempt,
+              readAt: new Date().toISOString()
+            };
+          }
+        } catch (error) {
+          lastError = error;
+        }
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+        }
+      }
+      throw lastError || new Error('Chatby no devolvio mensajes verificables tras tres lecturas.');
+    })());
+  }
+
+  const chatRead = await messagesByUserNs.get(userNs);
+  return {
+    ok: true,
+    userNs,
+    orderAssociation: 'EXACT_ORDER_DISCOUNT_LEDGER',
+    chatbyReadVerified: chatRead.verified === true,
+    chatbyReadAttempts: chatRead.attempts,
+    chatbyReadAt: chatRead.readAt || null,
+    messagesForNotification: chatRead.messages,
+    ...summarizeConversation(chatRead.messages)
+  };
+}
+
 async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = new Map(), {
   since = null,
   orderId = null,
@@ -2132,6 +2189,24 @@ export async function syncPendingIncidents({
       const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
       const carrierIncident = carrierIncidentDisplay(dropeaCarrierCurrent);
       const currentIncidenceDate = carrierIncident?.annotatedAt || mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
+      if (chatby.chatbyReadVerified !== true) {
+        try {
+          const exactDiscountDelivery = await getTemplateDelivery({
+            storeId: config.defaultStore.id,
+            orderId,
+            templateName: INCIDENT_DISCOUNT_TEMPLATE_NAME
+          });
+          const recovered = await chatbyContextFromExactDiscountDelivery({
+            orderId,
+            incidentAt: currentIncidenceDate,
+            delivery: exactDiscountDelivery,
+            messagesByUserNs
+          });
+          if (recovered) chatby = recovered;
+        } catch {
+          // Keep the original unverified context. Returns remain fail-closed.
+        }
+      }
       chatby = scopeChatbyToCurrentIncident(chatby, currentIncidenceDate);
       const previous = previousByOrderId.get(orderId);
       const sameIncidentAsPrevious = previous
