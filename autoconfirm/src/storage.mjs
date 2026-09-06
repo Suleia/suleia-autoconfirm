@@ -201,8 +201,12 @@ export function upsertOrder(storeId, order, extras = {}) {
     preparedTemplateAttemptedAt: order.preparedTemplateAttemptedAt || previous.preparedTemplateAttemptedAt || null,
     preparedTemplateName: order.preparedTemplateName || previous.preparedTemplateName || null,
     preparedTemplateSendStatus: order.preparedTemplateSendStatus || previous.preparedTemplateSendStatus || null,
-    preparedTemplateLastError: order.preparedTemplateLastError || previous.preparedTemplateLastError || null,
-    preparedTemplateLastResponse: order.preparedTemplateLastResponse || previous.preparedTemplateLastResponse || null,
+    preparedTemplateLastError: Object.hasOwn(order, 'preparedTemplateLastError')
+      ? order.preparedTemplateLastError
+      : previous.preparedTemplateLastError || null,
+    preparedTemplateLastResponse: Object.hasOwn(order, 'preparedTemplateLastResponse')
+      ? order.preparedTemplateLastResponse
+      : previous.preparedTemplateLastResponse || null,
     operationalNote: order.operationalNote || previous.operationalNote || null,
     raw: mergeRawRecords(previous.raw, order.raw),
     updatedAt: now,

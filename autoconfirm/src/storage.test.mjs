@@ -54,6 +54,26 @@ test('mantiene el pedido visible y agrupa la persistencia local', async () => {
   );
 });
 
+test('clears a stale prepared-template error after a verified delivery', () => {
+  upsertOrder('fixture-store', {
+    orderId: 'prepared-error-fixture',
+    status: 'TRANSIT',
+    preparedTemplateSendStatus: 'native_overdue',
+    preparedTemplateLastError: 'fixture overdue error'
+  });
+
+  const updated = upsertOrder('fixture-store', {
+    orderId: 'prepared-error-fixture',
+    status: 'TRANSIT',
+    preparedTemplateSendStatus: 'sent',
+    preparedTemplateSentAt: new Date().toISOString(),
+    preparedTemplateLastError: null
+  });
+
+  assert.equal(updated.preparedTemplateSendStatus, 'sent');
+  assert.equal(updated.preparedTemplateLastError, null);
+});
+
 test.after(async () => {
   await new Promise((resolve) => setTimeout(resolve, 450));
   fs.rmSync(testDir, { recursive: true, force: true });

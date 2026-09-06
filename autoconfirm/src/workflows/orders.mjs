@@ -2559,7 +2559,15 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   if (blocked) return { order: blocked.order || order, skipped: true, reason: 'blocked_customer' };
 
   if (preparedTemplateIsTerminal(order, templateName)) {
-    return { order, skipped: true, reason: 'already_sent', status: order.preparedTemplateSendStatus };
+    const terminalOrder = order.preparedTemplateLastError
+      ? upsertOrder(store.id, { ...order, preparedTemplateLastError: null })
+      : order;
+    return {
+      order: terminalOrder,
+      skipped: true,
+      reason: 'already_sent',
+      status: terminalOrder.preparedTemplateSendStatus
+    };
   }
 
   if (preparedTemplateAttemptIsFresh(order)) {
