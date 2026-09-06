@@ -1,11 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  chatbyNativeSubscriberPayload,
   initialTemplateBlockedByLegacyOwnership,
   nativeLifecycleAudit,
   orderNeedsPreparedTemplate,
   preparedTemplateRecoveryWaitMs
 } from './orders.mjs';
+
+test('builds one complete native Chatby contact for the exact Dropea order', () => {
+  const payload = chatbyNativeSubscriberPayload({
+    orderId: '1396461',
+    status: 'PENDING',
+    customerName: 'Persona Fixture',
+    customerPhone: '+34600000000',
+    customerEmail: 'fixture@example.test',
+    orderAmount: 29.99,
+    currencyCode: 'EUR',
+    createdAt: '2026-09-06T16:16:40.000Z',
+    raw: {
+      status: 'PENDING',
+      sub_status: 'PENDING',
+      payment_method: 'COD',
+      line_items: [{ product_name: 'Producto Fixture', quantity: 1 }],
+      shipping_address: {
+        address_line_1: 'Calle Fixture 1',
+        address_line_2: 'Puerta A',
+        city: 'Ciudad Fixture',
+        postal_code: '00000',
+        state: 'Provincia Fixture',
+        country: 'ES'
+      }
+    }
+  }, { name: 'Suleia' });
+
+  const fields = Object.fromEntries(payload.user_fields.map((field) => [field.name, field.value]));
+  assert.equal(fields['#Pedido'], '1396461');
+  assert.equal(fields['Precio Total'], '29.99');
+  assert.equal(fields['Producto Principal'], 'Producto Fixture');
+  assert.equal(fields['Dirección'], 'Calle Fixture 1');
+  assert.equal(fields.event_status, 'PENDING:PENDING');
+  assert.equal(fields['Método Pago'], 'COD');
+  assert.equal(fields.Moneda, 'EUR');
+  assert.equal(payload.address, 'Calle Fixture 1 Puerta A');
+});
 
 test('recognizes every canonical and Dropea V2 prepared-order status', () => {
   for (const status of [

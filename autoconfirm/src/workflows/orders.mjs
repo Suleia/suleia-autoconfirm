@@ -1860,6 +1860,85 @@ function productNameForOrder(order) {
   );
 }
 
+export function chatbyNativeSubscriberPayload(order, store = config.defaultStore) {
+  const raw = order?.raw || {};
+  const address = raw.shipping_address || raw.shippingAddress || raw.customer || raw.address || {};
+  const lineItems = Array.isArray(raw.line_items)
+    ? raw.line_items
+    : Array.isArray(raw.items)
+      ? raw.items
+      : [];
+  const productNames = lineItems
+    .map((item) => firstExisting(item?.product_name, item?.external_name, item?.title, item?.name))
+    .filter(Boolean);
+  const primaryProduct = productNames[0] || productNameForOrder(order);
+  const additionalProducts = productNames.slice(1).join(', ');
+  const orderId = String(order?.orderId || '').replace(/\D/g, '');
+  const amount = Number(order?.orderAmount);
+  const registeredAt = parseDate(dropeaCreatedAt(order))?.toISOString() || new Date().toISOString();
+  const street = firstExisting(
+    address.address_line_1,
+    address.address1,
+    address.address,
+    rawValueByKeys(raw, ['address_line_1', 'shipping_address_1', 'street', 'street_address', 'address'])
+  ) || '';
+  const addressExtra = firstExisting(
+    address.address_line_2,
+    address.address2,
+    address.alternative_address,
+    rawValueByKeys(raw, ['address_line_2', 'address2', 'alternative_address', 'shipping_address_2'])
+  ) || '';
+  const city = firstExisting(address.city, rawValueByKeys(raw, ['city', 'locality', 'town'])) || '';
+  const postcode = firstExisting(
+    address.postal_code,
+    address.zip,
+    address.postalCode,
+    rawValueByKeys(raw, ['postal_code', 'zip', 'postalCode', 'postcode'])
+  ) || '';
+  const region = firstExisting(address.state, address.province, rawValueByKeys(raw, ['state', 'province', 'region'])) || '';
+  const country = firstExisting(address.country, rawValueByKeys(raw, ['country', 'country_code'])) || 'ES';
+  const topStatus = String(raw.status || order?.status || 'PENDING').toUpperCase();
+  const subStatus = String(raw.sub_status || '').toUpperCase();
+  const eventStatus = subStatus ? `${topStatus}:${subStatus}` : topStatus;
+  const fullName = String(order?.customerName || '').trim();
+  const nameParts = fullName.split(/\s+/).filter(Boolean);
+
+  return {
+    phone: order?.customerPhone,
+    name: fullName || order?.customerPhone,
+    first_name: nameParts[0] || '',
+    last_name: nameParts.slice(1).join(' '),
+    email: order?.customerEmail || undefined,
+    address: [street, addressExtra].filter(Boolean).join(' '),
+    city,
+    region,
+    postcode,
+    country,
+    metadata: {
+      orderId: order?.orderId,
+      source: 'dropea',
+      createdBy: 'suleia-autoconfirm'
+    },
+    user_fields: [
+      { name: '#Pedido', value: orderId },
+      { name: 'Precio Total', value: Number.isFinite(amount) ? amount.toFixed(2) : '' },
+      { name: 'Productos', value: productNames.join(', ') || primaryProduct },
+      { name: 'Dirección', value: street },
+      { name: 'Referencia/Barrio', value: addressExtra },
+      { name: 'Localidad/Ciudad', value: city },
+      { name: 'Código Postal', value: postcode },
+      { name: 'Provincia/Departamento', value: region },
+      { name: 'CON-Registrado', value: registeredAt },
+      { name: 'Tienda', value: store?.name || 'Suleia' },
+      { name: 'event_status', value: eventStatus },
+      { name: 'Producto Principal', value: primaryProduct },
+      { name: 'Productos Adicionales', value: additionalProducts },
+      { name: 'Método Pago', value: String(raw.payment_method || raw.paymentMethod || 'COD').toUpperCase() },
+      { name: 'Moneda', value: order?.currencyCode || raw.currency || 'EUR' }
+    ]
+  };
+}
+
 function preparedTemplateParamsForOrder(order) {
   const raw = order.raw || {};
   const carrier = firstExisting(
@@ -2097,20 +2176,10 @@ async function resolveOrCreateChatbyUserNsForTemplate(order, userNs) {
   if (userNs) return userNs;
   if (!config.chatbyToken || !order.customerPhone) return null;
 
-  const subscriber = await resolveSubscriberForOrder(order)
-    || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  const subscriber = await resolveSubscriberForOrder(order);
   if (subscriber?.user_ns) return subscriber.user_ns;
 
-  const created = await createSubscriber({
-    phone: order.customerPhone,
-    name: order.customerName || order.customerPhone,
-    email: order.customerEmail || undefined,
-    metadata: {
-      orderId: order.orderId,
-      source: 'dropea',
-      createdBy: 'suleia-autoconfirm'
-    }
-  });
+  const created = await createSubscriber(chatbyNativeSubscriberPayload(order));
 
   return createdChatbyUserNs(created);
 }
@@ -2214,7 +2283,12 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName) return order;
   if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
-    const nativeUserNs = await resolveExistingChatbyUserNs(order);
+    let nativeUserNs = await resolveExistingChatbyUserNs(order);
+    let nativeContactProvisionedAt = order?.chatbyNativeContactProvisionedAt || null;
+    if (!nativeUserNs) {
+      nativeUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, null);
+      if (nativeUserNs) nativeContactProvisionedAt = new Date().toISOString();
+    }
     if (nativeUserNs) {
       const alreadySeen = await markTemplateAlreadySeenForOrder(order, nativeUserNs, store, templateName);
       if (alreadySeen) return alreadySeen;
@@ -2223,11 +2297,12 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     const audit = nativeLifecycleAudit({
       order,
       templateName,
-      referenceAt: dropeaCreatedAt(order)
+      referenceAt: nativeContactProvisionedAt || dropeaCreatedAt(order)
     });
     return upsertOrder(store.id, {
       ...order,
       chatbyUserNs: nativeUserNs || order.chatbyUserNs || null,
+      chatbyNativeContactProvisionedAt: nativeContactProvisionedAt,
       chatbyTemplateName: templateName,
       chatbyTemplateSendStatus: audit.status,
       chatbyTemplateLastError: audit.error,
