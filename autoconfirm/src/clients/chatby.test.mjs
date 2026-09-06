@@ -16,8 +16,54 @@ const {
   findSubscriberInIndexForOrder,
   getChatMessages,
   invalidateSubscriberIndexCache,
+  sendPreparedTemplateRecovery,
   sendWhatsappTemplate
 } = await import('./chatby.mjs');
+
+test('allows one narrowly-scoped prepared recovery only after a current verification', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  let calls = 0;
+  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true, mid: 'wamid.prepared-recovery' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    await sendPreparedTemplateRecovery({
+      user_ns: 'fixture-user',
+      user_id: 'fixture-recipient',
+      content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+    }, { verifiedMissingAt: new Date().toISOString() });
+    assert.equal(calls, 1);
+
+    await assert.rejects(
+      sendPreparedTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_incidencia_mercancia_v1', lang: 'es_ES', params: {} }
+      }, { verifiedMissingAt: new Date().toISOString() }),
+      (error) => error?.code === 'CHATBY_PREPARED_RECOVERY_TEMPLATE_BLOCKED'
+    );
+    await assert.rejects(
+      sendPreparedTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+      }),
+      (error) => error?.code === 'CHATBY_PREPARED_RECOVERY_VERIFICATION_REQUIRED'
+    );
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
 
 test('reports the single lifecycle owner without exposing credentials', () => {
   const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;

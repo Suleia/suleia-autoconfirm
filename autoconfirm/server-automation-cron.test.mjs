@@ -19,6 +19,12 @@ test('existing confirmation and cancellation entry points remain present', () =>
   assert.match(source, /confirmationDelayHours/);
 });
 
+test('prepared-template recovery can be limited to one exact Dropea order', () => {
+  assert.match(source, /url\.pathname === '\/api\/cron\/backfill-prepared-messages'/);
+  assert.match(source, /backfill-prepared-messages'[\s\S]{0,180}isAuthorizedCron\(req\)/);
+  assert.match(source, /orderIds:\s*url\.searchParams\.get\('orderId'\)/);
+});
+
 test('immediate rejected-discount batch requires cron auth and an explicit one-time authorization', () => {
   assert.match(source, /url\.pathname === '\/api\/cron\/send-pending-rejected-discounts-now'/);
   assert.match(source, /send-pending-rejected-discounts-now'[\s\S]{0,180}isAuthorizedCron\(req\)/);

@@ -904,7 +904,8 @@ const server = http.createServer(async (req, res) => {
         store: config.defaultStore,
         limit: Number(url.searchParams.get('limit') || 100),
         pages: Number(url.searchParams.get('pages') || 2),
-        targetDate: url.searchParams.get('date') || null
+        targetDate: url.searchParams.get('date') || null,
+        orderIds: url.searchParams.get('orderId') || url.searchParams.get('order_id') || []
       });
       return sendJson(res, 200, { ok: true, result });
     }

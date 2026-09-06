@@ -206,6 +206,36 @@ export async function sendWhatsappTemplate(payload) {
   });
 }
 
+export async function sendPreparedTemplateRecovery(payload, {
+  verifiedMissingAt
+} = {}) {
+  const name = payload?.template_name
+    || payload?.templateName
+    || payload?.content?.name
+    || payload?.content?.template_name;
+  if (templateSlug(name) !== 'dropea_pedido_preparado_v1') {
+    const error = new Error('Prepared-template recovery is restricted to dropea_pedido_preparado_v1.');
+    error.code = 'CHATBY_PREPARED_RECOVERY_TEMPLATE_BLOCKED';
+    throw error;
+  }
+
+  const verifiedAtMs = new Date(verifiedMissingAt || 0).getTime();
+  if (!Number.isFinite(verifiedAtMs) || Math.abs(Date.now() - verifiedAtMs) > 60_000) {
+    const error = new Error('Prepared-template recovery requires a current exact-thread verification.');
+    error.code = 'CHATBY_PREPARED_RECOVERY_VERIFICATION_REQUIRED';
+    throw error;
+  }
+
+  if (!payload.content) {
+    payload = await buildWhatsappTemplatePayload(payload);
+  }
+
+  return request('/subscriber/send-whatsapp-template', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
 export async function sendTextMessage({ user_ns, content }) {
   if (!user_ns || !String(content || '').trim()) {
     throw new Error('Chatby send-text requiere user_ns y content.');

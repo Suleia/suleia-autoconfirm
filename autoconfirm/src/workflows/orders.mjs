@@ -27,6 +27,7 @@ import {
   findSubscriberForOrderRobust as findSubscriberForOrder,
   findSubscribersByPhone,
   getChatMessages,
+  sendPreparedTemplateRecovery,
   sendTextMessage,
   sendWhatsappTemplate,
   subscriberConfirmsOrderRobust as subscriberConfirmsOrder
@@ -2505,8 +2506,18 @@ async function finishPreparedTemplateClaim(order, store, templateName, claim, pa
   }
 }
 
-function orderNeedsPreparedTemplate(order) {
-  return ['CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT', 'DELIVERED']
+export function orderNeedsPreparedTemplate(order) {
+  return [
+    'CONFIRMED',
+    'PROCESSING',
+    'PREPARING',
+    'IN_PREPARATION',
+    'PREPARED',
+    'SHIPPING',
+    'TRANSIT',
+    'IN_TRANSIT',
+    'DELIVERED'
+  ]
     .includes(String(order?.status || '').toUpperCase());
 }
 
@@ -2568,10 +2579,12 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   }
 
   const userNs = await resolveExistingChatbyUserNs(order);
+  let nativeRecoveryVerifiedMissingAt = null;
   if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
     if (userNs) {
       const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
       if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
+      nativeRecoveryVerifiedMissingAt = new Date().toISOString();
     }
 
     const audit = nativeLifecycleAudit({
@@ -2593,13 +2606,17 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
       preparedTemplateNativeAuditAgeMinutes: audit.ageMinutes,
       preparedTemplateNativeAuditGraceMinutes: audit.graceMinutes
     });
-    return {
-      order: updated,
-      skipped: !audit.overdue,
-      failed: audit.overdue,
-      reason: audit.status,
-      error: audit.error
-    };
+    if (!audit.overdue) {
+      return { order: updated, skipped: true, reason: audit.status };
+    }
+    if (!userNs || !nativeRecoveryVerifiedMissingAt) {
+      return {
+        order: updated,
+        skipped: true,
+        reason: 'native_overdue_missing_chatby_contact',
+        error: audit.error
+      };
+    }
   }
   if (!userNs) {
     const updated = upsertOrder(store.id, {
@@ -2664,12 +2681,17 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   });
 
   try {
-    const response = await sendWhatsappTemplate({
+    const templatePayload = {
       user_ns: userNs,
       user_id: order.customerPhone,
       template_name: templateName,
       params: preparedTemplateParamsForOrder(order)
-    });
+    };
+    const response = nativeRecoveryVerifiedMissingAt
+      ? await sendPreparedTemplateRecovery(templatePayload, {
+          verifiedMissingAt: nativeRecoveryVerifiedMissingAt
+        })
+      : await sendWhatsappTemplate(templatePayload);
     const verification = await waitForWhatsappTemplateAcceptance({
       userNs,
       templateName,
@@ -2738,9 +2760,13 @@ export async function backfillMissingPreparedTemplates({
   store = config.defaultStore,
   limit = 100,
   pages = 2,
-  targetDate = null
+  targetDate = null,
+  orderIds = []
 } = {}) {
   const targetKey = targetDate || todayKey(config.timezone);
+  const requestedOrderIds = new Set((Array.isArray(orderIds) ? orderIds : [orderIds])
+    .map((value) => String(value || '').replace(/\D/g, ''))
+    .filter(Boolean));
   const orders = await listRecentDropeaOrders({
     limit,
     pages,
@@ -2749,6 +2775,7 @@ export async function backfillMissingPreparedTemplates({
   const results = [];
 
   for (const order of orders) {
+    if (requestedOrderIds.size && !requestedOrderIds.has(String(order.orderId || '').replace(/\D/g, ''))) continue;
     const createdKey = dateKeyInTimezone(dropeaCreatedAt(order), config.timezone);
     if (targetDate && createdKey !== targetKey) continue;
 
@@ -2786,6 +2813,7 @@ export async function backfillMissingPreparedTemplates({
     failed: results.filter((item) => item.action === 'failed').length,
     skipped: results.filter((item) => !['sent', 'failed'].includes(item.action)).length,
     date: targetDate ? targetKey : null,
+    targeted: requestedOrderIds.size > 0,
     results
   };
 }
