@@ -217,6 +217,46 @@ test('conversation metrics keep a successful read fresh while separating old act
   assert.equal(metrics.customer_messages[0].relation_to_issue, 'BEFORE_INCIDENT');
 });
 
+test('Chatby mirror reuses a recent conversation without consuming provider quota again', async () => {
+  let clock = 1_000;
+  const calls = [];
+  const subscriberCache = {};
+  const conversationCache = new Map();
+  const pool = { query: async () => ({ rows: [{
+    canonical_order_id: 'order-safe', external_order_id_hash: 'a'.repeat(64),
+    dropea_order_id: '198765', canonical_issue_id: 'issue-safe',
+    issue_created_at: '2026-08-01T09:00:00Z', issue_updated_at: '2026-08-01T09:05:00Z'
+  }] }) };
+  const input = {
+    pool,
+    projector: {
+      recordChatbyConversationEvent: async () => ({ inserted: false }),
+      upsertChatbyConversationLink: async () => {},
+      markChatbyConversationAvailable: async () => {}
+    },
+    token: 'test-token', hmacKey: key,
+    maxConversations: 3,
+    subscriberCache, subscriberCacheTtlMs: 900_000,
+    conversationCache, conversationCacheTtlMs: 900_000,
+    minRequestIntervalMs: 0, retryBaseMs: 0,
+    now: () => clock,
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      return new URL(url).pathname.endsWith('/subscribers')
+        ? response({ data: [{ user_ns: 'one', user_fields: [{ name: 'Dropea: Número', value: '198765' }] }], meta: { current_page: 1, last_page: 1 } })
+        : response({ data: [], meta: { current_page: 1, last_page: 1 } });
+    }
+  };
+
+  const first = await syncChatbyReadOnly(input);
+  clock += 300_000;
+  const second = await syncChatbyReadOnly(input);
+  assert.equal(first.conversations_read, 1);
+  assert.equal(second.conversations_read, 0);
+  assert.equal(second.conversation_cache_hits, 1);
+  assert.equal(calls.length, 2);
+});
+
 test('initial order-template confirmation is excluded from incident evidence', () => {
   const metrics = chatbyReadOnlyInternals.conversationMetrics([
     { id: 'initial-template', type: 'out', msg_type: 'template', ts: Date.parse('2026-08-01T09:30:00Z'), template_name: 'es_ES dropea_pedido_nuevo_v1' },

@@ -32,6 +32,7 @@ let running = false, lastResult = null, lastError = null;
 // Ephemeral process-local cache only: it is never logged, persisted or exposed
 // through health/API responses.
 const chatbySubscriberCache = {};
+const chatbyConversationCache = new Map();
 const webhookRate = new Map();
 
 function boundedMilliseconds(value, fallback, minimum) {
@@ -40,6 +41,7 @@ function boundedMilliseconds(value, fallback, minimum) {
 }
 
 const chatbySubscriberCacheTtlMs = boundedMilliseconds(process.env.CHATBY_SUBSCRIBER_CACHE_TTL_MS, 900_000, config.pollIntervalMs);
+const chatbyConversationCacheTtlMs = boundedMilliseconds(process.env.CHATBY_CONVERSATION_CACHE_TTL_MS, 900_000, config.pollIntervalMs);
 const chatbyMinRequestIntervalMs = boundedMilliseconds(process.env.CHATBY_READ_MIN_REQUEST_INTERVAL_MS, 1_500, 0);
 const chatbyRetryBaseMs = boundedMilliseconds(process.env.CHATBY_READ_RETRY_BASE_MS, 5_000, 250);
 
@@ -117,11 +119,13 @@ async function run() {
           hmacKey: config.hashKey,
           baseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
           maxPages: Number(process.env.CHATBY_READ_MAX_PAGES || 200),
-          maxConversations: Number(process.env.CHATBY_READ_MAX_CONVERSATIONS || 500),
+          maxConversations: Number(process.env.CHATBY_READ_MAX_CONVERSATIONS || 3),
           minRequestIntervalMs: chatbyMinRequestIntervalMs,
           retryBaseMs: chatbyRetryBaseMs,
           subscriberCache: chatbySubscriberCache,
-          subscriberCacheTtlMs: chatbySubscriberCacheTtlMs
+          subscriberCacheTtlMs: chatbySubscriberCacheTtlMs,
+          conversationCache: chatbyConversationCache,
+          conversationCacheTtlMs: chatbyConversationCacheTtlMs
         });
       } catch (error) {
         const safeChatbyError = /^CHATBY_[A-Z0-9_]+$/.test(String(error?.code || ''))
