@@ -61,6 +61,8 @@ services:
         value: 15
       - key: INCIDENT_DISCOUNT_RETURN_REAL_ENABLED
         value: true
+      - key: INCIDENT_RETURN_ALLOWED_IDS
+        sync: false
       - key: CHATBY_INCIDENT_TEMPLATE_OWNER
         value: repository
       - key: CHATBY_LIFECYCLE_TEMPLATE_OWNER
@@ -84,6 +86,10 @@ services:
       - key: DROPEA_ACTIONS_STORES_CONFIG
         sync: false
       - key: DROPEA_ACTION_JWT_ES
+        sync: false
+      - key: DROPEA_ISSUE_ACTIONS_STORES_CONFIG
+        sync: false
+      - key: DROPEA_ISSUE_ACTION_JWT_ES
         sync: false
   - type: cron
     name: suleia-unanswered-cancellations
@@ -154,4 +160,8 @@ services:
       - key: DROPEA_ACTIONS_STORES_CONFIG
         sync: false
       - key: DROPEA_ACTION_JWT_ES
+        sync: false
+      - key: DROPEA_ISSUE_ACTIONS_STORES_CONFIG
+        sync: false
+      - key: DROPEA_ISSUE_ACTION_JWT_ES
         sync: false

@@ -54,6 +54,7 @@ function defaultStoreFromEnv() {
     incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, false),
     incidentAddressResolutionRealEnabled: bool(process.env.INCIDENT_ADDRESS_RESOLUTION_REAL_ENABLED, false),
     incidentDiscountReturnRealEnabled: bool(process.env.INCIDENT_DISCOUNT_RETURN_REAL_ENABLED, false),
+    incidentReturnAllowedIds: csv(process.env.INCIDENT_RETURN_ALLOWED_IDS || ''),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, 15),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '671405901'),
     confidenceThreshold: int(process.env.CONFIDENCE_THRESHOLD, 90),
@@ -86,6 +87,9 @@ function withEnvOverrides(store) {
     incidentResolutionRealEnabled: bool(process.env.INCIDENT_RESOLUTION_REAL_ENABLED, store.incidentResolutionRealEnabled ?? envStore.incidentResolutionRealEnabled),
     incidentAddressResolutionRealEnabled: bool(process.env.INCIDENT_ADDRESS_RESOLUTION_REAL_ENABLED, store.incidentAddressResolutionRealEnabled ?? envStore.incidentAddressResolutionRealEnabled),
     incidentDiscountReturnRealEnabled: bool(process.env.INCIDENT_DISCOUNT_RETURN_REAL_ENABLED, store.incidentDiscountReturnRealEnabled ?? envStore.incidentDiscountReturnRealEnabled),
+    incidentReturnAllowedIds: csv(process.env.INCIDENT_RETURN_ALLOWED_IDS || '').length
+      ? csv(process.env.INCIDENT_RETURN_ALLOWED_IDS)
+      : (Array.isArray(store.incidentReturnAllowedIds) ? store.incidentReturnAllowedIds : envStore.incidentReturnAllowedIds),
     operationalDashboardIntervalMinutes: int(process.env.OPERATIONAL_DASHBOARD_INTERVAL_MINUTES, store.operationalDashboardIntervalMinutes ?? envStore.operationalDashboardIntervalMinutes),
     blockedCustomerPhones: csv(process.env.BLOCKED_CUSTOMER_PHONES || '').length
       ? csv(process.env.BLOCKED_CUSTOMER_PHONES)

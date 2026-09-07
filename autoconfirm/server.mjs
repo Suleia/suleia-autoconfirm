@@ -9,6 +9,7 @@ import { getAppConfig } from './src/config.mjs';
 import { findOrder, listOrders, loadState, saveState, upsertOrder } from './src/storage.mjs';
 import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs';
 import { getDropeaV2OrderActionReadiness } from './src/clients/dropea-v2-order-actions.mjs';
+import { getDropeaV2IssueActionReadiness } from './src/clients/dropea-v2-issue-actions.mjs';
 import {
   backfillTodayMissingInitialTemplates,
   backfillMissingPreparedTemplates,
@@ -308,6 +309,7 @@ function lifecycleTemplateReadiness(state = loadState()) {
 function storeSummary({ publicView = false } = {}) {
   const state = loadState();
   const actionReadiness = getDropeaV2OrderActionReadiness();
+  const issueActionReadiness = getDropeaV2IssueActionReadiness();
   const lifecycleTemplates = lifecycleTemplateReadiness(state);
   const cancellationSummary = state.lastUnansweredCancellationSweepSummary || null;
   const publicCancellationSummary = cancellationSummary ? {
@@ -368,6 +370,7 @@ function storeSummary({ publicView = false } = {}) {
     unansweredCancelAfterHours: config.defaultStore.unansweredCancelAfterHours,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
     dropeaV2Actions: actionReadiness,
+    dropeaV2IssueActions: issueActionReadiness,
     lifecycleTemplates: publicView
       ? { ...lifecycleTemplates, sampleOrderIds: undefined }
       : lifecycleTemplates,
@@ -957,6 +960,29 @@ const server = http.createServer(async (req, res) => {
         pages: 5
       });
       return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/logistics/return-dropea-incidents') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'RETURN_REQUESTED_AUTHORIZED') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const incidentIds = [...new Set((Array.isArray(body.incidentIds) ? body.incidentIds : [])
+        .map((value) => String(value || '').trim()))];
+      if (!incidentIds.length || incidentIds.length > 20 || incidentIds.some((value) => !/^\d+$/.test(value))) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_incident_ids' });
+      }
+      const allowed = new Set(config.defaultStore.incidentReturnAllowedIds || []);
+      if (incidentIds.some((value) => !allowed.has(value))) {
+        return sendJson(res, 403, { ok: false, error: 'incident_not_in_runtime_allowlist' });
+      }
+      const result = await syncPendingIncidents({
+        authorizedReturnIncidentIds: incidentIds,
+        returnOnly: true,
+        persist: false
+      });
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-sheet') {

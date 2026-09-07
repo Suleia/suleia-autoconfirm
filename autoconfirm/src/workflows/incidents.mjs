@@ -8,10 +8,13 @@ import {
   listDropeaOrdersByStatusBasic,
   listDropeaOrderStateValues,
   pickupDropeaIssueAtDepot,
-  resolveDropeaIssue,
-  returnDropeaIssueToOrigin
+  resolveDropeaIssue
 } from '../clients/dropea.mjs';
 import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
+import {
+  getDropeaV2IssueActionReadiness,
+  returnDropeaV2IssueToOrigin
+} from '../clients/dropea-v2-issue-actions.mjs';
 import { chatbyRepositoryOwnsIncidentTemplate, findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
@@ -989,7 +992,7 @@ async function executeIncidentOperationalDecision(incident, decision) {
     let response;
     if (decision.action === 'accept_solution') response = await resolveDropeaIssue(incident.incidenceId, decision.text);
     else if (decision.action === 'pickup_at_depot') response = await pickupDropeaIssueAtDepot(incident.incidenceId);
-    else if (decision.action === 'return_to_origin') response = await returnDropeaIssueToOrigin(incident.incidenceId);
+    else if (decision.action === 'return_to_origin') response = await returnDropeaV2IssueToOrigin(incident.incidenceId);
     else throw new Error(`Accion de incidencia no soportada: ${decision.action}`);
 
     const completedAt = new Date().toISOString();
@@ -1044,6 +1047,18 @@ export function incidentDiscountNoResponseReturnDecision({ incident, discountRec
     return { eligible: false, status: 'BLOCKED', reason: 'discount_delivery_time_invalid' };
   }
   const dueAt = new Date(sentAtMs + INCIDENT_DISCOUNT_RETURN_AFTER_HOURS * 3_600_000).toISOString();
+  if (discountRecovery?.responseStatus === 'DISCOUNT_REJECTED') {
+    return {
+      eligible: true,
+      status: 'READY_FOR_RETURN',
+      action: 'return_to_origin',
+      ruleId: 'core_incident_discount_rejected_return',
+      confidence: 100,
+      reason: 'El cliente rechazo expresamente la oferta autorizada de 5 EUR.',
+      responseStatus: 'DISCOUNT_REJECTED',
+      dueAt
+    };
+  }
   if (discountRecovery?.responseStatus !== 'NO_RESPONSE') {
     return {
       eligible: false,
@@ -1066,6 +1081,7 @@ export function incidentDiscountNoResponseReturnDecision({ incident, discountRec
     ruleId: 'core_incident_discount_no_response_return_24h',
     confidence: 100,
     reason: 'Han transcurrido 24 horas desde la entrega verificada del descuento sin mensajes, botones ni acciones del cliente.',
+    responseStatus: 'NO_RESPONSE',
     dueAt
   };
 }
@@ -1078,11 +1094,18 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   });
   if (!decision.eligible) return { ...decision, verified: false };
 
+  const allowedIncidentIds = new Set((dependencies.allowedIncidentIds ?? config.defaultStore.incidentReturnAllowedIds ?? [])
+    .map((value) => String(value).trim())
+    .filter(Boolean));
+  if (!allowedIncidentIds.has(String(incident.incidenceId || ''))) {
+    return { ...decision, status: 'BLOCKED_NOT_AUTHORIZED', verified: false, reason: 'La incidencia no esta en la lista exacta autorizada.' };
+  }
+
   const realEnabled = dependencies.realEnabled ?? config.defaultStore.incidentDiscountReturnRealEnabled;
   if (realEnabled !== true) {
     return { ...decision, status: 'WOULD_RETURN', verified: false, reason: 'Devolucion automatica desactivada por configuracion.' };
   }
-  const credentialAvailable = dependencies.credentialAvailable ?? Boolean(config.dropeaAccessToken);
+  const credentialAvailable = dependencies.credentialAvailable ?? getDropeaV2IssueActionReadiness().ready;
   if (!credentialAvailable) {
     return { ...decision, status: 'BLOCKED_MISSING_CREDENTIAL', verified: false, reason: 'No hay credencial Dropea disponible.' };
   }
@@ -1091,6 +1114,17 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   const current = await readCurrent(incident.incidenceId, incident.orderId).catch(() => null);
   if (!current) {
     return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o no coincide exactamente con el pedido.' };
+  }
+  const currentRawIssue = current.issue?.raw || current.issue || {};
+  if (
+    String(current.issue?.status || currentRawIssue.status || '').toUpperCase() !== 'PENDING'
+    || currentRawIssue.is_active !== true
+  ) {
+    return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta PENDING y activa.' };
+  }
+  if (!Array.isArray(currentRawIssue.allowed_resolution_options)
+    || !currentRawIssue.allowed_resolution_options.includes('RETURN_REQUESTED')) {
+    return { ...decision, status: 'BLOCKED_RETURN_NOT_ALLOWED', verified: false, reason: 'Dropea no permite RETURN_REQUESTED para esta incidencia.' };
   }
 
   const readMessages = dependencies.readMessages || getChatMessages;
@@ -1103,7 +1137,8 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     discountRecovery.templateName,
     { status: 'sent', sent_at: discountRecovery.sentAt }
   );
-  if (finalResponse.status !== 'NO_RESPONSE') {
+  const expectedResponseStatus = decision.responseStatus || 'NO_RESPONSE';
+  if (finalResponse.status !== expectedResponseStatus) {
     return {
       ...decision,
       status: 'BLOCKED_CUSTOMER_ACTIVITY',
@@ -1121,7 +1156,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   activeIncidentDiscountReturns.add(activeKey);
   const claimReturn = dependencies.claimReturn || claimIncidentDiscountReturn;
   const finishReturn = dependencies.finishReturn || finishIncidentDiscountReturn;
-  const returnIssue = dependencies.returnIssue || returnDropeaIssueToOrigin;
+  const returnIssue = dependencies.returnIssue || returnDropeaV2IssueToOrigin;
   const verifyReturn = dependencies.verifyReturn || verifyIncidentLeftPending;
   const auditReturn = dependencies.auditReturn || auditIncidentAction;
   const attemptedAt = new Date(dependencies.now ?? Date.now()).toISOString();
@@ -1154,7 +1189,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
         status: 'manual_reconciliation_required',
         attemptedAt,
         lastError: errorCode,
-        evidence: { ruleId: decision.ruleId, responseStatus: 'NO_RESPONSE' }
+        evidence: { ruleId: decision.ruleId, responseStatus: expectedResponseStatus }
       }).catch(() => null);
       const result = { ...decision, status: 'MANUAL_RECONCILIATION_REQUIRED', attemptedAt, verified: false, error: errorCode };
       await auditReturn(incident, decision, result).catch(() => null);
@@ -1173,7 +1208,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       attemptedAt,
       completedAt,
       lastError: verified ? null : 'INCIDENT_STILL_PENDING_AFTER_RETURN_REQUEST',
-      evidence: { ruleId: decision.ruleId, verified, responseStatus: 'NO_RESPONSE' }
+      evidence: { ruleId: decision.ruleId, verified, responseStatus: expectedResponseStatus }
     });
     const result = { ...decision, status, attemptedAt, completedAt, verified, response };
     await auditReturn(incident, decision, result).catch(() => null);
@@ -2102,10 +2137,17 @@ export async function preparePendingIncidentsForAnalysis({
 export async function syncPendingIncidents({
   limit = 100,
   pages = 3,
-  authorizedImmediateDiscounts = false
+  authorizedImmediateDiscounts = false,
+  authorizedReturnIncidentIds = [],
+  returnOnly = false,
+  persist = true
 } = {}) {
   const updatedAt = new Date().toISOString();
   const incidents = [];
+  const requestedIncidentIds = [...new Set((Array.isArray(authorizedReturnIncidentIds) ? authorizedReturnIncidentIds : [authorizedReturnIncidentIds])
+    .map((value) => String(value || '').trim())
+    .filter((value) => /^\d+$/.test(value)))];
+  const requestedIncidentIdSet = new Set(requestedIncidentIds);
 
   try {
     const previousCache = loadIncidentsCache();
@@ -2113,7 +2155,10 @@ export async function syncPendingIncidents({
     const chatbyByPhone = new Map();
     const messagesByUserNs = new Map();
     let discountTemplatePromise = null;
-    const pending = await collectPendingIncidents({ limit, pages });
+    const allPending = await collectPendingIncidents({ limit, pages });
+    const pending = requestedIncidentIdSet.size
+      ? allPending.filter(({ issue }) => requestedIncidentIdSet.has(String(issue?.id || issue?.incidenceId || '')))
+      : allPending;
     const prepared = await preparePendingIncidentsForAnalysis({ pending });
     const subscriberIndex = prepared.subscriberIndex;
     const analyzed = await mapWithConcurrency(prepared.pending, 4, async ({ order, issue }) => {
@@ -2383,7 +2428,8 @@ export async function syncPendingIncidents({
         verified: false,
         error: null
       };
-      const rejectedGoodsCommunicationEnabled = item.incident.incidentType === 'rejected_goods'
+      const rejectedGoodsCommunicationEnabled = returnOnly !== true
+        && item.incident.incidentType === 'rejected_goods'
         && config.enableIncidentDiscountTemplate === true
         && config.incidentDiscountRealEnabled === true
         && chatbyRepositoryOwnsIncidentTemplate();
@@ -2418,7 +2464,7 @@ export async function syncPendingIncidents({
             incident: item.incident,
             order: item.order,
             messages: item.messages,
-            realEnabled: config.incidentDiscountRealEnabled === true,
+            realEnabled: returnOnly === true ? false : config.incidentDiscountRealEnabled === true,
             authorizedImmediate: authorizedImmediateDiscounts === true,
             dependencies: {
               getTemplate: async () => {
@@ -2444,9 +2490,16 @@ export async function syncPendingIncidents({
         reason: 'La regla de devolucion solo aplica a incidencias de rechazo con descuento verificado.'
       };
       if (item.incident.incidentType === 'rejected_goods') {
-        discountReturn = await executeIncidentDiscountNoResponseReturn(item.incident, discountRecovery);
+        discountReturn = await executeIncidentDiscountNoResponseReturn(item.incident, discountRecovery, {
+          realEnabled: returnOnly === true && requestedIncidentIdSet.has(String(item.incident.incidenceId || ''))
+            ? true
+            : undefined,
+          allowedIncidentIds: config.defaultStore.incidentReturnAllowedIds
+        });
       }
-      const actionResult = item.incident.incidentType === 'address'
+      const actionResult = returnOnly === true
+        ? discountReturn
+        : item.incident.incidentType === 'address'
         ? await executeIncorrectAddressResolution(item.incident, item.operationalDecision)
         : discountReturn;
       const enrichedIncident = {
@@ -2507,8 +2560,9 @@ export async function syncPendingIncidents({
     };
     discountRecoverySummary.authorizedImmediate = authorizedImmediateDiscounts === true;
     const discountReturnSummary = {
-      realEnabled: config.defaultStore.incidentDiscountReturnRealEnabled === true,
+      realEnabled: returnOnly === true || config.defaultStore.incidentDiscountReturnRealEnabled === true,
       delayHoursAfterDiscount: INCIDENT_DISCOUNT_RETURN_AFTER_HOURS,
+      authorizedIncidentIds: requestedIncidentIds,
       waiting: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'WAITING_24_HOURS').length,
       blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'BLOCKED_CUSTOMER_ACTIVITY').length,
       requestedVerified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_VERIFIED').length,
@@ -2534,20 +2588,25 @@ export async function syncPendingIncidents({
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
+      targeted: requestedIncidentIdSet.size > 0,
+      requestedIncidentIds,
+      missingIncidentIds: requestedIncidentIds.filter((id) => !sortedIncidents.some((incident) => String(incident.incidenceId || '') === id)),
       error: null
     };
-    writeJson(cachePath, payload);
-    await syncIncidentsCacheToSupabase(payload).catch((error) => {
-      console.error('Supabase incidents mirror error:', error instanceof Error ? error.message : String(error));
-    });
-    const state = { ...loadState() };
-    state.lastIncidentsSyncAt = updatedAt;
-    state.lastIncidentsSyncError = null;
-    state.lastIncidentsSyncCount = sortedIncidents.length;
-    state.lastIncidentDiscountRecoveryAt = updatedAt;
-    state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
-    state.lastIncidentDiscountReturnSummary = discountReturnSummary;
-    saveState(state);
+    if (persist !== false) {
+      writeJson(cachePath, payload);
+      await syncIncidentsCacheToSupabase(payload).catch((error) => {
+        console.error('Supabase incidents mirror error:', error instanceof Error ? error.message : String(error));
+      });
+      const state = { ...loadState() };
+      state.lastIncidentsSyncAt = updatedAt;
+      state.lastIncidentsSyncError = null;
+      state.lastIncidentsSyncCount = sortedIncidents.length;
+      state.lastIncidentDiscountRecoveryAt = updatedAt;
+      state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
+      state.lastIncidentDiscountReturnSummary = discountReturnSummary;
+      saveState(state);
+    }
     return payload;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -2558,14 +2617,16 @@ export async function syncPendingIncidents({
       updatedAt: previous.updatedAt || updatedAt,
       error: message
     };
-    writeJson(cachePath, payload);
-    await syncIncidentsCacheToSupabase(payload).catch((mirrorError) => {
-      console.error('Supabase incidents error mirror failed:', mirrorError instanceof Error ? mirrorError.message : String(mirrorError));
-    });
-    const state = { ...loadState() };
-    state.lastIncidentsSyncAt = updatedAt;
-    state.lastIncidentsSyncError = message;
-    saveState(state);
+    if (persist !== false) {
+      writeJson(cachePath, payload);
+      await syncIncidentsCacheToSupabase(payload).catch((mirrorError) => {
+        console.error('Supabase incidents error mirror failed:', mirrorError instanceof Error ? mirrorError.message : String(mirrorError));
+      });
+      const state = { ...loadState() };
+      state.lastIncidentsSyncAt = updatedAt;
+      state.lastIncidentsSyncError = message;
+      saveState(state);
+    }
     throw error;
   }
 }

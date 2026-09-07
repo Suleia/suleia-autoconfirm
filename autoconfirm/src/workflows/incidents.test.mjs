@@ -27,6 +27,15 @@ const verifiedDiscount = {
   responseStatus: 'NO_RESPONSE'
 };
 
+const currentReturnableIncident = {
+  issue: {
+    id: 'fixture-discount-issue',
+    status: 'PENDING',
+    raw: { status: 'PENDING', is_active: true, allowed_resolution_options: ['RETURN_REQUESTED'] }
+  },
+  order: { orderId: 'fixture-discount-order' }
+};
+
 test('recovers an exact Chatby conversation only from the current incident discount delivery', async () => {
   let reads = 0;
   const recovered = await chatbyContextFromExactDiscountDelivery({
@@ -125,7 +134,8 @@ test('re-reads Chatby and requests one persistently claimed Dropea return', asyn
     now: Date.parse('2026-07-16T17:00:00.000Z'),
     realEnabled: true,
     credentialAvailable: true,
-    readCurrent: async () => ({ issue: { id: 'fixture-discount-issue' }, order: { orderId: 'fixture-discount-order' } }),
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
     readMessages: async () => [],
     claimReturn: async () => { calls.claimed += 1; return { acquired: true, persistent: true }; },
     returnIssue: async () => { calls.returned += 1; return { ok: true }; },
@@ -146,7 +156,8 @@ test('a last-second Chatby action blocks the return before the persistent claim'
     now: Date.parse('2026-07-16T17:00:00.000Z'),
     realEnabled: true,
     credentialAvailable: true,
-    readCurrent: async () => ({ issue: { id: 'fixture-discount-issue' }, order: { orderId: 'fixture-discount-order' } }),
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
     readMessages: async () => [{ type: 'in', created_at: '2026-07-16T16:30:00.000Z', content: 'Necesito ayuda' }],
     claimReturn: async () => { calls.claimed += 1; return { acquired: true, persistent: true }; },
     returnIssue: async () => { calls.returned += 1; }
@@ -167,7 +178,8 @@ test('does not call Dropea when the durable return claim is unavailable or alrea
       now: Date.parse('2026-07-16T17:00:00.000Z'),
       realEnabled: true,
       credentialAvailable: true,
-      readCurrent: async () => ({ issue: { id: 'fixture-discount-issue' }, order: { orderId: 'fixture-discount-order' } }),
+      allowedIncidentIds: ['fixture-discount-issue'],
+      readCurrent: async () => currentReturnableIncident,
       readMessages: async () => [],
       claimReturn: async () => claim,
       returnIssue: async () => { returned += 1; }
@@ -175,6 +187,64 @@ test('does not call Dropea when the durable return claim is unavailable or alrea
     assert.equal(returned, 0);
     assert.match(result.status, /ALREADY_CLAIMED|BLOCKED_PERSISTENT_LEDGER/);
   }
+});
+
+test('routes an explicit verified discount rejection to one guarded return', async () => {
+  const rejectedDiscount = { ...verifiedDiscount, responseStatus: 'DISCOUNT_REJECTED' };
+  const decision = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: rejectedDiscount,
+    now
+  });
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.ruleId, 'core_incident_discount_rejected_return');
+
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, rejectedDiscount, {
+    now,
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [{
+      direction: 'inbound',
+      created_at: '2026-07-15T16:01:00.000Z',
+      button_text: 'No quiero el pedido'
+    }],
+    claimReturn: async () => ({ acquired: true, persistent: true }),
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(returned, 1);
+});
+
+test('blocks a return outside the exact allowlist or when Dropea does not allow it', async () => {
+  let returned = 0;
+  const notAuthorized = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now,
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: [],
+    returnIssue: async () => { returned += 1; }
+  });
+  assert.equal(notAuthorized.status, 'BLOCKED_NOT_AUTHORIZED');
+
+  const notAllowed = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now,
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => ({
+      issue: { id: 'fixture-discount-issue', status: 'PENDING', raw: { status: 'PENDING', is_active: true, allowed_resolution_options: ['RETRY'] } },
+      order: { orderId: 'fixture-discount-order' }
+    }),
+    returnIssue: async () => { returned += 1; }
+  });
+  assert.equal(notAllowed.status, 'BLOCKED_RETURN_NOT_ALLOWED');
+  assert.equal(returned, 0);
 });
 
 function chatby(lastCustomerMessage, operationalDetails = {}) {
