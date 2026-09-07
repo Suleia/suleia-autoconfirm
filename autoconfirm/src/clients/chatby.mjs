@@ -60,6 +60,12 @@ export function chatbyRepositoryOwnsIncidentTemplate() {
   return String(process.env.CHATBY_INCIDENT_TEMPLATE_OWNER || '').trim().toLowerCase() === 'repository';
 }
 
+function nativeLifecycleOwnershipError() {
+  const error = new Error('Lifecycle template blocked: Chatby native automation is the configured single sender.');
+  error.code = 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER';
+  return error;
+}
+
 function assertRepositoryOwnsTemplate(payload) {
   const name = payload?.template_name
     || payload?.templateName
@@ -68,9 +74,7 @@ function assertRepositoryOwnsTemplate(payload) {
   const owner = chatbyLifecycleTemplateOwnerFor(name);
   if (owner !== 'chatby_native' || !CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(name))) return;
 
-  const error = new Error('Lifecycle template blocked: Chatby native automation is the configured single sender.');
-  error.code = 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER';
-  throw error;
+  throw nativeLifecycleOwnershipError();
 }
 
 function sleep(ms) {
@@ -263,6 +267,13 @@ export async function sendInitialTemplateRecovery(payload, {
     const error = new Error('Initial-template recovery is restricted to dropea_pedido_nuevo_v1.');
     error.code = 'CHATBY_INITIAL_RECOVERY_TEMPLATE_BLOCKED';
     throw error;
+  }
+
+  // There must be exactly one sender for lifecycle templates. When Chatby
+  // native owns the initial-order template, a repository-side recovery can
+  // race with a delayed/native delivery and create a duplicate WhatsApp.
+  if (chatbyNativeOwnsLifecycleTemplate(name)) {
+    throw nativeLifecycleOwnershipError();
   }
 
   const verifiedAtMs = new Date(verifiedMissingAt || 0).getTime();
