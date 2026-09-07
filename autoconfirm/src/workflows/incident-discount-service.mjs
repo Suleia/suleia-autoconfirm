@@ -85,7 +85,7 @@ async function findTemplate() {
     const templates = templateRows(await listWhatsappTemplates({ page, limit: 200 }));
     const exact = templates.find((item) => normalizedTemplate(item?.name) === target);
     compatible = exact || null;
-    if (!templates.length) break;
+    if (!templates.length || templates.length < 200) break;
   }
   if (!compatible) return null;
   const defaults = parseDefaultValues(compatible.default_values);
@@ -429,24 +429,14 @@ export async function processIncidentDiscountRecovery({
   if (!incident?.chatbyUserNs) {
     return recoveryResult({ reason: 'missing_chatby_conversation' });
   }
-
-  let template;
-  try {
-    template = await deps.getTemplate();
-  } catch (error) {
-    return recoveryResult({ reason: 'discount_template_catalog_unavailable', error: error instanceof Error ? error.message : String(error) });
-  }
-  if (!template) return recoveryResult({ reason: 'discount_template_not_found' });
-  if (template.status !== 'APPROVED') {
-    return recoveryResult({ reason: 'discount_template_not_approved', templateName: template.name });
-  }
+  const discountTemplateName = INCIDENT_DISCOUNT_TEMPLATE_NAME;
 
   let freshMessages = verifiedSameCycleMessages(incident, messages);
   if (!freshMessages) {
     try {
       freshMessages = await deps.getMessages(incident.chatbyUserNs);
     } catch (error) {
-      return recoveryResult({ reason: 'chatby_final_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+      return recoveryResult({ reason: 'chatby_final_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
     }
   }
   let merchandisePersistentDelivery;
@@ -461,26 +451,26 @@ export async function processIncidentDiscountRecovery({
       deps.getDelivery({
         storeId: config.defaultStore.id,
         orderId: incident.orderId,
-        templateName: template.name
+        templateName: discountTemplateName
       })
     ]);
   } catch (error) {
-    return recoveryResult({ reason: 'template_delivery_ledger_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
+    return recoveryResult({ reason: 'template_delivery_ledger_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
   }
   const policy = evaluateRecoveryPolicy({
     incident: { ...incident, chatbyReadVerified: true },
     messages: freshMessages,
     now,
-    discountTemplateName: template.name,
+    discountTemplateName,
     merchandisePersistentDelivery,
     discountPersistentDelivery
   }, { authorizedImmediate });
-  const response = classifyIncidentDiscountResponse(freshMessages, template.name, discountPersistentDelivery);
+  const response = classifyIncidentDiscountResponse(freshMessages, discountTemplateName, discountPersistentDelivery);
   if (!policy.eligible) {
     return recoveryResult({
       reason: policy.reason,
       status: policy.reason === 'discount_template_already_sent' ? 'already_sent' : 'skipped',
-      templateName: template.name,
+      templateName: discountTemplateName,
       initialTemplateSentAt: policy.merchandiseTemplateSentAt,
       dueAt: policy.dueAt,
       sentAt: policy.discountTemplateSentAt,
@@ -488,6 +478,24 @@ export async function processIncidentDiscountRecovery({
       responseStatus: response.status,
       respondedAt: response.respondedAt
     });
+  }
+
+  // Catalogue validation is required only for a delivery that is actually due.
+  // Reading it before the response policy allowed Chatby's shared read quota to
+  // hide a definitive customer interaction behind a transient 429.
+  let template;
+  try {
+    template = await deps.getTemplate();
+  } catch (error) {
+    return recoveryResult({
+      reason: 'discount_template_catalog_unavailable',
+      templateName: discountTemplateName,
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+  if (!template) return recoveryResult({ reason: 'discount_template_not_found', templateName: discountTemplateName });
+  if (template.status !== 'APPROVED') {
+    return recoveryResult({ reason: 'discount_template_not_approved', templateName: template.name || discountTemplateName });
   }
 
   let shopifyOrders;

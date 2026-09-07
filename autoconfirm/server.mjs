@@ -1150,6 +1150,10 @@ function startIncidentsScheduler() {
 
 function startIncidentNotificationsScheduler() {
   if (!config.defaultStore.incidentNotificationsEnabled) return;
+  // The discount scheduler already runs the complete incident synchronization,
+  // including ordinary incident notifications. Do not duplicate every Chatby
+  // read in a second timer when discount recovery is active.
+  if (config.enableIncidentDiscountTemplate) return;
   const intervalMinutes = config.defaultStore.incidentNotificationIntervalMinutes || 30;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 

@@ -2112,15 +2112,7 @@ export async function syncPendingIncidents({
     const previousByOrderId = new Map((previousCache.incidents || []).map((incident) => [String(incident.orderId), incident]));
     const chatbyByPhone = new Map();
     const messagesByUserNs = new Map();
-    let discountTemplate = null;
-    let discountTemplateError = null;
-    if (config.enableIncidentDiscountTemplate) {
-      try {
-        discountTemplate = await warmIncidentDiscountTemplateCache();
-      } catch (error) {
-        discountTemplateError = error;
-      }
-    }
+    let discountTemplatePromise = null;
     const pending = await collectPendingIncidents({ limit, pages });
     const prepared = await preparePendingIncidentsForAnalysis({ pending });
     const subscriberIndex = prepared.subscriberIndex;
@@ -2430,8 +2422,10 @@ export async function syncPendingIncidents({
             authorizedImmediate: authorizedImmediateDiscounts === true,
             dependencies: {
               getTemplate: async () => {
-                if (discountTemplateError) throw discountTemplateError;
-                return discountTemplate;
+                if (!discountTemplatePromise) {
+                  discountTemplatePromise = warmIncidentDiscountTemplateCache();
+                }
+                return discountTemplatePromise;
               }
             }
           });

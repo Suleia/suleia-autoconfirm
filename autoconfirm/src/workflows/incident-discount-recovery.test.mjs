@@ -96,6 +96,9 @@ test('does not send before 24 hours or after any customer interaction', async ()
   assert.equal(early.sent.length, 0);
 
   const replied = fixture();
+  replied.dependencies.getTemplate = async () => {
+    throw new Error('catalogue quota must not mask a definitive customer interaction');
+  };
   replied.dependencies.getMessages = async () => [
     initial,
     { direction: 'inbound', created_at: '2026-08-28T09:00:00.000Z', text: 'Cualquier respuesta' }
