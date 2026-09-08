@@ -24,6 +24,7 @@ import {
   finishIncidentDiscountReturn,
   finishIncidentAddressResolution,
   getTemplateDelivery,
+  reclaimIncidentDiscountReturn,
   syncAgentMemoryRuleToSupabase,
   syncIncidentsCacheToSupabase
 } from '../db/supabase-store.mjs';
@@ -1158,16 +1159,28 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   activeIncidentDiscountReturns.add(activeKey);
   const claimReturn = dependencies.claimReturn || claimIncidentDiscountReturn;
   const finishReturn = dependencies.finishReturn || finishIncidentDiscountReturn;
+  const reclaimReturn = dependencies.reclaimReturn || reclaimIncidentDiscountReturn;
   const returnIssue = dependencies.returnIssue || returnDropeaV2IssueToOrigin;
   const verifyReturn = dependencies.verifyReturn || verifyIncidentLeftPending;
   const auditReturn = dependencies.auditReturn || auditIncidentAction;
   const attemptedAt = new Date(dependencies.now ?? Date.now()).toISOString();
   try {
-    const claim = await claimReturn({
+    let claim = await claimReturn({
       storeId: config.defaultStore.id,
       orderId: incident.orderId,
       incidenceId: incident.incidenceId
     });
+    if (
+      claim?.reason === 'already_claimed'
+      && claim?.existing?.status === 'manual_reconciliation_required'
+      && dependencies.allowManualReconciliationRetry === true
+    ) {
+      claim = await reclaimReturn({
+        storeId: config.defaultStore.id,
+        orderId: incident.orderId,
+        incidenceId: incident.incidenceId
+      });
+    }
     if (!claim?.acquired || claim?.persistent !== true) {
       return {
         ...decision,
@@ -2141,6 +2154,7 @@ export async function syncPendingIncidents({
   pages = 3,
   authorizedImmediateDiscounts = false,
   authorizedReturnIncidentIds = [],
+  reconcileAmbiguousReturnIncidentIds = [],
   returnOnly = false,
   persist = true
 } = {}) {
@@ -2150,6 +2164,11 @@ export async function syncPendingIncidents({
     .map((value) => String(value || '').trim())
     .filter((value) => /^\d+$/.test(value)))];
   const requestedIncidentIdSet = new Set(requestedIncidentIds);
+  const reconciliationIncidentIdSet = new Set((Array.isArray(reconcileAmbiguousReturnIncidentIds)
+    ? reconcileAmbiguousReturnIncidentIds
+    : [reconcileAmbiguousReturnIncidentIds])
+    .map((value) => String(value || '').trim())
+    .filter((value) => /^\d+$/.test(value)));
 
   try {
     const previousCache = loadIncidentsCache();
@@ -2499,7 +2518,10 @@ export async function syncPendingIncidents({
           automaticEnabled: returnOnly === true
             ? false
             : config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
-          allowedIncidentIds: config.defaultStore.incidentReturnAllowedIds
+          allowedIncidentIds: returnOnly === true
+            ? requestedIncidentIds
+            : config.defaultStore.incidentReturnAllowedIds,
+          allowManualReconciliationRetry: reconciliationIncidentIdSet.has(String(item.incident.incidenceId || ''))
         });
       }
       const actionResult = returnOnly === true

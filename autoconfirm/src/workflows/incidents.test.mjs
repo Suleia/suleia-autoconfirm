@@ -189,6 +189,61 @@ test('does not call Dropea when the durable return claim is unavailable or alrea
   }
 });
 
+test('reconciles one ambiguous return only through an explicit atomic reclaim', async () => {
+  let reclaimed = 0;
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    allowManualReconciliationRetry: true,
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({
+      acquired: false,
+      persistent: true,
+      reason: 'already_claimed',
+      existing: { status: 'manual_reconciliation_required' }
+    }),
+    reclaimReturn: async () => {
+      reclaimed += 1;
+      return { acquired: true, persistent: true, reconciled: true };
+    },
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(reclaimed, 1);
+  assert.equal(returned, 1);
+});
+
+test('never reconciles an ambiguous return without explicit retry authorization', async () => {
+  let reclaimed = 0;
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({
+      acquired: false,
+      persistent: true,
+      reason: 'already_claimed',
+      existing: { status: 'manual_reconciliation_required' }
+    }),
+    reclaimReturn: async () => { reclaimed += 1; return { acquired: true, persistent: true }; },
+    returnIssue: async () => { returned += 1; }
+  });
+  assert.equal(result.status, 'ALREADY_CLAIMED');
+  assert.equal(reclaimed, 0);
+  assert.equal(returned, 0);
+});
+
 test('routes an explicit verified discount rejection to one guarded return', async () => {
   const rejectedDiscount = { ...verifiedDiscount, responseStatus: 'DISCOUNT_REJECTED' };
   const decision = incidentDiscountNoResponseReturnDecision({

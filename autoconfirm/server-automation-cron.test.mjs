@@ -43,6 +43,10 @@ test('immediate rejected-discount batch requires cron auth and an explicit one-t
   assert.match(source, /send-pending-rejected-discounts-now'[\s\S]{0,180}isAuthorizedCron\(req\)/);
   assert.match(source, /body\.authorization !== 'SEND_PENDING_REJECTED_DISCOUNTS_NOW'/);
   assert.match(source, /syncPendingIncidents\(\{ authorizedImmediateDiscounts: true \}\)/);
+
+  assert.match(source, /url\.pathname === '\/api\/cron\/reconcile-dropea-incident-returns'/);
+  assert.match(source, /reconcile-dropea-incident-returns'[\s\S]{0,180}isAuthorizedCron\(req\)/);
+  assert.match(source, /RECONCILE_AMBIGUOUS_RETURN_REQUESTS/);
 });
 
 test('targeted incident returns require auth, explicit authorization and the runtime allowlist', () => {

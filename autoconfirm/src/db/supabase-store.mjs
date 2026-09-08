@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { ensureDir, readJson, writeJson } from '../lib/files.mjs';
-import { insertRows, isSupabaseEnabled, selectRows, supabaseStatus, upsertRows } from '../clients/supabase.mjs';
+import { insertRows, isSupabaseEnabled, selectRows, supabaseStatus, updateRows, upsertRows } from '../clients/supabase.mjs';
 
 const config = getAppConfig();
 
@@ -231,6 +231,31 @@ export function claimIncidentDiscountReturn({ storeId = 'suleia', orderId, incid
     provider: 'dropea',
     chatbyUserNs: ''
   });
+}
+
+export async function reclaimIncidentDiscountReturn({ storeId = 'suleia', orderId, incidenceId } = {}) {
+  if (!isSupabaseEnabled()) {
+    return { acquired: false, persistent: false, reason: 'persistent_dedupe_unavailable' };
+  }
+  const templateName = `${INCIDENT_DISCOUNT_RETURN_LEDGER}:${String(incidenceId || '')}`;
+  const templateKey = deliveryKey({ storeId, orderId, templateName });
+  const attemptedAt = nowIso();
+  const updated = await updateRows('template_delivery_ledger', {
+    status: 'reconciliation_claimed',
+    attempted_at: attemptedAt,
+    last_error: null,
+    updated_at: attemptedAt
+  }, {
+    query: {
+      template_key: `eq.${templateKey}`,
+      status: 'eq.manual_reconciliation_required'
+    },
+    returning: 'representation'
+  });
+  const row = Array.isArray(updated) ? updated[0] : null;
+  if (row) return { acquired: true, persistent: true, templateKey, row, reconciled: true };
+  const existing = await getTemplateDelivery({ storeId, orderId, templateName });
+  return { acquired: false, persistent: true, templateKey, existing, reason: 'not_reconcilable' };
 }
 
 export function finishIncidentDiscountReturn({

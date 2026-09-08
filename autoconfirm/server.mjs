@@ -1005,6 +1005,26 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/cron/reconcile-dropea-incident-returns') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'RECONCILE_AMBIGUOUS_RETURN_REQUESTS') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const incidentIds = [...new Set((Array.isArray(body.incidentIds) ? body.incidentIds : [])
+        .map((value) => String(value || '').trim()))];
+      if (!incidentIds.length || incidentIds.length > 20 || incidentIds.some((value) => !/^\d+$/.test(value))) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_incident_ids' });
+      }
+      const result = await syncPendingIncidents({
+        authorizedReturnIncidentIds: incidentIds,
+        reconcileAmbiguousReturnIncidentIds: incidentIds,
+        returnOnly: true,
+        persist: false
+      });
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/send-pending-rejected-discounts-now') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const body = await readBody(req);

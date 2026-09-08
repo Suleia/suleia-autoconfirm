@@ -118,6 +118,20 @@ export async function insertRows(table, rows, { returning = 'minimal' } = {}) {
   });
 }
 
+export async function updateRows(table, values, { query = {}, returning = 'minimal' } = {}) {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) {
+    return { skipped: true, reason: 'empty_values' };
+  }
+  return supabaseRequest(`/rest/v1/${encodeURIComponent(table)}`, {
+    method: 'PATCH',
+    query,
+    body: values,
+    headers: {
+      Prefer: `return=${returning}`
+    }
+  });
+}
+
 export async function callRpc(name, payload = {}) {
   return supabaseRequest(`/rest/v1/rpc/${encodeURIComponent(name)}`, {
     method: 'POST',
