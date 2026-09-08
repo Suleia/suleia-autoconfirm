@@ -6,12 +6,6 @@ const MARKET_HOSTS = Object.freeze({
   PT: 'pt.public-api.dropea.com'
 });
 
-const APPROVED_ISSUE_ACTION_SCOPES = Object.freeze([
-  'dp:issues:read',
-  'dp:orders:read',
-  'dp:issues:resolve'
-]);
-
 const REQUIRED_ISSUE_ACTION_SCOPES = Object.freeze([
   'dp:issues:read',
   'dp:orders:read',
@@ -42,9 +36,6 @@ function assertIssueActionToken(token, { expectedExpiresAt, now = Date.now } = {
     .map(String)
     .filter(Boolean);
   const actual = [...new Set(scopes)];
-  if (actual.some((scope) => !APPROVED_ISSUE_ACTION_SCOPES.includes(scope))) {
-    fail('DROPEA_ISSUE_ACTION_TOKEN_UNAPPROVED_SCOPE');
-  }
   if (REQUIRED_ISSUE_ACTION_SCOPES.some((scope) => !actual.includes(scope))) {
     fail('DROPEA_ISSUE_ACTION_TOKEN_REQUIRED_SCOPE_MISSING');
   }

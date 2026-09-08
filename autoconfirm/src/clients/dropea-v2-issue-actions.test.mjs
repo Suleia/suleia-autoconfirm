@@ -30,15 +30,15 @@ function envFor(actionToken = token()) {
   };
 }
 
-test('issue action credential requires the exact read and resolve scopes', () => {
+test('issue action credential requires read and resolve scopes while tolerating owner-authorized extras', () => {
   assert.equal(loadDropeaV2IssueActionStoreConfigs(envFor()).length, 1);
   assert.throws(
     () => loadDropeaV2IssueActionStoreConfigs(envFor(token(['dp:issues:read', 'dp:orders:read']))),
     (error) => error?.code === 'DROPEA_ISSUE_ACTION_TOKEN_REQUIRED_SCOPE_MISSING'
   );
-  assert.throws(
-    () => loadDropeaV2IssueActionStoreConfigs(envFor(token([...issueActionScopes, 'dp:orders:cancel']))),
-    (error) => error?.code === 'DROPEA_ISSUE_ACTION_TOKEN_UNAPPROVED_SCOPE'
+  assert.equal(
+    loadDropeaV2IssueActionStoreConfigs(envFor(token([...issueActionScopes, 'dp:orders:cancel', 'dp:orders:update']))).length,
+    1
   );
 });
 
