@@ -359,6 +359,7 @@ function storeSummary({ publicView = false } = {}) {
     incidentDiscountDelayHours: 24,
     incidentDiscountIntervalMinutes: config.incidentDiscountIntervalMinutes,
     incidentDiscountReturnRealEnabled: config.defaultStore.incidentDiscountReturnRealEnabled === true,
+    incidentDiscountReturnAutomaticEnabled: config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
     incidentDiscountReturnDelayHours: 24,
     lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
     lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,

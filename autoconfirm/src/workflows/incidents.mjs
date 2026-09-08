@@ -1097,7 +1097,9 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   const allowedIncidentIds = new Set((dependencies.allowedIncidentIds ?? config.defaultStore.incidentReturnAllowedIds ?? [])
     .map((value) => String(value).trim())
     .filter(Boolean));
-  if (!allowedIncidentIds.has(String(incident.incidenceId || ''))) {
+  const automaticEnabled = dependencies.automaticEnabled
+    ?? config.defaultStore.incidentDiscountReturnAutomaticEnabled;
+  if (automaticEnabled !== true && !allowedIncidentIds.has(String(incident.incidenceId || ''))) {
     return { ...decision, status: 'BLOCKED_NOT_AUTHORIZED', verified: false, reason: 'La incidencia no esta en la lista exacta autorizada.' };
   }
 
@@ -2494,6 +2496,9 @@ export async function syncPendingIncidents({
           realEnabled: returnOnly === true && requestedIncidentIdSet.has(String(item.incident.incidenceId || ''))
             ? true
             : undefined,
+          automaticEnabled: returnOnly === true
+            ? false
+            : config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
           allowedIncidentIds: config.defaultStore.incidentReturnAllowedIds
         });
       }
@@ -2561,6 +2566,7 @@ export async function syncPendingIncidents({
     discountRecoverySummary.authorizedImmediate = authorizedImmediateDiscounts === true;
     const discountReturnSummary = {
       realEnabled: returnOnly === true || config.defaultStore.incidentDiscountReturnRealEnabled === true,
+      automaticEnabled: returnOnly !== true && config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
       delayHoursAfterDiscount: INCIDENT_DISCOUNT_RETURN_AFTER_HOURS,
       authorizedIncidentIds: requestedIncidentIds,
       waiting: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'WAITING_24_HOURS').length,

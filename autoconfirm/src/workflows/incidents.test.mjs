@@ -221,6 +221,31 @@ test('routes an explicit verified discount rejection to one guarded return', asy
   assert.equal(returned, 1);
 });
 
+test('automatic discount returns accept eligible incidents without a manual allowlist only when explicitly enabled', async () => {
+  const rejectedDiscount = { ...verifiedDiscount, responseStatus: 'DISCOUNT_REJECTED' };
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, rejectedDiscount, {
+    now,
+    realEnabled: true,
+    automaticEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: [],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [{
+      direction: 'inbound',
+      created_at: '2026-07-15T16:01:00.000Z',
+      button_text: 'No quiero el pedido'
+    }],
+    claimReturn: async () => ({ acquired: true, persistent: true }),
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(returned, 1);
+});
+
 test('blocks a return outside the exact allowlist or when Dropea does not allow it', async () => {
   let returned = 0;
   const notAuthorized = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
