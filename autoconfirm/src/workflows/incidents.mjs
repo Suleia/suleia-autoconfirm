@@ -35,7 +35,10 @@ import {
   warmIncidentDiscountTemplateCache
 } from './incident-discount-service.mjs';
 import { INCIDENT_DISCOUNT_TEMPLATE_NAME } from './incident-discount-template.mjs';
-import { classifyIncidentDiscountResponse } from './incident-discount-policy.mjs';
+import {
+  classifyIncidentDiscountResponse,
+  INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
+} from './incident-discount-policy.mjs';
 import { processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 
@@ -1939,10 +1942,11 @@ function summarizeConversation(messages = []) {
   };
 }
 
-export async function chatbyContextFromExactDiscountDelivery({
+export async function chatbyContextFromExactTemplateDelivery({
   orderId,
   incidentAt,
   delivery,
+  orderAssociation = 'EXACT_ORDER_TEMPLATE_LEDGER',
   messagesByUserNs = new Map(),
   readMessages = getChatMessages
 } = {}) {
@@ -1985,13 +1989,20 @@ export async function chatbyContextFromExactDiscountDelivery({
   return {
     ok: true,
     userNs,
-    orderAssociation: 'EXACT_ORDER_DISCOUNT_LEDGER',
+    orderAssociation,
     chatbyReadVerified: chatRead.verified === true,
     chatbyReadAttempts: chatRead.attempts,
     chatbyReadAt: chatRead.readAt || null,
     messagesForNotification: chatRead.messages,
     ...summarizeConversation(chatRead.messages)
   };
+}
+
+export async function chatbyContextFromExactDiscountDelivery(options = {}) {
+  return chatbyContextFromExactTemplateDelivery({
+    ...options,
+    orderAssociation: 'EXACT_ORDER_DISCOUNT_LEDGER'
+  });
 }
 
 async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = new Map(), {
@@ -2249,18 +2260,31 @@ export async function syncPendingIncidents({
       const currentIncidenceDate = carrierIncident?.annotatedAt || mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
       if (chatby.chatbyReadVerified !== true) {
         try {
-          const exactDiscountDelivery = await getTemplateDelivery({
-            storeId: config.defaultStore.id,
-            orderId,
-            templateName: INCIDENT_DISCOUNT_TEMPLATE_NAME
-          });
-          const recovered = await chatbyContextFromExactDiscountDelivery({
-            orderId,
-            incidentAt: currentIncidenceDate,
-            delivery: exactDiscountDelivery,
-            messagesByUserNs
-          });
-          if (recovered) chatby = recovered;
+          const deliveryCandidates = await Promise.all([
+            getTemplateDelivery({
+              storeId: config.defaultStore.id,
+              orderId,
+              templateName: INCIDENT_DISCOUNT_TEMPLATE_NAME
+            }).then((delivery) => ({ delivery, orderAssociation: 'EXACT_ORDER_DISCOUNT_LEDGER' })),
+            getTemplateDelivery({
+              storeId: config.defaultStore.id,
+              orderId,
+              templateName: INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
+            }).then((delivery) => ({ delivery, orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER' }))
+          ]);
+          for (const candidate of deliveryCandidates) {
+            const recovered = await chatbyContextFromExactTemplateDelivery({
+              orderId,
+              incidentAt: currentIncidenceDate,
+              delivery: candidate.delivery,
+              orderAssociation: candidate.orderAssociation,
+              messagesByUserNs
+            });
+            if (recovered) {
+              chatby = recovered;
+              break;
+            }
+          }
         } catch {
           // Keep the original unverified context. Returns remain fail-closed.
         }

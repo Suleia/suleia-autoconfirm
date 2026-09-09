@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   chatbyContextFromExactDiscountDelivery,
+  chatbyContextFromExactTemplateDelivery,
   classifyIncident,
   executeIncidentDiscountNoResponseReturn,
   executeIncorrectAddressResolution,
@@ -187,6 +188,25 @@ test('does not call Dropea when the durable return claim is unavailable or alrea
     assert.equal(returned, 0);
     assert.match(result.status, /ALREADY_CLAIMED|BLOCKED_PERSISTENT_LEDGER/);
   }
+});
+
+test('recovers the exact order conversation from a verified current-incident merchandise delivery', async () => {
+  const recovered = await chatbyContextFromExactTemplateDelivery({
+    orderId: 'fixture-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+    delivery: {
+      order_id: 'fixture-order',
+      status: 'sent',
+      sent_at: '2026-07-15T15:05:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async () => []
+  });
+
+  assert.equal(recovered.chatbyReadVerified, true);
+  assert.equal(recovered.orderAssociation, 'EXACT_ORDER_MERCHANDISE_LEDGER');
+  assert.equal(recovered.userNs, 'fixture-chat');
 });
 
 test('reconciles one ambiguous return only through an explicit atomic reclaim', async () => {
