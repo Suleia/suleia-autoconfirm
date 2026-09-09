@@ -140,18 +140,24 @@ async function request(path, options = {}) {
   let data = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const controller = providedSignal ? null : new AbortController();
-    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
-      response = await scheduleRequest(() => fetch(`${config.chatbyBaseUrl}${path}`, {
-        ...requestOptions,
-        signal: providedSignal || controller.signal,
-        headers: {
-          Authorization: `Bearer ${config.chatbyToken}`,
-          'Content-Type': 'application/json',
-          ...(requestOptions.headers || {})
+      response = await scheduleRequest(async () => {
+        const controller = providedSignal ? null : new AbortController();
+        const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+        try {
+          return await fetch(`${config.chatbyBaseUrl}${path}`, {
+            ...requestOptions,
+            signal: providedSignal || controller.signal,
+            headers: {
+              Authorization: `Bearer ${config.chatbyToken}`,
+              'Content-Type': 'application/json',
+              ...(requestOptions.headers || {})
+            }
+          });
+        } finally {
+          if (timeout) clearTimeout(timeout);
         }
-      }));
+      });
     } catch (error) {
       if (canRetry && !providedSignal && attempt < maxAttempts) {
         await sleep(readRetryDelay(attempt));
@@ -161,8 +167,6 @@ async function request(path, options = {}) {
         throw new Error(`Chatby no respondio en ${timeoutMs} ms para ${path}.`);
       }
       throw error;
-    } finally {
-      if (timeout) clearTimeout(timeout);
     }
 
     text = await response.text();
