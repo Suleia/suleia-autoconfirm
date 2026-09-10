@@ -57,6 +57,22 @@ function digits(value) {
   return String(value || '').replace(/\D/g, '');
 }
 
+export function incidentNotificationLaneEnabled({
+  incidentType,
+  returnOnly = false,
+  repositoryOwnsIncidentTemplates = false,
+  incidentNotificationsEnabled = false,
+  incidentDiscountTemplateEnabled = false,
+  incidentDiscountRealEnabled = false
+} = {}) {
+  if (returnOnly || !repositoryOwnsIncidentTemplates) return false;
+  if (incidentType === 'absent') return incidentNotificationsEnabled === true;
+  if (incidentType === 'rejected_goods') {
+    return incidentDiscountTemplateEnabled === true && incidentDiscountRealEnabled === true;
+  }
+  return false;
+}
+
 function asArray(value) {
   if (!value) return [];
   return Array.isArray(value) ? value : [value];
@@ -2473,12 +2489,15 @@ export async function syncPendingIncidents({
         verified: false,
         error: null
       };
-      const rejectedGoodsCommunicationEnabled = returnOnly !== true
-        && item.incident.incidentType === 'rejected_goods'
-        && config.enableIncidentDiscountTemplate === true
-        && config.incidentDiscountRealEnabled === true
-        && chatbyRepositoryOwnsIncidentTemplate();
-      if (rejectedGoodsCommunicationEnabled) {
+      const incidentCommunicationEnabled = incidentNotificationLaneEnabled({
+        incidentType: item.incident.incidentType,
+        returnOnly,
+        repositoryOwnsIncidentTemplates: chatbyRepositoryOwnsIncidentTemplate(),
+        incidentNotificationsEnabled: config.defaultStore.incidentNotificationsEnabled === true,
+        incidentDiscountTemplateEnabled: config.enableIncidentDiscountTemplate === true,
+        incidentDiscountRealEnabled: config.incidentDiscountRealEnabled === true
+      });
+      if (incidentCommunicationEnabled) {
         try {
           notification = await processIncidentNotification({
             incident: item.incident,

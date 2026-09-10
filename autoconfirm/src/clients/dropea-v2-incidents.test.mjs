@@ -161,7 +161,7 @@ test('dashboard workflow permits only the separately gated and persistently clai
   assert.match(source, /collectPendingDropeaV2Incidents/);
   assert.doesNotMatch(source, /listDropeaIncidences|listDropeaOrdersByStatus\(/);
   assert.match(source, /processIncidentNotification/);
-  assert.match(source, /rejectedGoodsCommunicationEnabled/);
+  assert.match(source, /incidentNotificationLaneEnabled/);
   assert.match(source, /incidentDiscountRealEnabled === true/);
   assert.match(source, /chatbyRepositoryOwnsIncidentTemplate/);
   assert.match(source, /reason: 'dropea_v2_dashboard_read_only'/);
