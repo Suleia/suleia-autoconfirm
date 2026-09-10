@@ -178,5 +178,36 @@ test('cost policy documents all rates used for future months', () => {
   }, { shipping: 4.06, fulfillment: 1.2, cod: 1, returned: 5.26, fixedDaily: 8.97 });
   assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku.COLLAGUM, 1.01);
   assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku.CREMANIDA, 1.44);
+  assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku['038_CREMAHIDRATANTE'], 3.70);
   assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku['1969_COLLAGUM'], 1.01);
+});
+
+test('applies the verified historical May product cost and never reports a Shopify history gap as zero', () => {
+  const period = resolveFinancePeriod('2026-05', { now: new Date('2026-09-10T12:00:00.000Z') });
+  const report = aggregateFinanceReport({
+    period,
+    shopifyOrders: [],
+    orders: [{
+      created_at: '2026-05-03T09:00:00.000Z',
+      status: 'FINISH',
+      sub_status: 'DELIVERED',
+      total_amount: 29.99,
+      line_items: [{
+        sku: '038_CREMAHIDRATANTE',
+        product_name: 'Crema Hidratante Definitiva HOYGI 100G',
+        quantity: 1,
+        unit_price: 29.99
+      }]
+    }],
+    metaRows: [{ dateStart: '2026-05-03', spend: 1 }]
+  });
+
+  assert.equal(report.totals.productCost, 3.70);
+  assert.equal(report.coverage.productCostPercent, 100);
+  assert.equal(report.coverage.exactProfitAvailable, true);
+  assert.equal(report.coverage.shopify, false);
+  assert.equal(report.counts.shopifyOrders, null);
+  assert.equal(report.counts.confirmationRatePercent, null);
+  assert.equal(report.days.find((day) => day.day === '2026-05-03').shopifyOrders, null);
+  assert.match(report.warnings.join(' '), /no se contabilizan como cero/i);
 });

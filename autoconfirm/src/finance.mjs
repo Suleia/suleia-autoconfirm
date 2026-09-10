@@ -128,7 +128,7 @@ function inclusiveDays(period, policy) {
   return rows;
 }
 
-function finalizeDay(row, { metaAvailable }) {
+function finalizeDay(row, { metaAvailable, shopifyAvailable }) {
   const logisticsCost = roundMoney(row.outboundShippingCost + row.codCost + row.outboundFulfillmentCost + row.returnCost);
   const totalCosts = metaAvailable ? roundMoney(row.productCost + logisticsCost + row.metaSpend + row.fixedCosts) : null;
   const netProfit = totalCosts === null || row.unknownProductCostUnits ? null : roundMoney(row.realRevenue - totalCosts);
@@ -149,7 +149,8 @@ function finalizeDay(row, { metaAvailable }) {
     roiPercent: netProfit === null ? null : percent(netProfit, totalCosts),
     estimatedCpa: metaAvailable ? (row.sent ? roundMoney(row.metaSpend / row.sent) : 0) : null,
     realCpa: metaAvailable ? (row.delivered ? roundMoney(row.metaSpend / row.delivered) : 0) : null,
-    confirmationRatePercent: percent(row.sent, row.shopifyOrders),
+    shopifyOrders: shopifyAvailable ? row.shopifyOrders : null,
+    confirmationRatePercent: shopifyAvailable ? percent(row.sent, row.shopifyOrders) : null,
     deliveryRatePercent: percent(row.delivered, row.sent)
   };
 }
@@ -167,8 +168,10 @@ export function aggregateFinanceReport({
   const counts = { total: 0, shopifyOrders: 0, dropeaOrders: 0, sent: 0, active: 0, delivered: 0, returned: 0, cancelled: 0, incidents: 0 };
   let knownProductCostUnits = 0;
   let unknownProductCostUnits = 0;
+  const shopifyHistoricalGap = Array.isArray(shopifyOrders) && shopifyOrders.length === 0 && orders.length > 0;
+  const shopifyAvailable = Array.isArray(shopifyOrders) && !shopifyHistoricalGap;
 
-  if (Array.isArray(shopifyOrders)) {
+  if (shopifyAvailable) {
     for (const order of shopifyOrders) {
       const day = localDate(order.createdAt || order.created_at, period.timeZone);
       if (!day || day < period.since || day > period.until) continue;
@@ -237,11 +240,12 @@ export function aggregateFinanceReport({
     days.set(day, daily);
   }
 
-  counts.total = Array.isArray(shopifyOrders) ? counts.shopifyOrders : counts.dropeaOrders;
-  counts.notSent = Math.max(0, counts.shopifyOrders - counts.sent);
-  counts.confirmationRatePercent = percent(counts.sent, counts.shopifyOrders);
+  counts.total = shopifyAvailable ? counts.shopifyOrders : counts.dropeaOrders;
+  counts.notSent = shopifyAvailable ? Math.max(0, counts.shopifyOrders - counts.sent) : null;
+  counts.confirmationRatePercent = shopifyAvailable ? percent(counts.sent, counts.shopifyOrders) : null;
   counts.deliveryRatePercent = percent(counts.delivered, counts.sent);
-  const dailyRows = [...days.values()].map((row) => finalizeDay(row, { metaAvailable })).sort((a, b) => b.day.localeCompare(a.day));
+  if (!shopifyAvailable) counts.shopifyOrders = null;
+  const dailyRows = [...days.values()].map((row) => finalizeDay(row, { metaAvailable, shopifyAvailable })).sort((a, b) => b.day.localeCompare(a.day));
   const sum = (field) => roundMoney(dailyRows.reduce((total, row) => total + number(row[field]), 0));
   const productCostCoverage = (knownProductCostUnits + unknownProductCostUnits)
     ? knownProductCostUnits / (knownProductCostUnits + unknownProductCostUnits)
@@ -280,6 +284,7 @@ export function aggregateFinanceReport({
 
   const warnings = [];
   if (!Array.isArray(shopifyOrders)) warnings.push('No se pudo leer Shopify; la tasa de confirmación queda pendiente.');
+  if (shopifyHistoricalGap) warnings.push('Shopify devolvió 0 pedidos para un periodo con actividad en Dropea; el historial de pedidos y la tasa de confirmación quedan pendientes, no se contabilizan como cero.');
   if (!metaAvailable) warnings.push('No se pudo leer Meta Ads; beneficio, ROI y CPA quedan pendientes.');
   if (unknownProductCostUnits) warnings.push(`${unknownProductCostUnits} unidades entregadas no tienen coste unitario configurado; el beneficio queda pendiente.`);
   if (!policyApplicable) warnings.push(`Las tarifas configuradas solo son válidas desde ${policy.effectiveFrom}; el beneficio anterior queda pendiente.`);
@@ -292,7 +297,7 @@ export function aggregateFinanceReport({
     totals,
     coverage: {
       orders: true,
-      shopify: Array.isArray(shopifyOrders),
+      shopify: shopifyAvailable,
       meta: metaAvailable,
       productCostPercent: Math.round(productCostCoverage * 100),
       fulfillmentCostPercent: 100,
@@ -409,9 +414,11 @@ export async function buildFinanceReport({
   report.generatedAt = new Date().toISOString();
   report.sources = {
     orders: ordersResult.status === 'fulfilled' ? 'Dropea Public API V2' : 'No disponible',
-    shopify: shopifyResult.status === 'fulfilled' ? 'Shopify Admin API' : 'No disponible',
+    shopify: shopifyResult.status === 'fulfilled' && report.coverage.shopify
+      ? 'Shopify Admin API'
+      : 'No disponible para este periodo',
     meta: metaResult.status === 'fulfilled' ? 'Meta Marketing API' : 'No disponible',
-    costs: 'Tarifas contables efectivas desde 2026-07-01 y coste unitario por SKU'
+    costs: 'Tarifas contables efectivas desde 2026-05-01 y coste unitario por SKU'
   };
   if (ordersResult.status === 'rejected') report.warnings.push(`Dropea no disponible: ${ordersResult.reason instanceof Error ? ordersResult.reason.message : String(ordersResult.reason)}`);
   if (shopifyResult.status === 'rejected') report.warnings.push(`Shopify no disponible: ${shopifyResult.reason instanceof Error ? shopifyResult.reason.message : String(shopifyResult.reason)}`);

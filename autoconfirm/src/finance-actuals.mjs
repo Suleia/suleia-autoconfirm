@@ -34,13 +34,15 @@ const JULY_2026_ROWS = [
 
 export const FINANCE_COST_POLICY = Object.freeze({
   currency: 'EUR',
-  effectiveFrom: '2026-07-01',
+  effectiveFrom: '2026-05-01',
   outboundShippingPerSent: 4.06,
   outboundFulfillmentPerSent: 1.20,
   codPerDelivered: 1.00,
   returnPerReturned: 5.26,
   fixedCostPerCalendarDay: 8.97,
   productUnitCostsBySku: Object.freeze({
+    '038_CREMAHIDRATANTE': 3.70,
+    'CREMAHIDRATANTE': 3.70,
     'COLLAGUM': 1.01,
     'CREMANIDA': 1.44,
     'WHITEO2': 2.00,
