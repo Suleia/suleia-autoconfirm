@@ -207,7 +207,9 @@ test('applies the verified historical May product cost and never reports a Shopi
   assert.equal(report.coverage.exactProfitAvailable, true);
   assert.equal(report.coverage.shopify, false);
   assert.equal(report.counts.shopifyOrders, null);
+  assert.equal(report.counts.dropeaOrders, 1);
+  assert.equal(report.counts.notSent, 0);
   assert.equal(report.counts.confirmationRatePercent, null);
   assert.equal(report.days.find((day) => day.day === '2026-05-03').shopifyOrders, null);
-  assert.match(report.warnings.join(' '), /no se contabilizan como cero/i);
+  assert.match(report.warnings.join(' '), /muestra los pedidos de Dropea/i);
 });

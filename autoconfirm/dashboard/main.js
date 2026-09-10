@@ -1494,11 +1494,18 @@ function renderFinance() {
   const counts = finance.counts || {};
   const totals = finance.totals || {};
   const reportCoverage = finance.coverage || {};
-  setText('#finance-orders', reportCoverage.shopify ? String(counts.shopifyOrders ?? counts.total ?? 0) : '—');
+  const orderSource = reportCoverage.shopify ? 'Shopify' : 'Dropea';
+  const orderCount = reportCoverage.shopify
+    ? (counts.shopifyOrders ?? counts.total ?? 0)
+    : (counts.dropeaOrders ?? counts.total ?? 0);
+  setText('#finance-orders-label', `Pedidos ${orderSource}`);
+  setText('#finance-orders-source', `Demanda disponible en ${orderSource}`);
+  setText('#finance-orders-column', orderSource);
+  setText('#finance-orders', String(orderCount));
   setText('#finance-sent', String(counts.sent ?? 0));
   setText('#finance-delivered', String(counts.delivered ?? 0));
   setText('#finance-returned', String(counts.returned ?? 0));
-  setText('#finance-not-sent', reportCoverage.shopify ? String(counts.notSent ?? 0) : '—');
+  setText('#finance-not-sent', String(counts.notSent ?? 0));
   setText('#finance-confirm-rate', reportCoverage.shopify ? `Confirmación ${percentValue(counts.confirmationRatePercent)}` : 'Confirmación pendiente');
   setText('#finance-delivery-rate', `Entrega ${percentValue(counts.deliveryRatePercent)}`);
   setText('#finance-revenue', money(totals.realRevenue ?? totals.revenue));
@@ -1539,7 +1546,7 @@ function renderFinance() {
     daysTable.innerHTML = finance.days?.length
       ? finance.days.map((day) => `<tr>
           <td><strong>${escapeHtml(day.day)}</strong></td>
-          <td>${day.shopifyOrders ?? '—'}</td><td>${day.sent ?? 0}</td><td>${money(day.estimatedRevenue)}</td>
+          <td>${day.shopifyOrders ?? day.dropeaOrders ?? 0}</td><td>${day.sent ?? 0}</td><td>${money(day.estimatedRevenue)}</td>
           <td>${day.delivered ?? 0}</td><td>${money(day.realRevenue)}</td><td>${money(day.productCost)}</td>
           <td>${money(day.outboundShippingCost)}</td><td>${money(day.codCost)}</td><td>${money(day.outboundFulfillmentCost)}</td>
           <td>${money(day.returnCost)}</td><td>${money(day.metaSpend)}</td><td>${money(day.fixedCosts)}</td>
@@ -1551,7 +1558,7 @@ function renderFinance() {
   }
   if (daysTotal) {
     daysTotal.innerHTML = `<tr>
-      <td><strong>TOTAL</strong></td><td>${reportCoverage.shopify ? (counts.shopifyOrders ?? counts.total ?? 0) : '—'}</td><td>${counts.sent ?? 0}</td>
+      <td><strong>TOTAL</strong></td><td>${orderCount}</td><td>${counts.sent ?? 0}</td>
       <td>${money(totals.estimatedRevenue)}</td><td>${counts.delivered ?? 0}</td><td>${money(totals.realRevenue)}</td>
       <td>${money(totals.productCost)}</td><td>${money(totals.outboundShippingCost)}</td><td>${money(totals.codCost)}</td>
       <td>${money(totals.outboundFulfillmentCost)}</td><td>${money(totals.returnCost)}</td><td>${money(totals.metaSpend)}</td>

@@ -241,7 +241,9 @@ export function aggregateFinanceReport({
   }
 
   counts.total = shopifyAvailable ? counts.shopifyOrders : counts.dropeaOrders;
-  counts.notSent = shopifyAvailable ? Math.max(0, counts.shopifyOrders - counts.sent) : null;
+  counts.notSent = shopifyAvailable
+    ? Math.max(0, counts.shopifyOrders - counts.sent)
+    : Math.max(0, counts.dropeaOrders - counts.sent);
   counts.confirmationRatePercent = shopifyAvailable ? percent(counts.sent, counts.shopifyOrders) : null;
   counts.deliveryRatePercent = percent(counts.delivered, counts.sent);
   if (!shopifyAvailable) counts.shopifyOrders = null;
@@ -284,7 +286,7 @@ export function aggregateFinanceReport({
 
   const warnings = [];
   if (!Array.isArray(shopifyOrders)) warnings.push('No se pudo leer Shopify; la tasa de confirmación queda pendiente.');
-  if (shopifyHistoricalGap) warnings.push('Shopify devolvió 0 pedidos para un periodo con actividad en Dropea; el historial de pedidos y la tasa de confirmación quedan pendientes, no se contabilizan como cero.');
+  if (shopifyHistoricalGap) warnings.push('Shopify devolvió 0 pedidos para un periodo con actividad en Dropea; el panel muestra los pedidos de Dropea y deja pendiente únicamente la tasa de confirmación de Shopify.');
   if (!metaAvailable) warnings.push('No se pudo leer Meta Ads; beneficio, ROI y CPA quedan pendientes.');
   if (unknownProductCostUnits) warnings.push(`${unknownProductCostUnits} unidades entregadas no tienen coste unitario configurado; el beneficio queda pendiente.`);
   if (!policyApplicable) warnings.push(`Las tarifas configuradas solo son válidas desde ${policy.effectiveFrom}; el beneficio anterior queda pendiente.`);
