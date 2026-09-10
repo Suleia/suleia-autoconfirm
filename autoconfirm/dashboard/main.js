@@ -69,6 +69,12 @@ function percent(value) {
   return new Intl.NumberFormat('es-ES', { style: 'percent', maximumFractionDigits: 0 }).format(number);
 }
 
+function percentValue(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+  return `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(number)}%`;
+}
+
 function numberCompact(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '0';
@@ -1383,7 +1389,9 @@ function renderKpis() {
   setText('#kpi-profit', money(exactProfit));
   setText('#kpi-spend', report?.coverage?.meta ? money(report.totals?.metaSpend) : '—');
   setText('#kpi-review', String(kpis.manualReview ?? 0));
-  setText('#kpi-profit-note', exactProfit === null ? 'Pendiente de costes completos de Dropea' : (exactProfit >= 0 ? 'Operación en positivo' : 'Operación en negativo'));
+  setText('#kpi-profit-note', exactProfit === null
+    ? 'Pendiente de fuentes o costes completos'
+    : `${report?.statusLabel || 'Periodo calculado'} · ${exactProfit >= 0 ? 'operación en positivo' : 'operación en negativo'}`);
   setText('#hero-orders', String(kpis.orders ?? 0));
   setText('#hero-confirm-rate', percent(kpis.confirmRate));
   setText('#hero-profit', money(exactProfit));
@@ -1395,14 +1403,77 @@ function renderKpis() {
   }
 }
 
+function renderFinanceCharts(finance) {
+  const trend = document.querySelector('#finance-trend-chart');
+  const costs = document.querySelector('#finance-cost-chart');
+  const totals = finance?.totals || {};
+  const days = [...(finance?.days || [])].sort((a, b) => a.day.localeCompare(b.day));
+
+  if (trend) {
+    if (!days.length) {
+      trend.innerHTML = '<div class="empty-state">No hay datos diarios para representar.</div>';
+    } else {
+      const width = 760;
+      const height = 228;
+      const pad = { left: 45, right: 14, top: 16, bottom: 30 };
+      const values = days.flatMap((day) => [day.realRevenue, day.totalCosts, day.netProfit]).filter((value) => Number.isFinite(Number(value)));
+      const min = Math.min(0, ...values.map(Number));
+      const max = Math.max(1, ...values.map(Number));
+      const range = max - min || 1;
+      const x = (index) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(1, days.length - 1);
+      const y = (value) => pad.top + ((max - Number(value || 0)) * (height - pad.top - pad.bottom)) / range;
+      const points = (field) => days.map((day, index) => `${x(index).toFixed(1)},${y(day[field]).toFixed(1)}`).join(' ');
+      const zeroY = y(0).toFixed(1);
+      const labels = days.map((day, index) => index % 5 === 0 || index === days.length - 1
+        ? `<text x="${x(index).toFixed(1)}" y="218" text-anchor="middle">${escapeHtml(day.day.slice(8))}</text>`
+        : '').join('');
+      trend.innerHTML = `
+        <div class="finance-chart-legend">
+          <span><i style="background:#0d8b8f"></i>Facturación real</span>
+          <span><i style="background:#e86d57"></i>Gastos totales</span>
+          <span><i style="background:#26394b"></i>Beneficio neto</span>
+        </div>
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Evolución diaria de facturación, gastos y beneficio">
+          <line x1="${pad.left}" y1="${zeroY}" x2="${width - pad.right}" y2="${zeroY}" stroke="rgba(38,57,75,.2)" stroke-width="1" />
+          <polyline points="${points('realRevenue')}" fill="none" stroke="#0d8b8f" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+          <polyline points="${points('totalCosts')}" fill="none" stroke="#e86d57" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+          <polyline points="${points('netProfit')}" fill="none" stroke="#26394b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+          <g fill="#65727f" font-family="Trebuchet MS, sans-serif" font-size="11">${labels}</g>
+        </svg>`;
+    }
+  }
+
+  if (costs) {
+    const rows = [
+      ['Producto', totals.productCost],
+      ['Envío (ida)', totals.outboundShippingCost],
+      ['Tarifa COD', totals.codCost],
+      ['Fulfillment', totals.outboundFulfillmentCost],
+      ['Devoluciones', totals.returnCost],
+      ['Publicidad', totals.metaSpend],
+      ['Gastos fijos', totals.fixedCosts]
+    ];
+    const max = Math.max(1, ...rows.map(([, value]) => Number(value) || 0));
+    costs.innerHTML = rows.map(([label, value]) => `
+      <div class="finance-cost-row">
+        <span>${escapeHtml(label)}</span>
+        <div class="finance-cost-bar"><span style="width:${Math.max(0, Math.min(100, (Number(value || 0) / max) * 100)).toFixed(1)}%"></span></div>
+        <b>${money(value)}</b>
+      </div>`).join('');
+  }
+}
+
 function renderFinance() {
   const finance = state.financeReport;
   const coverage = document.querySelector('#finance-coverage');
+  const audit = document.querySelector('#finance-audit');
   const warnings = document.querySelector('#finance-warnings');
   const daysTable = document.querySelector('#finance-days-table');
+  const daysTotal = document.querySelector('#finance-days-total');
   const productsTable = document.querySelector('#finance-products-table');
 
   if (state.financeLoading) {
+    if (audit) audit.hidden = true;
     if (coverage) {
       coverage.className = 'finance-coverage';
       coverage.textContent = 'Conciliando pedidos de Dropea y gasto de Meta Ads...';
@@ -1410,6 +1481,7 @@ function renderFinance() {
     return;
   }
   if (state.financeError || !finance) {
+    if (audit) audit.hidden = true;
     if (coverage) {
       coverage.className = 'finance-coverage is-error';
       coverage.textContent = state.financeError
@@ -1422,52 +1494,83 @@ function renderFinance() {
   const counts = finance.counts || {};
   const totals = finance.totals || {};
   const reportCoverage = finance.coverage || {};
-  setText('#finance-orders', String(counts.total ?? 0));
+  setText('#finance-orders', reportCoverage.shopify ? String(counts.shopifyOrders ?? counts.total ?? 0) : '—');
+  setText('#finance-sent', String(counts.sent ?? 0));
   setText('#finance-delivered', String(counts.delivered ?? 0));
   setText('#finance-returned', String(counts.returned ?? 0));
-  setText('#finance-incidents', String(counts.incidents ?? 0));
-  setText('#finance-revenue', money(totals.revenue));
-  setText('#finance-product-cost', money(totals.knownProductCost));
-  setText('#finance-product-coverage', `${reportCoverage.productCostPercent ?? 0}% de entregados con coste`);
-  setText('#finance-logistics', money(totals.knownFulfillmentCost));
-  setText('#finance-logistics-coverage', `${reportCoverage.fulfillmentCostPercent ?? 0}% de pedidos con componentes`);
+  setText('#finance-not-sent', reportCoverage.shopify ? String(counts.notSent ?? 0) : '—');
+  setText('#finance-confirm-rate', reportCoverage.shopify ? `Confirmación ${percentValue(counts.confirmationRatePercent)}` : 'Confirmación pendiente');
+  setText('#finance-delivery-rate', `Entrega ${percentValue(counts.deliveryRatePercent)}`);
+  setText('#finance-revenue', money(totals.realRevenue ?? totals.revenue));
+  setText('#finance-total-costs', money(totals.totalCosts));
   setText('#finance-meta', reportCoverage.meta ? money(totals.metaSpend) : '—');
-  setText('#finance-known-contribution', money(totals.knownContribution));
+  setText('#finance-real-cpa', `CPA real ${money(totals.realCpa)}`);
+  setText('#finance-return-cost', money(totals.returnCost));
+  setText('#finance-return-unit-cost', `Tarifa ${money(finance.policy?.returnPerReturned)}/devolución`);
+  setText('#finance-roi', percentValue(totals.roiPercent));
   setText('#finance-profit', money(totals.exactNetProfit));
   setText('#finance-formula', reportCoverage.exactProfitAvailable
-    ? 'Ingresos − producto − logística − anuncios'
-    : 'No disponible: Dropea no publica todos los costes');
+    ? 'Facturación real − producto − logística − publicidad − fijos'
+    : 'No disponible hasta completar todas las fuentes y costes');
+  setText('#finance-status-badge', finance.statusLabel || finance.status || 'Periodo calculado');
+
+  if (audit) {
+    audit.hidden = !finance.audit;
+    audit.innerHTML = finance.audit
+      ? `Corrección de julio: el saldo parcial anterior era <strong>${money(finance.audit.previousPanelAmount)}</strong>. El beneficio neto correcto es <strong>${money(finance.audit.correctedNetProfit)}</strong>, una corrección de <strong>−${money(finance.audit.overstatement)}</strong>. La diferencia procedía de costes de producto, logística, devoluciones y gastos fijos que no se estaban restando.`
+      : '';
+  }
 
   if (coverage) {
-    coverage.className = `finance-coverage ${reportCoverage.exactProfitAvailable ? 'is-ok' : 'is-warning'}`;
+    coverage.className = `finance-coverage ${reportCoverage.closedActual ? 'is-ok' : 'is-warning'}`;
     coverage.textContent = `${finance.period?.since || ''} a ${finance.period?.until || ''}. ${reportCoverage.explanation || ''}`;
   }
   if (warnings) {
     const items = [
-      !reportCoverage.meta ? 'Meta Ads no está disponible para este periodo; el saldo parcial no incluye publicidad.' : null,
-      reportCoverage.productCostPercent < 100 ? `Dropea omite el coste de producto en ${100 - reportCoverage.productCostPercent}% de los pedidos entregados.` : null,
-      'Los componentes order_costs de la API pública no incluyen el desglose logístico completo. Por eso no se presenta una cifra falsa como beneficio neto.'
+      ...(finance.warnings || []),
+      !reportCoverage.closedActual && finance.status === 'provisional' ? 'Mes abierto: las entregas, devoluciones y atribución de Meta todavía pueden cambiar.' : null,
+      !reportCoverage.closedActual && finance.status === 'reconstructed' ? 'Periodo reconstruido con el estado actual de las APIs; no sustituye un cierre contable importado.' : null
     ].filter(Boolean);
-    warnings.innerHTML = items.map((item) => `<div>${escapeHtml(item)}</div>`).join('');
+    warnings.innerHTML = items.length
+      ? items.map((item) => `<div>${escapeHtml(item)}</div>`).join('')
+      : '<div class="ok">Todas las partidas del periodo están conciliadas.</div>';
   }
   if (daysTable) {
     daysTable.innerHTML = finance.days?.length
       ? finance.days.map((day) => `<tr>
           <td><strong>${escapeHtml(day.day)}</strong></td>
-          <td>${day.orders}</td><td>${day.delivered}</td><td>${day.returned}</td>
-          <td>${money(day.revenue)}</td><td>${money(day.metaSpend)}</td><td>${money(day.knownContribution)}</td>
+          <td>${day.shopifyOrders ?? '—'}</td><td>${day.sent ?? 0}</td><td>${money(day.estimatedRevenue)}</td>
+          <td>${day.delivered ?? 0}</td><td>${money(day.realRevenue)}</td><td>${money(day.productCost)}</td>
+          <td>${money(day.outboundShippingCost)}</td><td>${money(day.codCost)}</td><td>${money(day.outboundFulfillmentCost)}</td>
+          <td>${money(day.returnCost)}</td><td>${money(day.metaSpend)}</td><td>${money(day.fixedCosts)}</td>
+          <td>${money(day.totalCosts)}</td><td class="${Number(day.netProfit) < 0 ? 'finance-negative' : 'finance-positive'}">${money(day.netProfit)}</td>
+          <td>${percentValue(day.roiPercent)}</td><td>${money(day.estimatedCpa)}</td><td>${money(day.realCpa)}</td>
+          <td>${percentValue(day.confirmationRatePercent)}</td><td>${percentValue(day.deliveryRatePercent)}</td>
         </tr>`).join('')
-      : '<tr><td colspan="7"><div class="empty-state">No hay pedidos en este periodo.</div></td></tr>';
+      : '<tr><td colspan="20"><div class="empty-state">No hay pedidos en este periodo.</div></td></tr>';
+  }
+  if (daysTotal) {
+    daysTotal.innerHTML = `<tr>
+      <td><strong>TOTAL</strong></td><td>${reportCoverage.shopify ? (counts.shopifyOrders ?? counts.total ?? 0) : '—'}</td><td>${counts.sent ?? 0}</td>
+      <td>${money(totals.estimatedRevenue)}</td><td>${counts.delivered ?? 0}</td><td>${money(totals.realRevenue)}</td>
+      <td>${money(totals.productCost)}</td><td>${money(totals.outboundShippingCost)}</td><td>${money(totals.codCost)}</td>
+      <td>${money(totals.outboundFulfillmentCost)}</td><td>${money(totals.returnCost)}</td><td>${money(totals.metaSpend)}</td>
+      <td>${money(totals.fixedCosts)}</td><td>${money(totals.totalCosts)}</td>
+      <td class="${Number(totals.exactNetProfit) < 0 ? 'finance-negative' : 'finance-positive'}">${money(totals.exactNetProfit)}</td>
+      <td>${percentValue(totals.roiPercent)}</td><td>${money(totals.estimatedCpa)}</td><td>${money(totals.realCpa)}</td>
+      <td>${percentValue(counts.confirmationRatePercent)}</td><td>${percentValue(counts.deliveryRatePercent)}</td>
+    </tr>`;
   }
   if (productsTable) {
     productsTable.innerHTML = finance.products?.length
       ? finance.products.map((product) => `<tr>
           <td><strong>${escapeHtml(product.name)}</strong>${product.unknownCostUnits ? `<small>${product.unknownCostUnits} uds. sin coste publicado</small>` : ''}</td>
-          <td>${product.units}</td><td>${money(product.revenue)}</td><td>${money(product.knownProductCost)}</td>
+          <td>${product.units}</td><td>${money(product.revenue)}</td><td>${money(product.productCost ?? product.knownProductCost)}</td>
           <td>${money(product.marginBeforeLogisticsAndAds)}</td>
         </tr>`).join('')
       : '<tr><td colspan="5"><div class="empty-state">No hay productos entregados en este periodo.</div></td></tr>';
   }
+  renderFinanceCharts(finance);
 }
 
 async function loadFinanceReport({ force = false } = {}) {

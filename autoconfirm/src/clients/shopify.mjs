@@ -134,6 +134,48 @@ export async function listRecentShopifyOrders({ first = 100, query = null } = {}
   return (result.orders?.nodes || []).map(normalizeShopifyOrder);
 }
 
+export async function listShopifyOrdersByCreatedPeriod({ since, until, pageSize = 250, maxOrders = 5_000 } = {}) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(since || '')) || !/^\d{4}-\d{2}-\d{2}$/.test(String(until || ''))) {
+    throw new Error('SHOPIFY_FINANCE_PERIOD_INVALID');
+  }
+  const exclusiveUntil = new Date(`${until}T12:00:00.000Z`);
+  exclusiveUntil.setUTCDate(exclusiveUntil.getUTCDate() + 1);
+  const untilExclusive = exclusiveUntil.toISOString().slice(0, 10);
+  const search = `created_at:>=${since} created_at:<${untilExclusive}`;
+  const orders = [];
+  let after = null;
+
+  do {
+    const result = await shopifyGraphql(`
+      query FinanceShopifyOrders($first: Int!, $after: String, $query: String!) {
+        orders(first: $first, after: $after, sortKey: CREATED_AT, reverse: false, query: $query) {
+          edges {
+            cursor
+            node {
+              id
+              name
+              createdAt
+              cancelledAt
+              displayFinancialStatus
+              displayFulfillmentStatus
+              totalPriceSet { shopMoney { amount currencyCode } }
+            }
+          }
+          pageInfo { hasNextPage endCursor }
+        }
+      }
+    `, { first: Math.min(250, Math.max(1, pageSize)), after, query: search });
+    const connection = result.orders || {};
+    for (const edge of connection.edges || []) {
+      orders.push(normalizeShopifyOrder(edge.node));
+      if (orders.length >= maxOrders) throw new Error('SHOPIFY_FINANCE_ORDER_LIMIT_REACHED');
+    }
+    after = connection.pageInfo?.hasNextPage ? connection.pageInfo.endCursor : null;
+  } while (after);
+
+  return orders;
+}
+
 export async function getShopifyOrderFinancialStatus(orderId) {
   const token = await getAdminAccessToken();
   const response = await fetchWithRetry(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/orders/${orderId}.json`, {

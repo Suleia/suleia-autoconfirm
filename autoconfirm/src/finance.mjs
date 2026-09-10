@@ -3,6 +3,8 @@ import {
   loadDropeaV2IncidentStoreConfigs
 } from './clients/dropea-v2-incidents.mjs';
 import { getCampaignInsights } from './clients/meta.mjs';
+import { listShopifyOrdersByCreatedPeriod } from './clients/shopify.mjs';
+import { FINANCE_COST_POLICY, getClosedFinanceActual } from './finance-actuals.mjs';
 
 const MADRID_TIME_ZONE = 'Europe/Madrid';
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -15,6 +17,10 @@ function number(value) {
 
 function roundMoney(value) {
   return Math.round((number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function percent(numerator, denominator) {
+  return denominator ? roundMoney((numerator / denominator) * 100) : 0;
 }
 
 function localDate(value, timeZone = MADRID_TIME_ZONE) {
@@ -38,34 +44,18 @@ export function resolveFinancePeriod(month, { now = new Date(), timeZone = MADRI
   const currentDay = localDate(now, timeZone);
   const currentMonth = currentDay?.slice(0, 7);
   const requested = month || currentMonth;
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(requested || ''))) {
-    throw new Error('FINANCE_MONTH_INVALID');
-  }
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(requested || ''))) throw new Error('FINANCE_MONTH_INVALID');
   if (requested > currentMonth) throw new Error('FINANCE_MONTH_IN_FUTURE');
   const [year, monthNumber] = requested.split('-').map(Number);
-  const lastDay = requested === currentMonth
-    ? Number(currentDay.slice(8, 10))
-    : daysInMonth(year, monthNumber);
+  const lastDay = requested === currentMonth ? Number(currentDay.slice(8, 10)) : daysInMonth(year, monthNumber);
   const until = `${requested}-${String(lastDay).padStart(2, '0')}`;
-  return {
-    month: requested,
-    since: `${requested}-01`,
-    until,
-    current: requested === currentMonth,
-    timeZone
-  };
+  return { month: requested, since: `${requested}-01`, until, current: requested === currentMonth, timeZone };
 }
 
 const DELIVERED_SUBSTATUSES = new Set(['DELIVERED', 'PAID']);
-const RETURNED_SUBSTATUSES = new Set([
-  'REFUSED',
-  'REJECTED',
-  'RETURNED',
-  'REFUSED_LOST_DAMAGED',
-  'LOST_DAMAGED',
-  'INDEMNIFIED'
-]);
+const RETURNED_SUBSTATUSES = new Set(['REFUSED', 'REJECTED', 'RETURNED', 'REFUSED_LOST_DAMAGED', 'LOST_DAMAGED', 'INDEMNIFIED']);
 const CANCELLED_SUBSTATUSES = new Set(['CANCELLED', 'CANCELED']);
+const DISPATCHED_STATUSES = new Set(['SHIPPING', 'SHIPPED', 'IN_TRANSIT', 'IN_DELIVERY', 'OUT_FOR_DELIVERY']);
 
 export function classifyFinanceOrder(order = {}) {
   const status = String(order.status || '').toUpperCase();
@@ -77,178 +67,295 @@ export function classifyFinanceOrder(order = {}) {
   return 'active';
 }
 
+export function isSentFinanceOrder(order = {}, category = classifyFinanceOrder(order)) {
+  if (category === 'delivered' || category === 'returned') return true;
+  if (category === 'cancelled') return false;
+  const status = String(order.status || '').toUpperCase();
+  const subStatus = String(order.sub_status || '').toUpperCase();
+  return DISPATCHED_STATUSES.has(status)
+    || DISPATCHED_STATUSES.has(subStatus)
+    || Boolean(order.tracking_number || order.tracking_code || order.shipped_at || order.shipping_started_at);
+}
+
 function lineItems(order) {
   return Array.isArray(order?.line_items) ? order.line_items : [];
-}
-
-function orderRevenue(order, category) {
-  return category === 'delivered' ? number(order.total_amount) : 0;
-}
-
-function orderKnownProductCost(order, category) {
-  if (category !== 'delivered') return { amount: 0, known: true };
-  const items = lineItems(order);
-  if (!items.length) return { amount: 0, known: false };
-  let known = true;
-  const amount = items.reduce((sum, item) => {
-    const wholesale = number(item.wholesale_price);
-    const quantity = Math.max(1, number(item.quantity));
-    if (wholesale <= 0) known = false;
-    return sum + (wholesale > 0 ? wholesale * quantity : 0);
-  }, 0);
-  return { amount, known };
-}
-
-function orderKnownFulfillmentCost(order) {
-  const costs = order?.order_costs;
-  if (!costs || typeof costs !== 'object') return { amount: 0, known: false };
-  const fields = ['fulfillment_outbound', 'fulfillment_quantity_cost', 'fulfillment_return'];
-  const present = fields.filter((field) => costs[field] !== undefined && costs[field] !== null);
-  if (!present.length) return { amount: 0, known: false };
-  return {
-    amount: present.reduce((sum, field) => sum + number(costs[field]), 0),
-    known: true
-  };
 }
 
 function productName(item = {}) {
   return String(item.product_name || item.external_name || item.variant_name || item.sku || 'Producto sin nombre');
 }
 
-function daySkeleton(day) {
+function productUnitCost(item, policy) {
+  const sku = String(item?.sku || '').trim().toUpperCase();
+  const configured = policy.productUnitCostsBySku?.[sku];
+  return Number.isFinite(Number(configured)) && Number(configured) >= 0
+    ? { known: true, amount: Number(configured) }
+    : { known: false, amount: 0 };
+}
+
+function daySkeleton(day, policy) {
   return {
     day,
-    orders: 0,
-    active: 0,
+    shopifyOrders: 0,
+    dropeaOrders: 0,
+    sent: 0,
     delivered: 0,
     returned: 0,
     cancelled: 0,
+    active: 0,
     incidents: 0,
-    revenue: 0,
-    knownProductCost: 0,
-    knownFulfillmentCost: 0,
+    estimatedRevenue: 0,
+    realRevenue: 0,
+    productCost: 0,
+    outboundShippingCost: 0,
+    codCost: 0,
+    outboundFulfillmentCost: 0,
+    returnCost: 0,
     metaSpend: 0,
-    knownContribution: 0
+    fixedCosts: policy.fixedCostPerCalendarDay,
+    unknownProductCostUnits: 0
   };
 }
 
-export function aggregateFinanceReport({ orders = [], metaRows = [], period }) {
-  const days = new Map();
+function inclusiveDays(period, policy) {
+  const rows = [];
+  const cursor = new Date(`${period.since}T12:00:00.000Z`);
+  const end = new Date(`${period.until}T12:00:00.000Z`);
+  while (cursor <= end) {
+    rows.push(daySkeleton(cursor.toISOString().slice(0, 10), policy));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return rows;
+}
+
+function finalizeDay(row, { metaAvailable }) {
+  const logisticsCost = roundMoney(row.outboundShippingCost + row.codCost + row.outboundFulfillmentCost + row.returnCost);
+  const totalCosts = metaAvailable ? roundMoney(row.productCost + logisticsCost + row.metaSpend + row.fixedCosts) : null;
+  const netProfit = totalCosts === null || row.unknownProductCostUnits ? null : roundMoney(row.realRevenue - totalCosts);
+  return {
+    ...row,
+    estimatedRevenue: roundMoney(row.estimatedRevenue),
+    realRevenue: roundMoney(row.realRevenue),
+    productCost: roundMoney(row.productCost),
+    outboundShippingCost: roundMoney(row.outboundShippingCost),
+    codCost: roundMoney(row.codCost),
+    outboundFulfillmentCost: roundMoney(row.outboundFulfillmentCost),
+    returnCost: roundMoney(row.returnCost),
+    logisticsCost,
+    metaSpend: metaAvailable ? roundMoney(row.metaSpend) : null,
+    fixedCosts: roundMoney(row.fixedCosts),
+    totalCosts,
+    netProfit,
+    roiPercent: netProfit === null ? null : percent(netProfit, totalCosts),
+    estimatedCpa: metaAvailable ? (row.sent ? roundMoney(row.metaSpend / row.sent) : 0) : null,
+    realCpa: metaAvailable ? (row.delivered ? roundMoney(row.metaSpend / row.delivered) : 0) : null,
+    confirmationRatePercent: percent(row.sent, row.shopifyOrders),
+    deliveryRatePercent: percent(row.delivered, row.sent)
+  };
+}
+
+export function aggregateFinanceReport({
+  orders = [],
+  shopifyOrders = null,
+  metaRows = [],
+  period,
+  policy = FINANCE_COST_POLICY,
+  metaAvailable = true
+}) {
+  const days = new Map(inclusiveDays(period, policy).map((row) => [row.day, row]));
   const products = new Map();
-  const counts = { total: 0, active: 0, delivered: 0, returned: 0, cancelled: 0, incidents: 0 };
-  let revenue = 0;
-  let knownProductCost = 0;
-  let knownFulfillmentCost = 0;
-  let productCostKnownOrders = 0;
-  let fulfillmentCostKnownOrders = 0;
+  const counts = { total: 0, shopifyOrders: 0, dropeaOrders: 0, sent: 0, active: 0, delivered: 0, returned: 0, cancelled: 0, incidents: 0 };
+  let knownProductCostUnits = 0;
+  let unknownProductCostUnits = 0;
+
+  if (Array.isArray(shopifyOrders)) {
+    for (const order of shopifyOrders) {
+      const day = localDate(order.createdAt || order.created_at, period.timeZone);
+      if (!day || day < period.since || day > period.until) continue;
+      counts.shopifyOrders += 1;
+      const daily = days.get(day) || daySkeleton(day, policy);
+      daily.shopifyOrders += 1;
+      days.set(day, daily);
+    }
+  }
 
   for (const order of orders) {
     const day = localDate(order.created_at, period.timeZone);
     if (!day || day < period.since || day > period.until) continue;
     const category = classifyFinanceOrder(order);
-    const daily = days.get(day) || daySkeleton(day);
-    const productCost = orderKnownProductCost(order, category);
-    const fulfillmentCost = orderKnownFulfillmentCost(order);
-    const recognizedRevenue = orderRevenue(order, category);
+    const sent = isSentFinanceOrder(order, category);
+    const daily = days.get(day) || daySkeleton(day, policy);
+    const orderTotal = number(order.total_amount);
 
-    counts.total += 1;
+    counts.dropeaOrders += 1;
     counts[category === 'incident' ? 'incidents' : category] += 1;
-    daily.orders += 1;
+    daily.dropeaOrders += 1;
     daily[category === 'incident' ? 'incidents' : category] += 1;
-    revenue += recognizedRevenue;
-    knownProductCost += productCost.amount;
-    knownFulfillmentCost += fulfillmentCost.amount;
-    daily.revenue += recognizedRevenue;
-    daily.knownProductCost += productCost.amount;
-    daily.knownFulfillmentCost += fulfillmentCost.amount;
-    if (category === 'delivered' && productCost.known) productCostKnownOrders += 1;
-    if (fulfillmentCost.known) fulfillmentCostKnownOrders += 1;
-    days.set(day, daily);
+    if (sent) {
+      counts.sent += 1;
+      daily.sent += 1;
+      daily.estimatedRevenue += orderTotal;
+      daily.outboundShippingCost += policy.outboundShippingPerSent;
+      daily.outboundFulfillmentCost += policy.outboundFulfillmentPerSent;
+    }
+    if (category === 'delivered') {
+      daily.realRevenue += orderTotal;
+      daily.codCost += policy.codPerDelivered;
+    }
+    if (category === 'returned') daily.returnCost += policy.returnPerReturned;
 
     if (category === 'delivered') {
       for (const item of lineItems(order)) {
         const name = productName(item);
         const quantity = Math.max(1, number(item.quantity));
-        const itemRevenue = number(item.unit_price) * quantity;
-        const wholesale = number(item.wholesale_price);
-        const current = products.get(name) || {
-          name,
-          deliveredOrders: 0,
-          units: 0,
-          revenue: 0,
-          knownProductCost: 0,
-          unknownCostUnits: 0
-        };
+        const unitCost = productUnitCost(item, policy);
+        const current = products.get(name) || { name, deliveredOrders: 0, units: 0, revenue: 0, productCost: 0, unknownCostUnits: 0 };
         current.deliveredOrders += 1;
         current.units += quantity;
-        current.revenue += itemRevenue;
-        if (wholesale > 0) current.knownProductCost += wholesale * quantity;
-        else current.unknownCostUnits += quantity;
+        current.revenue += number(item.unit_price) * quantity;
+        if (unitCost.known) {
+          const amount = unitCost.amount * quantity;
+          current.productCost += amount;
+          daily.productCost += amount;
+          knownProductCostUnits += quantity;
+        } else {
+          current.unknownCostUnits += quantity;
+          daily.unknownProductCostUnits += quantity;
+          unknownProductCostUnits += quantity;
+        }
         products.set(name, current);
       }
     }
-  }
-
-  let metaSpend = 0;
-  for (const row of metaRows) {
-    const day = String(row.dateStart || row.date_start || '').slice(0, 10);
-    if (!day || day < period.since || day > period.until) continue;
-    const spend = number(row.spend);
-    metaSpend += spend;
-    const daily = days.get(day) || daySkeleton(day);
-    daily.metaSpend += spend;
     days.set(day, daily);
   }
 
-  const knownContribution = revenue - knownProductCost - knownFulfillmentCost - metaSpend;
-  const deliveredDenominator = counts.delivered || 0;
-  const productCostCoverage = deliveredDenominator ? productCostKnownOrders / deliveredDenominator : 1;
-  const fulfillmentCostCoverage = counts.total ? fulfillmentCostKnownOrders / counts.total : 1;
-  // The public V2 contract explicitly describes order_costs as a narrow subset,
-  // never the full cost breakdown. Even 100% field coverage cannot prove net profit.
-  const exactProfitAvailable = false;
+  for (const row of metaRows) {
+    const day = String(row.dateStart || row.date_start || '').slice(0, 10);
+    if (!day || day < period.since || day > period.until) continue;
+    const daily = days.get(day) || daySkeleton(day, policy);
+    daily.metaSpend += number(row.spend);
+    days.set(day, daily);
+  }
 
-  const dailyRows = [...days.values()]
-    .map((row) => ({
-      ...row,
-      revenue: roundMoney(row.revenue),
-      knownProductCost: roundMoney(row.knownProductCost),
-      knownFulfillmentCost: roundMoney(row.knownFulfillmentCost),
-      metaSpend: roundMoney(row.metaSpend),
-      knownContribution: roundMoney(row.revenue - row.knownProductCost - row.knownFulfillmentCost - row.metaSpend)
-    }))
-    .sort((a, b) => b.day.localeCompare(a.day));
+  counts.total = Array.isArray(shopifyOrders) ? counts.shopifyOrders : counts.dropeaOrders;
+  counts.notSent = Math.max(0, counts.shopifyOrders - counts.sent);
+  counts.confirmationRatePercent = percent(counts.sent, counts.shopifyOrders);
+  counts.deliveryRatePercent = percent(counts.delivered, counts.sent);
+  const dailyRows = [...days.values()].map((row) => finalizeDay(row, { metaAvailable })).sort((a, b) => b.day.localeCompare(a.day));
+  const sum = (field) => roundMoney(dailyRows.reduce((total, row) => total + number(row[field]), 0));
+  const productCostCoverage = (knownProductCostUnits + unknownProductCostUnits)
+    ? knownProductCostUnits / (knownProductCostUnits + unknownProductCostUnits)
+    : 1;
+  const policyApplicable = period.since >= policy.effectiveFrom;
+  const exactProfitAvailable = metaAvailable && unknownProductCostUnits === 0 && policyApplicable;
+  const totals = {
+    estimatedRevenue: sum('estimatedRevenue'),
+    realRevenue: sum('realRevenue'),
+    revenue: sum('realRevenue'),
+    productCost: sum('productCost'),
+    knownProductCost: sum('productCost'),
+    outboundShippingCost: sum('outboundShippingCost'),
+    codCost: sum('codCost'),
+    outboundFulfillmentCost: sum('outboundFulfillmentCost'),
+    returnCost: sum('returnCost'),
+    logisticsCost: sum('logisticsCost'),
+    knownFulfillmentCost: sum('logisticsCost'),
+    metaSpend: metaAvailable ? sum('metaSpend') : null,
+    fixedCosts: sum('fixedCosts')
+  };
+  totals.totalCosts = exactProfitAvailable ? roundMoney(totals.productCost + totals.logisticsCost + totals.metaSpend + totals.fixedCosts) : null;
+  totals.exactNetProfit = totals.totalCosts === null ? null : roundMoney(totals.realRevenue - totals.totalCosts);
+  totals.knownContribution = totals.exactNetProfit;
+  totals.roiPercent = totals.exactNetProfit === null ? null : percent(totals.exactNetProfit, totals.totalCosts);
+  totals.estimatedCpa = metaAvailable ? (counts.sent ? roundMoney(totals.metaSpend / counts.sent) : 0) : null;
+  totals.realCpa = metaAvailable ? (counts.delivered ? roundMoney(totals.metaSpend / counts.delivered) : 0) : null;
 
-  const productRows = [...products.values()]
-    .map((row) => ({
-      ...row,
-      revenue: roundMoney(row.revenue),
-      knownProductCost: roundMoney(row.knownProductCost),
-      marginBeforeLogisticsAndAds: row.unknownCostUnits ? null : roundMoney(row.revenue - row.knownProductCost)
-    }))
-    .sort((a, b) => b.revenue - a.revenue);
+  const productRows = [...products.values()].map((row) => ({
+    ...row,
+    revenue: roundMoney(row.revenue),
+    productCost: roundMoney(row.productCost),
+    knownProductCost: roundMoney(row.productCost),
+    marginBeforeLogisticsAndAds: row.unknownCostUnits ? null : roundMoney(row.revenue - row.productCost)
+  })).sort((a, b) => b.revenue - a.revenue);
+
+  const warnings = [];
+  if (!Array.isArray(shopifyOrders)) warnings.push('No se pudo leer Shopify; la tasa de confirmación queda pendiente.');
+  if (!metaAvailable) warnings.push('No se pudo leer Meta Ads; beneficio, ROI y CPA quedan pendientes.');
+  if (unknownProductCostUnits) warnings.push(`${unknownProductCostUnits} unidades entregadas no tienen coste unitario configurado; el beneficio queda pendiente.`);
+  if (!policyApplicable) warnings.push(`Las tarifas configuradas solo son válidas desde ${policy.effectiveFrom}; el beneficio anterior queda pendiente.`);
 
   return {
     period,
+    status: period.current ? 'provisional' : 'reconstructed',
+    statusLabel: period.current ? 'Mes abierto · provisional' : 'Reconstrucción con APIs actuales',
     counts,
-    totals: {
-      revenue: roundMoney(revenue),
-      knownProductCost: roundMoney(knownProductCost),
-      knownFulfillmentCost: roundMoney(knownFulfillmentCost),
-      metaSpend: roundMoney(metaSpend),
-      knownContribution: roundMoney(knownContribution),
-      exactNetProfit: exactProfitAvailable ? roundMoney(knownContribution) : null
-    },
+    totals,
     coverage: {
       orders: true,
-      meta: true,
+      shopify: Array.isArray(shopifyOrders),
+      meta: metaAvailable,
       productCostPercent: Math.round(productCostCoverage * 100),
-      fulfillmentCostPercent: Math.round(fulfillmentCostCoverage * 100),
+      fulfillmentCostPercent: 100,
       exactProfitAvailable,
-      explanation: 'Dropea V2 pública omite parte del coste de producto y el desglose logístico completo. Se muestran los importes comprobables y el beneficio exacto queda sin calcular para evitar una cifra falsa.'
+      closedActual: false,
+      explanation: exactProfitAvailable
+        ? 'Beneficio calculado con ventas entregadas, costes unitarios configurados, tarifas logísticas, Meta Ads y coste fijo devengado.'
+        : 'No se muestra beneficio hasta disponer de todas las fuentes y costes necesarios.'
     },
+    warnings,
     days: dailyRows,
-    products: productRows
+    products: productRows,
+    policy
+  };
+}
+
+function applyClosedActual(report, actual) {
+  const live = report || null;
+  const counts = {
+    ...(live?.counts || {}),
+    ...actual.counts,
+    total: actual.counts.shopifyOrders,
+    notSent: actual.counts.shopifyOrders - actual.counts.sent
+  };
+  const totals = {
+    ...(live?.totals || {}),
+    ...actual.totals,
+    revenue: actual.totals.realRevenue,
+    knownProductCost: actual.totals.productCost,
+    knownFulfillmentCost: actual.totals.logisticsCost,
+    knownContribution: actual.totals.exactNetProfit
+  };
+  const warnings = [...(report?.warnings || [])];
+  const differences = {};
+  if (live) {
+    differences.returned = live.coverage?.orders ? (live.counts?.returned ?? 0) - actual.counts.returned : null;
+    differences.metaSpend = live.coverage?.meta ? roundMoney((live.totals?.metaSpend ?? 0) - actual.totals.metaSpend) : null;
+    differences.shopifyOrders = live.coverage?.shopify ? (live.counts?.shopifyOrders ?? 0) - actual.counts.shopifyOrders : null;
+    if (differences.returned) warnings.push(`La API actual muestra ${Math.abs(differences.returned)} devolución${Math.abs(differences.returned) === 1 ? '' : 'es'} ${differences.returned > 0 ? 'más' : 'menos'} que el cierre; julio conserva el valor contable cerrado.`);
+    if (differences.metaSpend) warnings.push(`Meta Ads ha variado ${roundMoney(Math.abs(differences.metaSpend)).toFixed(2)} € después del cierre; julio conserva el gasto validado.`);
+    if (differences.shopifyOrders) warnings.push('Shopify no coincide hoy con el cierre de julio; se conserva el recuento validado del libro contable.');
+  }
+  return {
+    ...report,
+    status: actual.status,
+    statusLabel: actual.label,
+    counts,
+    totals,
+    coverage: {
+      orders: true,
+      shopify: true,
+      meta: true,
+      productCostPercent: 100,
+      fulfillmentCostPercent: 100,
+      exactProfitAvailable: true,
+      closedActual: true,
+      explanation: 'Cierre contable verificado: todas las partidas cuadran al céntimo con el libro de julio y no se reescriben con cambios posteriores de las APIs.'
+    },
+    warnings,
+    audit: actual.audit,
+    days: actual.days,
+    liveComparison: live ? { differences, generatedAt: new Date().toISOString() } : null,
+    sources: { orders: actual.source, shopify: actual.source, meta: actual.source, costs: actual.source }
   };
 }
 
@@ -277,36 +384,41 @@ export async function buildFinanceReport({
   now = new Date(),
   clientFactory = createDropeaV2IncidentClient,
   configLoader = loadDropeaV2IncidentStoreConfigs,
-  metaLoader = getCampaignInsights
+  metaLoader = getCampaignInsights,
+  shopifyLoader = listShopifyOrdersByCreatedPeriod
 } = {}) {
   const period = resolveFinancePeriod(month, { now });
   const cached = cache.get(period.month);
   if (!force && cached && Date.now() - cached.cachedAt < CACHE_TTL_MS) return cached.report;
-
-  const [ordersResult, metaResult] = await Promise.allSettled([
+  const closedActual = getClosedFinanceActual(period.month);
+  const [ordersResult, metaResult, shopifyResult] = await Promise.allSettled([
     fetchOrders({ env, clientFactory, configLoader, period }),
-    metaLoader({ since: period.since, until: period.until, level: 'campaign', limit: 500, timeIncrement: 1 })
+    metaLoader({ since: period.since, until: period.until, level: 'campaign', limit: 500, timeIncrement: 1 }),
+    shopifyLoader({ since: period.since, until: period.until })
   ]);
-  if (ordersResult.status === 'rejected') throw ordersResult.reason;
+  if (ordersResult.status === 'rejected' && !closedActual) throw ordersResult.reason;
+
   const report = aggregateFinanceReport({
-    orders: ordersResult.value,
+    orders: ordersResult.status === 'fulfilled' ? ordersResult.value : [],
+    shopifyOrders: shopifyResult.status === 'fulfilled' ? shopifyResult.value : null,
     metaRows: metaResult.status === 'fulfilled' ? metaResult.value : [],
+    metaAvailable: metaResult.status === 'fulfilled',
     period
   });
-  if (metaResult.status === 'rejected') {
-    report.coverage.meta = false;
-    report.coverage.exactProfitAvailable = false;
-    report.coverage.explanation = `No se pudo obtener Meta Ads para el periodo: ${metaResult.reason instanceof Error ? metaResult.reason.message : String(metaResult.reason)}`;
-    report.totals.exactNetProfit = null;
-  }
+  report.coverage.orders = ordersResult.status === 'fulfilled';
   report.generatedAt = new Date().toISOString();
   report.sources = {
-    orders: 'Dropea Public API V2',
-    meta: report.coverage.meta ? 'Meta Marketing API' : 'No disponible',
-    costs: 'Campos raw wholesale_price y order_costs publicados por Dropea V2'
+    orders: ordersResult.status === 'fulfilled' ? 'Dropea Public API V2' : 'No disponible',
+    shopify: shopifyResult.status === 'fulfilled' ? 'Shopify Admin API' : 'No disponible',
+    meta: metaResult.status === 'fulfilled' ? 'Meta Marketing API' : 'No disponible',
+    costs: 'Tarifas contables efectivas desde 2026-07-01 y coste unitario por SKU'
   };
-  cache.set(period.month, { cachedAt: Date.now(), report });
-  return report;
+  if (ordersResult.status === 'rejected') report.warnings.push(`Dropea no disponible: ${ordersResult.reason instanceof Error ? ordersResult.reason.message : String(ordersResult.reason)}`);
+  if (shopifyResult.status === 'rejected') report.warnings.push(`Shopify no disponible: ${shopifyResult.reason instanceof Error ? shopifyResult.reason.message : String(shopifyResult.reason)}`);
+  if (metaResult.status === 'rejected') report.warnings.push(`Meta Ads no disponible: ${metaResult.reason instanceof Error ? metaResult.reason.message : String(metaResult.reason)}`);
+  const finalReport = closedActual ? applyClosedActual(report, closedActual) : report;
+  cache.set(period.month, { cachedAt: Date.now(), report: finalReport });
+  return finalReport;
 }
 
 export function clearFinanceCache() {

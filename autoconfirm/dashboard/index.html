@@ -212,39 +212,55 @@
           <article class="panel span-12 finance-panel" data-panel="overview settings">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Dropea + Meta Ads</p>
-                <h3>Control de gasto y rentabilidad</h3>
+                <p class="eyebrow">Shopify + Dropea + Meta Ads</p>
+                <h3>Control de beneficios</h3>
               </div>
               <div class="finance-toolbar">
                 <label>Mes <input id="finance-month" type="month"></label>
                 <button class="mini-button" id="finance-refresh" type="button">Actualizar periodo</button>
               </div>
             </div>
-            <div id="finance-coverage" class="finance-coverage">Preparando conciliación del periodo...</div>
+            <div class="finance-period-head">
+              <div id="finance-coverage" class="finance-coverage">Preparando conciliación del periodo...</div>
+              <span id="finance-status-badge" class="chip">Conciliando</span>
+            </div>
+            <div id="finance-audit" class="finance-audit" hidden></div>
             <div class="finance-grid">
-              <div><span>Pedidos del mes</span><strong id="finance-orders">—</strong><small>Por fecha de creación</small></div>
-              <div><span>Entregados</span><strong id="finance-delivered">—</strong><small>Estado final comprobado</small></div>
-              <div><span>Devueltos / rechazados</span><strong id="finance-returned">—</strong><small>Estado final comprobado</small></div>
-              <div><span>Incidencias</span><strong id="finance-incidents">—</strong><small>En revisión operativa</small></div>
-              <div><span>Ingresos entregados</span><strong id="finance-revenue">—</strong><small>No incluye pedidos pendientes</small></div>
-              <div><span>Coste producto conocido</span><strong id="finance-product-cost">—</strong><small id="finance-product-coverage">Cobertura pendiente</small></div>
-              <div><span>Componentes logísticos</span><strong id="finance-logistics">—</strong><small id="finance-logistics-coverage">Cobertura pendiente</small></div>
-              <div><span>Gasto Meta</span><strong id="finance-meta">—</strong><small>Periodo exacto seleccionado</small></div>
-              <div><span>Saldo parcial conocido</span><strong id="finance-known-contribution">—</strong><small>Ingresos − costes publicados − Meta</small></div>
-              <div class="finance-result"><span>Beneficio neto exacto</span><strong id="finance-profit">—</strong><small id="finance-formula">Solo cuando todos los costes estén disponibles</small></div>
+              <div><span>Pedidos Shopify</span><strong id="finance-orders">—</strong><small>Demanda total del mes</small></div>
+              <div><span>Pedidos enviados</span><strong id="finance-sent">—</strong><small id="finance-confirm-rate">Confirmación —</small></div>
+              <div><span>Pedidos entregados</span><strong id="finance-delivered">—</strong><small id="finance-delivery-rate">Entrega —</small></div>
+              <div><span>Devueltos / rechazados</span><strong id="finance-returned">—</strong><small>Devoluciones realmente costeadas</small></div>
+              <div><span>No enviados</span><strong id="finance-not-sent">—</strong><small>No confirmados o cancelados</small></div>
+              <div><span>Facturación real</span><strong id="finance-revenue">—</strong><small>Solo pedidos entregados</small></div>
+              <div><span>Gastos totales</span><strong id="finance-total-costs">—</strong><small>Producto + logística + publicidad + fijos</small></div>
+              <div><span>Gasto Meta</span><strong id="finance-meta">—</strong><small id="finance-real-cpa">CPA real —</small></div>
+              <div><span>Coste devoluciones</span><strong id="finance-return-cost">—</strong><small id="finance-return-unit-cost">Tarifa por devolución —</small></div>
+              <div><span>ROI</span><strong id="finance-roi">—</strong><small>Beneficio neto / gastos totales</small></div>
+              <div class="finance-result"><span>Beneficio neto</span><strong id="finance-profit">—</strong><small id="finance-formula">Facturación real − todos los gastos</small></div>
             </div>
             <div id="finance-warnings" class="warning-list"></div>
+            <div class="finance-charts">
+              <article class="finance-chart-card">
+                <div><p class="eyebrow">Evolución diaria</p><h4>Facturación, costes y beneficio</h4></div>
+                <div id="finance-trend-chart" class="finance-trend-chart"></div>
+              </article>
+              <article class="finance-chart-card">
+                <div><p class="eyebrow">Composición</p><h4>En qué se gasta cada euro</h4></div>
+                <div id="finance-cost-chart" class="finance-cost-chart"></div>
+              </article>
+            </div>
             <div class="finance-tables">
-              <div>
-                <h4>Detalle diario</h4>
+              <div class="finance-daily-detail">
+                <h4>Detalle diario completo</h4>
                 <div class="table-wrap">
                   <table>
-                    <thead><tr><th>Fecha</th><th>Pedidos</th><th>Entregados</th><th>Devueltos</th><th>Ingresos</th><th>Meta</th><th>Saldo parcial</th></tr></thead>
+                    <thead><tr><th>Fecha</th><th>Shopify</th><th>Enviados</th><th>Fact. estimada</th><th>Entregados</th><th>Fact. real</th><th>Producto</th><th>Envío ida</th><th>COD</th><th>Fulfillment</th><th>Devoluciones</th><th>Publicidad</th><th>Gastos fijos</th><th>Gastos totales</th><th>Beneficio neto</th><th>ROI</th><th>CPA estim.</th><th>CPA real</th><th>Confirmación</th><th>Entrega</th></tr></thead>
                     <tbody id="finance-days-table"></tbody>
+                    <tfoot id="finance-days-total"></tfoot>
                   </table>
                 </div>
               </div>
-              <div>
+              <div class="finance-product-detail">
                 <h4>Rentabilidad por producto</h4>
                 <div class="table-wrap">
                   <table>
