@@ -41,6 +41,9 @@ export const FINANCE_COST_POLICY = Object.freeze({
   returnPerReturned: 5.26,
   fixedCostPerCalendarDay: 8.97,
   productUnitCostsBySku: Object.freeze({
+    'COLLAGUM': 1.01,
+    'CREMANIDA': 1.44,
+    'WHITEO2': 2.00,
     '1969_COLLAGUM': 1.01,
     '1969_CREMANIDA': 1.44,
     '1989_WHITEO2': 2.00

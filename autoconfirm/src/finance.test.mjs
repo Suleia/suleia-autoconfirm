@@ -47,7 +47,7 @@ test('calculates every cost component and exact provisional profit when coverage
         status: 'FINISH',
         sub_status: 'DELIVERED',
         total_amount: 29.99,
-        line_items: [{ sku: '1969_COLLAGUM', product_name: 'Collagum', quantity: 1, unit_price: 29.99 }]
+        line_items: [{ sku: 'COLLAGUM', product_name: 'Collagum', quantity: 1, unit_price: 29.99 }]
       },
       {
         id: 2,
@@ -176,4 +176,7 @@ test('cost policy documents all rates used for future months', () => {
     returned: FINANCE_COST_POLICY.returnPerReturned,
     fixedDaily: FINANCE_COST_POLICY.fixedCostPerCalendarDay
   }, { shipping: 4.06, fulfillment: 1.2, cod: 1, returned: 5.26, fixedDaily: 8.97 });
+  assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku.COLLAGUM, 1.01);
+  assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku.CREMANIDA, 1.44);
+  assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku['1969_COLLAGUM'], 1.01);
 });
