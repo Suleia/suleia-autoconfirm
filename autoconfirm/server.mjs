@@ -25,6 +25,7 @@ import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cance
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
+import { buildFinanceReport } from './src/finance.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
@@ -662,6 +663,14 @@ const server = http.createServer(async (req, res) => {
       const settings = await saveFinanceSettings(body);
       dashboardBuildCacheAt = 0;
       return sendJson(res, 200, { ok: true, settings });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/finance') {
+      if (!requireDashboardAuth(req, res)) return;
+      const month = url.searchParams.get('month') || undefined;
+      const force = url.searchParams.get('refresh') === '1';
+      const finance = await buildFinanceReport({ month, force });
+      return sendJson(res, 200, { ok: true, finance });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-chat') {

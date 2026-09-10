@@ -26,7 +26,7 @@
           <button class="nav-item" data-section="meta">Meta Ads</button>
           <button class="nav-item" data-section="products">Productos</button>
           <button class="nav-item" data-section="research">Competencia</button>
-          <button class="nav-item" data-section="settings">Costes y reglas</button>
+          <button class="nav-item" data-section="settings">Control de gasto</button>
         </nav>
 
         <div class="side-card">
@@ -209,29 +209,51 @@
             <div id="sources-list" class="sources-grid"></div>
           </article>
 
-          <article class="panel span-12" data-panel="overview">
+          <article class="panel span-12 finance-panel" data-panel="overview settings">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Finanzas</p>
-                <h3>Beneficio real</h3>
+                <p class="eyebrow">Dropea + Meta Ads</p>
+                <h3>Control de gasto y rentabilidad</h3>
               </div>
-              <span class="chip">Cálculo auditable</span>
+              <div class="finance-toolbar">
+                <label>Mes <input id="finance-month" type="month"></label>
+                <button class="mini-button" id="finance-refresh" type="button">Actualizar periodo</button>
+              </div>
             </div>
+            <div id="finance-coverage" class="finance-coverage">Preparando conciliación del periodo...</div>
             <div class="finance-grid">
-              <div><span>Beneficio Dropea</span><strong id="finance-dropea-profit">€0,00</strong><small>Ya incluye stock y transporte</small></div>
-              <div><span>Gasto Meta</span><strong id="finance-meta">€0,00</strong><small>Periodo disponible</small></div>
-              <div class="finance-result"><span>Beneficio final</span><strong id="finance-profit">€0,00</strong><small id="finance-formula">Fórmula</small></div>
-              <div><span>Ingresos reconocidos</span><strong id="finance-revenue">€0,00</strong><small id="finance-orders">Lectura secundaria</small></div>
-              <div><span>Costes estimados alternativos</span><strong id="finance-alt-costs">€0,00</strong><small>No usados en beneficio final</small></div>
+              <div><span>Pedidos del mes</span><strong id="finance-orders">—</strong><small>Por fecha de creación</small></div>
+              <div><span>Entregados</span><strong id="finance-delivered">—</strong><small>Estado final comprobado</small></div>
+              <div><span>Devueltos / rechazados</span><strong id="finance-returned">—</strong><small>Estado final comprobado</small></div>
+              <div><span>Incidencias</span><strong id="finance-incidents">—</strong><small>En revisión operativa</small></div>
+              <div><span>Ingresos entregados</span><strong id="finance-revenue">—</strong><small>No incluye pedidos pendientes</small></div>
+              <div><span>Coste producto conocido</span><strong id="finance-product-cost">—</strong><small id="finance-product-coverage">Cobertura pendiente</small></div>
+              <div><span>Componentes logísticos</span><strong id="finance-logistics">—</strong><small id="finance-logistics-coverage">Cobertura pendiente</small></div>
+              <div><span>Gasto Meta</span><strong id="finance-meta">—</strong><small>Periodo exacto seleccionado</small></div>
+              <div><span>Saldo parcial conocido</span><strong id="finance-known-contribution">—</strong><small>Ingresos − costes publicados − Meta</small></div>
+              <div class="finance-result"><span>Beneficio neto exacto</span><strong id="finance-profit">—</strong><small id="finance-formula">Solo cuando todos los costes estén disponibles</small></div>
             </div>
-            <form class="inline-form" id="finance-settings-form">
-              <label>
-                Actualizar beneficio neto de Dropea
-                <input id="finance-dropea-input" inputmode="decimal" placeholder="448,19">
-              </label>
-              <button class="mini-button" type="submit">Guardar beneficio Dropea</button>
-            </form>
             <div id="finance-warnings" class="warning-list"></div>
+            <div class="finance-tables">
+              <div>
+                <h4>Detalle diario</h4>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Fecha</th><th>Pedidos</th><th>Entregados</th><th>Devueltos</th><th>Ingresos</th><th>Meta</th><th>Saldo parcial</th></tr></thead>
+                    <tbody id="finance-days-table"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div>
+                <h4>Rentabilidad por producto</h4>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Producto</th><th>Unidades</th><th>Ingresos</th><th>Coste conocido</th><th>Margen antes de logística y anuncios</th></tr></thead>
+                    <tbody id="finance-products-table"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </article>
 
           <article class="panel span-12" data-panel="agent">

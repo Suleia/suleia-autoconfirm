@@ -911,11 +911,11 @@ function systemAgentMemoryRules() {
 
 function defaultFinanceSettings() {
   return {
-    dropeaProfit: numberFrom(process.env.DROPEA_DASHBOARD_PROFIT) ?? 448.19,
+    dropeaProfit: numberFrom(process.env.DROPEA_DASHBOARD_PROFIT),
     dropshipperId: process.env.DROPEA_DROPSHIPPER_ID || '17431',
-    source: process.env.DROPEA_DASHBOARD_PROFIT ? 'env_dropea_dashboard_profit' : 'manual_dropea_dashboard',
+    source: process.env.DROPEA_DASHBOARD_PROFIT ? 'env_dropea_dashboard_profit' : 'not_available',
     updatedAt: new Date().toISOString(),
-    note: 'Beneficio neto indicado por Dropea, ya descontando transporte y stock.'
+    note: 'Campo heredado. El panel financiero conciliado no lo usa como beneficio real.'
   };
 }
 
@@ -1118,32 +1118,29 @@ function buildCampaignAnalytics(campaignRows) {
 function calculateFinance({ orders, campaignRows, metaRows, financeSettings }) {
   const recognizedOrders = orders.filter(isRecognizedSale);
   const revenue = recognizedOrders.reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
-  const productCost = recognizedOrders.reduce((sum, order) => sum + productCostForOrder(order), 0);
-  const paymentFees = recognizedOrders.reduce((sum, order) => sum + paymentCostForOrder(order), 0);
   const campaignSpend = campaignRows.reduce((sum, row) => sum + normalizeCampaignRow(row).spend, 0);
   const spendRow = metaRows.find((row) => normalize(row.Metrica) === 'gasto meta');
   const metaSpend = campaignSpend || numberFrom(spendRow?.Valor) || 0;
   const dropeaProfit = numberFrom(financeSettings?.dropeaProfit);
-  const businessProfit = dropeaProfit !== null ? dropeaProfit - metaSpend : revenue - productCost - paymentFees - metaSpend;
   const attributedOrders = campaignRows.reduce((sum, row) => sum + (numberFrom(row.pedidos_dropea_atribuidos) || 0), 0);
   const warnings = [
-    'El beneficio principal usa el beneficio neto marcado por Dropea y resta Meta.',
+    'Las cifras heredadas del dashboard no se presentan como beneficio real. Usa Control de gasto para la conciliacion mensual.',
     !attributedOrders && metaSpend ? 'El gasto Meta no esta atribuido a pedidos concretos; se usa gasto del periodo disponible.' : null,
     campaignSpend ? null : 'Meta no esta disponible en vivo; se usa el ultimo dato guardado en Sheets si existe.',
-    dropeaProfit === null ? 'No hay beneficio Dropea disponible; se usa calculo alternativo.' : null
+    'La API publica de Dropea no publica el coste logistico completo; no se calcula un beneficio falso.'
   ].filter(Boolean);
 
   return {
     recognizedOrders: recognizedOrders.length,
     revenue,
-    productCost,
-    paymentFees,
+    productCost: null,
+    paymentFees: null,
     metaSpend,
     dropeaProfit,
-    businessProfit,
-    netProfit: revenue - productCost - paymentFees - metaSpend,
-    formula: 'Beneficio real = beneficio neto Dropea - gasto Meta',
-    alternativeFormula: 'Alternativo = ingresos pedidos reconocidos - coste producto estimado - comisiones estimadas - gasto Meta',
+    businessProfit: null,
+    netProfit: null,
+    formula: 'Beneficio exacto no disponible sin todos los costes publicados por Dropea',
+    alternativeFormula: null,
     source: financeSettings?.source || 'unknown',
     sourceNote: financeSettings?.note || '',
     dropshipperId: financeSettings?.dropshipperId || '17431',
@@ -1601,6 +1598,7 @@ function buildBusinessManager({ campaignAnalytics, finance, orders, lastRequeste
 }
 
 function moneyText(value) {
+  if (value === null || value === undefined || value === '') return 'sin dato';
   const number = Number(value);
   if (!Number.isFinite(number)) return 'sin dato';
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(number);
@@ -1612,7 +1610,7 @@ function buildAgentReply({ message, dashboard }) {
   const finance = dashboard.finance || {};
   let reply = 'He guardado tu mensaje como aprendizaje operativo. Lo tendre en cuenta junto con el feedback por pedido.';
   if (lower.includes('beneficio') || lower.includes('meta') || lower.includes('dropea')) {
-    reply = `Estoy usando beneficio Dropea (${moneyText(finance.dropeaProfit)}) menos Meta (${moneyText(finance.metaSpend)}). Beneficio final actual: ${moneyText(finance.businessProfit)}.`;
+    reply = `El gasto Meta disponible es ${moneyText(finance.metaSpend)}. Consulta Control de gasto para la conciliacion mensual: no presento un beneficio neto exacto mientras Dropea no publique todos los costes logisticos y de producto.`;
   } else if (lower.includes('confirm') || lower.includes('pedido')) {
     reply = 'Aprendido. Para confirmaciones, priorizare boton de Chatby, etiqueta CONFIRMADO o mensaje explicito. Si hay cambio de direccion o datos de entrega, lo dejare pendiente por direccion y no lo confirmare.';
   }
