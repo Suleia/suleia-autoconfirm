@@ -7,6 +7,7 @@ import {
   executeIncidentDiscountNoResponseReturn,
   executeIncorrectAddressResolution,
   incidentDiscountNoResponseReturnDecision,
+  incidentNotificationLaneEnabled,
   incidentOperationalDecision,
   sortIncidentsByIncidenceDesc
 } from './incidents.mjs';
@@ -36,6 +37,22 @@ const currentReturnableIncident = {
   },
   order: { orderId: 'fixture-discount-order' }
 };
+
+test('enables only the isolated absent notification lane without changing other template lanes', () => {
+  const base = {
+    returnOnly: false,
+    repositoryOwnsIncidentTemplates: true,
+    incidentNotificationsEnabled: true,
+    incidentDiscountTemplateEnabled: true,
+    incidentDiscountRealEnabled: true
+  };
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent' }), true);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'rejected_goods' }), true);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'address' }), false);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent', returnOnly: true }), false);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent', repositoryOwnsIncidentTemplates: false }), false);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent', incidentNotificationsEnabled: false }), false);
+});
 
 test('recovers an exact Chatby conversation only from the current incident discount delivery', async () => {
   let reads = 0;
