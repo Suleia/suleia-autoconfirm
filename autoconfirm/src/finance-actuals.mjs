@@ -63,7 +63,7 @@ function ratio(numerator, denominator, multiplier = 1) {
 function normalizeRow(values) {
   const [
     day,
-    shopifyOrders,
+    sourceOrderCount,
     sent,
     estimatedRevenue,
     delivered,
@@ -81,7 +81,7 @@ function normalizeRow(values) {
   const netProfit = round(realRevenue - totalCosts);
   return {
     day,
-    shopifyOrders,
+    sourceOrderCount,
     sent,
     estimatedRevenue,
     delivered,
@@ -99,7 +99,6 @@ function normalizeRow(values) {
     roiPercent: ratio(netProfit, totalCosts, 100),
     estimatedCpa: ratio(metaSpend, sent),
     realCpa: ratio(metaSpend, delivered),
-    confirmationRatePercent: ratio(sent, shopifyOrders, 100),
     deliveryRatePercent: ratio(delivered, sent, 100)
   };
 }
@@ -126,12 +125,11 @@ function buildJulyActual() {
   totals.exactNetProfit = round(totals.realRevenue - totals.totalCosts);
   totals.roiPercent = ratio(totals.exactNetProfit, totals.totalCosts, 100);
   const counts = {
-    shopifyOrders: sum(days, 'shopifyOrders'),
+    sourceOrderCount: sum(days, 'sourceOrderCount'),
     sent: sum(days, 'sent'),
     delivered: sum(days, 'delivered'),
     returned: sum(days, 'returned')
   };
-  counts.confirmationRatePercent = ratio(counts.sent, counts.shopifyOrders, 100);
   counts.deliveryRatePercent = ratio(counts.delivered, counts.sent, 100);
   totals.estimatedCpa = ratio(totals.metaSpend, counts.sent);
   totals.realCpa = ratio(totals.metaSpend, counts.delivered);

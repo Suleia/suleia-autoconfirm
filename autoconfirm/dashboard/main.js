@@ -1494,19 +1494,16 @@ function renderFinance() {
   const counts = finance.counts || {};
   const totals = finance.totals || {};
   const reportCoverage = finance.coverage || {};
-  const orderSource = reportCoverage.shopify ? 'Shopify' : 'Dropea';
-  const orderCount = reportCoverage.shopify
-    ? (counts.shopifyOrders ?? counts.total ?? 0)
-    : (counts.dropeaOrders ?? counts.total ?? 0);
-  setText('#finance-orders-label', `Pedidos ${orderSource}`);
-  setText('#finance-orders-source', `Demanda disponible en ${orderSource}`);
-  setText('#finance-orders-column', orderSource);
+  const orderCount = counts.dropeaOrders ?? counts.total ?? 0;
+  setText('#finance-orders-label', 'Pedidos Dropea');
+  setText('#finance-orders-source', 'Demanda operativa del mes');
+  setText('#finance-orders-column', 'Dropea');
   setText('#finance-orders', String(orderCount));
   setText('#finance-sent', String(counts.sent ?? 0));
   setText('#finance-delivered', String(counts.delivered ?? 0));
   setText('#finance-returned', String(counts.returned ?? 0));
   setText('#finance-not-sent', String(counts.notSent ?? 0));
-  setText('#finance-confirm-rate', reportCoverage.shopify ? `Confirmación ${percentValue(counts.confirmationRatePercent)}` : 'Confirmación pendiente');
+  setText('#finance-confirm-rate', reportCoverage.orders ? `Confirmación ${percentValue(counts.confirmationRatePercent)}` : 'Confirmación pendiente');
   setText('#finance-delivery-rate', `Entrega ${percentValue(counts.deliveryRatePercent)}`);
   setText('#finance-revenue', money(totals.realRevenue ?? totals.revenue));
   setText('#finance-total-costs', money(totals.totalCosts));
@@ -1546,7 +1543,7 @@ function renderFinance() {
     daysTable.innerHTML = finance.days?.length
       ? finance.days.map((day) => `<tr>
           <td><strong>${escapeHtml(day.day)}</strong></td>
-          <td>${day.shopifyOrders ?? day.dropeaOrders ?? 0}</td><td>${day.sent ?? 0}</td><td>${money(day.estimatedRevenue)}</td>
+          <td>${day.dropeaOrders ?? '—'}</td><td>${day.sent ?? 0}</td><td>${money(day.estimatedRevenue)}</td>
           <td>${day.delivered ?? 0}</td><td>${money(day.realRevenue)}</td><td>${money(day.productCost)}</td>
           <td>${money(day.outboundShippingCost)}</td><td>${money(day.codCost)}</td><td>${money(day.outboundFulfillmentCost)}</td>
           <td>${money(day.returnCost)}</td><td>${money(day.metaSpend)}</td><td>${money(day.fixedCosts)}</td>

@@ -35,11 +35,6 @@ test('calculates every cost component and exact provisional profit when coverage
   const period = resolveFinancePeriod('2026-09', { now: new Date('2026-09-10T12:00:00.000Z') });
   const report = aggregateFinanceReport({
     period,
-    shopifyOrders: [
-      { createdAt: '2026-09-01T08:00:00.000Z' },
-      { createdAt: '2026-09-01T09:00:00.000Z' },
-      { createdAt: '2026-09-02T09:00:00.000Z' }
-    ],
     orders: [
       {
         id: 1,
@@ -69,8 +64,8 @@ test('calculates every cost component and exact provisional profit when coverage
     metaRows: [{ dateStart: '2026-09-01', spend: 10 }, { dateStart: '2026-09-02', spend: 5 }]
   });
 
-  assert.equal(report.counts.shopifyOrders, 3);
   assert.equal(report.counts.dropeaOrders, 3);
+  assert.equal(report.counts.total, 3);
   assert.equal(report.counts.sent, 2);
   assert.equal(report.counts.delivered, 1);
   assert.equal(report.counts.returned, 1);
@@ -92,7 +87,6 @@ test('never treats a missing SKU cost or missing Meta as zero profit expense', (
   const period = resolveFinancePeriod('2026-09', { now: new Date('2026-09-03T12:00:00.000Z') });
   const report = aggregateFinanceReport({
     period,
-    shopifyOrders: [{ createdAt: '2026-09-03T09:00:00.000Z' }],
     orders: [{
       created_at: '2026-09-03T09:00:00.000Z',
       status: 'FINISH',
@@ -123,11 +117,10 @@ test('July 2026 closed actual reconciles every spreadsheet total to the cent', (
     lateMetaDifference: 11.48
   });
   assert.deepEqual(actual.counts, {
-    shopifyOrders: 620,
+    sourceOrderCount: 620,
     sent: 452,
     delivered: 314,
     returned: 137,
-    confirmationRatePercent: 72.9,
     deliveryRatePercent: 69.47
   });
   assert.deepEqual(actual.totals, {
@@ -159,8 +152,7 @@ test('July remains available as a closed actual even if live providers are unava
     force: true,
     now: new Date('2026-09-10T12:00:00.000Z'),
     configLoader: () => { throw new Error('Dropea unavailable'); },
-    metaLoader: fail,
-    shopifyLoader: fail
+    metaLoader: fail
   });
   assert.equal(report.status, 'closed_actual');
   assert.equal(report.coverage.closedActual, true);
@@ -182,11 +174,10 @@ test('cost policy documents all rates used for future months', () => {
   assert.equal(FINANCE_COST_POLICY.productUnitCostsBySku['1969_COLLAGUM'], 1.01);
 });
 
-test('applies the verified historical May product cost and never reports a Shopify history gap as zero', () => {
+test('applies the verified historical May product cost using Dropea as the only order source', () => {
   const period = resolveFinancePeriod('2026-05', { now: new Date('2026-09-10T12:00:00.000Z') });
   const report = aggregateFinanceReport({
     period,
-    shopifyOrders: [],
     orders: [{
       created_at: '2026-05-03T09:00:00.000Z',
       status: 'FINISH',
@@ -205,11 +196,10 @@ test('applies the verified historical May product cost and never reports a Shopi
   assert.equal(report.totals.productCost, 3.70);
   assert.equal(report.coverage.productCostPercent, 100);
   assert.equal(report.coverage.exactProfitAvailable, true);
-  assert.equal(report.coverage.shopify, false);
-  assert.equal(report.counts.shopifyOrders, null);
   assert.equal(report.counts.dropeaOrders, 1);
+  assert.equal(report.counts.total, 1);
   assert.equal(report.counts.notSent, 0);
-  assert.equal(report.counts.confirmationRatePercent, null);
-  assert.equal(report.days.find((day) => day.day === '2026-05-03').shopifyOrders, null);
-  assert.match(report.warnings.join(' '), /muestra los pedidos de Dropea/i);
+  assert.equal(report.counts.confirmationRatePercent, 100);
+  assert.equal(report.days.find((day) => day.day === '2026-05-03').dropeaOrders, 1);
+  assert.doesNotMatch(report.warnings.join(' '), /Shopify/i);
 });
