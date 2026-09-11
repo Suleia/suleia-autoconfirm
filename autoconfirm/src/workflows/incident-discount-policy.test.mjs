@@ -89,15 +89,45 @@ test('a customer interaction after a ledger-backed initial send still blocks the
   assert.equal(result.reason, 'customer_interaction_after_merchandise_template');
 });
 
-test('does not reuse a merchandise template sent before the current incident', () => {
+test('carries a verified merchandise template into a later incidence without duplicating it', () => {
   const result = incidentDiscountPolicy({
     incident: incident({ incidenceDate: '2026-07-28T10:00:00.000Z' }),
     messages: [initialTemplate],
+    now: Date.parse('2026-07-29T10:00:00.000Z'),
+    discountTemplateName: 'es_es_dropea_incidencia_descuento_5'
+  });
+  assert.equal(result.eligible, true);
+  assert.equal(result.reason, 'discount_template_due');
+  assert.equal(result.merchandiseTemplateCarriedForward, true);
+  assert.equal(result.eligibilityAnchorAt, '2026-07-28T10:00:00.000Z');
+});
+
+test('a carried-forward template waits twenty-four hours from the later incidence', () => {
+  const result = incidentDiscountPolicy({
+    incident: incident({ incidenceDate: '2026-07-28T10:00:00.000Z' }),
+    messages: [initialTemplate],
+    now: Date.parse('2026-07-29T09:59:59.000Z'),
+    discountTemplateName: 'es_es_dropea_incidencia_descuento_5'
+  });
+  assert.equal(result.eligible, false);
+  assert.equal(result.reason, 'waiting_discount_window');
+  assert.equal(result.dueAt, '2026-07-29T10:00:00.000Z');
+  assert.equal(result.merchandiseTemplateCarriedForward, true);
+});
+
+test('customer activity still blocks a carried-forward merchandise template', () => {
+  const result = incidentDiscountPolicy({
+    incident: incident({ incidenceDate: '2026-07-28T10:00:00.000Z' }),
+    messages: [
+      initialTemplate,
+      { direction: 'inbound', created_at: '2026-07-28T11:00:00.000Z', text: 'Cualquier respuesta' }
+    ],
     now: Date.parse('2026-07-29T12:00:00.000Z'),
     discountTemplateName: 'es_es_dropea_incidencia_descuento_5'
   });
   assert.equal(result.eligible, false);
-  assert.equal(result.reason, 'merchandise_template_before_current_incident');
+  assert.equal(result.reason, 'customer_interaction_after_merchandise_template');
+  assert.equal(result.merchandiseTemplateCarriedForward, true);
 });
 
 test('any customer message or button after the merchandise template blocks the discount', () => {

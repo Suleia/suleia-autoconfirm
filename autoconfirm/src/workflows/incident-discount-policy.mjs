@@ -189,10 +189,6 @@ export function incidentDiscountPolicy({
   if (!merchandiseDelivery?.sentAt) return { eligible: false, reason: 'merchandise_template_not_verified' };
   const incidentAtMs = parseDateMs(incident?.incidenceDate || incident?.createdAt);
   const merchandiseAtMs = parseDateMs(merchandiseDelivery.sentAt);
-  if (Number.isFinite(incidentAtMs) && merchandiseAtMs < incidentAtMs - (5 * 60 * 1000)) {
-    return { eligible: false, reason: 'merchandise_template_before_current_incident' };
-  }
-
   const existingDiscount = discountTemplateName
     ? latestVerifiedDelivery(messages, discountTemplateName, discountPersistentDelivery)
     : null;
@@ -205,23 +201,41 @@ export function incidentDiscountPolicy({
     };
   }
 
+  // The merchandise template is intentionally idempotent per order. When the
+  // carrier opens a later rejected-goods incidence for the same order, reuse
+  // that verified delivery instead of sending the lifecycle template twice.
+  // The later incidence becomes the new 24-hour anchor and any customer
+  // interaction after the original delivery still blocks the discount.
+  const carriedForwardAcrossIncident = Number.isFinite(incidentAtMs)
+    && merchandiseAtMs < incidentAtMs - (5 * 60 * 1000);
+
   if (customerInteractionAfter(messages, merchandiseDelivery.sentAt)) {
     return {
       eligible: false,
       reason: 'customer_interaction_after_merchandise_template',
-      merchandiseTemplateSentAt: merchandiseDelivery.sentAt
+      merchandiseTemplateSentAt: merchandiseDelivery.sentAt,
+      merchandiseTemplateCarriedForward: carriedForwardAcrossIncident
     };
   }
 
-  const sentAtMs = parseDateMs(merchandiseDelivery.sentAt);
-  const ageHours = Number.isFinite(sentAtMs) ? Math.max(0, (Number(now) - sentAtMs) / 3_600_000) : 0;
+  const eligibilityAnchorMs = carriedForwardAcrossIncident
+    ? Math.max(merchandiseAtMs, incidentAtMs)
+    : merchandiseAtMs;
+  const eligibilityAnchorAt = Number.isFinite(eligibilityAnchorMs)
+    ? new Date(eligibilityAnchorMs).toISOString()
+    : merchandiseDelivery.sentAt;
+  const ageHours = Number.isFinite(eligibilityAnchorMs)
+    ? Math.max(0, (Number(now) - eligibilityAnchorMs) / 3_600_000)
+    : 0;
   if (ageHours < INCIDENT_DISCOUNT_DELAY_HOURS) {
     return {
       eligible: false,
       reason: 'waiting_discount_window',
       ageHours,
-      dueAt: new Date(sentAtMs + INCIDENT_DISCOUNT_DELAY_HOURS * 3_600_000).toISOString(),
-      merchandiseTemplateSentAt: merchandiseDelivery.sentAt
+      dueAt: new Date(eligibilityAnchorMs + INCIDENT_DISCOUNT_DELAY_HOURS * 3_600_000).toISOString(),
+      merchandiseTemplateSentAt: merchandiseDelivery.sentAt,
+      eligibilityAnchorAt,
+      merchandiseTemplateCarriedForward: carriedForwardAcrossIncident
     };
   }
   if (!incident?.chatbyUserNs) {
@@ -232,6 +246,8 @@ export function incidentDiscountPolicy({
     reason: 'discount_template_due',
     ageHours,
     merchandiseTemplateSentAt: merchandiseDelivery.sentAt,
+    eligibilityAnchorAt,
+    merchandiseTemplateCarriedForward: carriedForwardAcrossIncident,
     discountAmountEur: INCIDENT_DISCOUNT_MAX_EUR
   };
 }
