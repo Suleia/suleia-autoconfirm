@@ -120,7 +120,8 @@ test('month selector input changes the complete report period', async () => {
   const result = await buildFinanceReport({ month: '2026-08', force: true, now, rules, expenses, configLoader: () => [{ store_id: '1', market: 'ES', token: 'test' }], clientFactory: () => ({ listAll: async (name, params) => { calls.push({ name, params }); return { items: [] }; } }), metaLoader: async () => [] });
   assert.equal(result.period.month, '2026-08');
   assert.equal(result.comparison.period.month, '2026-07');
-  assert.equal(calls[0].params.date_to, '2026-08-31T21:59:59.999Z');
+  const selectedMonthCall = calls.find((call) => call.name === 'listOrders' && call.params.date_to === '2026-08-31T21:59:59.999Z');
+  assert.ok(selectedMonthCall, 'the selected month must be loaded through its complete Madrid boundary');
 });
 
 test('all monetary parsing is exact to integer cents', () => {

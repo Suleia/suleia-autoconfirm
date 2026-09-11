@@ -393,17 +393,20 @@ function buildProjection(report, expenses) {
   return { method: 'run_rate_mtd', confidence: report.period.elapsedDays >= 14 ? 'medium' : 'low', revenue: euros(revenue), totalCosts: euros(variable + fixed), netProfit: euros(revenue - variable - fixed), note: 'Proyección separada del realizado MTD.' };
 }
 
-async function loadSources({ env, clientFactory, configLoader, earliest, period }) {
+async function loadSources({ env, clientFactory, configLoader, periods }) {
   const orders = []; const issues = [];
-  for (const store of configLoader(env)) {
+  await Promise.all(configLoader(env).map(async (store) => {
     const client = clientFactory({ token: store.token, market: store.market });
-    const [orderPage, issuePage] = await Promise.all([
-      client.listAll('listOrders', { store_id: Number(store.store_id), date_from: zonedTimestamp(`${earliest}-01`), date_to: period.toTimestamp, date_type: 'created_at', sort_by: 'created_at', sort_order: 'asc' }, { maxPages: 80, maxRecords: 8000, requestedLimit: 100 }),
+    const [orderPages, issuePage] = await Promise.all([
+      Promise.all(periods.map((target) => client.listAll('listOrders', { store_id: Number(store.store_id), date_from: target.fromTimestamp, date_to: target.toTimestamp, date_type: 'created_at', sort_by: 'created_at', sort_order: 'asc' }, { maxPages: 20, maxRecords: 2000, requestedLimit: 100 }))),
       client.listAll('listIssues', {}, { maxPages: 80, maxRecords: 8000, requestedLimit: 100 })
     ]);
-    orders.push(...orderPage.items); issues.push(...issuePage.items);
-  }
-  return { orders, issues };
+    orders.push(...orderPages.flatMap((page) => page.items)); issues.push(...issuePage.items);
+  }));
+  return {
+    orders: [...new Map(orders.map((order) => [String(order.id), order])).values()],
+    issues: [...new Map(issues.map((issue) => [String(issue.id), issue])).values()]
+  };
 }
 
 export async function buildFinanceReport({ month, force = false, env = process.env, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs, metaLoader = getCampaignInsights, rules = loadFinanceCostRules(), expenses = loadFinanceExpenses() } = {}) {
@@ -412,8 +415,9 @@ export async function buildFinanceReport({ month, force = false, env = process.e
   if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.report;
   const historyMonths = monthsEndingAt(period.month, 12, rules.effective_from.slice(0, 7));
   const earliest = historyMonths[0];
+  const sourcePeriods = historyMonths.map((value) => resolveFinancePeriod(value, { now }));
   const [orderResult, metaResult] = await Promise.allSettled([
-    loadSources({ env, clientFactory, configLoader, earliest, period }),
+    loadSources({ env, clientFactory, configLoader, periods: sourcePeriods }),
     metaLoader({ since: `${earliest}-01`, until: period.until, level: 'campaign', limit: 500, timeIncrement: 1 })
   ]);
   if (orderResult.status === 'rejected' && !getClosedFinanceActual(period.month)) throw orderResult.reason;
