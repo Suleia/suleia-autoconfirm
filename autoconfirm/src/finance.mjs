@@ -429,6 +429,8 @@ async function loadSources({ env, clientFactory, configLoader, periods }) {
   const orders = []; const issues = [];
   await Promise.all(configLoader(env).map(async (store) => {
     const client = clientFactory({ token: store.token, market: store.market });
+    const firstDay = periods[0].since;
+    const lastDay = periods.at(-1).until;
     const loadedOrderPages = [];
     let nextPeriod = 0;
     const workers = Array.from({ length: Math.min(2, periods.length) }, async () => {
@@ -440,7 +442,15 @@ async function loadSources({ env, clientFactory, configLoader, periods }) {
     });
     const [orderPages, issuePage] = await Promise.all([
       Promise.all(workers).then(() => loadedOrderPages),
-      client.listAll('listIssues', {}, { maxPages: 80, maxRecords: 8000, requestedLimit: 100 })
+      client.listAll('listIssues', {}, {
+        maxPages: 80,
+        maxRecords: 2000,
+        requestedLimit: 100,
+        itemFilter: (issue) => {
+          const day = localDay(issue.created_at || issue.createdAt);
+          return Boolean(day && day >= firstDay && day <= lastDay);
+        }
+      })
     ]);
     orders.push(...orderPages.flatMap((page) => page.items)); issues.push(...issuePage.items);
   }));

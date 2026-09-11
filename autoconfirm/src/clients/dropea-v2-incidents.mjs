@@ -162,7 +162,7 @@ export function createDropeaV2IncidentClient({
     }
   }
 
-  async function listAll(name, params = {}, { maxPages = 30, maxRecords = 3_000, requestedLimit = 100 } = {}) {
+  async function listAll(name, params = {}, { maxPages = 30, maxRecords = 3_000, requestedLimit = 100, itemFilter = null } = {}) {
     const items = [];
     const seen = new Set();
     const fingerprints = new Set();
@@ -176,7 +176,7 @@ export function createDropeaV2IncidentClient({
       for (const item of pageItems) {
         if (item?.id === undefined || item.id === null) fail('DROPEA_V2_ITEM_ID_MISSING');
         const key = String(item.id);
-        if (!seen.has(key)) {
+        if (!seen.has(key) && (!itemFilter || itemFilter(item))) {
           seen.add(key);
           items.push(item);
         }

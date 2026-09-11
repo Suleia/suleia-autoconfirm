@@ -146,6 +146,22 @@ test('encapsulated V2 client emits GET-only requests to the official market host
   assert.match(calls[0].url, /only_pending_to_resolve=true/);
 });
 
+test('paginated V2 reads can discard out-of-period rows before retaining them', async () => {
+  const client = createDropeaV2IncidentClient({
+    token: token(),
+    market: 'ES',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { success: true, message: 'ok', data: { items: [{ id: 1, created_at: '2025-01-01T00:00:00Z' }, { id: 2, created_at: '2026-09-01T00:00:00Z' }], pagination: { total: 2, page: 1, limit: 100, total_pages: 1 } } };
+      }
+    })
+  });
+  const result = await client.listAll('listIssues', {}, { itemFilter: (item) => item.created_at.startsWith('2026-09') });
+  assert.deepEqual(result.items.map((item) => item.id), [2]);
+});
+
 test('Dropea V2 normalization preserves the dashboard shape without creating actions', () => {
   const row = normalizeDropeaV2Incident(issue(9), order, { market: 'ES' });
   assert.equal(row.order.raw.customer.full_name, 'Cliente de prueba');
