@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { aggregateFinanceReport, allocateExpenses, buildFinanceReport, classifyFinanceOrder, moneyToCents, resolveFinancePeriod } from './finance.mjs';
+import { aggregateFinanceReport, allocateExpenses, buildFinanceReport, classifyFinanceOrder, moneyToCents, resolveFinancePeriod, saveFinanceSnapshot } from './finance.mjs';
 import { loadFinanceCostRules, loadFinanceExpenses } from './finance-data.mjs';
 
 const now = new Date('2026-09-11T12:00:00.000Z');
@@ -129,4 +129,12 @@ test('all monetary parsing is exact to integer cents', () => {
   assert.equal(moneyToCents('176,39'), 17639);
   assert.equal(moneyToCents('34.99'), 3499);
   assert.equal(moneyToCents('34.999'), null);
+});
+
+test('snapshot publisher accepts only bounded finance data without personal fields', async () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, orders: [], issues: [], metaRows: [] });
+  report.generatedAt = now.toISOString();
+  const saved = await saveFinanceSnapshot(report);
+  assert.equal(saved.month, '2026-09');
+  await assert.rejects(() => saveFinanceSnapshot({ ...report, customerEmail: 'blocked@example.test' }), /PERSONAL_DATA_BLOCKED/);
 });

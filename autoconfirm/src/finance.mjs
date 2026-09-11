@@ -21,6 +21,35 @@ async function persistFinanceSnapshot(report) {
   }, { onConflict: 'key' });
 }
 
+export async function saveFinanceSnapshot(report) {
+  const text = JSON.stringify(report);
+  if (!report?.period?.month || !/^\d{4}-(0[1-9]|1[0-2])$/.test(report.period.month)) throw new Error('FINANCE_SNAPSHOT_MONTH_INVALID');
+  if (!report?.totals || !report?.counts || !Array.isArray(report.days) || report.days.length > 31) throw new Error('FINANCE_SNAPSHOT_SCHEMA_INVALID');
+  if (text.length > 1_000_000) throw new Error('FINANCE_SNAPSHOT_TOO_LARGE');
+  if (/"(?:customer|phone|email|address|tracking)[^"]*"\s*:/i.test(text)) throw new Error('FINANCE_SNAPSHOT_PERSONAL_DATA_BLOCKED');
+  cache.set(report.period.month, { at: Date.now(), report });
+  await persistFinanceSnapshot(report);
+  return { month: report.period.month, generatedAt: report.generatedAt || null, bytes: Buffer.byteLength(text) };
+}
+
+export async function loadStoredMetaSpend({ since, until }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(since)) || !/^\d{4}-\d{2}-\d{2}$/.test(String(until)) || since > until) throw new Error('FINANCE_META_PERIOD_INVALID');
+  if (!isSupabaseEnabled()) throw new Error('FINANCE_META_STORE_UNAVAILABLE');
+  const rows = await selectRows('meta_campaign_insights', {
+    query: { select: 'date_start,spend,updated_at', and: `(date_start.gte.${since},date_start.lte.${until})` },
+    limit: 5000
+  });
+  const days = new Map();
+  let lastSyncAt = null;
+  for (const row of rows) {
+    const day = String(row.date_start || '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue;
+    days.set(day, (days.get(day) || 0) + (moneyToCents(row.spend) || 0));
+    if (row.updated_at && (!lastSyncAt || row.updated_at > lastSyncAt)) lastSyncAt = row.updated_at;
+  }
+  return { rows: [...days].sort(([a], [b]) => a.localeCompare(b)).map(([dateStart, cents]) => ({ dateStart, spend: euros(cents) })), lastSyncAt };
+}
+
 export async function loadFinanceSnapshot({ month, now = new Date() } = {}) {
   const period = resolveFinancePeriod(month, { now });
   const memory = cache.get(period.month);

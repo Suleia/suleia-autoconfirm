@@ -25,7 +25,7 @@ import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cance
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
-import { buildFinanceReport, loadFinanceSnapshot } from './src/finance.mjs';
+import { buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot } from './src/finance.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
@@ -697,6 +697,20 @@ const server = http.createServer(async (req, res) => {
         pending: !finance,
         refreshing: queued || financeRefreshInFlight.has(String(month || 'current'))
       });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/finance-meta-source') {
+      if (!requireDashboardAuth(req, res)) return;
+      const source = await loadStoredMetaSpend({ since: url.searchParams.get('since'), until: url.searchParams.get('until') });
+      return sendJson(res, 200, { ok: true, source });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/finance-snapshot') {
+      if (!requireDashboardAuth(req, res)) return;
+      if (req.headers['x-finance-snapshot-authorization'] !== 'owner-authorized') return sendJson(res, 403, { ok: false, error: 'finance_snapshot_authorization_required' });
+      const body = await readBody(req);
+      const saved = await saveFinanceSnapshot(body.report);
+      return sendJson(res, 200, { ok: true, saved });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-chat') {
