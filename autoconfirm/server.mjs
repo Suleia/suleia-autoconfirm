@@ -1308,12 +1308,4 @@ server.listen(config.port, async () => {
   startIncidentNotificationsScheduler();
   startIncidentDiscountRecoveryScheduler();
   startMetaDashboardSync();
-  const financeWarmup = setTimeout(() => {
-    buildFinanceReport().then((report) => {
-      console.log(`Finance dashboard cache ready (${report.period.month}).`);
-    }).catch((error) => {
-      console.error('Finance dashboard warm-up error:', error instanceof Error ? error.message : String(error));
-    });
-  }, 2000);
-  financeWarmup.unref?.();
 });

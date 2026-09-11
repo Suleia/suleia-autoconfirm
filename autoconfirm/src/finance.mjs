@@ -397,8 +397,17 @@ async function loadSources({ env, clientFactory, configLoader, periods }) {
   const orders = []; const issues = [];
   await Promise.all(configLoader(env).map(async (store) => {
     const client = clientFactory({ token: store.token, market: store.market });
+    const loadedOrderPages = [];
+    let nextPeriod = 0;
+    const workers = Array.from({ length: Math.min(2, periods.length) }, async () => {
+      while (nextPeriod < periods.length) {
+        const target = periods[nextPeriod];
+        nextPeriod += 1;
+        loadedOrderPages.push(await client.listAll('listOrders', { store_id: Number(store.store_id), date_from: target.fromTimestamp, date_to: target.toTimestamp, date_type: 'created_at', sort_by: 'created_at', sort_order: 'asc' }, { maxPages: 20, maxRecords: 2000, requestedLimit: 100 }));
+      }
+    });
     const [orderPages, issuePage] = await Promise.all([
-      Promise.all(periods.map((target) => client.listAll('listOrders', { store_id: Number(store.store_id), date_from: target.fromTimestamp, date_to: target.toTimestamp, date_type: 'created_at', sort_by: 'created_at', sort_order: 'asc' }, { maxPages: 20, maxRecords: 2000, requestedLimit: 100 }))),
+      Promise.all(workers).then(() => loadedOrderPages),
       client.listAll('listIssues', {}, { maxPages: 80, maxRecords: 8000, requestedLimit: 100 })
     ]);
     orders.push(...orderPages.flatMap((page) => page.items)); issues.push(...issuePage.items);
