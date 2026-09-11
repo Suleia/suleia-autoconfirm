@@ -431,14 +431,6 @@ export async function processIncidentDiscountRecovery({
   }
   const discountTemplateName = INCIDENT_DISCOUNT_TEMPLATE_NAME;
 
-  let freshMessages = verifiedSameCycleMessages(incident, messages);
-  if (!freshMessages) {
-    try {
-      freshMessages = await deps.getMessages(incident.chatbyUserNs);
-    } catch (error) {
-      return recoveryResult({ reason: 'chatby_final_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
-    }
-  }
   let merchandisePersistentDelivery;
   let discountPersistentDelivery;
   try {
@@ -457,15 +449,32 @@ export async function processIncidentDiscountRecovery({
   } catch (error) {
     return recoveryResult({ reason: 'template_delivery_ledger_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
   }
-  const policy = evaluateRecoveryPolicy({
+  const verifiedBatchMessages = incident?.chatbyReadVerified === true
+    && incident?.chatbyReadAt
+    && Array.isArray(messages)
+    ? messages
+    : null;
+  let freshMessages = verifiedSameCycleMessages(incident, messages);
+  let lastVerifiedReadAtMs = freshMessages ? Date.parse(String(incident.chatbyReadAt || '')) : Number.NaN;
+  let policyMessages = freshMessages || verifiedBatchMessages;
+  if (!policyMessages) {
+    try {
+      policyMessages = await deps.getMessages(incident.chatbyUserNs);
+      freshMessages = policyMessages;
+      lastVerifiedReadAtMs = Date.now();
+    } catch (error) {
+      return recoveryResult({ reason: 'chatby_final_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  let policy = evaluateRecoveryPolicy({
     incident: { ...incident, chatbyReadVerified: true },
-    messages: freshMessages,
+    messages: policyMessages,
     now,
     discountTemplateName,
     merchandisePersistentDelivery,
     discountPersistentDelivery
   }, { authorizedImmediate });
-  const response = classifyIncidentDiscountResponse(freshMessages, discountTemplateName, discountPersistentDelivery);
+  let response = classifyIncidentDiscountResponse(policyMessages, discountTemplateName, discountPersistentDelivery);
   if (!policy.eligible) {
     return recoveryResult({
       reason: policy.reason,
@@ -478,6 +487,40 @@ export async function processIncidentDiscountRecovery({
       responseStatus: response.status,
       respondedAt: response.respondedAt
     });
+  }
+
+  // A verified batch snapshot is enough to reject an ineligible case. Only a
+  // case that could actually send consumes a new Chatby read, preserving the
+  // provider quota while keeping the pre-send decision fail-closed.
+  if (!freshMessages) {
+    try {
+      freshMessages = await deps.getMessages(incident.chatbyUserNs);
+      lastVerifiedReadAtMs = Date.now();
+    } catch (error) {
+      return recoveryResult({ reason: 'chatby_final_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
+    }
+    policy = evaluateRecoveryPolicy({
+      incident: { ...incident, chatbyReadVerified: true },
+      messages: freshMessages,
+      now,
+      discountTemplateName,
+      merchandisePersistentDelivery,
+      discountPersistentDelivery
+    }, { authorizedImmediate });
+    response = classifyIncidentDiscountResponse(freshMessages, discountTemplateName, discountPersistentDelivery);
+    if (!policy.eligible) {
+      return recoveryResult({
+        reason: policy.reason,
+        status: policy.reason === 'discount_template_already_sent' ? 'already_sent' : 'skipped',
+        templateName: discountTemplateName,
+        initialTemplateSentAt: policy.merchandiseTemplateSentAt,
+        dueAt: policy.dueAt,
+        sentAt: policy.discountTemplateSentAt,
+        verified: policy.reason === 'discount_template_already_sent',
+        responseStatus: response.status,
+        respondedAt: response.respondedAt
+      });
+    }
   }
 
   // Catalogue validation is required only for a delivery that is actually due.
@@ -534,8 +577,11 @@ export async function processIncidentDiscountRecovery({
 
   // Re-read immediately before claiming and sending. Any message or button after
   // the initial template closes the lane, including an ambiguous reply.
-  const finalMessages = verifiedSameCycleMessages(incident, freshMessages)
-    || await deps.getMessages(incident.chatbyUserNs).catch(() => null);
+  const finalMessages = Array.isArray(freshMessages)
+    && Number.isFinite(lastVerifiedReadAtMs)
+    && Date.now() - lastVerifiedReadAtMs <= 15_000
+    ? freshMessages
+    : await deps.getMessages(incident.chatbyUserNs).catch(() => null);
   if (!Array.isArray(finalMessages)) {
     return recoveryResult({ ...preview, reason: 'chatby_pre_send_read_failed' });
   }

@@ -114,6 +114,48 @@ test('does not send before 24 hours or after any customer interaction', async ()
   assert.equal(replied.sent.length, 0);
 });
 
+test('uses an older verified batch snapshot to skip an ineligible case without another Chatby read', async () => {
+  const data = fixture();
+  data.incident.chatbyReadAt = '2026-08-28T08:01:00.000Z';
+  let reads = 0;
+  data.dependencies.getMessages = async () => {
+    reads += 1;
+    throw new Error('an ineligible case must not spend another provider read');
+  };
+  const result = await processIncidentDiscountRecovery({
+    incident: data.incident,
+    order: data.order,
+    messages: [initial],
+    realEnabled: true,
+    now: Date.parse('2026-08-29T07:00:00.000Z'),
+    dependencies: data.dependencies
+  });
+  assert.equal(result.reason, 'waiting_discount_window');
+  assert.equal(reads, 0);
+  assert.equal(data.sent.length, 0);
+});
+
+test('performs only one fresh Chatby read when a verified batch case is eligible', async () => {
+  const data = fixture();
+  data.incident.chatbyReadAt = '2026-08-28T08:01:00.000Z';
+  let reads = 0;
+  data.dependencies.getMessages = async () => {
+    reads += 1;
+    return [initial];
+  };
+  const result = await processIncidentDiscountRecovery({
+    incident: data.incident,
+    order: data.order,
+    messages: [initial],
+    realEnabled: true,
+    now: Date.parse('2026-08-29T08:00:00.000Z'),
+    dependencies: data.dependencies
+  });
+  assert.equal(result.status, 'sent');
+  assert.equal(reads, 1);
+  assert.equal(data.sent.length, 1);
+});
+
 test('persistent claim blocks duplicates across restarts', async () => {
   const data = fixture();
   data.dependencies.claim = async () => ({

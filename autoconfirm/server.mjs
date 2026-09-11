@@ -77,7 +77,7 @@ async function refreshChatbyHealth() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     chatbyHealth.ready = false;
-    chatbyHealth.status = /429|too many requests/i.test(message) ? 'rate_limited' : 'unavailable';
+    chatbyHealth.status = /429|too many requests|rate limited/i.test(message) ? 'rate_limited' : 'unavailable';
     chatbyHealth.error = message.slice(0, 300);
   }
   return chatbyHealth;

@@ -4,6 +4,7 @@ import test from 'node:test';
 process.env.CHATBY_TOKEN = 'test-token';
 process.env.CHATBY_BASE_URL = 'https://chatby.test/api';
 process.env.CHATBY_REQUEST_MIN_INTERVAL_MS = '0';
+process.env.CHATBY_ADAPTIVE_MAX_INTERVAL_MS = '0';
 process.env.CHATBY_READ_RETRY_BASE_MS = '1';
 
 const {
@@ -25,7 +26,7 @@ const {
 } = await import('./chatby.mjs');
 
 test('uses a conservative production request interval to stay below the Chatby burst limit', () => {
-  assert.equal(CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS, 1200);
+  assert.equal(CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS, 3500);
 });
 
 test('uses a fail-fast one-minute cooldown when Chatby omits Retry-After', () => {

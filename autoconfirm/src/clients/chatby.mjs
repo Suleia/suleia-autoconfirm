@@ -3,8 +3,9 @@ import { getAppConfig } from '../config.mjs';
 const config = getAppConfig();
 
 const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 600000));
-export const CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS = 1200;
+export const CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS = 3500;
 export const CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+export const CHATBY_DEFAULT_ADAPTIVE_MAX_INTERVAL_MS = 15_000;
 const requestMinIntervalMs = Math.max(
   0,
   Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS)
@@ -13,12 +14,18 @@ const rateLimitCooldownMs = Math.max(
   5000,
   Number(process.env.CHATBY_RATE_LIMIT_COOLDOWN_MS || CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS)
 );
+const adaptiveMaxIntervalMs = Math.max(
+  requestMinIntervalMs,
+  Number(process.env.CHATBY_ADAPTIVE_MAX_INTERVAL_MS || CHATBY_DEFAULT_ADAPTIVE_MAX_INTERVAL_MS)
+);
 const readRetryBaseMs = Math.max(0, Number(process.env.CHATBY_READ_RETRY_BASE_MS || 500));
 let subscriberIndexCache = null;
 let subscriberIndexInFlight = null;
 let requestQueue = Promise.resolve();
 let nextRequestAt = 0;
 let rateLimitedUntil = 0;
+let adaptiveRequestMinIntervalMs = requestMinIntervalMs;
+let successfulRequestsSinceRateLimit = 0;
 
 const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
   'dropea_pedido_nuevo_v1',
@@ -96,6 +103,25 @@ export function chatbyRateLimitBackoffMs(retryAfterSeconds, attempt = 1) {
     : rateLimitCooldownMs;
 }
 
+function recordRateLimit() {
+  successfulRequestsSinceRateLimit = 0;
+  adaptiveRequestMinIntervalMs = Math.min(
+    adaptiveMaxIntervalMs,
+    Math.max(5000, adaptiveRequestMinIntervalMs * 2)
+  );
+}
+
+function recordSuccessfulRequest() {
+  if (adaptiveRequestMinIntervalMs <= requestMinIntervalMs) return;
+  successfulRequestsSinceRateLimit += 1;
+  if (successfulRequestsSinceRateLimit < 20) return;
+  successfulRequestsSinceRateLimit = 0;
+  adaptiveRequestMinIntervalMs = Math.max(
+    requestMinIntervalMs,
+    Math.floor(adaptiveRequestMinIntervalMs * 0.8)
+  );
+}
+
 async function scheduleRequest(task) {
   const previous = requestQueue;
   let release;
@@ -116,7 +142,7 @@ async function scheduleRequest(task) {
     if (requestWaitMs) await sleep(requestWaitMs);
     return await task();
   } finally {
-    nextRequestAt = Date.now() + requestMinIntervalMs;
+    nextRequestAt = Date.now() + adaptiveRequestMinIntervalMs;
     release();
   }
 }
@@ -180,7 +206,10 @@ async function request(path, options = {}) {
       ? chatbyRateLimitBackoffMs(response.headers.get('retry-after'), attempt)
       : readRetryDelay(attempt);
     if (response.status === 429) {
+      recordRateLimit();
       rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
+    } else if (response.ok) {
+      recordSuccessfulRequest();
     }
     if (!canRetry || !retryableReadStatus(response.status) || attempt === maxAttempts) break;
     if (response.status === 429 && backoffMs > 5000) break;
