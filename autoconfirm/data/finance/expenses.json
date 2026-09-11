@@ -1,0 +1,20 @@
+[
+  {
+    "id": "legacy-daily-overhead",
+    "name": "Gastos fijos históricos validados",
+    "type": "recurring_daily",
+    "amount_cents": 897,
+    "start_date": "2026-05-01",
+    "end_date": "2026-08-31",
+    "source": "Finanzas_07-2026 (1).xlsx"
+  },
+  {
+    "id": "recurring-overhead-current",
+    "name": "Gastos recurrentes actuales",
+    "type": "recurring_monthly",
+    "amount_cents": 17639,
+    "start_date": "2026-09-01",
+    "end_date": null,
+    "source": "Importe del módulo de gastos comunicado por la propietaria el 2026-09-11"
+  }
+]

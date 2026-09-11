@@ -8,7 +8,9 @@ const state = {
   dashboard: null,
   financeReport: null,
   financeLoading: false,
-  financeError: null
+  financeError: null,
+  financeSort: { key: 'day', direction: 'asc' },
+  financeVisibleColumns: null
 };
 
 const titles = {
@@ -38,6 +40,9 @@ const incidentFeedbackForm = document.querySelector('#incident-feedback-form');
 const incidentFeedbackClose = document.querySelector('#incident-feedback-close');
 const financeMonthInput = document.querySelector('#finance-month');
 const financeRefreshButton = document.querySelector('#finance-refresh');
+const financePrevButton = document.querySelector('#finance-prev');
+const financeNextButton = document.querySelector('#finance-next');
+const financeCompareInput = document.querySelector('#finance-compare');
 const agentChatForm = document.querySelector('#agent-chat-form');
 const businessManagerButton = document.querySelector('#business-manager-button');
 let feedbackOrderId = null;
@@ -1487,7 +1492,124 @@ function renderFinanceCharts(finance) {
   }
 }
 
+const FINANCE_COLUMNS = [
+  ['day', 'Fecha', 'text'], ['created', 'Pedidos creados', 'number'], ['confirmed', 'Confirmados', 'number'],
+  ['rejected', 'Rechazados', 'number'], ['sent', 'Enviados', 'number'], ['inTransit', 'En tránsito', 'number'],
+  ['delivered', 'Pedidos entregados', 'number'], ['deliveredUnits', 'Unidades entregadas', 'number'],
+  ['returned', 'Pedidos devueltos', 'number'], ['incidentOrders', 'Pedidos con incidencia', 'number'],
+  ['realRevenue', 'Facturación', 'money'], ['productCost', 'Coste producto', 'money'], ['logisticsCost', 'Coste logística', 'money'],
+  ['returnCost', 'Coste devoluciones', 'money'], ['metaSpend', 'Publicidad', 'money'], ['fixedCosts', 'Gastos fijos', 'money'],
+  ['oneOffCosts', 'Gastos puntuales', 'money'], ['otherCosts', 'Otros costes', 'money'], ['totalCosts', 'Costes totales', 'money'],
+  ['contributionMargin', 'Margen contribución', 'money'], ['netProfit', 'Beneficio neto', 'money'],
+  ['marginPercent', 'Margen %', 'percent'], ['roiPercent', 'ROI', 'percent'], ['roas', 'ROAS', 'ratio']
+];
+
+function financeValue(value, type) {
+  if (type === 'money') return money(value);
+  if (type === 'percent') return percentValue(value);
+  if (type === 'ratio') return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}x` : '—';
+  return value ?? '—';
+}
+
+function deltaText(delta, { invert = false, percentOnly = false } = {}) {
+  if (!financeCompareInput?.checked || !delta || delta.absolute === null) return 'Comparación desactivada';
+  const sign = Number(delta.absolute) > 0 ? '+' : '';
+  const trend = Number(delta.absolute) === 0 ? 'Sin cambio' : `${invert ? (Number(delta.absolute) > 0 ? '▲ más coste' : '▼ menos coste') : (Number(delta.absolute) > 0 ? '▲' : '▼')}`;
+  if (percentOnly) return `${trend} ${delta.percent === null ? '—' : percentValue(Math.abs(delta.percent))}`;
+  return `${trend} ${sign}${money(delta.absolute)} · ${delta.percent === null ? 'base 0' : percentValue(Math.abs(delta.percent))}`;
+}
+
+function sparkline(values, color = '#0d8b8f') {
+  const clean = values.map(Number).filter(Number.isFinite);
+  if (clean.length < 2) return '';
+  const min = Math.min(...clean); const max = Math.max(...clean); const range = max - min || 1;
+  const points = clean.map((value, index) => `${(index * 100 / (clean.length - 1)).toFixed(1)},${(28 - ((value - min) * 24 / range)).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 100 32" aria-hidden="true"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function renderExecutiveCharts(finance) {
+  const days = finance.days || [];
+  document.querySelectorAll('[data-finance-spark]').forEach((node) => {
+    const field = node.dataset.financeSpark;
+    node.innerHTML = sparkline(days.map((day) => day[field]));
+  });
+  const trend = document.querySelector('#finance-trend-chart');
+  if (trend) {
+    const active = new Set([...document.querySelectorAll('[data-finance-series]:checked')].map((item) => item.dataset.financeSeries));
+    const fields = [['realRevenue', '#0d8b8f', 'Facturación'], ['totalCosts', '#e86d57', 'Costes'], ['netProfit', '#26394b', 'Beneficio']].filter(([field]) => active.has(field));
+    const values = days.flatMap((day) => fields.map(([field]) => Number(day[field])).filter(Number.isFinite));
+    if (!days.length || !values.length) trend.innerHTML = '<div class="empty-state">No hay datos completos para representar.</div>';
+    else {
+      const width = 920; const height = 300; const left = 56; const bottom = 34; const top = 20;
+      const min = Math.min(0, ...values); const max = Math.max(1, ...values); const range = max - min || 1;
+      const x = (index) => left + index * (width - left - 18) / Math.max(1, days.length - 1);
+      const y = (value) => top + (max - Number(value || 0)) * (height - top - bottom) / range;
+      const grid = [0, .25, .5, .75, 1].map((part) => { const value = min + range * part; const py = y(value); return `<line x1="${left}" y1="${py}" x2="${width - 18}" y2="${py}"/><text x="${left - 8}" y="${py + 4}">${Math.round(value)}€</text>`; }).join('');
+      const lines = fields.map(([field, color, label]) => `<polyline points="${days.map((day, index) => `${x(index)},${y(day[field])}`).join(' ')}" fill="none" stroke="${color}" stroke-width="3"><title>${escapeHtml(label)}</title></polyline>`).join('');
+      const dots = days.map((day, index) => `<circle cx="${x(index)}" cy="${y(day.netProfit || 0)}" r="5" fill="transparent"><title>${escapeHtml(day.day)} · Facturación ${money(day.realRevenue)} · Costes ${money(day.totalCosts)} · Beneficio ${money(day.netProfit)} · ROI ${percentValue(day.roiPercent)}</title></circle>`).join('');
+      trend.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Rentabilidad diaria"><g class="finance-chart-grid">${grid}</g>${lines}${dots}<g class="finance-chart-labels">${days.map((day, index) => index % 3 === 0 ? `<text x="${x(index)}" y="${height - 8}">${day.day.slice(8)}</text>` : '').join('')}</g></svg>`;
+    }
+  }
+  const funnel = document.querySelector('#finance-funnel');
+  if (funnel) {
+    const count = finance.counts || {}; const stages = [['Creados', count.created], ['Confirmados', count.confirmed], ['Enviados', count.sent], ['Entregados', count.delivered]];
+    funnel.innerHTML = `${stages.map(([label, value], index) => `<div style="width:${Math.max(46, 100 - index * 13)}%"><span>${label}</span><strong>${value || 0}</strong><small>${index ? percentValue((value || 0) * 100 / Math.max(1, stages[index - 1][1] || 0)) : 'Base de cohorte'}</small></div>`).join('')}<aside><span>Rechazados <b>${count.rejected || 0}</b></span><span>Devueltos <b>${count.returned || 0}</b></span></aside>`;
+  }
+  const cost = document.querySelector('#finance-cost-chart');
+  if (cost) {
+    const totals = finance.totals || {}; const entries = [['Producto', totals.productCost], ['Publicidad', totals.metaSpend], ['Logística', Number(totals.logisticsCost || 0) - Number(totals.returnCost || 0)], ['Devoluciones', totals.returnCost], ['Fijos', totals.fixedCosts], ['Puntuales', totals.oneOffCosts], ['Otros', totals.otherCosts]];
+    const max = Math.max(1, ...entries.map(([, value]) => Number(value) || 0));
+    cost.innerHTML = entries.map(([label, value]) => `<div class="finance-cost-row"><span>${label}<small>${totals.totalCosts ? percentValue(Number(value || 0) * 100 / totals.totalCosts, 1) : '—'}</small></span><div class="finance-cost-bar"><span style="width:${Math.max(0, Number(value || 0) * 100 / max)}%"></span></div><b>${money(value)}</b></div>`).join('');
+  }
+  renderFinanceHistory(finance);
+}
+
+function renderFinanceHistory(finance) {
+  const node = document.querySelector('#finance-history-chart'); if (!node) return;
+  const field = document.querySelector('#finance-history-metric')?.value || 'exactNetProfit';
+  const rows = finance.history || []; const values = rows.map((row) => Number(row.totals?.[field] || 0)); const max = Math.max(1, ...values.map(Math.abs));
+  node.innerHTML = rows.length ? `<div class="finance-history-bars">${rows.map((row, index) => `<div><span style="height:${Math.max(3, Math.abs(values[index]) * 100 / max)}%" class="${values[index] < 0 ? 'is-negative' : ''}"><b>${field.includes('Percent') ? percentValue(values[index]) : money(values[index])}</b></span><small>${row.month.slice(5)}/${row.month.slice(2, 4)}</small></div>`).join('')}</div>` : '<div class="empty-state">Aún no hay histórico suficiente.</div>';
+}
+
+function renderFinanceTable(finance) {
+  if (!state.financeVisibleColumns) state.financeVisibleColumns = new Set(FINANCE_COLUMNS.map(([key]) => key));
+  const columns = FINANCE_COLUMNS.filter(([key]) => state.financeVisibleColumns.has(key));
+  const head = document.querySelector('#finance-days-head'); const body = document.querySelector('#finance-days-table'); const foot = document.querySelector('#finance-days-total');
+  if (head) head.innerHTML = `<tr>${columns.map(([key, label]) => `<th><button type="button" data-finance-sort="${key}">${escapeHtml(label)} ${state.financeSort.key === key ? (state.financeSort.direction === 'asc' ? '↑' : '↓') : ''}</button></th>`).join('')}</tr>`;
+  const sorted = [...(finance.days || [])].sort((a, b) => { const av = a[state.financeSort.key]; const bv = b[state.financeSort.key]; const result = state.financeSort.key === 'day' ? String(av).localeCompare(String(bv)) : Number(av || 0) - Number(bv || 0); return state.financeSort.direction === 'asc' ? result : -result; });
+  if (body) body.innerHTML = sorted.length ? sorted.map((day) => `<tr class="${day.returned ? 'has-return' : ''}">${columns.map(([key, , type]) => `<td class="${key === 'netProfit' ? (Number(day[key]) < 0 ? 'finance-negative' : 'finance-positive') : ''}">${financeValue(day[key], type)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}"><div class="empty-state">No hay actividad en el periodo.</div></td></tr>`;
+  const eventTotal = (key) => (finance.days || []).reduce((sum, day) => sum + (Number(day[key]) || 0), 0);
+  const total = { day: 'TOTAL', created: eventTotal('created'), confirmed: eventTotal('confirmed'), rejected: eventTotal('rejected'), sent: eventTotal('sent'), inTransit: eventTotal('inTransit'), delivered: eventTotal('delivered'), deliveredUnits: eventTotal('deliveredUnits'), returned: eventTotal('returned'), incidentOrders: eventTotal('incidentOrders'), realRevenue: finance.totals.realRevenue, productCost: finance.totals.productCost, logisticsCost: finance.totals.logisticsCost, returnCost: finance.totals.returnCost, metaSpend: finance.totals.metaSpend, fixedCosts: finance.totals.fixedCosts, oneOffCosts: finance.totals.oneOffCosts, otherCosts: finance.totals.otherCosts, totalCosts: finance.totals.totalCosts, contributionMargin: finance.totals.contributionMargin, netProfit: finance.totals.exactNetProfit, marginPercent: finance.totals.marginPercent, roiPercent: finance.totals.roiPercent, roas: finance.totals.roas };
+  if (foot) foot.innerHTML = `<tr>${columns.map(([key, , type]) => `<td>${financeValue(total[key], type)}</td>`).join('')}</tr>`;
+  document.querySelectorAll('[data-finance-sort]').forEach((button) => button.addEventListener('click', () => { const key = button.dataset.financeSort; state.financeSort = { key, direction: state.financeSort.key === key && state.financeSort.direction === 'asc' ? 'desc' : 'asc' }; renderFinanceTable(finance); }));
+  const menu = document.querySelector('#finance-column-menu');
+  if (menu) menu.innerHTML = FINANCE_COLUMNS.map(([key, label]) => `<label><input type="checkbox" data-finance-column="${key}" ${state.financeVisibleColumns.has(key) ? 'checked' : ''} ${key === 'day' ? 'disabled' : ''}> ${escapeHtml(label)}</label>`).join('');
+}
+
+function renderFinanceExecutive() {
+  const finance = state.financeReport; const coverage = document.querySelector('#finance-coverage');
+  if (state.financeLoading) { if (coverage) { coverage.className = 'finance-coverage finance-skeleton'; coverage.textContent = 'Conciliando eventos, costes y publicidad…'; } return; }
+  if (state.financeError || !finance) { if (coverage) { coverage.className = 'finance-coverage is-error'; coverage.textContent = state.financeError ? `No se pudo cargar: ${state.financeError}` : 'Selecciona un periodo.'; } return; }
+  const c = finance.counts || {}; const t = finance.totals || {}; const d = finance.comparison?.deltas || {};
+  setText('#finance-profit', money(t.exactNetProfit)); setText('#finance-revenue', money(t.realRevenue)); setText('#finance-total-costs', money(t.totalCosts));
+  setText('#finance-roi', percentValue(t.roiPercent)); setText('#finance-roas', Number.isFinite(Number(t.roas)) ? `${Number(t.roas).toFixed(2)}x` : '—'); setText('#finance-margin', percentValue(t.marginPercent));
+  setText('#finance-delta-profit', deltaText(d.exactNetProfit)); setText('#finance-delta-revenue', deltaText(d.realRevenue)); setText('#finance-delta-costs', deltaText(d.totalCosts, { invert: true }));
+  setText('#finance-delta-roi', deltaText(d.roiPercent, { percentOnly: true })); setText('#finance-delta-roas', deltaText(d.roas, { percentOnly: true })); setText('#finance-delta-margin', deltaText(d.marginPercent, { percentOnly: true }));
+  setText('#finance-orders', c.created ?? 0); setText('#finance-confirmed', c.confirmed ?? 0); setText('#finance-rejected', c.rejected ?? 0); setText('#finance-sent', c.sent ?? 0); setText('#finance-transit', c.inTransit ?? 0); setText('#finance-delivered', c.delivered ?? 0); setText('#finance-delivered-units', c.deliveredUnits ?? 0); setText('#finance-returned', c.returned ?? 0); setText('#finance-incidents', c.incidentOrders ?? 0);
+  setText('#finance-confirm-rate', `${percentValue(c.confirmationRatePercent)} · ${c.confirmed || 0}/${c.created || 0}`); setText('#finance-reject-rate', `${percentValue(c.rejectionRatePercent)} · ${c.rejected || 0}/${c.created || 0}`); setText('#finance-delivery-rate', `${percentValue(c.deliveryRatePercent)} · ${c.delivered || 0}/${c.sent || 0} envíos`); setText('#finance-return-rate', `${percentValue(c.returnRatePercent)} · ${c.returned || 0}/${c.sent || 0} envíos`); setText('#finance-incident-rate', `${percentValue(c.incidentRatePercent)} · ${c.incidentOrders || 0}/${c.sent || 0} envíos`);
+  setText('#finance-status-badge', finance.statusLabel); if (coverage) { coverage.className = `finance-coverage ${finance.quality?.status === 'OK' ? 'is-ok' : 'is-warning'}`; coverage.textContent = `${finance.period.since} → ${finance.period.until} · Calidad ${finance.quality?.score ?? 0}% · ${finance.quality?.status || 'PARTIAL'}`; }
+  const fresh = document.querySelector('#finance-freshness'); if (fresh) fresh.innerHTML = Object.entries(finance.freshness?.sources || {}).map(([name, value]) => `<span class="${value.status === 'OK' ? 'is-ok' : 'is-warning'}"><b>${escapeHtml(name)}</b> ${escapeHtml(value.status)} · ${value.lastSyncAt ? formatDateTime(value.lastSyncAt) : 'sin sincronización'}</span>`).join('');
+  const projection = document.querySelector('#finance-projection'); if (projection) { projection.hidden = !finance.projection; projection.innerHTML = finance.projection ? `<div><span>Realizado MTD</span><strong>${money(t.exactNetProfit)}</strong></div><div><span>Proyección de cierre</span><strong>${money(finance.projection.netProfit)}</strong><small>${escapeHtml(finance.projection.note)} · confianza ${escapeHtml(finance.projection.confidence)}</small></div>` : ''; }
+  const warnings = document.querySelector('#finance-warnings'); if (warnings) warnings.innerHTML = finance.quality?.issues?.length ? finance.quality.issues.map((item) => `<div><strong>${escapeHtml(item.code)}</strong> · ${escapeHtml(item.message)}</div>`).join('') : '<div class="ok">Fuentes y cálculos reconciliados.</div>';
+  const controls = document.querySelector('#finance-controls'); if (controls) controls.innerHTML = `<strong>Conciliación</strong>${Object.entries(finance.controls || {}).map(([name, ok]) => `<span class="${ok ? 'is-ok' : 'is-pending'}">${ok ? '✓' : '!'} ${escapeHtml(name)}</span>`).join('')}`;
+  const audit = document.querySelector('#finance-audit'); if (audit) { audit.hidden = !finance.audit; audit.textContent = finance.audit ? `Julio cerrado y conciliado con el libro financiero validado. Beneficio neto: ${money(finance.audit.correctedNetProfit)}.` : ''; }
+  const summary = document.querySelector('#finance-summary'); if (summary) summary.innerHTML = `<p class="eyebrow">Resumen de ${escapeHtml(finance.period.month)}</p><h4>${money(t.realRevenue)} facturados · ${money(t.exactNetProfit)} de beneficio · ROI ${percentValue(t.roiPercent)}</h4><p>${c.delivered || 0} pedidos y ${c.deliveredUnits || 0} unidades entregadas. ${c.returned || 0} devoluciones con un coste de ${money(t.returnCost)}. Publicidad: ${money(t.metaSpend)} · ROAS ${Number.isFinite(Number(t.roas)) ? `${Number(t.roas).toFixed(2)}x` : 'pendiente'}.</p>`;
+  const products = document.querySelector('#finance-products-table'); if (products) products.innerHTML = finance.products?.length ? finance.products.map((p) => `<tr><td><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.sku)}</small></td><td>${p.units}</td><td>${money(p.revenue)}</td><td>${money(p.productCost)}</td><td>${p.attributedAdSpend === null ? 'No atribuida a SKU' : money(p.attributedAdSpend)}</td><td>${p.returnedOrders}</td><td>${money(p.returnCost)}</td><td>${money(p.margin)}</td><td>${percentValue(p.roiPercent)}</td></tr>`).join('') : '<tr><td colspan="9"><div class="empty-state">No hay entregas por producto.</div></td></tr>';
+  renderExecutiveCharts(finance); renderFinanceTable(finance);
+}
+
 function renderFinance() {
+  return renderFinanceExecutive();
   const finance = state.financeReport;
   const coverage = document.querySelector('#finance-coverage');
   const audit = document.querySelector('#finance-audit');
@@ -2035,6 +2157,42 @@ incidentFeedbackForm?.addEventListener('submit', async (event) => {
 });
 
 financeMonthInput?.addEventListener('change', () => loadFinanceReport());
+function moveFinanceMonth(offset) {
+  const value = financeMonthInput?.value || currentMadridMonth();
+  const [year, month] = value.split('-').map(Number);
+  const next = new Date(Date.UTC(year, month - 1 + offset, 1)).toISOString().slice(0, 7);
+  const from = state.financeReport?.availableRange?.from || '2026-05';
+  const to = state.financeReport?.availableRange?.to || currentMadridMonth();
+  if (next < from || next > to || !financeMonthInput) return;
+  financeMonthInput.value = next;
+  loadFinanceReport();
+}
+financePrevButton?.addEventListener('click', () => moveFinanceMonth(-1));
+financeNextButton?.addEventListener('click', () => moveFinanceMonth(1));
+financeCompareInput?.addEventListener('change', renderFinance);
+document.querySelector('#finance-history-metric')?.addEventListener('change', () => renderFinanceHistory(state.financeReport || {}));
+document.querySelectorAll('[data-finance-series]').forEach((input) => input.addEventListener('change', () => renderExecutiveCharts(state.financeReport || {})));
+document.querySelector('#finance-columns')?.addEventListener('click', () => {
+  const menu = document.querySelector('#finance-column-menu');
+  if (menu) menu.hidden = !menu.hidden;
+});
+document.querySelector('#finance-column-menu')?.addEventListener('change', (event) => {
+  const key = event.target?.dataset?.financeColumn;
+  if (!key || !state.financeVisibleColumns) return;
+  if (event.target.checked) state.financeVisibleColumns.add(key); else state.financeVisibleColumns.delete(key);
+  renderFinanceTable(state.financeReport || {});
+});
+document.querySelector('#finance-csv')?.addEventListener('click', () => {
+  const report = state.financeReport;
+  if (!report?.days?.length) return;
+  const separator = ';';
+  const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const rows = [FINANCE_COLUMNS.map(([, label]) => quote(label)).join(separator), ...report.days.map((day) => FINANCE_COLUMNS.map(([key]) => quote(day[key])).join(separator))];
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([`\uFEFF${rows.join('\n')}`], { type: 'text/csv;charset=utf-8' }));
+  link.download = `suleia-rentabilidad-${report.period.month}.csv`;
+  link.click(); URL.revokeObjectURL(link.href);
+});
 financeRefreshButton?.addEventListener('click', async () => {
   financeRefreshButton.disabled = true;
   financeRefreshButton.textContent = 'Conciliando...';

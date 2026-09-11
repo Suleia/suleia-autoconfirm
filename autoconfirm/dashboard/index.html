@@ -209,71 +209,75 @@
             <div id="sources-list" class="sources-grid"></div>
           </article>
 
-          <article class="panel span-12 finance-panel" data-panel="overview settings">
+          <article class="panel span-12 finance-panel finance-command" data-panel="overview settings">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Dropea + Meta Ads</p>
-                <h3>Control de beneficios</h3>
+                <p class="eyebrow">Analytics · Dropea + Meta</p>
+                <h3>Rendimiento del negocio</h3>
               </div>
               <div class="finance-toolbar">
-                <label>Mes <input id="finance-month" type="month"></label>
-                <button class="mini-button" id="finance-refresh" type="button">Actualizar periodo</button>
+                <button class="mini-button" id="finance-prev" type="button" aria-label="Mes anterior">‹</button>
+                <label>Periodo <input id="finance-month" type="month"></label>
+                <button class="mini-button" id="finance-next" type="button" aria-label="Mes siguiente">›</button>
+                <label class="finance-compare"><input id="finance-compare" type="checkbox" checked> Comparar mes anterior</label>
+                <button class="mini-button" id="finance-refresh" type="button">Actualizar</button>
               </div>
             </div>
             <div class="finance-period-head">
               <div id="finance-coverage" class="finance-coverage">Preparando conciliación del periodo...</div>
               <span id="finance-status-badge" class="chip">Conciliando</span>
             </div>
+            <div id="finance-freshness" class="finance-freshness"></div>
             <div id="finance-audit" class="finance-audit" hidden></div>
-            <div class="finance-result-grid">
-              <div class="finance-result"><span>Beneficio neto</span><strong id="finance-profit">—</strong><small id="finance-formula">Facturación real − todos los gastos</small></div>
-              <div><span>Facturación real</span><strong id="finance-revenue">—</strong><small>Importe total de la cohorte entregada</small></div>
-              <div><span>Gastos totales</span><strong id="finance-total-costs">—</strong><small>Producto + logística + Meta + fijos</small></div>
-              <div><span>ROI</span><strong id="finance-roi">—</strong><small>Beneficio neto / gastos totales</small></div>
+            <div class="finance-executive-grid" id="finance-kpi-grid">
+              <article class="finance-executive-card is-primary" title="Facturación realizada menos todos los costes"><span>Beneficio neto</span><strong id="finance-profit">—</strong><small id="finance-delta-profit">—</small><div class="finance-spark" data-finance-spark="exactNetProfit"></div></article>
+              <article class="finance-executive-card"><span>Facturación</span><strong id="finance-revenue">—</strong><small id="finance-delta-revenue">—</small><div class="finance-spark" data-finance-spark="realRevenue"></div></article>
+              <article class="finance-executive-card"><span>Costes totales</span><strong id="finance-total-costs">—</strong><small id="finance-delta-costs">—</small><div class="finance-spark" data-finance-spark="totalCosts"></div></article>
+              <article class="finance-executive-card"><span>ROI</span><strong id="finance-roi">—</strong><small id="finance-delta-roi">Beneficio / costes</small><div class="finance-spark" data-finance-spark="roiPercent"></div></article>
+              <article class="finance-executive-card"><span>ROAS</span><strong id="finance-roas">—</strong><small id="finance-delta-roas">Facturación / publicidad</small><div class="finance-spark" data-finance-spark="roas"></div></article>
+              <article class="finance-executive-card"><span>Margen neto</span><strong id="finance-margin">—</strong><small id="finance-delta-margin">Beneficio / facturación</small><div class="finance-spark" data-finance-spark="marginPercent"></div></article>
             </div>
-            <h4 class="finance-section-title">Volumen operativo de Dropea</h4>
-            <div class="finance-grid finance-volume-grid">
-              <div><span id="finance-orders-label">Pedidos creados</span><strong id="finance-orders">—</strong><small id="finance-orders-source">Cohorte del mes</small></div>
-              <div><span>Pedidos enviados</span><strong id="finance-sent">—</strong><small id="finance-confirm-rate">Confirmación —</small></div>
-              <div><span>Pedidos entregados</span><strong id="finance-delivered">—</strong><small id="finance-delivery-rate">Resultado de la cohorte</small></div>
-              <div><span>Unidades entregadas</span><strong id="finance-delivered-units">—</strong><small>Suma de unidades de pedidos entregados</small></div>
-              <div><span>Entregas ocurridas</span><strong id="finance-delivery-events">—</strong><small>Entregadas durante el mes, aunque se crearan antes</small></div>
-              <div><span>Devueltos / rechazados</span><strong id="finance-returned">—</strong><small id="finance-returned-units">— unidades afectadas</small></div>
-              <div><span>Cancelados</span><strong id="finance-cancelled">—</strong><small>No enviados</small></div>
-              <div><span>Activos / incidencia</span><strong id="finance-open">—</strong><small>Resultado aún no cerrado</small></div>
-            </div>
-            <h4 class="finance-section-title">Desglose de costes</h4>
-            <div class="finance-grid finance-cost-grid">
-              <div><span>Producto entregado</span><strong id="finance-product-cost">—</strong><small>Coste por SKU y unidades</small></div>
-              <div><span>Envío de ida</span><strong id="finance-outbound-cost">—</strong><small>Solo pedidos enviados</small></div>
-              <div><span>Tarifa COD</span><strong id="finance-cod-cost">—</strong><small>Solo pedidos entregados</small></div>
-              <div><span>Fulfillment</span><strong id="finance-fulfillment-cost">—</strong><small>Solo pedidos enviados</small></div>
-              <div><span>Coste devoluciones</span><strong id="finance-return-cost">—</strong><small id="finance-return-unit-cost">Tarifa por devolución —</small></div>
-              <div><span>Gasto Meta</span><strong id="finance-meta">—</strong><small id="finance-real-cpa">CPA real —</small></div>
-              <div><span>Gastos fijos</span><strong id="finance-fixed-cost">—</strong><small>Devengados por día natural</small></div>
+            <div id="finance-projection" class="finance-projection" hidden></div>
+            <h4 class="finance-section-title">Cohorte de pedidos creados en el mes</h4>
+            <div class="finance-ops-grid">
+              <div><span>Pedidos</span><strong id="finance-orders">—</strong><small>Creados válidos</small></div>
+              <div><span>Confirmados</span><strong id="finance-confirmed">—</strong><small id="finance-confirm-rate">—</small></div>
+              <div><span>Rechazados</span><strong id="finance-rejected">—</strong><small id="finance-reject-rate">—</small></div>
+              <div><span>Enviados</span><strong id="finance-sent">—</strong><small>Con evidencia logística</small></div>
+              <div><span>En tránsito</span><strong id="finance-transit">—</strong><small>Estado actual de la cohorte</small></div>
+              <div><span>Entregados</span><strong id="finance-delivered">—</strong><small id="finance-delivery-rate">—</small></div>
+              <div><span>Unidades entregadas</span><strong id="finance-delivered-units">—</strong><small>Unidades, no pedidos</small></div>
+              <div><span>Devueltos</span><strong id="finance-returned">—</strong><small id="finance-return-rate">—</small></div>
+              <div><span>Incidencias</span><strong id="finance-incidents">—</strong><small id="finance-incident-rate">—</small></div>
             </div>
             <div id="finance-controls" class="finance-controls"></div>
             <div id="finance-warnings" class="warning-list"></div>
             <div class="finance-charts">
               <article class="finance-chart-card finance-chart-wide">
-                <div><p class="eyebrow">Evolución diaria</p><h4>Facturación, costes y beneficio</h4></div>
+                <div class="finance-chart-title"><div><p class="eyebrow">P&amp;L por evento</p><h4>Rentabilidad diaria</h4></div><div class="finance-series-toggles"><label><input type="checkbox" data-finance-series="realRevenue" checked> Facturación</label><label><input type="checkbox" data-finance-series="totalCosts" checked> Costes</label><label><input type="checkbox" data-finance-series="netProfit" checked> Beneficio</label></div></div>
                 <div id="finance-trend-chart" class="finance-trend-chart"></div>
               </article>
               <article class="finance-chart-card">
-                <div><p class="eyebrow">Resultado por fecha de pedido</p><h4>Entregados y devueltos de cada cohorte diaria</h4></div>
-                <div id="finance-volume-chart" class="finance-volume-chart"></div>
+                <div><p class="eyebrow">Conversión</p><h4>Funnel de pedidos</h4></div>
+                <div id="finance-funnel" class="finance-funnel"></div>
               </article>
               <article class="finance-chart-card">
                 <div><p class="eyebrow">Composición</p><h4>En qué se gasta cada euro</h4></div>
                 <div id="finance-cost-chart" class="finance-cost-chart"></div>
               </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div class="finance-chart-title"><div><p class="eyebrow">Tendencia</p><h4>Evolución mensual</h4></div><select id="finance-history-metric"><option value="exactNetProfit">Beneficio</option><option value="realRevenue">Facturación</option><option value="totalCosts">Costes</option><option value="metaSpend">Publicidad</option></select></div>
+                <div id="finance-history-chart" class="finance-history-chart"></div>
+              </article>
             </div>
+            <div id="finance-summary" class="finance-summary"></div>
             <div class="finance-tables">
               <div class="finance-daily-detail">
-                <h4>Beneficio diario completo · agrupado por fecha de creación del pedido</h4>
+                <div class="finance-table-toolbar"><h4>Detalle diario</h4><div><button class="mini-button" id="finance-columns" type="button">Columnas</button><button class="mini-button" id="finance-csv" type="button">Exportar CSV</button></div></div>
+                <div id="finance-column-menu" class="finance-column-menu" hidden></div>
                 <div class="table-wrap">
-                  <table>
-                    <thead><tr><th>Fecha</th><th id="finance-orders-column">Creados</th><th>Enviados</th><th>Entregados</th><th>Uds. entregadas</th><th>Entregas del día</th><th>Devueltos</th><th>Fact. estimada</th><th>Fact. real</th><th>Producto</th><th>Envío ida</th><th>COD</th><th>Fulfillment</th><th>Coste devoluciones</th><th>Meta Ads</th><th>Gastos fijos</th><th>Gastos totales</th><th>Beneficio neto</th><th>ROI</th><th>CPA estim.</th><th>CPA real</th><th>Confirmación</th><th>Entrega</th></tr></thead>
+                  <table id="finance-daily-table">
+                    <thead id="finance-days-head"></thead>
                     <tbody id="finance-days-table"></tbody>
                     <tfoot id="finance-days-total"></tfoot>
                   </table>
@@ -283,7 +287,7 @@
                 <h4>Rentabilidad por producto</h4>
                 <div class="table-wrap">
                   <table>
-                    <thead><tr><th>Producto</th><th>Unidades</th><th>Ingresos</th><th>Coste conocido</th><th>Margen antes de logística y anuncios</th></tr></thead>
+                    <thead><tr><th>Producto / SKU</th><th>Unidades entregadas</th><th>Facturación</th><th>Coste producto</th><th>Publicidad atribuida</th><th>Devoluciones</th><th>Coste devolución</th><th>Margen</th><th>ROI producto</th></tr></thead>
                     <tbody id="finance-products-table"></tbody>
                   </table>
                 </div>

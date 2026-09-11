@@ -52,12 +52,17 @@ export const FINANCE_COST_POLICY = Object.freeze({
   })
 });
 
-function round(value) {
-  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+function toCents(value) {
+  const [whole, decimal = ''] = String(value ?? 0).replace(',', '.').split('.');
+  return Number(whole) * 100 + Number(decimal.padEnd(2, '0').slice(0, 2));
+}
+
+function fromCents(value) {
+  return value / 100;
 }
 
 function ratio(numerator, denominator, multiplier = 1) {
-  return denominator ? round((numerator / denominator) * multiplier) : 0;
+  return denominator ? Math.round((numerator / denominator) * multiplier * 100) / 100 : 0;
 }
 
 function normalizeRow(values) {
@@ -77,8 +82,10 @@ function normalizeRow(values) {
     fixedCosts
   ] = values;
   const returned = Math.round(returnCost / FINANCE_COST_POLICY.returnPerReturned);
-  const totalCosts = round(productCost + outboundShippingCost + codCost + outboundFulfillmentCost + returnCost + metaSpend + fixedCosts);
-  const netProfit = round(realRevenue - totalCosts);
+  const totalCostsCents = [productCost, outboundShippingCost, codCost, outboundFulfillmentCost, returnCost, metaSpend, fixedCosts].reduce((sum, value) => sum + toCents(value), 0);
+  const netProfitCents = toCents(realRevenue) - totalCostsCents;
+  const totalCosts = fromCents(totalCostsCents);
+  const netProfit = fromCents(netProfitCents);
   return {
     day,
     sourceOrderCount,
@@ -104,7 +111,7 @@ function normalizeRow(values) {
 }
 
 function sum(rows, field) {
-  return round(rows.reduce((total, row) => total + Number(row[field] || 0), 0));
+  return fromCents(rows.reduce((total, row) => total + toCents(row[field]), 0));
 }
 
 function buildJulyActual() {
@@ -120,9 +127,9 @@ function buildJulyActual() {
     metaSpend: sum(days, 'metaSpend'),
     fixedCosts: sum(days, 'fixedCosts')
   };
-  totals.logisticsCost = round(totals.outboundShippingCost + totals.codCost + totals.outboundFulfillmentCost + totals.returnCost);
-  totals.totalCosts = round(totals.productCost + totals.logisticsCost + totals.metaSpend + totals.fixedCosts);
-  totals.exactNetProfit = round(totals.realRevenue - totals.totalCosts);
+  totals.logisticsCost = fromCents(toCents(totals.outboundShippingCost) + toCents(totals.codCost) + toCents(totals.outboundFulfillmentCost) + toCents(totals.returnCost));
+  totals.totalCosts = fromCents(toCents(totals.productCost) + toCents(totals.logisticsCost) + toCents(totals.metaSpend) + toCents(totals.fixedCosts));
+  totals.exactNetProfit = fromCents(toCents(totals.realRevenue) - toCents(totals.totalCosts));
   totals.roiPercent = ratio(totals.exactNetProfit, totals.totalCosts, 100);
   const counts = {
     sourceOrderCount: sum(days, 'sourceOrderCount'),

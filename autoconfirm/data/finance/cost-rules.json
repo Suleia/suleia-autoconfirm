@@ -1,0 +1,22 @@
+{
+  "currency": "EUR",
+  "version": "2026-07-verified-actual-v1",
+  "effective_from": "2026-05-01",
+  "source": "Finanzas_07-2026 (1).xlsx, conciliacion contable validada por la propietaria",
+  "logistics": {
+    "outbound_shipping_per_sent_cents": 406,
+    "fulfillment_per_sent_cents": 120,
+    "cod_per_delivered_cents": 100,
+    "return_per_returned_cents": 526
+  },
+  "products": {
+    "038_CREMAHIDRATANTE": 370,
+    "CREMAHIDRATANTE": 370,
+    "COLLAGUM": 101,
+    "CREMANIDA": 144,
+    "WHITEO2": 200,
+    "1969_COLLAGUM": 101,
+    "1969_CREMANIDA": 144,
+    "1989_WHITEO2": 200
+  }
+}
