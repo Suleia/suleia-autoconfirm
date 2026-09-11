@@ -39,6 +39,33 @@ function daysInMonth(year, month) {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
+function zonedUtcTimestamp(day, { endOfDay = false, timeZone = MADRID_TIME_ZONE } = {}) {
+  const [year, month, date] = day.split('-').map(Number);
+  const hour = endOfDay ? 23 : 0;
+  const minute = endOfDay ? 59 : 0;
+  const second = endOfDay ? 59 : 0;
+  const millisecond = endOfDay ? 999 : 0;
+  const desiredUtc = Date.UTC(year, month - 1, date, hour, minute, second, millisecond);
+  let candidate = desiredUtc;
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hourCycle: 'h23'
+  });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = Object.fromEntries(formatter.formatToParts(new Date(candidate)).map((part) => [part.type, part.value]));
+    const representedUtc = Date.UTC(
+      Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+      Number(parts.hour), Number(parts.minute), Number(parts.second), millisecond
+    );
+    const correction = desiredUtc - representedUtc;
+    candidate += correction;
+    if (correction === 0) break;
+  }
+  return new Date(candidate).toISOString();
+}
+
 export function resolveFinancePeriod(month, { now = new Date(), timeZone = MADRID_TIME_ZONE } = {}) {
   const currentDay = localDate(now, timeZone);
   const currentMonth = currentDay?.slice(0, 7);
@@ -48,7 +75,16 @@ export function resolveFinancePeriod(month, { now = new Date(), timeZone = MADRI
   const [year, monthNumber] = requested.split('-').map(Number);
   const lastDay = requested === currentMonth ? Number(currentDay.slice(8, 10)) : daysInMonth(year, monthNumber);
   const until = `${requested}-${String(lastDay).padStart(2, '0')}`;
-  return { month: requested, since: `${requested}-01`, until, current: requested === currentMonth, timeZone };
+  const since = `${requested}-01`;
+  return {
+    month: requested,
+    since,
+    until,
+    fromTimestamp: zonedUtcTimestamp(since, { timeZone }),
+    toTimestamp: zonedUtcTimestamp(until, { timeZone, endOfDay: true }),
+    current: requested === currentMonth,
+    timeZone
+  };
 }
 
 const DELIVERED_SUBSTATUSES = new Set(['DELIVERED', 'PAID']);
@@ -98,6 +134,9 @@ function daySkeleton(day, policy) {
     dropeaOrders: 0,
     sent: 0,
     delivered: 0,
+    deliveredUnits: 0,
+    deliveryEvents: 0,
+    deliveryEventUnits: 0,
     returned: 0,
     cancelled: 0,
     active: 0,
@@ -154,6 +193,7 @@ function finalizeDay(row, { metaAvailable }) {
 
 export function aggregateFinanceReport({
   orders = [],
+  deliveryOrders = [],
   metaRows = [],
   period,
   policy = FINANCE_COST_POLICY,
@@ -161,7 +201,11 @@ export function aggregateFinanceReport({
 }) {
   const days = new Map(inclusiveDays(period, policy).map((row) => [row.day, row]));
   const products = new Map();
-  const counts = { total: 0, dropeaOrders: 0, sent: 0, active: 0, delivered: 0, returned: 0, cancelled: 0, incidents: 0 };
+  const counts = {
+    total: 0, dropeaOrders: 0, sent: 0, active: 0, delivered: 0, deliveredUnits: 0,
+    deliveryEvents: 0, deliveryEventUnits: 0, returned: 0, returnedUnits: 0,
+    cancelled: 0, incidents: 0
+  };
   let knownProductCostUnits = 0;
   let unknownProductCostUnits = 0;
 
@@ -188,17 +232,33 @@ export function aggregateFinanceReport({
       daily.realRevenue += orderTotal;
       daily.codCost += policy.codPerDelivered;
     }
-    if (category === 'returned') daily.returnCost += policy.returnPerReturned;
+    if (category === 'returned') {
+      daily.returnCost += policy.returnPerReturned;
+      const returnedUnits = lineItems(order).reduce((sum, item) => sum + Math.max(1, number(item.quantity)), 0) || 1;
+      counts.returnedUnits += returnedUnits;
+    }
 
     if (category === 'delivered') {
-      for (const item of lineItems(order)) {
+      const items = lineItems(order);
+      const deliveredUnits = items.reduce((sum, item) => sum + Math.max(1, number(item.quantity)), 0) || 1;
+      counts.deliveredUnits += deliveredUnits;
+      daily.deliveredUnits += deliveredUnits;
+      if (!items.length) {
+        daily.unknownProductCostUnits += deliveredUnits;
+        unknownProductCostUnits += deliveredUnits;
+      }
+      const revenueWeights = items.map((item) => Math.max(0, number(item.unit_price)));
+      const totalRevenueWeight = revenueWeights.reduce((sum, value) => sum + value, 0);
+      for (const [index, item] of items.entries()) {
         const name = productName(item);
         const quantity = Math.max(1, number(item.quantity));
         const unitCost = productUnitCost(item, policy);
         const current = products.get(name) || { name, deliveredOrders: 0, units: 0, revenue: 0, productCost: 0, unknownCostUnits: 0 };
         current.deliveredOrders += 1;
         current.units += quantity;
-        current.revenue += number(item.unit_price) * quantity;
+        current.revenue += items.length === 1
+          ? orderTotal
+          : orderTotal * (totalRevenueWeight ? revenueWeights[index] / totalRevenueWeight : 1 / items.length);
         if (unitCost.known) {
           const amount = unitCost.amount * quantity;
           current.productCost += amount;
@@ -212,6 +272,18 @@ export function aggregateFinanceReport({
         products.set(name, current);
       }
     }
+    days.set(day, daily);
+  }
+
+  for (const order of deliveryOrders) {
+    const day = localDate(order.delivered_at || order.updated_at, period.timeZone);
+    if (!day || day < period.since || day > period.until) continue;
+    const daily = days.get(day) || daySkeleton(day, policy);
+    const units = lineItems(order).reduce((sum, item) => sum + Math.max(1, number(item.quantity)), 0) || 1;
+    counts.deliveryEvents += 1;
+    counts.deliveryEventUnits += units;
+    daily.deliveryEvents += 1;
+    daily.deliveryEventUnits += units;
     days.set(day, daily);
   }
 
@@ -269,6 +341,18 @@ export function aggregateFinanceReport({
   if (unknownProductCostUnits) warnings.push(`${unknownProductCostUnits} unidades entregadas no tienen coste unitario configurado; el beneficio queda pendiente.`);
   if (!policyApplicable) warnings.push(`Las tarifas configuradas solo son válidas desde ${policy.effectiveFrom}; el beneficio anterior queda pendiente.`);
 
+  const partitionTotal = counts.delivered + counts.returned + counts.cancelled + counts.active + counts.incidents;
+  const componentCosts = roundMoney(totals.productCost + totals.logisticsCost + number(totals.metaSpend) + totals.fixedCosts);
+  const controls = {
+    ordersPartitionReconciled: partitionTotal === counts.dropeaOrders,
+    costsReconciled: totals.totalCosts === null || componentCosts === totals.totalCosts,
+    profitReconciled: totals.exactNetProfit === null || roundMoney(totals.realRevenue - totals.totalCosts) === totals.exactNetProfit,
+    productRevenueReconciled: roundMoney(productRows.reduce((sum, row) => sum + row.revenue, 0)) === totals.realRevenue,
+    fullPeriodBoundary: Boolean(period.fromTimestamp && period.toTimestamp),
+    partitionTotal,
+    componentCosts
+  };
+
   return {
     period,
     status: period.current ? 'provisional' : 'reconstructed',
@@ -287,6 +371,7 @@ export function aggregateFinanceReport({
         : 'No se muestra beneficio hasta disponer de todas las fuentes y costes necesarios.'
     },
     warnings,
+    controls,
     days: dailyRows,
     products: productRows,
     policy
@@ -302,7 +387,11 @@ function applyClosedActual(report, actual) {
     dropeaOrders,
     sent: actual.counts.sent,
     delivered: actual.counts.delivered,
+    deliveredUnits: live?.counts?.deliveredUnits ?? actual.counts.delivered,
+    deliveryEvents: live?.counts?.deliveryEvents ?? 0,
+    deliveryEventUnits: live?.counts?.deliveryEventUnits ?? 0,
     returned: actual.counts.returned,
+    returnedUnits: live?.counts?.returnedUnits ?? actual.counts.returned,
     active: live?.counts?.active ?? 0,
     cancelled: live?.counts?.cancelled ?? 0,
     incidents: live?.counts?.incidents ?? 0,
@@ -352,6 +441,15 @@ function applyClosedActual(report, actual) {
       explanation: 'Cierre contable verificado: importes conciliados con el libro de julio y métricas de pedidos obtenidas exclusivamente de Dropea.'
     },
     warnings,
+    controls: {
+      ...(live?.controls || {}),
+      ordersPartitionReconciled: counts.delivered + counts.returned + counts.cancelled + counts.active + counts.incidents === counts.dropeaOrders,
+      costsReconciled: true,
+      profitReconciled: true,
+      fullPeriodBoundary: Boolean(report?.period?.fromTimestamp && report?.period?.toTimestamp),
+      partitionTotal: counts.delivered + counts.returned + counts.cancelled + counts.active + counts.incidents,
+      componentCosts: totals.totalCosts
+    },
     audit: actual.audit,
     days,
     liveComparison: live ? { differences, generatedAt: new Date().toISOString() } : null,
@@ -359,22 +457,31 @@ function applyClosedActual(report, actual) {
   };
 }
 
-async function fetchOrders({ env, clientFactory, configLoader, period }) {
+async function fetchOrdersByDateType({ env, clientFactory, configLoader, period, dateType }) {
   const stores = configLoader(env);
   const byId = new Map();
   for (const store of stores) {
     const client = clientFactory({ token: store.token, market: store.market });
     const result = await client.listAll('listOrders', {
       store_id: Number(store.store_id),
-      date_from: period.since,
-      date_to: period.until,
-      date_type: 'created_at',
+      date_from: period.fromTimestamp,
+      date_to: period.toTimestamp,
+      date_type: dateType,
       sort_by: 'created_at',
       sort_order: 'asc'
     }, { maxPages: 50, maxRecords: 5_000, requestedLimit: 100 });
     for (const order of result.items) byId.set(`${store.market}:${order.id}`, order);
   }
   return [...byId.values()];
+}
+
+
+async function fetchOrders(options) {
+  const [orders, deliveryOrders] = await Promise.all([
+    fetchOrdersByDateType({ ...options, dateType: 'created_at' }),
+    fetchOrdersByDateType({ ...options, dateType: 'delivered_at' })
+  ]);
+  return { orders, deliveryOrders };
 }
 
 export async function buildFinanceReport({
@@ -397,7 +504,8 @@ export async function buildFinanceReport({
   if (ordersResult.status === 'rejected' && !closedActual) throw ordersResult.reason;
 
   const report = aggregateFinanceReport({
-    orders: ordersResult.status === 'fulfilled' ? ordersResult.value : [],
+    orders: ordersResult.status === 'fulfilled' ? ordersResult.value.orders : [],
+    deliveryOrders: ordersResult.status === 'fulfilled' ? ordersResult.value.deliveryOrders : [],
     metaRows: metaResult.status === 'fulfilled' ? metaResult.value : [],
     metaAvailable: metaResult.status === 'fulfilled',
     period

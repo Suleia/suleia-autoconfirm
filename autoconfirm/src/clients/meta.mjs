@@ -44,10 +44,11 @@ function networkErrorDetail(error) {
   return error?.name || 'network_error';
 }
 
-async function metaRequest(path, params = {}) {
+async function metaFetch(url) {
   if (!config.metaAccessToken) throw new Error('Falta META_ACCESS_TOKEN.');
-
-  const url = graphUrl(path, { ...params, access_token: config.metaAccessToken });
+  if (url.protocol !== 'https:' || url.hostname !== 'graph.facebook.com') {
+    throw new Error('Meta devolvio una URL de paginacion no permitida.');
+  }
   const maxAttempts = Math.max(1, Number(config.metaRequestMaxAttempts || 3));
   const timeoutMs = Math.max(1000, Number(config.metaRequestTimeoutMs || 15000));
 
@@ -84,6 +85,27 @@ async function metaRequest(path, params = {}) {
   }
 
   throw new Error('Meta no pudo completar la solicitud.');
+}
+
+async function metaRequest(path, params = {}) {
+  return metaFetch(graphUrl(path, { ...params, access_token: config.metaAccessToken }));
+}
+
+async function metaPagedRequest(path, params = {}, { maxPages = 50 } = {}) {
+  const rows = [];
+  const visited = new Set();
+  let result = await metaRequest(path, params);
+  for (let page = 1; page <= maxPages; page += 1) {
+    rows.push(...(Array.isArray(result?.data) ? result.data : []));
+    const next = result?.paging?.next;
+    if (!next) return rows;
+    const nextUrl = new URL(next);
+    const cursor = nextUrl.searchParams.get('after') || next;
+    if (visited.has(cursor)) throw new Error('Meta repitio un cursor de paginacion.');
+    visited.add(cursor);
+    result = await metaFetch(nextUrl);
+  }
+  throw new Error(`Meta excedio el limite seguro de ${maxPages} paginas.`);
 }
 
 function actionValue(actions, actionType) {
@@ -192,9 +214,9 @@ export async function getCampaignInsights({ since, until, datePreset, level = 'c
     params.time_range = { since, until };
   }
 
-  const result = await metaRequest(`${adAccountId}/insights`, {
+  const rows = await metaPagedRequest(`${adAccountId}/insights`, {
     ...params
   });
 
-  return (result.data || []).map(normalizeInsight);
+  return rows.map(normalizeInsight);
 }

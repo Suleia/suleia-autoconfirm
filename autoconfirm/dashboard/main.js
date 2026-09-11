@@ -1406,6 +1406,7 @@ function renderKpis() {
 function renderFinanceCharts(finance) {
   const trend = document.querySelector('#finance-trend-chart');
   const costs = document.querySelector('#finance-cost-chart');
+  const volume = document.querySelector('#finance-volume-chart');
   const totals = finance?.totals || {};
   const days = [...(finance?.days || [])].sort((a, b) => a.day.localeCompare(b.day));
 
@@ -1424,6 +1425,12 @@ function renderFinanceCharts(finance) {
       const y = (value) => pad.top + ((max - Number(value || 0)) * (height - pad.top - pad.bottom)) / range;
       const points = (field) => days.map((day, index) => `${x(index).toFixed(1)},${y(day[field]).toFixed(1)}`).join(' ');
       const zeroY = y(0).toFixed(1);
+      const ticks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
+      const grid = ticks.map((value) => {
+        const tickY = y(value).toFixed(1);
+        return `<line x1="${pad.left}" y1="${tickY}" x2="${width - pad.right}" y2="${tickY}" stroke="rgba(38,57,75,.09)" />
+          <text x="${pad.left - 7}" y="${Number(tickY) + 4}" text-anchor="end">${escapeHtml(new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 }).format(value))} €</text>`;
+      }).join('');
       const labels = days.map((day, index) => index % 5 === 0 || index === days.length - 1
         ? `<text x="${x(index).toFixed(1)}" y="218" text-anchor="middle">${escapeHtml(day.day.slice(8))}</text>`
         : '').join('');
@@ -1434,6 +1441,7 @@ function renderFinanceCharts(finance) {
           <span><i style="background:#26394b"></i>Beneficio neto</span>
         </div>
         <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Evolución diaria de facturación, gastos y beneficio">
+          <g fill="#65727f" font-family="Trebuchet MS, sans-serif" font-size="10">${grid}</g>
           <line x1="${pad.left}" y1="${zeroY}" x2="${width - pad.right}" y2="${zeroY}" stroke="rgba(38,57,75,.2)" stroke-width="1" />
           <polyline points="${points('realRevenue')}" fill="none" stroke="#0d8b8f" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
           <polyline points="${points('totalCosts')}" fill="none" stroke="#e86d57" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
@@ -1441,6 +1449,21 @@ function renderFinanceCharts(finance) {
           <g fill="#65727f" font-family="Trebuchet MS, sans-serif" font-size="11">${labels}</g>
         </svg>`;
     }
+  }
+
+  if (volume) {
+    const max = Math.max(1, ...days.flatMap((day) => [Number(day.delivered || 0), Number(day.returned || 0)]));
+    volume.innerHTML = days.length
+      ? `<div class="finance-chart-legend"><span><i style="background:#0d8b8f"></i>Entregados</span><span><i style="background:#e86d57"></i>Devueltos</span></div>
+        <div class="finance-volume-bars">${days.map((day) => `
+          <div class="finance-volume-day" title="${escapeHtml(day.day)} · ${day.delivered || 0} entregados · ${day.returned || 0} devueltos">
+            <div class="finance-volume-columns">
+              <span class="is-delivered" style="height:${Math.max(2, (Number(day.delivered || 0) / max) * 100).toFixed(1)}%"></span>
+              <span class="is-returned" style="height:${Math.max(2, (Number(day.returned || 0) / max) * 100).toFixed(1)}%"></span>
+            </div>
+            <small>${escapeHtml(day.day.slice(8))}</small>
+          </div>`).join('')}</div>`
+      : '<div class="empty-state">No hay actividad diaria para representar.</div>';
   }
 
   if (costs) {
@@ -1454,9 +1477,10 @@ function renderFinanceCharts(finance) {
       ['Gastos fijos', totals.fixedCosts]
     ];
     const max = Math.max(1, ...rows.map(([, value]) => Number(value) || 0));
+    const totalCosts = Number(totals.totalCosts || 0);
     costs.innerHTML = rows.map(([label, value]) => `
       <div class="finance-cost-row">
-        <span>${escapeHtml(label)}</span>
+        <span>${escapeHtml(label)}<small>${totalCosts ? percentValue((Number(value || 0) / totalCosts) * 100) : '—'}</small></span>
         <div class="finance-cost-bar"><span style="width:${Math.max(0, Math.min(100, (Number(value || 0) / max) * 100)).toFixed(1)}%"></span></div>
         <b>${money(value)}</b>
       </div>`).join('');
@@ -1468,6 +1492,7 @@ function renderFinance() {
   const coverage = document.querySelector('#finance-coverage');
   const audit = document.querySelector('#finance-audit');
   const warnings = document.querySelector('#finance-warnings');
+  const controls = document.querySelector('#finance-controls');
   const daysTable = document.querySelector('#finance-days-table');
   const daysTotal = document.querySelector('#finance-days-total');
   const productsTable = document.querySelector('#finance-products-table');
@@ -1495,13 +1520,18 @@ function renderFinance() {
   const totals = finance.totals || {};
   const reportCoverage = finance.coverage || {};
   const orderCount = counts.dropeaOrders ?? counts.total ?? 0;
-  setText('#finance-orders-label', 'Pedidos Dropea');
-  setText('#finance-orders-source', 'Demanda operativa del mes');
-  setText('#finance-orders-column', 'Dropea');
+  setText('#finance-orders-label', 'Pedidos creados');
+  setText('#finance-orders-source', 'Cohorte mensual de Dropea');
+  setText('#finance-orders-column', 'Creados');
   setText('#finance-orders', String(orderCount));
   setText('#finance-sent', String(counts.sent ?? 0));
   setText('#finance-delivered', String(counts.delivered ?? 0));
+  setText('#finance-delivered-units', String(counts.deliveredUnits ?? counts.delivered ?? 0));
+  setText('#finance-delivery-events', String(counts.deliveryEvents ?? 0));
   setText('#finance-returned', String(counts.returned ?? 0));
+  setText('#finance-returned-units', `${counts.returnedUnits ?? counts.returned ?? 0} unidades afectadas`);
+  setText('#finance-cancelled', String(counts.cancelled ?? 0));
+  setText('#finance-open', String(Number(counts.active || 0) + Number(counts.incidents || 0)));
   setText('#finance-not-sent', String(counts.notSent ?? 0));
   setText('#finance-confirm-rate', reportCoverage.orders ? `Confirmación ${percentValue(counts.confirmationRatePercent)}` : 'Confirmación pendiente');
   setText('#finance-delivery-rate', `Entrega ${percentValue(counts.deliveryRatePercent)}`);
@@ -1513,6 +1543,11 @@ function renderFinance() {
   setText('#finance-return-unit-cost', `Tarifa ${money(finance.policy?.returnPerReturned)}/devolución`);
   setText('#finance-roi', percentValue(totals.roiPercent));
   setText('#finance-profit', money(totals.exactNetProfit));
+  setText('#finance-product-cost', money(totals.productCost));
+  setText('#finance-outbound-cost', money(totals.outboundShippingCost));
+  setText('#finance-cod-cost', money(totals.codCost));
+  setText('#finance-fulfillment-cost', money(totals.outboundFulfillmentCost));
+  setText('#finance-fixed-cost', money(totals.fixedCosts));
   setText('#finance-formula', reportCoverage.exactProfitAvailable
     ? 'Facturación real − producto − logística − publicidad − fijos'
     : 'No disponible hasta completar todas las fuentes y costes');
@@ -1539,24 +1574,38 @@ function renderFinance() {
       ? items.map((item) => `<div>${escapeHtml(item)}</div>`).join('')
       : '<div class="ok">Todas las partidas del periodo están conciliadas.</div>';
   }
+  if (controls) {
+    const checks = [
+      ['Periodo completo', finance.controls?.fullPeriodBoundary],
+      ['Estados Dropea', finance.controls?.ordersPartitionReconciled],
+      ['Ingresos por producto', finance.controls?.productRevenueReconciled],
+      ['Suma de costes', finance.controls?.costsReconciled],
+      ['Beneficio neto', finance.controls?.profitReconciled],
+      ['Meta Ads', reportCoverage.meta]
+    ];
+    controls.innerHTML = `<strong>Controles de conciliación</strong>${checks.map(([label, passed]) => `
+      <span class="${passed ? 'is-ok' : 'is-pending'}"><i>${passed ? '✓' : '!'}</i>${escapeHtml(label)}</span>`).join('')}`;
+  }
   if (daysTable) {
     daysTable.innerHTML = finance.days?.length
       ? finance.days.map((day) => `<tr>
           <td><strong>${escapeHtml(day.day)}</strong></td>
-          <td>${day.dropeaOrders ?? '—'}</td><td>${day.sent ?? 0}</td><td>${money(day.estimatedRevenue)}</td>
-          <td>${day.delivered ?? 0}</td><td>${money(day.realRevenue)}</td><td>${money(day.productCost)}</td>
+          <td>${day.dropeaOrders ?? '—'}</td><td>${day.sent ?? 0}</td><td>${day.delivered ?? 0}</td>
+          <td>${day.deliveredUnits ?? day.delivered ?? 0}</td><td>${day.deliveryEvents ?? 0}</td><td>${day.returned ?? 0}</td>
+          <td>${money(day.estimatedRevenue)}</td><td>${money(day.realRevenue)}</td><td>${money(day.productCost)}</td>
           <td>${money(day.outboundShippingCost)}</td><td>${money(day.codCost)}</td><td>${money(day.outboundFulfillmentCost)}</td>
           <td>${money(day.returnCost)}</td><td>${money(day.metaSpend)}</td><td>${money(day.fixedCosts)}</td>
           <td>${money(day.totalCosts)}</td><td class="${Number(day.netProfit) < 0 ? 'finance-negative' : 'finance-positive'}">${money(day.netProfit)}</td>
           <td>${percentValue(day.roiPercent)}</td><td>${money(day.estimatedCpa)}</td><td>${money(day.realCpa)}</td>
           <td>${percentValue(day.confirmationRatePercent)}</td><td>${percentValue(day.deliveryRatePercent)}</td>
         </tr>`).join('')
-      : '<tr><td colspan="20"><div class="empty-state">No hay pedidos en este periodo.</div></td></tr>';
+      : '<tr><td colspan="23"><div class="empty-state">No hay pedidos en este periodo.</div></td></tr>';
   }
   if (daysTotal) {
     daysTotal.innerHTML = `<tr>
-      <td><strong>TOTAL</strong></td><td>${orderCount}</td><td>${counts.sent ?? 0}</td>
-      <td>${money(totals.estimatedRevenue)}</td><td>${counts.delivered ?? 0}</td><td>${money(totals.realRevenue)}</td>
+      <td><strong>TOTAL</strong></td><td>${orderCount}</td><td>${counts.sent ?? 0}</td><td>${counts.delivered ?? 0}</td>
+      <td>${counts.deliveredUnits ?? counts.delivered ?? 0}</td><td>${counts.deliveryEvents ?? 0}</td><td>${counts.returned ?? 0}</td>
+      <td>${money(totals.estimatedRevenue)}</td><td>${money(totals.realRevenue)}</td>
       <td>${money(totals.productCost)}</td><td>${money(totals.outboundShippingCost)}</td><td>${money(totals.codCost)}</td>
       <td>${money(totals.outboundFulfillmentCost)}</td><td>${money(totals.returnCost)}</td><td>${money(totals.metaSpend)}</td>
       <td>${money(totals.fixedCosts)}</td><td>${money(totals.totalCosts)}</td>

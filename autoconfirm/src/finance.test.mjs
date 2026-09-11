@@ -15,11 +15,19 @@ test('resolveFinancePeriod closes past months and stops current month today', ()
     month: '2026-08',
     since: '2026-08-01',
     until: '2026-08-31',
+    fromTimestamp: '2026-07-31T22:00:00.000Z',
+    toTimestamp: '2026-08-31T21:59:59.999Z',
     current: false,
     timeZone: 'Europe/Madrid'
   });
   assert.equal(resolveFinancePeriod('2026-09', { now }).until, '2026-09-10');
   assert.throws(() => resolveFinancePeriod('2026-10', { now }), /FINANCE_MONTH_IN_FUTURE/);
+});
+
+test('period timestamps preserve complete Madrid days across daylight-saving changes', () => {
+  const march = resolveFinancePeriod('2026-03', { now: new Date('2026-09-10T12:00:00.000Z') });
+  assert.equal(march.fromTimestamp, '2026-02-28T23:00:00.000Z');
+  assert.equal(march.toTimestamp, '2026-03-31T21:59:59.999Z');
 });
 
 test('classifies final states and only counts dispatched orders as sent', () => {
@@ -68,6 +76,7 @@ test('calculates every cost component and exact provisional profit when coverage
   assert.equal(report.counts.total, 3);
   assert.equal(report.counts.sent, 2);
   assert.equal(report.counts.delivered, 1);
+  assert.equal(report.counts.deliveredUnits, 1);
   assert.equal(report.counts.returned, 1);
   assert.equal(report.counts.confirmationRatePercent, 66.67);
   assert.equal(report.totals.realRevenue, 29.99);
@@ -81,6 +90,85 @@ test('calculates every cost component and exact provisional profit when coverage
   assert.equal(report.totals.totalCosts, 122.49);
   assert.equal(report.totals.exactNetProfit, -92.5);
   assert.equal(report.coverage.exactProfitAvailable, true);
+  assert.deepEqual(report.controls, {
+    ordersPartitionReconciled: true,
+    costsReconciled: true,
+    profitReconciled: true,
+    productRevenueReconciled: true,
+    fullPeriodBoundary: true,
+    partitionTotal: 3,
+    componentCosts: 122.49
+  });
+});
+
+test('uses authoritative order total for packs and separates delivery events from order cohort', () => {
+  const period = resolveFinancePeriod('2026-08', { now: new Date('2026-09-10T12:00:00.000Z') });
+  const report = aggregateFinanceReport({
+    period,
+    orders: [{
+      created_at: '2026-08-31T21:30:00.000Z',
+      delivered_at: '2026-09-03T09:00:00.000Z',
+      status: 'FINISH', sub_status: 'PAID', total_amount: 49.99,
+      line_items: [{ sku: '1969_COLLAGUM', product_name: 'Collagum pack', quantity: 3, unit_price: 39.99 }]
+    }],
+    deliveryOrders: [{
+      created_at: '2026-07-20T09:00:00.000Z',
+      delivered_at: '2026-08-15T09:00:00.000Z',
+      status: 'FINISH', sub_status: 'PAID',
+      line_items: [{ sku: '1969_COLLAGUM', product_name: 'Collagum', quantity: 2 }]
+    }],
+    metaRows: []
+  });
+  assert.equal(report.counts.dropeaOrders, 1);
+  assert.equal(report.counts.delivered, 1);
+  assert.equal(report.counts.deliveredUnits, 3);
+  assert.equal(report.counts.deliveryEvents, 1);
+  assert.equal(report.counts.deliveryEventUnits, 2);
+  assert.equal(report.totals.realRevenue, 49.99);
+  assert.equal(report.products[0].revenue, 49.99);
+  assert.equal(report.totals.productCost, 3.03);
+});
+
+test('missing line items make product-cost coverage incomplete instead of silently exact', () => {
+  const period = resolveFinancePeriod('2026-08', { now: new Date('2026-09-10T12:00:00.000Z') });
+  const report = aggregateFinanceReport({
+    period,
+    orders: [{
+      created_at: '2026-08-15T09:00:00.000Z',
+      status: 'FINISH', sub_status: 'PAID', total_amount: 29.99
+    }],
+    metaRows: []
+  });
+  assert.equal(report.coverage.productCostPercent, 0);
+  assert.equal(report.coverage.exactProfitAvailable, false);
+  assert.equal(report.totals.exactNetProfit, null);
+});
+
+test('buildFinanceReport reads both Dropea cohorts with full datetime boundaries', async () => {
+  const calls = [];
+  const report = await buildFinanceReport({
+    month: '2026-08',
+    force: true,
+    now: new Date('2026-09-10T12:00:00.000Z'),
+    configLoader: () => [{ store_id: '16088', market: 'ES', token: 'opaque-test-token' }],
+    clientFactory: () => ({
+      listAll: async (_name, params) => {
+        calls.push(params);
+        return { items: [], complete: true, page_count: 1 };
+      }
+    }),
+    metaLoader: async () => []
+  });
+  assert.equal(report.counts.dropeaOrders, 0);
+  assert.deepEqual(calls.map((call) => ({
+    dateFrom: call.date_from,
+    dateTo: call.date_to,
+    dateType: call.date_type,
+    sortBy: call.sort_by
+  })), [
+    { dateFrom: '2026-07-31T22:00:00.000Z', dateTo: '2026-08-31T21:59:59.999Z', dateType: 'created_at', sortBy: 'created_at' },
+    { dateFrom: '2026-07-31T22:00:00.000Z', dateTo: '2026-08-31T21:59:59.999Z', dateType: 'delivered_at', sortBy: 'created_at' }
+  ]);
 });
 
 test('never treats a missing SKU cost or missing Meta as zero profit expense', () => {
