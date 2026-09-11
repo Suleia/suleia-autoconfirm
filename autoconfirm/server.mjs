@@ -689,7 +689,7 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         console.error('Finance snapshot read error:', error instanceof Error ? error.message : String(error));
       }
-      const backgroundRefreshEnabled = String(process.env.FINANCE_BACKGROUND_REFRESH_ENABLED || '').toLowerCase() === 'true';
+      const backgroundRefreshEnabled = false; // Render free tier: refresh only from the isolated snapshot publisher.
       const queued = backgroundRefreshEnabled && (force || !finance) ? queueFinanceReportRefresh(month) : false;
       return sendJson(res, finance ? 200 : 202, {
         ok: true,
