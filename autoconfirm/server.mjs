@@ -25,7 +25,7 @@ import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cance
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
-import { buildFinanceReport } from './src/finance.mjs';
+import { buildFinanceReport, loadFinanceSnapshot } from './src/finance.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
@@ -515,6 +515,20 @@ function queueDashboardBackgroundRefresh() {
   }, 250);
 }
 
+const financeRefreshInFlight = new Map();
+
+function queueFinanceReportRefresh(month) {
+  const key = String(month || 'current');
+  if (financeRefreshInFlight.has(key)) return false;
+  const job = new Promise((resolve) => setTimeout(resolve, 250))
+    .then(() => buildFinanceReport({ month, force: true }))
+    .then((report) => console.log(`Finance report refreshed (${report.period.month}).`))
+    .catch((error) => console.error('Finance report refresh error:', error instanceof Error ? error.message : String(error)))
+    .finally(() => financeRefreshInFlight.delete(key));
+  financeRefreshInFlight.set(key, job);
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
@@ -669,8 +683,19 @@ const server = http.createServer(async (req, res) => {
       if (!requireDashboardAuth(req, res)) return;
       const month = url.searchParams.get('month') || undefined;
       const force = url.searchParams.get('refresh') === '1';
-      const finance = await buildFinanceReport({ month, force });
-      return sendJson(res, 200, { ok: true, finance });
+      let finance = null;
+      try {
+        finance = await loadFinanceSnapshot({ month });
+      } catch (error) {
+        console.error('Finance snapshot read error:', error instanceof Error ? error.message : String(error));
+      }
+      const queued = force || !finance ? queueFinanceReportRefresh(month) : false;
+      return sendJson(res, finance ? 200 : 202, {
+        ok: true,
+        finance,
+        pending: !finance,
+        refreshing: queued || financeRefreshInFlight.has(String(month || 'current'))
+      });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-chat') {

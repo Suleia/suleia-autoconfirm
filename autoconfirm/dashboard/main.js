@@ -1753,17 +1753,24 @@ async function loadFinanceReport({ force = false } = {}) {
   state.financeLoading = true;
   state.financeError = null;
   renderFinance();
+  let pending = false;
   try {
     const params = new URLSearchParams({ month });
     if (force) params.set('refresh', '1');
     const response = await fetch(`/api/finance?${params}`);
     const payload = await readJsonResponse(response);
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    if (payload.pending && !payload.finance) {
+      pending = true;
+      window.clearTimeout(state.financePollTimer);
+      state.financePollTimer = window.setTimeout(() => loadFinanceReport(), 5000);
+      return;
+    }
     state.financeReport = payload.finance;
   } catch (error) {
     state.financeError = error instanceof Error ? error.message : String(error);
   } finally {
-    state.financeLoading = false;
+    state.financeLoading = pending;
     renderFinance();
     renderKpis();
   }

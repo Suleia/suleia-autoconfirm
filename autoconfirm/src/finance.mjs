@@ -2,10 +2,42 @@ import { createDropeaV2IncidentClient, loadDropeaV2IncidentStoreConfigs } from '
 import { getCampaignInsights } from './clients/meta.mjs';
 import { getClosedFinanceActual } from './finance-actuals.mjs';
 import { loadFinanceCostRules, loadFinanceExpenses } from './finance-data.mjs';
+import { isSupabaseEnabled, selectRows, upsertRows } from './clients/supabase.mjs';
 
 const ZONE = 'Europe/Madrid';
 const CACHE_MS = 5 * 60 * 1000;
 const cache = new Map();
+
+function snapshotKey(month) {
+  return `finance_report_${month}`;
+}
+
+async function persistFinanceSnapshot(report) {
+  if (!isSupabaseEnabled() || !report?.period?.month) return;
+  await upsertRows('app_state', {
+    key: snapshotKey(report.period.month),
+    value: report,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'key' });
+}
+
+export async function loadFinanceSnapshot({ month, now = new Date() } = {}) {
+  const period = resolveFinancePeriod(month, { now });
+  const memory = cache.get(period.month);
+  if (memory?.report) return memory.report;
+  if (!isSupabaseEnabled()) return null;
+  const rows = await selectRows('app_state', { query: { key: `eq.${snapshotKey(period.month)}` }, limit: 1 });
+  const report = rows[0]?.value;
+  if (!report?.period || !report?.totals || !report?.counts) return null;
+  const generated = new Date(report.generatedAt || rows[0]?.updated_at || 0);
+  const ageMinutes = Number.isNaN(generated.getTime()) ? null : Math.max(0, Math.round((now.getTime() - generated.getTime()) / 60000));
+  for (const source of Object.values(report.freshness?.sources || {})) {
+    source.ageMinutes = ageMinutes;
+    if (ageMinutes !== null && ageMinutes > 15 && source.status === 'OK') source.status = 'STALE';
+  }
+  cache.set(period.month, { at: generated.getTime() || 0, report });
+  return report;
+}
 
 export function moneyToCents(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -444,6 +476,7 @@ export async function buildFinanceReport({ month, force = false, env = process.e
   report.availableRange = { from: rules.effective_from.slice(0, 7), to: localDay(now).slice(0, 7) };
   report.definitions = { netProfit: 'Facturación realizada − producto − logística − devoluciones − publicidad − gastos fijos − puntuales − otros.', roi: 'Beneficio neto / costes totales.', roas: 'Facturación realizada / gasto Meta.', margin: 'Beneficio neto / facturación realizada.', deliveryRate: 'Entregados / enviados de la cohorte.', returnRate: 'Devueltos / enviados de la cohorte.' };
   cache.set(period.month, { at: Date.now(), report });
+  await persistFinanceSnapshot(report);
   return report;
 }
 
