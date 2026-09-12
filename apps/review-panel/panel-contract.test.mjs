@@ -61,9 +61,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260912-results-panel-v1">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260912-results-dashboard-v2">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260912-results-panel-v1" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260912-results-dashboard-v2" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
@@ -75,6 +75,11 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /class="finance-panel finance-audit-disclosure"/);
   assert.match(css, /results-chart-grid/);
   assert.match(css, /cost-breakdown-track/);
+  assert.match(html, /id="finance-operational-summary"/);
+  assert.match(html, /id="finance-data-summary"/);
+  assert.match(html, /ajuste contable inevitable de 0,01/);
+  assert.match(script, /miniSparkline/);
+  assert.match(script, /Datos conciliados/);
   assert.doesNotMatch(html, /PRODUCTOS VENDIDOS/);
   assert.doesNotMatch(html, /id="finance-products"/);
   assert.match(html, /id="page-size"/);

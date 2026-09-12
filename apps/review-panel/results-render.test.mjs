@@ -42,10 +42,12 @@ test('results dashboard renders six monthly KPIs, charts and the permanently vis
   assert.equal(get('finance-hero').children.length, 6);
   assert.match(content(get('finance-hero')), /Beneficio mensual/);
   assert.match(content(get('finance-hero')), /1558,99/);
-  assert.equal(get('finance-trend').children[0].children[0].tagName, 'svg');
+  assert.equal(get('finance-trend').children[0].children[1].tagName, 'svg');
   assert.match(content(get('finance-daily')), /TOTAL DEL MES/);
   assert.match(content(get('finance-daily')), /Meta Ads/);
   assert.match(content(get('finance-daily')), /Beneficio neto/);
   assert.match(content(get('finance-fixed-expenses')), /Servidor/);
   assert.match(content(get('finance-costs')), /Publicidad Meta/);
+  assert.match(content(get('finance-operational-summary')), /Pedidos creados/);
+  assert.match(content(get('finance-data-summary')), /Datos conciliados/);
 });

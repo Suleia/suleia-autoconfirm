@@ -647,9 +647,16 @@ function comparisonText(field, mode = 'percent') {
   const value = Number(raw); const suffix = mode === 'points' ? ' pp' : mode === 'multiplier' ? 'x' : '%';
   return `${value >= 0 ? '↗' : '↘'} ${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(Math.abs(value))}${suffix} respecto al periodo anterior`;
 }
-function resultMetric(label, value, detail, tone, icon) {
+function miniSparkline(values, tone) {
+  const series = (values || []).map(Number).filter(Number.isFinite); const svg = svgEl('svg', { viewBox: '0 0 120 28', class: `metric-sparkline ${tone || ''}`, 'aria-hidden': 'true' });
+  if (!series.length) return svg;
+  const low = Math.min(...series); const high = Math.max(...series); const spread = Math.max(1, high - low);
+  const points = series.map((value, index) => `${series.length === 1 ? 60 : index * 116 / (series.length - 1) + 2},${25 - (value - low) * 20 / spread}`).join(' ');
+  svg.append(svgEl('polyline', { points, fill: 'none' })); return svg;
+}
+function resultMetric(label, value, detail, tone, icon, series) {
   const card = node('article', `result-metric ${tone || ''}`.trim());
-  card.append(node('span', 'result-metric-icon', icon), node('span', 'result-metric-label', label), node('strong', '', value), node('small', '', detail));
+  card.append(node('span', 'result-metric-icon', icon), node('span', 'result-metric-label', label), node('strong', '', value), miniSparkline(series, tone), node('small', '', detail));
   return card;
 }
 function svgEl(tag, attributes = {}) { const element = document.createElementNS('http://www.w3.org/2000/svg', tag); Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value))); return element; }
@@ -685,7 +692,9 @@ function dailyResultsChart(days, currency) {
   svg.append(svgEl('polyline', { points, class: 'chart-profit-line', fill: 'none' }));
   rows.forEach((row, index) => { const circle = svgEl('circle', { cx: x(index), cy: y(Number(row.netProfit || 0)), r: 3.2, class: Number(row.netProfit) >= 0 ? 'chart-profit-point' : 'chart-loss-point' }); const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = `${date(row.day, true)} · Beneficio ${money(row.netProfit, currency)}`; circle.append(title); svg.append(circle); });
   const legend = node('div', 'chart-legend'); [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio neto']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); });
-  root.append(svg, legend); return root;
+  const latest = rows.at(-1); const current = node('div', 'chart-current-row');
+  current.append(node('span', '', `Último día conciliado · ${date(latest.day, true)}`), node('strong', '', `Facturación ${money(latest.realRevenue, currency)}`), node('strong', '', `Costes ${money(latest.totalCosts, currency)}`), node('strong', Number(latest.netProfit || 0) >= 0 ? 'positive' : 'negative', `Beneficio ${money(latest.netProfit, currency)}`));
+  root.append(current, svg, legend); return root;
 }
 function donutChart(value, centerLabel, rows, tone = 'green') {
   const root = node('div', 'donut-layout'); const donut = node('div', `result-donut ${tone}`); donut.style.setProperty('--donut-angle', `${clamp(value) * 3.6}deg`);
@@ -696,10 +705,19 @@ function donutChart(value, centerLabel, rows, tone = 'green') {
 function monthlyHistoryChart(history, currency) {
   const rows = (history || []).slice(-6); const root = node('div', 'monthly-history');
   if (!rows.length) return stacked('Sin histórico', 'Aún no hay meses anteriores disponibles.');
-  const maximum = Math.max(1, ...rows.flatMap((row) => [Number(row.totals?.realRevenue || 0), Number(row.totals?.totalCosts || 0)]));
-  const bars = node('div', 'monthly-bars');
-  rows.forEach((row) => { const group = node('div', 'monthly-bar-group'); const visual = node('div', 'monthly-bar-visual'); const revenue = node('i', 'monthly-bar revenue'); const costs = node('i', 'monthly-bar costs'); const profit = node('i', `monthly-profit-dot ${Number(row.totals?.exactNetProfit || 0) >= 0 ? '' : 'negative'}`.trim()); revenue.style.height = `${Math.max(2, Number(row.totals?.realRevenue || 0) / maximum * 100)}%`; costs.style.height = `${Math.max(2, Number(row.totals?.totalCosts || 0) / maximum * 100)}%`; profit.title = `Beneficio ${money(row.totals?.exactNetProfit, currency)}`; visual.append(revenue, costs, profit); group.append(visual, node('span', '', monthLabel(row.month || row.period?.month).split(' ')[0].slice(0, 3))); bars.append(group); });
-  const legend = node('div', 'chart-legend'); [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); }); root.append(bars, legend); return root;
+  const width = 360; const height = 150; const left = 8; const right = 8; const top = 8; const bottom = 24; const plotHeight = height - top - bottom; const plotWidth = width - left - right;
+  const maximum = Math.max(1, ...rows.flatMap((row) => [Number(row.totals?.realRevenue || 0), Number(row.totals?.totalCosts || 0), Number(row.totals?.exactNetProfit || 0)]));
+  const minimum = Math.min(0, ...rows.map((row) => Number(row.totals?.exactNetProfit || 0))); const range = Math.max(1, maximum - minimum); const y = (value) => top + (maximum - Number(value || 0)) / range * plotHeight; const zeroY = y(0); const groupWidth = plotWidth / rows.length; const barWidth = Math.min(16, groupWidth * .26); const x = (index) => left + (index + .5) * groupWidth;
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Facturación, costes y beneficio real por mes' });
+  rows.forEach((row, index) => {
+    const center = x(index); const revenueValue = Number(row.totals?.realRevenue || 0); const costValue = Number(row.totals?.totalCosts || 0); const profitValue = Number(row.totals?.exactNetProfit || 0); const titleText = `${monthLabel(row.month || row.period?.month)} · Facturación ${money(revenueValue, currency)} · Costes ${money(costValue, currency)} · Beneficio ${money(profitValue, currency)}`;
+    const revenue = svgEl('rect', { x: center - barWidth - 1, y: y(revenueValue), width: barWidth, height: Math.max(1, zeroY - y(revenueValue)), rx: 2, class: 'chart-bar revenue' }); const costs = svgEl('rect', { x: center + 1, y: y(costValue), width: barWidth, height: Math.max(1, zeroY - y(costValue)), rx: 2, class: 'chart-bar costs' });
+    [revenue, costs].forEach((bar) => { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = titleText; bar.append(title); }); svg.append(revenue, costs);
+    const label = svgEl('text', { x: center, y: height - 7, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = monthLabel(row.month || row.period?.month).split(' ')[0].slice(0, 3); svg.append(label);
+  });
+  const points = rows.map((row, index) => `${x(index)},${y(row.totals?.exactNetProfit)}`).join(' '); svg.append(svgEl('polyline', { points, class: 'chart-profit-line', fill: 'none' }));
+  rows.forEach((row, index) => { const value = Number(row.totals?.exactNetProfit || 0); const point = svgEl('circle', { cx: x(index), cy: y(value), r: 3, class: value >= 0 ? 'chart-profit-point' : 'chart-loss-point' }); const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = `${monthLabel(row.month || row.period?.month)} · Beneficio ${money(value, currency)}`; point.append(title); svg.append(point); });
+  const legend = node('div', 'chart-legend'); [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); }); root.append(svg, legend); return root;
 }
 function orderFunnel(counts) {
   const created = Number(counts.created || 0); const rows = [['Creados', counts.created, 100], ['Confirmados', counts.confirmed, created ? Number(counts.confirmed || 0) * 100 / created : 0], ['Enviados', counts.sent, created ? Number(counts.sent || 0) * 100 / created : 0], ['Entregados', counts.delivered, created ? Number(counts.delivered || 0) * 100 / created : 0]];
@@ -713,6 +731,14 @@ function costBreakdown(totals, currency) {
   rows.forEach(([label, value, tone]) => { const segment = node('span', tone); segment.style.width = `${total ? value * 100 / total : 0}%`; segment.title = `${label}: ${money(value, currency)}`; track.append(segment); });
   const legend = node('div', 'cost-breakdown-legend'); rows.forEach(([label, value, tone]) => { const item = node('div'); const labelBox = node('span'); labelBox.append(node('i', tone), document.createTextNode(label)); item.append(labelBox, node('strong', '', money(value, currency)), node('small', '', total ? percentNumber(value * 100 / total) : '0 %')); legend.append(item); });
   root.append(track, legend); return root;
+}
+function operationalSummary(counts) {
+  const root = node('div', 'insight-stat-grid'); const rows = [['Pedidos creados', counts.created, 'blue'], ['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inAir, 'sky'], ['Devueltos', counts.returned, 'red']];
+  rows.forEach(([label, value, tone]) => { const item = node('div', `insight-stat ${tone}`); item.append(node('span', '', label), node('strong', '', number(value))); root.append(item); }); return root;
+}
+function dataQualitySummary(data) {
+  const controls = Object.values(data.controls || {}); const passed = controls.filter(Boolean).length; const total = controls.length; const coverage = clamp(data.coverage?.dropeaBreakdownPercent); const root = node('div', 'quality-summary'); const score = node('div', 'quality-score'); score.style.setProperty('--quality-angle', `${coverage * 3.6}deg`); score.append(node('strong', '', `${number(coverage)} %`));
+  const copy = node('div', 'quality-copy'); copy.append(node('strong', '', data.quality?.status === 'OK' ? 'Datos conciliados' : 'Revisión necesaria'), node('span', '', `${passed} de ${total} controles superados`), node('small', '', `${number(data.quality?.issues?.length)} incidencia(s) de calidad · ${number(data.coverage?.dropeaBreakdownPercent)} % con desglose final de Dropea`)); root.append(score, copy); return root;
 }
 function dailyTable(data, currency) {
   const totals = data.totals || {}; const table = node('table', 'results-daily-table');
@@ -757,18 +783,20 @@ function renderResultsFinance() {
   const data = state.finance; if (!data) return; const totals = data.totals || {}; const counts = data.counts || {}; const currency = data.currency || 'EUR';
   $('last-sync').textContent = date(data.generatedAt); const current = data.period?.current;
   $('finance-exactness').textContent = data.quality?.status === 'OK' ? `Conciliado · ${current ? `MTD al día ${data.period.elapsedDays}` : 'mes cerrado'}` : `Revisión de datos · ${number(data.quality?.issues?.length)} aviso(s)`;
+  const days = (data.days || []).filter((row) => row.day);
   $('finance-hero').replaceChildren(
-    resultMetric('Beneficio mensual', money(totals.exactNetProfit, currency), comparisonText('exactNetProfit'), Number(totals.exactNetProfit || 0) >= 0 ? 'profit' : 'loss', '↗'),
-    resultMetric('Facturación', money(totals.realRevenue, currency), comparisonText('realRevenue'), 'revenue', '🛒'),
-    resultMetric('Costes totales', money(totals.totalCosts, currency), comparisonText('totalCosts'), 'costs', '◉'),
-    resultMetric('ROI', percentNumber(totals.roiPercent), comparisonText('roiPercent', 'points'), 'roi', '⌁'),
-    resultMetric('ROAS', totals.roas === null || totals.roas === undefined ? '—' : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(totals.roas)}x`, comparisonText('roas', 'multiplier'), 'roas', '◎'),
-    resultMetric('Margen neto', percentNumber(totals.marginPercent), comparisonText('marginPercent', 'points'), 'margin', '%')
+    resultMetric('Beneficio mensual', money(totals.exactNetProfit, currency), comparisonText('exactNetProfit'), Number(totals.exactNetProfit || 0) >= 0 ? 'profit' : 'loss', '↗', days.map((row) => row.netProfit)),
+    resultMetric('Facturación', money(totals.realRevenue, currency), comparisonText('realRevenue'), 'revenue', '🛒', days.map((row) => row.realRevenue)),
+    resultMetric('Costes totales', money(totals.totalCosts, currency), comparisonText('totalCosts'), 'costs', '◉', days.map((row) => row.totalCosts)),
+    resultMetric('ROI', percentNumber(totals.roiPercent), comparisonText('roiPercent', 'points'), 'roi', '⌁', days.map((row) => row.roiPercent)),
+    resultMetric('ROAS', totals.roas === null || totals.roas === undefined ? '—' : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(totals.roas)}x`, comparisonText('roas', 'multiplier'), 'roas', '◎', days.map((row) => Number(row.metaSpend || 0) > 0 ? Number(row.realRevenue || 0) / Number(row.metaSpend) : 0)),
+    resultMetric('Margen neto', percentNumber(totals.marginPercent), comparisonText('marginPercent', 'points'), 'margin', '%', days.map((row) => row.marginPercent))
   );
   $('finance-trend').replaceChildren(dailyResultsChart(data.days, currency));
   const breakdown = counts.statusBreakdown || {}; $('finance-delivery-chart').replaceChildren(donutChart(counts.deliveryRatePercent, 'Entregados', [['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inAir, 'blue'], ['Devueltos', counts.returned, 'red'], ['Pendientes', counts.pending, 'gray']], 'green'));
   $('finance-confirmation-chart').replaceChildren(donutChart(counts.confirmationRatePercent, 'Confirmados', [['Confirmados', counts.confirmed, 'blue'], ['Pendientes', Math.max(0, Number(counts.created || 0) - Number(counts.confirmed || 0) - Number(counts.rejected || 0)), 'gray'], ['Rechazados', counts.rejected, 'red']], 'blue'));
   $('finance-history-chart').replaceChildren(monthlyHistoryChart(data.history, currency)); $('finance-funnel').replaceChildren(orderFunnel(counts));
+  $('finance-operational-summary').replaceChildren(operationalSummary(counts)); $('finance-data-summary').replaceChildren(dataQualitySummary(data));
   $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(data, currency));
   $('finance-quality').replaceChildren(
     stacked('Fuente de pedidos y costes', data.sources?.orders || 'Dropea Public API V2'),

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-    <link rel="stylesheet" href="styles.css?v=20260912-results-panel-v1">
+  <link rel="stylesheet" href="styles.css?v=20260912-results-dashboard-v2">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -87,12 +87,16 @@
           <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">HISTÓRICO</p><h3>Evolución mensual</h3></div></div><div id="finance-history-chart"></div></article>
           <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">EMBUDO</p><h3>Pedidos</h3></div></div><div id="finance-funnel" class="results-funnel"></div></article>
         </section>
+        <section class="results-insight-grid" aria-label="Resumen operativo y calidad de los datos">
+          <article class="finance-panel insight-panel"><div class="panel-heading"><div><p class="eyebrow">RESUMEN OPERATIVO</p><h3>Actividad del mes</h3></div></div><div id="finance-operational-summary"></div></article>
+          <article class="finance-panel insight-panel"><div class="panel-heading"><div><p class="eyebrow">CALIDAD DEL DATO</p><h3>Conciliación financiera</h3></div></div><div id="finance-data-summary"></div></article>
+        </section>
         <section class="finance-panel cost-breakdown-panel">
           <div class="panel-heading"><div><p class="eyebrow">DESGLOSE DE COSTES</p><h3>Distribución del coste total del mes</h3></div><strong id="finance-cost-total"></strong></div>
           <div id="finance-costs" class="results-costs"></div>
         </section>
         <section class="finance-panel daily-table-panel">
-          <div class="panel-heading"><div><p class="eyebrow">HISTÓRICO DIARIO</p><h3>Detalle diario del mes</h3><p>La fila TOTAL reconcilia exactamente con los indicadores superiores.</p></div></div>
+          <div class="panel-heading"><div><p class="eyebrow">HISTÓRICO DIARIO</p><h3>Detalle diario del mes</h3><p>La fila TOTAL reconcilia exactamente con los indicadores superiores.</p><p class="allocation-note">Los gastos recurrentes con el mismo calendario se reparten conjuntamente. Si el total mensual no es divisible en céntimos entre los días, solo un día recibe el ajuste contable inevitable de 0,01 €.</p></div></div>
           <div id="finance-daily" class="finance-daily-table-wrap" aria-label="Tabla histórica diaria"></div>
         </section>
         <details class="finance-panel finance-audit-disclosure">
@@ -150,6 +154,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260912-results-panel-v1" defer></script>
+  <script src="app.js?v=20260912-results-dashboard-v2" defer></script>
 </body>
 </html>
