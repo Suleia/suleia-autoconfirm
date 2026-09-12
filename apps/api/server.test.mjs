@@ -77,22 +77,25 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   assert.equal(fixedPayload.external_writes, 0);
 });
 
-test('Operations finance endpoint uses the authoritative reconciled read model when configured', async (t) => {
+test('Operations finance endpoint composes Render finance inputs with the canonical Operations event model', async (t) => {
   const calls = [];
-  const repository = { financialSummary: async () => { throw new Error('legacy finance must not be called'); } };
+  const repository = { financialSummary: async (_params, reports) => {
+    calls.push(['canonical', reports.length]);
+    return { period: { month: '2026-07' }, totals: { exactNetProfit: 1500 }, source: 'operations_canonical_finance_v3', productionWrites: 0 };
+  } };
   const financeReportClient = {
-    getMonthly: async (month) => { calls.push(['read', month]); return { period: { month }, totals: { exactNetProfit: 1558.99 }, source: 'render_finance_read_model', productionWrites: 0 }; },
+    getMonthlyBundle: async (month) => { calls.push(['read', month]); return [{ period: { month }, totals: { exactNetProfit: 1558.99 }, source: 'render_finance_read_model', productionWrites: 0 }]; },
     addExpense: async (body) => { calls.push(['expense', body]); return { id: 'custom-fixture', name: body.name, external_actions: 0 }; }
   };
   const server = createOperationsServer({ config, repository, financeReportClient, authenticate: async () => ({ principal_hash: 'fixture-principal' }) });
   server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => server.close());
   const base = `http://127.0.0.1:${server.address().port}`;
   const finance = await fetch(`${base}/api/operations/finance?month=2026-07`, { headers: { Authorization: 'Bearer fixture' } }).then((response) => response.json());
-  assert.equal(finance.data.totals.exactNetProfit, 1558.99);
-  assert.equal(finance.data.source, 'render_finance_read_model');
+  assert.equal(finance.data.totals.exactNetProfit, 1500);
+  assert.equal(finance.data.source, 'operations_canonical_finance_v3');
   const expense = await fetch(`${base}/api/operations/finance/fixed-expenses`, { method: 'POST', headers: { Authorization: 'Bearer fixture', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Servidor', amount: '13.13', type: 'recurring_monthly', startDate: '2026-07-01' }) }).then((response) => response.json());
   assert.equal(expense.data.id, 'custom-fixture');
-  assert.deepEqual(calls.map((call) => call[0]), ['read', 'expense']);
+  assert.deepEqual(calls.map((call) => call[0]), ['read', 'canonical', 'expense']);
   assert.equal(expense.production_writes, 0);
   assert.equal(expense.external_writes, 0);
 });
@@ -250,16 +253,16 @@ test('monthly financial summary is GET-only and missing sources remain unknown',
   };
   const repository = new OperationsRepository(null, { pool });
   const result = await repository.financialSummary(new URLSearchParams({ month: '2026-08' }));
-  assert.equal(result.month, '2026-08');
-  assert.equal(result.totals.costs.advertising, null);
-  assert.equal(result.totals.total_expenses, null);
-  assert.equal(result.totals.net_profit, null);
-  assert.equal(result.totals.roi, null);
+  assert.equal(result.period.month, '2026-08');
+  assert.equal(result.totals.metaSpend, null);
+  assert.equal(result.totals.totalCosts, null);
+  assert.equal(result.totals.exactNetProfit, null);
+  assert.equal(result.totals.roiPercent, null);
   assert.equal(result.production_writes, 0);
   assert.equal(calls.length, 6);
   assert.equal(calls.every(({ sql }) => /^SELECT\b/i.test(sql.trim())), true);
   assert.equal(calls.every(({ sql }) => !/\b(?:INSERT|UPDATE|DELETE|UPSERT|CALL)\b/i.test(sql)), true);
-  assert.deepEqual(calls.map(({ values }) => values.length), [3, 3, 3, 3, 1, 3]);
+  assert.deepEqual(calls.map(({ values }) => values.length), [1, 1, 1, 1, 1, 1]);
 });
 
 test('fixed expenses are validated, parameterized, audited and never delete or call a provider', async () => {

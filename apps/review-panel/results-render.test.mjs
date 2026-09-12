@@ -17,7 +17,7 @@ class Element {
 
 function content(element) { return `${element.textContent || ''} ${element.children.map((child) => typeof child === 'string' ? child : content(child)).join(' ')}`.trim(); }
 
-test('results dashboard renders six monthly KPIs, charts and the permanently visible reconciled daily table', async () => {
+test('results dashboard renders headline KPIs, charts and the permanently visible reconciled daily table', async () => {
   const source = `${fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8')}\nglobalThis.__results = { state, renderResultsFinance };`;
   const elements = new Map(); const get = (id) => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); };
   const storage = new Map();
@@ -31,7 +31,8 @@ test('results dashboard renders six monthly KPIs, charts and the permanently vis
   await vm.runInNewContext(source, context);
   context.__results.state.finance = {
     period: { month: '2026-07', current: false, elapsedDays: 31 }, status: 'reconstructed', currency: 'EUR', generatedAt: '2026-09-12T10:00:00Z',
-    counts: { created: 500, confirmed: 420, rejected: 20, sent: 480, delivered: 314, returned: 137, inAir: 29, pending: 20, deliveryRatePercent: 65.4, confirmationRatePercent: 84, statusBreakdown: {} },
+    counts: { created: 500, confirmed: 420, pendingConfirmation: 20, cancelledBeforeConfirmation: 60, sent: 420, delivered: 280, returned: 100, inTransit: 40, inAir: 40, deliveryRatePercent: 66.67, confirmationRatePercent: 84, statusBreakdown: {} },
+    eventCounts: { delivered: 314, returned: 137 },
     totals: { realRevenue: 9616.5, productCost: 900, outboundShippingCost: 1000, outboundFulfillmentCost: 400, codCost: 350, returnCost: 720.62, dropeaAdjustmentsCost: 200, metaSpend: 3744.52, fixedCosts: 176.39, oneOffCosts: 101.72, otherCosts: 0, totalCosts: 8057.51, exactNetProfit: 1558.99, roiPercent: 19.35, roas: 2.57, marginPercent: 16.21 },
     days: [{ day: '2026-07-01', created: 12, delivered: 8, returned: 2, realRevenue: 240, productCost: 35, outboundShippingCost: 30, outboundFulfillmentCost: 8, codCost: 9, returnCost: 10.52, dropeaAdjustmentsCost: 3, metaSpend: 90, fixedCosts: 5.68, oneOffCosts: 3.28, otherCosts: 0, totalCosts: 194.48, netProfit: 45.52, marginPercent: 18.97, roiPercent: 23.41 }],
     history: [{ month: '2026-06', totals: { realRevenue: 4958.52, totalCosts: 3314.53, exactNetProfit: 1643.99 } }, { month: '2026-07', totals: { realRevenue: 9616.5, totalCosts: 8057.51, exactNetProfit: 1558.99 } }],
@@ -39,7 +40,7 @@ test('results dashboard renders six monthly KPIs, charts and the permanently vis
     quality: { status: 'OK', issues: [] }, controls: { dailyRevenueReconciled: true, dailyCostsReconciled: true, profitReconciled: true }, coverage: { dropeaBreakdownPercent: 100 }, sources: { orders: 'Dropea Public API V2' }, definitions: { netProfit: 'Fórmula conciliada', returnCost: '5,26 € por pedido solo como respaldo' }, expenseLedger: [{ name: 'Servidor', type: 'recurring_monthly', category: 'Infraestructura', amount: 13.13, appliedAmount: 13.13, startDate: '2026-07-01' }]
   };
   context.__results.renderResultsFinance();
-  assert.equal(get('finance-hero').children.length, 6);
+  assert.equal(get('finance-hero').children.length, 10);
   assert.match(content(get('finance-hero')), /Beneficio mensual/);
   assert.match(content(get('finance-hero')), /1558,99/);
   assert.equal(get('finance-trend').children[0].children[1].tagName, 'svg');

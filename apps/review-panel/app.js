@@ -1,4 +1,4 @@
-const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, financeMonths: [], queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
+const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, financeMonths: [], financeChartMode: 'profit', financeHistoryWindow: 6, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
 const operationsBase = location.pathname.startsWith('/operations') ? '/operations' : '';
 const $ = (id) => document.getElementById(id);
 const text = (value, fallback = '—') => value === undefined || value === null || value === '' ? fallback : String(value);
@@ -660,64 +660,77 @@ function resultMetric(label, value, detail, tone, icon, series) {
   return card;
 }
 function svgEl(tag, attributes = {}) { const element = document.createElementNS('http://www.w3.org/2000/svg', tag); Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value))); return element; }
+function niceMoneyScale(values, tickCount = 4) {
+  const numeric = values.map(Number).filter(Number.isFinite); const rawMin = Math.min(0, ...numeric); const rawMax = Math.max(0, ...numeric);
+  const span = Math.max(1, rawMax - rawMin); const rough = span / tickCount; const magnitude = 10 ** Math.floor(Math.log10(rough)); const normalized = rough / magnitude;
+  const step = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude;
+  const minimum = Math.floor(rawMin / step) * step; const maximum = Math.ceil(rawMax / step) * step || step;
+  return { minimum, maximum, step, ticks: Array.from({ length: Math.round((maximum - minimum) / step) + 1 }, (_, index) => minimum + index * step) };
+}
+function appendSvgTitle(element, content) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = content; element.append(title); return element; }
+function dailyTooltip(row, currency) {
+  const logistics = Number(row.outboundShippingCost || 0) + Number(row.outboundFulfillmentCost || 0) + Number(row.codCost || 0) + Number(row.dropeaAdjustmentsCost || 0);
+  return [date(row.day, true), `Facturación ${money(row.realRevenue, currency)}`, `Coste producto ${money(row.productCost, currency)}`, `Logística ${money(logistics, currency)}`, `Devoluciones ${money(row.returnCost, currency)}`, `Publicidad ${money(row.metaSpend, currency)}`, `Gastos fijos ${money(row.fixedCosts, currency)}`, `Gastos puntuales ${money(row.oneOffCosts, currency)}`, `Otros ${money(row.otherCosts, currency)}`, `Costes totales ${money(row.totalCosts, currency)}`, `Beneficio neto ${money(row.netProfit, currency)}`, `Margen ${percentNumber(row.marginPercent)}`, `ROI ${percentNumber(row.roiPercent)}`, `ROAS ${Number(row.roas) ? `${Number(row.roas).toFixed(2)}x` : '—'}`, row.closeStatus === 'CURRENT_PARTIAL' ? row.closeLabel : 'Día cerrado reconstruido'].join(' · ');
+}
 function dailyResultsChart(days, currency) {
   const rows = (days || []).filter((row) => row.day && row.totalCosts !== null && row.netProfit !== null);
   const root = node('div', 'daily-results-chart');
   if (!rows.length) { root.append(stacked('Todavía no hay días conciliados', 'Los datos aparecerán cuando se complete la primera sincronización.')); return root; }
-  const width = 820; const height = 280; const left = 42; const right = 14; const top = 18; const bottom = 42;
-  const maximum = Math.max(1, ...rows.flatMap((row) => [Number(row.realRevenue || 0), Number(row.totalCosts || 0), Number(row.netProfit || 0)])) * 1.1;
-  const minimum = Math.min(0, ...rows.map((row) => Number(row.netProfit || 0))) * 1.15; const range = Math.max(1, maximum - minimum); const plotWidth = width - left - right; const plotHeight = height - top - bottom;
-  const x = (index) => left + (index + .5) * plotWidth / rows.length;
-  const y = (value) => top + (maximum - Number(value || 0)) / range * plotHeight;
+  const mode = state.financeChartMode; const width = 820; const height = 320; const left = 52; const right = 52; const top = 30; const bottom = 46;
+  let running = 0; const cumulative = rows.map((row) => { running += Number(row.netProfit || 0); return row.cumulativeNetProfit === null || row.cumulativeNetProfit === undefined ? running : Number(row.cumulativeNetProfit); });
+  const primaryValues = mode === 'pnl' ? rows.flatMap((row) => [row.realRevenue, row.totalCosts, row.netProfit]) : rows.map((row) => row.netProfit);
+  const scale = niceMoneyScale(primaryValues); const cumulativeScale = niceMoneyScale(cumulative); const range = Math.max(1, scale.maximum - scale.minimum); const cumulativeRange = Math.max(1, cumulativeScale.maximum - cumulativeScale.minimum); const plotWidth = width - left - right; const plotHeight = height - top - bottom;
+  const x = (index) => left + (index + .5) * plotWidth / rows.length; const y = (value) => top + (scale.maximum - Number(value || 0)) / range * plotHeight; const yCumulative = (value) => top + (cumulativeScale.maximum - Number(value || 0)) / cumulativeRange * plotHeight;
   const zeroY = y(0);
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Barras de facturación y costes con línea de beneficio neto por día' });
-  for (let step = 0; step <= 4; step += 1) {
-    const gridY = top + plotHeight * step / 4;
-    svg.append(svgEl('line', { x1: left, y1: gridY, x2: width - right, y2: gridY, class: 'chart-grid-line' }));
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': mode === 'pnl' ? 'P&L diario completo con beneficio acumulado' : 'Beneficio neto diario y acumulado del mes' });
+  scale.ticks.forEach((tick) => {
+    const gridY = y(tick);
+    svg.append(svgEl('line', { x1: left, y1: gridY, x2: width - right, y2: gridY, class: tick === 0 ? 'chart-zero-line' : 'chart-grid-line' }));
     const label = svgEl('text', { x: left - 6, y: gridY + 4, class: 'chart-axis-label', 'text-anchor': 'end' });
-    label.textContent = `${Math.round(maximum - range * step / 4)} €`; svg.append(label);
-  }
-  const groupWidth = plotWidth / rows.length; const barWidth = Math.max(3, Math.min(10, groupWidth * .28));
-  rows.forEach((row, index) => {
-    const center = x(index); const revenueY = y(row.realRevenue); const costsY = y(row.totalCosts);
-    const revenue = svgEl('rect', { x: center - barWidth - 1, y: revenueY, width: barWidth, height: zeroY - revenueY, rx: 2, class: 'chart-bar revenue' });
-    const costs = svgEl('rect', { x: center + 1, y: costsY, width: barWidth, height: zeroY - costsY, rx: 2, class: 'chart-bar costs' });
-    const title = `${date(row.day, true)} · Facturación ${money(row.realRevenue, currency)} · Costes ${money(row.totalCosts, currency)} · Beneficio ${money(row.netProfit, currency)}`;
-    revenue.append(Object.assign(document.createElementNS('http://www.w3.org/2000/svg', 'title'), { textContent: title }));
-    costs.append(Object.assign(document.createElementNS('http://www.w3.org/2000/svg', 'title'), { textContent: title }));
-    svg.append(revenue, costs);
-    if (index === 0 || index === rows.length - 1 || Number(row.day.slice(-2)) % 5 === 0) { const label = svgEl('text', { x: center, y: height - 16, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = Number(row.day.slice(-2)); svg.append(label); }
+    label.textContent = `${Math.round(tick)} €`; svg.append(label);
   });
-  const points = rows.map((row, index) => `${x(index)},${y(Number(row.netProfit || 0))}`).join(' ');
-  svg.append(svgEl('polyline', { points, class: 'chart-profit-line', fill: 'none' }));
-  rows.forEach((row, index) => { const circle = svgEl('circle', { cx: x(index), cy: y(Number(row.netProfit || 0)), r: 3.2, class: Number(row.netProfit) >= 0 ? 'chart-profit-point' : 'chart-loss-point' }); const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = `${date(row.day, true)} · Beneficio ${money(row.netProfit, currency)}`; circle.append(title); svg.append(circle); });
-  const legend = node('div', 'chart-legend'); [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio neto']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); });
+  const rightTop = svgEl('text', { x: width - right + 6, y: top + 4, class: 'chart-axis-label cumulative-axis', 'text-anchor': 'start' }); rightTop.textContent = `${Math.round(cumulativeScale.maximum)} €`; svg.append(rightTop);
+  const rightBottom = svgEl('text', { x: width - right + 6, y: height - bottom + 4, class: 'chart-axis-label cumulative-axis', 'text-anchor': 'start' }); rightBottom.textContent = `${Math.round(cumulativeScale.minimum)} €`; svg.append(rightBottom);
+  const groupWidth = plotWidth / rows.length; const profitWidth = Math.max(5, Math.min(18, groupWidth * (mode === 'pnl' ? .22 : .62)));
+  rows.forEach((row, index) => {
+    const center = x(index); const profit = Number(row.netProfit || 0); const title = dailyTooltip(row, currency); const partial = row.closeStatus === 'CURRENT_PARTIAL' ? ' partial' : '';
+    if (mode === 'pnl') {
+      const revenueY = y(row.realRevenue); const costsY = y(row.totalCosts); const widthPnl = Math.max(3, Math.min(9, groupWidth * .2));
+      svg.append(appendSvgTitle(svgEl('rect', { x: center - widthPnl * 1.6, y: revenueY, width: widthPnl, height: Math.max(1, zeroY - revenueY), rx: 2, class: `chart-bar revenue${partial}` }), title));
+      svg.append(appendSvgTitle(svgEl('rect', { x: center - widthPnl * .45, y: costsY, width: widthPnl, height: Math.max(1, zeroY - costsY), rx: 2, class: `chart-bar costs${partial}` }), title));
+      const profitY = y(profit); svg.append(appendSvgTitle(svgEl('rect', { x: center + widthPnl * .7, y: Math.min(zeroY, profitY), width: widthPnl, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 2, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }), title));
+    } else {
+      const profitY = y(profit); svg.append(appendSvgTitle(svgEl('rect', { x: center - profitWidth / 2, y: Math.min(zeroY, profitY), width: profitWidth, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 3, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }), title));
+    }
+    if (index === 0 || index === rows.length - 1 || Number(row.day.slice(-2)) % 5 === 0) { const label = svgEl('text', { x: center, y: height - 16, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = Number(row.day.slice(-2)); svg.append(label); }
+    if (row.closeStatus === 'CURRENT_PARTIAL') { const partialLabel = svgEl('text', { x: center, y: height - 5, class: 'chart-partial-label', 'text-anchor': 'middle' }); partialLabel.textContent = 'PARCIAL'; svg.append(partialLabel); }
+  });
+  const points = cumulative.map((value, index) => `${x(index)},${yCumulative(value)}`).join(' '); svg.append(svgEl('polyline', { points, class: 'chart-cumulative-line', fill: 'none' }));
+  cumulative.forEach((value, index) => svg.append(appendSvgTitle(svgEl('circle', { cx: x(index), cy: yCumulative(value), r: 2.8, class: 'chart-cumulative-point' }), `${date(rows[index].day, true)} · Beneficio acumulado ${money(value, currency)}`)));
+  const legend = node('div', 'chart-legend'); const series = mode === 'pnl' ? [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio'], ['cumulative', 'Beneficio acumulado']] : [['profit', 'Beneficio'], ['loss', 'Pérdida'], ['cumulative', 'Beneficio acumulado']]; series.forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); });
   const latest = rows.at(-1); const current = node('div', 'chart-current-row');
-  current.append(node('span', '', `Último día conciliado · ${date(latest.day, true)}`), node('strong', '', `Facturación ${money(latest.realRevenue, currency)}`), node('strong', '', `Costes ${money(latest.totalCosts, currency)}`), node('strong', Number(latest.netProfit || 0) >= 0 ? 'positive' : 'negative', `Beneficio ${money(latest.netProfit, currency)}`));
+  current.append(node('span', '', latest.closeStatus === 'CURRENT_PARTIAL' ? latest.closeLabel : `Último día cerrado · ${date(latest.day, true)}`), node('strong', '', `Facturación ${money(latest.realRevenue, currency)}`), node('strong', '', `Costes ${money(latest.totalCosts, currency)}`), node('strong', Number(latest.netProfit || 0) >= 0 ? 'positive' : 'negative', `Beneficio ${money(latest.netProfit, currency)}`), node('strong', '', `Acumulado ${money(cumulative.at(-1), currency)}`));
   root.append(current, svg, legend); return root;
 }
 function donutChart(value, centerLabel, rows, tone = 'green') {
-  const root = node('div', 'donut-layout'); const donut = node('div', `result-donut ${tone}`); donut.style.setProperty('--donut-angle', `${clamp(value) * 3.6}deg`);
+  const root = node('div', 'donut-layout'); const donut = node('div', `result-donut ${tone}`); const palette = { green: '#17a874', blue: '#1478ed', red: '#f04f72', gray: '#a9b6c2' }; const total = rows.reduce((sum, row) => sum + Number(row[1] || 0), 0); let angle = 0; const stops = rows.map(([, count, color]) => { const start = angle; angle += total ? Number(count || 0) * 360 / total : 0; return `${palette[color] || palette.gray} ${start}deg ${angle}deg`; }); donut.style.background = `conic-gradient(${stops.join(',') || '#e8eff5 0deg 360deg'})`;
   const center = node('div', 'donut-center'); center.append(node('strong', '', percentNumber(value)), node('small', '', centerLabel)); donut.append(center);
   const legend = node('div', 'donut-legend'); rows.forEach(([label, count, color]) => { const item = node('div'); const lead = node('span'); lead.append(node('i', color), document.createTextNode(label)); item.append(lead, node('strong', '', number(count))); legend.append(item); });
   root.append(donut, legend); return root;
 }
 function monthlyHistoryChart(history, currency) {
-  const rows = (history || []).slice(-6); const root = node('div', 'monthly-history');
+  const rows = (history || []).slice(-state.financeHistoryWindow); const root = node('div', 'monthly-history');
   if (!rows.length) return stacked('Sin histórico', 'Aún no hay meses anteriores disponibles.');
-  const width = 360; const height = 150; const left = 8; const right = 8; const top = 8; const bottom = 24; const plotHeight = height - top - bottom; const plotWidth = width - left - right;
-  const maximum = Math.max(1, ...rows.flatMap((row) => [Number(row.totals?.realRevenue || 0), Number(row.totals?.totalCosts || 0), Number(row.totals?.exactNetProfit || 0)]));
-  const minimum = Math.min(0, ...rows.map((row) => Number(row.totals?.exactNetProfit || 0))); const range = Math.max(1, maximum - minimum); const y = (value) => top + (maximum - Number(value || 0)) / range * plotHeight; const zeroY = y(0); const groupWidth = plotWidth / rows.length; const barWidth = Math.min(16, groupWidth * .26); const x = (index) => left + (index + .5) * groupWidth;
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Facturación, costes y beneficio real por mes' });
+  const width = 380; const height = 176; const left = 28; const right = 28; const top = 25; const bottom = 30; const plotHeight = height - top - bottom; const plotWidth = width - left - right; const profits = rows.map((row) => Number(row.totals?.exactNetProfit || 0)); const scale = niceMoneyScale(profits, 3); const range = Math.max(1, scale.maximum - scale.minimum); const y = (value) => top + (scale.maximum - Number(value || 0)) / range * plotHeight; const zeroY = y(0); const marginY = (value) => top + (100 - clamp(value, -100, 100)) / 200 * plotHeight; const groupWidth = plotWidth / rows.length; const barWidth = Math.max(10, Math.min(28, groupWidth * .48)); const x = (index) => left + (index + .5) * groupWidth;
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Beneficio neto mensual y margen neto porcentual' }); svg.append(svgEl('line', { x1: left, y1: zeroY, x2: width - right, y2: zeroY, class: 'chart-zero-line' }));
   rows.forEach((row, index) => {
-    const center = x(index); const revenueValue = Number(row.totals?.realRevenue || 0); const costValue = Number(row.totals?.totalCosts || 0); const profitValue = Number(row.totals?.exactNetProfit || 0); const titleText = `${monthLabel(row.month || row.period?.month)} · Facturación ${money(revenueValue, currency)} · Costes ${money(costValue, currency)} · Beneficio ${money(profitValue, currency)}`;
-    const revenue = svgEl('rect', { x: center - barWidth - 1, y: y(revenueValue), width: barWidth, height: Math.max(1, zeroY - y(revenueValue)), rx: 2, class: 'chart-bar revenue' }); const costs = svgEl('rect', { x: center + 1, y: y(costValue), width: barWidth, height: Math.max(1, zeroY - y(costValue)), rx: 2, class: 'chart-bar costs' });
-    [revenue, costs].forEach((bar) => { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = titleText; bar.append(title); }); svg.append(revenue, costs);
+    const center = x(index); const month = row.month || row.period?.month; const profitValue = Number(row.totals?.exactNetProfit || 0); const profitY = y(profitValue); const partial = row.dataAvailability?.status === 'PARTIAL_SOURCE' || row.period?.current; const titleText = [monthLabel(month), `Facturación ${money(row.totals?.realRevenue, currency)}`, `Costes ${money(row.totals?.totalCosts, currency)}`, `Beneficio ${money(profitValue, currency)}`, `Margen ${percentNumber(row.totals?.marginPercent)}`, `Publicidad ${money(row.totals?.metaSpend, currency)}`, `ROAS ${Number(row.totals?.roas) ? `${Number(row.totals.roas).toFixed(2)}x` : '—'}`, `Entregados ${number(row.eventCounts?.delivered ?? row.counts?.delivered)}`, `Devueltos ${number(row.eventCounts?.returned ?? row.counts?.returned)}`, row.dataAvailability?.label || row.statusLabel || 'Mes completo'].join(' · ');
+    const bar = appendSvgTitle(svgEl('rect', { x: center - barWidth / 2, y: Math.min(zeroY, profitY), width: barWidth, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 3, class: `chart-bar ${profitValue >= 0 ? 'profit' : 'loss'}${partial ? ' partial-month' : ''}`, tabindex: 0, role: 'button', 'aria-label': `Abrir ${monthLabel(month)}` }), titleText); bar.addEventListener('click', () => { $('finance-month').value = month; loadResultsFinance(); }); svg.append(bar);
+    const valueLabel = svgEl('text', { x: center, y: profitValue >= 0 ? Math.max(10, profitY - 5) : Math.min(height - bottom - 2, profitY + Math.abs(zeroY - profitY) + 11), class: 'chart-value-label', 'text-anchor': 'middle' }); valueLabel.textContent = `${profitValue >= 0 ? '+' : ''}${Math.round(profitValue)} €`; svg.append(valueLabel);
     const label = svgEl('text', { x: center, y: height - 7, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = monthLabel(row.month || row.period?.month).split(' ')[0].slice(0, 3); svg.append(label);
   });
-  const points = rows.map((row, index) => `${x(index)},${y(row.totals?.exactNetProfit)}`).join(' '); svg.append(svgEl('polyline', { points, class: 'chart-profit-line', fill: 'none' }));
-  rows.forEach((row, index) => { const value = Number(row.totals?.exactNetProfit || 0); const point = svgEl('circle', { cx: x(index), cy: y(value), r: 3, class: value >= 0 ? 'chart-profit-point' : 'chart-loss-point' }); const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = `${monthLabel(row.month || row.period?.month)} · Beneficio ${money(value, currency)}`; point.append(title); svg.append(point); });
-  const legend = node('div', 'chart-legend'); [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); }); root.append(svg, legend); return root;
+  const points = rows.map((row, index) => `${x(index)},${marginY(row.totals?.marginPercent)}`).join(' '); svg.append(svgEl('polyline', { points, class: 'chart-margin-line', fill: 'none' })); rows.forEach((row, index) => svg.append(appendSvgTitle(svgEl('circle', { cx: x(index), cy: marginY(row.totals?.marginPercent), r: 2.7, class: 'chart-margin-point' }), `${monthLabel(row.month || row.period?.month)} · Margen ${percentNumber(row.totals?.marginPercent)}`)));
+  const legend = node('div', 'chart-legend'); [['profit', 'Beneficio'], ['loss', 'Pérdida'], ['margin', 'Margen neto %'], ['partial', 'Mes parcial']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); }); root.append(svg, legend); return root;
 }
 function orderFunnel(counts) {
   const created = Number(counts.created || 0); const rows = [['Creados', counts.created, 100], ['Confirmados', counts.confirmed, created ? Number(counts.confirmed || 0) * 100 / created : 0], ['Enviados', counts.sent, created ? Number(counts.sent || 0) * 100 / created : 0], ['Entregados', counts.delivered, created ? Number(counts.delivered || 0) * 100 / created : 0]];
@@ -746,7 +759,7 @@ function dailyTable(data, currency) {
     ['Fecha', 'day'], ['Creados', 'created'], ['Entregados', 'delivered'], ['Devueltos', 'returned'], ['Facturación', 'realRevenue'],
     ['Producto', 'productCost'], ['Envío', 'outboundShippingCost'], ['Fulfillment', 'outboundFulfillmentCost'], ['COD', 'codCost'],
     ['Devoluciones', 'returnCost'], ['Ajustes Dropea', 'dropeaAdjustmentsCost'], ['Meta Ads', 'metaSpend'], ['Fijos/puntuales', 'fixedBundle'],
-    ['Costes totales', 'totalCosts'], ['Beneficio neto', 'netProfit'], ['Margen', 'marginPercent'], ['ROI', 'roiPercent']
+    ['Costes totales', 'totalCosts'], ['Beneficio neto', 'netProfit'], ['Margen', 'marginPercent'], ['ROI', 'roiPercent'], ['ROAS', 'roas']
   ];
   const head = node('thead'); const headRow = node('tr'); columns.forEach(([label]) => headRow.append(node('th', '', label))); head.append(headRow);
   const body = node('tbody');
@@ -755,11 +768,12 @@ function dailyTable(data, currency) {
     if (['created', 'delivered', 'returned'].includes(key)) return number(row[key]);
     if (key === 'fixedBundle') return money(Number(row.fixedCosts || 0) + Number(row.oneOffCosts || 0) + Number(row.otherCosts || 0), currency);
     if (['marginPercent', 'roiPercent'].includes(key)) return percentNumber(row[key]);
+    if (key === 'roas') return Number(row[key]) ? `${Number(row[key]).toFixed(2)}x` : '—';
     return money(row[key], currency);
   };
   (data.days || []).slice().reverse().forEach((row) => { const tr = node('tr', Number(row.netProfit || 0) < 0 ? 'loss-row' : 'profit-row'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', cellValue(row, key)); tr.append(td); }); body.append(tr); });
   const totalRow = {
-    day: 'TOTAL', created: data.counts?.created, delivered: data.counts?.delivered, returned: data.counts?.returned,
+    day: 'TOTAL', created: data.counts?.created, delivered: data.eventCounts?.delivered ?? data.counts?.delivered, returned: data.eventCounts?.returned ?? data.counts?.returned,
     ...totals, netProfit: totals.exactNetProfit, fixedBundle: Number(totals.fixedCosts || 0) + Number(totals.oneOffCosts || 0) + Number(totals.otherCosts || 0)
   };
   const foot = node('tfoot'); const tr = node('tr'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', key === 'day' ? 'TOTAL DEL MES' : cellValue(totalRow, key)); tr.append(td); }); foot.append(tr); table.append(head, body, foot);
@@ -780,25 +794,32 @@ async function saveResultExpense(event) {
   try { await api('/api/operations/finance/fixed-expenses', { method: 'POST', body }); closeResultExpenseForm(); await loadResultsFinance(); showNotice('Gasto guardado y resultado mensual recalculado.'); } catch (error) { $('finance-fixed-feedback').textContent = error.message; } finally { submit.disabled = false; }
 }
 function renderResultsFinance() {
-  const data = state.finance; if (!data) return; const totals = data.totals || {}; const counts = data.counts || {}; const currency = data.currency || 'EUR';
+  const data = state.finance; if (!data) return; const totals = data.totals || {}; const counts = data.counts || {}; const eventCounts = data.eventCounts || {}; const currency = data.currency || 'EUR';
   $('last-sync').textContent = date(data.generatedAt); const current = data.period?.current;
-  $('finance-exactness').textContent = data.quality?.status === 'OK' ? `Conciliado · ${current ? `MTD al día ${data.period.elapsedDays}` : 'mes cerrado'}` : `Revisión de datos · ${number(data.quality?.issues?.length)} aviso(s)`;
+  $('finance-exactness').textContent = data.quality?.status === 'OK' ? (current ? `Parcial · MTD al día ${data.period.elapsedDays}` : (data.dataAvailability?.label || 'Mes cerrado')) : `Revisión de datos · ${number(data.quality?.issues?.length)} aviso(s)`;
   const days = (data.days || []).filter((row) => row.day);
+  const availability = data.dataAvailability?.label || (current ? `MTD · día ${data.period.elapsedDays}` : 'Mes completo');
+  const freshness = data.freshness?.sources || {}; $('finance-freshness').replaceChildren(...[['Dropea', freshness.dropea], ['Meta', freshness.meta], ['Chatby', freshness.chatby]].map(([label, source]) => { const status = source?.status || 'UNAVAILABLE'; const item = node('span', status === 'OK' ? 'is-fresh' : status === 'STALE' ? 'is-stale' : 'is-neutral'); const timing = source?.ageMinutes === null || source?.ageMinutes === undefined ? (status === 'NOT_A_FINANCE_DEPENDENCY' ? 'no interviene en el P&L' : 'sin marca de tiempo') : `hace ${number(source.ageMinutes)} min`; item.textContent = `${label} · ${timing}`; return item; }));
   $('finance-hero').replaceChildren(
-    resultMetric('Beneficio mensual', money(totals.exactNetProfit, currency), comparisonText('exactNetProfit'), Number(totals.exactNetProfit || 0) >= 0 ? 'profit' : 'loss', '↗', days.map((row) => row.netProfit)),
+    resultMetric('Beneficio mensual', money(totals.exactNetProfit, currency), `${availability} · ${comparisonText('exactNetProfit')}`, Number(totals.exactNetProfit || 0) >= 0 ? 'profit' : 'loss', '↗', days.map((row) => row.netProfit)),
     resultMetric('Facturación', money(totals.realRevenue, currency), comparisonText('realRevenue'), 'revenue', '🛒', days.map((row) => row.realRevenue)),
     resultMetric('Costes totales', money(totals.totalCosts, currency), comparisonText('totalCosts'), 'costs', '◉', days.map((row) => row.totalCosts)),
     resultMetric('ROI', percentNumber(totals.roiPercent), comparisonText('roiPercent', 'points'), 'roi', '⌁', days.map((row) => row.roiPercent)),
     resultMetric('ROAS', totals.roas === null || totals.roas === undefined ? '—' : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(totals.roas)}x`, comparisonText('roas', 'multiplier'), 'roas', '◎', days.map((row) => Number(row.metaSpend || 0) > 0 ? Number(row.realRevenue || 0) / Number(row.metaSpend) : 0)),
-    resultMetric('Margen neto', percentNumber(totals.marginPercent), comparisonText('marginPercent', 'points'), 'margin', '%', days.map((row) => row.marginPercent))
+    resultMetric('Margen neto', percentNumber(totals.marginPercent), comparisonText('marginPercent', 'points'), 'margin', '%', days.map((row) => row.marginPercent)),
+    resultMetric('Tasa de entrega', percentNumber(counts.deliveryRatePercent), comparisonText('deliveryRatePercent', 'points'), 'margin', '✓', []),
+    resultMetric('Entregados', number(eventCounts.delivered ?? counts.delivered), 'Por fecha real de entrega del periodo', 'profit', '▣', days.map((row) => row.delivered)),
+    resultMetric('Devueltos', number(eventCounts.returned ?? counts.returned), 'Por returned_at; 5,26 € una vez por pedido', 'loss', '↩', days.map((row) => row.returned)),
+    resultMetric('En tránsito', number(counts.inTransit ?? counts.inAir), 'Solo dentro del universo de enviados', 'revenue', '→', [])
   );
   $('finance-trend').replaceChildren(dailyResultsChart(data.days, currency));
-  const breakdown = counts.statusBreakdown || {}; $('finance-delivery-chart').replaceChildren(donutChart(counts.deliveryRatePercent, 'Entregados', [['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inAir, 'blue'], ['Devueltos', counts.returned, 'red'], ['Pendientes', counts.pending, 'gray']], 'green'));
-  $('finance-confirmation-chart').replaceChildren(donutChart(counts.confirmationRatePercent, 'Confirmados', [['Confirmados', counts.confirmed, 'blue'], ['Pendientes', Math.max(0, Number(counts.created || 0) - Number(counts.confirmed || 0) - Number(counts.rejected || 0)), 'gray'], ['Rechazados', counts.rejected, 'red']], 'blue'));
+  $('finance-delivery-chart').replaceChildren(donutChart(counts.deliveryRatePercent, 'Entregados', [['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inTransit, 'blue'], ['Devueltos', counts.returned, 'red']], 'green'));
+  $('finance-confirmation-chart').replaceChildren(donutChart(counts.confirmationRatePercent, 'Confirmados', [['Confirmados', counts.confirmed, 'blue'], ['No confirmados todavía', counts.pendingConfirmation, 'gray'], ['Cancelados antes de confirmar', counts.cancelledBeforeConfirmation, 'red']], 'blue'));
   $('finance-history-chart').replaceChildren(monthlyHistoryChart(data.history, currency)); $('finance-funnel').replaceChildren(orderFunnel(counts));
   $('finance-operational-summary').replaceChildren(operationalSummary(counts)); $('finance-data-summary').replaceChildren(dataQualitySummary(data));
   $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(data, currency));
   $('finance-quality').replaceChildren(
+    stacked('Modelos temporales', 'P&L por fecha económica · embudo por cohorte de creación'),
     stacked('Fuente de pedidos y costes', data.sources?.orders || 'Dropea Public API V2'),
     stacked('Fórmula', data.definitions?.netProfit || 'Facturación real − costes de Dropea − Meta − gastos mensuales'),
     stacked('Coste de devolución', data.definitions?.returnCost || 'Coste real del pedido; respaldo de 5,26 € por pedido devuelto'),
@@ -850,4 +871,7 @@ $('logout-button').addEventListener('click', () => signOut(true)); $('refresh-bu
 $('finance-add-fixed').addEventListener('click', () => openResultExpenseForm());
 $('finance-fixed-cancel').addEventListener('click', closeResultExpenseForm);
 $('finance-fixed-form').addEventListener('submit', saveResultExpense);
+$('finance-chart-profit').addEventListener('click', () => { state.financeChartMode = 'profit'; $('finance-chart-profit').classList.add('is-active'); $('finance-chart-pnl').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(state.finance.days, state.finance.currency || 'EUR')); });
+$('finance-chart-pnl').addEventListener('click', () => { state.financeChartMode = 'pnl'; $('finance-chart-pnl').classList.add('is-active'); $('finance-chart-profit').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(state.finance.days, state.finance.currency || 'EUR')); });
+$('finance-history-window').addEventListener('change', (event) => { state.financeHistoryWindow = Number(event.target.value) || 6; if (state.finance) $('finance-history-chart').replaceChildren(monthlyHistoryChart(state.finance.history, state.finance.currency || 'EUR')); });
 init().catch(async (error) => { $('login').hidden = false; $('app').hidden = true; try { if (state.config) await prepareLogin(); } catch {} showLoginError(error.message); });

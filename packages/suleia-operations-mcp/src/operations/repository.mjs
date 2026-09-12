@@ -1,5 +1,5 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
-import { buildOrderCreationCohortFinanceReport } from '../../../platform-core/src/finance/monthly-report.mjs';
+import { buildResultsFinanceReport } from '../../../platform-core/src/finance/results-report.mjs';
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 
@@ -293,57 +293,58 @@ export class OperationsRepository {
     };
   }
 
-  async financialSummary(searchParams) {
-    const window = financialMonth(searchParams); const values = [window.from, window.to, window.storeId];
-    const orderWhere = `WHERE c.created_at_utc >= ($1::date::timestamp AT TIME ZONE 'Europe/Madrid')
-      AND c.created_at_utc < ($2::date::timestamp AT TIME ZONE 'Europe/Madrid')
-      AND ($3::text IS NULL OR c.store_id=$3)`;
+  async financialSummary(searchParams, supplementalReports = []) {
+    const window = financialMonth(searchParams); const values = [window.storeId];
     const [orders, rates, fixed, advertising, months, checkpoints] = await Promise.all([
       this.pool.query(`SELECT c.canonical_order_id,c.store_id,c.lifecycle_status,c.status,c.created_at_utc,c.source_updated_at,c.updated_at,
         c.confirmed_at_utc,c.delivered_at_utc,c.returned_at_utc,c.total_amount,c.currency,c.carrier,c.product_summary,c.active_issue_id,
-        d.order_costs
+        d.order_costs,r.test_order,r.duplicate_status,
+        CASE WHEN discount.response_status='DISCOUNT_ACCEPTED' AND discount.signal_quality='VERIFIED'
+          THEN coalesce(discount.final_amount,c.total_amount) ELSE c.total_amount END AS final_amount
         FROM read_models.operations_order_context c
-        LEFT JOIN read_models.operations_order_financial_inputs d USING(canonical_order_id) ${orderWhere}`, values),
+        LEFT JOIN read_models.operations_order_financial_inputs d USING(canonical_order_id)
+        LEFT JOIN read_models.operations_order_records r USING(canonical_order_id)
+        LEFT JOIN LATERAL (
+          SELECT response_status,signal_quality,final_amount
+          FROM read_models.operations_incident_discount_recovery_latest recovery
+          WHERE recovery.dropea_order_id=c.dropea_order_id
+          ORDER BY recovery.source_updated_at DESC LIMIT 1
+        ) discount ON true
+        WHERE ($1::text IS NULL OR c.store_id=$1)`, values),
       this.pool.query(`SELECT store_id,cost_type,carrier,provider,product_id,variant_id,amount,currency,
         effective_from,effective_to,source,updated_at FROM economics.finance_cost_rates
-        WHERE effective_from < $2::date AND (effective_to IS NULL OR effective_to >= $1::date)
-        AND ($3::text IS NULL OR store_id=$3)`, values),
+        WHERE ($1::text IS NULL OR store_id=$1)`, values),
       this.pool.query(`SELECT expense_id,store_id,label,category,expense_type,amount,currency,start_date,end_date,occurred_on,status,source,updated_at
-        FROM economics.finance_fixed_expenses WHERE start_date < $2::date AND (end_date IS NULL OR end_date >= $1::date)
-        AND ($3::text IS NULL OR store_id=$3)`, values),
+        FROM economics.finance_fixed_expenses WHERE ($1::text IS NULL OR store_id=$1)`, values),
       this.pool.query(`SELECT store_id,business_date,platform,sum(spend)::numeric(14,2) AS spend,min(currency) AS currency,
         CASE WHEN bool_and(sync_status='COMPLETE') THEN 'COMPLETE' ELSE max(sync_status) END AS sync_status,
         max(source_observed_at) AS source_observed_at,max(ingested_at) AS ingested_at
-        FROM economics.finance_ad_spend_daily WHERE business_date >= $1::date AND business_date < $2::date
-        AND ($3::text IS NULL OR store_id=$3) GROUP BY store_id,business_date,platform`, values),
+        FROM economics.finance_ad_spend_daily WHERE ($1::text IS NULL OR store_id=$1)
+        GROUP BY store_id,business_date,platform`, values),
       this.pool.query(`SELECT DISTINCT month FROM read_models.finance_available_months
         WHERE ($1::text IS NULL OR store_id=$1) ORDER BY month DESC LIMIT 24`, [window.storeId]),
-      this.pool.query(`SELECT store_id,source,business_date,sync_status,records_read,last_success_at,last_failure_at,failure_code,updated_at
-        FROM economics.finance_sync_checkpoints WHERE business_date >= $1::date AND business_date < $2::date
-        AND ($3::text IS NULL OR store_id=$3) ORDER BY source,business_date`, values)
+      this.pool.query(`SELECT max(source_updated_at) AS dropea_last_sync_at,
+        max(updated_at) AS read_model_last_updated_at FROM read_models.operations_order_context
+        WHERE ($1::text IS NULL OR store_id=$1)`, values)
     ]);
-    const report = buildOrderCreationCohortFinanceReport({
+    const report = buildResultsFinanceReport({
       month: window.month,
       orders: orders.rows,
       rates: rates.rows.map((row) => ({ ...row, effective_from: dateOnly(row.effective_from), effective_to: dateOnly(row.effective_to) })),
-      fixedExpenses: fixed.rows.map((row) => ({ ...row, start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date), occurred_on: dateOnly(row.occurred_on) })),
-      fixedExpensesComplete: fixed.rows.length > 0,
-      adSpend: advertising.rows.map((row) => ({ ...row, business_date: dateOnly(row.business_date) }))
+      localFixedExpenses: fixed.rows.map((row) => ({ ...row, start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date), occurred_on: dateOnly(row.occurred_on) })),
+      localAdSpend: advertising.rows.map((row) => ({ ...row, business_date: dateOnly(row.business_date) })),
+      supplementalReports,
+      availableMonths: months.rows.map((row) => row.month),
+      dropeaLastSyncAt: checkpoints.rows[0]?.dropea_last_sync_at || null
     });
     return {
       ...report, store_id: window.storeId,
-      available_months: months.rows.map((row) => row.month), checkpoints: checkpoints.rows,
-      fixed_expenses: fixed.rows.map((row) => ({ ...row,
-        start_date: dateOnly(row.start_date), end_date: dateOnly(row.end_date), occurred_on: dateOnly(row.occurred_on) })),
       shopify_orders_available: false,
       limitations: [
-        'Cada fila diaria corresponde a la fecha de creación del pedido y refleja su estado actual; así ninguna devolución de otra cohorte contamina el mes.',
-        'La tasa de entrega se calcula sobre los pedidos de Dropea creados en el mes. El total independiente de Shopify permanece separado hasta disponer de un lector con alcance técnicamente sólo lectura.',
-        'Entregados + en el aire + devueltos debe cuadrar exactamente con los pedidos enviados de la cohorte.',
-        'Operations todavía no dispone del total independiente de pedidos de la plataforma de tienda; no se sustituye por un dato inventado.',
-        'Una tarifa PRODUCT_COGS confirmada por el operador prevalece sobre el dato mayorista de Dropea; si no existe, se exige un coste mayorista positivo.',
-        'El beneficio neto resta coste de producto, envío, COD, fulfillment, devoluciones, publicidad y gastos fijos a la facturación real.',
-        'Un coste o día publicitario sin fuente completa deja el beneficio neto y el ROI como no calculables; nunca se sustituye por cero.'
+        'El P&L usa la fecha real del evento económico; el embudo usa la cohorte de creación.',
+        'Shopify no interviene en pedidos, facturación, costes ni beneficio.',
+        'Las devoluciones requieren returned_at_utc y cuestan 5,26 € una vez por pedido.',
+        'Un coste o día publicitario sin fuente completa queda visible como no disponible; nunca se inventa un cero.'
       ],
       actions_executed: 0, production_writes: 0
     };

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260912-results-dashboard-v2">
+  <link rel="stylesheet" href="styles.css?v=20260912-results-dashboard-v3">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -76,15 +76,16 @@
             <small id="finance-month-count">Cargando histórico…</small>
           </div>
         </div>
+        <div id="finance-freshness" class="source-freshness" aria-label="Actualización de fuentes"></div>
         <section id="finance-hero" class="finance-hero"></section>
         <section class="results-chart-grid" aria-label="Gráficos de resultados">
           <article class="finance-panel daily-chart-panel">
-            <div class="panel-heading"><div><p class="eyebrow">EVOLUCIÓN DIARIA</p><h3>Facturación, costes y beneficio</h3><p>Resultado real de cada día del mes seleccionado.</p></div><span id="finance-exactness" class="data-quality"></span></div>
+            <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA</p><h3>Beneficio neto realizado por día</h3><p>Barras de beneficio o pérdida y línea de beneficio acumulado MTD.</p></div><div class="chart-heading-actions"><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Beneficio</button><button id="finance-chart-pnl" type="button">P&amp;L completo</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
             <div id="finance-trend" class="finance-chart" aria-label="Evolución diaria del beneficio"></div>
           </article>
           <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">OPERACIÓN</p><h3>Tasa de entrega</h3></div></div><div id="finance-delivery-chart"></div></article>
           <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">CONVERSIÓN</p><h3>Tasa de confirmación</h3></div></div><div id="finance-confirmation-chart"></div></article>
-          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">HISTÓRICO</p><h3>Evolución mensual</h3></div></div><div id="finance-history-chart"></div></article>
+          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">HISTÓRICO</p><h3>Evolución del beneficio</h3></div><select id="finance-history-window" class="mini-select" aria-label="Ventana histórica"><option value="6">6 meses</option><option value="12">12 meses</option></select></div><div id="finance-history-chart"></div></article>
           <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">EMBUDO</p><h3>Pedidos</h3></div></div><div id="finance-funnel" class="results-funnel"></div></article>
         </section>
         <section class="results-insight-grid" aria-label="Resumen operativo y calidad de los datos">
@@ -154,6 +155,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260912-results-dashboard-v2" defer></script>
+  <script src="app.js?v=20260912-results-dashboard-v3" defer></script>
 </body>
 </html>

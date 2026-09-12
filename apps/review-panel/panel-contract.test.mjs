@@ -24,7 +24,7 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /RENDIMIENTO DEL NEGOCIO/);
   assert.match(script, /Beneficio mensual/);
   assert.match(`${html}\n${script}`, /Beneficio neto/);
-  assert.match(html, /Facturación, costes y beneficio/);
+  assert.match(html, /Beneficio neto realizado por día/);
   assert.match(html, /Distribución del coste total del mes/);
   assert.match(html, /Detalle diario del mes/);
   assert.match(html, /id="finance-delivery-chart"/);
@@ -61,9 +61,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260912-results-dashboard-v2">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260912-results-dashboard-v3">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260912-results-dashboard-v2" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260912-results-dashboard-v3" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
@@ -71,6 +71,13 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(script, /Unidades devueltas/);
   assert.match(script, /Rechazados \/ devueltos/);
   assert.match(script, /dailyResultsChart/);
+  assert.match(script, /chart-cumulative-line/);
+  assert.match(script, /counts\.pendingConfirmation/);
+  assert.match(script, /counts\.cancelledBeforeConfirmation/);
+  assert.doesNotMatch(script, /\['Pendientes', counts\.pending, 'gray'\]/);
+  assert.match(html, /id="finance-chart-profit"/);
+  assert.match(html, /id="finance-chart-pnl"/);
+  assert.match(html, /id="finance-history-window"/);
   assert.match(html, /id="finance-trend"/);
   assert.match(html, /class="finance-panel finance-audit-disclosure"/);
   assert.match(css, /results-chart-grid/);

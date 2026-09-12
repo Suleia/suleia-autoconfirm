@@ -140,7 +140,9 @@ export function createOperationsServer({ config, repository, authenticate, finan
       } else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/finance') {
         const month = requestUrl.searchParams.get('month') || new Date().toISOString().slice(0, 7);
-        data = financeReportClient ? await financeReportClient.getMonthly(month) : await repository.financialSummary(requestUrl.searchParams);
+        const supplementalReports = financeReportClient
+          ? await financeReportClient.getMonthlyBundle(month) : [];
+        data = await repository.financialSummary(requestUrl.searchParams, supplementalReports);
       }
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));

@@ -9,8 +9,8 @@ function cents(value) {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
 }
 
-function amount(value) {
-  return value === null ? null : Number((value / 100).toFixed(2));
+function amount(value, digits = 2) {
+  return value === null ? null : Number((value / 100).toFixed(digits));
 }
 
 function ratio(numerator, denominator) {
@@ -105,11 +105,11 @@ function fixedDaily(expenses, days) {
       if (result.has(target)) result.set(target, result.get(target) + expenseCents);
       continue;
     }
-    const base = Math.floor(expenseCents / eligible.length);
-    let remainder = expenseCents - (base * eligible.length);
+    // Retain fractional cents internally so every day has the same accrual.
+    // Presentation and monthly totals are rounded later.
+    const base = expenseCents / eligible.length;
     for (const day of eligible) {
-      result.set(day, result.get(day) + base + (remainder > 0 ? 1 : 0));
-      remainder -= remainder > 0 ? 1 : 0;
+      result.set(day, result.get(day) + base);
     }
   }
   return result;
@@ -127,12 +127,22 @@ function sourceStatus(rows, day, currency) {
 function orderFlags(order) {
   const lifecycle = state(order);
   const sent = Boolean(order.confirmed_at_utc) || SENT_STATES.has(lifecycle);
-  const returned = Boolean(order.returned_at_utc) || ['RETURNED', 'REFUSED', 'REFUSED_LOST_OR_DAMAGED'].includes(lifecycle) || (lifecycle === 'REJECTED' && sent);
+  // A lifecycle label is not an accounting date. A return enters finance
+  // only when the canonical read model has a real returned_at timestamp.
+  const returned = Boolean(order.returned_at_utc);
   const delivered = (Boolean(order.delivered_at_utc) || DELIVERED_STATES.has(lifecycle)) && !returned;
   return {
     sent, delivered, returned,
     in_air: sent && !delivered && !returned && !TERMINAL_NOT_DELIVERED.has(lifecycle)
   };
+}
+
+function resolvedOrderAmount(order) {
+  for (const value of [order.final_amount, order.resolved_revenue_amount, order.total_amount]) {
+    const parsed = cents(value);
+    if (parsed !== null) return parsed;
+  }
+  return null;
 }
 
 function eventDays(order, timezone) {
@@ -161,6 +171,13 @@ function observedFulfillmentCost(order, type) {
 }
 
 function exactOrderCost(order, rates, type, day, dimensions) {
+  if (type === 'RETURN_LOGISTICS_COMBINED') {
+    const governed = rateFor(rates, type, day, dimensions);
+    if (governed) return cents(governed.amount);
+    const shipping = exactOrderCost(order, rates, 'RETURN_SHIPPING', day, dimensions);
+    const fulfillment = exactOrderCost(order, rates, 'RETURN_FULFILLMENT', day, dimensions);
+    return shipping === null || fulfillment === null ? null : shipping + fulfillment;
+  }
   const observed = observedFulfillmentCost(order, type);
   if (observed !== null) return observed;
   const rate = rateFor(rates, type, day, dimensions);
@@ -171,7 +188,7 @@ function productRollup(orders, rates, timezone, currency) {
   const products = new Map();
   for (const order of orders) {
     const flags = orderFlags(order); const day = businessDate(order.created_at_utc || order.source_updated_at || order.updated_at, timezone);
-    const orderProducts = normalizedProducts(order); const orderAmount = String(order.currency || currency).toUpperCase() === currency ? cents(order.total_amount) : null;
+    const orderProducts = normalizedProducts(order); const orderAmount = String(order.currency || currency).toUpperCase() === currency ? resolvedOrderAmount(order) : null;
     for (const product of orderProducts) {
       const key = product.variant_id || product.product_id || product.name;
       const row = products.get(key) || { product_id: product.product_id, variant_id: product.variant_id, name: product.name, orders: 0, units: 0, sent_units: 0, delivered_units: 0, in_air_units: 0, returned_units: 0, incidence_orders: 0, revenue_estimated_cents: 0, revenue_real_cents: 0, revenue_attribution_complete: true, product_cost_cents: 0, product_cost_complete: true, attributable_operational_cost_cents: 0, attributable_profit_complete: true };
@@ -196,7 +213,7 @@ function productRollup(orders, rates, timezone, currency) {
         const needed = [
           ...(flags.sent ? ['OUTBOUND_SHIPPING', 'OUTBOUND_FULFILLMENT'] : []),
           ...(flags.delivered ? ['COD'] : []),
-          ...(flags.returned ? ['RETURN_SHIPPING', 'RETURN_FULFILLMENT'] : [])
+          ...(flags.returned ? ['RETURN_LOGISTICS_COMBINED'] : [])
         ];
         for (const type of needed) {
           const value = exactOrderCost(order, rates, type, day, dimensions);
@@ -231,7 +248,7 @@ function logisticsRollup(orders, rates, timezone, currency) {
     const day = businessDate(order.created_at_utc || order.source_updated_at || order.updated_at, timezone);
     const row = carriers.get(carrier) || { carrier, orders_sent: 0, delivered: 0, returned: 0, in_air: 0, outbound_shipping_cents: 0, outbound_fulfillment_cents: 0, cod_cents: 0, returns_cents: 0, complete: true };
     row.orders_sent += flags.sent ? 1 : 0; row.delivered += flags.delivered ? 1 : 0; row.returned += flags.returned ? 1 : 0; row.in_air += flags.in_air ? 1 : 0;
-    for (const [appliesTo, type, target] of [['sent', 'OUTBOUND_SHIPPING', 'outbound_shipping_cents'], ['sent', 'OUTBOUND_FULFILLMENT', 'outbound_fulfillment_cents'], ['delivered', 'COD', 'cod_cents'], ['returned', 'RETURN_SHIPPING', 'returns_cents'], ['returned', 'RETURN_FULFILLMENT', 'returns_cents']]) {
+    for (const [appliesTo, type, target] of [['sent', 'OUTBOUND_SHIPPING', 'outbound_shipping_cents'], ['sent', 'OUTBOUND_FULFILLMENT', 'outbound_fulfillment_cents'], ['delivered', 'COD', 'cod_cents'], ['returned', 'RETURN_LOGISTICS_COMBINED', 'returns_cents']]) {
       if (!flags[appliesTo]) continue;
       const value = exactOrderCost(order, rates, type, day, { carrier, store_id: order.store_id, currency });
       if (value === null) row.complete = false; else row[target] += value;
@@ -258,7 +275,7 @@ function productEventRollup(orders, rates, month, timezone, currency, includeCur
     const currentInAir = includeCurrentSnapshot && flags.in_air && dates.created && dates.created <= `${month}-31`;
     if (!created && !sent && !delivered && !returned && !currentInAir) continue;
     const orderProducts = normalizedProducts(order);
-    const orderAmount = String(order.currency || currency).toUpperCase() === currency ? cents(order.total_amount) : null;
+    const orderAmount = String(order.currency || currency).toUpperCase() === currency ? resolvedOrderAmount(order) : null;
     for (const product of orderProducts) {
       const key = product.variant_id || product.product_id || product.name;
       const row = products.get(key) || { product_id: product.product_id, variant_id: product.variant_id, name: product.name,
@@ -286,7 +303,7 @@ function productEventRollup(orders, rates, month, timezone, currency, includeCur
         const needed = [
           ...(sent ? [['OUTBOUND_SHIPPING', dates.sent], ['OUTBOUND_FULFILLMENT', dates.sent]] : []),
           ...(delivered ? [['COD', dates.delivered]] : []),
-          ...(returned ? [['RETURN_SHIPPING', dates.returned], ['RETURN_FULFILLMENT', dates.returned]] : [])
+          ...(returned ? [['RETURN_LOGISTICS_COMBINED', dates.returned]] : [])
         ];
         for (const [type, day] of needed) {
           const value = exactOrderCost(order, rates, type, day, dimensions);
@@ -328,7 +345,7 @@ function logisticsEventRollup(orders, rates, month, timezone, currency, includeC
     const needed = [
       ...(sent ? [['OUTBOUND_SHIPPING', 'outbound_shipping_cents', dates.sent], ['OUTBOUND_FULFILLMENT', 'outbound_fulfillment_cents', dates.sent]] : []),
       ...(delivered ? [['COD', 'cod_cents', dates.delivered]] : []),
-      ...(returned ? [['RETURN_SHIPPING', 'returns_cents', dates.returned], ['RETURN_FULFILLMENT', 'returns_cents', dates.returned]] : [])
+      ...(returned ? [['RETURN_LOGISTICS_COMBINED', 'returns_cents', dates.returned]] : [])
     ];
     for (const [type, target, day] of needed) {
       const value = exactOrderCost(order, rates, type, day, { carrier, store_id: order.store_id, currency });
@@ -364,7 +381,7 @@ export function buildOrderCreationCohortFinanceReport({ month, orders = [], rate
     const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixedExpensesComplete ? fixed.get(day) || 0 : null };
     for (const order of ordersByCreationDay.get(day)) {
       const flags = orderFlags(order); const products = normalizedProducts(order);
-      const orderAmount = String(order.currency || currency).toUpperCase() === currency ? cents(order.total_amount) : null;
+      const orderAmount = String(order.currency || currency).toUpperCase() === currency ? resolvedOrderAmount(order) : null;
       const dimensions = { carrier: order.carrier, store_id: order.store_id, currency };
       counts.orders_created += 1; counts.incidences += order.active_issue_id ? 1 : 0;
       counts.orders_sent += flags.sent ? 1 : 0; counts.delivered += flags.delivered ? 1 : 0;
@@ -388,7 +405,7 @@ export function buildOrderCreationCohortFinanceReport({ month, orders = [], rate
       const needed = [
         ...(flags.sent ? [['OUTBOUND_SHIPPING', 'outbound_shipping'], ['OUTBOUND_FULFILLMENT', 'outbound_fulfillment']] : []),
         ...(flags.delivered ? [['COD', 'cod']] : []),
-        ...(flags.returned ? [['RETURN_SHIPPING', 'returns'], ['RETURN_FULFILLMENT', 'returns']] : [])
+        ...(flags.returned ? [['RETURN_LOGISTICS_COMBINED', 'returns']] : [])
       ];
       for (const [type, target] of needed) {
         const value = exactOrderCost(order, rates, type, day, dimensions);
@@ -407,13 +424,13 @@ export function buildOrderCreationCohortFinanceReport({ month, orders = [], rate
       day, ...counts,
       estimated_revenue: estimatedRevenueComplete ? amount(estimatedRevenue) : null,
       real_revenue: realRevenueComplete ? amount(realRevenue) : null,
-      costs: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, amount(value)])),
+      costs: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, amount(value, key === 'fixed' ? 6 : 2)])),
       dropea_expenses: amount(dropeaExpenseCents), dropea_profit: amount(dropeaProfitCents),
       dropea_margin: realRevenue && dropeaProfitCents !== null ? ratio(dropeaProfitCents, realRevenue) : null,
       dropea_profit_after_meta: dropeaProfitCents === null || ad.value === null ? null : amount(dropeaProfitCents - ad.value),
-      operational_expenses: amount(operationalExpenseCents), operational_profit: amount(operationalProfitCents),
+      operational_expenses: amount(operationalExpenseCents, 6), operational_profit: amount(operationalProfitCents, 6),
       operational_margin: realRevenue && operationalProfitCents !== null ? ratio(operationalProfitCents, realRevenue) : null,
-      total_expenses: amount(expenseCents), net_profit: amount(profitCents),
+      total_expenses: amount(expenseCents, 6), net_profit: amount(profitCents, 6),
       roi: expenseCents && profitCents !== null ? ratio(profitCents, expenseCents) : null,
       margin: realRevenue && profitCents !== null ? ratio(profitCents, realRevenue) : null,
       estimated_cpa: counts.orders_sent && ad.value !== null ? amount(Math.round(ad.value / counts.orders_sent)) : null,
@@ -529,7 +546,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     let estimatedRevenue = 0; let realRevenue = 0; let estimatedRevenueComplete = true; let realRevenueComplete = true;
     const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixedExpensesComplete ? fixed.get(day) || 0 : null };
     for (const { type: eventType, order } of events) {
-      const orderAmount = String(order.currency || currency).toUpperCase() === currency ? cents(order.total_amount) : null; const carrier = order.carrier;
+      const orderAmount = String(order.currency || currency).toUpperCase() === currency ? resolvedOrderAmount(order) : null; const carrier = order.carrier;
       if (eventType === 'created') { counts.orders_created += 1; counts.incidences += order.active_issue_id ? 1 : 0; continue; }
       if (eventType === 'sent') {
         counts.orders_sent += 1;
@@ -549,7 +566,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
         if (order.delivered_at_utc) realRevenueComplete = false;
       }
       const neededTypes = eventType === 'sent' ? ['OUTBOUND_SHIPPING', 'OUTBOUND_FULFILLMENT']
-        : eventType === 'delivered' ? ['COD'] : eventType === 'returned' ? ['RETURN_SHIPPING', 'RETURN_FULFILLMENT'] : [];
+        : eventType === 'delivered' ? ['COD'] : eventType === 'returned' ? ['RETURN_LOGISTICS_COMBINED'] : [];
       for (const type of neededTypes) {
         const rateCents = exactOrderCost(order, rates, type, day, { carrier, store_id: order.store_id, currency });
         const target = type === 'OUTBOUND_SHIPPING' ? 'outbound_shipping' : type === 'OUTBOUND_FULFILLMENT' ? 'outbound_fulfillment' : type === 'COD' ? 'cod' : 'returns';
@@ -588,13 +605,13 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     const profitCents = expenseCents === null || !realRevenueComplete ? null : realRevenue - expenseCents;
     return {
       day, ...counts, estimated_revenue: estimatedRevenueComplete ? amount(estimatedRevenue) : null, real_revenue: realRevenueComplete ? amount(realRevenue) : null,
-      costs: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, amount(value)])),
+      costs: Object.fromEntries(Object.entries(components).map(([key, value]) => [key, amount(value, key === 'fixed' ? 6 : 2)])),
       dropea_expenses: amount(dropeaExpenseCents), dropea_profit: amount(dropeaProfitCents),
       dropea_margin: realRevenue && dropeaProfitCents !== null ? ratio(dropeaProfitCents, realRevenue) : null,
       dropea_profit_after_meta: amount(dropeaAfterMetaCents),
-      operational_expenses: amount(operationalExpenseCents), operational_profit: amount(operationalProfitCents),
+      operational_expenses: amount(operationalExpenseCents, 6), operational_profit: amount(operationalProfitCents, 6),
       operational_margin: realRevenue && operationalProfitCents !== null ? ratio(operationalProfitCents, realRevenue) : null,
-      total_expenses: amount(expenseCents), net_profit: amount(profitCents), roi: expenseCents && profitCents !== null ? ratio(profitCents, expenseCents) : null,
+      total_expenses: amount(expenseCents, 6), net_profit: amount(profitCents, 6), roi: expenseCents && profitCents !== null ? ratio(profitCents, expenseCents) : null,
       margin: realRevenue && profitCents !== null ? ratio(profitCents, realRevenue) : null,
       estimated_cpa: counts.orders_sent && ad.value !== null ? amount(Math.round(ad.value / counts.orders_sent)) : null,
       real_cpa: counts.delivered && ad.value !== null ? amount(Math.round(ad.value / counts.delivered)) : null,

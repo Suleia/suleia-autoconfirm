@@ -23,7 +23,10 @@ function safeReport(report) {
     period: report.period,
     status: report.status,
     statusLabel: report.statusLabel,
+    temporalModels: report.temporalModels || {},
+    dataAvailability: report.dataAvailability || null,
     counts: report.counts || {},
+    eventCounts: report.eventCounts || {},
     totals: report.totals || {},
     days: Array.isArray(report.days) ? report.days : [],
     history: Array.isArray(report.history) ? report.history : [],
@@ -60,6 +63,7 @@ export class FinanceReportClient {
     this.password = String(password || '');
     this.fetch = fetchImpl;
     this.cookie = '';
+    this.cache = new Map();
     if (!/^https:\/\//.test(this.baseUrl)) throw new Error('finance_report_base_url_must_use_https');
     if (!this.password) throw new Error('finance_report_password_required');
     if (typeof this.fetch !== 'function') throw new Error('finance_report_fetch_required');
@@ -95,9 +99,20 @@ export class FinanceReportClient {
 
   async getMonthly(month) {
     if (!MONTH.test(String(month))) throw Object.assign(new Error('invalid_finance_month'), { status: 400 });
+    const cached = this.cache.get(month);
+    if (cached && Date.now() - cached.at < 120_000) return cached.report;
     const payload = await this.request(`/api/finance?month=${encodeURIComponent(month)}`);
     if (!payload?.finance) throw Object.assign(new Error('finance_report_not_ready'), { status: 503 });
-    return safeReport(payload.finance);
+    const report = safeReport(payload.finance);
+    this.cache.set(month, { at: Date.now(), report });
+    return report;
+  }
+
+  async getMonthlyBundle(month) {
+    const selected = await this.getMonthly(month);
+    const months = selected.availableMonths.slice(0, 12);
+    const rest = await Promise.all(months.filter((candidate) => candidate !== month).map((candidate) => this.getMonthly(candidate)));
+    return [selected, ...rest];
   }
 
   async addExpense(input = {}) {
@@ -107,6 +122,7 @@ export class FinanceReportClient {
       body: JSON.stringify(input)
     });
     if (!payload?.expense) throw new Error('finance_expense_save_failed');
+    this.cache.clear();
     return payload.expense;
   }
 }
