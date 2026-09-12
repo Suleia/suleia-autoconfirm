@@ -13,13 +13,25 @@ test('finance dashboard loads the pinned ECharts build before its controller', (
 });
 
 test('finance dashboard exposes all requested analytical views', () => {
-  for (const id of ['finance-trend-chart', 'finance-cumulative-chart', 'finance-funnel', 'finance-cost-chart', 'finance-status-chart', 'finance-volume-chart', 'finance-daily-profit-chart', 'finance-history-chart', 'finance-days-table', 'finance-products-table', 'finance-orders-cost-table', 'finance-expenses-table']) {
+  for (const id of ['finance-trend-chart', 'finance-cumulative-chart', 'finance-funnel', 'finance-cost-chart', 'finance-status-chart', 'finance-volume-chart', 'finance-daily-profit-chart', 'finance-history-chart', 'finance-days-table', 'finance-orders-cost-table', 'finance-expenses-table']) {
     assert.match(dashboard, new RegExp(`id="${id}"`));
   }
   assert.match(script, /type: 'funnel'/);
   assert.match(script, /type: 'bar'/);
   assert.match(script, /type: 'pie'/);
   assert.match(script, /PER_RETURNED_ORDER|pedido devuelto/);
+});
+
+test('results panel leads with monthly profit and a visible daily ledger', () => {
+  assert.match(dashboard, />Panel de resultados</);
+  assert.match(dashboard, /id="finance-result-profit"/);
+  assert.match(dashboard, /Beneficio mensual total/);
+  assert.match(dashboard, /Beneficio o pérdida de cada día/);
+  assert.ok(dashboard.indexOf('id="finance-result-profit"') < dashboard.indexOf('id="finance-coverage"'));
+  assert.ok(dashboard.indexOf('id="finance-days-table"') < dashboard.indexOf('id="finance-trend-chart"'));
+  assert.doesNotMatch(dashboard, /finance-product-detail|finance-products-table/);
+  assert.match(script, /FINANCE_DEFAULT_COLUMNS/);
+  assert.match(script, /\['estimatedRevenue', 'Facturación prevista'/);
 });
 
 test('finance dashboard exposes editable fixed expenses and per-order Dropea provenance', () => {

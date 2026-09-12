@@ -1124,7 +1124,7 @@ function calculateFinance({ orders, campaignRows, metaRows, financeSettings }) {
   const dropeaProfit = numberFrom(financeSettings?.dropeaProfit);
   const attributedOrders = campaignRows.reduce((sum, row) => sum + (numberFrom(row.pedidos_dropea_atribuidos) || 0), 0);
   const warnings = [
-    'Las cifras heredadas del dashboard no se presentan como beneficio real. Usa Control de gasto para la conciliacion mensual.',
+    'Las cifras heredadas del dashboard no se presentan como beneficio real. Usa Panel de resultados para la conciliacion mensual.',
     !attributedOrders && metaSpend ? 'El gasto Meta no esta atribuido a pedidos concretos; se usa gasto del periodo disponible.' : null,
     campaignSpend ? null : 'Meta no esta disponible en vivo; se usa el ultimo dato guardado en Sheets si existe.',
     'La API publica de Dropea no publica el coste logistico completo; no se calcula un beneficio falso.'
@@ -1610,7 +1610,7 @@ function buildAgentReply({ message, dashboard }) {
   const finance = dashboard.finance || {};
   let reply = 'He guardado tu mensaje como aprendizaje operativo. Lo tendre en cuenta junto con el feedback por pedido.';
   if (lower.includes('beneficio') || lower.includes('meta') || lower.includes('dropea')) {
-    reply = `El gasto Meta disponible es ${moneyText(finance.metaSpend)}. Consulta Control de gasto para la conciliacion mensual: no presento un beneficio neto exacto mientras Dropea no publique todos los costes logisticos y de producto.`;
+    reply = `El gasto Meta disponible es ${moneyText(finance.metaSpend)}. Consulta Panel de resultados para la conciliacion mensual: no presento un beneficio neto exacto mientras Dropea no publique todos los costes logisticos y de producto.`;
   } else if (lower.includes('confirm') || lower.includes('pedido')) {
     reply = 'Aprendido. Para confirmaciones, priorizare boton de Chatby, etiqueta CONFIRMADO o mensaje explicito. Si hay cambio de direccion o datos de entrega, lo dejare pendiente por direccion y no lo confirmare.';
   }
