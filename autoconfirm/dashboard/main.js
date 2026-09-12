@@ -1347,7 +1347,7 @@ function renderSources() {
       <span></span>
       <div>
         <strong>${escapeHtml(source.name)}</strong>
-        <small>${source.ok ? 'Conectado' : escapeHtml(source.error || 'No disponible')}</small>
+        <small>${source.ok ? 'Conectado' : escapeHtml(source.error || 'Fuente pendiente de sincronización')}</small>
       </div>
     </div>
   `).join('');
@@ -1496,8 +1496,9 @@ const FINANCE_COLUMNS = [
   ['day', 'Fecha', 'text'], ['created', 'Pedidos creados', 'number'], ['confirmed', 'Confirmados', 'number'],
   ['rejected', 'Rechazados', 'number'], ['sent', 'Enviados', 'number'], ['inTransit', 'En tránsito', 'number'],
   ['delivered', 'Pedidos entregados', 'number'], ['deliveredUnits', 'Unidades entregadas', 'number'],
-  ['returned', 'Pedidos devueltos', 'number'], ['incidentOrders', 'Pedidos con incidencia', 'number'],
-  ['realRevenue', 'Facturación', 'money'], ['productCost', 'Coste producto', 'money'], ['logisticsCost', 'Coste logística', 'money'],
+  ['returned', 'Pedidos devueltos', 'number'], ['returnedUnits', 'Unidades devueltas', 'number'], ['incidentOrders', 'Pedidos con incidencia', 'number'],
+  ['realRevenue', 'Facturación', 'money'], ['productCost', 'Coste producto', 'money'], ['outboundShippingCost', 'Coste envío', 'money'],
+  ['outboundFulfillmentCost', 'Coste fulfillment', 'money'], ['codCost', 'Coste COD', 'money'],
   ['returnCost', 'Coste devoluciones', 'money'], ['metaSpend', 'Publicidad', 'money'], ['fixedCosts', 'Gastos fijos', 'money'],
   ['oneOffCosts', 'Gastos puntuales', 'money'], ['otherCosts', 'Otros costes', 'money'], ['totalCosts', 'Costes totales', 'money'],
   ['contributionMargin', 'Margen contribución', 'money'], ['netProfit', 'Beneficio neto', 'money'],
@@ -1519,47 +1520,75 @@ function deltaText(delta, { invert = false, percentOnly = false } = {}) {
   return `${trend} ${sign}${money(delta.absolute)} · ${delta.percent === null ? 'base 0' : percentValue(Math.abs(delta.percent))}`;
 }
 
-function sparkline(values, color = '#0d8b8f') {
-  const clean = values.map(Number).filter(Number.isFinite);
-  if (clean.length < 2) return '';
-  const min = Math.min(...clean); const max = Math.max(...clean); const range = max - min || 1;
-  const points = clean.map((value, index) => `${(index * 100 / (clean.length - 1)).toFixed(1)},${(28 - ((value - min) * 24 / range)).toFixed(1)}`).join(' ');
-  return `<svg viewBox="0 0 100 32" aria-hidden="true"><polyline points="${points}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const financeChartInstances = new Map();
+
+function financeChart(node, option) {
+  if (!node) return null;
+  if (!window.echarts) {
+    node.innerHTML = '<div class="empty-state">El motor gráfico no se ha podido cargar.</div>';
+    return null;
+  }
+  const existing = financeChartInstances.get(node.id);
+  const chart = existing && !existing.isDisposed() ? existing : window.echarts.init(node, null, { renderer: 'canvas' });
+  financeChartInstances.set(node.id, chart);
+  chart.setOption(option, { notMerge: true, lazyUpdate: false });
+  return chart;
+}
+
+function euroAxis(value) {
+  return new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 }).format(value) + ' €';
+}
+
+function sparkline(node, values, color = '#1677ff') {
+  const clean = values.map((value) => Number.isFinite(Number(value)) ? Number(value) : null);
+  if (clean.filter((value) => value !== null).length < 2) { node.replaceChildren(); return; }
+  financeChart(node, {
+    animation: false, grid: { left: 0, right: 0, top: 3, bottom: 0 }, xAxis: { type: 'category', show: false, data: clean.map((_, index) => index) },
+    yAxis: { type: 'value', show: false, scale: true }, tooltip: { show: false },
+    series: [{ type: 'line', data: clean, symbol: 'none', smooth: .25, lineStyle: { color, width: 2 }, areaStyle: { color: window.echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: `${color}33` }, { offset: 1, color: `${color}00` }]) } }]
+  });
 }
 
 function renderExecutiveCharts(finance) {
   const days = finance.days || [];
   document.querySelectorAll('[data-finance-spark]').forEach((node) => {
     const field = node.dataset.financeSpark;
-    node.innerHTML = sparkline(days.map((day) => day[field]));
+    sparkline(node, days.map((day) => day[field]), node.closest('.is-primary') ? '#8be3d3' : '#1677ff');
   });
   const trend = document.querySelector('#finance-trend-chart');
   if (trend) {
     const active = new Set([...document.querySelectorAll('[data-finance-series]:checked')].map((item) => item.dataset.financeSeries));
-    const fields = [['realRevenue', '#0d8b8f', 'Facturación'], ['totalCosts', '#e86d57', 'Costes'], ['netProfit', '#26394b', 'Beneficio']].filter(([field]) => active.has(field));
-    const values = days.flatMap((day) => fields.map(([field]) => Number(day[field])).filter(Number.isFinite));
-    if (!days.length || !values.length) trend.innerHTML = '<div class="empty-state">No hay datos completos para representar.</div>';
-    else {
-      const width = 920; const height = 300; const left = 56; const bottom = 34; const top = 20;
-      const min = Math.min(0, ...values); const max = Math.max(1, ...values); const range = max - min || 1;
-      const x = (index) => left + index * (width - left - 18) / Math.max(1, days.length - 1);
-      const y = (value) => top + (max - Number(value || 0)) * (height - top - bottom) / range;
-      const grid = [0, .25, .5, .75, 1].map((part) => { const value = min + range * part; const py = y(value); return `<line x1="${left}" y1="${py}" x2="${width - 18}" y2="${py}"/><text x="${left - 8}" y="${py + 4}">${Math.round(value)}€</text>`; }).join('');
-      const lines = fields.map(([field, color, label]) => `<polyline points="${days.map((day, index) => `${x(index)},${y(day[field])}`).join(' ')}" fill="none" stroke="${color}" stroke-width="3"><title>${escapeHtml(label)}</title></polyline>`).join('');
-      const dots = days.map((day, index) => `<circle cx="${x(index)}" cy="${y(day.netProfit || 0)}" r="5" fill="transparent"><title>${escapeHtml(day.day)} · Facturación ${money(day.realRevenue)} · Costes ${money(day.totalCosts)} · Beneficio ${money(day.netProfit)} · ROI ${percentValue(day.roiPercent)}</title></circle>`).join('');
-      trend.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Rentabilidad diaria"><g class="finance-chart-grid">${grid}</g>${lines}${dots}<g class="finance-chart-labels">${days.map((day, index) => index % 3 === 0 ? `<text x="${x(index)}" y="${height - 8}">${day.day.slice(8)}</text>` : '').join('')}</g></svg>`;
-    }
+    if (!days.length || !active.size) trend.innerHTML = '<div class="empty-state">No hay datos completos para representar.</div>';
+    else financeChart(trend, {
+      animationDuration: 350, color: ['#1677ff', '#f97316', '#0f766e'], grid: { left: 64, right: 24, top: 38, bottom: 42 },
+      legend: { top: 0, textStyle: { color: '#52606d', fontWeight: 700 } },
+      tooltip: { trigger: 'axis', backgroundColor: '#102a43', borderWidth: 0, textStyle: { color: '#fff' }, formatter(params) {
+        const day = days[params[0]?.dataIndex] || {};
+        return `<b>${escapeHtml(day.day || '')}</b><br>Facturación&nbsp;&nbsp;${money(day.realRevenue)}<br>Producto&nbsp;&nbsp;${money(day.productCost)}<br>Envío&nbsp;&nbsp;${money(day.outboundShippingCost)}<br>Fulfillment&nbsp;&nbsp;${money(day.outboundFulfillmentCost)}<br>COD&nbsp;&nbsp;${money(day.codCost)}<br>Devoluciones&nbsp;&nbsp;${money(day.returnCost)}<br>Publicidad&nbsp;&nbsp;${money(day.metaSpend)}<br>Gastos fijos&nbsp;&nbsp;${money(day.fixedCosts)}<br>Puntuales&nbsp;&nbsp;${money(day.oneOffCosts)}<br>Otros&nbsp;&nbsp;${money(day.otherCosts)}<br><b>Coste total&nbsp;&nbsp;${money(day.totalCosts)}</b><br><b>Beneficio&nbsp;&nbsp;${money(day.netProfit)}</b><br>ROI&nbsp;&nbsp;${percentValue(day.roiPercent)}<br>ROAS&nbsp;&nbsp;${Number.isFinite(Number(day.roas)) ? Number(day.roas).toFixed(2) + 'x' : 'Dato pendiente de fuente'}`;
+      } },
+      xAxis: { type: 'category', data: days.map((day) => day.day.slice(8)), axisLine: { lineStyle: { color: '#d9e2ec' } }, axisLabel: { color: '#627d98' } },
+      yAxis: { type: 'value', axisLabel: { formatter: euroAxis, color: '#627d98' }, splitLine: { lineStyle: { color: '#edf2f7' } } },
+      series: [
+        active.has('realRevenue') ? { name: 'Facturación', type: 'bar', data: days.map((day) => day.realRevenue), itemStyle: { color: '#1677ff', borderRadius: [4, 4, 0, 0] }, barMaxWidth: 18 } : null,
+        active.has('totalCosts') ? { name: 'Costes', type: 'bar', data: days.map((day) => day.totalCosts), itemStyle: { color: '#f97316', borderRadius: [4, 4, 0, 0] }, barMaxWidth: 18 } : null,
+        active.has('netProfit') ? { name: 'Beneficio', type: 'line', data: days.map((day) => day.netProfit), smooth: .2, symbolSize: 5, lineStyle: { width: 3, color: '#0f766e' }, itemStyle: { color: '#0f766e' } } : null
+      ].filter(Boolean)
+    });
   }
   const funnel = document.querySelector('#finance-funnel');
   if (funnel) {
     const count = finance.counts || {}; const stages = [['Creados', count.created], ['Confirmados', count.confirmed], ['Enviados', count.sent], ['Entregados', count.delivered]];
-    funnel.innerHTML = `${stages.map(([label, value], index) => `<div style="width:${Math.max(46, 100 - index * 13)}%"><span>${label}</span><strong>${value || 0}</strong><small>${index ? percentValue((value || 0) * 100 / Math.max(1, stages[index - 1][1] || 0)) : 'Base de cohorte'}</small></div>`).join('')}<aside><span>Rechazados <b>${count.rejected || 0}</b></span><span>Devueltos <b>${count.returned || 0}</b></span></aside>`;
+    financeChart(funnel, { animationDuration: 350, title: { subtext: `Rechazados ${count.rejected || 0} · Devueltos ${count.returned || 0}`, left: 'center', bottom: 0, subtextStyle: { color: '#b45309', fontWeight: 700 } }, tooltip: { trigger: 'item', formatter: ({ name, value }) => `${escapeHtml(name)}: <b>${value}</b><br>${percentValue(Number(value || 0) * 100 / Math.max(1, count.created || 0))} de la cohorte` }, series: [{ type: 'funnel', top: 4, bottom: 34, left: '12%', width: '76%', minSize: '38%', maxSize: '100%', sort: 'descending', gap: 3, label: { show: true, position: 'inside', color: '#fff', fontWeight: 800, formatter: '{b}  {c}' }, itemStyle: { borderColor: '#fff', borderWidth: 2 }, data: stages.map(([name, value], index) => ({ name, value: value || 0, itemStyle: { color: ['#0b4f6c', '#1677ff', '#0891b2', '#0f766e'][index] } })) }] });
   }
   const cost = document.querySelector('#finance-cost-chart');
   if (cost) {
-    const totals = finance.totals || {}; const entries = [['Producto', totals.productCost], ['Publicidad', totals.metaSpend], ['Logística', Number(totals.logisticsCost || 0) - Number(totals.returnCost || 0)], ['Devoluciones', totals.returnCost], ['Fijos', totals.fixedCosts], ['Puntuales', totals.oneOffCosts], ['Otros', totals.otherCosts]];
-    const max = Math.max(1, ...entries.map(([, value]) => Number(value) || 0));
-    cost.innerHTML = entries.map(([label, value]) => `<div class="finance-cost-row"><span>${label}<small>${totals.totalCosts ? percentValue(Number(value || 0) * 100 / totals.totalCosts, 1) : '—'}</small></span><div class="finance-cost-bar"><span style="width:${Math.max(0, Number(value || 0) * 100 / max)}%"></span></div><b>${money(value)}</b></div>`).join('');
+    const totals = finance.totals || {}; const entries = [['Producto', totals.productCost], ['Publicidad', totals.metaSpend], ['Envío', totals.outboundShippingCost], ['Fulfillment', totals.outboundFulfillmentCost], ['COD', totals.codCost], ['Devoluciones', totals.returnCost], ['Fijos', totals.fixedCosts], ['Puntuales', totals.oneOffCosts], ['Otros', totals.otherCosts]].filter(([, value]) => value !== null && value !== undefined);
+    financeChart(cost, { animationDuration: 350, grid: { left: 100, right: 70, top: 8, bottom: 24 }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: money }, xAxis: { type: 'value', axisLabel: { formatter: euroAxis }, splitLine: { lineStyle: { color: '#edf2f7' } } }, yAxis: { type: 'category', inverse: true, data: entries.map(([name]) => name), axisLine: { show: false }, axisTick: { show: false } }, series: [{ type: 'bar', data: entries.map(([, value]) => value), barMaxWidth: 18, label: { show: true, position: 'right', formatter: ({ value }) => money(value), color: '#334e68', fontWeight: 700 }, itemStyle: { color: '#1677ff', borderRadius: [0, 5, 5, 0] } }] });
+  }
+  const cumulative = document.querySelector('#finance-cumulative-chart');
+  if (cumulative) {
+    let running = 0; const values = days.map((day) => Number.isFinite(Number(day.netProfit)) ? (running += Number(day.netProfit)) : null);
+    financeChart(cumulative, { animationDuration: 350, grid: { left: 64, right: 24, top: 24, bottom: 38 }, tooltip: { trigger: 'axis', valueFormatter: money }, xAxis: { type: 'category', data: days.map((day) => day.day.slice(8)), axisLabel: { color: '#627d98' } }, yAxis: { type: 'value', axisLabel: { formatter: euroAxis }, splitLine: { lineStyle: { color: '#edf2f7' } } }, series: [{ name: 'Beneficio acumulado', type: 'line', smooth: .18, symbolSize: 5, data: values, lineStyle: { width: 3, color: '#0f766e' }, itemStyle: { color: '#0f766e' }, areaStyle: { color: window.echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#0f766e44' }, { offset: 1, color: '#0f766e00' }]) }, markLine: { symbol: 'none', lineStyle: { color: '#94a3b8', type: 'dashed' }, data: [{ yAxis: 0 }] } }] });
   }
   renderFinanceHistory(finance);
 }
@@ -1567,8 +1596,12 @@ function renderExecutiveCharts(finance) {
 function renderFinanceHistory(finance) {
   const node = document.querySelector('#finance-history-chart'); if (!node) return;
   const field = document.querySelector('#finance-history-metric')?.value || 'exactNetProfit';
-  const rows = finance.history || []; const values = rows.map((row) => Number(row.totals?.[field] || 0)); const max = Math.max(1, ...values.map(Math.abs));
-  node.innerHTML = rows.length ? `<div class="finance-history-bars">${rows.map((row, index) => `<div><span style="height:${Math.max(3, Math.abs(values[index]) * 100 / max)}%" class="${values[index] < 0 ? 'is-negative' : ''}"><b>${field.includes('Percent') ? percentValue(values[index]) : money(values[index])}</b></span><small>${row.month.slice(5)}/${row.month.slice(2, 4)}</small></div>`).join('')}</div>` : '<div class="empty-state">Aún no hay histórico suficiente.</div>';
+  const windowSize = Number(document.querySelector('#finance-history-window')?.value || 6);
+  const rows = (finance.history || []).slice(-windowSize);
+  const operational = ['delivered', 'returned'].includes(field);
+  const values = rows.map((row) => Number((operational ? row.counts?.[field] : row.totals?.[field]) ?? 0));
+  if (!rows.length) { node.innerHTML = '<div class="empty-state">Aún no hay histórico suficiente.</div>'; return; }
+  financeChart(node, { animationDuration: 350, grid: { left: 64, right: 24, top: 24, bottom: 38 }, tooltip: { trigger: 'axis', valueFormatter: operational ? (value) => `${value} pedidos` : money }, xAxis: { type: 'category', data: rows.map((row) => row.month.slice(5) + '/' + row.month.slice(2, 4)) }, yAxis: { type: 'value', axisLabel: { formatter: operational ? '{value}' : euroAxis }, splitLine: { lineStyle: { color: '#edf2f7' } } }, series: [{ name: document.querySelector('#finance-history-metric')?.selectedOptions?.[0]?.textContent || field, type: 'bar', data: values, barMaxWidth: 44, itemStyle: { color: ({ value }) => value < 0 ? '#dc2626' : '#1677ff', borderRadius: [6, 6, 0, 0] }, label: { show: true, position: 'top', formatter: ({ value }) => operational ? value : money(value), color: '#334e68', fontWeight: 700 } }] });
 }
 
 function renderFinanceTable(finance) {
@@ -1577,13 +1610,26 @@ function renderFinanceTable(finance) {
   const head = document.querySelector('#finance-days-head'); const body = document.querySelector('#finance-days-table'); const foot = document.querySelector('#finance-days-total');
   if (head) head.innerHTML = `<tr>${columns.map(([key, label]) => `<th><button type="button" data-finance-sort="${key}">${escapeHtml(label)} ${state.financeSort.key === key ? (state.financeSort.direction === 'asc' ? '↑' : '↓') : ''}</button></th>`).join('')}</tr>`;
   const sorted = [...(finance.days || [])].sort((a, b) => { const av = a[state.financeSort.key]; const bv = b[state.financeSort.key]; const result = state.financeSort.key === 'day' ? String(av).localeCompare(String(bv)) : Number(av || 0) - Number(bv || 0); return state.financeSort.direction === 'asc' ? result : -result; });
-  if (body) body.innerHTML = sorted.length ? sorted.map((day) => `<tr class="${day.returned ? 'has-return' : ''}">${columns.map(([key, , type]) => `<td class="${key === 'netProfit' ? (Number(day[key]) < 0 ? 'finance-negative' : 'finance-positive') : ''}">${financeValue(day[key], type)}</td>`).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}"><div class="empty-state">No hay actividad en el periodo.</div></td></tr>`;
+  const drilldownType = { delivered: 'delivered', returned: 'returned', rejected: 'rejected', incidentOrders: 'incidentOrders' };
+  if (body) body.innerHTML = sorted.length ? sorted.map((day) => `<tr class="${day.returned ? 'has-return' : ''}">${columns.map(([key, , type]) => {
+    const value = financeValue(day[key], type);
+    const canOpen = drilldownType[key] && Number(day[key]) > 0;
+    return `<td class="${key === 'netProfit' ? (Number(day[key]) < 0 ? 'finance-negative' : 'finance-positive') : ''}">${canOpen ? `<button class="finance-drilldown-button" type="button" data-finance-day="${escapeHtml(day.day)}" data-finance-drilldown="${drilldownType[key]}">${value}</button>` : value}</td>`;
+  }).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}"><div class="empty-state">No hay actividad en el periodo.</div></td></tr>`;
   const eventTotal = (key) => (finance.days || []).reduce((sum, day) => sum + (Number(day[key]) || 0), 0);
-  const total = { day: 'TOTAL', created: eventTotal('created'), confirmed: eventTotal('confirmed'), rejected: eventTotal('rejected'), sent: eventTotal('sent'), inTransit: eventTotal('inTransit'), delivered: eventTotal('delivered'), deliveredUnits: eventTotal('deliveredUnits'), returned: eventTotal('returned'), incidentOrders: eventTotal('incidentOrders'), realRevenue: finance.totals.realRevenue, productCost: finance.totals.productCost, logisticsCost: finance.totals.logisticsCost, returnCost: finance.totals.returnCost, metaSpend: finance.totals.metaSpend, fixedCosts: finance.totals.fixedCosts, oneOffCosts: finance.totals.oneOffCosts, otherCosts: finance.totals.otherCosts, totalCosts: finance.totals.totalCosts, contributionMargin: finance.totals.contributionMargin, netProfit: finance.totals.exactNetProfit, marginPercent: finance.totals.marginPercent, roiPercent: finance.totals.roiPercent, roas: finance.totals.roas };
+  const total = { day: 'TOTAL', created: eventTotal('created'), confirmed: eventTotal('confirmed'), rejected: eventTotal('rejected'), sent: eventTotal('sent'), inTransit: eventTotal('inTransit'), delivered: eventTotal('delivered'), deliveredUnits: eventTotal('deliveredUnits'), returned: eventTotal('returned'), returnedUnits: eventTotal('returnedUnits'), incidentOrders: eventTotal('incidentOrders'), realRevenue: finance.totals.realRevenue, productCost: finance.totals.productCost, outboundShippingCost: finance.totals.outboundShippingCost, outboundFulfillmentCost: finance.totals.outboundFulfillmentCost, codCost: finance.totals.codCost, returnCost: finance.totals.returnCost, metaSpend: finance.totals.metaSpend, fixedCosts: finance.totals.fixedCosts, oneOffCosts: finance.totals.oneOffCosts, otherCosts: finance.totals.otherCosts, totalCosts: finance.totals.totalCosts, contributionMargin: finance.totals.contributionMargin, netProfit: finance.totals.exactNetProfit, marginPercent: finance.totals.marginPercent, roiPercent: finance.totals.roiPercent, roas: finance.totals.roas };
   if (foot) foot.innerHTML = `<tr>${columns.map(([key, , type]) => `<td>${financeValue(total[key], type)}</td>`).join('')}</tr>`;
   document.querySelectorAll('[data-finance-sort]').forEach((button) => button.addEventListener('click', () => { const key = button.dataset.financeSort; state.financeSort = { key, direction: state.financeSort.key === key && state.financeSort.direction === 'asc' ? 'desc' : 'asc' }; renderFinanceTable(finance); }));
   const menu = document.querySelector('#finance-column-menu');
   if (menu) menu.innerHTML = FINANCE_COLUMNS.map(([key, label]) => `<label><input type="checkbox" data-finance-column="${key}" ${state.financeVisibleColumns.has(key) ? 'checked' : ''} ${key === 'day' ? 'disabled' : ''}> ${escapeHtml(label)}</label>`).join('');
+  document.querySelectorAll('[data-finance-drilldown]').forEach((button) => button.addEventListener('click', () => {
+    const day = button.dataset.financeDay; const type = button.dataset.financeDrilldown; const ids = finance.drilldowns?.[day]?.[type] || [];
+    const dialog = document.querySelector('#finance-drilldown-dialog');
+    setText('#finance-drilldown-title', `${button.closest('table')?.querySelector(`[data-finance-sort="${type}"]`)?.textContent?.replace(/[↑↓]/g, '').trim() || 'Pedidos'} · ${day}`);
+    setText('#finance-drilldown-note', `${ids.length} pedidos componen este indicador. Solo se muestran identificadores operativos; no se incluyen datos personales.`);
+    const target = document.querySelector('#finance-drilldown-orders'); if (target) target.innerHTML = ids.length ? ids.map((id) => `<span>#${escapeHtml(id)}</span>`).join('') : '<div class="empty-state">Detalle pendiente de sincronización para este día.</div>';
+    dialog?.showModal();
+  }));
 }
 
 function renderFinanceExecutive() {
@@ -1595,7 +1641,7 @@ function renderFinanceExecutive() {
   setText('#finance-roi', percentValue(t.roiPercent)); setText('#finance-roas', Number.isFinite(Number(t.roas)) ? `${Number(t.roas).toFixed(2)}x` : '—'); setText('#finance-margin', percentValue(t.marginPercent));
   setText('#finance-delta-profit', deltaText(d.exactNetProfit)); setText('#finance-delta-revenue', deltaText(d.realRevenue)); setText('#finance-delta-costs', deltaText(d.totalCosts, { invert: true }));
   setText('#finance-delta-roi', deltaText(d.roiPercent, { percentOnly: true })); setText('#finance-delta-roas', deltaText(d.roas, { percentOnly: true })); setText('#finance-delta-margin', deltaText(d.marginPercent, { percentOnly: true }));
-  setText('#finance-orders', c.created ?? 0); setText('#finance-confirmed', c.confirmed ?? 0); setText('#finance-rejected', c.rejected ?? 0); setText('#finance-sent', c.sent ?? 0); setText('#finance-transit', c.inTransit ?? 0); setText('#finance-delivered', c.delivered ?? 0); setText('#finance-delivered-units', c.deliveredUnits ?? 0); setText('#finance-returned', c.returned ?? 0); setText('#finance-incidents', c.incidentOrders ?? 0);
+  setText('#finance-orders', c.created ?? 0); setText('#finance-confirmed', c.confirmed ?? 0); setText('#finance-rejected', c.rejected ?? 0); setText('#finance-sent', c.sent ?? 0); setText('#finance-transit', c.inTransit ?? 0); setText('#finance-delivered', c.delivered ?? 0); setText('#finance-delivered-units', c.deliveredUnits ?? 0); setText('#finance-returned', c.returned ?? 0); setText('#finance-returned-units', c.returnedUnits ?? 0); setText('#finance-incidents', c.incidentOrders ?? 0);
   setText('#finance-confirm-rate', `${percentValue(c.confirmationRatePercent)} · ${c.confirmed || 0}/${c.created || 0}`); setText('#finance-reject-rate', `${percentValue(c.rejectionRatePercent)} · ${c.rejected || 0}/${c.created || 0}`); setText('#finance-delivery-rate', `${percentValue(c.deliveryRatePercent)} · ${c.delivered || 0}/${c.sent || 0} envíos`); setText('#finance-return-rate', `${percentValue(c.returnRatePercent)} · ${c.returned || 0}/${c.sent || 0} envíos`); setText('#finance-incident-rate', `${percentValue(c.incidentRatePercent)} · ${c.incidentOrders || 0}/${c.sent || 0} envíos`);
   setText('#finance-status-badge', finance.statusLabel); if (coverage) { coverage.className = `finance-coverage ${finance.quality?.status === 'OK' ? 'is-ok' : 'is-warning'}`; coverage.textContent = `${finance.period.since} → ${finance.period.until} · Calidad ${finance.quality?.score ?? 0}% · ${finance.quality?.status || 'PARTIAL'}`; }
   const fresh = document.querySelector('#finance-freshness'); if (fresh) fresh.innerHTML = Object.entries(finance.freshness?.sources || {}).map(([name, value]) => `<span class="${value.status === 'OK' ? 'is-ok' : 'is-warning'}"><b>${escapeHtml(name)}</b> ${escapeHtml(value.status)} · ${value.lastSyncAt ? formatDateTime(value.lastSyncAt) : 'sin sincronización'}</span>`).join('');
@@ -1604,7 +1650,7 @@ function renderFinanceExecutive() {
   const controls = document.querySelector('#finance-controls'); if (controls) controls.innerHTML = `<strong>Conciliación</strong>${Object.entries(finance.controls || {}).map(([name, ok]) => `<span class="${ok ? 'is-ok' : 'is-pending'}">${ok ? '✓' : '!'} ${escapeHtml(name)}</span>`).join('')}`;
   const audit = document.querySelector('#finance-audit'); if (audit) { audit.hidden = !finance.audit; audit.textContent = finance.audit ? `Julio cerrado y conciliado con el libro financiero validado. Beneficio neto: ${money(finance.audit.correctedNetProfit)}.` : ''; }
   const summary = document.querySelector('#finance-summary'); if (summary) summary.innerHTML = `<p class="eyebrow">Resumen de ${escapeHtml(finance.period.month)}</p><h4>${money(t.realRevenue)} facturados · ${money(t.exactNetProfit)} de beneficio · ROI ${percentValue(t.roiPercent)}</h4><p>${c.delivered || 0} pedidos y ${c.deliveredUnits || 0} unidades entregadas. ${c.returned || 0} devoluciones con un coste de ${money(t.returnCost)}. Publicidad: ${money(t.metaSpend)} · ROAS ${Number.isFinite(Number(t.roas)) ? `${Number(t.roas).toFixed(2)}x` : 'pendiente'}.</p>`;
-  const products = document.querySelector('#finance-products-table'); if (products) products.innerHTML = finance.products?.length ? finance.products.map((p) => `<tr><td><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.sku)}</small></td><td>${p.units}</td><td>${money(p.revenue)}</td><td>${money(p.productCost)}</td><td>${p.attributedAdSpend === null ? 'No atribuida a SKU' : money(p.attributedAdSpend)}</td><td>${p.returnedOrders}</td><td>${money(p.returnCost)}</td><td>${money(p.margin)}</td><td>${percentValue(p.roiPercent)}</td></tr>`).join('') : '<tr><td colspan="9"><div class="empty-state">No hay entregas por producto.</div></td></tr>';
+  const products = document.querySelector('#finance-products-table'); if (products) products.innerHTML = finance.products?.length ? finance.products.map((p) => `<tr><td><strong>${escapeHtml(p.name)}</strong><small>${escapeHtml(p.sku)} · product ${escapeHtml(String(p.productId ?? 'sin ID'))} · variant ${escapeHtml(String(p.variantId ?? 'sin ID'))}</small></td><td>${p.deliveredOrders}</td><td>${p.deliveredUnits}</td><td>${money(p.revenue)}</td><td>${money(p.productCost)}</td><td>${money(p.logisticsCost)}</td><td>${p.returnedOrders}</td><td>${p.returnedUnits}</td><td>${money(p.returnCost)}</td><td>${p.attributedAdSpend === null ? 'Sin atribución fiable por producto' : money(p.attributedAdSpend)}</td><td>${money(p.totalCostBeforeAds)}</td><td>${money(p.profit)}</td><td>${percentValue(p.marginPercent)}</td><td>${percentValue(p.roiPercent)}</td><td>${percentValue(p.returnRatePercent)}</td></tr>`).join('') : '<tr><td colspan="15"><div class="empty-state">No hay entregas por producto.</div></td></tr>';
   renderExecutiveCharts(finance); renderFinanceTable(finance);
 }
 
@@ -1662,7 +1708,7 @@ function renderFinance() {
   setText('#finance-meta', reportCoverage.meta ? money(totals.metaSpend) : '—');
   setText('#finance-real-cpa', `CPA real ${money(totals.realCpa)}`);
   setText('#finance-return-cost', money(totals.returnCost));
-  setText('#finance-return-unit-cost', `Tarifa ${money(finance.policy?.returnPerReturned)}/devolución`);
+  setText('#finance-return-unit-cost', `Tarifa ${money(finance.policy?.returnPerReturnedOrder)}/pedido devuelto`);
   setText('#finance-roi', percentValue(totals.roiPercent));
   setText('#finance-profit', money(totals.exactNetProfit));
   setText('#finance-product-cost', money(totals.productCost));
@@ -1672,7 +1718,7 @@ function renderFinance() {
   setText('#finance-fixed-cost', money(totals.fixedCosts));
   setText('#finance-formula', reportCoverage.exactProfitAvailable
     ? 'Facturación real − producto − logística − publicidad − fijos'
-    : 'No disponible hasta completar todas las fuentes y costes');
+    : 'Cálculo pendiente: falta una fuente económica obligatoria');
   setText('#finance-status-badge', finance.statusLabel || finance.status || 'Periodo calculado');
 
   if (audit) {
@@ -2178,7 +2224,10 @@ financePrevButton?.addEventListener('click', () => moveFinanceMonth(-1));
 financeNextButton?.addEventListener('click', () => moveFinanceMonth(1));
 financeCompareInput?.addEventListener('change', renderFinance);
 document.querySelector('#finance-history-metric')?.addEventListener('change', () => renderFinanceHistory(state.financeReport || {}));
+document.querySelector('#finance-history-window')?.addEventListener('change', () => renderFinanceHistory(state.financeReport || {}));
 document.querySelectorAll('[data-finance-series]').forEach((input) => input.addEventListener('change', () => renderExecutiveCharts(state.financeReport || {})));
+document.querySelector('#finance-drilldown-close')?.addEventListener('click', () => document.querySelector('#finance-drilldown-dialog')?.close());
+window.addEventListener('resize', () => financeChartInstances.forEach((chart) => { if (!chart.isDisposed()) chart.resize(); }));
 document.querySelector('#finance-columns')?.addEventListener('click', () => {
   const menu = document.querySelector('#finance-column-menu');
   if (menu) menu.hidden = !menu.hidden;

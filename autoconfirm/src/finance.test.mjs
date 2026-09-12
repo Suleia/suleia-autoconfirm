@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { aggregateFinanceReport, allocateExpenses, buildFinanceReport, classifyFinanceOrder, moneyToCents, resolveFinancePeriod, saveFinanceSnapshot } from './finance.mjs';
+import { aggregateFinanceReport, allocateExpenses, buildFinanceReport, classifyFinanceOrder, clearFinanceCache, loadFinanceSnapshot, moneyToCents, resolveFinancePeriod, saveFinanceSnapshot } from './finance.mjs';
 import { loadFinanceCostRules, loadFinanceExpenses } from './finance-data.mjs';
 
 const now = new Date('2026-09-11T12:00:00.000Z');
@@ -11,7 +11,7 @@ function order(overrides = {}) {
   return {
     id: overrides.id || Math.random(), created_at: '2026-09-01T08:00:00Z', confirmed_at: '2026-09-01T09:00:00Z',
     processing_at: '2026-09-02T09:00:00Z', tracking_number: 'safe-test-tracking', total_amount: 34.99,
-    line_items: [{ sku: 'CREMANIDA', product_name: 'Nida', quantity: 2, unit_price: 34.99, wholesale_price: 0 }],
+    line_items: [{ product_id: 31547, variant_id: 31547, sku: 'CREMANIDA', product_name: 'Nida', quantity: 2, unit_price: 34.99, wholesale_price: 0 }],
     status: 'SHIPPING', sub_status: 'IN_TRANSIT', ...overrides
   };
 }
@@ -43,6 +43,37 @@ test('delivered wholesale zero uses verified SKU tariff for regression order 140
   assert.equal(report.quality.issues.some((issue) => issue.code === 'MISSING_COST'), false);
 });
 
+test('verified Dropea identities apply exact unit COGS for CollaGum, Nida and the May product', () => {
+  const period = resolveFinancePeriod('2026-09', { now });
+  const delivered = { delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' };
+  const report = aggregateFinanceReport({ period, rules, expenses: [], metaRows: [], orders: [
+    order({ id: 11, ...delivered, line_items: [{ product_id: 31666, variant_id: 31666, sku: 'COLLAGUM', product_name: 'CollaGum', quantity: 2, unit_price: 15, wholesale_price: 0 }] }),
+    order({ id: 12, ...delivered, line_items: [{ product_id: 31547, variant_id: 31547, sku: 'CREMANIDA', product_name: 'Nida', quantity: 2, unit_price: 15, wholesale_price: 0 }] }),
+    order({ id: 13, ...delivered, line_items: [{ product_id: 30133, variant_id: 30133, sku: '038_CREMAHIDRATANTE', product_name: 'Crema Hidratante Definitiva HOYGI 100G', quantity: 2, unit_price: 15, wholesale_price: 0 }] })
+  ] });
+  assert.equal(report.products.find((item) => item.productId === 31666).productCost, 2.02);
+  assert.equal(report.products.find((item) => item.productId === 31547).productCost, 2.88);
+  assert.equal(report.products.find((item) => item.productId === 30133).productCost, 8);
+  assert.equal(report.totals.productCost, 12.90);
+});
+
+test('business-verified product identity overrides a contradictory historical wholesale field', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({
+    delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED',
+    line_items: [{ product_id: 30133, variant_id: 30133, sku: '038_CREMAHIDRATANTE', product_name: 'Crema mayo', quantity: 2, unit_price: 15, wholesale_price: 3.70 }]
+  })] });
+  assert.equal(report.totals.productCost, 8);
+});
+
+test('a reused SKU never inherits Nida cost when the real Dropea identity differs', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({
+    delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED',
+    line_items: [{ product_id: 32412, variant_id: 32412, sku: 'CREMANIDA', product_name: 'Other Nida catalog entry', quantity: 1, unit_price: 20, wholesale_price: 0 }]
+  })] });
+  assert.equal(report.totals.exactNetProfit, null);
+  assert.equal(report.quality.issues.some((issue) => issue.code === 'MISSING_COST'), true);
+});
+
 test('unknown wholesale zero is MISSING_ECONOMIC_DATA, never free product', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ delivered_at: '2026-09-10T10:00:00Z', line_items: [{ sku: 'UNKNOWN', quantity: 1, unit_price: 20, wholesale_price: 0 }] })] });
   assert.equal(report.totals.exactNetProfit, null);
@@ -61,6 +92,38 @@ test('return cost is recognized on return event with traceable tariff', () => {
   assert.equal(report.totals.returnCost, 5.26);
   assert.equal(report.days.find((day) => day.day === '2026-09-06').returned, 1);
   assert.equal(report.costTraceability.return.tariffVersion, rules.version);
+});
+
+test('return logistics is exactly 5.26 per returned order for one, two or three units', () => {
+  for (const quantity of [1, 2, 3]) {
+    const report = aggregateFinanceReport({
+      period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [],
+      orders: [order({ id: 100 + quantity, created_at: '2026-08-28T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED', line_items: [{ product_id: 31547, variant_id: 31547, sku: 'CREMANIDA', quantity, unit_price: 10, wholesale_price: 0 }] })]
+    });
+    assert.equal(report.counts.returnedUnits, 0, 'cohort counters exclude orders created before the selected month');
+    assert.equal(report.days.find((day) => day.day === '2026-09-06').returnedUnits, quantity);
+    assert.equal(report.totals.returnCost, 5.26);
+    assert.equal(report.products[0].returnCost, 5.26);
+    assert.equal(report.costTraceability.return.basis, 'PER_RETURNED_ORDER');
+  }
+});
+
+test('return rate remains 5.26 per order and fulfillment components are summed without COD on a return', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({
+    id: 130, created_at: '2026-08-28T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED',
+    order_costs: { fulfillment_outbound: 0.80, fulfillment_quantity_cost: 0.40, return_cost: 99, cod_fee: 8 }
+  })] });
+  assert.equal(report.totals.outboundFulfillmentCost, 1.20);
+  assert.equal(report.totals.returnCost, 5.26);
+  assert.equal(report.totals.codCost, 0);
+});
+
+test('duplicate order rows cannot duplicate economic charges', () => {
+  const duplicate = order({ id: 500, delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' });
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [duplicate, structuredClone(duplicate)] });
+  assert.equal(report.counts.created, 1);
+  assert.equal(report.totals.productCost, 2.88);
+  assert.equal(report.controls.costLedgerUnique, true);
 });
 
 test('daily revenue, costs and profit reconcile exactly to monthly cents', () => {
@@ -137,4 +200,31 @@ test('snapshot publisher accepts only bounded finance data without personal fiel
   const saved = await saveFinanceSnapshot(report);
   assert.equal(saved.month, '2026-09');
   await assert.rejects(() => saveFinanceSnapshot({ ...report, customerEmail: 'blocked@example.test' }), /PERSONAL_DATA_BLOCKED/);
+});
+
+test('bundled snapshots survive a service restart without Supabase', async () => {
+  const report = await loadFinanceSnapshot({ month: '2026-05', now });
+  assert.equal(report.period.month, '2026-05');
+  assert.equal(report.costTraceability.return.basis, 'PER_RETURNED_ORDER');
+  assert.equal(report.costTraceability.return.amount, 5.26);
+});
+
+test('published May, August and September snapshots reconcile operational and economic totals', async () => {
+  clearFinanceCache();
+  const expected = {
+    '2026-05': { delivered: 25, units: 43, net: -217.42 },
+    '2026-08': { delivered: 150, units: 279, net: -125.01 },
+    '2026-09': { delivered: 113, units: 215, net: 1253.25 }
+  };
+  for (const [month, values] of Object.entries(expected)) {
+    const report = await loadFinanceSnapshot({ month, now });
+    assert.equal(report.counts.delivered, values.delivered);
+    assert.equal(report.counts.deliveredUnits, values.units);
+    assert.equal(report.totals.exactNetProfit, values.net);
+    assert.equal(report.controls.dailyRevenueReconciled, true);
+    assert.equal(report.controls.dailyCostsReconciled, true);
+    assert.equal(report.controls.profitReconciled, true);
+    const returnedOrders = report.days.reduce((sum, day) => sum + day.returned, 0);
+    assert.equal(moneyToCents(report.totals.returnCost), returnedOrders * 526);
+  }
 });

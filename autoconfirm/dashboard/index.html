@@ -248,6 +248,7 @@
               <div><span>Entregados</span><strong id="finance-delivered">—</strong><small id="finance-delivery-rate">—</small></div>
               <div><span>Unidades entregadas</span><strong id="finance-delivered-units">—</strong><small>Unidades, no pedidos</small></div>
               <div><span>Devueltos</span><strong id="finance-returned">—</strong><small id="finance-return-rate">—</small></div>
+              <div><span>Unidades devueltas</span><strong id="finance-returned-units">—</strong><small>Informativo; la tarifa es por pedido</small></div>
               <div><span>Incidencias</span><strong id="finance-incidents">—</strong><small id="finance-incident-rate">—</small></div>
             </div>
             <div id="finance-controls" class="finance-controls"></div>
@@ -266,7 +267,11 @@
                 <div id="finance-cost-chart" class="finance-cost-chart"></div>
               </article>
               <article class="finance-chart-card finance-chart-wide">
-                <div class="finance-chart-title"><div><p class="eyebrow">Tendencia</p><h4>Evolución mensual</h4></div><select id="finance-history-metric"><option value="exactNetProfit">Beneficio</option><option value="realRevenue">Facturación</option><option value="totalCosts">Costes</option><option value="metaSpend">Publicidad</option></select></div>
+                <div><p class="eyebrow">Tesorería operativa</p><h4>Beneficio acumulado del mes</h4></div>
+                <div id="finance-cumulative-chart" class="finance-history-chart"></div>
+              </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div class="finance-chart-title"><div><p class="eyebrow">Tendencia</p><h4>Evolución mensual</h4></div><div class="finance-history-controls"><select id="finance-history-window"><option value="6">6 meses</option><option value="12">12 meses</option></select><select id="finance-history-metric"><option value="exactNetProfit">Beneficio</option><option value="realRevenue">Facturación</option><option value="totalCosts">Costes</option><option value="metaSpend">Publicidad</option><option value="delivered">Entregados</option><option value="returned">Devoluciones</option></select></div></div>
                 <div id="finance-history-chart" class="finance-history-chart"></div>
               </article>
             </div>
@@ -287,7 +292,7 @@
                 <h4>Rentabilidad por producto</h4>
                 <div class="table-wrap">
                   <table>
-                    <thead><tr><th>Producto / SKU</th><th>Unidades entregadas</th><th>Facturación</th><th>Coste producto</th><th>Publicidad atribuida</th><th>Devoluciones</th><th>Coste devolución</th><th>Margen</th><th>ROI producto</th></tr></thead>
+                    <thead><tr><th>Producto / identidad Dropea</th><th>Pedidos entregados</th><th>Unidades entregadas</th><th>Facturación</th><th>Coste producto</th><th>Costes logísticos</th><th>Pedidos devueltos</th><th>Unidades devueltas</th><th>Coste devolución</th><th>Publicidad atribuida</th><th>Coste total antes de ads</th><th>Beneficio antes de ads</th><th>Margen</th><th>ROI</th><th>Tasa devolución</th></tr></thead>
                     <tbody id="finance-products-table"></tbody>
                   </table>
                 </div>
@@ -579,6 +584,16 @@
       </form>
     </dialog>
 
-    <script src="/dashboard/main.js"></script>
+    <dialog class="feedback-dialog finance-drilldown-dialog" id="finance-drilldown-dialog">
+      <div class="feedback-head">
+        <div><p class="eyebrow">Trazabilidad</p><h3 id="finance-drilldown-title">Pedidos del indicador</h3></div>
+        <button class="ghost-button" type="button" id="finance-drilldown-close">Cerrar</button>
+      </div>
+      <p id="finance-drilldown-note" class="muted-copy"></p>
+      <div id="finance-drilldown-orders" class="finance-drilldown-orders"></div>
+    </dialog>
+
+    <script src="/dashboard/vendor/echarts-6.1.0.min.js" defer></script>
+    <script src="/dashboard/main.js" defer></script>
   </body>
 </html>

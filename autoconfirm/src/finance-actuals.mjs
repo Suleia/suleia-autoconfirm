@@ -38,11 +38,11 @@ export const FINANCE_COST_POLICY = Object.freeze({
   outboundShippingPerSent: 4.06,
   outboundFulfillmentPerSent: 1.20,
   codPerDelivered: 1.00,
-  returnPerReturned: 5.26,
+  returnPerReturnedOrder: 5.26,
   fixedCostPerCalendarDay: 8.97,
   productUnitCostsBySku: Object.freeze({
-    '038_CREMAHIDRATANTE': 3.70,
-    'CREMAHIDRATANTE': 3.70,
+    '038_CREMAHIDRATANTE': 4.00,
+    'CREMAHIDRATANTE': 4.00,
     'COLLAGUM': 1.01,
     'CREMANIDA': 1.44,
     'WHITEO2': 2.00,
@@ -81,7 +81,7 @@ function normalizeRow(values) {
     metaSpend,
     fixedCosts
   ] = values;
-  const returned = Math.round(returnCost / FINANCE_COST_POLICY.returnPerReturned);
+  const returned = Math.round(returnCost / FINANCE_COST_POLICY.returnPerReturnedOrder);
   const totalCostsCents = [productCost, outboundShippingCost, codCost, outboundFulfillmentCost, returnCost, metaSpend, fixedCosts].reduce((sum, value) => sum + toCents(value), 0);
   const netProfitCents = toCents(realRevenue) - totalCostsCents;
   const totalCosts = fromCents(totalCostsCents);
