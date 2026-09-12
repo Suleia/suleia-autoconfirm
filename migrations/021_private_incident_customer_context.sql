@@ -22,7 +22,10 @@ CREATE TABLE IF NOT EXISTS operations.chatby_private_message_display (
 CREATE INDEX IF NOT EXISTS private_incident_message_issue_time_idx
   ON operations.chatby_private_message_display(canonical_issue_id,occurred_at DESC);
 
-CREATE OR REPLACE VIEW read_models.operations_private_incident_messages AS
+-- Preserve additive columns that may have been introduced by a later,
+-- already-deployed schema revision. Re-running this historical migration
+-- must not replace a wider compatible view with the older column set.
+CREATE VIEW IF NOT EXISTS read_models.operations_private_incident_messages AS
 SELECT chatby_message_id_hash,canonical_order_id,canonical_issue_id,direction,message_type,
        intent,relation_to_issue,message_text_ciphertext,occurred_at,updated_at,
        actions_executed,production_writes
