@@ -209,6 +209,13 @@ test('bundled snapshots survive a service restart without Supabase', async () =>
   assert.equal(report.costTraceability.return.amount, 5.26);
 });
 
+test('a newer bundled snapshot is eligible to supersede stale external persistence', async () => {
+  clearFinanceCache();
+  const report = await loadFinanceSnapshot({ month: '2026-09', now: new Date('2026-09-12T12:00:00Z') });
+  assert.equal(report.generatedAt.slice(0, 10), '2026-09-12');
+  assert.equal(report.totals.exactNetProfit, 1253.25);
+});
+
 test('published May, August and September snapshots reconcile operational and economic totals', async () => {
   clearFinanceCache();
   const expected = {

@@ -63,11 +63,14 @@ export async function loadFinanceSnapshot({ month, now = new Date() } = {}) {
     report = rows[0]?.value;
     storedAt = rows[0]?.updated_at || null;
   }
-  if (!report) {
-    const file = new URL(`${period.month}.json`, bundledSnapshotDirectory);
-    if (fs.existsSync(file)) {
-      report = JSON.parse(fs.readFileSync(file, 'utf8'));
-      storedAt = report.generatedAt || null;
+  const file = new URL(`${period.month}.json`, bundledSnapshotDirectory);
+  if (fs.existsSync(file)) {
+    const bundled = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const bundledAt = new Date(bundled.generatedAt || 0).getTime();
+    const storedTime = new Date(report?.generatedAt || storedAt || 0).getTime();
+    if (!report || bundledAt > storedTime) {
+      report = bundled;
+      storedAt = bundled.generatedAt || null;
     }
   }
   if (!report?.period || !report?.totals || !report?.counts) return null;
