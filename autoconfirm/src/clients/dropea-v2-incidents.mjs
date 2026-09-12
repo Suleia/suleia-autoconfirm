@@ -122,7 +122,9 @@ export function createDropeaV2IncidentClient({
   token,
   market,
   fetchImpl = globalThis.fetch,
-  timeoutMs = 15_000
+  timeoutMs = 15_000,
+  maxReadRetries = 6,
+  retryDelayMs = 1_000
 } = {}) {
   if (typeof fetchImpl !== 'function') fail('DROPEA_V2_FETCH_REQUIRED');
   const normalizedMarket = String(market || '').toUpperCase();
@@ -138,28 +140,40 @@ export function createDropeaV2IncidentClient({
         if (value !== undefined && value !== null) url.searchParams.set(key, typeof value === 'boolean' ? String(value) : value);
       }
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetchImpl(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-        body: undefined,
-        redirect: 'error',
-        signal: controller.signal
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) fail(`DROPEA_V2_HTTP_${response.status}`);
-      if (!payload || payload.success !== true || typeof payload.message !== 'string' || !('data' in payload)) {
-        fail('DROPEA_V2_RESPONSE_SCHEMA_INVALID');
+    for (let attempt = 0; attempt <= maxReadRetries; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(url, {
+          method: 'GET',
+          headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+          body: undefined,
+          redirect: 'error',
+          signal: controller.signal
+        });
+        const payload = await response.json().catch(() => null);
+        const retryable = response.status === 429 || [502, 503, 504].includes(response.status);
+        if (!response.ok && retryable && attempt < maxReadRetries) {
+          const retryAfterSeconds = Number(response.headers?.get?.('retry-after'));
+          const backoff = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+            ? retryAfterSeconds * 1_000
+            : retryDelayMs * (2 ** attempt);
+          await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, Math.max(0, backoff))));
+          continue;
+        }
+        if (!response.ok) fail(`DROPEA_V2_HTTP_${response.status}`);
+        if (!payload || payload.success !== true || typeof payload.message !== 'string' || !('data' in payload)) {
+          fail('DROPEA_V2_RESPONSE_SCHEMA_INVALID');
+        }
+        if (definition.paginated && (!Array.isArray(payload.data?.items) || !payload.data?.pagination)) {
+          fail('DROPEA_V2_PAGINATION_SCHEMA_INVALID');
+        }
+        return payload;
+      } finally {
+        clearTimeout(timer);
       }
-      if (definition.paginated && (!Array.isArray(payload.data?.items) || !payload.data?.pagination)) {
-        fail('DROPEA_V2_PAGINATION_SCHEMA_INVALID');
-      }
-      return payload;
-    } finally {
-      clearTimeout(timer);
     }
+    return fail('DROPEA_V2_RETRY_EXHAUSTED');
   }
 
   async function listAll(name, params = {}, { maxPages = 30, maxRecords = 3_000, requestedLimit = 100, itemFilter = null } = {}) {

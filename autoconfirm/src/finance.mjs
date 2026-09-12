@@ -272,6 +272,41 @@ function findCost(value, aliases) {
   return null;
 }
 
+function dropeaExpenseBreakdown(order = {}) {
+  const value = order.expenses_breakdown;
+  if (!value || typeof value !== 'object') return null;
+  let total = findCost(value, ['total_expenses']);
+  if (total === null) {
+    // Older settled orders expose every Wallet component but omit the
+    // convenience `total_expenses` field. Rebuild that total according to the
+    // final lifecycle so unused return tariffs are never charged to deliveries
+    // and COD is never charged to refused orders.
+    const component = (name) => findCost(value, [name]) || 0;
+    const product = component('product_price');
+    const supplierTaxRate = Number(value.tax_rate_supplier) || 0;
+    const category = classifyFinanceOrder(order);
+    const dropeaBase = category === 'returned'
+      ? component('fulfillment_outbound_price') + component('fulfillment_extra_unit_price') + component('fulfillment_refused_price') + component('shipping_outbound_price') + component('shipping_refused_price')
+      : component('fulfillment_outbound_price') + component('fulfillment_extra_unit_price') + component('shipping_outbound_price') + component('cod_commission');
+    const dropeaTaxRate = (Number(value.tax_rate_dropea) || 0) + (Number(value.equivalence_surcharge_rate) || 0);
+    total = product + Math.round(product * supplierTaxRate / 100) + dropeaBase + Math.round(dropeaBase * dropeaTaxRate / 100);
+  }
+  return { value, total, final: value.is_estimate === false };
+}
+
+function breakdownSum(order, aliases) {
+  const breakdown = dropeaExpenseBreakdown(order);
+  if (!breakdown) return null;
+  const values = aliases.map((alias) => findCost(breakdown.value, [alias])).filter((value) => value !== null);
+  return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
+}
+
+function breakdownSource(order) {
+  return dropeaExpenseBreakdown(order)?.final
+    ? { source: 'Dropea Public API V2 expenses_breakdown (definitivo)', type: 'actual_order_cost' }
+    : { source: 'Dropea Public API V2 expenses_breakdown (estimado)', type: 'estimated_order_cost' };
+}
+
 function orderCost(order, rules, kind, day) {
   const aliases = {
     shipping: ['shipping_cost', 'shipping_fee', 'carrier_cost', 'outbound_shipping_cost'],
@@ -281,8 +316,14 @@ function orderCost(order, rules, kind, day) {
   };
   const costType = { shipping: 'OUTBOUND_SHIPPING', fulfillment: 'OUTBOUND_FULFILLMENT', cod: 'COD', return: 'RETURN_LOGISTICS_COMBINED' }[kind];
   const rate = configuredRate(rules, costType, day);
-  // The combined reverse-logistics amount is a business-verified price per
-  // returned order and must not be multiplied by line-item quantities.
+  const breakdownAliases = {
+    shipping: ['shipping_outbound_price'],
+    fulfillment: ['fulfillment_outbound_price', 'fulfillment_extra_unit_price'],
+    cod: ['cod_commission'],
+    return: ['shipping_refused_price', 'fulfillment_refused_price']
+  };
+  const breakdownValue = breakdownSum(order, breakdownAliases[kind]);
+  if (breakdownValue !== null) return { cents: breakdownValue, ...breakdownSource(order) };
   if (kind === 'return' && rate) return { cents: rate.amount_cents, source: rate.source, type: 'versioned_logistics_tariff', rate };
   if (kind === 'fulfillment') {
     const components = ['fulfillment_outbound', 'fulfillment_quantity_cost']
@@ -292,6 +333,7 @@ function orderCost(order, rules, kind, day) {
   }
   const actual = findCost(order.order_costs, aliases[kind]);
   if (actual !== null) return { cents: actual, source: 'Dropea order.order_costs', type: 'actual_order_cost' };
+  // This fallback is per returned order, never per line item or unit.
   if (rate) return { cents: rate.amount_cents, source: rate.source, type: 'versioned_logistics_tariff', rate };
   const field = { shipping: 'outbound_shipping_per_sent_cents', fulfillment: 'fulfillment_per_sent_cents', cod: 'cod_per_delivered_cents', return: 'return_per_returned_order_cents' }[kind];
   const configured = rules.logistics?.[field];
@@ -334,9 +376,12 @@ export function allocateExpenses(period, expenses = []) {
       for (const day of active) result.get(day).fixed += Number(expense.amount_cents) || 0;
     } else if (expense.type === 'recurring_monthly') {
       const total = Number(expense.amount_cents) || 0;
-      const base = Math.floor(total / period.daysInMonth);
-      const remainder = total % period.daysInMonth;
-      for (const day of active) result.get(day).fixed += base + (Number(day.slice(8, 10)) <= remainder ? 1 : 0);
+      // Monthly subscriptions are booked in full for every billing month they
+      // intersect. Distribution across visible days is only a daily P&L view;
+      // it must always reconcile back to the exact invoice amount.
+      const base = Math.floor(total / active.length);
+      const remainder = total % active.length;
+      active.forEach((day, index) => { result.get(day).fixed += base + (index < remainder ? 1 : 0); });
     } else if (expense.date && result.has(expense.date)) {
       const key = expense.type === 'one_off' ? 'oneOff' : 'other';
       result.get(expense.date)[key] += Number(expense.amount_cents) || 0;
@@ -349,13 +394,13 @@ function emptyDay(day, expense) {
   return {
     day, created: 0, confirmed: 0, rejected: 0, sent: 0, inTransit: 0, delivered: 0, deliveredUnits: 0,
     returned: 0, returnedUnits: 0, incidentOrders: 0, incidents: 0, estimatedRevenue: 0, revenue: 0, product: 0,
-    shipping: 0, cod: 0, fulfillment: 0, returns: 0, ads: 0, fixed: expense.fixed, oneOff: expense.oneOff, other: expense.other,
+    shipping: 0, cod: 0, fulfillment: 0, returns: 0, dropeaAdjustments: 0, ads: 0, fixed: expense.fixed, oneOff: expense.oneOff, other: expense.other,
     missingProductUnits: 0, missingReturnCosts: 0, missingRevenueOrders: 0
   };
 }
 
 function finalizeDay(row, metaAvailable) {
-  const logistics = row.shipping + row.cod + row.fulfillment + row.returns;
+  const logistics = row.shipping + row.cod + row.fulfillment + row.returns + row.dropeaAdjustments;
   const known = metaAvailable && !row.missingProductUnits && !row.missingReturnCosts;
   const totalCosts = known ? row.product + logistics + row.ads + row.fixed + row.oneOff + row.other : null;
   const revenue = row.missingRevenueOrders ? null : row.revenue;
@@ -366,7 +411,7 @@ function finalizeDay(row, metaAvailable) {
     returnedUnits: row.returnedUnits, incidentOrders: row.incidentOrders, incidents: row.incidents,
     estimatedRevenue: euros(row.estimatedRevenue), realRevenue: euros(revenue), productCost: euros(row.product),
     outboundShippingCost: euros(row.shipping), codCost: euros(row.cod), outboundFulfillmentCost: euros(row.fulfillment),
-    returnCost: euros(row.returns), logisticsCost: euros(logistics), metaSpend: metaAvailable ? euros(row.ads) : null,
+    returnCost: euros(row.returns), dropeaAdjustmentsCost: euros(row.dropeaAdjustments), logisticsCost: euros(logistics), metaSpend: metaAvailable ? euros(row.ads) : null,
     fixedCosts: euros(row.fixed), oneOffCosts: euros(row.oneOff), otherCosts: euros(row.other), totalCosts: euros(totalCosts),
     contributionMargin: revenue === null ? null : euros(revenue - row.product - logistics), netProfit: euros(net), marginPercent: pct(net, revenue),
     roiPercent: pct(net, totalCosts), roas: row.ads && revenue !== null ? Math.round(revenue * 100 / row.ads) / 100 : null,
@@ -386,22 +431,25 @@ function aggregateTotals(days, counts, metaAvailable) {
   const cod = sumCents(days, 'codCost');
   const fulfillment = sumCents(days, 'outboundFulfillmentCost');
   const returns = sumCents(days, 'returnCost');
-  const logistics = shipping + cod + fulfillment + returns;
+  const dropeaAdjustments = sumCents(days, 'dropeaAdjustmentsCost');
+  const logistics = shipping + cod + fulfillment + returns + dropeaAdjustments;
   const ads = sumCents(days, 'metaSpend');
   const fixed = sumCents(days, 'fixedCosts');
   const oneOff = sumCents(days, 'oneOffCosts');
   const other = sumCents(days, 'otherCosts');
+  const deliveredEvents = days.reduce((sum, day) => sum + (Number(day.delivered) || 0), 0);
+  const confirmedEvents = days.reduce((sum, day) => sum + (Number(day.confirmed) || 0), 0);
   const complete = metaAvailable && !days.some((day) => day.unknownProductCostUnits || day.missingReturnCosts);
   const total = complete ? product + logistics + ads + fixed + oneOff + other : null;
   const net = total === null || revenue === null ? null : revenue - total;
   return {
     realRevenue: euros(revenue), revenue: euros(revenue), productCost: euros(product), outboundShippingCost: euros(shipping),
-    codCost: euros(cod), outboundFulfillmentCost: euros(fulfillment), returnCost: euros(returns), logisticsCost: euros(logistics),
+    codCost: euros(cod), outboundFulfillmentCost: euros(fulfillment), returnCost: euros(returns), dropeaAdjustmentsCost: euros(dropeaAdjustments), logisticsCost: euros(logistics),
     metaSpend: metaAvailable ? euros(ads) : null, fixedCosts: euros(fixed), oneOffCosts: euros(oneOff), otherCosts: euros(other),
     totalCosts: euros(total), contributionMargin: revenue === null ? null : euros(revenue - product - logistics), exactNetProfit: euros(net),
     roiPercent: pct(net, total), marginPercent: pct(net, revenue), roas: ads ? Math.round(revenue * 100 / ads) / 100 : null,
-    estimatedCpa: metaAvailable && counts.confirmed ? euros(Math.round(ads / counts.confirmed)) : null,
-    realCpa: metaAvailable && counts.delivered ? euros(Math.round(ads / counts.delivered)) : null
+    estimatedCpa: metaAvailable && confirmedEvents ? euros(Math.round(ads / confirmedEvents)) : null,
+    realCpa: metaAvailable && deliveredEvents ? euros(Math.round(ads / deliveredEvents)) : null
   };
 }
 
@@ -415,7 +463,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   const counts = { created: cohort.length, confirmed: 0, rejected: 0, sent: 0, inTransit: 0, delivered: 0, deliveredUnits: 0, returned: 0, returnedUnits: 0, incidentOrders: 0, incidents: 0 };
   const products = new Map();
   const chargeLedger = new Map();
-  const chargeSources = { actual_order_cost: 0, versioned_logistics_tariff: 0, versioned_product_tariff: 0, legacy_logistics_tariff: 0, legacy_product_tariff: 0 };
+  const chargeSources = { actual_order_cost: 0, estimated_order_cost: 0, versioned_logistics_tariff: 0, versioned_product_tariff: 0, legacy_logistics_tariff: 0, legacy_product_tariff: 0 };
   const missingEventTimestamps = { confirmed: 0, sent: 0, delivered: 0, returned: 0 };
   let duplicateChargesBlocked = 0;
   const drilldownSets = new Map([...dayMap.keys()].map((day) => [day, { created: new Set(), confirmed: new Set(), rejected: new Set(), sent: new Set(), delivered: new Set(), returned: new Set(), incidentOrders: new Set() }]));
@@ -442,6 +490,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       fulfillment: 0,
       cod: 0,
       returns: 0,
+      dropeaAdjustments: 0,
       unknownCostUnits: 0
     });
     return products.get(key);
@@ -453,7 +502,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       duplicateChargesBlocked += 1;
       return false;
     }
-    chargeLedger.set(identity, { orderId: String(orderId), costType, amountCents: cents, source, day, identity });
+    chargeLedger.set(identity, { orderId: String(orderId), costType, amountCents: cents, source, sourceType, field, day, identity });
     dayMap.get(day)[field] += cents;
     if (sourceType in chargeSources) chargeSources[sourceType] += 1;
     return true;
@@ -471,77 +520,119 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     const orderId = String(order.id);
     const createdDay = inPeriod(order.created_at, period);
     const category = classifyFinanceOrder(order);
-    const cohortOrder = createdDay && cohortIds.has(String(order.id));
+    const breakdown = dropeaExpenseBreakdown(order);
+    const settledBreakdown = Boolean(breakdown && ['delivered', 'returned'].includes(category));
+    const cohortOrder = createdDay && cohortIds.has(orderId);
     if (cohortOrder) {
-      const day = dayMap.get(createdDay); day.created += 1; day.estimatedRevenue += finalAmount(order) || 0;
+      const day = dayMap.get(createdDay);
+      day.created += 1;
+      day.estimatedRevenue += finalAmount(order) || 0;
       addDrilldown(createdDay, 'created', orderId);
       if (confirmationEvidence(order)) counts.confirmed += 1;
       if (sentEvidence(order)) counts.sent += 1;
       if (category === 'rejected') counts.rejected += 1;
       if (category === 'inTransit') counts.inTransit += 1;
-      if (category === 'inTransit') day.inTransit += 1;
       if (category === 'delivered') { counts.delivered += 1; counts.deliveredUnits += units(order); }
       if (category === 'returned') { counts.returned += 1; counts.returnedUnits += units(order); }
-      if (issueIds.has(String(order.id))) counts.incidentOrders += 1;
+      if (issueIds.has(orderId)) counts.incidentOrders += 1;
     }
 
-    const confirmedDay = inPeriod(stamp(order, 'confirmed_at_utc', 'confirmed_at'), period);
+    const confirmedDay = cohortOrder && confirmationEvidence(order) ? createdDay : null;
     if (confirmedDay) { dayMap.get(confirmedDay).confirmed += 1; addDrilldown(confirmedDay, 'confirmed', orderId); }
-    else if (cohortOrder && confirmationEvidence(order)) missingEventTimestamps.confirmed += 1;
-    const processingDay = inPeriod(stamp(order, 'shipped_at_utc', 'shipped_at', 'processing_at_utc', 'processing_at'), period);
+
+    const sentDay = cohortOrder && sentEvidence(order) ? createdDay : null;
+    if (sentDay) { dayMap.get(sentDay).sent += 1; addDrilldown(sentDay, 'sent', orderId); }
+
+    const rejectedDay = cohortOrder && category === 'rejected' ? createdDay : null;
+    if (rejectedDay) { dayMap.get(rejectedDay).rejected += 1; addDrilldown(rejectedDay, 'rejected', orderId); }
+
+    const processingDay = sentDay && !['delivered', 'returned'].includes(category) ? sentDay : null;
     if (processingDay) {
       const day = dayMap.get(processingDay);
-      day.sent += 1;
-      addDrilldown(processingDay, 'sent', orderId);
+      if (category === 'inTransit') day.inTransit += 1;
       const list = orderItems(order);
       const shipping = orderCost(order, rules, 'shipping', processingDay);
       const fulfillment = orderCost(order, rules, 'fulfillment', processingDay);
       if (recordCharge({ orderId, day: processingDay, costType: 'OUTBOUND_SHIPPING', cents: shipping.cents, source: shipping.source, sourceType: shipping.type, field: 'shipping' })) allocateToProducts(list, shipping.cents, 'shipping', orderId, 'sentOrderIds');
       if (recordCharge({ orderId, day: processingDay, costType: 'OUTBOUND_FULFILLMENT', cents: fulfillment.cents, source: fulfillment.source, sourceType: fulfillment.type, field: 'fulfillment' })) allocateToProducts(list, fulfillment.cents, 'fulfillment', orderId, 'sentOrderIds');
-    } else if (cohortOrder && sentEvidence(order)) {
-      missingEventTimestamps.sent += 1;
     }
-    const deliveredDay = inPeriod(stamp(order, 'delivered_at_utc', 'delivered_at'), period);
+
+    const deliveredDay = cohortOrder && category === 'delivered' ? createdDay : null;
     if (deliveredDay) {
-      const day = dayMap.get(deliveredDay); const revenue = finalAmount(order);
-      day.delivered += 1; day.deliveredUnits += units(order);
+      const day = dayMap.get(deliveredDay);
+      const revenue = finalAmount(order);
+      day.delivered += 1;
+      day.deliveredUnits += units(order);
       addDrilldown(deliveredDay, 'delivered', orderId);
       if (revenue === null) day.missingRevenueOrders += 1; else day.revenue += revenue;
-      const cod = orderCost(order, rules, 'cod', deliveredDay);
       const list = orderItems(order);
-      if (recordCharge({ orderId, day: deliveredDay, costType: 'COD', cents: cod.cents, source: cod.source, sourceType: cod.type, field: 'cod' })) allocateToProducts(list, cod.cents, 'cod', orderId, 'deliveredOrderIds');
+      const actualComponents = [];
+      for (const [costType, kind, field, productField, orderSet] of [
+        ['OUTBOUND_SHIPPING', 'shipping', 'shipping', 'shipping', 'sentOrderIds'],
+        ['OUTBOUND_FULFILLMENT', 'fulfillment', 'fulfillment', 'fulfillment', 'sentOrderIds'],
+        ['COD', 'cod', 'cod', 'cod', 'deliveredOrderIds']
+      ]) {
+        const cost = orderCost(order, rules, kind, deliveredDay);
+        if (settledBreakdown) actualComponents.push(cost.cents || 0);
+        if (recordCharge({ orderId, day: deliveredDay, costType, cents: cost.cents, source: cost.source, sourceType: cost.type, field })) allocateToProducts(list, cost.cents, productField, orderId, orderSet);
+      }
       const revenueShares = revenue === null ? [] : allocateCents(revenue, list, (item) => (moneyToCents(item.unit_price) || 0) * Math.max(1, Number(item.quantity) || 0));
       if (!list.length) day.missingProductUnits += units(order);
+      const actualProductTotal = settledBreakdown ? breakdownSum(order, ['product_price']) : null;
+      const useActualProduct = actualProductTotal !== null && actualProductTotal > 0;
+      const actualProductShares = useActualProduct ? allocateCents(actualProductTotal, list) : [];
       list.forEach((item, index) => {
-        const quantity = Math.max(1, Number(item.quantity) || 0); const cost = skuCost(item, rules, deliveredDay);
+        const quantity = Math.max(1, Number(item.quantity) || 0);
         const product = ensureProduct(item);
-        product.deliveredUnits += quantity; product.deliveredOrderIds.add(orderId);
+        product.deliveredUnits += quantity;
+        product.deliveredOrderIds.add(orderId);
         if (revenue !== null) product.revenue += revenueShares[index] || 0;
+        const cost = useActualProduct
+          ? { cents: actualProductShares[index] || 0, source: breakdownSource(order).source, type: breakdownSource(order).type }
+          : skuCost(item, rules, deliveredDay);
         if (cost.cents === null) { day.missingProductUnits += quantity; product.unknownCostUnits += quantity; }
         else {
-          const total = cost.cents * quantity;
+          const total = useActualProduct ? cost.cents : cost.cents * quantity;
           if (recordCharge({ orderId, day: deliveredDay, costType: 'PRODUCT_COGS', cents: total, source: cost.source, sourceType: cost.type, field: 'product', detail: `line-${index}` })) product.productCost += total;
         }
       });
-    } else if (cohortOrder && category === 'delivered') {
-      missingEventTimestamps.delivered += 1;
+      if (settledBreakdown) {
+        const actualProductForReconciliation = actualProductTotal || 0;
+        const adjustment = Math.max(0, breakdown.total - actualProductForReconciliation - actualComponents.reduce((sum, value) => sum + value, 0));
+        if (recordCharge({ orderId, day: deliveredDay, costType: 'DROPEA_TAX_AND_ADJUSTMENTS', cents: adjustment, source: breakdownSource(order).source, sourceType: breakdownSource(order).type, field: 'dropeaAdjustments' })) allocateToProducts(list, adjustment, 'dropeaAdjustments', orderId, 'deliveredOrderIds');
+      }
     }
-    const returnedDay = inPeriod(returnStamp(order), period);
+
+    const returnedDay = cohortOrder && category === 'returned' ? createdDay : null;
     if (returnedDay) {
-      const day = dayMap.get(returnedDay); const cost = orderCost(order, rules, 'return', returnedDay); const list = orderItems(order);
-      day.returned += 1; day.returnedUnits += units(order); addDrilldown(returnedDay, 'returned', orderId);
-      if (cost.cents === null) day.missingReturnCosts += 1;
-      else if (recordCharge({ orderId, day: returnedDay, costType: 'RETURN_LOGISTICS_COMBINED', cents: cost.cents, source: cost.source, sourceType: cost.type, field: 'returns' })) allocateToProducts(list, cost.cents, 'returns', orderId, 'returnedOrderIds');
+      const day = dayMap.get(returnedDay);
+      const list = orderItems(order);
+      day.returned += 1;
+      day.returnedUnits += units(order);
+      addDrilldown(returnedDay, 'returned', orderId);
+      const actualComponents = [];
+      for (const [costType, kind, field, productField, orderSet] of [
+        ['OUTBOUND_SHIPPING', 'shipping', 'shipping', 'shipping', 'sentOrderIds'],
+        ['OUTBOUND_FULFILLMENT', 'fulfillment', 'fulfillment', 'fulfillment', 'sentOrderIds'],
+        ['RETURN_LOGISTICS_COMBINED', 'return', 'returns', 'returns', 'returnedOrderIds']
+      ]) {
+        const cost = orderCost(order, rules, kind, returnedDay);
+        if (settledBreakdown) actualComponents.push(cost.cents || 0);
+        if (cost.cents === null && kind === 'return') day.missingReturnCosts += 1;
+        else if (recordCharge({ orderId, day: returnedDay, costType, cents: cost.cents, source: cost.source, sourceType: cost.type, field })) allocateToProducts(list, cost.cents, productField, orderId, orderSet);
+      }
+      if (settledBreakdown) {
+        const actualProduct = breakdownSum(order, ['product_price']) || 0;
+        if (actualProduct > 0 && recordCharge({ orderId, day: returnedDay, costType: 'PRODUCT_COGS', cents: actualProduct, source: breakdownSource(order).source, sourceType: breakdownSource(order).type, field: 'product' })) allocateToProducts(list, actualProduct, 'productCost', orderId, 'returnedOrderIds');
+        const adjustment = Math.max(0, breakdown.total - actualProduct - actualComponents.reduce((sum, value) => sum + value, 0));
+        if (recordCharge({ orderId, day: returnedDay, costType: 'DROPEA_TAX_AND_ADJUSTMENTS', cents: adjustment, source: breakdownSource(order).source, sourceType: breakdownSource(order).type, field: 'dropeaAdjustments' })) allocateToProducts(list, adjustment, 'dropeaAdjustments', orderId, 'returnedOrderIds');
+      }
       for (const item of list) {
         const product = ensureProduct(item);
         product.returnedUnits += Math.max(1, Number(item.quantity) || 0);
         product.returnedOrderIds.add(orderId);
       }
-    } else if (cohortOrder && category === 'returned') {
-      missingEventTimestamps.returned += 1;
     }
-    const rejectedDay = category === 'rejected' ? inPeriod(stamp(order, 'rejected_at_utc', 'rejected_at'), period) : null;
-    if (rejectedDay) { dayMap.get(rejectedDay).rejected += 1; addDrilldown(rejectedDay, 'rejected', orderId); }
   }
 
   for (const issue of issues) {
@@ -554,7 +645,20 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     const day = String(meta.dateStart || meta.date_start || '').slice(0, 10); if (dayMap.has(day)) dayMap.get(day).ads += moneyToCents(meta.spend) || 0;
   }
 
+  const statusBreakdown = cohort.reduce((result, order) => {
+    const category = classifyFinanceOrder(order);
+    if (category === 'delivered') result.delivered += 1;
+    else if (category === 'returned') result.returned += 1;
+    else if (category === 'rejected') result.cancelled += 1;
+    else if (category === 'inTransit' || category === 'incident') result.inAir += 1;
+    else result.pending += 1;
+    return result;
+  }, { delivered: 0, returned: 0, inAir: 0, pending: 0, cancelled: 0 });
   counts.total = counts.created; counts.dropeaOrders = counts.created; counts.notSent = Math.max(0, counts.created - counts.sent);
+  counts.statusBreakdown = statusBreakdown;
+  counts.inAir = statusBreakdown.inAir;
+  counts.pending = statusBreakdown.pending;
+  counts.cancelled = statusBreakdown.cancelled;
   counts.confirmationRatePercent = pct(counts.confirmed, counts.created); counts.rejectionRatePercent = pct(counts.rejected, counts.created);
   counts.deliveryRatePercent = pct(counts.delivered, counts.sent); counts.globalConversionPercent = pct(counts.delivered, counts.created);
   counts.returnRatePercent = pct(counts.returned, counts.sent); counts.incidentRatePercent = pct(counts.incidentOrders, counts.sent);
@@ -569,18 +673,22 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   if (missingReturns) qualityIssues.push({ code: 'MISSING_RETURN_COST', message: `${missingReturns} pedidos devueltos no tienen coste combinado real ni tarifa aplicable.` });
   if (missingRevenue) qualityIssues.push({ code: 'MISSING_FINAL_AMOUNT', message: `${missingRevenue} pedidos entregados no informan importe final cobrado.` });
   if (!expenses.length) qualityIssues.push({ code: 'MISSING_EXPENSE_DATA', message: 'El ledger de gastos no contiene registros.' });
-  if (!uniqueOrders.some((order) => order.order_costs && typeof order.order_costs === 'object')) qualityIssues.push({ code: 'DROPEA_COST_BREAKDOWN_UNAVAILABLE', message: 'Dropea no informa desglose por pedido; envío, fulfillment y COD usan las tarifas reconciliadas publicadas.' });
+  const terminalOrders = cohort.filter((order) => ['delivered', 'returned'].includes(classifyFinanceOrder(order)));
+  const publishedBreakdownOrders = terminalOrders.filter((order) => dropeaExpenseBreakdown(order)).length;
+  const actualBreakdownOrders = terminalOrders.filter((order) => dropeaExpenseBreakdown(order)?.final).length;
+  if (publishedBreakdownOrders < terminalOrders.length) qualityIssues.push({ code: 'DROPEA_COST_BREAKDOWN_PARTIAL', message: `${terminalOrders.length - publishedBreakdownOrders} pedidos finalizados no publican expenses_breakdown y usan tarifas de respaldo identificadas.` });
+  if (actualBreakdownOrders < publishedBreakdownOrders) qualityIssues.push({ code: 'DROPEA_COST_BREAKDOWN_ESTIMATED', message: `Dropea marca ${publishedBreakdownOrders - actualBreakdownOrders} desgloses históricos como estimados; se muestran separados de los definitivos y no se oculta esa limitación.` });
   const missingTimestampCount = Object.values(missingEventTimestamps).reduce((sum, value) => sum + value, 0);
   if (missingTimestampCount) qualityIssues.push({ code: 'MISSING_EVENT_TIMESTAMP', message: `${missingTimestampCount} estados de cohorte no incluyen la fecha exacta del evento y no se imputan al P&L diario.` });
   const productRows = [...products.values()].map((row) => {
-    const logistics = row.shipping + row.fulfillment + row.cod;
+    const logistics = row.shipping + row.fulfillment + row.cod + row.dropeaAdjustments;
     const totalCost = row.productCost + logistics + row.returns;
     const profitBeforeAds = row.revenue - totalCost;
     return {
       productId: row.productId, variantId: row.variantId, sku: row.sku, name: row.name,
       units: row.deliveredUnits, deliveredUnits: row.deliveredUnits, returnedUnits: row.returnedUnits,
       deliveredOrders: row.deliveredOrderIds.size, sentOrders: row.sentOrderIds.size, returnedOrders: row.returnedOrderIds.size,
-      revenue: euros(row.revenue), productCost: euros(row.productCost), logisticsCost: euros(logistics), returnCost: euros(row.returns),
+      revenue: euros(row.revenue), productCost: euros(row.productCost), logisticsCost: euros(logistics), returnCost: euros(row.returns), dropeaAdjustmentsCost: euros(row.dropeaAdjustments),
       attributedAdSpend: null, totalCostBeforeAds: euros(totalCost), margin: row.unknownCostUnits ? null : euros(profitBeforeAds),
       profit: row.unknownCostUnits ? null : euros(profitBeforeAds), marginPercent: row.revenue ? pct(profitBeforeAds, row.revenue) : null,
       roiPercent: totalCost ? pct(profitBeforeAds, totalCost) : null, returnRatePercent: pct(row.returnedOrderIds.size, row.sentOrderIds.size), unknownCostUnits: row.unknownCostUnits
@@ -589,48 +697,119 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   const dailyRevenue = sumCents(days, 'realRevenue'); const dailyCosts = sumCents(days, 'totalCosts');
   const productRevenue = productRows.reduce((sum, row) => sum + (moneyToCents(row.revenue) || 0), 0);
   const productReturnCosts = productRows.reduce((sum, row) => sum + (moneyToCents(row.returnCost) || 0), 0);
+  const orderRows = uniqueOrders.map((order) => {
+    const createdDay = inPeriod(order.created_at, period);
+    if (!createdDay) return null;
+    const category = classifyFinanceOrder(order);
+    const settled = ['delivered', 'returned'].includes(category);
+    const settlementDay = localDay(category === 'delivered' ? stamp(order, 'delivered_at_utc', 'delivered_at') : (category === 'returned' ? returnStamp(order) : null), period.timeZone);
+    const charges = [...chargeLedger.values()].filter((charge) => charge.orderId === String(order.id));
+    const byField = (field) => charges.filter((charge) => charge.field === field).reduce((sum, charge) => sum + charge.amountCents, 0);
+    const totalCost = charges.reduce((sum, charge) => sum + charge.amountCents, 0);
+    const revenue = category === 'delivered' ? finalAmount(order) : null;
+    const breakdown = dropeaExpenseBreakdown(order);
+    return {
+      orderId: String(order.id),
+      externalOrderId: String(order.external_order_id || ''),
+      createdDay: localDay(order.created_at, period.timeZone),
+      settlementDay,
+      status: category,
+      units: units(order),
+      orderAmount: euros(finalAmount(order)),
+      realizedRevenue: euros(revenue),
+      dropeaExpenses: settled ? euros(breakdown?.total ?? null) : null,
+      productCost: euros(byField('product')),
+      outboundShippingCost: euros(byField('shipping')),
+      outboundFulfillmentCost: euros(byField('fulfillment')),
+      codCost: euros(byField('cod')),
+      returnCost: euros(byField('returns')),
+      dropeaAdjustmentsCost: euros(byField('dropeaAdjustments')),
+      recognizedCost: euros(totalCost),
+      dropeaOrderProfit: category === 'delivered' && breakdown ? euros((finalAmount(order) || 0) - breakdown.total) : null,
+      contributionAfterProduct: category === 'delivered' && revenue !== null ? euros(revenue - totalCost) : (category === 'returned' ? euros(-totalCost) : null),
+      breakdownStatus: !settled ? 'NOT_SETTLED' : (breakdown?.final ? 'DROPEA_FINAL' : (breakdown ? 'DROPEA_ESTIMATE' : 'FALLBACK')),
+      calculatedAt: breakdown?.value?.calculated_at || null
+    };
+  }).filter(Boolean).sort((a, b) => String(b.settlementDay || b.createdDay || '').localeCompare(String(a.settlementDay || a.createdDay || '')) || Number(b.orderId) - Number(a.orderId));
   const drilldowns = Object.fromEntries([...drilldownSets].map(([day, groups]) => [day, Object.fromEntries(Object.entries(groups).map(([name, ids]) => [name, [...ids].sort((a, b) => Number(a) - Number(b))]))]));
   return {
-    period, status: period.current ? 'provisional' : 'reconstructed', statusLabel: period.current ? 'MTD · realizado' : 'Mes cerrado · eventos reales',
-    counts, totals, days, products: productRows, drilldowns,
-    coverage: { orders: true, meta: metaAvailable, productCostPercent: counts.deliveredUnits ? Math.max(0, 100 - Math.round(missingUnits * 100 / counts.deliveredUnits)) : 100, exactProfitAvailable: totals.exactNetProfit !== null, closedActual: false },
+    period, status: period.current ? 'provisional' : 'reconstructed', statusLabel: period.current ? 'MTD · cohorte actual' : 'Mes cerrado · cohorte Dropea',
+    counts, totals, days, products: productRows, orders: orderRows, drilldowns,
+    coverage: { orders: true, meta: metaAvailable, productCostPercent: counts.deliveredUnits ? Math.max(0, 100 - Math.round(missingUnits * 100 / counts.deliveredUnits)) : 100, dropeaBreakdownPublishedPercent: terminalOrders.length ? Math.round(publishedBreakdownOrders * 100 / terminalOrders.length) : 100, dropeaBreakdownPercent: terminalOrders.length ? Math.round(actualBreakdownOrders * 100 / terminalOrders.length) : 100, exactProfitAvailable: totals.exactNetProfit !== null, closedActual: false },
     quality: { status: qualityIssues.some((issue) => ['MISSING_AD_SPEND', 'MISSING_COST', 'MISSING_RETURN_COST', 'MISSING_FINAL_AMOUNT'].includes(issue.code)) ? 'PARTIAL' : (qualityIssues.length ? 'PARTIAL' : 'OK'), score: Math.max(0, 100 - qualityIssues.length * 8), issues: qualityIssues },
     warnings: qualityIssues.map((issue) => issue.message),
     controls: { fullPeriodBoundary: true, dailyRevenueReconciled: totals.realRevenue === null || moneyToCents(totals.realRevenue) === dailyRevenue, dailyCostsReconciled: totals.totalCosts === null || moneyToCents(totals.totalCosts) === dailyCosts, profitReconciled: totals.exactNetProfit === null || moneyToCents(totals.exactNetProfit) === moneyToCents(totals.realRevenue) - moneyToCents(totals.totalCosts), expensesReconciled: true, costsReconciled: true, productRevenueReconciled: totals.realRevenue === null || productRevenue === moneyToCents(totals.realRevenue), productReturnCostsReconciled: productReturnCosts === moneyToCents(totals.returnCost), costLedgerUnique: duplicateChargesBlocked === 0, noReturnRejectionOverlap: true },
     costLedger: { chargeCount: chargeLedger.size, duplicateChargesBlocked, sourceCounts: chargeSources, identity: 'order_id + cost_type + line_identity' },
     eventCoverage: { missingTimestamps: missingEventTimestamps },
-    costTraceability: { product: { primary: 'Tarifa empresarial versionada por product_id + variant_id', fallback: 'Dropea wholesale_price > 0 cuando no existe tarifa verificada', tariffVersion: rules.version, effectiveDate: rules.effective_from }, logistics: { primary: 'Dropea order_costs', fallback: rules.source, tariffVersion: rules.version, effectiveDate: rules.effective_from }, return: { primary: 'RETURN_LOGISTICS_COMBINED', basis: 'PER_RETURNED_ORDER', amount: 5.26, fallback: 'BUSINESS_VERIFIED_DROPEA_RATE', tariffVersion: rules.version, effectiveDate: rules.effective_from }, expenses: [...new Set(expenses.map((expense) => expense.source))] }
+    costTraceability: { product: { primary: 'Dropea expenses_breakdown.product_price cuando es mayor que cero', fallback: 'Tarifa empresarial versionada por product_id + variant_id', tariffVersion: rules.version, effectiveDate: rules.effective_from }, logistics: { primary: 'Dropea expenses_breakdown definitivo por pedido', fallback: rules.source, tariffVersion: rules.version, effectiveDate: rules.effective_from }, return: { primary: 'shipping_refused_price + fulfillment_refused_price del pedido', basis: 'PER_RETURNED_ORDER', fallbackAmount: 5.26, fallback: 'BUSINESS_VERIFIED_DROPEA_RATE', tariffVersion: rules.version, effectiveDate: rules.effective_from }, expenses: [...new Set(expenses.map((expense) => expense.source))] },
+    expenseLedger: expenses.map((expense) => {
+      const applied = [...allocateExpenses(period, [expense]).values()].reduce((sum, row) => sum + row.fixed + row.oneOff + row.other, 0);
+      return { id: expense.id, name: expense.name, category: expense.category || 'Otros', type: expense.type, amount: euros(Number(expense.amount_cents) || 0), appliedAmount: euros(applied), startDate: expense.start_date || null, endDate: expense.end_date || null, date: expense.date || null, source: expense.source || 'ledger' };
+    }).filter((expense) => expense.appliedAmount > 0)
   };
+}
+
+export function applyFinanceExpenseLedger(report, expenses = loadFinanceExpenses()) {
+  if (!report?.period || !Array.isArray(report.days)) return report;
+  const next = structuredClone(report);
+  const allocations = allocateExpenses(next.period, expenses);
+  next.days = next.days.map((day) => {
+    const allocation = allocations.get(day.day) || { fixed: 0, oneOff: 0, other: 0 };
+    const revenue = moneyToCents(day.realRevenue);
+    const variable = ['productCost', 'outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost', 'dropeaAdjustmentsCost', 'metaSpend']
+      .reduce((sum, field) => sum + (moneyToCents(day[field]) || 0), 0);
+    const total = next.coverage?.meta === false ? null : variable + allocation.fixed + allocation.oneOff + allocation.other;
+    const net = total === null || revenue === null ? null : revenue - total;
+    const logistics = ['outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost', 'dropeaAdjustmentsCost']
+      .reduce((sum, field) => sum + (moneyToCents(day[field]) || 0), 0);
+    return {
+      ...day,
+      fixedCosts: euros(allocation.fixed),
+      oneOffCosts: euros(allocation.oneOff),
+      otherCosts: euros(allocation.other),
+      logisticsCost: euros(logistics),
+      totalCosts: euros(total),
+      netProfit: euros(net),
+      marginPercent: pct(net, revenue),
+      roiPercent: pct(net, total)
+    };
+  });
+  next.totals = aggregateTotals(next.days, next.counts || {}, next.coverage?.meta !== false);
+  next.expenseLedger = expenses.map((expense) => {
+    const applied = [...allocateExpenses(next.period, [expense]).values()].reduce((sum, row) => sum + row.fixed + row.oneOff + row.other, 0);
+    return { id: expense.id, name: expense.name, category: expense.category || 'Otros', type: expense.type, amount: euros(Number(expense.amount_cents) || 0), appliedAmount: euros(applied), startDate: expense.start_date || null, endDate: expense.end_date || null, date: expense.date || null, source: expense.source || 'ledger', editable: expense.editable === true };
+  }).filter((expense) => expense.appliedAmount > 0);
+  if (next.audit?.benchmarkNetProfit !== undefined) {
+    const computed = moneyToCents(next.totals.exactNetProfit);
+    const benchmark = moneyToCents(next.audit.benchmarkNetProfit);
+    next.audit.computedNetProfit = next.totals.exactNetProfit;
+    next.audit.variance = computed === null || benchmark === null ? null : euros(computed - benchmark);
+  }
+  next.controls = {
+    ...next.controls,
+    dailyCostsReconciled: next.totals.totalCosts === null || moneyToCents(next.totals.totalCosts) === sumCents(next.days, 'totalCosts'),
+    profitReconciled: next.totals.exactNetProfit === null || moneyToCents(next.totals.exactNetProfit) === moneyToCents(next.totals.realRevenue) - moneyToCents(next.totals.totalCosts),
+    expensesReconciled: true
+  };
+  return next;
 }
 
 function applyClosed(report, actual) {
   if (!actual) return report;
-  const totals = { ...report.totals, ...actual.totals, revenue: actual.totals.realRevenue, contributionMargin: Number((actual.totals.realRevenue - actual.totals.productCost - actual.totals.logisticsCost).toFixed(2)), marginPercent: pct(moneyToCents(actual.totals.exactNetProfit), moneyToCents(actual.totals.realRevenue)), roas: actual.totals.metaSpend ? Math.round(actual.totals.realRevenue * 100 / actual.totals.metaSpend) / 100 : null };
-  const operationalByDay = new Map(report.days.map((day) => [day.day, day]));
-  const days = actual.days.map((day) => {
-    const operational = operationalByDay.get(day.day) || {};
-    return {
-      ...day,
-      created: day.sourceOrderCount,
-      confirmed: day.sent,
-      rejected: operational.rejected ?? 0,
-      sent: day.sent,
-      inTransit: operational.inTransit ?? 0,
-      delivered: day.delivered,
-      deliveredUnits: operational.deliveredUnits ?? null,
-      returned: day.returned,
-      returnedUnits: operational.returnedUnits ?? null,
-      incidentOrders: operational.incidentOrders ?? 0,
-      incidents: operational.incidents ?? 0,
-      logisticsCost: Number((day.outboundShippingCost + day.codCost + day.outboundFulfillmentCost + day.returnCost).toFixed(2)),
-      oneOffCosts: 0,
-      otherCosts: 0,
-      contributionMargin: Number((day.realRevenue - day.productCost - day.outboundShippingCost - day.codCost - day.outboundFulfillmentCost - day.returnCost).toFixed(2)),
-      marginPercent: pct(moneyToCents(day.netProfit), moneyToCents(day.realRevenue)),
-      roas: day.metaSpend ? Math.round(day.realRevenue * 100 / day.metaSpend) / 100 : null
-    };
-  }).sort((a, b) => a.day.localeCompare(b.day));
-  return { ...report, totals, days, status: actual.status, statusLabel: actual.label, audit: actual.audit, coverage: { ...report.coverage, meta: true, productCostPercent: 100, exactProfitAvailable: true, closedActual: true }, quality: { status: 'OK', score: 100, issues: [] }, warnings: [], controls: { ...report.controls, dailyRevenueReconciled: true, dailyCostsReconciled: true, profitReconciled: true }, sources: { orders: 'Dropea Public API V2', meta: actual.source, costs: actual.source } };
+  const computed = moneyToCents(report.totals.exactNetProfit);
+  const benchmark = moneyToCents(actual.totals.exactNetProfit);
+  return {
+    ...report,
+    audit: {
+      ...actual.audit,
+      source: actual.source,
+      benchmarkNetProfit: actual.totals.exactNetProfit,
+      computedNetProfit: report.totals.exactNetProfit,
+      variance: computed === null || benchmark === null ? null : euros(computed - benchmark),
+      mode: 'benchmark_only'
+    },
+    coverage: { ...report.coverage, closedBenchmarkAvailable: true }
+  };
 }
 
 function summary(report) {
@@ -680,7 +859,36 @@ async function loadSources({ env, clientFactory, configLoader, periods }) {
         }
       })
     ]);
-    orders.push(...orderPages.flatMap((page) => page.items)); issues.push(...issuePage.items);
+    const storeOrders = [...new Map(
+      orderPages.flatMap((page) => page.items).map((order) => [String(order.id), order])
+    ).values()];
+    const detailCandidates = storeOrders.filter((order) => {
+      const breakdown = dropeaExpenseBreakdown(order);
+      return ['delivered', 'returned'].includes(classifyFinanceOrder(order)) && !breakdown?.final;
+    });
+    const detailById = new Map();
+    let nextDetail = 0;
+    const detailWorkers = Array.from({ length: Math.min(3, detailCandidates.length) }, async () => {
+      while (nextDetail < detailCandidates.length) {
+        const summaryOrder = detailCandidates[nextDetail];
+        nextDetail += 1;
+        try {
+          const payload = await client.request('getOrder', { id: Number(summaryOrder.id) });
+          // The live Dropea V2 endpoint returns the order directly. Some test
+          // adapters and older proxies wrap it in `data`, so accept both shapes.
+          const detail = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+          if (detail && typeof detail === 'object') {
+            detailById.set(String(summaryOrder.id), { ...summaryOrder, ...detail });
+          }
+        } catch {
+          // The monthly list remains usable and the report explicitly marks the
+          // affected order as tariff-backed. One failed detail must not erase a month.
+        }
+      }
+    });
+    await Promise.all(detailWorkers);
+    orders.push(...storeOrders.map((order) => detailById.get(String(order.id)) || order));
+    issues.push(...issuePage.items);
   }));
   return {
     orders: [...new Map(orders.map((order) => [String(order.id), order])).values()],
@@ -688,7 +896,17 @@ async function loadSources({ env, clientFactory, configLoader, periods }) {
   };
 }
 
-export async function buildFinanceReport({ month, force = false, env = process.env, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs, metaLoader = getCampaignInsights, rules = loadFinanceCostRules(), expenses = loadFinanceExpenses() } = {}) {
+export async function loadFinanceSourceData({ env = process.env, months, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs } = {}) {
+  if (!Array.isArray(months) || months.length === 0 || months.some((month) => !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month)))) {
+    throw new Error('FINANCE_SOURCE_MONTHS_INVALID');
+  }
+  const ordered = [...new Set(months.map(String))].sort();
+  const sourceMonths = [previousMonth(ordered[0]), ...ordered];
+  const periods = sourceMonths.map((month) => resolveFinancePeriod(month, { now }));
+  return loadSources({ env, clientFactory, configLoader, periods });
+}
+
+export async function buildFinanceReport({ month, force = false, env = process.env, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs, metaLoader = getCampaignInsights, rules = loadFinanceCostRules(), expenses = loadFinanceExpenses(), sourceData = null } = {}) {
   const period = resolveFinancePeriod(month, { now });
   const cached = cache.get(period.month);
   if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.report;
@@ -698,7 +916,7 @@ export async function buildFinanceReport({ month, force = false, env = process.e
   // one extra creation cohort so the first visible month does not lose events.
   const sourcePeriods = [previousMonth(earliest), ...historyMonths].map((value) => resolveFinancePeriod(value, { now }));
   const [orderResult, metaResult] = await Promise.allSettled([
-    loadSources({ env, clientFactory, configLoader, periods: sourcePeriods }),
+    sourceData ? Promise.resolve(sourceData) : loadSources({ env, clientFactory, configLoader, periods: sourcePeriods }),
     metaLoader({ since: `${earliest}-01`, until: period.until, level: 'campaign', limit: 500, timeIncrement: 1 })
   ]);
   if (orderResult.status === 'rejected' && !getClosedFinanceActual(period.month)) throw orderResult.reason;
@@ -712,9 +930,9 @@ export async function buildFinanceReport({ month, force = false, env = process.e
   report.projection = buildProjection(report, expenses);
   report.generatedAt = now.toISOString();
   report.freshness = { generatedAt: report.generatedAt, sources: { dropea: { status: orderResult.status === 'fulfilled' ? 'OK' : 'SOURCE_ERROR', lastSyncAt: orderResult.status === 'fulfilled' ? report.generatedAt : null, ageMinutes: orderResult.status === 'fulfilled' ? 0 : null }, meta: { status: metaResult.status === 'fulfilled' ? 'OK' : 'SOURCE_ERROR', lastSyncAt: metaResult.status === 'fulfilled' ? report.generatedAt : null, ageMinutes: metaResult.status === 'fulfilled' ? 0 : null }, expenses: { status: expenses.length ? 'OK' : 'MISSING', lastSyncAt: report.generatedAt, ageMinutes: 0 } } };
-  report.sources = report.sources || { orders: 'Dropea Public API V2', meta: metaResult.status === 'fulfilled' ? 'Meta Marketing API' : 'Meta Ads pendiente de sincronización', costs: rules.source, expenses: 'Ledger versionado de gastos' };
+  report.sources = report.sources || { orders: 'Dropea Public API V2', meta: metaResult.status === 'fulfilled' ? 'Meta Marketing API' : 'Meta Ads pendiente de sincronización', costs: 'Dropea V2 expenses_breakdown por pedido + respaldo empresarial versionado', expenses: 'Ledger mensual versionado de gastos' };
   report.availableRange = { from: rules.effective_from.slice(0, 7), to: localDay(now).slice(0, 7) };
-  report.definitions = { netProfit: 'Facturación realizada − producto − logística de salida − devolución − publicidad − gastos fijos − puntuales − otros.', roi: 'Beneficio neto / costes totales.', roas: 'Facturación realizada / gasto Meta.', margin: 'Beneficio neto / facturación realizada.', deliveryRate: 'Entregados / enviados de la cohorte.', returnRate: 'Devueltos / enviados de la cohorte.', returnCost: 'Pedidos devueltos del P&L × 5,26 €. Las unidades devueltas se muestran aparte y no multiplican la tarifa.' };
+  report.definitions = { netProfit: 'Facturación final de pedidos entregados de la cohorte − costes reales por pedido de Dropea − coste de producto − publicidad Meta − gastos fijos − puntuales − otros.', roi: 'Beneficio neto / costes totales.', roas: 'Facturación realizada / gasto Meta.', margin: 'Beneficio neto / facturación realizada.', deliveryRate: 'Entregados / enviados de la cohorte de pedidos creados en el mes.', returnRate: 'Devueltos / enviados de la cohorte de pedidos creados en el mes.', returnCost: 'Suma real por pedido de shipping_refused_price y fulfillment_refused_price; 5,26 € por pedido solo cuando el histórico no publica desglose.' };
   cache.set(period.month, { at: Date.now(), report });
   await persistFinanceSnapshot(report);
   return report;

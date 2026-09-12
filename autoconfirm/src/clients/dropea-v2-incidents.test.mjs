@@ -146,6 +146,25 @@ test('encapsulated V2 client emits GET-only requests to the official market host
   assert.match(calls[0].url, /only_pending_to_resolve=true/);
 });
 
+test('read client retries a temporary Dropea rate limit without changing the request', async () => {
+  let attempts = 0;
+  const client = createDropeaV2IncidentClient({
+    token: token(),
+    market: 'ES',
+    retryDelayMs: 0,
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return { ok: false, status: 429, headers: { get: () => '0' }, async json() { return { success: false }; } };
+      }
+      return { ok: true, status: 200, async json() { return { success: true, message: 'ok', data: order }; } };
+    }
+  });
+  const result = await client.request('getOrder', { id: 41 });
+  assert.equal(attempts, 2);
+  assert.equal(result.data.id, 41);
+});
+
 test('paginated V2 reads can discard out-of-period rows before retaining them', async () => {
   const client = createDropeaV2IncidentClient({
     token: token(),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { aggregateFinanceReport, allocateExpenses, buildFinanceReport, classifyFinanceOrder, clearFinanceCache, loadFinanceSnapshot, moneyToCents, resolveFinancePeriod, saveFinanceSnapshot } from './finance.mjs';
+import { aggregateFinanceReport, allocateExpenses, applyFinanceExpenseLedger, buildFinanceReport, classifyFinanceOrder, clearFinanceCache, loadFinanceSnapshot, moneyToCents, resolveFinancePeriod, saveFinanceSnapshot } from './finance.mjs';
 import { loadFinanceCostRules, loadFinanceExpenses } from './finance-data.mjs';
 
 const now = new Date('2026-09-11T12:00:00.000Z');
@@ -80,17 +80,19 @@ test('unknown wholesale zero is MISSING_ECONOMIC_DATA, never free product', () =
   assert.equal(report.quality.issues.some((issue) => issue.code === 'MISSING_COST'), true);
 });
 
-test('P&L recognizes revenue on delivery event, not order creation', () => {
-  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ created_at: '2026-08-28T08:00:00Z', delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
-  assert.equal(report.counts.created, 0);
+test('P&L uses the selected creation cohort and attributes final economics to the order day', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ created_at: '2026-09-02T08:00:00Z', delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
+  assert.equal(report.counts.created, 1);
   assert.equal(report.totals.realRevenue, 34.99);
-  assert.equal(report.days.find((day) => day.day === '2026-09-05').realRevenue, 34.99);
+  assert.equal(report.days.find((day) => day.day === '2026-09-02').realRevenue, 34.99);
+  const priorCohort = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({ created_at: '2026-08-28T08:00:00Z', delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
+  assert.equal(priorCohort.totals.realRevenue, 0);
 });
 
-test('return cost is recognized on return event with traceable tariff', () => {
-  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ created_at: '2026-08-28T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED' })] });
+test('return cost is recognized once in its creation cohort with traceable tariff', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ created_at: '2026-09-02T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED' })] });
   assert.equal(report.totals.returnCost, 5.26);
-  assert.equal(report.days.find((day) => day.day === '2026-09-06').returned, 1);
+  assert.equal(report.days.find((day) => day.day === '2026-09-02').returned, 1);
   assert.equal(report.costTraceability.return.tariffVersion, rules.version);
 });
 
@@ -98,10 +100,10 @@ test('return logistics is exactly 5.26 per returned order for one, two or three 
   for (const quantity of [1, 2, 3]) {
     const report = aggregateFinanceReport({
       period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [],
-      orders: [order({ id: 100 + quantity, created_at: '2026-08-28T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED', line_items: [{ product_id: 31547, variant_id: 31547, sku: 'CREMANIDA', quantity, unit_price: 10, wholesale_price: 0 }] })]
+      orders: [order({ id: 100 + quantity, created_at: '2026-09-02T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED', line_items: [{ product_id: 31547, variant_id: 31547, sku: 'CREMANIDA', quantity, unit_price: 10, wholesale_price: 0 }] })]
     });
-    assert.equal(report.counts.returnedUnits, 0, 'cohort counters exclude orders created before the selected month');
-    assert.equal(report.days.find((day) => day.day === '2026-09-06').returnedUnits, quantity);
+    assert.equal(report.counts.returnedUnits, quantity);
+    assert.equal(report.days.find((day) => day.day === '2026-09-02').returnedUnits, quantity);
     assert.equal(report.totals.returnCost, 5.26);
     assert.equal(report.products[0].returnCost, 5.26);
     assert.equal(report.costTraceability.return.basis, 'PER_RETURNED_ORDER');
@@ -110,12 +112,39 @@ test('return logistics is exactly 5.26 per returned order for one, two or three 
 
 test('return rate remains 5.26 per order and fulfillment components are summed without COD on a return', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({
-    id: 130, created_at: '2026-08-28T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED',
+    id: 130, created_at: '2026-09-02T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED',
     order_costs: { fulfillment_outbound: 0.80, fulfillment_quantity_cost: 0.40, return_cost: 99, cod_fee: 8 }
   })] });
   assert.equal(report.totals.outboundFulfillmentCost, 1.20);
   assert.equal(report.totals.returnCost, 5.26);
   assert.equal(report.totals.codCost, 0);
+});
+
+test('final Dropea breakdown uses the exact Wallet-aligned return charges per order', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({
+    id: 1384509, created_at: '2026-09-01T14:01:48Z', processing_at: '2026-09-01T14:32:11Z', rejected_at: '2026-09-09T10:33:49Z', status: 'ERROR', sub_status: 'REJECTED',
+    expenses_breakdown: { product_price: 0, fulfillment_extra_unit_price: 0, fulfillment_outbound_price: 1, fulfillment_refused_price: 1, shipping_outbound_price: 4.06, shipping_refused_price: 4.06, cod_commission: 1.2, total_expenses: 10.12, is_estimate: false, calculated_at: '2026-09-09T10:33:49Z' }
+  })] });
+  assert.equal(report.totals.outboundShippingCost, 4.06);
+  assert.equal(report.totals.outboundFulfillmentCost, 1);
+  assert.equal(report.totals.returnCost, 5.06);
+  assert.equal(report.totals.codCost, 0);
+  assert.equal(report.totals.logisticsCost, 10.12);
+  assert.equal(report.orders[0].breakdownStatus, 'DROPEA_FINAL');
+  assert.equal(report.orders[0].contributionAfterProduct, -10.12);
+});
+
+test('final Dropea breakdown reconciles tax and adjustments without hiding business product COGS', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({
+    id: 777, total_amount: 29.99, delivered_at: '2026-09-09T10:33:49Z', status: 'FINISH', sub_status: 'DELIVERED',
+    line_items: [{ product_id: 31666, variant_id: 31666, sku: 'COLLAGUM', product_name: 'CollaGum', quantity: 2, unit_price: 29.99, wholesale_price: 0 }],
+    expenses_breakdown: { product_price: 0, fulfillment_extra_unit_price: 0, fulfillment_outbound_price: 1, fulfillment_refused_price: 1, shipping_outbound_price: 4.06, shipping_refused_price: 4.06, cod_commission: 1.2, total_expenses: 7.39, is_estimate: false, calculated_at: '2026-09-09T10:33:49Z' }
+  })] });
+  assert.equal(report.totals.dropeaAdjustmentsCost, 1.13);
+  assert.equal(report.totals.productCost, 2.02);
+  assert.equal(report.orders[0].dropeaOrderProfit, 22.60);
+  assert.equal(report.orders[0].contributionAfterProduct, 20.58);
+  assert.equal(report.controls.dailyCostsReconciled, true);
 });
 
 test('duplicate order rows cannot duplicate economic charges', () => {
@@ -143,10 +172,22 @@ test('ROI, ROAS and margin use canonical formulas and handle zero safely', () =>
   assert.equal(active.totals.roiPercent, Math.round(active.totals.exactNetProfit * 10000 / active.totals.totalCosts) / 100);
 });
 
-test('recurring expenses reconcile to exact monthly ledger total', () => {
-  const period = resolveFinancePeriod('2026-09', { now: new Date('2026-10-02T12:00:00Z') });
-  const allocations = allocateExpenses(period, expenses);
-  assert.equal([...allocations.values()].reduce((sum, row) => sum + row.fixed, 0), 17639);
+test('fixed-expense ledger reconciles the owner-provided monthly totals exactly', () => {
+  const expected = { '2026-05': 0, '2026-06': 4411, '2026-07': 27811, '2026-08': 17639, '2026-09': 17639 };
+  for (const [month, cents] of Object.entries(expected)) {
+    const period = resolveFinancePeriod(month, { now: new Date('2026-10-02T12:00:00Z') });
+    const allocations = allocateExpenses(period, expenses);
+    assert.equal([...allocations.values()].reduce((sum, row) => sum + row.fixed + row.oneOff + row.other, 0), cents, month);
+  }
+});
+
+test('a manually added expense immediately recalculates daily and monthly profit', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({ delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
+  const updated = applyFinanceExpenseLedger(report, [{ id: 'manual', name: 'Extra', category: 'Otros', type: 'one_off', amount_cents: 1000, date: '2026-09-01', start_date: '2026-09-01', end_date: '2026-09-01', editable: true }]);
+  assert.equal(moneyToCents(report.totals.exactNetProfit) - moneyToCents(updated.totals.exactNetProfit), 1000);
+  assert.equal(updated.totals.oneOffCosts, 10);
+  assert.equal(updated.expenseLedger[0].editable, true);
+  assert.equal(updated.controls.profitReconciled, true);
 });
 
 test('Meta daily spend sums exactly to monthly spend', () => {
@@ -155,7 +196,7 @@ test('Meta daily spend sums exactly to monthly spend', () => {
   assert.equal(report.days.reduce((sum, day) => sum + moneyToCents(day.metaSpend), 0), 1010);
 });
 
-test('cohort rates use created orders while P&L uses event dates', () => {
+test('cohort rates consistently use the created-order population', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ id: 1, delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' }), order({ id: 2, confirmed_at: null, processing_at: null, tracking_number: null, status: 'PENDING', sub_status: 'PENDING' })] });
   assert.equal(report.counts.created, 2);
   assert.equal(report.counts.confirmed, 1);
@@ -174,7 +215,7 @@ test('current month builds equivalent prior comparison and separate projection',
   const report = await buildFinanceReport({ month: '2026-09', force: true, now, rules, expenses, configLoader: () => [{ store_id: '1', market: 'ES', token: 'test' }], clientFactory: () => ({ listAll: async (name) => ({ items: name === 'listOrders' ? fakeOrders : [] }) }), metaLoader: async () => [{ dateStart: '2026-09-05', spend: 10 }, { dateStart: '2026-08-05', spend: 8 }] });
   assert.equal(report.comparison.period.until, '2026-08-11');
   assert.ok(report.projection);
-  assert.equal(report.statusLabel, 'MTD · realizado');
+  assert.equal(report.statusLabel, 'MTD · cohorte actual');
   assert.notEqual(report.projection.netProfit, report.totals.exactNetProfit);
 });
 
@@ -185,6 +226,70 @@ test('month selector input changes the complete report period', async () => {
   assert.equal(result.comparison.period.month, '2026-07');
   const selectedMonthCall = calls.find((call) => call.name === 'listOrders' && call.params.date_to === '2026-08-31T21:59:59.999Z');
   assert.ok(selectedMonthCall, 'the selected month must be loaded through its complete Madrid boundary');
+});
+
+test('terminal orders missing economics in the list are enriched from Dropea order detail', async () => {
+  const calls = [];
+  const summaryOrder = order({ id: 1400480, delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' });
+  const result = await buildFinanceReport({
+    month: '2026-09', force: true, now, rules, expenses: [],
+    configLoader: () => [{ store_id: '1', market: 'ES', token: 'test' }],
+    clientFactory: () => ({
+      listAll: async (name, params) => ({ items: name === 'listOrders' && params.date_from.startsWith('2026-08-31') ? [summaryOrder] : [] }),
+      request: async (name, params) => {
+        calls.push({ name, params });
+        return { data: { expenses_breakdown: { product_price: 0, fulfillment_outbound_price: 1, fulfillment_extra_unit_price: 0, shipping_outbound_price: 4.06, cod_commission: 1.20, total_expenses: 6.26, is_estimate: false } } };
+      }
+    }),
+    metaLoader: async () => []
+  });
+  assert.deepEqual(calls, [{ name: 'getOrder', params: { id: 1400480 } }]);
+  assert.equal(result.coverage.dropeaBreakdownPublishedPercent, 100);
+  assert.equal(result.coverage.dropeaBreakdownPercent, 100);
+  assert.equal(result.totals.logisticsCost, 6.26);
+});
+
+test('live Dropea order detail can be returned without a data wrapper', async () => {
+  const summaryOrder = order({
+    id: 9002,
+    created_at: '2026-07-02T08:00:00.000Z',
+    status: 'FINISH',
+    sub_status: 'PAID',
+    delivered_at_utc: '2026-07-10T12:00:00.000Z'
+  });
+  delete summaryOrder.expenses_breakdown;
+  const detail = {
+    ...summaryOrder,
+    expenses_breakdown: {
+      product_price: 1.01,
+      fulfillment_outbound_price: 1,
+      fulfillment_refused_price: 0,
+      shipping_outbound_price: 4.06,
+      shipping_refused_price: 0,
+      cod_commission: 1.2,
+      tax_rate_supplier: 0,
+      tax_rate_dropea: 18,
+      equivalence_surcharge_rate: 0,
+      is_estimate: false,
+      calculated_at: '2026-07-10T13:00:00.000Z'
+    }
+  };
+  const report = await buildFinanceReport({
+    month: '2026-07',
+    force: true,
+    now: new Date('2026-09-12T12:00:00.000Z'),
+    clientFactory: () => ({
+      listAll: async (operation) => ({ items: operation === 'listOrders' ? [summaryOrder] : [] }),
+      request: async () => detail
+    }),
+    configLoader: () => [{ store_id: '16088', market: 'ES', token: 'fixture' }],
+    metaLoader: async () => []
+  });
+  const enriched = report.orders.find((item) => item.orderId === '9002');
+  assert.equal(enriched.breakdownStatus, 'DROPEA_FINAL');
+  assert.equal(enriched.dropeaExpenses, 8.40);
+  assert.equal(enriched.productCost, 1.01);
+  assert.equal(enriched.dropeaAdjustmentsCost, 1.13);
 });
 
 test('all monetary parsing is exact to integer cents', () => {
@@ -206,32 +311,34 @@ test('bundled snapshots survive a service restart without Supabase', async () =>
   const report = await loadFinanceSnapshot({ month: '2026-05', now });
   assert.equal(report.period.month, '2026-05');
   assert.equal(report.costTraceability.return.basis, 'PER_RETURNED_ORDER');
-  assert.equal(report.costTraceability.return.amount, 5.26);
+  assert.equal(report.costTraceability.return.fallbackAmount, 5.26);
 });
 
 test('a newer bundled snapshot is eligible to supersede stale external persistence', async () => {
   clearFinanceCache();
   const report = await loadFinanceSnapshot({ month: '2026-09', now: new Date('2026-09-12T12:00:00Z') });
   assert.equal(report.generatedAt.slice(0, 10), '2026-09-12');
-  assert.equal(report.totals.exactNetProfit, 1253.25);
+  assert.equal(report.totals.exactNetProfit, 286.36);
+  assert.equal(report.coverage.dropeaBreakdownPercent, 100);
 });
 
 test('published May, August and September snapshots reconcile operational and economic totals', async () => {
   clearFinanceCache();
   const expected = {
-    '2026-05': { delivered: 25, units: 43, net: -217.42 },
-    '2026-08': { delivered: 150, units: 279, net: -125.01 },
-    '2026-09': { delivered: 113, units: 215, net: 1253.25 }
+    '2026-05': { delivered: 25, units: 43, net: 60.31 },
+    '2026-08': { delivered: 150, units: 279, net: 797.17 },
+    '2026-09': { delivered: 113, units: 215, net: 286.36 }
   };
   for (const [month, values] of Object.entries(expected)) {
     const report = await loadFinanceSnapshot({ month, now });
     assert.equal(report.counts.delivered, values.delivered);
     assert.equal(report.counts.deliveredUnits, values.units);
     assert.equal(report.totals.exactNetProfit, values.net);
+    assert.equal(report.coverage.dropeaBreakdownPercent, 100);
     assert.equal(report.controls.dailyRevenueReconciled, true);
     assert.equal(report.controls.dailyCostsReconciled, true);
     assert.equal(report.controls.profitReconciled, true);
-    const returnedOrders = report.days.reduce((sum, day) => sum + day.returned, 0);
-    assert.equal(moneyToCents(report.totals.returnCost), returnedOrders * 526);
+    assert.ok(report.coverage.dropeaBreakdownPercent >= 0);
+    assert.equal(report.orders.every((order) => !('customer' in order) && !('phone' in order)), true);
   }
 });

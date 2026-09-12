@@ -229,6 +229,7 @@
             </div>
             <div id="finance-freshness" class="finance-freshness"></div>
             <div id="finance-audit" class="finance-audit" hidden></div>
+            <div id="finance-monthly-brief" class="finance-monthly-brief"></div>
             <div class="finance-executive-grid" id="finance-kpi-grid">
               <article class="finance-executive-card is-primary" title="Facturación realizada menos todos los costes"><span>Beneficio neto</span><strong id="finance-profit">—</strong><small id="finance-delta-profit">—</small><div class="finance-spark" data-finance-spark="exactNetProfit"></div></article>
               <article class="finance-executive-card"><span>Facturación</span><strong id="finance-revenue">—</strong><small id="finance-delta-revenue">—</small><div class="finance-spark" data-finance-spark="realRevenue"></div></article>
@@ -255,7 +256,7 @@
             <div id="finance-warnings" class="warning-list"></div>
             <div class="finance-charts">
               <article class="finance-chart-card finance-chart-wide">
-                <div class="finance-chart-title"><div><p class="eyebrow">P&amp;L por evento</p><h4>Rentabilidad diaria</h4></div><div class="finance-series-toggles"><label><input type="checkbox" data-finance-series="realRevenue" checked> Facturación</label><label><input type="checkbox" data-finance-series="totalCosts" checked> Costes</label><label><input type="checkbox" data-finance-series="netProfit" checked> Beneficio</label></div></div>
+                <div class="finance-chart-title"><div><p class="eyebrow">P&amp;L por cohorte</p><h4>Rentabilidad diaria por fecha del pedido</h4></div><div class="finance-series-toggles"><label><input type="checkbox" data-finance-series="realRevenue" checked> Facturación</label><label><input type="checkbox" data-finance-series="totalCosts" checked> Costes</label><label><input type="checkbox" data-finance-series="netProfit" checked> Beneficio</label></div></div>
                 <div id="finance-trend-chart" class="finance-trend-chart"></div>
               </article>
               <article class="finance-chart-card">
@@ -266,6 +267,18 @@
                 <div><p class="eyebrow">Composición</p><h4>En qué se gasta cada euro</h4></div>
                 <div id="finance-cost-chart" class="finance-cost-chart"></div>
               </article>
+              <article class="finance-chart-card">
+                <div><p class="eyebrow">Estado de la cohorte</p><h4>Entregados, devueltos y en el aire</h4></div>
+                <div id="finance-status-chart" class="finance-history-chart"></div>
+              </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div><p class="eyebrow">Operación diaria</p><h4>Pedidos creados, entregados y devueltos</h4></div>
+                <div id="finance-volume-chart" class="finance-history-chart"></div>
+              </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div><p class="eyebrow">Resultado diario</p><h4>Progresión de beneficio y pérdida</h4></div>
+                <div id="finance-daily-profit-chart" class="finance-history-chart"></div>
+              </article>
               <article class="finance-chart-card finance-chart-wide">
                 <div><p class="eyebrow">Tesorería operativa</p><h4>Beneficio acumulado del mes</h4></div>
                 <div id="finance-cumulative-chart" class="finance-history-chart"></div>
@@ -275,8 +288,37 @@
                 <div id="finance-history-chart" class="finance-history-chart"></div>
               </article>
             </div>
+            <section class="finance-expenses-panel" aria-labelledby="finance-expenses-title">
+              <div class="finance-table-toolbar">
+                <div><p class="eyebrow">Gastos fijos</p><h4 id="finance-expenses-title">Recurrentes y puntuales del mes</h4></div>
+                <button class="mini-button" id="finance-expense-toggle" type="button">+ Añadir gasto</button>
+              </div>
+              <div id="finance-expense-totals" class="finance-expense-totals"></div>
+              <form id="finance-expense-form" class="finance-expense-form" hidden>
+                <label>Concepto<input id="finance-expense-name" name="name" maxlength="80" required></label>
+                <label>Tipo<select id="finance-expense-type" name="type"><option value="recurring_monthly">Recurrente mensual</option><option value="one_off">Puntual</option></select></label>
+                <label>Importe (€)<input id="finance-expense-amount" name="amount" type="number" min="0.01" max="100000" step="0.01" required></label>
+                <label>Inicio / fecha<input id="finance-expense-start" name="startDate" type="date" required></label>
+                <label>Fin opcional<input id="finance-expense-end" name="endDate" type="date"></label>
+                <label>Categoría<select id="finance-expense-category" name="category"><option>Software</option><option>Infraestructura</option><option>Publicidad</option><option>Mensajería</option><option>Otros</option></select></label>
+                <button class="primary-button" type="submit">Guardar gasto</button>
+                <small id="finance-expense-message"></small>
+              </form>
+              <div class="table-wrap finance-expense-table-wrap">
+                <table><thead><tr><th>Gasto</th><th>Tipo</th><th>Categoría</th><th>Importe</th><th>Aplicado al mes</th><th>Inicio</th><th>Fin</th><th>Fuente</th></tr></thead><tbody id="finance-expenses-table"></tbody></table>
+              </div>
+            </section>
             <div id="finance-summary" class="finance-summary"></div>
             <div class="finance-tables">
+              <div class="finance-order-detail">
+                <div class="finance-table-toolbar"><div><p class="eyebrow">Auditoría por pedido</p><h4>Coste y beneficio desglosado desde Dropea</h4></div><small>Sin datos personales</small></div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Pedido</th><th>Estado</th><th>Alta</th><th>Cierre</th><th>Uds.</th><th>Importe</th><th>Coste Dropea</th><th>Producto</th><th>Envío</th><th>Fulfillment</th><th>COD</th><th>Devolución</th><th>IVA / ajustes</th><th>Beneficio Dropea</th><th>Contribución tras producto</th><th>Origen</th></tr></thead>
+                    <tbody id="finance-orders-cost-table"></tbody>
+                  </table>
+                </div>
+              </div>
               <div class="finance-daily-detail">
                 <div class="finance-table-toolbar"><h4>Detalle diario</h4><div><button class="mini-button" id="finance-columns" type="button">Columnas</button><button class="mini-button" id="finance-csv" type="button">Exportar CSV</button></div></div>
                 <div id="finance-column-menu" class="finance-column-menu" hidden></div>

@@ -25,7 +25,8 @@ import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cance
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
-import { buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot } from './src/finance.mjs';
+import { applyFinanceExpenseLedger, buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot } from './src/finance.mjs';
+import { addFinanceExpense, loadFinanceExpenseLedger, removeFinanceExpense } from './src/finance-expenses.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
@@ -679,6 +680,24 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, settings });
     }
 
+    if (req.method === 'GET' && url.pathname === '/api/finance-expenses') {
+      if (!requireDashboardAuth(req, res)) return;
+      const expenses = await loadFinanceExpenseLedger();
+      return sendJson(res, 200, { ok: true, expenses });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/finance-expenses') {
+      if (!requireDashboardAuth(req, res)) return;
+      const expense = await addFinanceExpense(await readBody(req));
+      return sendJson(res, 201, { ok: true, expense });
+    }
+
+    if (req.method === 'DELETE' && url.pathname === '/api/finance-expenses') {
+      if (!requireDashboardAuth(req, res)) return;
+      const removed = await removeFinanceExpense(url.searchParams.get('id'));
+      return sendJson(res, 200, { ok: true, removed });
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/finance') {
       if (!requireDashboardAuth(req, res)) return;
       const month = url.searchParams.get('month') || undefined;
@@ -686,6 +705,7 @@ const server = http.createServer(async (req, res) => {
       let finance = null;
       try {
         finance = await loadFinanceSnapshot({ month });
+        if (finance) finance = applyFinanceExpenseLedger(finance, await loadFinanceExpenseLedger());
       } catch (error) {
         console.error('Finance snapshot read error:', error instanceof Error ? error.message : String(error));
       }

@@ -13,12 +13,20 @@ test('finance dashboard loads the pinned ECharts build before its controller', (
 });
 
 test('finance dashboard exposes all requested analytical views', () => {
-  for (const id of ['finance-trend-chart', 'finance-cumulative-chart', 'finance-funnel', 'finance-cost-chart', 'finance-history-chart', 'finance-days-table', 'finance-products-table']) {
+  for (const id of ['finance-trend-chart', 'finance-cumulative-chart', 'finance-funnel', 'finance-cost-chart', 'finance-status-chart', 'finance-volume-chart', 'finance-daily-profit-chart', 'finance-history-chart', 'finance-days-table', 'finance-products-table', 'finance-orders-cost-table', 'finance-expenses-table']) {
     assert.match(dashboard, new RegExp(`id="${id}"`));
   }
   assert.match(script, /type: 'funnel'/);
   assert.match(script, /type: 'bar'/);
+  assert.match(script, /type: 'pie'/);
   assert.match(script, /PER_RETURNED_ORDER|pedido devuelto/);
+});
+
+test('finance dashboard exposes editable fixed expenses and per-order Dropea provenance', () => {
+  assert.match(dashboard, /id="finance-expense-form"/);
+  assert.match(dashboard, /Coste y beneficio desglosado desde Dropea/);
+  assert.match(script, /DROPEA_FINAL/);
+  assert.match(script, /api\/finance-expenses/);
 });
 
 test('returned orders and returned units remain separate in UI and calculations', () => {

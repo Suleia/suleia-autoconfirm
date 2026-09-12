@@ -1,20 +1,107 @@
 [
   {
-    "id": "legacy-daily-overhead",
-    "name": "Gastos fijos históricos validados",
-    "type": "recurring_daily",
-    "amount_cents": 897,
-    "start_date": "2026-05-01",
-    "end_date": "2026-08-31",
-    "source": "Finanzas_07-2026 (1).xlsx"
+    "id": "chatby-recurring",
+    "name": "Chatby",
+    "category": "Software",
+    "type": "recurring_monthly",
+    "amount_cents": 2527,
+    "start_date": "2026-06-18",
+    "end_date": null,
+    "source": "Gasto fijo comunicado por la propietaria"
   },
   {
-    "id": "recurring-overhead-current",
-    "name": "Gastos recurrentes actuales",
+    "id": "cod-release-recurring",
+    "name": "COD release",
+    "category": "Software",
     "type": "recurring_monthly",
-    "amount_cents": 17639,
-    "start_date": "2026-09-01",
+    "amount_cents": 999,
+    "start_date": "2026-06-22",
     "end_date": null,
-    "source": "Importe del módulo de gastos comunicado por la propietaria el 2026-09-11"
+    "source": "Gasto fijo comunicado por la propietaria"
+  },
+  {
+    "id": "chatgpt-pro-recurring",
+    "name": "Plan PRO ChatGPT",
+    "category": "Software",
+    "type": "recurring_monthly",
+    "amount_cents": 10300,
+    "start_date": "2026-07-01",
+    "end_date": null,
+    "source": "Gasto fijo comunicado por la propietaria"
+  },
+  {
+    "id": "vps-recurring",
+    "name": "Servidor externo VPS",
+    "category": "Infraestructura",
+    "type": "recurring_monthly",
+    "amount_cents": 1313,
+    "start_date": "2026-07-01",
+    "end_date": null,
+    "source": "Gasto fijo comunicado por la propietaria"
+  },
+  {
+    "id": "supabase-recurring",
+    "name": "Supabase",
+    "category": "Infraestructura",
+    "type": "recurring_monthly",
+    "amount_cents": 2500,
+    "start_date": "2026-07-01",
+    "end_date": null,
+    "source": "Gasto fijo comunicado por la propietaria"
+  },
+  {
+    "id": "shopify-june-2026",
+    "name": "Facturación Shopify",
+    "category": "Software",
+    "type": "one_off",
+    "amount_cents": 885,
+    "date": "2026-06-01",
+    "start_date": "2026-06-01",
+    "end_date": "2026-06-30",
+    "source": "Gasto puntual comunicado por la propietaria"
+  },
+  {
+    "id": "facebook-july-2026",
+    "name": "Facebook",
+    "category": "Publicidad",
+    "type": "one_off",
+    "amount_cents": 1500,
+    "date": "2026-07-01",
+    "start_date": "2026-07-01",
+    "end_date": "2026-07-31",
+    "source": "Gasto puntual comunicado por la propietaria"
+  },
+  {
+    "id": "shopify-july-2026",
+    "name": "Shopify",
+    "category": "Software",
+    "type": "one_off",
+    "amount_cents": 4372,
+    "date": "2026-07-01",
+    "start_date": "2026-07-01",
+    "end_date": "2026-07-31",
+    "source": "Gasto puntual comunicado por la propietaria"
+  },
+  {
+    "id": "meta-templates-july-2026",
+    "name": "Meta plantillas",
+    "category": "Mensajería",
+    "type": "one_off",
+    "amount_cents": 2000,
+    "date": "2026-07-01",
+    "start_date": "2026-07-01",
+    "end_date": "2026-07-31",
+    "source": "Gasto puntual comunicado por la propietaria"
+  },
+  {
+    "id": "chatgpt-july-2026",
+    "name": "ChatGPT",
+    "category": "Software",
+    "type": "one_off",
+    "amount_cents": 2300,
+    "date": "2026-07-01",
+    "start_date": "2026-07-01",
+    "end_date": "2026-07-31",
+    "source": "Gasto puntual comunicado por la propietaria"
   }
 ]

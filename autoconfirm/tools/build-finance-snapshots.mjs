@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { buildFinanceReport } from '../src/finance.mjs';
+import { buildFinanceReport, loadFinanceSourceData } from '../src/finance.mjs';
 import { getCampaignInsights } from '../src/clients/meta.mjs';
 
 const sourceDirectory = path.resolve(process.argv[2] || '.tmp-finance-current');
@@ -43,8 +43,9 @@ const env = {
 };
 
 fs.mkdirSync(targetDirectory, { recursive: true });
+const sourceData = await loadFinanceSourceData({ env, months });
 for (const month of months) {
-  const report = await buildFinanceReport({ month, force: true, env, metaLoader: async () => metaRows });
+  const report = await buildFinanceReport({ month, force: true, env, sourceData, metaLoader: async () => metaRows });
   const text = JSON.stringify(report, null, 2);
   if (/"(?:customer|phone|email|address|tracking)[^"]*"\s*:/i.test(text)) throw new Error(`PERSONAL_DATA_BLOCKED:${month}`);
   fs.writeFileSync(path.join(targetDirectory, `${month}.json`), `${text}\n`, 'utf8');
