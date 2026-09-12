@@ -181,6 +181,15 @@ test('fixed-expense ledger reconciles the owner-provided monthly totals exactly'
   }
 });
 
+test('monthly fixed expenses are grouped before cent allocation so daily rounding cannot stack', () => {
+  const period = resolveFinancePeriod('2026-09', { now: new Date('2026-09-12T12:00:00Z') });
+  const allocations = allocateExpenses(period, expenses);
+  const dailyFixed = [...allocations.values()].map((row) => row.fixed);
+  assert.equal(dailyFixed.reduce((sum, value) => sum + value, 0), 17639);
+  assert.equal(Math.max(...dailyFixed) - Math.min(...dailyFixed), 1);
+  assert.deepEqual(dailyFixed, [1470, 1470, 1470, 1470, 1470, 1470, 1470, 1470, 1470, 1470, 1470, 1469]);
+});
+
 test('a manually added expense immediately recalculates daily and monthly profit', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({ delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
   const updated = applyFinanceExpenseLedger(report, [{ id: 'manual', name: 'Extra', category: 'Otros', type: 'one_off', amount_cents: 1000, date: '2026-09-01', start_date: '2026-09-01', end_date: '2026-09-01', editable: true }]);

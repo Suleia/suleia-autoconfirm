@@ -369,23 +369,32 @@ function applies(expense, day) {
 export function allocateExpenses(period, expenses = []) {
   const result = new Map();
   for (let day = 1; day <= period.elapsedDays; day += 1) result.set(`${period.month}-${String(day).padStart(2, '0')}`, { fixed: 0, oneOff: 0, other: 0 });
+  const monthlyGroups = new Map();
   for (const expense of expenses) {
     const active = [...result.keys()].filter((day) => applies(expense, day));
     if (!active.length) continue;
     if (expense.type === 'recurring_daily') {
       for (const day of active) result.get(day).fixed += Number(expense.amount_cents) || 0;
     } else if (expense.type === 'recurring_monthly') {
-      const total = Number(expense.amount_cents) || 0;
-      // Monthly subscriptions are booked in full for every billing month they
-      // intersect. Distribution across visible days is only a daily P&L view;
-      // it must always reconcile back to the exact invoice amount.
-      const base = Math.floor(total / active.length);
-      const remainder = total % active.length;
-      active.forEach((day, index) => { result.get(day).fixed += base + (index < remainder ? 1 : 0); });
+      // Group subscriptions that have the same active-day schedule before
+      // allocating cents. Allocating every invoice independently made their
+      // remainders stack on the first days and produced artificial swings of
+      // several cents in the daily fixed-cost column.
+      const groupKey = active.join('|');
+      const group = monthlyGroups.get(groupKey) || { active, total: 0 };
+      group.total += Number(expense.amount_cents) || 0;
+      monthlyGroups.set(groupKey, group);
     } else if (expense.date && result.has(expense.date)) {
       const key = expense.type === 'one_off' ? 'oneOff' : 'other';
       result.get(expense.date)[key] += Number(expense.amount_cents) || 0;
     }
+  }
+  for (const { active, total } of monthlyGroups.values()) {
+    // Exact-cent largest-remainder allocation: the monthly invoice total is
+    // preserved and days sharing a schedule can differ by at most one cent.
+    const base = Math.floor(total / active.length);
+    const remainder = total % active.length;
+    active.forEach((day, index) => { result.get(day).fixed += base + (index < remainder ? 1 : 0); });
   }
   return result;
 }

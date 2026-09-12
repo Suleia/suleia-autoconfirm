@@ -5,11 +5,14 @@ import test from 'node:test';
 
 const dashboard = fs.readFileSync(new URL('../dashboard/index.html', import.meta.url), 'utf8');
 const script = fs.readFileSync(new URL('../dashboard/main.js', import.meta.url), 'utf8');
-const vendor = fs.readFileSync(new URL('../dashboard/vendor/echarts-6.1.0.min.js', import.meta.url));
+const vendor = fs.readFileSync(new URL('../dashboard/vendor/echarts-6.1.0.min.js', import.meta.url), 'utf8');
 
 test('finance dashboard loads the pinned ECharts build before its controller', () => {
   assert.match(dashboard, /vendor\/echarts-6\.1\.0\.min\.js[^]*dashboard\/main\.js/);
-  assert.equal(crypto.createHash('sha512').update(vendor).digest('base64'), 'Uyq/AgtqFM4vT+unIGTDr4wMJDTUK9O5w2PXMQeBCSR8koqHpVz+qBmcQ+9Oeo5H+EmvT4pp/5QrsqhIbyjHTQ==');
+  // Git may materialize CRLF on Windows. Hash the canonical LF payload so the
+  // integrity check remains identical to the asset served by Linux/Render.
+  const canonicalVendor = vendor.replace(/\r\n/g, '\n');
+  assert.equal(crypto.createHash('sha512').update(canonicalVendor).digest('base64'), 'Uyq/AgtqFM4vT+unIGTDr4wMJDTUK9O5w2PXMQeBCSR8koqHpVz+qBmcQ+9Oeo5H+EmvT4pp/5QrsqhIbyjHTQ==');
 });
 
 test('finance dashboard exposes all requested analytical views', () => {
