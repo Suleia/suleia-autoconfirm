@@ -1047,7 +1047,17 @@ async function currentPendingIncident(incidenceId, orderId) {
 }
 
 const INCIDENT_DISCOUNT_RETURN_AFTER_HOURS = 24;
+const INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES = 30;
 const activeIncidentDiscountReturns = new Set();
+
+export function automaticIncidentReturnReconciliationDue(existing, { now = Date.now(), delayMinutes = INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES } = {}) {
+  if (existing?.status !== 'manual_reconciliation_required') return false;
+  if (!/^DROPEA_V2_ISSUE_ACTION_HTTP_5\d\d$/.test(String(existing?.last_error || ''))) return false;
+  const attemptedAt = Date.parse(String(existing?.attempted_at || existing?.updated_at || ''));
+  const nowMs = Number(now);
+  if (!Number.isFinite(attemptedAt) || !Number.isFinite(nowMs)) return false;
+  return nowMs - attemptedAt >= Math.max(1, Number(delayMinutes) || INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES) * 60_000;
+}
 
 export function incidentDiscountNoResponseReturnDecision({ incident, discountRecovery, now = Date.now() } = {}) {
   if (incident?.incidentType !== 'rejected_goods') {
@@ -1192,7 +1202,10 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     if (
       claim?.reason === 'already_claimed'
       && claim?.existing?.status === 'manual_reconciliation_required'
-      && dependencies.allowManualReconciliationRetry === true
+      && (
+        dependencies.allowManualReconciliationRetry === true
+        || (automaticEnabled === true && automaticIncidentReturnReconciliationDue(claim.existing, { now: dependencies.now ?? Date.now() }))
+      )
     ) {
       claim = await reclaimReturn({
         storeId: config.defaultStore.id,

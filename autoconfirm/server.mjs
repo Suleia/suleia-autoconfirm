@@ -363,6 +363,7 @@ function storeSummary({ publicView = false } = {}) {
     incidentDiscountReturnRealEnabled: config.defaultStore.incidentDiscountReturnRealEnabled === true,
     incidentDiscountReturnAutomaticEnabled: config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
     incidentDiscountReturnDelayHours: 24,
+    incidentDiscountReturnReconciliationDelayMinutes: 30,
     lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
     lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,
     lastIncidentDiscountReturnSummary: state.lastIncidentDiscountReturnSummary || null,

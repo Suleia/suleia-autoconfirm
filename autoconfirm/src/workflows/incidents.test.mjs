@@ -281,6 +281,57 @@ test('never reconciles an ambiguous return without explicit retry authorization'
   assert.equal(returned, 0);
 });
 
+test('autonomous mode safely retries an old transient Dropea 503 with the same persistent claim', async () => {
+  let reclaimed = 0;
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    automaticEnabled: true,
+    credentialAvailable: true,
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({
+      acquired: false,
+      persistent: true,
+      reason: 'already_claimed',
+      existing: {
+        status: 'manual_reconciliation_required',
+        attempted_at: '2026-07-16T16:29:00.000Z',
+        last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_503'
+      }
+    }),
+    reclaimReturn: async () => { reclaimed += 1; return { acquired: true, persistent: true, reconciled: true }; },
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(reclaimed, 1);
+  assert.equal(returned, 1);
+});
+
+test('autonomous reconciliation waits out the ambiguity window and rejects non-transient errors', async () => {
+  let reclaimed = 0;
+  const base = {
+    now: Date.parse('2026-07-16T17:00:00.000Z'), realEnabled: true, automaticEnabled: true, credentialAvailable: true,
+    readCurrent: async () => currentReturnableIncident, readMessages: async () => [],
+    reclaimReturn: async () => { reclaimed += 1; return { acquired: true, persistent: true }; }, returnIssue: async () => null
+  };
+  const recent = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    ...base,
+    claimReturn: async () => ({ acquired: false, persistent: true, reason: 'already_claimed', existing: { status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:45:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_503' } })
+  });
+  const permanent = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    ...base,
+    claimReturn: async () => ({ acquired: false, persistent: true, reason: 'already_claimed', existing: { status: 'manual_reconciliation_required', attempted_at: '2026-07-16T15:00:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_400' } })
+  });
+  assert.equal(recent.status, 'ALREADY_CLAIMED');
+  assert.equal(permanent.status, 'ALREADY_CLAIMED');
+  assert.equal(reclaimed, 0);
+});
+
 test('routes an explicit verified discount rejection to one guarded return', async () => {
   const rejectedDiscount = { ...verifiedDiscount, responseStatus: 'DISCOUNT_REJECTED' };
   const decision = incidentDiscountNoResponseReturnDecision({
