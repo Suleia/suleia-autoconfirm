@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import { FinanceReportClient, createFinanceReportClient } from './finance-report-client.mjs';
 
 test('finance client authenticates once, returns the reconciled report and strips order drilldowns', async () => {
@@ -45,4 +46,13 @@ test('finance client validates month and retries an expired session once', async
 test('finance client is disabled unless both trusted server-side settings exist', () => {
   assert.equal(createFinanceReportClient({ financeReportBaseUrl: '', financeReportPassword: '' }), null);
   assert.equal(createFinanceReportClient({ financeReportBaseUrl: 'https://finance.example.test', financeReportPassword: '' }), null);
+});
+
+test('Operations API has narrowly scoped HTTPS egress for the finance read model', () => {
+  const compose = fs.readFileSync(new URL('../../infrastructure/docker/compose.yaml', import.meta.url), 'utf8');
+  const api = (compose.split(/\r?\n  api:\r?\n/)[1] || '').split(/\r?\n  mcp-server:/)[0];
+  assert.match(api, /FINANCE_REPORT_BASE_URL/);
+  assert.match(api, /FINANCE_REPORT_PASSWORD/);
+  assert.match(api, /networks:\s*\n\s*- public_network\s*\n\s*- application_network\s*\n\s*- database_network/);
+  assert.match(compose, /PRODUCTION_WRITES_ENABLED:\s*\$\{PRODUCTION_WRITES_ENABLED:-false\}/);
 });

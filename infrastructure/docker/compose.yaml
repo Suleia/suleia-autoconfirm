@@ -163,6 +163,7 @@ services:
       FINANCE_REPORT_BASE_URL: ${FINANCE_REPORT_BASE_URL:-}
       FINANCE_REPORT_PASSWORD: ${FINANCE_REPORT_PASSWORD:-}
     networks:
+      - public_network
       - application_network
       - database_network
     healthcheck:
