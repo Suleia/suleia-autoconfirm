@@ -77,6 +77,26 @@ test('Operations API exposes only authenticated GET reads and zero-action envelo
   assert.equal(fixedPayload.external_writes, 0);
 });
 
+test('Operations finance endpoint uses the authoritative reconciled read model when configured', async (t) => {
+  const calls = [];
+  const repository = { financialSummary: async () => { throw new Error('legacy finance must not be called'); } };
+  const financeReportClient = {
+    getMonthly: async (month) => { calls.push(['read', month]); return { period: { month }, totals: { exactNetProfit: 1558.99 }, source: 'render_finance_read_model', productionWrites: 0 }; },
+    addExpense: async (body) => { calls.push(['expense', body]); return { id: 'custom-fixture', name: body.name, external_actions: 0 }; }
+  };
+  const server = createOperationsServer({ config, repository, financeReportClient, authenticate: async () => ({ principal_hash: 'fixture-principal' }) });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const finance = await fetch(`${base}/api/operations/finance?month=2026-07`, { headers: { Authorization: 'Bearer fixture' } }).then((response) => response.json());
+  assert.equal(finance.data.totals.exactNetProfit, 1558.99);
+  assert.equal(finance.data.source, 'render_finance_read_model');
+  const expense = await fetch(`${base}/api/operations/finance/fixed-expenses`, { method: 'POST', headers: { Authorization: 'Bearer fixture', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Servidor', amount: '13.13', type: 'recurring_monthly', startDate: '2026-07-01' }) }).then((response) => response.json());
+  assert.equal(expense.data.id, 'custom-fixture');
+  assert.deepEqual(calls.map((call) => call[0]), ['read', 'expense']);
+  assert.equal(expense.production_writes, 0);
+  assert.equal(expense.external_writes, 0);
+});
+
 test('incident feedback is structured, parameterized and cannot trigger external actions', async () => {
   const calls = [];
   const client = { query: async (sql, values = []) => { calls.push({ sql, values }); return /INSERT INTO/.test(sql) ? { rows: [{ feedback_id: 7, actions_executed: 0, production_writes: 0 }] } : { rows: [] }; }, release() {} };

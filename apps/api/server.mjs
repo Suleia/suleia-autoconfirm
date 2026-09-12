@@ -2,6 +2,7 @@ import http from 'node:http';
 import { pathToFileURL } from 'node:url';
 import { OperationsRepository } from '../../packages/suleia-operations-mcp/src/operations/repository.mjs';
 import { createOperationsAuth, OperationsAuthError } from '../../packages/suleia-operations-mcp/src/operations/auth.mjs';
+import { createFinanceReportClient } from './finance-report-client.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -23,6 +24,8 @@ export function loadOperationsConfig(overrides = {}) {
     oauthClientId: process.env.OPERATIONS_OAUTH_CLIENT_ID || 'suleia-operations-center',
     rateLimitPerMinute: Number(process.env.OPERATIONS_RATE_LIMIT_PER_MINUTE || 60),
     privateDataKey: process.env.OPERATIONS_PRIVATE_DATA_KEY || '',
+    financeReportBaseUrl: process.env.FINANCE_REPORT_BASE_URL || '',
+    financeReportPassword: process.env.FINANCE_REPORT_PASSWORD || '',
     ...overrides
   };
   const violations = [];
@@ -72,7 +75,7 @@ async function jsonBody(req, maxBytes = 2048) {
   catch { throw Object.assign(new Error('invalid_json'), { status: 400 }); }
 }
 
-export function createOperationsServer({ config, repository, authenticate, audit = () => {} }) {
+export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, audit = () => {} }) {
   const allowRequest = limiter(config.rateLimitPerMinute);
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, 'http://operations.internal');
@@ -116,10 +119,11 @@ export function createOperationsServer({ config, repository, authenticate, audit
       let data;
       if ((req.method === 'POST' && fixedExpenseCreate) || (req.method === 'PATCH' && fixedExpenseUpdate)) {
         const body = await jsonBody(req, 4096);
-        data = await repository.saveFixedExpense(fixedExpenseUpdate ? decodeURIComponent(fixedExpenseUpdate[1]) : null, body, principal.principal_hash);
+        if (financeReportClient && fixedExpenseCreate) data = await financeReportClient.addExpense(body);
+        else data = await repository.saveFixedExpense(fixedExpenseUpdate ? decodeURIComponent(fixedExpenseUpdate[1]) : null, body, principal.principal_hash);
         if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
         audit({ event: 'finance_fixed_expense_saved', principal_hash: principal.principal_hash,
-          expense_id: data.expense_id, outcome: fixedExpenseUpdate ? 'updated' : 'created', external_actions: 0 });
+          expense_id: data.expense_id || data.id, outcome: fixedExpenseUpdate ? 'updated' : 'created', external_actions: 0 });
         return json(res, fixedExpenseUpdate ? 200 : 201, { ok: true, data, actions_executed: 0,
           production_writes: 0, external_writes: 0, internal_configuration_writes: 1 });
       } else if (req.method === 'POST' && feedbackMatch) {
@@ -134,7 +138,10 @@ export function createOperationsServer({ config, repository, authenticate, audit
         audit({ event: 'incident_recommendation_feedback', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'recorded' });
         return json(res, 201, { ok: true, data, actions_executed: 0, production_writes: 0, internal_feedback_writes: 1 });
       } else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
-      else if (requestUrl.pathname === '/api/operations/finance') data = await repository.financialSummary(requestUrl.searchParams);
+      else if (requestUrl.pathname === '/api/operations/finance') {
+        const month = requestUrl.searchParams.get('month') || new Date().toISOString().slice(0, 7);
+        data = financeReportClient ? await financeReportClient.getMonthly(month) : await repository.financialSummary(requestUrl.searchParams);
+      }
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else if (requestUrl.pathname === '/api/operations/incidents') data = await repository.listIncidents(requestUrl.searchParams);
@@ -157,6 +164,7 @@ export function createOperationsServer({ config, repository, authenticate, audit
 export async function startOperationsServer() {
   const config = loadOperationsConfig();
   const repository = await OperationsRepository.connect(config.databaseUrl, { privateDataKey: config.privateDataKey });
+  const financeReportClient = createFinanceReportClient(config);
   const authenticate = createOperationsAuth({
     issuer: config.oauthIssuer,
     audience: config.oauthAudience,
@@ -167,6 +175,7 @@ export async function startOperationsServer() {
     config,
     repository,
     authenticate,
+    financeReportClient,
     audit: (event) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`)
   });
   server.listen(config.port, '0.0.0.0');
