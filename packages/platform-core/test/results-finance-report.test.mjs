@@ -151,6 +151,70 @@ test('recurring monthly expenses use one stable daily accrual and reconcile to M
   assert.equal(result.totals.totalCosts, 70.56);
 });
 
+test('audited Dropea monthly reports remain authoritative from May and cannot be inflated by later event dates', () => {
+  const fixtures = [
+    ['2026-05', 844.75, 784.44, 60.31, 301.04, 0, 0, 25, 10],
+    ['2026-06', 4958.52, 3314.53, 1643.99, 1453.10, 35.26, 8.85, 148, 51],
+    ['2026-07', 9616.50, 8057.51, 1558.99, 3744.52, 176.39, 101.72, 314, 137],
+    ['2026-08', 4748.50, 3951.33, 797.17, 1902.14, 176.39, 0, 150, 54],
+    ['2026-09', 3718.87, 3432.51, 286.36, 1702.96, 176.39, 0, 113, 21]
+  ];
+  const reports = fixtures.map(([month, revenue, totalCosts, profit, metaSpend, fixedCosts, oneOffCosts, delivered, returned]) => {
+    const elapsedDays = month === '2026-09' ? 12 : new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
+    const providerCosts = Number((totalCosts - metaSpend - fixedCosts - oneOffCosts).toFixed(2));
+    const daily = Array.from({ length: elapsedDays }, (_, index) => ({
+      day: `${month}-${String(index + 1).padStart(2, '0')}`,
+      created: index ? 0 : delivered + returned,
+      confirmed: index ? 0 : delivered + returned,
+      sent: index ? 0 : delivered + returned,
+      delivered: index ? 0 : delivered,
+      returned: index ? 0 : returned,
+      realRevenue: index ? 0 : revenue,
+      productCost: index ? 0 : providerCosts,
+      outboundShippingCost: 0,
+      outboundFulfillmentCost: 0,
+      codCost: 0,
+      returnCost: 0,
+      dropeaAdjustmentsCost: 0,
+      metaSpend: index ? 0 : metaSpend,
+      fixedCosts: fixedCosts ? Number((fixedCosts / elapsedDays + (index % 2 ? -0.001 : 0.001)).toFixed(2)) : 0,
+      oneOffCosts: index ? 0 : oneOffCosts,
+      otherCosts: 0
+    }));
+    return {
+      period: { month, current: month === '2026-09', until: daily.at(-1).day, elapsedDays, daysInMonth: month === '2026-09' ? 30 : elapsedDays },
+      counts: { created: delivered + returned, confirmed: delivered + returned, sent: delivered + returned,
+        delivered, returned, inTransit: 0, pending: 0, rejected: 0, deliveredUnits: delivered, returnedUnits: returned,
+        confirmationRatePercent: 100, deliveryRatePercent: Number((delivered * 100 / (delivered + returned)).toFixed(2)) },
+      totals: { realRevenue: revenue, revenue, productCost: providerCosts, outboundShippingCost: 0,
+        outboundFulfillmentCost: 0, codCost: 0, returnCost: 0, dropeaAdjustmentsCost: 0,
+        logisticsCost: 0, metaSpend, fixedCosts, oneOffCosts, otherCosts: 0, totalCosts,
+        exactNetProfit: profit, roiPercent: Number((profit * 100 / totalCosts).toFixed(2)),
+        marginPercent: Number((profit * 100 / revenue).toFixed(2)), roas: Number((revenue / metaSpend).toFixed(2)) },
+      days: daily,
+      expenseLedger: fixedCosts ? [{ name: 'Recurrentes', type: 'recurring_monthly', amount: fixedCosts,
+        appliedAmount: fixedCosts, startDate: `${month}-01`, endDate: null }] : [],
+      quality: { status: 'OK', issues: [] }, controls: { sourceReady: true },
+      coverage: { dropeaBreakdownPercent: 100 }, generatedAt: '2026-09-13T10:00:00Z'
+    };
+  });
+  const result = buildResultsFinanceReport({ month: '2026-07', orders, rates, supplementalReports: reports,
+    availableMonths: ['2026-03', '2026-04', ...fixtures.map(([month]) => month)], now: new Date('2026-09-13T12:00:00Z') });
+  assert.equal(result.source, 'dropea_order_finance_v4');
+  assert.equal(result.totals.exactNetProfit, 1558.99);
+  assert.equal(result.totals.realRevenue, 9616.50);
+  assert.equal(result.totals.totalCosts, 8057.51);
+  assert.deepEqual(result.availableMonths, ['2026-09', '2026-08', '2026-07', '2026-06', '2026-05']);
+  assert.deepEqual(result.history.map((item) => item.totals.exactNetProfit), [60.31, 1643.99, 1558.99, 797.17, 286.36]);
+  assert.equal(Object.prototype.hasOwnProperty.call(result, 'orderLedger'), false);
+  const september = buildResultsFinanceReport({ month: '2026-09', orders, rates, supplementalReports: reports,
+    now: new Date('2026-09-13T12:00:00Z') });
+  assert.equal(september.totals.exactNetProfit, 286.36);
+  assert.equal(new Set(september.days.map((day) => Number(day.fixedCosts).toFixed(6))).size, 1);
+  assert.equal(Number(september.days.reduce((sum, day) => sum + day.fixedCosts, 0).toFixed(2)), 176.39);
+  assert.equal(september.quality.status, 'OK');
+});
+
 test('results finance refresh remains fast with a production-sized order history', { timeout: 5_000 }, () => {
   const months = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'];
   const largeOrderSet = Array.from({ length: 1_500 }, (_, index) => {

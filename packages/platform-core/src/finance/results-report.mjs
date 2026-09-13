@@ -263,6 +263,165 @@ function mapReport(report, source, orders, month, currentDay, freshness) {
   };
 }
 
+function authoritativeSourceAvailable(source) {
+  return Boolean(source?.period?.month && Array.isArray(source.days) && source?.totals
+    && source.days.length > 0 && source.totals.exactNetProfit !== null
+    && source.totals.exactNetProfit !== undefined && Number.isFinite(Number(source.totals.exactNetProfit)));
+}
+
+function sourceCounts(source) {
+  const input = source?.counts || {};
+  const created = number(input.created ?? input.total);
+  const confirmed = number(input.confirmed);
+  const sent = number(input.sent);
+  const delivered = number(input.delivered);
+  const returned = number(input.returned);
+  const inTransit = number(input.inTransit ?? input.inAir);
+  const pendingConfirmation = number(input.pending ?? Math.max(0, created - confirmed));
+  const cancelledBeforeConfirmation = number(input.cancelled ?? input.rejected ?? Math.max(0, confirmed - sent));
+  const otherOutcome = Math.max(0, sent - delivered - returned - inTransit);
+  return {
+    ...input,
+    created,
+    validCreatedOrders: number(input.dropeaOrders ?? input.total ?? created),
+    excludedInvalidOrders: Math.max(0, created - number(input.dropeaOrders ?? created)),
+    confirmed,
+    pendingConfirmation,
+    cancelledBeforeConfirmation,
+    sent,
+    delivered,
+    deliveredUnits: number(input.deliveredUnits),
+    returned,
+    returnedUnits: number(input.returnedUnits),
+    inTransit,
+    inAir: number(input.inAir ?? inTransit),
+    otherOutcome,
+    pendingShipment: number(input.notSent ?? Math.max(0, created - sent)),
+    notSent: number(input.notSent ?? Math.max(0, created - sent)),
+    incidentOrders: number(input.incidentOrders),
+    confirmationRatePercent: round(input.confirmationRatePercent ?? (created ? confirmed * 100 / created : 0)),
+    deliveryRatePercent: round(input.deliveryRatePercent ?? (sent ? delivered * 100 / sent : 0)),
+    deliveryRateCreatedPercent: round(input.globalConversionPercent ?? (created ? delivered * 100 / created : 0)),
+    returnRatePercent: round(input.returnRatePercent ?? (sent ? returned * 100 / sent : 0)),
+    globalConversionPercent: round(input.globalConversionPercent ?? (created ? delivered * 100 / created : 0))
+  };
+}
+
+function sourceFixedAccrual(source) {
+  const days = (source.days || []).map((row) => row.day).filter(Boolean);
+  const recurring = (source.expenseLedger || []).filter((item) => item.type === 'recurring_monthly');
+  if (!days.length || !recurring.length) return null;
+  const result = new Map(days.map((day) => [day, 0]));
+  for (const item of recurring) {
+    const eligible = days.filter((day) => (!item.startDate || day >= item.startDate) && (!item.endDate || day <= item.endDate));
+    if (!eligible.length) continue;
+    const applied = number(item.appliedAmount ?? item.amount);
+    const daily = applied / eligible.length;
+    for (const day of eligible) result.set(day, result.get(day) + daily);
+  }
+  return result;
+}
+
+function sourceDays(source, currentDay) {
+  const fixed = sourceFixedAccrual(source); let cumulative = 0;
+  return (source.days || []).map((row) => {
+    const fixedCosts = fixed ? round(fixed.get(row.day) || 0, 6) : row.fixedCosts;
+    const componentValues = [row.productCost, row.outboundShippingCost, row.codCost, row.outboundFulfillmentCost,
+      row.returnCost, row.dropeaAdjustmentsCost, row.metaSpend, fixedCosts, row.oneOffCosts, row.otherCosts];
+    const complete = componentValues.every((value) => value !== null && value !== undefined && Number.isFinite(Number(value)));
+    const totalCosts = complete ? round(componentValues.reduce((sum, value) => sum + Number(value), 0), 6) : null;
+    const realRevenue = row.realRevenue === null || row.realRevenue === undefined ? null : number(row.realRevenue);
+    const netProfit = totalCosts === null || realRevenue === null ? null : round(realRevenue - totalCosts, 6);
+    if (netProfit !== null) cumulative += netProfit;
+    return {
+      ...row,
+      fixedCosts,
+      totalCosts,
+      netProfit,
+      cumulativeNetProfit: round(cumulative),
+      marginPercent: realRevenue && netProfit !== null ? round(netProfit * 100 / realRevenue) : null,
+      roiPercent: totalCosts && netProfit !== null ? round(netProfit * 100 / totalCosts) : null,
+      roas: number(row.metaSpend) ? round(number(realRevenue) / number(row.metaSpend)) : null,
+      quality: row.quality || 'COMPLETE',
+      closeStatus: row.day === currentDay ? 'CURRENT_PARTIAL' : 'CLOSED',
+      closeLabel: row.day === currentDay ? 'Día actual · parcial' : 'Cerrado'
+    };
+  });
+}
+
+function closeEnough(actual, expected, tolerance = 0.01) {
+  return actual !== null && actual !== undefined && expected !== null && expected !== undefined
+    && Math.abs(Number(actual) - Number(expected)) <= tolerance;
+}
+
+function sumRows(rows, field) {
+  return round((rows || []).reduce((sum, row) => sum + number(row?.[field]), 0));
+}
+
+function authoritativeControls(source, days) {
+  const totals = source.totals || {}; const orders = source.orders || [];
+  const controls = { ...(source.controls || {}) };
+  controls.sourceDailyRevenueReconciled = closeEnough(sumRows(days, 'realRevenue'), totals.realRevenue);
+  controls.sourceDailyCostsReconciled = closeEnough(sumRows(days, 'totalCosts'), totals.totalCosts);
+  controls.sourceDailyProfitReconciled = closeEnough(sumRows(days, 'netProfit'), totals.exactNetProfit);
+  controls.sourceProfitFormulaReconciled = closeEnough(round(number(totals.realRevenue) - number(totals.totalCosts)), totals.exactNetProfit);
+  if (orders.length) {
+    const pairs = [
+      ['realizedRevenue', 'realRevenue'], ['productCost', 'productCost'], ['outboundShippingCost', 'outboundShippingCost'],
+      ['outboundFulfillmentCost', 'outboundFulfillmentCost'], ['codCost', 'codCost'], ['returnCost', 'returnCost'],
+      ['dropeaAdjustmentsCost', 'dropeaAdjustmentsCost']
+    ];
+    controls.sourceOrderIdsUnique = new Set(orders.map((row) => row.orderId)).size === orders.length;
+    for (const [field, total] of pairs) controls[`sourceOrder${total[0].toUpperCase()}${total.slice(1)}Reconciled`] = closeEnough(sumRows(orders, field), totals[total]);
+  }
+  return controls;
+}
+
+function mapAuthoritativeSource(source, month, currentDay, freshness) {
+  const counts = sourceCounts(source); const days = sourceDays(source, currentDay); const controls = authoritativeControls(source, days);
+  const failed = Object.entries(controls).filter(([, value]) => value !== true).map(([key]) => key);
+  const current = month === currentDay.slice(0, 7); const lastDay = days.at(-1)?.day || source.period?.until || `${month}-${monthDays(month)}`;
+  const pendingDays = current ? Math.max(0, Number(currentDay.slice(-2)) - Number(lastDay.slice(-2))) : 0;
+  const sourceIssues = Array.isArray(source.quality?.issues) ? source.quality.issues : [];
+  const issues = [...new Set([...sourceIssues, ...failed.map((key) => `RECONCILIATION:${key}`)])];
+  const settlementOrders = number(source.orders?.length);
+  const breakdownPercent = round(source.coverage?.dropeaBreakdownPercent ?? source.coverage?.dropeaBreakdownPublishedPercent ?? 0);
+  const reconciledOrders = settlementOrders ? Math.round(settlementOrders * number(breakdownPercent) / 100) : 0;
+  return {
+    period: { ...source.period, month, since: source.period?.since || `${month}-01`, until: lastDay,
+      daysInMonth: source.period?.daysInMonth || monthDays(month), elapsedDays: days.length, current,
+      timeZone: source.period?.timeZone || 'Europe/Madrid' },
+    accounting: { closedThrough: lastDay, pendingDays, currentDayPartial: current },
+    status: source.status || (current ? 'provisional' : 'reconstructed'),
+    statusLabel: source.statusLabel || (current ? `MTD · día ${Number(lastDay.slice(-2))}` : 'Mes cerrado'),
+    temporalModels: { pnl: 'DROPEA_ORDER_MONTH_FINAL_BREAKDOWN', funnel: 'DROPEA_ORDER_MONTH_CURRENT_STATUS' },
+    dataAvailability: source.dataAvailability || (current
+      ? { status: 'MTD', label: `MTD · cierre hasta día ${Number(lastDay.slice(-2))}` }
+      : { status: 'FULL_MONTH', label: 'Mes cerrado' }),
+    counts,
+    eventCounts: { shipped: counts.sent, delivered: counts.delivered, deliveredUnits: counts.deliveredUnits,
+      returned: counts.returned, returnedUnits: counts.returnedUnits },
+    totals: { ...source.totals }, days,
+    quality: { ...(source.quality || {}), status: issues.length ? 'REVIEW' : 'OK', issues,
+      score: Math.max(0, 100 - issues.length * 5) },
+    controls, warnings: [...new Set([...(source.warnings || []), ...issues])],
+    coverage: { ...(source.coverage || {}), orders: true, meta: source.totals?.metaSpend !== null,
+      dropeaBreakdownPercent: breakdownPercent, reconciledOrders,
+      settlementOrders, missingSettlementOrders: settlementOrders - reconciledOrders,
+      exactProfitAvailable: source.totals?.exactNetProfit !== null && source.totals?.exactNetProfit !== undefined },
+    freshness,
+    sources: { ...(source.sources || {}), orders: 'Dropea V2 · desglose financiero final por pedido',
+      calculation: 'Suma conciliada de pedidos del mes en Dropea' },
+    definitions: { ...(source.definitions || {}),
+      netProfit: 'Facturación entregada − costes reales por pedido de Dropea − Meta − gastos fijos/puntuales',
+      returnCost: 'Coste real expuesto por Dropea para cada pedido devuelto; 5,26 € solo como respaldo si falta',
+      period: 'Pedidos creados en el mes, valorados con su estado y desglose financiero final verificado' },
+    costTraceability: source.costTraceability || {}, expenseLedger: source.expenseLedger || [],
+    generatedAt: source.generatedAt || new Date().toISOString(), currency: source.currency || 'EUR',
+    source: 'dropea_order_finance_v4', productionWrites: 0
+  };
+}
+
 function oldTotals(source) {
   const totals = source?.totals || {};
   return {
@@ -317,20 +476,25 @@ export function buildResultsFinanceReport({ month, orders = [], rates = [], supp
   localAdSpend = [], localFixedExpenses = [], availableMonths = [], now = new Date(), dropeaLastSyncAt = null } = {}) {
   if (!MONTH.test(String(month))) throw new Error('FINANCE_MONTH_INVALID');
   const currentDay = dateOnly(now); const allOrders = validOrders(enrichOrdersWithFinance(orders, supplementalReports));
-  const months = [...new Set([...availableMonths, ...supplementalReports.map((item) => item?.period?.month)])]
+  const sourceMonths = supplementalReports.map((item) => item?.period?.month).filter((item) => MONTH.test(String(item)));
+  const months = [...new Set(sourceMonths.length ? sourceMonths : availableMonths)]
     .filter((item) => MONTH.test(String(item))).sort();
   const mapped = new Map();
   for (const candidate of months) {
     const source = sourceForMonth(supplementalReports, candidate);
+    const sourceFreshness = source?.freshness || {};
+    const freshness = { ...sourceFreshness, sources: { ...(sourceFreshness.sources || {}),
+      dropea: { status: dropeaLastSyncAt ? 'OK' : 'UNAVAILABLE', lastSyncAt: dropeaLastSyncAt, ageMinutes: dropeaLastSyncAt
+        ? Math.max(0, Math.round((now - new Date(dropeaLastSyncAt)) / 60000)) : null } } };
+    if (authoritativeSourceAvailable(source)) {
+      mapped.set(candidate, mapAuthoritativeSource(source, candidate, currentDay, freshness));
+      continue;
+    }
     const inputs = normalizedSupplementalInputs(candidate, source,
       localAdSpend.filter((row) => String(row.business_date).startsWith(`${candidate}-`)), localFixedExpenses);
     const result = buildMonthlyFinanceReport({ month: candidate, orders: allOrders, rates,
       fixedExpenses: inputs.fixedExpenses, fixedExpensesComplete: inputs.fixedExpensesComplete,
       adSpend: inputs.adSpend, now });
-    const sourceFreshness = source?.freshness || {};
-    const freshness = { ...sourceFreshness, sources: { ...(sourceFreshness.sources || {}),
-      dropea: { status: dropeaLastSyncAt ? 'OK' : 'UNAVAILABLE', lastSyncAt: dropeaLastSyncAt, ageMinutes: dropeaLastSyncAt
-        ? Math.max(0, Math.round((now - new Date(dropeaLastSyncAt)) / 60000)) : null } } };
     mapped.set(candidate, mapReport(result, source, allOrders, candidate, currentDay, freshness));
   }
   if (!mapped.has(month)) {
@@ -342,7 +506,7 @@ export function buildResultsFinanceReport({ month, orders = [], rates = [], supp
   }
   const selected = mapped.get(month);
   const priorMonth = previousMonth(month); let prior = mapped.get(priorMonth) || null; let comparisonPeriod = prior?.period || null;
-  if (selected.period.current && sourceForMonth(supplementalReports, priorMonth)) {
+  if (selected.period.current && sourceForMonth(supplementalReports, priorMonth) && selected.source !== 'dropea_order_finance_v4') {
     const elapsed = selected.period.elapsedDays; const cutoff = `${priorMonth}-${String(Math.min(elapsed, monthDays(priorMonth))).padStart(2, '0')}`;
     const source = sourceForMonth(supplementalReports, priorMonth); const inputs = normalizedSupplementalInputs(priorMonth, source);
     const priorNow = new Date(`${cutoff}T12:00:00+02:00`); const priorOrders = asOfOrders(allOrders, cutoff);

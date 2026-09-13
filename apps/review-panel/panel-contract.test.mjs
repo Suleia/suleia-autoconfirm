@@ -61,9 +61,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260913-finance-forensic-v4">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260913-finance-source-regression-v5">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260913-finance-forensic-v4" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260913-finance-source-regression-v5" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
@@ -88,8 +88,8 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(script, /miniSparkline/);
   assert.match(script, /Datos conciliados/);
   assert.match(html, /Resultado anterior frente al resultado corregido/);
-  assert.match(html, /Libro económico del mes/);
-  assert.match(script, /orderLedgerTable/);
+  assert.doesNotMatch(html, /Libro económico del mes/);
+  assert.doesNotMatch(script, /orderLedgerTable/);
   assert.match(script, /reconciliationTable/);
   assert.doesNotMatch(html, /PRODUCTOS VENDIDOS/);
   assert.doesNotMatch(html, /id="finance-products"/);
