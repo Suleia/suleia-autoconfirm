@@ -15,6 +15,23 @@ try {
   const supplementalReports = financeClient ? await financeClient.getMonthlyBundle(months.at(-1)) : [];
   for (const month of months) {
     const report = await repository.financialSummary(new URLSearchParams({ month }), supplementalReports);
+    const recurringDailyValues = new Set(report.days.map((day) => Number(day.fixedCosts || 0).toFixed(2)));
+    const summary = {
+      month,
+      status: report.status,
+      dataAvailability: report.dataAvailability,
+      counts: report.counts,
+      eventCounts: report.eventCounts,
+      totals: report.totals,
+      dailyRows: report.days.length,
+      distinctDisplayedFixedDailyValues: [...recurringDailyValues],
+      quality: report.quality,
+      controls: report.controls,
+      productionWrites: report.productionWrites,
+      actionsExecuted: report.actions_executed
+    };
+    process.stdout.write(`${JSON.stringify(summary)}\n`);
+
     assert.equal(report.source, 'operations_canonical_finance_v3');
     assert.equal(report.temporalModels.pnl, 'REALIZED_EVENT_DATE');
     assert.equal(report.productionWrites, 0);
@@ -29,23 +46,6 @@ try {
 
     const dailyNet = Number(report.days.reduce((sum, day) => sum + Number(day.netProfit || 0), 0).toFixed(2));
     assert.equal(dailyNet, report.totals.exactNetProfit);
-    const recurringDaily = report.days.map((day) => Number(day.fixedCosts || 0).toFixed(2));
-    const recurringDailyValues = new Set(recurringDaily);
-
-    process.stdout.write(`${JSON.stringify({
-      month,
-      status: report.status,
-      dataAvailability: report.dataAvailability,
-      counts: report.counts,
-      eventCounts: report.eventCounts,
-      totals: report.totals,
-      dailyRows: report.days.length,
-      distinctDisplayedFixedDailyValues: [...recurringDailyValues],
-      quality: report.quality,
-      controls: report.controls,
-      productionWrites: report.productionWrites,
-      actionsExecuted: report.actions_executed
-    })}\n`);
   }
 } finally {
   await repository.close();
