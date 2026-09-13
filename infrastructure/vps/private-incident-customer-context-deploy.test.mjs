@@ -11,7 +11,9 @@ test('private incident context is encrypted, API-only and rollback protected', (
   const drill = read('infrastructure/vps/run-private-incident-customer-context-rollback-drill.sh');
   const feedback = read('migrations/020_incident_truth_feedback.sql');
   assert.match(up, /message_text_ciphertext/);
-  assert.match(up, /CREATE VIEW IF NOT EXISTS read_models\.operations_private_incident_messages/);
+  assert.match(up, /to_regclass\('read_models\.operations_private_incident_messages'\) IS NULL/);
+  assert.match(up, /CREATE VIEW read_models\.operations_private_incident_messages/);
+  assert.doesNotMatch(up, /CREATE VIEW IF NOT EXISTS/);
   assert.doesNotMatch(up, /CREATE OR REPLACE VIEW read_models\.operations_private_incident_messages/);
   assert.match(up, /REVOKE ALL ON read_models\.operations_private_incident_messages FROM suleia_mcp_readonly/);
   assert.match(up, /GRANT SELECT ON read_models\.operations_private_incident_messages TO suleia_operations_readonly/);
