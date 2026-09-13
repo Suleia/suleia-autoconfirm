@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import {
   CHATBY_NATIVE_CONTACT_LOOKUP_PAGES,
   chatbyNativeSubscriberPayload,
@@ -11,6 +12,12 @@ import {
   orderNeedsPreparedTemplate,
   preparedTemplateRecoveryWaitMs
 } from './orders.mjs';
+
+test('prepared-order workflow has no repository recovery sender while Chatby native owns delivery', () => {
+  const source = fs.readFileSync(new URL('./orders.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /\bsendPreparedTemplateRecovery\b/);
+  assert.match(source, /native_owner_no_repository_recovery/);
+});
 
 test('restores both lifecycle delivery states from the persistent ledger after restart', () => {
   const restored = mergeLifecycleTemplateStateFromLedger({

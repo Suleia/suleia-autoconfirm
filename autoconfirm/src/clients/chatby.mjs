@@ -272,6 +272,13 @@ export async function sendPreparedTemplateRecovery(payload, {
     throw error;
   }
 
+  // Chatby-native and repository recovery cannot both own the same lifecycle
+  // delivery. A delayed native message is not safe to distinguish from a
+  // missing one, so the repository must fail closed while native owns it.
+  if (chatbyNativeOwnsLifecycleTemplate(name)) {
+    throw nativeLifecycleOwnershipError();
+  }
+
   const verifiedAtMs = new Date(verifiedMissingAt || 0).getTime();
   if (!Number.isFinite(verifiedAtMs) || Math.abs(Date.now() - verifiedAtMs) > 60_000) {
     const error = new Error('Prepared-template recovery requires a current exact-thread verification.');

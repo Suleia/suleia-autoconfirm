@@ -35,7 +35,7 @@ test('uses a fail-fast one-minute cooldown when Chatby omits Retry-After', () =>
   assert.equal(chatbyRateLimitBackoffMs('0.001'), 1);
 });
 
-test('allows one narrowly-scoped prepared recovery only after a current verification', async () => {
+test('blocks prepared recovery for the Chatby-native owner and preserves repository-owned recovery', async () => {
   const originalFetch = globalThis.fetch;
   const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
   let calls = 0;
@@ -49,6 +49,17 @@ test('allows one narrowly-scoped prepared recovery only after a current verifica
   };
 
   try {
+    await assert.rejects(
+      sendPreparedTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+      }, { verifiedMissingAt: new Date().toISOString() }),
+      (error) => error?.code === 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER'
+    );
+    assert.equal(calls, 0);
+
+    process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'repository';
     await sendPreparedTemplateRecovery({
       user_ns: 'fixture-user',
       user_id: 'fixture-recipient',

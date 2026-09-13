@@ -28,7 +28,6 @@ import {
   findSubscribersByPhone,
   getChatMessages,
   sendInitialTemplateRecovery,
-  sendPreparedTemplateRecovery,
   sendTextMessage,
   sendWhatsappTemplate,
   subscriberConfirmsOrderRobust as subscriberConfirmsOrder
@@ -2823,12 +2822,10 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   }
 
   const userNs = await resolveExistingChatbyUserNs(order);
-  let nativeRecoveryVerifiedMissingAt = null;
   if (nativeOwner) {
     if (userNs) {
       const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
       if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
-      nativeRecoveryVerifiedMissingAt = new Date().toISOString();
     }
 
     const updated = upsertOrder(store.id, {
@@ -2841,14 +2838,14 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
       preparedTemplateNativeAuditAgeMinutes: nativeAudit.ageMinutes,
       preparedTemplateNativeAuditGraceMinutes: nativeAudit.graceMinutes
     });
-    if (!userNs || !nativeRecoveryVerifiedMissingAt) {
-      return {
-        order: updated,
-        skipped: true,
-        reason: 'native_overdue_missing_chatby_contact',
-        error: nativeAudit.error
-      };
-    }
+    return {
+      order: updated,
+      skipped: true,
+      reason: userNs
+        ? 'native_owner_no_repository_recovery'
+        : 'native_overdue_missing_chatby_contact',
+      error: nativeAudit.error
+    };
   }
   if (!userNs) {
     const updated = upsertOrder(store.id, {
@@ -2919,11 +2916,7 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
       template_name: templateName,
       params: preparedTemplateParamsForOrder(order)
     };
-    const response = nativeRecoveryVerifiedMissingAt
-      ? await sendPreparedTemplateRecovery(templatePayload, {
-          verifiedMissingAt: nativeRecoveryVerifiedMissingAt
-        })
-      : await sendWhatsappTemplate(templatePayload);
+    const response = await sendWhatsappTemplate(templatePayload);
     const verification = await waitForWhatsappTemplateAcceptance({
       userNs,
       templateName,
