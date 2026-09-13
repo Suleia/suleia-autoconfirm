@@ -549,26 +549,16 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       if (issueIds.has(orderId)) counts.incidentOrders += 1;
     }
 
-    const confirmedDay = cohortOrder && sentEvidence(order)
-      ? (inPeriod(stamp(order, 'confirmed_at_utc', 'confirmed_at', 'processing_at_utc', 'processing_at'), period) || createdDay)
-      : null;
+    const confirmedDay = cohortOrder && sentEvidence(order) ? createdDay : null;
     if (confirmedDay) { dayMap.get(confirmedDay).confirmed += 1; addDrilldown(confirmedDay, 'confirmed', orderId); }
 
-    const sentDay = cohortOrder && sentEvidence(order)
-      ? (inPeriod(stamp(order, 'shipped_at', 'shipping_started_at', 'processing_at_utc', 'processing_at'), period) || createdDay)
-      : null;
+    const sentDay = cohortOrder && sentEvidence(order) ? createdDay : null;
     if (sentDay) { dayMap.get(sentDay).sent += 1; addDrilldown(sentDay, 'sent', orderId); }
 
-    const economicSentDay = sentEvidence(order)
-      ? inPeriod(stamp(order, 'shipped_at', 'shipping_started_at', 'processing_at_utc', 'processing_at'), period)
-      : null;
-
-    const rejectedDay = cohortOrder && category === 'rejected'
-      ? (inPeriod(stamp(order, 'rejected_at_utc', 'rejected_at', 'cancelled_at_utc', 'cancelled_at'), period) || createdDay)
-      : null;
+    const rejectedDay = cohortOrder && category === 'rejected' ? createdDay : null;
     if (rejectedDay) { dayMap.get(rejectedDay).rejected += 1; addDrilldown(rejectedDay, 'rejected', orderId); }
 
-    const processingDay = economicSentDay && !['delivered', 'returned'].includes(category) ? economicSentDay : null;
+    const processingDay = sentDay && !['delivered', 'returned'].includes(category) ? sentDay : null;
     if (processingDay) {
       const day = dayMap.get(processingDay);
       if (category === 'inTransit') day.inTransit += 1;
@@ -579,9 +569,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       if (recordCharge({ orderId, day: processingDay, costType: 'OUTBOUND_FULFILLMENT', cents: fulfillment.cents, source: fulfillment.source, sourceType: fulfillment.type, field: 'fulfillment' })) allocateToProducts(list, fulfillment.cents, 'fulfillment', orderId, 'sentOrderIds');
     }
 
-    const deliveredDay = category === 'delivered'
-      ? inPeriod(stamp(order, 'delivered_at_utc', 'delivered_at'), period)
-      : null;
+    const deliveredDay = cohortOrder && category === 'delivered' ? createdDay : null;
     if (deliveredDay) {
       const day = dayMap.get(deliveredDay);
       const revenue = finalAmount(order);
@@ -627,9 +615,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       }
     }
 
-    const returnedDay = category === 'returned'
-      ? inPeriod(returnStamp(order), period)
-      : null;
+    const returnedDay = cohortOrder && category === 'returned' ? createdDay : null;
     if (returnedDay) {
       const day = dayMap.get(returnedDay);
       const list = orderItems(order);
@@ -699,12 +685,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   if (missingReturns) qualityIssues.push({ code: 'MISSING_RETURN_COST', message: `${missingReturns} pedidos devueltos no tienen coste combinado real ni tarifa aplicable.` });
   if (missingRevenue) qualityIssues.push({ code: 'MISSING_FINAL_AMOUNT', message: `${missingRevenue} pedidos entregados no informan importe final cobrado.` });
   if (!expenses.length) qualityIssues.push({ code: 'MISSING_EXPENSE_DATA', message: 'El ledger de gastos no contiene registros.' });
-  const terminalOrders = uniqueOrders.filter((order) => {
-    const category = classifyFinanceOrder(order);
-    if (category === 'delivered') return Boolean(inPeriod(stamp(order, 'delivered_at_utc', 'delivered_at'), period));
-    if (category === 'returned') return Boolean(inPeriod(returnStamp(order), period));
-    return false;
-  });
+  const terminalOrders = cohort.filter((order) => ['delivered', 'returned'].includes(classifyFinanceOrder(order)));
   const publishedBreakdownOrders = terminalOrders.filter((order) => dropeaExpenseBreakdown(order)).length;
   const actualBreakdownOrders = terminalOrders.filter((order) => dropeaExpenseBreakdown(order)?.final).length;
   if (publishedBreakdownOrders < terminalOrders.length) qualityIssues.push({ code: 'DROPEA_COST_BREAKDOWN_PARTIAL', message: `${terminalOrders.length - publishedBreakdownOrders} pedidos finalizados no publican expenses_breakdown y usan tarifas de respaldo identificadas.` });
@@ -733,7 +714,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     const category = classifyFinanceOrder(order);
     const settled = ['delivered', 'returned'].includes(category);
     const settlementDay = localDay(category === 'delivered' ? stamp(order, 'delivered_at_utc', 'delivered_at') : (category === 'returned' ? returnStamp(order) : null), period.timeZone);
-    if (!createdDay && !inPeriod(settlementDay, period)) return null;
+    if (!createdDay) return null;
     const charges = [...chargeLedger.values()].filter((charge) => charge.orderId === String(order.id));
     const byField = (field) => charges.filter((charge) => charge.field === field).reduce((sum, charge) => sum + charge.amountCents, 0);
     const totalCost = charges.reduce((sum, charge) => sum + charge.amountCents, 0);
@@ -767,12 +748,11 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     period, status: period.current ? 'provisional' : 'reconstructed', statusLabel: period.current ? 'MTD · cohorte actual' : 'Mes cerrado · cohorte Dropea',
     counts, totals, days, products: productRows, orders: orderRows, drilldowns,
     eventCounts: {
-      shipped: uniqueOrders.filter((order) => sentEvidence(order)
-        && inPeriod(stamp(order, 'shipped_at', 'shipping_started_at', 'processing_at_utc', 'processing_at'), period)).length,
-      delivered: days.reduce((sum, day) => sum + (Number(day.delivered) || 0), 0),
-      deliveredUnits: days.reduce((sum, day) => sum + (Number(day.deliveredUnits) || 0), 0),
-      returned: days.reduce((sum, day) => sum + (Number(day.returned) || 0), 0),
-      returnedUnits: days.reduce((sum, day) => sum + (Number(day.returnedUnits) || 0), 0)
+      shipped: counts.sent,
+      delivered: counts.delivered,
+      deliveredUnits: counts.deliveredUnits,
+      returned: counts.returned,
+      returnedUnits: counts.returnedUnits
     },
     coverage: { orders: true, meta: metaAvailable, productCostPercent: counts.deliveredUnits ? Math.max(0, 100 - Math.round(missingUnits * 100 / counts.deliveredUnits)) : 100, dropeaBreakdownPublishedPercent: terminalOrders.length ? Math.round(publishedBreakdownOrders * 100 / terminalOrders.length) : 100, dropeaBreakdownPercent: terminalOrders.length ? Math.round(actualBreakdownOrders * 100 / terminalOrders.length) : 100, exactProfitAvailable: totals.exactNetProfit !== null, closedActual: false },
     quality: { status: qualityIssues.some((issue) => ['MISSING_AD_SPEND', 'MISSING_COST', 'MISSING_RETURN_COST', 'MISSING_FINAL_AMOUNT'].includes(issue.code)) ? 'PARTIAL' : (qualityIssues.length ? 'PARTIAL' : 'OK'), score: Math.max(0, 100 - qualityIssues.length * 8), issues: qualityIssues },
@@ -951,10 +931,10 @@ export async function buildFinanceReport({ month, force = false, leanRefresh = f
   if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.report;
   const historyMonths = monthsEndingAt(period.month, 12, rules.effective_from.slice(0, 7));
   const earliest = leanRefresh ? period.month : historyMonths[0];
-  // Delivery and return events can happen after the order creation month. Load
-  // one extra creation cohort so the first visible month does not lose events.
+  // The management P&L is a creation cohort: every order and its final outcome
+  // stay assigned to the day on which that order was created.
   const sourcePeriods = leanRefresh
-    ? monthsEndingAt(period.month, 3, rules.effective_from.slice(0, 7)).map((value) => resolveFinancePeriod(value, { now }))
+    ? [period]
     : [previousMonth(earliest), ...historyMonths].map((value) => resolveFinancePeriod(value, { now }));
   const [orderResult, metaResult] = await Promise.allSettled([
     sourceData ? Promise.resolve(sourceData) : loadSources({ env, clientFactory, configLoader, periods: sourcePeriods, includeIssues: !leanRefresh }),
@@ -989,7 +969,7 @@ export async function buildFinanceReport({ month, force = false, leanRefresh = f
   report.freshness = { generatedAt: report.generatedAt, sources: { dropea: { status: orderResult.status === 'fulfilled' ? 'OK' : 'SOURCE_ERROR', lastSyncAt: orderResult.status === 'fulfilled' ? report.generatedAt : null, ageMinutes: orderResult.status === 'fulfilled' ? 0 : null }, meta: { status: metaResult.status === 'fulfilled' ? 'OK' : 'SOURCE_ERROR', lastSyncAt: metaResult.status === 'fulfilled' ? report.generatedAt : null, ageMinutes: metaResult.status === 'fulfilled' ? 0 : null }, expenses: { status: expenses.length ? 'OK' : 'MISSING', lastSyncAt: report.generatedAt, ageMinutes: 0 } } };
   report.sources = report.sources || { orders: 'Dropea Public API V2', meta: metaResult.status === 'fulfilled' ? 'Meta Marketing API' : 'Meta Ads pendiente de sincronización', costs: 'Dropea V2 expenses_breakdown por pedido + respaldo empresarial versionado', expenses: 'Ledger mensual versionado de gastos' };
   report.availableRange = { from: rules.effective_from.slice(0, 7), to: localDay(now).slice(0, 7) };
-  report.definitions = { netProfit: 'Facturación final de pedidos entregados de la cohorte − costes reales por pedido de Dropea − coste de producto − publicidad Meta − gastos fijos − puntuales − otros.', roi: 'Beneficio neto / costes totales.', roas: 'Facturación realizada / gasto Meta.', margin: 'Beneficio neto / facturación realizada.', deliveryRate: 'Entregados / enviados de la cohorte de pedidos creados en el mes.', returnRate: 'Devueltos / enviados de la cohorte de pedidos creados en el mes.', returnCost: 'Suma real por pedido de shipping_refused_price y fulfillment_refused_price; 5,26 € por pedido solo cuando el histórico no publica desglose.' };
+  report.definitions = { netProfit: 'Facturación final de pedidos entregados de la cohorte − costes reales por pedido de Dropea − coste de producto − publicidad Meta − gastos fijos − puntuales − otros.', dailyAttribution: 'Cada pedido y su resultado final se atribuyen al día de creación del pedido; nunca se mezclan pedidos creados en otros días o meses.', roi: 'Beneficio neto / costes totales.', roas: 'Facturación realizada / gasto Meta.', margin: 'Beneficio neto / facturación realizada.', deliveryRate: 'Entregados / enviados de la cohorte de pedidos creados en el mes.', returnRate: 'Devueltos / enviados de la cohorte de pedidos creados en el mes.', returnCost: 'Suma real por pedido de shipping_refused_price y fulfillment_refused_price; 5,26 € por pedido solo cuando el histórico no publica desglose.' };
   cache.set(period.month, { at: Date.now(), report });
   await persistFinanceSnapshot(report);
   return report;
