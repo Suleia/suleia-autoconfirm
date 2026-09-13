@@ -103,6 +103,7 @@ function pct(numerator, denominator) {
 }
 
 function localDay(value, timeZone = ZONE) {
+  if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
@@ -548,13 +549,19 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       if (issueIds.has(orderId)) counts.incidentOrders += 1;
     }
 
-    const confirmedDay = cohortOrder && sentEvidence(order) ? createdDay : null;
+    const confirmedDay = cohortOrder && sentEvidence(order)
+      ? (inPeriod(stamp(order, 'confirmed_at_utc', 'confirmed_at', 'processing_at_utc', 'processing_at'), period) || createdDay)
+      : null;
     if (confirmedDay) { dayMap.get(confirmedDay).confirmed += 1; addDrilldown(confirmedDay, 'confirmed', orderId); }
 
-    const sentDay = cohortOrder && sentEvidence(order) ? createdDay : null;
+    const sentDay = cohortOrder && sentEvidence(order)
+      ? (inPeriod(stamp(order, 'shipped_at', 'shipping_started_at', 'processing_at_utc', 'processing_at'), period) || createdDay)
+      : null;
     if (sentDay) { dayMap.get(sentDay).sent += 1; addDrilldown(sentDay, 'sent', orderId); }
 
-    const rejectedDay = cohortOrder && category === 'rejected' ? createdDay : null;
+    const rejectedDay = cohortOrder && category === 'rejected'
+      ? (inPeriod(stamp(order, 'rejected_at_utc', 'rejected_at', 'cancelled_at_utc', 'cancelled_at'), period) || createdDay)
+      : null;
     if (rejectedDay) { dayMap.get(rejectedDay).rejected += 1; addDrilldown(rejectedDay, 'rejected', orderId); }
 
     const processingDay = sentDay && !['delivered', 'returned'].includes(category) ? sentDay : null;
@@ -568,7 +575,9 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       if (recordCharge({ orderId, day: processingDay, costType: 'OUTBOUND_FULFILLMENT', cents: fulfillment.cents, source: fulfillment.source, sourceType: fulfillment.type, field: 'fulfillment' })) allocateToProducts(list, fulfillment.cents, 'fulfillment', orderId, 'sentOrderIds');
     }
 
-    const deliveredDay = cohortOrder && category === 'delivered' ? createdDay : null;
+    const deliveredDay = cohortOrder && category === 'delivered'
+      ? (inPeriod(stamp(order, 'delivered_at_utc', 'delivered_at'), period) || createdDay)
+      : null;
     if (deliveredDay) {
       const day = dayMap.get(deliveredDay);
       const revenue = finalAmount(order);
@@ -614,7 +623,9 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       }
     }
 
-    const returnedDay = cohortOrder && category === 'returned' ? createdDay : null;
+    const returnedDay = cohortOrder && category === 'returned'
+      ? (inPeriod(returnStamp(order), period) || createdDay)
+      : null;
     if (returnedDay) {
       const day = dayMap.get(returnedDay);
       const list = orderItems(order);

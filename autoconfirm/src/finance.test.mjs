@@ -80,19 +80,20 @@ test('unknown wholesale zero is MISSING_ECONOMIC_DATA, never free product', () =
   assert.equal(report.quality.issues.some((issue) => issue.code === 'MISSING_COST'), true);
 });
 
-test('P&L uses the selected creation cohort and attributes final economics to the order day', () => {
+test('P&L keeps the selected creation cohort and attributes final economics to its verified event day', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ created_at: '2026-09-02T08:00:00Z', delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
   assert.equal(report.counts.created, 1);
   assert.equal(report.totals.realRevenue, 34.99);
-  assert.equal(report.days.find((day) => day.day === '2026-09-02').realRevenue, 34.99);
+  assert.equal(report.days.find((day) => day.day === '2026-09-02').realRevenue, 0);
+  assert.equal(report.days.find((day) => day.day === '2026-09-05').realRevenue, 34.99);
   const priorCohort = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({ created_at: '2026-08-28T08:00:00Z', delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
   assert.equal(priorCohort.totals.realRevenue, 0);
 });
 
-test('return cost is recognized once in its creation cohort with traceable tariff', () => {
+test('return cost is recognized once on its verified return day with traceable tariff', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ created_at: '2026-09-02T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED' })] });
   assert.equal(report.totals.returnCost, 5.26);
-  assert.equal(report.days.find((day) => day.day === '2026-09-02').returned, 1);
+  assert.equal(report.days.find((day) => day.day === '2026-09-06').returned, 1);
   assert.equal(report.costTraceability.return.tariffVersion, rules.version);
 });
 
@@ -103,7 +104,7 @@ test('return logistics is exactly 5.26 per returned order for one, two or three 
       orders: [order({ id: 100 + quantity, created_at: '2026-09-02T08:00:00Z', rejected_at: '2026-09-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED', line_items: [{ product_id: 31547, variant_id: 31547, sku: 'CREMANIDA', quantity, unit_price: 10, wholesale_price: 0 }] })]
     });
     assert.equal(report.counts.returnedUnits, quantity);
-    assert.equal(report.days.find((day) => day.day === '2026-09-02').returnedUnits, quantity);
+    assert.equal(report.days.find((day) => day.day === '2026-09-06').returnedUnits, quantity);
     assert.equal(report.totals.returnCost, 5.26);
     assert.equal(report.products[0].returnCost, 5.26);
     assert.equal(report.costTraceability.return.basis, 'PER_RETURNED_ORDER');
