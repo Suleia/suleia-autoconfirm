@@ -57,8 +57,7 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   assert.match(content(get('finance-costs')), /Publicidad Meta/);
   assert.match(content(get('finance-operational-summary')), /Pedidos creados/);
   assert.match(content(get('finance-data-summary')), /Datos conciliados/);
-  assert.match(content(get('finance-reconciliation')), /441,01/);
-  assert.match(content(get('finance-order-differences')), /Cambio de mes económico/);
+  assert.doesNotMatch(content(get('finance-trend')), /Acumulado|Beneficio acumulado/);
   assert.equal(content(get('finance-order-ledger')), '');
   context.__results.state.finance.period = { month: '2026-09', current: true, elapsedDays: 13 };
   context.__results.state.finance.accounting = { closedThrough: '2026-09-12', pendingDays: 1, currentDayPartial: true };

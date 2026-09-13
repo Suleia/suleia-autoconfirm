@@ -58,6 +58,23 @@ test('finance client is disabled unless both trusted server-side settings exist'
   assert.equal(createFinanceReportClient({ financeReportBaseUrl: 'https://finance.example.test', financeReportPassword: '' }), null);
 });
 
+test('finance client requests a read-only refresh for a stale current-month snapshot', async () => {
+  const calls = [];
+  const now = Date.parse('2026-09-13T12:00:00Z');
+  const client = new FinanceReportClient({
+    baseUrl: 'https://finance.example.test', password: 'fixture', now: () => now,
+    fetchImpl: async (url) => {
+      calls.push(url);
+      if (url.endsWith('/api/dashboard-login')) return new Response(null, { status: 303, headers: { 'set-cookie': 'suleia_dashboard=session; Path=/' } });
+      return Response.json({ finance: { period: { month: '2026-09', current: true }, totals: { exactNetProfit: 1 },
+        days: [{ day: '2026-09-12' }], history: [], generatedAt: '2026-09-12T10:00:00Z' } });
+    }
+  });
+  await client.getMonthly('2026-09');
+  assert.equal(calls.filter((url) => url.includes('refresh=1')).length, 1);
+  assert.match(calls.at(-1), /month=2026-09&refresh=1$/);
+});
+
 test('Operations API has narrowly scoped HTTPS egress for the finance read model', () => {
   const composeUrl = new URL('../../infrastructure/docker/compose.yaml', import.meta.url);
   if (!fs.existsSync(composeUrl)) {

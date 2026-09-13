@@ -93,12 +93,15 @@ function cookieFrom(headers) {
 }
 
 export class FinanceReportClient {
-  constructor({ baseUrl, password, fetchImpl = globalThis.fetch }) {
+  constructor({ baseUrl, password, fetchImpl = globalThis.fetch, now = () => Date.now(), refreshAfterMs = 15 * 60 * 1000 }) {
     this.baseUrl = String(baseUrl || '').replace(/\/+$/, '');
     this.password = String(password || '');
     this.fetch = fetchImpl;
+    this.now = now;
+    this.refreshAfterMs = refreshAfterMs;
     this.cookie = '';
     this.cache = new Map();
+    this.refreshRequestedAt = new Map();
     if (!/^https:\/\//.test(this.baseUrl)) throw new Error('finance_report_base_url_must_use_https');
     if (!this.password) throw new Error('finance_report_password_required');
     if (typeof this.fetch !== 'function') throw new Error('finance_report_fetch_required');
@@ -135,12 +138,29 @@ export class FinanceReportClient {
   async getMonthly(month) {
     if (!MONTH.test(String(month))) throw Object.assign(new Error('invalid_finance_month'), { status: 400 });
     const cached = this.cache.get(month);
-    if (cached && Date.now() - cached.at < 120_000) return cached.report;
+    if (cached && this.now() - cached.at < 120_000) return cached.report;
     const payload = await this.request(`/api/finance?month=${encodeURIComponent(month)}`);
     if (!payload?.finance) throw Object.assign(new Error('finance_report_not_ready'), { status: 503 });
     const report = safeReport(payload.finance);
-    this.cache.set(month, { at: Date.now(), report });
+    this.cache.set(month, { at: this.now(), report });
+    await this.refreshIfStale(report, month);
     return report;
+  }
+
+  async refreshIfStale(report, month) {
+    if (!report?.period?.current) return false;
+    const generatedAt = Date.parse(report.generatedAt || '');
+    if (Number.isFinite(generatedAt) && this.now() - generatedAt <= this.refreshAfterMs) return false;
+    const lastRequestedAt = this.refreshRequestedAt.get(month) || 0;
+    if (this.now() - lastRequestedAt < this.refreshAfterMs) return false;
+    this.refreshRequestedAt.set(month, this.now());
+    try {
+      await this.request(`/api/finance?month=${encodeURIComponent(month)}&refresh=1`);
+      return true;
+    } catch {
+      this.refreshRequestedAt.delete(month);
+      return false;
+    }
   }
 
   async getMonthlyBundle(month) {

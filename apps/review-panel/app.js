@@ -676,21 +676,18 @@ function dailyResultsChart(days, currency) {
   const rows = (days || []).filter((row) => row.day && row.totalCosts !== null && row.netProfit !== null);
   const root = node('div', 'daily-results-chart');
   if (!rows.length) { root.append(stacked('Todavía no hay días conciliados', 'Los datos aparecerán cuando se complete la primera sincronización.')); return root; }
-  const mode = state.financeChartMode; const width = 820; const height = 320; const left = 52; const right = 52; const top = 30; const bottom = 46;
-  let running = 0; const cumulative = rows.map((row) => { running += Number(row.netProfit || 0); return row.cumulativeNetProfit === null || row.cumulativeNetProfit === undefined ? running : Number(row.cumulativeNetProfit); });
+  const mode = state.financeChartMode; const width = 820; const height = 320; const left = 52; const right = 24; const top = 30; const bottom = 46;
   const primaryValues = mode === 'pnl' ? rows.flatMap((row) => [row.realRevenue, row.totalCosts, row.netProfit]) : rows.map((row) => row.netProfit);
-  const scale = niceMoneyScale(primaryValues); const cumulativeScale = niceMoneyScale(cumulative); const range = Math.max(1, scale.maximum - scale.minimum); const cumulativeRange = Math.max(1, cumulativeScale.maximum - cumulativeScale.minimum); const plotWidth = width - left - right; const plotHeight = height - top - bottom;
-  const x = (index) => left + (index + .5) * plotWidth / rows.length; const y = (value) => top + (scale.maximum - Number(value || 0)) / range * plotHeight; const yCumulative = (value) => top + (cumulativeScale.maximum - Number(value || 0)) / cumulativeRange * plotHeight;
+  const scale = niceMoneyScale(primaryValues); const range = Math.max(1, scale.maximum - scale.minimum); const plotWidth = width - left - right; const plotHeight = height - top - bottom;
+  const x = (index) => left + (index + .5) * plotWidth / rows.length; const y = (value) => top + (scale.maximum - Number(value || 0)) / range * plotHeight;
   const zeroY = y(0);
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': mode === 'pnl' ? 'P&L diario completo con beneficio acumulado' : 'Beneficio neto diario y acumulado del mes' });
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': mode === 'pnl' ? 'P&L diario completo' : 'Beneficio neto de cada día del mes' });
   scale.ticks.forEach((tick) => {
     const gridY = y(tick);
     svg.append(svgEl('line', { x1: left, y1: gridY, x2: width - right, y2: gridY, class: tick === 0 ? 'chart-zero-line' : 'chart-grid-line' }));
     const label = svgEl('text', { x: left - 6, y: gridY + 4, class: 'chart-axis-label', 'text-anchor': 'end' });
     label.textContent = `${Math.round(tick)} €`; svg.append(label);
   });
-  const rightTop = svgEl('text', { x: width - right + 6, y: top + 4, class: 'chart-axis-label cumulative-axis', 'text-anchor': 'start' }); rightTop.textContent = `${Math.round(cumulativeScale.maximum)} €`; svg.append(rightTop);
-  const rightBottom = svgEl('text', { x: width - right + 6, y: height - bottom + 4, class: 'chart-axis-label cumulative-axis', 'text-anchor': 'start' }); rightBottom.textContent = `${Math.round(cumulativeScale.minimum)} €`; svg.append(rightBottom);
   const groupWidth = plotWidth / rows.length; const profitWidth = Math.max(5, Math.min(18, groupWidth * (mode === 'pnl' ? .22 : .62)));
   rows.forEach((row, index) => {
     const center = x(index); const profit = Number(row.netProfit || 0); const title = dailyTooltip(row, currency); const partial = row.closeStatus === 'CURRENT_PARTIAL' ? ' partial' : '';
@@ -705,11 +702,9 @@ function dailyResultsChart(days, currency) {
     if (index === 0 || index === rows.length - 1 || Number(row.day.slice(-2)) % 5 === 0) { const label = svgEl('text', { x: center, y: height - 16, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = Number(row.day.slice(-2)); svg.append(label); }
     if (row.closeStatus === 'CURRENT_PARTIAL') { const partialLabel = svgEl('text', { x: center, y: height - 5, class: 'chart-partial-label', 'text-anchor': 'middle' }); partialLabel.textContent = 'PARCIAL'; svg.append(partialLabel); }
   });
-  const points = cumulative.map((value, index) => `${x(index)},${yCumulative(value)}`).join(' '); svg.append(svgEl('polyline', { points, class: 'chart-cumulative-line', fill: 'none' }));
-  cumulative.forEach((value, index) => svg.append(appendSvgTitle(svgEl('circle', { cx: x(index), cy: yCumulative(value), r: 2.8, class: 'chart-cumulative-point' }), `${date(rows[index].day, true)} · Beneficio acumulado ${money(value, currency)}`)));
-  const legend = node('div', 'chart-legend'); const series = mode === 'pnl' ? [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio'], ['cumulative', 'Beneficio acumulado']] : [['profit', 'Beneficio'], ['loss', 'Pérdida'], ['cumulative', 'Beneficio acumulado']]; series.forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); });
+  const legend = node('div', 'chart-legend'); const series = mode === 'pnl' ? [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio']] : [['profit', 'Beneficio diario'], ['loss', 'Pérdida diaria']]; series.forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); });
   const latest = rows.at(-1); const current = node('div', 'chart-current-row');
-  current.append(node('span', '', latest.closeStatus === 'CURRENT_PARTIAL' ? latest.closeLabel : `Último día cerrado · ${date(latest.day, true)}`), node('strong', '', `Facturación ${money(latest.realRevenue, currency)}`), node('strong', '', `Costes ${money(latest.totalCosts, currency)}`), node('strong', Number(latest.netProfit || 0) >= 0 ? 'positive' : 'negative', `Beneficio ${money(latest.netProfit, currency)}`), node('strong', '', `Acumulado ${money(cumulative.at(-1), currency)}`));
+  current.append(node('span', '', latest.closeStatus === 'CURRENT_PARTIAL' ? latest.closeLabel : `Último día cerrado · ${date(latest.day, true)}`), node('strong', '', `Facturación ${money(latest.realRevenue, currency)}`), node('strong', '', `Costes ${money(latest.totalCosts, currency)}`), node('strong', Number(latest.netProfit || 0) >= 0 ? 'positive' : 'negative', `Beneficio diario ${money(latest.netProfit, currency)}`));
   root.append(current, svg, legend); return root;
 }
 function donutChart(value, centerLabel, rows, tone = 'green') {
@@ -779,29 +774,6 @@ function dailyTable(data, currency) {
   const foot = node('tfoot'); const tr = node('tr'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', key === 'day' ? 'TOTAL DEL MES' : cellValue(totalRow, key)); tr.append(td); }); foot.append(tr); table.append(head, body, foot);
   const wrap = node('div', 'results-table-scroll'); wrap.append(table); return wrap;
 }
-function reconciliationTable(rows, currency) {
-  const table = node('table', 'forensic-results-table reconciliation-table');
-  const columns = [['Mes', 'month'], ['Beneficio anterior', 'oldProfit'], ['Beneficio corregido', 'correctedProfit'],
-    ['Corrección', 'delta'], ['Ingresos Δ', 'revenueDelta'], ['Costes Δ', 'costDelta'], ['Inflado antes', 'overstatement'], ['Control', 'control']];
-  const head = node('thead'); const hr = node('tr'); columns.forEach(([label]) => hr.append(node('th', '', label))); head.append(hr);
-  const body = node('tbody');
-  (rows || []).forEach((row) => {
-    const values = { month: monthLabel(row.month), oldProfit: row.old?.profit, correctedProfit: row.corrected?.profit,
-      delta: row.deltas?.profit, revenueDelta: row.deltas?.revenue, costDelta: row.deltas?.totalCosts,
-      overstatement: row.profitOverstatement, control: row.reconciles ? 'Cuadra' : 'Pendiente' };
-    const tr = node('tr', Number(values.delta || 0) < 0 ? 'loss-row' : 'profit-row');
-    columns.forEach(([, key]) => { const value = key === 'month' || key === 'control' ? values[key] : money(values[key], currency); tr.append(node('td', key === 'delta' ? 'daily-net-cell' : '', value)); }); body.append(tr);
-  });
-  table.append(head, body); const wrap = node('div', 'results-table-scroll'); wrap.append(table); return wrap;
-}
-function orderDifferencesTable(rows, currency) {
-  if (!(rows || []).length) return stacked('Sin diferencias materiales', 'No hay pedidos del periodo con cambio relevante respecto al cálculo anterior.');
-  const table = node('table', 'forensic-results-table differences-table'); const head = node('thead'); const hr = node('tr');
-  ['Pedido', 'Mes anterior', 'Mes económico', 'Evento', 'Beneficio anterior', 'Beneficio corregido', 'Diferencia', 'Motivo'].forEach((label) => hr.append(node('th', '', label))); head.append(hr); const body = node('tbody');
-  rows.forEach((item) => { const tr = node('tr', Number(item.delta || 0) < 0 ? 'loss-row' : 'profit-row');
-    [orderReferenceLabel(item.orderId), item.oldMonth || '—', item.economicMonth || '—', item.eventType || '—', money(item.oldProfit, currency), money(item.correctedProfit, currency), money(item.delta, currency), (item.reasons || []).map((reason) => ({ WRONG_EVENT_MONTH: 'Cambio de mes económico', RETURN_COST_PER_ORDER: 'Devolución a 5,26 €/pedido', DROPEA_ADJUSTMENT: 'Ajuste Dropea recuperado' }[reason] || reason)).join(' · ') || 'Reconciliación de costes'].forEach((value, index) => tr.append(node('td', index === 6 ? 'daily-net-cell' : '', value))); body.append(tr); });
-  table.append(head, body); const wrap = node('div', 'results-table-scroll'); wrap.append(table); return wrap;
-}
 function closeResultExpenseForm() { $('finance-fixed-form').hidden = true; $('finance-fixed-form').reset(); $('finance-fixed-feedback').textContent = ''; }
 function openResultExpenseForm() { const form = $('finance-fixed-form'); form.hidden = false; form.reset(); const month = state.finance?.period?.month || new Date().toISOString().slice(0, 7); $('finance-fixed-start').value = `${month}-01`; $('finance-fixed-feedback').textContent = 'Se incorporará al mes y al histórico diario después de guardarlo.'; $('finance-fixed-label').focus(); }
 function renderResultExpenses(data, currency) {
@@ -850,8 +822,6 @@ function renderResultsFinance() {
   $('finance-history-chart').replaceChildren(monthlyHistoryChart(data.history, currency)); $('finance-funnel').replaceChildren(orderFunnel(counts));
   $('finance-operational-summary').replaceChildren(operationalSummary(counts)); $('finance-data-summary').replaceChildren(dataQualitySummary(data));
   $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(data, currency));
-  $('finance-reconciliation').replaceChildren(reconciliationTable(data.oldVsNew, currency));
-  $('finance-order-differences').replaceChildren(orderDifferencesTable(data.topOrderDifferences, currency));
   $('finance-quality').replaceChildren(
     stacked('Modelos temporales', 'P&L por fecha económica · embudo por cohorte de creación'),
     stacked('Fuente de pedidos y costes', data.sources?.orders || 'Dropea Public API V2'),
