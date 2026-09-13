@@ -518,6 +518,7 @@ function queueDashboardBackgroundRefresh() {
 }
 
 const financeRefreshInFlight = new Map();
+const financeBackgroundRefreshEnabled = process.env.FINANCE_BACKGROUND_REFRESH_ENABLED !== 'false';
 
 function queueFinanceReportRefresh(month) {
   const key = String(month || 'current');
@@ -710,8 +711,7 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         console.error('Finance snapshot read error:', error instanceof Error ? error.message : String(error));
       }
-      const backgroundRefreshEnabled = false; // Render free tier: refresh only from the isolated snapshot publisher.
-      const queued = backgroundRefreshEnabled && (force || !finance) ? queueFinanceReportRefresh(month) : false;
+      const queued = financeBackgroundRefreshEnabled && (force || !finance) ? queueFinanceReportRefresh(month) : false;
       return sendJson(res, finance ? 200 : 202, {
         ok: true,
         finance,
@@ -1146,6 +1146,7 @@ let incidentsSyncRunning = false;
 let operationalOrdersSyncTimer = null;
 let operationalOrdersSyncRunning = false;
 let chatbyHealthTimer = null;
+let financeReportRefreshTimer = null;
 const scheduledNetworkJobs = createScheduledJobQueue({
   onEvent(event) {
     if (event.type === 'skipped') {
@@ -1347,6 +1348,18 @@ function startMetaDashboardSync() {
   }, 45000);
 }
 
+function startFinanceReportRefreshScheduler() {
+  if (!financeBackgroundRefreshEnabled) return;
+  const intervalMinutes = Number(process.env.FINANCE_REFRESH_INTERVAL_MINUTES || 60);
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    queueFinanceReportRefresh(undefined);
+    financeReportRefreshTimer = setInterval(() => queueFinanceReportRefresh(undefined), intervalMs);
+    financeReportRefreshTimer.unref?.();
+  }, 90000);
+}
+
 server.listen(config.port, async () => {
   console.log(`AutoConfirm listening on http://localhost:${config.port}`);
   console.log(`Webhook: /api/webhooks/dropea/${config.defaultStore.webhookToken}`);
@@ -1369,4 +1382,5 @@ server.listen(config.port, async () => {
   startIncidentNotificationsScheduler();
   startIncidentDiscountRecoveryScheduler();
   startMetaDashboardSync();
+  startFinanceReportRefreshScheduler();
 });

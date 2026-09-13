@@ -537,8 +537,10 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       day.created += 1;
       day.estimatedRevenue += finalAmount(order) || 0;
       addDrilldown(createdDay, 'created', orderId);
-      if (confirmationEvidence(order)) counts.confirmed += 1;
-      if (sentEvidence(order)) counts.sent += 1;
+      if (sentEvidence(order)) {
+        counts.confirmed += 1;
+        counts.sent += 1;
+      }
       if (category === 'rejected') counts.rejected += 1;
       if (category === 'inTransit') counts.inTransit += 1;
       if (category === 'delivered') { counts.delivered += 1; counts.deliveredUnits += units(order); }
@@ -546,7 +548,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       if (issueIds.has(orderId)) counts.incidentOrders += 1;
     }
 
-    const confirmedDay = cohortOrder && confirmationEvidence(order) ? createdDay : null;
+    const confirmedDay = cohortOrder && sentEvidence(order) ? createdDay : null;
     if (confirmedDay) { dayMap.get(confirmedDay).confirmed += 1; addDrilldown(confirmedDay, 'confirmed', orderId); }
 
     const sentDay = cohortOrder && sentEvidence(order) ? createdDay : null;
@@ -668,7 +670,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   counts.inAir = statusBreakdown.inAir;
   counts.pending = statusBreakdown.pending;
   counts.cancelled = statusBreakdown.cancelled;
-  counts.confirmationRatePercent = pct(counts.confirmed, counts.created); counts.rejectionRatePercent = pct(counts.rejected, counts.created);
+  counts.confirmationRatePercent = pct(counts.sent, counts.created); counts.rejectionRatePercent = pct(counts.rejected, counts.created);
   counts.deliveryRatePercent = pct(counts.delivered, counts.sent); counts.globalConversionPercent = pct(counts.delivered, counts.created);
   counts.returnRatePercent = pct(counts.returned, counts.sent); counts.incidentRatePercent = pct(counts.incidentOrders, counts.sent);
   const days = [...dayMap.values()].map((row) => finalizeDay(row, metaAvailable)).sort((a, b) => a.day.localeCompare(b.day));

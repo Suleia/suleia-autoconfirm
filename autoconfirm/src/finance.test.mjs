@@ -213,6 +213,37 @@ test('cohort rates consistently use the created-order population', () => {
   assert.equal(report.counts.deliveryRatePercent, 100);
 });
 
+test('confirmation rate excludes orders cancelled before shipment even when they retain stale confirmation evidence', () => {
+  const accepted = Array.from({ length: 452 }, (_, index) => order({
+    id: index + 1,
+    created_at: '2026-07-01T10:00:00Z',
+    status: 'SHIPPING',
+    sub_status: 'SHIPPING',
+    processing_at: '2026-07-02T10:00:00Z'
+  }));
+  const cancelled = Array.from({ length: 161 }, (_, index) => order({
+    id: index + 453,
+    created_at: '2026-07-01T10:00:00Z',
+    confirmed_at: '2026-07-02T09:00:00Z',
+    processing_at: null,
+    tracking_number: null,
+    status: 'CANCELLED',
+    sub_status: 'CANCELLED'
+  }));
+  const report = aggregateFinanceReport({
+    period: resolveFinancePeriod('2026-07', { now: new Date('2026-09-13T12:00:00Z') }),
+    rules,
+    expenses: [],
+    metaRows: [],
+    orders: [...accepted, ...cancelled]
+  });
+  assert.equal(report.counts.created, 613);
+  assert.equal(report.counts.confirmed, 452);
+  assert.equal(report.counts.sent, 452);
+  assert.equal(report.counts.cancelled, 161);
+  assert.equal(report.counts.confirmationRatePercent, 73.74);
+});
+
 test('incident rate counts unique orders and preserves total incidents', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses, metaRows: [], orders: [order({ id: 7 })], issues: [{ order_id: 7, created_at: '2026-09-03T10:00:00Z' }, { order_id: 7, created_at: '2026-09-04T10:00:00Z' }] });
   assert.equal(report.counts.incidentOrders, 1);

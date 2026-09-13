@@ -9,3 +9,7 @@ services:
     envVars:
       - key: PORT
         value: 8787
+      - key: FINANCE_BACKGROUND_REFRESH_ENABLED
+        value: true
+      - key: FINANCE_REFRESH_INTERVAL_MINUTES
+        value: 60
