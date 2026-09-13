@@ -60,6 +60,9 @@ test('results finance separates creation cohorts from realised delivery and retu
   assert.equal(result.history.find((item) => item.month === '2026-08').eventCounts.delivered, 1);
   assert.equal(result.history.find((item) => item.month === '2026-08').eventCounts.returned, 1);
   assert.equal(result.days.at(-1).closeStatus, 'CURRENT_PARTIAL');
+  assert.equal(result.accounting.closedThrough, '2026-09-12');
+  assert.equal(result.accounting.pendingDays, 0);
+  assert.equal(result.accounting.currentDayPartial, true);
   assert.equal(result.source, 'operations_canonical_finance_v3');
 });
 

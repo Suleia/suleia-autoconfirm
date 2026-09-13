@@ -51,4 +51,11 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   assert.match(content(get('finance-costs')), /Publicidad Meta/);
   assert.match(content(get('finance-operational-summary')), /Pedidos creados/);
   assert.match(content(get('finance-data-summary')), /Datos conciliados/);
+  context.__results.state.finance.period = { month: '2026-09', current: true, elapsedDays: 13 };
+  context.__results.state.finance.accounting = { closedThrough: '2026-09-12', pendingDays: 1, currentDayPartial: true };
+  context.__results.state.finance.dataAvailability = { status: 'MTD', label: 'MTD · día 13' };
+  context.__results.state.finance.quality = { status: 'REVIEW', issues: ['ADVERTISING:2026-09-13'] };
+  context.__results.renderResultsFinance();
+  assert.match(content(get('finance-exactness')), /cierre contable hasta/);
+  assert.match(content(get('finance-exactness')), /1 día\(s\) pendiente\(s\)/);
 });

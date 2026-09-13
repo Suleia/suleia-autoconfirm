@@ -796,9 +796,17 @@ async function saveResultExpense(event) {
 function renderResultsFinance() {
   const data = state.finance; if (!data) return; const totals = data.totals || {}; const counts = data.counts || {}; const eventCounts = data.eventCounts || {}; const currency = data.currency || 'EUR';
   $('last-sync').textContent = date(data.generatedAt); const current = data.period?.current;
-  $('finance-exactness').textContent = data.quality?.status === 'OK' ? (current ? `Parcial · MTD al día ${data.period.elapsedDays}` : (data.dataAvailability?.label || 'Mes cerrado')) : `Revisión de datos · ${number(data.quality?.issues?.length)} aviso(s)`;
+  const closedThrough = data.accounting?.closedThrough; const pendingDays = number(data.accounting?.pendingDays);
+  const accountingLabel = current
+    ? closedThrough
+      ? `Parcial · cierre contable hasta ${date(closedThrough, true)}${pendingDays ? ` · ${pendingDays} día(s) pendiente(s)` : ' · día actual parcial'}`
+      : 'Parcial · todavía sin día contable cerrado'
+    : (data.dataAvailability?.label || 'Mes cerrado');
+  $('finance-exactness').textContent = data.quality?.status === 'OK' || current
+    ? accountingLabel : `Revisión de datos · ${number(data.quality?.issues?.length)} aviso(s)`;
   const days = (data.days || []).filter((row) => row.day);
-  const availability = data.dataAvailability?.label || (current ? `MTD · día ${data.period.elapsedDays}` : 'Mes completo');
+  const availability = current ? `${data.dataAvailability?.label || `MTD · día ${data.period.elapsedDays}`} · ${accountingLabel}`
+    : (data.dataAvailability?.label || 'Mes completo');
   const freshness = data.freshness?.sources || {}; $('finance-freshness').replaceChildren(...[['Dropea', freshness.dropea], ['Meta', freshness.meta], ['Chatby', freshness.chatby]].map(([label, source]) => { const status = source?.status || 'UNAVAILABLE'; const item = node('span', status === 'OK' ? 'is-fresh' : status === 'STALE' ? 'is-stale' : 'is-neutral'); const timing = source?.ageMinutes === null || source?.ageMinutes === undefined ? (status === 'NOT_A_FINANCE_DEPENDENCY' ? 'no interviene en el P&L' : 'sin marca de tiempo') : `hace ${number(source.ageMinutes)} min`; item.textContent = `${label} · ${timing}`; return item; }));
   $('finance-hero').replaceChildren(
     resultMetric('Beneficio mensual', money(totals.exactNetProfit, currency), `${availability} · ${comparisonText('exactNetProfit')}`, Number(totals.exactNetProfit || 0) >= 0 ? 'profit' : 'loss', '↗', days.map((row) => row.netProfit)),
