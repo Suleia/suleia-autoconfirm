@@ -524,7 +524,7 @@ function queueFinanceReportRefresh(month) {
   const key = String(month || 'current');
   if (financeRefreshInFlight.has(key)) return false;
   const job = new Promise((resolve) => setTimeout(resolve, 250))
-    .then(() => buildFinanceReport({ month, force: true }))
+    .then(() => buildFinanceReport({ month, force: true, leanRefresh: true }))
     .then((report) => console.log(`Finance report refreshed (${report.period.month}).`))
     .catch((error) => console.error('Finance report refresh error:', error instanceof Error ? error.message : String(error)))
     .finally(() => financeRefreshInFlight.delete(key));

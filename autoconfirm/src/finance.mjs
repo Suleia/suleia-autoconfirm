@@ -843,7 +843,7 @@ function buildProjection(report, expenses) {
   return { method: 'run_rate_mtd', confidence: report.period.elapsedDays >= 14 ? 'medium' : 'low', revenue: euros(revenue), totalCosts: euros(variable + fixed), netProfit: euros(revenue - variable - fixed), note: 'Proyección separada del realizado MTD.' };
 }
 
-async function loadSources({ env, clientFactory, configLoader, periods }) {
+async function loadSources({ env, clientFactory, configLoader, periods, includeIssues = true }) {
   const orders = []; const issues = [];
   await Promise.all(configLoader(env).map(async (store) => {
     const client = clientFactory({ token: store.token, market: store.market });
@@ -860,7 +860,7 @@ async function loadSources({ env, clientFactory, configLoader, periods }) {
     });
     const [orderPages, issuePage] = await Promise.all([
       Promise.all(workers).then(() => loadedOrderPages),
-      client.listAll('listIssues', {}, {
+      includeIssues ? client.listAll('listIssues', {}, {
         maxPages: 80,
         maxRecords: 2000,
         requestedLimit: 100,
@@ -868,7 +868,7 @@ async function loadSources({ env, clientFactory, configLoader, periods }) {
           const day = localDay(issue.created_at || issue.createdAt);
           return Boolean(day && day >= firstDay && day <= lastDay);
         }
-      })
+      }) : Promise.resolve({ items: [] })
     ]);
     const storeOrders = [...new Map(
       orderPages.flatMap((page) => page.items).map((order) => [String(order.id), order])
@@ -917,17 +917,19 @@ export async function loadFinanceSourceData({ env = process.env, months, now = n
   return loadSources({ env, clientFactory, configLoader, periods });
 }
 
-export async function buildFinanceReport({ month, force = false, env = process.env, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs, metaLoader = getCampaignInsights, rules = loadFinanceCostRules(), expenses = loadFinanceExpenses(), sourceData = null } = {}) {
+export async function buildFinanceReport({ month, force = false, leanRefresh = false, env = process.env, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs, metaLoader = getCampaignInsights, rules = loadFinanceCostRules(), expenses = loadFinanceExpenses(), sourceData = null } = {}) {
   const period = resolveFinancePeriod(month, { now });
   const cached = cache.get(period.month);
   if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.report;
   const historyMonths = monthsEndingAt(period.month, 12, rules.effective_from.slice(0, 7));
-  const earliest = historyMonths[0];
+  const earliest = leanRefresh ? period.month : historyMonths[0];
   // Delivery and return events can happen after the order creation month. Load
   // one extra creation cohort so the first visible month does not lose events.
-  const sourcePeriods = [previousMonth(earliest), ...historyMonths].map((value) => resolveFinancePeriod(value, { now }));
+  const sourcePeriods = leanRefresh
+    ? [period]
+    : [previousMonth(earliest), ...historyMonths].map((value) => resolveFinancePeriod(value, { now }));
   const [orderResult, metaResult] = await Promise.allSettled([
-    sourceData ? Promise.resolve(sourceData) : loadSources({ env, clientFactory, configLoader, periods: sourcePeriods }),
+    sourceData ? Promise.resolve(sourceData) : loadSources({ env, clientFactory, configLoader, periods: sourcePeriods, includeIssues: !leanRefresh }),
     metaLoader({ since: `${earliest}-01`, until: period.until, level: 'campaign', limit: 500, timeIncrement: 1 })
   ]);
   if (orderResult.status === 'rejected' && !getClosedFinanceActual(period.month)) throw orderResult.reason;
@@ -935,9 +937,25 @@ export async function buildFinanceReport({ month, force = false, env = process.e
   const metaRows = metaResult.status === 'fulfilled' ? metaResult.value : [];
   const build = (target) => applyClosed(aggregateFinanceReport({ orders: source.orders, issues: source.issues, metaRows, period: target, rules, expenses, metaAvailable: metaResult.status === 'fulfilled' }), getClosedFinanceActual(target.month));
   const report = build(period);
-  const prior = build(resolveFinancePeriod(previousMonth(period.month), { now, comparableDay: period.current ? period.elapsedDays : null }));
-  report.comparison = { period: prior.period, summary: summary(prior), deltas: Object.fromEntries(['exactNetProfit', 'realRevenue', 'totalCosts', 'roiPercent', 'roas', 'marginPercent'].map((field) => [field, delta(report.totals[field], prior.totals[field])])) };
-  report.history = historyMonths.map((value) => summary(build(resolveFinancePeriod(value, { now }))));
+  if (leanRefresh) {
+    const storedHistory = new Map((await Promise.all(historyMonths
+      .filter((value) => value !== period.month)
+      .map(async (value) => [value, await loadFinanceSnapshot({ month: value, now })])))
+      .filter(([, stored]) => stored));
+    const prior = storedHistory.get(previousMonth(period.month));
+    report.comparison = prior
+      ? { period: prior.period, summary: summary(prior), deltas: Object.fromEntries(['exactNetProfit', 'realRevenue', 'totalCosts', 'roiPercent', 'roas', 'marginPercent'].map((field) => [field, delta(report.totals[field], prior.totals[field])])) }
+      : { period: null, summary: null, deltas: {} };
+    report.history = historyMonths.flatMap((value) => {
+      if (value === period.month) return [summary(report)];
+      const stored = storedHistory.get(value);
+      return stored ? [summary(stored)] : [];
+    });
+  } else {
+    const prior = build(resolveFinancePeriod(previousMonth(period.month), { now, comparableDay: period.current ? period.elapsedDays : null }));
+    report.comparison = { period: prior.period, summary: summary(prior), deltas: Object.fromEntries(['exactNetProfit', 'realRevenue', 'totalCosts', 'roiPercent', 'roas', 'marginPercent'].map((field) => [field, delta(report.totals[field], prior.totals[field])])) };
+    report.history = historyMonths.map((value) => summary(build(resolveFinancePeriod(value, { now }))));
+  }
   report.projection = buildProjection(report, expenses);
   report.generatedAt = now.toISOString();
   report.freshness = { generatedAt: report.generatedAt, sources: { dropea: { status: orderResult.status === 'fulfilled' ? 'OK' : 'SOURCE_ERROR', lastSyncAt: orderResult.status === 'fulfilled' ? report.generatedAt : null, ageMinutes: orderResult.status === 'fulfilled' ? 0 : null }, meta: { status: metaResult.status === 'fulfilled' ? 'OK' : 'SOURCE_ERROR', lastSyncAt: metaResult.status === 'fulfilled' ? report.generatedAt : null, ageMinutes: metaResult.status === 'fulfilled' ? 0 : null }, expenses: { status: expenses.length ? 'OK' : 'MISSING', lastSyncAt: report.generatedAt, ageMinutes: 0 } } };

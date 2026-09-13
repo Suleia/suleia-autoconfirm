@@ -268,6 +268,21 @@ test('month selector input changes the complete report period', async () => {
   assert.ok(selectedMonthCall, 'the selected month must be loaded through its complete Madrid boundary');
 });
 
+test('lean current refresh reads only the selected month and skips the non-financial issue catalogue', async () => {
+  const calls = [];
+  await buildFinanceReport({
+    month: '2026-09', force: true, leanRefresh: true, now, rules, expenses,
+    configLoader: () => [{ store_id: '1', market: 'ES', token: 'test' }],
+    clientFactory: () => ({ listAll: async (name, params) => { calls.push({ name, params }); return { items: [] }; } }),
+    metaLoader: async () => []
+  });
+  const orderCalls = calls.filter((call) => call.name === 'listOrders');
+  assert.equal(orderCalls.length, 1);
+  assert.equal(orderCalls[0].params.date_from, '2026-08-31T22:00:00.000Z');
+  assert.equal(orderCalls[0].params.date_to, '2026-09-11T21:59:59.999Z');
+  assert.equal(calls.some((call) => call.name === 'listIssues'), false);
+});
+
 test('terminal orders missing economics in the list are enriched from Dropea order detail', async () => {
   const calls = [];
   const summaryOrder = order({ id: 1400480, delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' });
