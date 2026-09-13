@@ -3,7 +3,6 @@ import { pathToFileURL } from 'node:url';
 import { OperationsRepository } from '../../packages/suleia-operations-mcp/src/operations/repository.mjs';
 import { createOperationsAuth, OperationsAuthError } from '../../packages/suleia-operations-mcp/src/operations/auth.mjs';
 import { createFinanceReportClient } from './finance-report-client.mjs';
-import { publicMetaBudgetPolicy } from '../../services/meta-ads/budget/policy.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -181,10 +180,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
         audit({ event: 'incident_recommendation_feedback', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'recorded' });
         return json(res, 201, { ok: true, data, actions_executed: 0, production_writes: 0, internal_feedback_writes: 1 });
-      } else if (requestUrl.pathname === '/api/operations/meta-budget/policy') data = publicMetaBudgetPolicy();
-      else if (requestUrl.pathname === '/api/operations/meta-budget/simulation') data = await repository.metaBudgetSimulation(requestUrl.searchParams);
-      else if (requestUrl.pathname === '/api/operations/meta-budget/history') data = await repository.metaBudgetHistory(requestUrl.searchParams);
-      else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
+      } else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/finance') data = await cachedFinance(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
@@ -194,8 +190,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
       else return json(res, 404, { ok: false, error: 'not_found' });
       if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
       audit({ event: 'operations_read', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'ok' });
-      return json(res, 200, { ok: true, data, actions_executed: 0, production_writes: 0,
-        meta_budget_writes: 0, external_actions: 0 });
+      return json(res, 200, { ok: true, data, actions_executed: 0, production_writes: 0 });
     } catch (error) {
       if (error?.status === 400 || error?.status === 413 || error?.code === 'INVALID_FEEDBACK' || error?.code === 'INVALID_FIXED_EXPENSE') {
         return json(res, error.status || 400, { ok: false, error: error.message || 'invalid_feedback' });

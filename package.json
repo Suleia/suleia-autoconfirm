@@ -9,7 +9,6 @@
   "scripts": {
     "start": "node autoconfirm/server.mjs",
     "meta:read": "node services/meta-ads/cli/read-cycle.mjs",
-    "meta:budget:shadow": "node services/meta-ads/cli/budget-shadow.mjs",
     "test:shopify": "node scripts/test-shopify-connection.mjs"
   }
 }

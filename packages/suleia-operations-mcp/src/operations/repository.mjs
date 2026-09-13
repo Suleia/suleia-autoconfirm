@@ -504,30 +504,6 @@ export class OperationsRepository {
     } : null;
   }
 
-  async metaBudgetSimulation(searchParams) {
-    const limit = integer(searchParams.get('limit'), 100, 1, 250);
-    const result = await this.pool.query(`SELECT * FROM read_models.meta_budget_simulation_latest
-      ORDER BY last_evaluation DESC,campaign_id LIMIT $1`, [limit]);
-    return {
-      mode: 'SIMULATION_SHADOW_ONLY', safety_notice: 'SIMULATION - NO REAL CHANGES',
-      campaigns: result.rows, count: result.rows.length,
-      actions_executed: 0, production_writes: 0, meta_budget_writes: 0, external_actions: 0
-    };
-  }
-
-  async metaBudgetHistory(searchParams) {
-    const limit = integer(searchParams.get('limit'), 250, 1, 1000);
-    const campaignId = searchParams.get('campaign_id')?.trim() || null;
-    const result = await this.pool.query(`SELECT * FROM read_models.meta_budget_decision_history
-      WHERE ($1::text IS NULL OR campaign_id=$1)
-      ORDER BY evaluation_hour DESC,campaign_id LIMIT $2`, [campaignId, limit]);
-    return {
-      mode: 'SIMULATION_SHADOW_ONLY', safety_notice: 'SIMULATION - NO REAL CHANGES',
-      decisions: result.rows, count: result.rows.length,
-      actions_executed: 0, production_writes: 0, meta_budget_writes: 0, external_actions: 0
-    };
-  }
-
   async recordIncidentFeedback(id, { feedbackType, reasonCode, recommendationCode, principalHash }) {
     const allowedFeedback = new Set(['APPROVE', 'CORRECT', 'REJECT']);
     const allowedReasons = new Set(['ACCURATE', 'WRONG_TYPE', 'MISSING_CHATBY', 'WRONG_ACTION', 'STALE_DATA', 'OTHER']);

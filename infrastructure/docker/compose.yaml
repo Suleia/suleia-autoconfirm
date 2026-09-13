@@ -55,11 +55,6 @@ x-safety-environment: &safety-environment
   AI_REVIEW_ROUTE_MIN_CONFIDENCE: ${AI_REVIEW_ROUTE_MIN_CONFIDENCE:-0.60}
   HUMAN_REVIEW_REQUIRED_RISK: ${HUMAN_REVIEW_REQUIRED_RISK:-HIGH}
   CRITICAL_ALWAYS_BLOCKED: ${CRITICAL_ALWAYS_BLOCKED:-true}
-  META_AUTOMATION_MODE: ${META_AUTOMATION_MODE:-SIMULATION}
-  META_WRITES_ENABLED: ${META_WRITES_ENABLED:-false}
-  META_LIVE_EXECUTION_ENABLED: ${META_LIVE_EXECUTION_ENABLED:-false}
-  META_EXTERNAL_ACTIONS_ENABLED: ${META_EXTERNAL_ACTIONS_ENABLED:-false}
-  META_AUTOMATION_ENABLED: ${META_AUTOMATION_ENABLED:-false}
 
 x-node-service: &node-service
   build:
@@ -306,43 +301,6 @@ services:
       META_ADS_API_VERSION: ${META_ADS_API_VERSION:-v25.0}
       META_ADS_EXPECTED_CURRENCY: ${META_ADS_EXPECTED_CURRENCY:-EUR}
       META_ADS_TIMEZONE: ${META_ADS_TIMEZONE:-Europe/Madrid}
-    networks:
-      - public_network
-      - database_network
-    depends_on:
-      postgres:
-        condition: service_healthy
-
-  meta-budget-shadow:
-    <<: *node-service
-    profiles: ["meta-budget-shadow"]
-    restart: "no"
-    command: ["node", "services/meta-ads/cli/budget-shadow.mjs"]
-    environment:
-      <<: *safety-environment
-      META_AUTOMATION_MODE: ${META_AUTOMATION_MODE:-SIMULATION}
-      META_WRITES_ENABLED: "false"
-      META_LIVE_EXECUTION_ENABLED: "false"
-      META_EXTERNAL_ACTIONS_ENABLED: "false"
-      META_AUTOMATION_ENABLED: "false"
-      META_ADS_EXECUTION_MODE: SIMULATION
-      META_ADS_WRITES_ENABLED: "false"
-      META_ADS_BUDGET_WRITES_ENABLED: "false"
-      META_ADS_TELEGRAM_SEND_ENABLED: "false"
-      META_BUDGET_INTERNAL_DB_WRITES_ENABLED: "true"
-      META_BUDGET_DATABASE_URL: postgres://suleia_ingestion_login:${SULEIA_INGESTION_PASSWORD}@postgres:5432/${POSTGRES_DB:-suleia_staging}
-      META_ADS_ACCESS_TOKEN: ${META_ADS_READ_ONLY_ACCESS_TOKEN:-}
-      META_ADS_AD_ACCOUNT_ID: ${META_ADS_AD_ACCOUNT_ID:-}
-      META_ADS_API_VERSION: ${META_ADS_API_VERSION:-v25.0}
-      META_ADS_EXPECTED_CURRENCY: EUR
-      META_ADS_TIMEZONE: Europe/Madrid
-      META_MIN_DAILY_BUDGET_EUR: "15"
-      META_MAX_DAILY_BUDGET_EUR: "70"
-      META_NIGHT_MAX_DAILY_BUDGET_EUR: "35"
-      META_NIGHT_START: "00:00"
-      META_DAY_SCALING_START: "07:00"
-      META_SCALE_INCREMENT_EUR: "10"
-      META_BUDGET_TIMEZONE: Europe/Madrid
     networks:
       - public_network
       - database_network
