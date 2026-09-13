@@ -331,9 +331,9 @@ export class OperationsRepository {
       ...report, store_id: window.storeId,
       shopify_orders_available: false,
       limitations: [
-        'El P&L usa la fecha real del evento económico; el embudo usa la cohorte de creación.',
+        'El P&L concilia los pedidos del mes de Dropea con su estado y desglose financiero final.',
         'Shopify no interviene en pedidos, facturación, costes ni beneficio.',
-        'Las devoluciones requieren returned_at_utc y cuestan 5,26 € una vez por pedido.',
+        'Las devoluciones usan el coste real expuesto por Dropea para cada pedido; 5,26 € queda solo como respaldo si falta.',
         'Un coste o día publicitario sin fuente completa queda visible como no disponible; nunca se inventa un cero.'
       ],
       actions_executed: 0, production_writes: 0

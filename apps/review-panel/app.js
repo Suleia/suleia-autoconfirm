@@ -802,16 +802,6 @@ function orderDifferencesTable(rows, currency) {
     [orderReferenceLabel(item.orderId), item.oldMonth || '—', item.economicMonth || '—', item.eventType || '—', money(item.oldProfit, currency), money(item.correctedProfit, currency), money(item.delta, currency), (item.reasons || []).map((reason) => ({ WRONG_EVENT_MONTH: 'Cambio de mes económico', RETURN_COST_PER_ORDER: 'Devolución a 5,26 €/pedido', DROPEA_ADJUSTMENT: 'Ajuste Dropea recuperado' }[reason] || reason)).join(' · ') || 'Reconciliación de costes'].forEach((value, index) => tr.append(node('td', index === 6 ? 'daily-net-cell' : '', value))); body.append(tr); });
   table.append(head, body); const wrap = node('div', 'results-table-scroll'); wrap.append(table); return wrap;
 }
-function orderLedgerTable(rows, currency) {
-  if (!(rows || []).length) return stacked('Sin liquidaciones en este periodo', 'Los pedidos en tránsito no generan costes ni beneficio hasta su entrega o devolución.');
-  const table = node('table', 'forensic-results-table order-ledger-table'); const head = node('thead'); const hr = node('tr');
-  ['Pedido', 'Fecha económica', 'Evento', 'Unidades', 'Ingresos', 'Producto', 'Envío', 'Fulfillment', 'COD', 'Devolución', 'Ajustes', 'Coste total', 'Beneficio', 'Cobertura'].forEach((label) => hr.append(node('th', '', label))); head.append(hr); const body = node('tbody');
-  rows.forEach((item) => { const tr = node('tr', item.profit !== null && Number(item.profit) < 0 ? 'loss-row' : 'profit-row'); const values = [
-    orderReferenceLabel(item.orderId), date(item.economicDate, true), item.eventType === 'RETURNED' ? 'Devuelto' : 'Entregado', number(item.units),
-    money(item.revenue, currency), money(item.productCost, currency), money(item.outboundShippingCost, currency), money(item.outboundFulfillmentCost, currency), money(item.codCost, currency), money(item.returnCost, currency), money(item.dropeaAdjustmentsCost, currency), money(item.totalCost, currency), money(item.profit, currency), item.completeness === 'COMPLETE' ? 'Completo' : `Pendiente: ${(item.missing || []).join(', ')}`
-  ]; values.forEach((value, index) => tr.append(node('td', index === 12 ? 'daily-net-cell' : '', value))); body.append(tr); });
-  table.append(head, body); const wrap = node('div', 'results-table-scroll'); wrap.append(table); return wrap;
-}
 function closeResultExpenseForm() { $('finance-fixed-form').hidden = true; $('finance-fixed-form').reset(); $('finance-fixed-feedback').textContent = ''; }
 function openResultExpenseForm() { const form = $('finance-fixed-form'); form.hidden = false; form.reset(); const month = state.finance?.period?.month || new Date().toISOString().slice(0, 7); $('finance-fixed-start').value = `${month}-01`; $('finance-fixed-feedback').textContent = 'Se incorporará al mes y al histórico diario después de guardarlo.'; $('finance-fixed-label').focus(); }
 function renderResultExpenses(data, currency) {
@@ -850,8 +840,8 @@ function renderResultsFinance() {
     resultMetric('ROAS', totals.roas === null || totals.roas === undefined ? '—' : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(totals.roas)}x`, comparisonText('roas', 'multiplier'), 'roas', '◎', days.map((row) => Number(row.metaSpend || 0) > 0 ? Number(row.realRevenue || 0) / Number(row.metaSpend) : 0)),
     resultMetric('Margen neto', percentNumber(totals.marginPercent), comparisonText('marginPercent', 'points'), 'margin', '%', days.map((row) => row.marginPercent)),
     resultMetric('Tasa de entrega', percentNumber(counts.deliveryRatePercent), `${comparisonText('deliveryRatePercent', 'points')} · ${percentNumber(counts.deliveryRateCreatedPercent)} sobre creados`, 'margin', '✓', []),
-    resultMetric('Entregados', number(eventCounts.delivered ?? counts.delivered), 'Por fecha real de entrega del periodo', 'profit', '▣', days.map((row) => row.delivered)),
-    resultMetric('Devueltos', number(eventCounts.returned ?? counts.returned), 'Por returned_at; 5,26 € una vez por pedido', 'loss', '↩', days.map((row) => row.returned)),
+    resultMetric('Entregados', number(eventCounts.delivered ?? counts.delivered), 'Pedidos del mes con entrega verificada en Dropea', 'profit', '▣', days.map((row) => row.delivered)),
+    resultMetric('Devueltos', number(eventCounts.returned ?? counts.returned), 'Pedidos del mes devueltos; coste real por pedido', 'loss', '↩', days.map((row) => row.returned)),
     resultMetric('En tránsito', number(counts.inTransit ?? counts.inAir), 'Solo dentro del universo de enviados', 'revenue', '→', [])
   );
   $('finance-trend').replaceChildren(dailyResultsChart(data.days, currency));
@@ -862,8 +852,6 @@ function renderResultsFinance() {
   $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(data, currency));
   $('finance-reconciliation').replaceChildren(reconciliationTable(data.oldVsNew, currency));
   $('finance-order-differences').replaceChildren(orderDifferencesTable(data.topOrderDifferences, currency));
-  $('finance-ledger-count').textContent = `${number(data.orderLedger?.length)} pedido(s) liquidados · ${number(data.coverage?.dropeaBreakdownPercent)} % completos`;
-  $('finance-order-ledger').replaceChildren(orderLedgerTable(data.orderLedger, currency));
   $('finance-quality').replaceChildren(
     stacked('Modelos temporales', 'P&L por fecha económica · embudo por cohorte de creación'),
     stacked('Fuente de pedidos y costes', data.sources?.orders || 'Dropea Public API V2'),
