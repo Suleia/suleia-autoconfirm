@@ -61,9 +61,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260913-finance-source-regression-v5">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260913-daily-refresh-v6">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260913-finance-source-regression-v5" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260913-daily-refresh-v6" defer><\/script>/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);
@@ -71,7 +71,7 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(script, /Unidades devueltas/);
   assert.match(script, /Rechazados \/ devueltos/);
   assert.match(script, /dailyResultsChart/);
-  assert.match(script, /chart-cumulative-line/);
+  assert.doesNotMatch(script, /chart-cumulative-line|Beneficio acumulado|`Acumulado /);
   assert.match(script, /counts\.pendingConfirmation/);
   assert.match(script, /counts\.cancelledBeforeConfirmation/);
   assert.doesNotMatch(script, /\['Pendientes', counts\.pending, 'gray'\]/);
@@ -87,10 +87,10 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /precisión interna constante[\s\S]*redondea una sola vez/);
   assert.match(script, /miniSparkline/);
   assert.match(script, /Datos conciliados/);
-  assert.match(html, /Resultado anterior frente al resultado corregido/);
+  assert.doesNotMatch(html, /Resultado anterior frente al resultado corregido|Pedidos con mayor diferencia/);
   assert.doesNotMatch(html, /Libro económico del mes/);
   assert.doesNotMatch(script, /orderLedgerTable/);
-  assert.match(script, /reconciliationTable/);
+  assert.doesNotMatch(script, /reconciliationTable|orderDifferencesTable/);
   assert.doesNotMatch(html, /PRODUCTOS VENDIDOS/);
   assert.doesNotMatch(html, /id="finance-products"/);
   assert.match(html, /id="page-size"/);

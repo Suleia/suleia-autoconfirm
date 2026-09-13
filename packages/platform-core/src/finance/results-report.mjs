@@ -272,13 +272,13 @@ function authoritativeSourceAvailable(source) {
 function sourceCounts(source) {
   const input = source?.counts || {};
   const created = number(input.created ?? input.total);
-  const confirmed = number(input.confirmed);
   const sent = number(input.sent);
+  const confirmed = sent;
   const delivered = number(input.delivered);
   const returned = number(input.returned);
   const inTransit = number(input.inTransit ?? input.inAir);
-  const pendingConfirmation = number(input.pending ?? Math.max(0, created - confirmed));
-  const cancelledBeforeConfirmation = number(input.cancelled ?? input.rejected ?? Math.max(0, confirmed - sent));
+  const cancelledBeforeConfirmation = number(input.cancelled ?? input.rejected);
+  const pendingConfirmation = number(input.pending ?? Math.max(0, created - sent - cancelledBeforeConfirmation));
   const otherOutcome = Math.max(0, sent - delivered - returned - inTransit);
   return {
     ...input,
@@ -299,7 +299,7 @@ function sourceCounts(source) {
     pendingShipment: number(input.notSent ?? Math.max(0, created - sent)),
     notSent: number(input.notSent ?? Math.max(0, created - sent)),
     incidentOrders: number(input.incidentOrders),
-    confirmationRatePercent: round(input.confirmationRatePercent ?? (created ? confirmed * 100 / created : 0)),
+    confirmationRatePercent: round(created ? sent * 100 / created : 0),
     deliveryRatePercent: round(input.deliveryRatePercent ?? (sent ? delivered * 100 / sent : 0)),
     deliveryRateCreatedPercent: round(input.globalConversionPercent ?? (created ? delivered * 100 / created : 0)),
     returnRatePercent: round(input.returnRatePercent ?? (sent ? returned * 100 / sent : 0)),
