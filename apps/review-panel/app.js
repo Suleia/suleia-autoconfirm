@@ -823,7 +823,7 @@ function renderResultsFinance() {
   $('finance-operational-summary').replaceChildren(operationalSummary(counts)); $('finance-data-summary').replaceChildren(dataQualitySummary(data));
   $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(data, currency));
   $('finance-quality').replaceChildren(
-    stacked('Modelos temporales', 'P&L por fecha económica · embudo por cohorte de creación'),
+    stacked('Modelo temporal', 'P&L y embudo por cohorte de creación · resultado final actual de Dropea'),
     stacked('Fuente de pedidos y costes', data.sources?.orders || 'Dropea Public API V2'),
     stacked('Fórmula', data.definitions?.netProfit || 'Facturación real − costes de Dropea − Meta − gastos mensuales'),
     stacked('Coste de devolución', data.definitions?.returnCost || 'Coste real del pedido; respaldo de 5,26 € por pedido devuelto'),

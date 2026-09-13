@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260913-daily-refresh-v6">
+  <link rel="stylesheet" href="styles.css?v=20260913-cohort-fix-v7">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -80,7 +80,7 @@
         <section id="finance-hero" class="finance-hero"></section>
         <section class="results-chart-grid" aria-label="Gráficos de resultados">
           <article class="finance-panel daily-chart-panel">
-            <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA</p><h3>Beneficio neto realizado por día</h3><p>Barras de beneficio o pérdida y línea de beneficio acumulado MTD.</p></div><div class="chart-heading-actions"><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Beneficio</button><button id="finance-chart-pnl" type="button">P&amp;L completo</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
+            <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA</p><h3>Beneficio neto realizado por día</h3><p>Cada barra agrupa exclusivamente los pedidos creados ese día y su resultado actual en Dropea.</p></div><div class="chart-heading-actions"><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Beneficio</button><button id="finance-chart-pnl" type="button">P&amp;L completo</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
             <div id="finance-trend" class="finance-chart" aria-label="Evolución diaria del beneficio"></div>
           </article>
           <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">OPERACIÓN</p><h3>Tasa de entrega</h3></div></div><div id="finance-delivery-chart"></div></article>
@@ -155,6 +155,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260913-daily-refresh-v6" defer></script>
+  <script src="app.js?v=20260913-cohort-fix-v7" defer></script>
 </body>
 </html>

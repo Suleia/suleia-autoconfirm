@@ -394,7 +394,7 @@ function mapAuthoritativeSource(source, month, currentDay, freshness) {
     accounting: { closedThrough: lastDay, pendingDays, currentDayPartial: current },
     status: source.status || (current ? 'provisional' : 'reconstructed'),
     statusLabel: source.statusLabel || (current ? `MTD · día ${Number(lastDay.slice(-2))}` : 'Mes cerrado'),
-    temporalModels: { pnl: 'DROPEA_ORDER_MONTH_FINAL_BREAKDOWN', funnel: 'DROPEA_ORDER_MONTH_CURRENT_STATUS' },
+    temporalModels: { pnl: 'ORDER_CREATION_COHORT_FINAL_BREAKDOWN', funnel: 'ORDER_CREATION_COHORT_CURRENT_STATUS' },
     dataAvailability: source.dataAvailability || (current
       ? { status: 'MTD', label: `MTD · cierre hasta día ${Number(lastDay.slice(-2))}` }
       : { status: 'FULL_MONTH', label: 'Mes cerrado' }),
