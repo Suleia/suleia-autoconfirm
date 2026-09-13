@@ -94,22 +94,25 @@ function productCost(product, rates, day, dimensions) {
 }
 
 function fixedDaily(expenses, days) {
-  const result = new Map(days.map((day) => [day, 0]));
+  const result = Object.fromEntries(['fixed', 'one_off', 'other']
+    .map((bucket) => [bucket, new Map(days.map((day) => [day, 0]))]));
   for (const expense of expenses) {
     const expenseCents = cents(expense.amount);
     if (expenseCents === null || String(expense.status || 'ACTIVE').toUpperCase() !== 'ACTIVE') continue;
     const eligible = days.filter((day) => (!expense.start_date || day >= expense.start_date) && (!expense.end_date || day <= expense.end_date));
     if (!eligible.length) continue;
-    if (String(expense.expense_type).toUpperCase() === 'ONE_OFF') {
+    const expenseType = String(expense.expense_type || 'RECURRING').toUpperCase();
+    if (expenseType === 'ONE_OFF' || expenseType === 'OTHER') {
+      const bucket = expenseType === 'OTHER' ? result.other : result.one_off;
       const target = expense.occurred_on || expense.start_date;
-      if (result.has(target)) result.set(target, result.get(target) + expenseCents);
+      if (bucket.has(target)) bucket.set(target, bucket.get(target) + expenseCents);
       continue;
     }
     // Retain fractional cents internally so every day has the same accrual.
     // Presentation and monthly totals are rounded later.
     const base = expenseCents / eligible.length;
     for (const day of eligible) {
-      result.set(day, result.get(day) + base);
+      result.fixed.set(day, result.fixed.get(day) + base);
     }
   }
   return result;
@@ -271,7 +274,7 @@ function productEventRollup(orders, rates, month, timezone, currency, includeCur
   for (const order of orders) {
     const dates = eventDays(order, timezone); const flags = orderFlags(order);
     const created = inMonth(dates.created, month); const sent = inMonth(dates.sent, month);
-    const delivered = inMonth(dates.delivered, month); const returned = inMonth(dates.returned, month);
+    const delivered = inMonth(dates.delivered, month) && flags.delivered; const returned = inMonth(dates.returned, month);
     const currentInAir = includeCurrentSnapshot && flags.in_air && dates.created && dates.created <= `${month}-31`;
     if (!created && !sent && !delivered && !returned && !currentInAir) continue;
     const orderProducts = normalizedProducts(order);
@@ -334,7 +337,7 @@ function logisticsEventRollup(orders, rates, month, timezone, currency, includeC
   const carriers = new Map();
   for (const order of orders) {
     const dates = eventDays(order, timezone); const flags = orderFlags(order);
-    const sent = inMonth(dates.sent, month); const delivered = inMonth(dates.delivered, month);
+    const sent = inMonth(dates.sent, month); const delivered = inMonth(dates.delivered, month) && flags.delivered;
     const returned = inMonth(dates.returned, month); const currentInAir = includeCurrentSnapshot && flags.in_air && dates.created && dates.created <= `${month}-31`;
     if (!sent && !delivered && !returned && !currentInAir) continue;
     const carrier = String(order.carrier || 'SIN TRANSPORTISTA');
@@ -378,7 +381,10 @@ export function buildOrderCreationCohortFinanceReport({ month, orders = [], rate
     const relevant = day <= today; const ad = relevant ? sourceStatus(adSpend, day, currency) : { value: 0, status: 'FUTURE' };
     const counts = { orders_created: 0, orders_sent: 0, delivered: 0, delivered_units: 0, in_air: 0, returned: 0, returned_units: 0, incidences: 0 };
     let estimatedRevenue = 0; let realRevenue = 0; let estimatedRevenueComplete = true; let realRevenueComplete = true;
-    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixedExpensesComplete ? fixed.get(day) || 0 : null };
+    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value,
+      fixed: fixedExpensesComplete ? fixed.fixed.get(day) || 0 : null,
+      one_off: fixedExpensesComplete ? fixed.one_off.get(day) || 0 : null,
+      other: fixedExpensesComplete ? fixed.other.get(day) || 0 : null };
     for (const order of ordersByCreationDay.get(day)) {
       const flags = orderFlags(order); const products = normalizedProducts(order);
       const orderAmount = String(order.currency || currency).toUpperCase() === currency ? resolvedOrderAmount(order) : null;
@@ -414,7 +420,7 @@ export function buildOrderCreationCohortFinanceReport({ month, orders = [], rate
       }
     }
     if (relevant && ad.value === null) missing.add(`ADVERTISING:${day}`);
-    const operationalExpenseCents = addKnown([components.product, components.outbound_shipping, components.cod, components.outbound_fulfillment, components.returns, components.fixed]);
+    const operationalExpenseCents = addKnown([components.product, components.outbound_shipping, components.cod, components.outbound_fulfillment, components.returns, components.fixed, components.one_off, components.other]);
     const dropeaExpenseCents = addKnown([components.outbound_shipping, components.cod, components.outbound_fulfillment, components.returns]);
     const expenseCents = addKnown(Object.values(components));
     const profitCents = expenseCents === null || !realRevenueComplete ? null : realRevenue - expenseCents;
@@ -457,13 +463,13 @@ export function buildOrderCreationCohortFinanceReport({ month, orders = [], rate
   const profit = totalExpenses === null || realRevenue === null ? null : Number((realRevenue - totalExpenses).toFixed(2));
   const operationalProfit = operationalExpenses === null || realRevenue === null ? null : Number((realRevenue - operationalExpenses).toFixed(2));
   const dropeaProfit = dropeaExpenses === null || realRevenue === null ? null : Number((realRevenue - dropeaExpenses).toFixed(2));
-  const fixedCommitted = fixedExpensesComplete ? amount([...fixed.values()].reduce((sum, value) => sum + value, 0)) : null;
+  const fixedCommitted = fixedExpensesComplete ? amount([...fixed.fixed.values()].reduce((sum, value) => sum + value, 0)) : null;
   const totals = {
     orders_created: ordersCreated, orders_sent: ordersSent, delivered, delivered_units: sumField('delivered_units'),
     in_air: sumField('in_air'), returned: sumField('returned'), returned_units: sumField('returned_units'), incidences: sumField('incidences'),
     cohort: { orders_created: ordersCreated, orders_sent: ordersSent, delivered },
     estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
-    costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising, fixed: sumCost('fixed') },
+    costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising, fixed: sumCost('fixed'), one_off: sumCost('one_off'), other: sumCost('other') },
     fixed_expenses_committed: fixedCommitted,
     fixed_expenses_remaining: fixedCommitted === null || sumCost('fixed') === null ? null : Number((fixedCommitted - sumCost('fixed')).toFixed(2)),
     operational_expenses: operationalExpenses, operational_profit: operationalProfit,
@@ -538,13 +544,15 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     if (flags.sent && !dates.sent) missing.add(`EVENT_DATE:CONFIRMED:${order.canonical_order_id || 'UNKNOWN'}`);
     if (flags.delivered && !dates.delivered) missing.add(`EVENT_DATE:DELIVERED:${order.canonical_order_id || 'UNKNOWN'}`);
     if (flags.returned && !dates.returned) missing.add(`EVENT_DATE:RETURNED:${order.canonical_order_id || 'UNKNOWN'}`);
-    if (dates.delivered && dates.returned) missing.add(`REFUND_VALUE:${order.canonical_order_id || 'UNKNOWN'}`);
   }
   const daily = days.map((day) => {
     const events = eventsByDay.get(day); const relevant = day <= today; const ad = relevant ? sourceStatus(adSpend, day, currency) : { value: 0, status: 'FUTURE' };
     const counts = { orders_created: 0, orders_sent: 0, delivered: 0, delivered_units: 0, in_air: 0, returned: 0, returned_units: 0, incidences: 0 };
     let estimatedRevenue = 0; let realRevenue = 0; let estimatedRevenueComplete = true; let realRevenueComplete = true;
-    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value, fixed: fixedExpensesComplete ? fixed.get(day) || 0 : null };
+    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value,
+      fixed: fixedExpensesComplete ? fixed.fixed.get(day) || 0 : null,
+      one_off: fixedExpensesComplete ? fixed.one_off.get(day) || 0 : null,
+      other: fixedExpensesComplete ? fixed.other.get(day) || 0 : null };
     for (const { type: eventType, order } of events) {
       const orderAmount = String(order.currency || currency).toUpperCase() === currency ? resolvedOrderAmount(order) : null; const carrier = order.carrier;
       if (eventType === 'created') { counts.orders_created += 1; counts.incidences += order.active_issue_id ? 1 : 0; continue; }
@@ -554,16 +562,18 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
         else { estimatedRevenueComplete = false; missing.add(`ORDER_AMOUNT:${order.canonical_order_id || 'UNKNOWN'}`); }
       }
       if (eventType === 'delivered') {
+        // A final canonical return/refusal means the COD was not realised. Some
+        // historical rows contain a contradictory intermediate delivered_at;
+        // never turn that marker into revenue, COGS or COD.
+        if (order.returned_at_utc) continue;
         counts.delivered += 1;
         counts.delivered_units += normalizedProducts(order).reduce((sum, product) => sum + product.quantity, 0);
-        if (order.returned_at_utc) realRevenueComplete = false;
-        else if (orderAmount !== null) realRevenue += orderAmount;
+        if (orderAmount !== null) realRevenue += orderAmount;
         else { realRevenueComplete = false; missing.add(`ORDER_AMOUNT:${order.canonical_order_id || 'UNKNOWN'}`); }
       }
       if (eventType === 'returned') {
         counts.returned += 1;
         counts.returned_units += normalizedProducts(order).reduce((sum, product) => sum + product.quantity, 0);
-        if (order.delivered_at_utc) realRevenueComplete = false;
       }
       const neededTypes = eventType === 'sent' ? ['OUTBOUND_SHIPPING', 'OUTBOUND_FULFILLMENT']
         : eventType === 'delivered' ? ['COD'] : eventType === 'returned' ? ['RETURN_LOGISTICS_COMBINED'] : [];
@@ -586,7 +596,8 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     if (relevant && ad.value === null) missing.add(`ADVERTISING:${day}`);
     const operationalExpenseCents = addKnown([
       components.product, components.outbound_shipping, components.cod,
-      components.outbound_fulfillment, components.returns, components.fixed
+      components.outbound_fulfillment, components.returns, components.fixed,
+      components.one_off, components.other
     ]);
     // Dropea Statistics uses this perimeter: realised income minus delivery,
     // COD, fulfilment and rejection/return logistics. Product acquisition,
@@ -665,13 +676,13 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     return orderFlags(order).in_air && created && created <= today;
   }).length : null;
   const fixedCommitted = fixedExpensesComplete
-    ? amount([...fixed.values()].reduce((sum, value) => sum + value, 0)) : null;
+    ? amount([...fixed.fixed.values()].reduce((sum, value) => sum + value, 0)) : null;
   const totals = {
     orders_created: ordersCreated, orders_sent: ordersSent, delivered, delivered_units: sumField('delivered_units'), in_air: currentInAir,
     returned: sumField('returned'), returned_units: sumField('returned_units'), incidences: sumField('incidences'),
     cohort: { orders_created: cohortOrders.length, orders_sent: cohortSent, delivered: cohortDelivered },
     estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
-    costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising: sumCost('advertising'), fixed: sumCost('fixed') },
+    costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising: sumCost('advertising'), fixed: sumCost('fixed'), one_off: sumCost('one_off'), other: sumCost('other') },
     fixed_expenses_committed: fixedCommitted,
     fixed_expenses_remaining: fixedCommitted === null || sumCost('fixed') === null ? null : Number((fixedCommitted - sumCost('fixed')).toFixed(2)),
     operational_expenses: operationalExpenses, operational_profit: operationalProfit,
@@ -699,7 +710,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   const expenseComponents = [
     totals.costs.product, totals.costs.outbound_shipping, totals.costs.cod,
     totals.costs.outbound_fulfillment, totals.costs.returns,
-    totals.costs.advertising, totals.costs.fixed
+    totals.costs.advertising, totals.costs.fixed, totals.costs.one_off, totals.costs.other
   ];
   const expectedExpenses = expenseComponents.some((value) => value === null)
     ? null : Number(expenseComponents.reduce((sum, value) => sum + Number(value), 0).toFixed(2));
@@ -709,7 +720,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     formula_version: 'FINANCE_REALIZED_DAILY_V2',
     definitions: {
       perspective: 'Ingresos y costes se imputan en la fecha real del evento económico',
-      total_expenses: 'PRODUCT + OUTBOUND_SHIPPING + COD + OUTBOUND_FULFILLMENT + RETURNS + ADVERTISING + FIXED',
+      total_expenses: 'PRODUCT + OUTBOUND_SHIPPING + COD + OUTBOUND_FULFILLMENT + RETURNS + ADVERTISING + FIXED + ONE_OFF + OTHER',
       net_profit: 'REAL_REVENUE - TOTAL_EXPENSES',
       roi: 'NET_PROFIT / TOTAL_EXPENSES',
       margin: 'NET_PROFIT / REAL_REVENUE',

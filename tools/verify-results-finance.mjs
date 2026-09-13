@@ -16,6 +16,11 @@ try {
   for (const month of months) {
     const report = await repository.financialSummary(new URLSearchParams({ month }), supplementalReports);
     const recurringDailyValues = new Set(report.days.map((day) => Number(day.fixedCosts || 0).toFixed(2)));
+    const issueCategories = Object.entries(report.quality.issues.reduce((counts, issue) => {
+      const category = String(issue).split(':', 1)[0] || 'UNKNOWN';
+      counts[category] = (counts[category] || 0) + 1;
+      return counts;
+    }, {})).sort(([left], [right]) => left.localeCompare(right));
     const summary = {
       month,
       status: report.status,
@@ -25,7 +30,13 @@ try {
       totals: report.totals,
       dailyRows: report.days.length,
       distinctDisplayedFixedDailyValues: [...recurringDailyValues],
-      quality: report.quality,
+      quality: {
+        status: report.quality.status,
+        score: report.quality.score,
+        issueCount: report.quality.issues.length,
+        issueCategories: Object.fromEntries(issueCategories),
+        sample: report.quality.issues.slice(0, 10)
+      },
       controls: report.controls,
       productionWrites: report.productionWrites,
       actionsExecuted: report.actions_executed

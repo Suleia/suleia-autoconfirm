@@ -46,13 +46,15 @@ function normalizedSupplementalInputs(month, source, fallbackAds = [], fallbackE
   const ledger = Array.isArray(source.expenseLedger) ? source.expenseLedger : [];
   const fixedExpenses = ledger.length ? ledger.map((item) => {
     const oneOff = item.type === 'one_off';
-    return { expense_type: oneOff ? 'ONE_OFF' : 'RECURRING', amount: number(item.amount), status: 'ACTIVE',
+    const other = item.type === 'other';
+    return { expense_type: other ? 'OTHER' : oneOff ? 'ONE_OFF' : 'RECURRING', amount: number(item.amount), status: 'ACTIVE',
       start_date: item.startDate || item.date || `${month}-01`, end_date: item.endDate || null,
-      occurred_on: oneOff ? (item.date || item.startDate || `${month}-01`) : null };
-  }) : source.days.map((row) => ({
-    expense_type: 'ONE_OFF', amount: number(row.fixedCosts) + number(row.oneOffCosts) + number(row.otherCosts),
-    status: 'ACTIVE', start_date: row.day, end_date: row.day, occurred_on: row.day
-  }));
+      occurred_on: oneOff || other ? (item.date || item.startDate || `${month}-01`) : null };
+  }) : source.days.flatMap((row) => [
+    { expense_type: 'RECURRING', amount: number(row.fixedCosts), status: 'ACTIVE', start_date: row.day, end_date: row.day, occurred_on: null },
+    { expense_type: 'ONE_OFF', amount: number(row.oneOffCosts), status: 'ACTIVE', start_date: row.day, end_date: row.day, occurred_on: row.day },
+    { expense_type: 'OTHER', amount: number(row.otherCosts), status: 'ACTIVE', start_date: row.day, end_date: row.day, occurred_on: row.day }
+  ].filter((item) => item.amount !== 0));
   return { adSpend, fixedExpenses, fixedExpensesComplete: true };
 }
 
@@ -105,10 +107,7 @@ function asOfOrders(orders, cutoffDay, timezone = 'Europe/Madrid') {
 }
 
 function mapTotals(report, source) {
-  const totals = report.totals; const fixedFromSource = source?.totals || {};
-  const fixedCosts = fixedFromSource.fixedCosts ?? totals.costs.fixed;
-  const oneOffCosts = fixedFromSource.oneOffCosts ?? 0;
-  const otherCosts = fixedFromSource.otherCosts ?? 0;
+  const totals = report.totals;
   return {
     realRevenue: totals.real_revenue, revenue: totals.real_revenue,
     productCost: totals.costs.product, outboundShippingCost: totals.costs.outbound_shipping,
@@ -116,7 +115,8 @@ function mapTotals(report, source) {
     returnCost: totals.costs.returns, dropeaAdjustmentsCost: 0,
     logisticsCost: round(number(totals.costs.outbound_shipping) + number(totals.costs.cod)
       + number(totals.costs.outbound_fulfillment) + number(totals.costs.returns)),
-    metaSpend: totals.costs.advertising, fixedCosts, oneOffCosts, otherCosts,
+    metaSpend: totals.costs.advertising, fixedCosts: totals.costs.fixed,
+    oneOffCosts: totals.costs.one_off, otherCosts: totals.costs.other,
     totalCosts: totals.total_expenses, exactNetProfit: totals.net_profit,
     marginPercent: totals.margin === null ? null : round(totals.margin * 100),
     roiPercent: totals.roi === null ? null : round(totals.roi * 100),
@@ -136,7 +136,8 @@ function mapDays(report, currentDay) {
       outboundShippingCost: row.costs.outbound_shipping, codCost: row.costs.cod,
       outboundFulfillmentCost: row.costs.outbound_fulfillment, returnCost: row.costs.returns,
       dropeaAdjustmentsCost: 0, metaSpend: row.costs.advertising,
-      fixedCosts: row.costs.fixed, oneOffCosts: 0, otherCosts: 0, totalCosts: row.total_expenses, netProfit: row.net_profit,
+      fixedCosts: row.costs.fixed, oneOffCosts: row.costs.one_off, otherCosts: row.costs.other,
+      totalCosts: row.total_expenses, netProfit: row.net_profit,
       cumulativeNetProfit: round(cumulative), marginPercent: row.margin === null ? null : round(row.margin * 100),
       roiPercent: row.roi === null ? null : round(row.roi * 100),
       roas: row.costs.advertising ? round(row.real_revenue / row.costs.advertising) : null,
@@ -182,7 +183,7 @@ function mapReport(report, source, orders, month, currentDay, freshness) {
   const controls = Object.fromEntries(report.audit.checks.map((check) => [check.key, check.status === 'PASS']));
   controls.confirmationCohortReconciled = counts.confirmed + counts.pendingConfirmation + counts.cancelledBeforeConfirmation === counts.created;
   controls.deliveryOutcomeReconciled = counts.delivered + counts.inTransit + counts.returned === counts.sent;
-  const issues = report.missing_sources.filter((item) => !item.startsWith('REFUND_VALUE:'));
+  const issues = report.missing_sources;
   return {
     period: { month, since: `${month}-01`, until: report.daily.filter((row) => row.quality !== 'FUTURE').at(-1)?.day || `${month}-${monthDays(month)}`,
       daysInMonth: monthDays(month), elapsedDays: report.daily.filter((row) => row.quality !== 'FUTURE').length,

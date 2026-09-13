@@ -302,7 +302,7 @@ test('operator-confirmed product rates override a conflicting provider wholesale
   assert.equal(result.totals.costs.product, 2.02);
 });
 
-test('a delivered order returned later blocks revenue and profit until its refund value is known', () => {
+test('a rejected return with a contradictory delivery marker never creates COD revenue or COGS', () => {
   const result = buildMonthlyFinanceReport({
     month: '2026-08', now: new Date('2026-08-03T18:00:00Z'), rates, fixedExpensesComplete: true,
     orders: [order('delivered-then-returned', 'RETURNED', '2026-08-01', {
@@ -310,10 +310,36 @@ test('a delivered order returned later blocks revenue and profit until its refun
     })],
     adSpend: [1, 2, 3].map((day) => ({ business_date: `2026-08-0${day}`, spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }))
   });
-  assert.equal(result.totals.real_revenue, null);
-  assert.equal(result.totals.net_profit, null);
-  assert.equal(result.exactness, 'PARTIAL');
-  assert.match(result.missing_sources.join(','), /REFUND_VALUE/);
+  assert.equal(result.totals.delivered, 0);
+  assert.equal(result.totals.returned, 1);
+  assert.equal(result.totals.real_revenue, 0);
+  assert.equal(result.totals.costs.product, 0);
+  assert.equal(result.totals.costs.cod, 0);
+  assert.equal(result.totals.costs.returns, 5);
+  assert.equal(result.totals.net_profit, -10);
+  assert.equal(result.exactness, 'COMPLETE');
+  assert.doesNotMatch(result.missing_sources.join(','), /REFUND_VALUE/);
+});
+
+test('daily recurring, one-off and other verified expenses remain separate and reconcile', () => {
+  const result = buildMonthlyFinanceReport({
+    month: '2026-08', now: new Date('2026-08-02T18:00:00Z'), fixedExpensesComplete: true,
+    fixedExpenses: [
+      { expense_type: 'RECURRING', amount: 31, status: 'ACTIVE', start_date: '2026-08-01' },
+      { expense_type: 'ONE_OFF', amount: 9, status: 'ACTIVE', start_date: '2026-08-02', occurred_on: '2026-08-02' },
+      { expense_type: 'OTHER', amount: 4, status: 'ACTIVE', start_date: '2026-08-02', occurred_on: '2026-08-02' }
+    ],
+    adSpend: [1, 2].map((day) => ({ business_date: `2026-08-0${day}`, spend: 0, currency: 'EUR', sync_status: 'COMPLETE' }))
+  });
+  assert.equal(result.daily[0].costs.fixed, 1);
+  assert.equal(result.daily[1].costs.fixed, 1);
+  assert.equal(result.daily[1].costs.one_off, 9);
+  assert.equal(result.daily[1].costs.other, 4);
+  assert.equal(result.totals.costs.fixed, 2);
+  assert.equal(result.totals.costs.one_off, 9);
+  assert.equal(result.totals.costs.other, 4);
+  assert.equal(result.totals.total_expenses, 15);
+  assert.equal(result.totals.net_profit, -15);
 });
 
 test('historical product and carrier views never present the current in-air snapshot as a past fact', () => {
