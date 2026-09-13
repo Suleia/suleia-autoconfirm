@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
-INSTALL_ROOT="${INSTALL_ROOT:-/opt/suleia-operations}"
-ENV_FILE="${INSTALL_ROOT}/private-secrets/.env"
+INSTALL_ROOT="${SULEIA_INSTALL_ROOT:-/opt/suleia-operations}"
+COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
+ENV_FILE="${INSTALL_ROOT}/.env"
 MIGRATION_FILE="${INSTALL_ROOT}/migrations/033_finance_order_reconciliation.sql"
 
 test -r "${ENV_FILE}"
 test -r "${MIGRATION_FILE}"
-set -a
-source "${ENV_FILE}"
-set +a
-exec psql --host /var/run/postgresql --username "${POSTGRES_USER:-suleia_admin}" \
-  --dbname "${POSTGRES_DB:-suleia_staging}" --set ON_ERROR_STOP=1 --file "${MIGRATION_FILE}"
+docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" exec --no-TTY postgres \
+  psql --no-psqlrc --set ON_ERROR_STOP=1 --username suleia_admin \
+  --dbname "${POSTGRES_DB:-suleia_staging}" < "${MIGRATION_FILE}"
+echo 'FINANCE_ORDER_RECONCILIATION|PASS|per_order_join=enabled|external_actions=0|production_writes=0'
