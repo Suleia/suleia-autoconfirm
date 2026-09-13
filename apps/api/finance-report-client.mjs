@@ -17,6 +17,36 @@ function availableMonths(report) {
   return months.reverse();
 }
 
+const FINANCE_ORDER_MONEY_FIELDS = [
+  'orderAmount', 'realizedRevenue', 'dropeaExpenses', 'productCost',
+  'outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost',
+  'dropeaAdjustmentsCost', 'recognizedCost', 'dropeaOrderProfit', 'contributionAfterProduct'
+];
+
+function nullableMoney(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : null;
+}
+
+function safeFinanceOrders(rows) {
+  if (!Array.isArray(rows)) return [];
+  return rows.flatMap((row) => {
+    const orderId = String(row?.orderId ?? '');
+    if (!/^\d{1,18}$/.test(orderId)) return [];
+    const safe = {
+      orderId,
+      createdDay: /^\d{4}-\d{2}-\d{2}$/.test(String(row?.createdDay)) ? row.createdDay : null,
+      settlementDay: /^\d{4}-\d{2}-\d{2}$/.test(String(row?.settlementDay)) ? row.settlementDay : null,
+      status: String(row?.status || 'UNKNOWN').slice(0, 40).toUpperCase(),
+      breakdownStatus: String(row?.breakdownStatus || 'MISSING').slice(0, 40).toUpperCase(),
+      units: Number.isFinite(Number(row?.units)) ? Math.max(0, Number(row.units)) : null
+    };
+    for (const field of FINANCE_ORDER_MONEY_FIELDS) safe[field] = nullableMoney(row?.[field]);
+    return [safe];
+  });
+}
+
 function safeReport(report) {
   if (!report || typeof report !== 'object' || !MONTH.test(String(report?.period?.month))) throw new Error('finance_report_invalid');
   return {
@@ -41,6 +71,11 @@ function safeReport(report) {
     definitions: report.definitions || {},
     costTraceability: report.costTraceability || {},
     expenseLedger: Array.isArray(report.expenseLedger) ? report.expenseLedger : [],
+    // The Operations engine needs the final per-order Dropea breakdown to
+    // reconcile event-date P&L. Keep only a strict finance whitelist: no
+    // customer identifiers, external references or raw drilldowns cross this
+    // server-to-server boundary.
+    orders: safeFinanceOrders(report.orders),
     generatedAt: report.generatedAt || null,
     availableRange: report.availableRange || null,
     availableMonths: availableMonths(report),

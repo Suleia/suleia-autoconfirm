@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { FinanceReportClient, createFinanceReportClient } from './finance-report-client.mjs';
 
-test('finance client authenticates once, returns the reconciled report and strips order drilldowns', async () => {
+test('finance client authenticates once and keeps only the sanitized per-order finance breakdown', async () => {
   const calls = [];
   const fetchImpl = async (url, options = {}) => {
     calls.push({ url, options });
@@ -14,14 +14,24 @@ test('finance client authenticates once, returns the reconciled report and strip
       period: { month: '2026-07', current: false, elapsedDays: 31 }, status: 'reconstructed', statusLabel: 'Mes cerrado',
       counts: { created: 10, delivered: 7 }, totals: { realRevenue: 100, totalCosts: 70, exactNetProfit: 30 },
       days: [{ day: '2026-07-01', realRevenue: 100, totalCosts: 70, netProfit: 30 }], history: [{ month: '2026-07', totals: { exactNetProfit: 30 } }],
-      availableRange: { from: '2026-05', to: '2026-09' }, orders: [{ orderId: 'private-order' }], drilldowns: { '2026-07-01': { delivered: ['private-order'] } }
+      availableRange: { from: '2026-05', to: '2026-09' }, orders: [
+        { orderId: 1384509, externalOrderId: 'ES-PRIVATE', createdDay: '2026-09-01', settlementDay: '2026-09-09', status: 'finished',
+          units: 2, realizedRevenue: '29.99', productCost: 2.02, outboundShippingCost: 4.06,
+          outboundFulfillmentCost: 1, codCost: 1.2, returnCost: null, dropeaAdjustmentsCost: 0,
+          recognizedCost: 8.28, breakdownStatus: 'DROPEA_FINAL', calculatedAt: 'private' },
+        { orderId: 'not-a-number', externalOrderId: 'ES-REJECTED' }
+      ], drilldowns: { '2026-07-01': { delivered: ['private-order'] } }
     } });
   };
   const client = new FinanceReportClient({ baseUrl: 'https://finance.example.test', password: 'secret-fixture', fetchImpl });
   const report = await client.getMonthly('2026-07');
   assert.deepEqual(report.availableMonths, ['2026-09', '2026-08', '2026-07', '2026-06', '2026-05']);
   assert.equal(report.totals.exactNetProfit, 30);
-  assert.equal('orders' in report, false);
+  assert.deepEqual(report.orders, [{ orderId: '1384509', createdDay: '2026-09-01', settlementDay: '2026-09-09', status: 'FINISHED',
+    breakdownStatus: 'DROPEA_FINAL', units: 2, orderAmount: null, realizedRevenue: 29.99, dropeaExpenses: null,
+    productCost: 2.02, outboundShippingCost: 4.06, outboundFulfillmentCost: 1, codCost: 1.2,
+    returnCost: null, dropeaAdjustmentsCost: 0, recognizedCost: 8.28, dropeaOrderProfit: null,
+    contributionAfterProduct: null }]);
   assert.equal('drilldowns' in report, false);
   assert.equal(report.productionWrites, 0);
   assert.equal(calls.length, 2);

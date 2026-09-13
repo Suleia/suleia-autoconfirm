@@ -6,6 +6,7 @@ const MAX_DATE_ONLY_CACHE_ENTRIES = 50_000;
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const TERMINAL_BEFORE_CONFIRMATION = new Set(['CANCELLED', 'CANCELED', 'REJECTED']);
+const IN_TRANSIT_STATES = new Set(['CONFIRMED', 'PROCESSING', 'PREPARING', 'PREPARED', 'SHIPPING', 'TRANSIT', 'IN_TRANSIT']);
 
 function number(value, fallback = 0) {
   const parsed = Number(value);
@@ -51,6 +52,25 @@ function sourceForMonth(supplementalReports, month) {
   return supplementalReports.find((report) => report?.period?.month === month) || null;
 }
 
+function supplementalOrdersById(reports) {
+  const result = new Map();
+  for (const report of reports) {
+    for (const row of report?.orders || []) {
+      const id = String(row?.orderId ?? '');
+      if (/^\d{1,18}$/.test(id)) result.set(id, row);
+    }
+  }
+  return result;
+}
+
+function enrichOrdersWithFinance(orders, reports) {
+  const financeById = supplementalOrdersById(reports);
+  return orders.map((order) => {
+    const id = String(order.dropea_order_id ?? '');
+    return financeById.has(id) ? { ...order, financial_order: financeById.get(id) } : order;
+  });
+}
+
 function normalizedSupplementalInputs(month, source, fallbackAds = [], fallbackExpenses = []) {
   if (!source?.days?.length) return { adSpend: fallbackAds, fixedExpenses: fallbackExpenses, fixedExpensesComplete: fallbackExpenses.length > 0 };
   const adSpend = source.days.map((row) => ({
@@ -84,7 +104,10 @@ function cohortCounts(orders, month, timezone = 'Europe/Madrid') {
   const confirmed = cohort.filter((order) => Boolean(order.confirmed_at_utc));
   const returned = confirmed.filter((order) => Boolean(order.returned_at_utc));
   const delivered = confirmed.filter((order) => Boolean(order.delivered_at_utc) && !order.returned_at_utc);
-  const inTransit = Math.max(0, confirmed.length - returned.length - delivered.length);
+  const terminalIds = new Set([...returned, ...delivered].map((order) => order.canonical_order_id));
+  const unresolvedConfirmed = confirmed.filter((order) => !terminalIds.has(order.canonical_order_id));
+  const inTransit = unresolvedConfirmed.filter((order) => IN_TRANSIT_STATES.has(orderState(order))).length;
+  const otherOutcome = unresolvedConfirmed.length - inTransit;
   const unconfirmed = cohort.filter((order) => !order.confirmed_at_utc);
   const pendingConfirmation = unconfirmed.filter((order) => !TERMINAL_BEFORE_CONFIRMATION.has(orderState(order))).length;
   const cancelledBeforeConfirmation = unconfirmed.length - pendingConfirmation;
@@ -96,11 +119,12 @@ function cohortCounts(orders, month, timezone = 'Europe/Madrid') {
   return {
     created, validCreatedOrders: created, excludedInvalidOrders: orders.length - validOrders(orders).length,
     confirmed: sent, pendingConfirmation, cancelledBeforeConfirmation, sent,
-    delivered: delivered.length, deliveredUnits, returned: returned.length, returnedUnits, inTransit, inAir: inTransit,
+    delivered: delivered.length, deliveredUnits, returned: returned.length, returnedUnits, inTransit, inAir: inTransit, otherOutcome,
     pendingShipment: created - sent, notSent: created - sent,
     incidentOrders: cohort.filter((order) => order.active_issue_id).length,
     confirmationRatePercent: created ? round(sent * 100 / created) : 0,
     deliveryRatePercent: sent ? round(delivered.length * 100 / sent) : 0,
+    deliveryRateCreatedPercent: created ? round(delivered.length * 100 / created) : 0,
     returnRatePercent: sent ? round(returned.length * 100 / sent) : 0,
     globalConversionPercent: created ? round(delivered.length * 100 / created) : 0
   };
@@ -125,9 +149,9 @@ function mapTotals(report, source) {
     realRevenue: totals.real_revenue, revenue: totals.real_revenue,
     productCost: totals.costs.product, outboundShippingCost: totals.costs.outbound_shipping,
     codCost: totals.costs.cod, outboundFulfillmentCost: totals.costs.outbound_fulfillment,
-    returnCost: totals.costs.returns, dropeaAdjustmentsCost: 0,
+    returnCost: totals.costs.returns, dropeaAdjustmentsCost: totals.costs.dropea_adjustments,
     logisticsCost: round(number(totals.costs.outbound_shipping) + number(totals.costs.cod)
-      + number(totals.costs.outbound_fulfillment) + number(totals.costs.returns)),
+      + number(totals.costs.outbound_fulfillment) + number(totals.costs.returns) + number(totals.costs.dropea_adjustments)),
     metaSpend: totals.costs.advertising, fixedCosts: totals.costs.fixed,
     oneOffCosts: totals.costs.one_off, otherCosts: totals.costs.other,
     totalCosts: totals.total_expenses, exactNetProfit: totals.net_profit,
@@ -148,7 +172,7 @@ function mapDays(report, currentDay) {
       realRevenue: row.real_revenue, productCost: row.costs.product,
       outboundShippingCost: row.costs.outbound_shipping, codCost: row.costs.cod,
       outboundFulfillmentCost: row.costs.outbound_fulfillment, returnCost: row.costs.returns,
-      dropeaAdjustmentsCost: 0, metaSpend: row.costs.advertising,
+      dropeaAdjustmentsCost: row.costs.dropea_adjustments, metaSpend: row.costs.advertising,
       fixedCosts: row.costs.fixed, oneOffCosts: row.costs.one_off, otherCosts: row.costs.other,
       totalCosts: row.total_expenses, netProfit: row.net_profit,
       cumulativeNetProfit: round(cumulative), marginPercent: row.margin === null ? null : round(row.margin * 100),
@@ -195,8 +219,18 @@ function mapReport(report, source, orders, month, currentDay, freshness) {
       : { status: 'FULL_MONTH', label: 'Mes completo' });
   const controls = Object.fromEntries(report.audit.checks.map((check) => [check.key, check.status === 'PASS']));
   controls.confirmationCohortReconciled = counts.confirmed + counts.pendingConfirmation + counts.cancelledBeforeConfirmation === counts.created;
-  controls.deliveryOutcomeReconciled = counts.delivered + counts.inTransit + counts.returned === counts.sent;
+  controls.deliveryOutcomeReconciled = counts.delivered + counts.inTransit + counts.returned + counts.otherOutcome === counts.sent;
   const issues = report.missing_sources;
+  const ledger = (report.order_ledger || []).map((row) => ({
+    orderId: row.order_id, economicDate: row.economic_date, eventType: row.event_type, status: row.status,
+    units: row.units, revenue: row.revenue, productCost: row.costs.product,
+    outboundShippingCost: row.costs.outbound_shipping, outboundFulfillmentCost: row.costs.outbound_fulfillment,
+    codCost: row.costs.cod, returnCost: row.costs.returns, dropeaAdjustmentsCost: row.costs.dropea_adjustments,
+    totalCost: row.total_cost, profit: row.profit, sources: row.sources,
+    completeness: row.completeness, missing: row.missing
+  }));
+  const completeLedger = ledger.filter((row) => row.completeness === 'COMPLETE').length;
+  const breakdownPercent = ledger.length ? round(completeLedger * 100 / ledger.length) : 100;
   return {
     period: { month, since: `${month}-01`, until: report.daily.filter((row) => row.quality !== 'FUTURE').at(-1)?.day || `${month}-${monthDays(month)}`,
       daysInMonth: monthDays(month), elapsedDays: report.daily.filter((row) => row.quality !== 'FUTURE').length,
@@ -211,15 +245,16 @@ function mapReport(report, source, orders, month, currentDay, freshness) {
     eventCounts: { shipped: report.totals.orders_sent, delivered: report.totals.delivered,
       deliveredUnits: report.totals.delivered_units, returned: report.observed_snapshot.returned,
       returnedUnits: report.observed_snapshot.returned_units },
-    totals, days: mapDays(report, currentDay),
+    totals, days: mapDays(report, currentDay), orderLedger: ledger,
     quality: { status: issues.length || Object.values(controls).some((value) => !value) ? 'REVIEW' : 'OK',
       score: Math.max(0, 100 - issues.length * 5), issues },
     controls, warnings: issues,
     coverage: { ...(source?.coverage || {}), orders: true, meta: report.totals.costs.advertising !== null,
-      exactProfitAvailable: totals.exactNetProfit !== null },
-    freshness, sources: { ...(source?.sources || {}), orders: 'Copia operativa Dropea V2 del VPS',
-      calculation: 'Motor canónico REALIZED_EVENT_DATE del Operations Center' },
-    definitions: { netProfit: 'Facturación entregada − producto − envío − COD − fulfillment − devolución − Meta − gastos fijos/puntuales',
+      dropeaBreakdownPercent: breakdownPercent, reconciledOrders: completeLedger, settlementOrders: ledger.length,
+      missingSettlementOrders: ledger.length - completeLedger, exactProfitAvailable: totals.exactNetProfit !== null },
+    freshness, sources: { ...(source?.sources || {}), orders: 'Dropea V2 canónico + desglose financiero final por pedido',
+      calculation: 'Motor canónico ORDER_SETTLEMENT_DATE del Operations Center' },
+    definitions: { netProfit: 'Facturación entregada − producto − envío − COD − fulfillment − devolución − ajustes Dropea − Meta − gastos fijos/puntuales',
       returnCost: '5,26 € una sola vez por pedido con returned_at canónico',
       revenueDate: 'delivered_at_utc', returnDate: 'returned_at_utc',
       confirmationRate: 'Confirmados / pedidos válidos creados', deliveryRate: 'Entregados / enviados' },
@@ -228,10 +263,60 @@ function mapReport(report, source, orders, month, currentDay, freshness) {
   };
 }
 
+function oldTotals(source) {
+  const totals = source?.totals || {};
+  return {
+    revenue: round(totals.realRevenue ?? totals.revenue), product: round(totals.productCost),
+    outboundShipping: round(totals.outboundShippingCost), outboundFulfillment: round(totals.outboundFulfillmentCost),
+    cod: round(totals.codCost), returns: round(totals.returnCost), adjustments: round(totals.dropeaAdjustmentsCost),
+    meta: round(totals.metaSpend), fixed: round(totals.fixedCosts), oneOff: round(totals.oneOffCosts),
+    other: round(totals.otherCosts), totalCosts: round(totals.totalCosts), profit: round(totals.exactNetProfit)
+  };
+}
+
+function newTotals(report) {
+  const totals = report?.totals || {};
+  return { revenue: totals.realRevenue, product: totals.productCost, outboundShipping: totals.outboundShippingCost,
+    outboundFulfillment: totals.outboundFulfillmentCost, cod: totals.codCost, returns: totals.returnCost,
+    adjustments: totals.dropeaAdjustmentsCost, meta: totals.metaSpend, fixed: totals.fixedCosts,
+    oneOff: totals.oneOffCosts, other: totals.otherCosts, totalCosts: totals.totalCosts, profit: totals.exactNetProfit };
+}
+
+function reconciliationBridge(month, source, report) {
+  const old = oldTotals(source); const corrected = newTotals(report);
+  const keys = ['revenue', 'product', 'outboundShipping', 'outboundFulfillment', 'cod', 'returns', 'adjustments', 'meta', 'fixed', 'oneOff', 'other', 'totalCosts', 'profit'];
+  const deltas = Object.fromEntries(keys.map((key) => [key, old[key] === null || corrected[key] === null ? null : round(corrected[key] - old[key])]));
+  const bridgeCheck = old.profit === null || corrected.profit === null || deltas.revenue === null
+    || keys.slice(1, 11).some((key) => deltas[key] === null) ? null
+    : round(old.profit + deltas.revenue - keys.slice(1, 11).reduce((sum, key) => sum + deltas[key], 0));
+  return { month, old, corrected, deltas,
+    profitOverstatement: old.profit === null || corrected.profit === null ? null : round(old.profit - corrected.profit),
+    reconciles: bridgeCheck === null ? false : Math.abs(bridgeCheck - corrected.profit) <= 0.01 };
+}
+
+function orderDifferences(orders, reports, selected) {
+  const financeById = supplementalOrdersById(reports);
+  const ledgerById = new Map((selected.orderLedger || []).map((row) => [String(row.orderId), row]));
+  return orders.flatMap((order) => {
+    const id = String(order.dropea_order_id ?? ''); const old = financeById.get(id); const corrected = ledgerById.get(id);
+    if (!old && !corrected) return [];
+    const oldProfit = old?.contributionAfterProduct ?? old?.dropeaOrderProfit ?? null;
+    const correctedProfit = corrected?.profit ?? null;
+    const reasons = [];
+    if (old?.createdDay && corrected?.economicDate && old.createdDay.slice(0, 7) !== corrected.economicDate.slice(0, 7)) reasons.push('WRONG_EVENT_MONTH');
+    if (corrected?.eventType === 'RETURNED' && old?.returnCost !== 5.26) reasons.push('RETURN_COST_PER_ORDER');
+    if (old && old.dropeaAdjustmentsCost !== null && corrected?.dropeaAdjustmentsCost !== old.dropeaAdjustmentsCost) reasons.push('DROPEA_ADJUSTMENT');
+    const delta = oldProfit === null || correctedProfit === null ? null : round(correctedProfit - oldProfit);
+    if (!reasons.length && (delta === null || Math.abs(delta) < 0.01)) return [];
+    return [{ orderId: id, oldMonth: old?.createdDay?.slice(0, 7) || null, economicMonth: corrected?.economicDate?.slice(0, 7) || null,
+      eventType: corrected?.eventType || null, oldProfit, correctedProfit, delta, reasons }];
+  }).sort((a, b) => Math.abs(number(b.delta)) - Math.abs(number(a.delta))).slice(0, 20);
+}
+
 export function buildResultsFinanceReport({ month, orders = [], rates = [], supplementalReports = [],
   localAdSpend = [], localFixedExpenses = [], availableMonths = [], now = new Date(), dropeaLastSyncAt = null } = {}) {
   if (!MONTH.test(String(month))) throw new Error('FINANCE_MONTH_INVALID');
-  const currentDay = dateOnly(now); const allOrders = validOrders(orders);
+  const currentDay = dateOnly(now); const allOrders = validOrders(enrichOrdersWithFinance(orders, supplementalReports));
   const months = [...new Set([...availableMonths, ...supplementalReports.map((item) => item?.period?.month)])]
     .filter((item) => MONTH.test(String(item))).sort();
   const mapped = new Map();
@@ -272,6 +357,8 @@ export function buildResultsFinanceReport({ month, orders = [], rates = [], supp
     dataAvailability: item.dataAvailability
   }));
   selected.comparison = comparison(selected, prior, comparisonPeriod);
+  selected.oldVsNew = [...mapped.entries()].map(([candidate, report]) => reconciliationBridge(candidate, sourceForMonth(supplementalReports, candidate), report));
+  selected.topOrderDifferences = orderDifferences(allOrders, supplementalReports, selected);
   selected.availableMonths = months.slice().reverse();
   selected.availableRange = months.length ? { from: months[0], to: months.at(-1) } : { from: month, to: month };
   return selected;

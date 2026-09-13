@@ -37,11 +37,14 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
     days: [{ day: '2026-07-01', created: 12, delivered: 8, returned: 2, realRevenue: 240, productCost: 35, outboundShippingCost: 30, outboundFulfillmentCost: 8, codCost: 9, returnCost: 10.52, dropeaAdjustmentsCost: 3, metaSpend: 90, fixedCosts: 5.68, oneOffCosts: 3.28, otherCosts: 0, totalCosts: 194.48, netProfit: 45.52, marginPercent: 18.97, roiPercent: 23.41 }],
     history: [{ month: '2026-06', totals: { realRevenue: 4958.52, totalCosts: 3314.53, exactNetProfit: 1643.99 } }, { month: '2026-07', totals: { realRevenue: 9616.5, totalCosts: 8057.51, exactNetProfit: 1558.99 } }],
     comparison: { deltas: { exactNetProfit: { percent: -5 }, realRevenue: { percent: 94 }, totalCosts: { percent: 143 }, roiPercent: { percent: -12 }, roas: { percent: -8 }, marginPercent: { percent: -31 } } },
-    quality: { status: 'OK', issues: [] }, controls: { dailyRevenueReconciled: true, dailyCostsReconciled: true, profitReconciled: true }, coverage: { dropeaBreakdownPercent: 100 }, sources: { orders: 'Dropea Public API V2' }, definitions: { netProfit: 'Fórmula conciliada', returnCost: '5,26 € por pedido solo como respaldo' }, expenseLedger: [{ name: 'Servidor', type: 'recurring_monthly', category: 'Infraestructura', amount: 13.13, appliedAmount: 13.13, startDate: '2026-07-01' }]
+    quality: { status: 'OK', issues: [] }, controls: { dailyRevenueReconciled: true, dailyCostsReconciled: true, profitReconciled: true }, coverage: { dropeaBreakdownPercent: 100 }, sources: { orders: 'Dropea Public API V2' }, definitions: { netProfit: 'Fórmula conciliada', returnCost: '5,26 € por pedido solo como respaldo' }, expenseLedger: [{ name: 'Servidor', type: 'recurring_monthly', category: 'Infraestructura', amount: 13.13, appliedAmount: 13.13, startDate: '2026-07-01' }],
+    oldVsNew: [{ month: '2026-07', old: { profit: 2000 }, corrected: { profit: 1558.99 }, deltas: { profit: -441.01, revenue: 0, totalCosts: 441.01 }, profitOverstatement: 441.01, reconciles: true }],
+    topOrderDifferences: [{ orderId: '1393175', oldMonth: '2026-06', economicMonth: '2026-07', eventType: 'DELIVERED', oldProfit: 20, correctedProfit: 18, delta: -2, reasons: ['WRONG_EVENT_MONTH'] }],
+    orderLedger: [{ orderId: '1393175', economicDate: '2026-07-01', eventType: 'DELIVERED', units: 1, revenue: 29.99, productCost: 1.01, outboundShippingCost: 4.06, outboundFulfillmentCost: 1, codCost: 1.2, returnCost: 0, dropeaAdjustmentsCost: 0, totalCost: 7.27, profit: 22.72, completeness: 'COMPLETE', missing: [] }]
   };
   context.__results.renderResultsFinance();
   assert.equal(get('finance-hero').children.length, 10);
-  assert.match(content(get('finance-hero')), /Beneficio mensual/);
+  assert.match(content(get('finance-hero')), /Beneficio conciliado/);
   assert.match(content(get('finance-hero')), /1558,99/);
   assert.equal(get('finance-trend').children[0].children[1].tagName, 'svg');
   assert.match(content(get('finance-daily')), /TOTAL DEL MES/);
@@ -54,6 +57,9 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   assert.match(content(get('finance-costs')), /Publicidad Meta/);
   assert.match(content(get('finance-operational-summary')), /Pedidos creados/);
   assert.match(content(get('finance-data-summary')), /Datos conciliados/);
+  assert.match(content(get('finance-reconciliation')), /441,01/);
+  assert.match(content(get('finance-order-differences')), /Cambio de mes económico/);
+  assert.match(content(get('finance-order-ledger')), /1393175/);
   context.__results.state.finance.period = { month: '2026-09', current: true, elapsedDays: 13 };
   context.__results.state.finance.accounting = { closedThrough: '2026-09-12', pendingDays: 1, currentDayPartial: true };
   context.__results.state.finance.dataAvailability = { status: 'MTD', label: 'MTD · día 13' };

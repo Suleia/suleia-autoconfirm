@@ -298,7 +298,7 @@ export class OperationsRepository {
     const [orders, rates, fixed, advertising, months, checkpoints] = await Promise.all([
       this.pool.query(`SELECT canonical_order_id,store_id,lifecycle_status,status,created_at_utc,source_updated_at,updated_at,
         confirmed_at_utc,delivered_at_utc,returned_at_utc,total_amount,currency,carrier,product_summary,active_issue_id,
-        order_costs,test_order,duplicate_status,final_amount
+        order_costs,test_order,duplicate_status,final_amount,dropea_order_id
         FROM read_models.operations_finance_order_inputs
         WHERE ($1::text IS NULL OR store_id=$1)`, values),
       this.pool.query(`SELECT store_id,cost_type,carrier,provider,product_id,variant_id,amount,currency,

@@ -8,6 +8,7 @@ const rates = [
   ['COD', 0.5, { carrier: 'GLS' }],
   ['RETURN_SHIPPING', 4, { carrier: 'GLS' }],
   ['RETURN_FULFILLMENT', 1, { carrier: 'GLS' }],
+  ['DROPEA_ADJUSTMENTS', 0, { carrier: 'GLS' }],
   ['PRODUCT_COGS', 3, { variant_id: 'v1' }]
 ].map(([cost_type, amount, dimensions]) => ({ cost_type, amount, effective_from: '2026-08-01', ...dimensions }));
 
@@ -31,24 +32,24 @@ test('monthly report separates delivered, in-air and returned orders and applies
   assert.equal(result.totals.returned, 1);
   assert.equal(result.totals.returned_units, 2);
   assert.equal(result.totals.delivered_units, 2);
-  assert.equal(result.totals.costs.outbound_shipping, 12);
-  assert.equal(result.totals.costs.returns, 5);
+  assert.equal(result.totals.costs.outbound_shipping, 8);
+  assert.equal(result.totals.costs.returns, 5.26);
   assert.equal(result.totals.costs.product, 6);
-  assert.equal(result.totals.dropea_expenses, 20.5);
-  assert.equal(result.totals.dropea_profit, -0.5);
-  assert.equal(result.totals.dropea_margin, -0.025);
-  assert.equal(result.totals.dropea_profit_after_meta, -6.5);
+  assert.equal(result.totals.dropea_expenses, 15.76);
+  assert.equal(result.totals.dropea_profit, 4.24);
+  assert.equal(result.totals.dropea_margin, 0.212);
+  assert.equal(result.totals.dropea_profit_after_meta, -1.76);
   assert.equal(result.exactness, 'COMPLETE');
 });
 
-test('missing rates and missing advertising days remain incomplete instead of becoming zero', () => {
+test('an in-air order has no invented settlement cost and missing accounting sources remain incomplete', () => {
   const result = buildMonthlyFinanceReport({ month: '2026-08', now: new Date('2026-08-02T12:00:00Z'), orders: [order('air', 'SHIPPING', '2026-08-01')], rates: [], adSpend: [] });
-  assert.equal(result.totals.costs.outbound_shipping, null);
+  assert.equal(result.totals.costs.outbound_shipping, 0);
   assert.equal(result.totals.costs.advertising, null);
   assert.equal(result.totals.total_expenses, null);
   assert.equal(result.totals.net_profit, null);
   assert.equal(result.exactness, 'PARTIAL');
-  assert.match(result.missing_sources.join(','), /OUTBOUND_SHIPPING:GLS/);
+  assert.match(result.missing_sources.join(','), /ADVERTISING|FIXED_EXPENSES/);
 });
 
 test('Dropea wholesale price calculates operational profit while missing ads only block net profit', () => {
@@ -84,7 +85,7 @@ test('a zero Dropea wholesale sentinel never fabricates a free product or inflat
   assert.equal(result.totals.dropea_expenses, 5.5);
   assert.equal(result.totals.dropea_profit, 14.5);
   assert.equal(result.totals.dropea_profit_after_meta, 14.5);
-  assert.match(result.missing_sources.join(','), /PRODUCT_COGS/);
+  assert.match(result.missing_sources.join(','), /MISSING_PRODUCT_COGS/);
 });
 
 test('an unconfigured fixed-expense source remains unknown instead of becoming zero', () => {
@@ -113,7 +114,7 @@ test('a rejected order that was already dispatched is counted as a return with e
     adSpend: [{ business_date: '2026-08-01', spend: 0, sync_status: 'COMPLETE' }] });
   assert.equal(result.totals.returned, 1);
   assert.equal(result.totals.costs.outbound_fulfillment, 1.2);
-  assert.equal(result.totals.costs.returns, 5.5);
+  assert.equal(result.totals.costs.returns, 5.26);
 });
 
 test('Dropea refused lifecycle is shown as a returned order and returned product units', () => {
@@ -128,7 +129,7 @@ test('Dropea refused lifecycle is shown as a returned order and returned product
   assert.equal(result.daily[1].returned, 1);
   assert.equal(result.daily[1].returned_units, 2);
   assert.equal(result.products[0].returned_units, 2);
-  assert.equal(result.totals.return_cost_per_order, 5);
+  assert.equal(result.totals.return_cost_per_order, 5.26);
   assert.equal(result.audit.checks.find((check) => check.key === 'RETURNED_COUNT_EQUALS_DAILY_RETURNED').status, 'PASS');
   assert.equal(result.audit.checks.find((check) => check.key === 'RETURN_COST_EQUALS_DAILY_RETURN_COST').status, 'PASS');
 });
@@ -211,7 +212,7 @@ test('rejections after the accounting close remain visible without entering clos
   assert.equal(result.totals.costs.returns, 0);
   assert.equal(result.observed_snapshot.returned, 1);
   assert.equal(result.observed_snapshot.returned_units, 2);
-  assert.equal(result.observed_snapshot.return_cost, 5);
+  assert.equal(result.observed_snapshot.return_cost, 5.26);
 });
 
 test('delivered orders without product lines or amounts block profit instead of fabricating zero', () => {
@@ -220,7 +221,7 @@ test('delivered orders without product lines or amounts block profit instead of 
   assert.equal(result.totals.real_revenue, null);
   assert.equal(result.totals.costs.product, null);
   assert.equal(result.totals.net_profit, null);
-  assert.match(result.missing_sources.join(','), /ORDER_ITEMS_MISSING/);
+  assert.match(result.missing_sources.join(','), /MISSING_ORDER_ITEMS|PRODUCT:/);
 });
 
 test('monthly rates are recalculated from monthly totals instead of averaging daily percentages', () => {
@@ -282,7 +283,7 @@ test('confirmed Collagum and NIDA unit costs reproduce the audited product subto
   assert.equal(result.totals.costs.product, 216.97);
   assert.equal(2 * 1.01, 2.02);
   assert.equal(2 * 1.44, 2.88);
-  assert.equal(result.audit.formula_version, 'FINANCE_REALIZED_DAILY_V2');
+  assert.equal(result.audit.formula_version, 'FINANCE_ORDER_SETTLEMENT_V3');
   assert.ok(result.audit.checks.every((check) => check.status === 'PASS'));
 });
 
@@ -315,8 +316,8 @@ test('a rejected return with a contradictory delivery marker never creates COD r
   assert.equal(result.totals.real_revenue, 0);
   assert.equal(result.totals.costs.product, 0);
   assert.equal(result.totals.costs.cod, 0);
-  assert.equal(result.totals.costs.returns, 5);
-  assert.equal(result.totals.net_profit, -10);
+  assert.equal(result.totals.costs.returns, 5.26);
+  assert.equal(result.totals.net_profit, -10.26);
   assert.equal(result.exactness, 'COMPLETE');
   assert.doesNotMatch(result.missing_sources.join(','), /REFUND_VALUE/);
 });

@@ -197,18 +197,79 @@ function observedFulfillmentCost(order, type) {
   return null;
 }
 
-function exactOrderCost(order, rates, type, day, dimensions) {
-  if (type === 'RETURN_LOGISTICS_COMBINED') {
-    const governed = rateFor(rates, type, day, dimensions);
-    if (governed) return cents(governed.amount);
-    const shipping = exactOrderCost(order, rates, 'RETURN_SHIPPING', day, dimensions);
-    const fulfillment = exactOrderCost(order, rates, 'RETURN_FULFILLMENT', day, dimensions);
-    return shipping === null || fulfillment === null ? null : shipping + fulfillment;
+const FINANCIAL_COST_FIELD = Object.freeze({
+  PRODUCT_COGS: 'productCost',
+  OUTBOUND_SHIPPING: 'outboundShippingCost',
+  OUTBOUND_FULFILLMENT: 'outboundFulfillmentCost',
+  COD: 'codCost',
+  DROPEA_ADJUSTMENTS: 'dropeaAdjustmentsCost'
+});
+
+function supplementalFinance(order) {
+  const value = order.financial_order;
+  return value && typeof value === 'object' ? value : null;
+}
+
+function supplementalCost(order, type) {
+  const row = supplementalFinance(order); const field = FINANCIAL_COST_FIELD[type];
+  if (!row || !field || !['DROPEA_FINAL', 'FINAL', 'COMPLETE'].includes(String(row.breakdownStatus || '').toUpperCase())) return null;
+  return cents(row[field]);
+}
+
+function costWithSource(order, rates, type, day, dimensions) {
+  // The owner-approved return rule is deliberately authoritative over older
+  // provider snapshots: 5.26 EUR once per returned order, never per unit.
+  if (type !== 'RETURN_LOGISTICS_COMBINED') {
+    const actual = supplementalCost(order, type);
+    if (actual !== null) return { cents: actual, source: 'DROPEA_FINAL' };
   }
   const observed = observedFulfillmentCost(order, type);
-  if (observed !== null) return observed;
+  if (observed !== null) return { cents: observed, source: 'DROPEA_V2_OBSERVED' };
   const rate = rateFor(rates, type, day, dimensions);
-  return rate ? cents(rate.amount) : null;
+  if (rate) return { cents: cents(rate.amount), source: String(rate.source || 'BUSINESS_VERIFIED_RATE') };
+  if (type === 'RETURN_LOGISTICS_COMBINED') return { cents: 526, source: 'OWNER_APPROVED_5_26_PER_RETURNED_ORDER' };
+  return { cents: null, source: 'MISSING' };
+}
+
+function exactOrderCost(order, rates, type, day, dimensions) {
+  return costWithSource(order, rates, type, day, dimensions).cents;
+}
+
+function productCostWithSource(order, rates, day, dimensions, returned) {
+  const actual = supplementalCost(order, 'PRODUCT_COGS');
+  if (actual !== null) return { cents: actual, source: 'DROPEA_FINAL' };
+  // Returned orders do not consume COGS merely because an item exists. Only
+  // a real provider charge may put product cost on a return settlement.
+  if (returned) return { cents: 0, source: 'NO_PRODUCT_CHARGE_ON_RETURN' };
+  const products = normalizedProducts(order);
+  if (!products.length) return { cents: null, source: 'MISSING_ORDER_ITEMS' };
+  let total = 0; const sources = new Set();
+  for (const product of products) {
+    const governed = rateFor(rates, 'PRODUCT_COGS', day, { ...product, ...dimensions });
+    if (governed) { total += cents(governed.amount) * product.quantity; sources.add(String(governed.source || 'BUSINESS_VERIFIED_RATE')); continue; }
+    if (Number.isFinite(product.wholesale_price) && product.wholesale_price > 0) {
+      total += cents(product.wholesale_price) * product.quantity; sources.add('DROPEA_WHOLESALE_OBSERVED'); continue;
+    }
+    return { cents: null, source: `MISSING_PRODUCT_COGS:${product.variant_id || product.product_id || product.name}` };
+  }
+  return { cents: total, source: [...sources].join('+') || 'MISSING' };
+}
+
+function settlementFinancials(order, rates, day, currency, returned) {
+  const dimensions = { carrier: order.carrier, store_id: order.store_id, currency };
+  const product = productCostWithSource(order, rates, day, dimensions, returned);
+  const outboundShipping = costWithSource(order, rates, 'OUTBOUND_SHIPPING', day, dimensions);
+  const outboundFulfillment = costWithSource(order, rates, 'OUTBOUND_FULFILLMENT', day, dimensions);
+  const cod = returned ? { cents: 0, source: 'NOT_REALIZED_ON_RETURN' } : costWithSource(order, rates, 'COD', day, dimensions);
+  const returns = returned ? costWithSource(order, rates, 'RETURN_LOGISTICS_COMBINED', day, dimensions) : { cents: 0, source: 'NOT_RETURNED' };
+  const adjustments = costWithSource(order, rates, 'DROPEA_ADJUSTMENTS', day, dimensions);
+  const values = { product, outbound_shipping: outboundShipping, outbound_fulfillment: outboundFulfillment, cod, returns, dropea_adjustments: adjustments };
+  return {
+    values,
+    missing: Object.entries(values).filter(([, value]) => value.cents === null).map(([key]) => key),
+    costs: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.cents])),
+    sources: Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.source]))
+  };
 }
 
 function productRollup(orders, rates, timezone, currency) {
@@ -569,11 +630,12 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     if (flags.delivered && !dates.delivered) missing.add(`EVENT_DATE:DELIVERED:${order.canonical_order_id || 'UNKNOWN'}`);
     if (flags.returned && !dates.returned) missing.add(`EVENT_DATE:RETURNED:${order.canonical_order_id || 'UNKNOWN'}`);
   }
+  const orderLedger = [];
   const daily = days.map((day) => {
     const events = eventsByDay.get(day); const relevant = day <= today; const ad = relevant ? sourceStatus(adSpend, day, currency) : { value: 0, status: 'FUTURE' };
     const counts = { orders_created: 0, orders_sent: 0, delivered: 0, delivered_units: 0, in_air: 0, returned: 0, returned_units: 0, incidences: 0 };
     let estimatedRevenue = 0; let realRevenue = 0; let estimatedRevenueComplete = true; let realRevenueComplete = true;
-    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, advertising: ad.value,
+    const components = { product: 0, outbound_shipping: 0, cod: 0, outbound_fulfillment: 0, returns: 0, dropea_adjustments: 0, advertising: ad.value,
       fixed: fixedExpensesComplete ? fixed.fixed.get(day) || 0 : null,
       one_off: fixedExpensesComplete ? fixed.one_off.get(day) || 0 : null,
       other: fixedExpensesComplete ? fixed.other.get(day) || 0 : null };
@@ -592,35 +654,41 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
         if (order.returned_at_utc) continue;
         counts.delivered += 1;
         counts.delivered_units += normalizedProducts(order).reduce((sum, product) => sum + product.quantity, 0);
-        if (orderAmount !== null) realRevenue += orderAmount;
+        const actualRevenue = cents(supplementalFinance(order)?.realizedRevenue);
+        const deliveredRevenue = actualRevenue ?? orderAmount;
+        if (deliveredRevenue !== null) realRevenue += deliveredRevenue;
         else { realRevenueComplete = false; missing.add(`ORDER_AMOUNT:${order.canonical_order_id || 'UNKNOWN'}`); }
       }
       if (eventType === 'returned') {
         counts.returned += 1;
         counts.returned_units += normalizedProducts(order).reduce((sum, product) => sum + product.quantity, 0);
       }
-      const neededTypes = eventType === 'sent' ? ['OUTBOUND_SHIPPING', 'OUTBOUND_FULFILLMENT']
-        : eventType === 'delivered' ? ['COD'] : eventType === 'returned' ? ['RETURN_LOGISTICS_COMBINED'] : [];
-      for (const type of neededTypes) {
-        const rateCents = exactOrderCost(order, rates, type, day, { carrier, store_id: order.store_id, currency });
-        const target = type === 'OUTBOUND_SHIPPING' ? 'outbound_shipping' : type === 'OUTBOUND_FULFILLMENT' ? 'outbound_fulfillment' : type === 'COD' ? 'cod' : 'returns';
-        if (rateCents === null) { components[target] = null; missing.add(`${type}:${carrier || 'SIN_TRANSPORTISTA'}`); }
-        else if (components[target] !== null) components[target] += rateCents;
-      }
-      if (eventType === 'delivered') {
-        const products = normalizedProducts(order);
-        if (!products.length) { components.product = null; missing.add('PRODUCT_COGS:ORDER_ITEMS_MISSING'); }
-        for (const product of products) {
-          const rateCents = productCost(product, rates, day, { store_id: order.store_id, currency });
-          if (rateCents === null) { components.product = null; missing.add(`PRODUCT_COGS:${product.variant_id || product.product_id || product.name}`); }
-          else if (components.product !== null) components.product += rateCents * product.quantity;
+      if (eventType === 'delivered' || eventType === 'returned') {
+        const isReturn = eventType === 'returned';
+        const settlement = settlementFinancials(order, rates, day, currency, isReturn);
+        for (const [target, value] of Object.entries(settlement.costs)) {
+          if (value === null) {
+            components[target] = null;
+            missing.add(`${settlement.sources[target] || target.toUpperCase()}:${order.dropea_order_id || order.canonical_order_id || 'UNKNOWN'}`);
+          } else if (components[target] !== null) components[target] += value;
         }
+        const actualRevenue = isReturn ? 0 : (cents(supplementalFinance(order)?.realizedRevenue) ?? orderAmount);
+        const orderExpense = addKnown(Object.values(settlement.costs));
+        orderLedger.push({
+          order_id: String(order.dropea_order_id || order.canonical_order_id || 'UNKNOWN'),
+          economic_date: day, event_type: isReturn ? 'RETURNED' : 'DELIVERED', status: state(order),
+          units: normalizedProducts(order).reduce((sum, product) => sum + product.quantity, 0),
+          revenue: amount(actualRevenue),
+          costs: Object.fromEntries(Object.entries(settlement.costs).map(([key, value]) => [key, amount(value)])),
+          total_cost: amount(orderExpense), profit: actualRevenue === null || orderExpense === null ? null : amount(actualRevenue - orderExpense),
+          sources: settlement.sources, completeness: settlement.missing.length ? 'INCOMPLETE' : 'COMPLETE', missing: settlement.missing
+        });
       }
     }
     if (relevant && ad.value === null) missing.add(`ADVERTISING:${day}`);
     const operationalExpenseCents = addKnown([
       components.product, components.outbound_shipping, components.cod,
-      components.outbound_fulfillment, components.returns, components.fixed,
+      components.outbound_fulfillment, components.returns, components.dropea_adjustments, components.fixed,
       components.one_off, components.other
     ]);
     // Dropea Statistics uses this perimeter: realised income minus delivery,
@@ -628,7 +696,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     // fixed expenses and Meta remain separate and explicit.
     const dropeaExpenseCents = addKnown([
       components.outbound_shipping, components.cod,
-      components.outbound_fulfillment, components.returns
+      components.outbound_fulfillment, components.returns, components.dropea_adjustments
     ]);
     const dropeaProfitCents = dropeaExpenseCents === null || !realRevenueComplete
       ? null : realRevenue - dropeaExpenseCents;
@@ -706,7 +774,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     returned: sumField('returned'), returned_units: sumField('returned_units'), incidences: sumField('incidences'),
     cohort: { orders_created: cohortOrders.length, orders_sent: cohortSent, delivered: cohortDelivered },
     estimated_revenue: estimatedRevenue, real_revenue: realRevenue,
-    costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), advertising: sumCost('advertising'), fixed: sumCost('fixed'), one_off: sumCost('one_off'), other: sumCost('other') },
+    costs: { product: sumCost('product'), outbound_shipping: sumCost('outbound_shipping'), cod: sumCost('cod'), outbound_fulfillment: sumCost('outbound_fulfillment'), returns: sumCost('returns'), dropea_adjustments: sumCost('dropea_adjustments'), advertising: sumCost('advertising'), fixed: sumCost('fixed'), one_off: sumCost('one_off'), other: sumCost('other') },
     fixed_expenses_committed: fixedCommitted,
     fixed_expenses_remaining: fixedCommitted === null || sumCost('fixed') === null ? null : Number((fixedCommitted - sumCost('fixed')).toFixed(2)),
     operational_expenses: operationalExpenses, operational_profit: operationalProfit,
@@ -733,7 +801,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   };
   const expenseComponents = [
     totals.costs.product, totals.costs.outbound_shipping, totals.costs.cod,
-    totals.costs.outbound_fulfillment, totals.costs.returns,
+    totals.costs.outbound_fulfillment, totals.costs.returns, totals.costs.dropea_adjustments,
     totals.costs.advertising, totals.costs.fixed, totals.costs.one_off, totals.costs.other
   ];
   const expectedExpenses = expenseComponents.some((value) => value === null)
@@ -741,10 +809,10 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
   const expectedProfit = totals.real_revenue === null || expectedExpenses === null
     ? null : Number((totals.real_revenue - expectedExpenses).toFixed(2));
   const audit = {
-    formula_version: 'FINANCE_REALIZED_DAILY_V2',
+    formula_version: 'FINANCE_ORDER_SETTLEMENT_V3',
     definitions: {
       perspective: 'Ingresos y costes se imputan en la fecha real del evento económico',
-      total_expenses: 'PRODUCT + OUTBOUND_SHIPPING + COD + OUTBOUND_FULFILLMENT + RETURNS + ADVERTISING + FIXED + ONE_OFF + OTHER',
+      total_expenses: 'PRODUCT + OUTBOUND_SHIPPING + COD + OUTBOUND_FULFILLMENT + RETURNS + DROPEA_ADJUSTMENTS + ADVERTISING + FIXED + ONE_OFF + OTHER',
       net_profit: 'REAL_REVENUE - TOTAL_EXPENSES',
       roi: 'NET_PROFIT / TOTAL_EXPENSES',
       margin: 'NET_PROFIT / REAL_REVENUE',
@@ -776,6 +844,7 @@ export function buildMonthlyFinanceReport({ month, orders = [], rates = [], fixe
     accounting_closed_through: accountingClosedThrough,
     pending_accounting_days: currentMonth && firstIncompleteDay >= 0 ? observed.length - firstIncompleteDay : 0,
     exactness: missing.size ? 'PARTIAL' : 'COMPLETE', totals, observed_snapshot: observedSnapshot, daily, audit,
+    order_ledger: orderLedger.filter((row) => inMonth(row.economic_date, month)),
     products: productEventRollup(orders, rates, month, timezone, currency, currentMonth), logistics: logisticsEventRollup(orders, rates, month, timezone, currency, currentMonth),
     advertising_by_platform: Object.entries(adSpend.reduce((totals, row) => {
       if (row.business_date < `${month}-01` || row.business_date > days.at(-1) || String(row.sync_status).toUpperCase() !== 'COMPLETE') return totals;
