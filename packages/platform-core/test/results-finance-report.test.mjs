@@ -215,6 +215,31 @@ test('audited Dropea monthly reports remain authoritative from May and cannot be
   assert.equal(september.quality.status, 'OK');
 });
 
+test('authoritative monthly source keeps funnel rates separate from economic event totals', () => {
+  const july = source('2026-07', 31, {
+    counts: {
+      created: 613,
+      sent: 452,
+      delivered: 314,
+      returned: 137,
+      inTransit: 1,
+      cancelled: 161,
+      deliveredUnits: 500,
+      returnedUnits: 200
+    },
+    eventCounts: { shipped: 440, delivered: 321, deliveredUnits: 511, returned: 142, returnedUnits: 207 },
+    totals: { exactNetProfit: 1, realRevenue: 10, totalCosts: 9, fixedCosts: 0, oneOffCosts: 0, otherCosts: 0 }
+  });
+  const result = buildResultsFinanceReport({
+    month: '2026-07', orders: [], rates, supplementalReports: [july], availableMonths: ['2026-07'],
+    now: new Date('2026-09-13T12:00:00Z')
+  });
+  assert.equal(result.counts.confirmed, 452);
+  assert.equal(result.counts.confirmationRatePercent, 73.74);
+  assert.equal(result.eventCounts.delivered, 321);
+  assert.equal(result.eventCounts.returned, 142);
+});
+
 test('results finance refresh remains fast with a production-sized order history', { timeout: 5_000 }, () => {
   const months = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'];
   const largeOrderSet = Array.from({ length: 1_500 }, (_, index) => {

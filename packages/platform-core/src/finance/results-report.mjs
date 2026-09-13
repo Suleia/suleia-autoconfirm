@@ -399,8 +399,13 @@ function mapAuthoritativeSource(source, month, currentDay, freshness) {
       ? { status: 'MTD', label: `MTD · cierre hasta día ${Number(lastDay.slice(-2))}` }
       : { status: 'FULL_MONTH', label: 'Mes cerrado' }),
     counts,
-    eventCounts: { shipped: counts.sent, delivered: counts.delivered, deliveredUnits: counts.deliveredUnits,
-      returned: counts.returned, returnedUnits: counts.returnedUnits },
+    eventCounts: {
+      shipped: number(source.eventCounts?.shipped ?? counts.sent),
+      delivered: number(source.eventCounts?.delivered ?? counts.delivered),
+      deliveredUnits: number(source.eventCounts?.deliveredUnits ?? counts.deliveredUnits),
+      returned: number(source.eventCounts?.returned ?? counts.returned),
+      returnedUnits: number(source.eventCounts?.returnedUnits ?? counts.returnedUnits)
+    },
     totals: { ...source.totals }, days,
     quality: { ...(source.quality || {}), status: issues.length ? 'REVIEW' : 'OK', issues,
       score: Math.max(0, 100 - issues.length * 5) },
