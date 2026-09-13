@@ -758,7 +758,8 @@ function dailyTable(data, currency) {
   const columns = [
     ['Fecha', 'day'], ['Creados', 'created'], ['Entregados', 'delivered'], ['Devueltos', 'returned'], ['Facturación', 'realRevenue'],
     ['Producto', 'productCost'], ['Envío', 'outboundShippingCost'], ['Fulfillment', 'outboundFulfillmentCost'], ['COD', 'codCost'],
-    ['Devoluciones', 'returnCost'], ['Ajustes Dropea', 'dropeaAdjustmentsCost'], ['Meta Ads', 'metaSpend'], ['Fijos/puntuales', 'fixedBundle'],
+    ['Devoluciones', 'returnCost'], ['Ajustes Dropea', 'dropeaAdjustmentsCost'], ['Meta Ads', 'metaSpend'],
+    ['Fijos', 'fixedCosts'], ['Puntuales', 'oneOffCosts'], ['Otros', 'otherCosts'],
     ['Costes totales', 'totalCosts'], ['Beneficio neto', 'netProfit'], ['Margen', 'marginPercent'], ['ROI', 'roiPercent'], ['ROAS', 'roas']
   ];
   const head = node('thead'); const headRow = node('tr'); columns.forEach(([label]) => headRow.append(node('th', '', label))); head.append(headRow);
@@ -766,7 +767,6 @@ function dailyTable(data, currency) {
   const cellValue = (row, key) => {
     if (key === 'day') return date(row.day, true);
     if (['created', 'delivered', 'returned'].includes(key)) return number(row[key]);
-    if (key === 'fixedBundle') return money(Number(row.fixedCosts || 0) + Number(row.oneOffCosts || 0) + Number(row.otherCosts || 0), currency);
     if (['marginPercent', 'roiPercent'].includes(key)) return percentNumber(row[key]);
     if (key === 'roas') return Number(row[key]) ? `${Number(row[key]).toFixed(2)}x` : '—';
     return money(row[key], currency);
@@ -774,7 +774,7 @@ function dailyTable(data, currency) {
   (data.days || []).slice().reverse().forEach((row) => { const tr = node('tr', Number(row.netProfit || 0) < 0 ? 'loss-row' : 'profit-row'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', cellValue(row, key)); tr.append(td); }); body.append(tr); });
   const totalRow = {
     day: 'TOTAL', created: data.counts?.created, delivered: data.eventCounts?.delivered ?? data.counts?.delivered, returned: data.eventCounts?.returned ?? data.counts?.returned,
-    ...totals, netProfit: totals.exactNetProfit, fixedBundle: Number(totals.fixedCosts || 0) + Number(totals.oneOffCosts || 0) + Number(totals.otherCosts || 0)
+    ...totals, netProfit: totals.exactNetProfit
   };
   const foot = node('tfoot'); const tr = node('tr'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', key === 'day' ? 'TOTAL DEL MES' : cellValue(totalRow, key)); tr.append(td); }); foot.append(tr); table.append(head, body, foot);
   const wrap = node('div', 'results-table-scroll'); wrap.append(table); return wrap;
