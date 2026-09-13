@@ -86,3 +86,24 @@ test('recurring monthly expenses use one stable daily accrual and reconcile to M
   assert.equal(result.totals.fixedCosts, 70.56);
   assert.equal(result.totals.totalCosts, 70.56);
 });
+
+test('results finance refresh remains fast with a production-sized order history', { timeout: 5_000 }, () => {
+  const months = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'];
+  const largeOrderSet = Array.from({ length: 1_500 }, (_, index) => {
+    const month = months[index % months.length];
+    const day = String((index % 24) + 1).padStart(2, '0');
+    const deliveredDay = String((index % 24) + 3).padStart(2, '0');
+    return order(`load-${index}`, `${month}-${day}T08:00:00Z`, `${month}-${day}T09:00:00Z`, {
+      lifecycle_status: 'FINISHED', delivered_at_utc: `${month}-${deliveredDay}T10:00:00Z`
+    });
+  });
+  const startedAt = performance.now();
+  const result = buildResultsFinanceReport({
+    month: '2026-09', orders: largeOrderSet, rates,
+    supplementalReports: months.map((month) => source(month)), availableMonths: months,
+    now: new Date('2026-09-25T18:00:00Z')
+  });
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(result.history.length, months.length);
+  assert.ok(elapsedMs < 3_000, `production-sized refresh took ${elapsedMs.toFixed(0)}ms`);
+});

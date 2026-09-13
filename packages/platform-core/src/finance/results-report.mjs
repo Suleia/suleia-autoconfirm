@@ -1,5 +1,9 @@
 import { buildMonthlyFinanceReport } from './monthly-report.mjs';
 
+const DATE_ONLY_FORMATTERS = new Map();
+const DATE_ONLY_CACHE = new Map();
+const MAX_DATE_ONLY_CACHE_ENTRIES = 50_000;
+
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 const TERMINAL_BEFORE_CONFIRMATION = new Set(['CANCELLED', 'CANCELED', 'REJECTED']);
 
@@ -17,10 +21,19 @@ function dateOnly(value, timezone = 'Europe/Madrid') {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.valueOf())) return null;
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' })
-    .formatToParts(date);
+  const key = `${timezone}\u0000${date.toISOString()}`;
+  if (DATE_ONLY_CACHE.has(key)) return DATE_ONLY_CACHE.get(key);
+  let formatter = DATE_ONLY_FORMATTERS.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' });
+    DATE_ONLY_FORMATTERS.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day}`;
+  const result = `${map.year}-${map.month}-${map.day}`;
+  if (DATE_ONLY_CACHE.size >= MAX_DATE_ONLY_CACHE_ENTRIES) DATE_ONLY_CACHE.clear();
+  DATE_ONLY_CACHE.set(key, result);
+  return result;
 }
 
 function previousMonth(month) {

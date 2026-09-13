@@ -2,6 +2,11 @@ const DAY_MS = 86_400_000;
 const SENT_STATES = new Set(['CONFIRMED', 'PROCESSING', 'PREPARING', 'PREPARED', 'SHIPPING', 'TRANSIT', 'IN_TRANSIT', 'DELIVERED', 'FINISHED', 'INCIDENCE', 'RETURNED', 'REFUSED', 'REFUSED_LOST_OR_DAMAGED']);
 const DELIVERED_STATES = new Set(['DELIVERED', 'FINISHED']);
 const TERMINAL_NOT_DELIVERED = new Set(['CANCELLED', 'REJECTED', 'REFUSED', 'REFUSED_LOST_OR_DAMAGED', 'RETURNED', 'INDEMNIFIED']);
+const BUSINESS_DATE_FORMATTERS = new Map();
+const BUSINESS_DATE_CACHE = new Map();
+const EVENT_DAYS_CACHE = new WeakMap();
+const NORMALIZED_PRODUCTS_CACHE = new WeakMap();
+const MAX_BUSINESS_DATE_CACHE_ENTRIES = 50_000;
 
 function cents(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -29,11 +34,21 @@ function businessDate(value, timezone) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.valueOf())) return null;
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit'
-  }).formatToParts(date);
+  const key = `${timezone}\u0000${date.toISOString()}`;
+  if (BUSINESS_DATE_CACHE.has(key)) return BUSINESS_DATE_CACHE.get(key);
+  let formatter = BUSINESS_DATE_FORMATTERS.get(timezone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit'
+    });
+    BUSINESS_DATE_FORMATTERS.set(timezone, formatter);
+  }
+  const parts = formatter.formatToParts(date);
   const map = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${map.year}-${map.month}-${map.day}`;
+  const result = `${map.year}-${map.month}-${map.day}`;
+  if (BUSINESS_DATE_CACHE.size >= MAX_BUSINESS_DATE_CACHE_ENTRIES) BUSINESS_DATE_CACHE.clear();
+  BUSINESS_DATE_CACHE.set(key, result);
+  return result;
 }
 
 function monthDays(month) {
@@ -49,8 +64,10 @@ function state(order) {
 }
 
 function normalizedProducts(order) {
+  const cached = NORMALIZED_PRODUCTS_CACHE.get(order);
+  if (cached?.source === order.product_summary) return cached.value;
   const rows = Array.isArray(order.product_summary?.products) ? order.product_summary.products : [];
-  return rows.map((product) => ({
+  const value = rows.map((product) => ({
     product_id: product.product_id === null || product.product_id === undefined ? null : String(product.product_id),
     variant_id: product.variant_id === null || product.variant_id === undefined ? null : String(product.variant_id),
     name: String(product.name || 'Producto sin nombre'),
@@ -58,6 +75,8 @@ function normalizedProducts(order) {
     wholesale_price: product.wholesale_price === null || product.wholesale_price === undefined || product.wholesale_price === ''
       ? null : Number(product.wholesale_price)
   })).filter((product) => product.quantity > 0);
+  NORMALIZED_PRODUCTS_CACHE.set(order, { source: order.product_summary, value });
+  return value;
 }
 
 function applies(rate, day) {
@@ -149,12 +168,17 @@ function resolvedOrderAmount(order) {
 }
 
 function eventDays(order, timezone) {
-  return {
+  const signature = [timezone, order.created_at_utc, order.confirmed_at_utc, order.delivered_at_utc, order.returned_at_utc].join('\u0000');
+  const cached = EVENT_DAYS_CACHE.get(order);
+  if (cached?.signature === signature) return cached.value;
+  const value = {
     created: businessDate(order.created_at_utc, timezone),
     sent: businessDate(order.confirmed_at_utc, timezone),
     delivered: businessDate(order.delivered_at_utc, timezone),
     returned: businessDate(order.returned_at_utc, timezone)
   };
+  EVENT_DAYS_CACHE.set(order, { signature, value });
+  return value;
 }
 
 function inMonth(day, month) {
