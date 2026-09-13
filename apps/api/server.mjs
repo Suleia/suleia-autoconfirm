@@ -26,6 +26,9 @@ export function loadOperationsConfig(overrides = {}) {
     privateDataKey: process.env.OPERATIONS_PRIVATE_DATA_KEY || '',
     financeReportBaseUrl: process.env.FINANCE_REPORT_BASE_URL || '',
     financeReportPassword: process.env.FINANCE_REPORT_PASSWORD || '',
+    financeCacheTtlMs: Number(process.env.FINANCE_REPORT_CACHE_TTL_MS || 120_000),
+    financeCacheStaleMs: Number(process.env.FINANCE_REPORT_CACHE_STALE_MS || 1_800_000),
+    financeRefreshIntervalSeconds: Number(process.env.FINANCE_UI_REFRESH_INTERVAL_SECONDS || 120),
     ...overrides
   };
   const violations = [];
@@ -35,6 +38,9 @@ export function loadOperationsConfig(overrides = {}) {
   if (!config.databaseUrl) violations.push('read-only database URL is required');
   if (typeof config.privateDataKey !== 'string' || config.privateDataKey.length < 32) violations.push('private display key is required');
   if (config.rateLimitPerMinute < 1 || config.rateLimitPerMinute > 120) violations.push('invalid rate limit');
+  if (config.financeCacheTtlMs < 5_000 || config.financeCacheTtlMs > 600_000) violations.push('invalid finance cache ttl');
+  if (config.financeCacheStaleMs < config.financeCacheTtlMs || config.financeCacheStaleMs > 3_600_000) violations.push('invalid finance stale ttl');
+  if (config.financeRefreshIntervalSeconds < 30 || config.financeRefreshIntervalSeconds > 900) violations.push('invalid finance refresh interval');
   if (violations.length) throw new Error(`Unsafe Operations API configuration: ${violations.join('; ')}`);
   return Object.freeze(config);
 }
@@ -77,6 +83,41 @@ async function jsonBody(req, maxBytes = 2048) {
 
 export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, audit = () => {} }) {
   const allowRequest = limiter(config.rateLimitPerMinute);
+  const financeCache = new Map();
+  const financeInFlight = new Map();
+  const financeCacheKey = (searchParams) => `${searchParams.get('month') || 'current'}:${searchParams.get('store_id') || 'all'}`;
+  const cachedFinance = async (searchParams) => {
+    const params = new URLSearchParams(searchParams);
+    const key = financeCacheKey(params); const now = Date.now(); const cached = financeCache.get(key);
+    if (cached && now - cached.at < config.financeCacheTtlMs) return cached.data;
+    if (financeInFlight.has(key)) return financeInFlight.get(key);
+    const task = (async () => {
+      const startedAt = Date.now(); let supplementalReports = [];
+      if (financeReportClient) {
+        try { supplementalReports = await financeReportClient.getMonthlyBundle(params.get('month') || new Date().toISOString().slice(0, 7)); }
+        catch (error) {
+          audit({ event: 'finance_supplemental_read_failed', outcome: 'degraded', error_code: error?.message || 'UNKNOWN', external_actions: 0 });
+        }
+      }
+      const data = await repository.financialSummary(params, supplementalReports);
+      financeCache.set(key, { at: Date.now(), data });
+      audit({ event: 'finance_report_generated', outcome: 'ok', duration_ms: Date.now() - startedAt,
+        supplemental_reports: supplementalReports.length, external_actions: 0, production_writes: 0 });
+      return data;
+    })();
+    financeInFlight.set(key, task);
+    try { return await task; }
+    catch (error) {
+      if (cached && now - cached.at < config.financeCacheStaleMs) {
+        audit({ event: 'finance_report_stale_fallback', outcome: 'degraded', cache_age_ms: now - cached.at,
+          external_actions: 0, production_writes: 0 });
+        return { ...cached.data, freshness: { ...(cached.data.freshness || {}), cache: {
+          status: 'STALE_FALLBACK', cachedAt: new Date(cached.at).toISOString()
+        } }, warnings: [...new Set([...(cached.data.warnings || []), 'Actualización temporalmente no disponible; se conserva el último informe conciliado.'])] };
+      }
+      throw error;
+    } finally { financeInFlight.delete(key); }
+  };
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, 'http://operations.internal');
     const feedbackMatch = requestUrl.pathname.match(/^\/api\/operations\/incidents\/([^/]+)\/feedback$/);
@@ -104,6 +145,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
       return json(res, 200, {
         oauth: { issuer: config.oauthIssuer, client_id: config.oauthClientId, audience: config.oauthAudience, scope: 'openid operations:read' },
         refresh_interval_seconds: 45,
+        finance_refresh_interval_seconds: config.financeRefreshIntervalSeconds,
         run_mode: 'SHADOW_READ_ONLY'
       });
     }
@@ -122,6 +164,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         if (financeReportClient && fixedExpenseCreate) data = await financeReportClient.addExpense(body);
         else data = await repository.saveFixedExpense(fixedExpenseUpdate ? decodeURIComponent(fixedExpenseUpdate[1]) : null, body, principal.principal_hash);
         if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
+        financeCache.clear();
         audit({ event: 'finance_fixed_expense_saved', principal_hash: principal.principal_hash,
           expense_id: data.expense_id || data.id, outcome: fixedExpenseUpdate ? 'updated' : 'created', external_actions: 0 });
         return json(res, fixedExpenseUpdate ? 200 : 201, { ok: true, data, actions_executed: 0,
@@ -138,12 +181,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         audit({ event: 'incident_recommendation_feedback', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'recorded' });
         return json(res, 201, { ok: true, data, actions_executed: 0, production_writes: 0, internal_feedback_writes: 1 });
       } else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
-      else if (requestUrl.pathname === '/api/operations/finance') {
-        const month = requestUrl.searchParams.get('month') || new Date().toISOString().slice(0, 7);
-        const supplementalReports = financeReportClient
-          ? await financeReportClient.getMonthlyBundle(month) : [];
-        data = await repository.financialSummary(requestUrl.searchParams, supplementalReports);
-      }
+      else if (requestUrl.pathname === '/api/operations/finance') data = await cachedFinance(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else if (requestUrl.pathname === '/api/operations/incidents') data = await repository.listIncidents(requestUrl.searchParams);

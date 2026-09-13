@@ -296,21 +296,11 @@ export class OperationsRepository {
   async financialSummary(searchParams, supplementalReports = []) {
     const window = financialMonth(searchParams); const values = [window.storeId];
     const [orders, rates, fixed, advertising, months, checkpoints] = await Promise.all([
-      this.pool.query(`SELECT c.canonical_order_id,c.store_id,c.lifecycle_status,c.status,c.created_at_utc,c.source_updated_at,c.updated_at,
-        c.confirmed_at_utc,c.delivered_at_utc,c.returned_at_utc,c.total_amount,c.currency,c.carrier,c.product_summary,c.active_issue_id,
-        d.order_costs,r.test_order,r.duplicate_status,
-        CASE WHEN discount.response_status='DISCOUNT_ACCEPTED' AND discount.signal_quality='VERIFIED'
-          THEN coalesce(discount.final_amount,c.total_amount) ELSE c.total_amount END AS final_amount
-        FROM read_models.operations_order_context c
-        LEFT JOIN read_models.operations_order_financial_inputs d USING(canonical_order_id)
-        LEFT JOIN read_models.operations_order_records r USING(canonical_order_id)
-        LEFT JOIN LATERAL (
-          SELECT response_status,signal_quality,final_amount
-          FROM read_models.operations_incident_discount_recovery_latest recovery
-          WHERE recovery.dropea_order_id=c.dropea_order_id
-          ORDER BY recovery.source_updated_at DESC LIMIT 1
-        ) discount ON true
-        WHERE ($1::text IS NULL OR c.store_id=$1)`, values),
+      this.pool.query(`SELECT canonical_order_id,store_id,lifecycle_status,status,created_at_utc,source_updated_at,updated_at,
+        confirmed_at_utc,delivered_at_utc,returned_at_utc,total_amount,currency,carrier,product_summary,active_issue_id,
+        order_costs,test_order,duplicate_status,final_amount
+        FROM read_models.operations_finance_order_inputs
+        WHERE ($1::text IS NULL OR store_id=$1)`, values),
       this.pool.query(`SELECT store_id,cost_type,carrier,provider,product_id,variant_id,amount,currency,
         effective_from,effective_to,source,updated_at FROM economics.finance_cost_rates
         WHERE ($1::text IS NULL OR store_id=$1)`, values),
@@ -324,7 +314,7 @@ export class OperationsRepository {
       this.pool.query(`SELECT DISTINCT month FROM read_models.finance_available_months
         WHERE ($1::text IS NULL OR store_id=$1) ORDER BY month DESC LIMIT 24`, [window.storeId]),
       this.pool.query(`SELECT max(source_updated_at) AS dropea_last_sync_at,
-        max(updated_at) AS read_model_last_updated_at FROM read_models.operations_order_context
+        max(updated_at) AS read_model_last_updated_at FROM read_models.operations_finance_order_inputs
         WHERE ($1::text IS NULL OR store_id=$1)`, values)
     ]);
     const report = buildResultsFinanceReport({

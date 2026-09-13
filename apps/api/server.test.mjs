@@ -94,10 +94,38 @@ test('Operations finance endpoint composes Render finance inputs with the canoni
   assert.equal(finance.data.totals.exactNetProfit, 1500);
   assert.equal(finance.data.source, 'operations_canonical_finance_v3');
   const expense = await fetch(`${base}/api/operations/finance/fixed-expenses`, { method: 'POST', headers: { Authorization: 'Bearer fixture', 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Servidor', amount: '13.13', type: 'recurring_monthly', startDate: '2026-07-01' }) }).then((response) => response.json());
+  const reloaded = await fetch(`${base}/api/operations/finance?month=2026-07`, { headers: { Authorization: 'Bearer fixture' } }).then((response) => response.json());
   assert.equal(expense.data.id, 'custom-fixture');
-  assert.deepEqual(calls.map((call) => call[0]), ['read', 'canonical', 'expense']);
+  assert.equal(reloaded.data.totals.exactNetProfit, 1500);
+  assert.deepEqual(calls.map((call) => call[0]), ['read', 'canonical', 'expense', 'read', 'canonical']);
   assert.equal(expense.production_writes, 0);
   assert.equal(expense.external_writes, 0);
+});
+
+test('Operations finance endpoint coalesces concurrent reads, caches the report and degrades safely without the supplemental source', async (t) => {
+  let canonicalReads = 0; let supplementalReads = 0; const events = [];
+  const repository = { financialSummary: async (_params, reports) => {
+    canonicalReads += 1; assert.equal(reports.length, 0);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    return { period: { month: '2026-09' }, totals: { exactNetProfit: 42 }, warnings: [], source: 'operations_canonical_finance_v3' };
+  } };
+  const financeReportClient = { getMonthlyBundle: async () => { supplementalReads += 1; throw new Error('finance_report_http_503'); } };
+  const server = createOperationsServer({ config, repository, financeReportClient,
+    authenticate: async () => ({ principal_hash: 'fixture-principal' }), audit: (event) => events.push(event) });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening'); t.after(() => server.close());
+  const base = `http://127.0.0.1:${server.address().port}`; const options = { headers: { Authorization: 'Bearer fixture' } };
+  const [first, second] = await Promise.all([
+    fetch(`${base}/api/operations/finance?month=2026-09`, options).then((response) => response.json()),
+    fetch(`${base}/api/operations/finance?month=2026-09`, options).then((response) => response.json())
+  ]);
+  const cached = await fetch(`${base}/api/operations/finance?month=2026-09`, options).then((response) => response.json());
+  assert.equal(first.data.totals.exactNetProfit, 42);
+  assert.equal(second.data.totals.exactNetProfit, 42);
+  assert.equal(cached.data.totals.exactNetProfit, 42);
+  assert.equal(canonicalReads, 1);
+  assert.equal(supplementalReads, 1);
+  assert.equal(events.some((event) => event.event === 'finance_supplemental_read_failed'), true);
+  assert.equal(events.some((event) => event.event === 'finance_report_generated'), true);
 });
 
 test('incident feedback is structured, parameterized and cannot trigger external actions', async () => {
@@ -260,6 +288,9 @@ test('monthly financial summary is GET-only and missing sources remain unknown',
   assert.equal(result.totals.roiPercent, null);
   assert.equal(result.production_writes, 0);
   assert.equal(calls.length, 6);
+  assert.match(calls[0].sql, /read_models\.operations_finance_order_inputs/);
+  assert.doesNotMatch(calls[0].sql, /operations_order_context/);
+  assert.match(calls[5].sql, /read_models\.operations_finance_order_inputs/);
   assert.equal(calls.every(({ sql }) => /^SELECT\b/i.test(sql.trim())), true);
   assert.equal(calls.every(({ sql }) => !/\b(?:INSERT|UPDATE|DELETE|UPSERT|CALL)\b/i.test(sql)), true);
   assert.deepEqual(calls.map(({ values }) => values.length), [1, 1, 1, 1, 1, 1]);

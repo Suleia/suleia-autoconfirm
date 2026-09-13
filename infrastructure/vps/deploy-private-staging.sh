@@ -218,6 +218,7 @@ bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-august-fixed-expenses-mig
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-fixed-expense-deduplication-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-incident-discount-recovery-observations-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-realized-event-rates-migration.sh"
+bash "${INSTALL_ROOT}/infrastructure/vps/apply-finance-results-performance-migration.sh"
 bash "${INSTALL_ROOT}/infrastructure/vps/provision-staging-db-logins.sh"
 
 bash "${INSTALL_ROOT}/infrastructure/vps/collect-platform-runtime-inventory.sh"

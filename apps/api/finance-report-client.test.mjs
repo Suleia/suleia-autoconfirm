@@ -60,6 +60,9 @@ test('Operations API has narrowly scoped HTTPS egress for the finance read model
   const api = (compose.split(/\r?\n  api:\r?\n/)[1] || '').split(/\r?\n  mcp-server:/)[0];
   assert.match(api, /FINANCE_REPORT_BASE_URL/);
   assert.match(api, /FINANCE_REPORT_PASSWORD/);
+  assert.match(api, /FINANCE_REPORT_CACHE_TTL_MS/);
+  assert.match(api, /FINANCE_REPORT_CACHE_STALE_MS/);
+  assert.match(api, /FINANCE_UI_REFRESH_INTERVAL_SECONDS/);
   assert.match(api, /networks:\s*\n\s*- public_network\s*\n\s*- application_network\s*\n\s*- database_network/);
   assert.match(compose, /PRODUCTION_WRITES_ENABLED:\s*\$\{PRODUCTION_WRITES_ENABLED:-false\}/);
 });

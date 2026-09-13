@@ -1,4 +1,4 @@
-const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, financeMonths: [], financeChartMode: 'profit', financeHistoryWindow: 6, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
+const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, financeMonths: [], financeChartMode: 'profit', financeHistoryWindow: 6, financeCache: new Map(), financeLoadedAt: 0, financeRequest: 0, financeController: null, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
 const operationsBase = location.pathname.startsWith('/operations') ? '/operations' : '';
 const $ = (id) => document.getElementById(id);
 const text = (value, fallback = '—') => value === undefined || value === null || value === '' ? fallback : String(value);
@@ -791,7 +791,7 @@ function renderResultExpenses(data, currency) {
 async function saveResultExpense(event) {
   event.preventDefault(); const submit = $('finance-fixed-form').querySelector('button[type="submit"]'); submit.disabled = true; $('finance-fixed-feedback').textContent = 'Guardando y recalculando…';
   const body = { name: $('finance-fixed-label').value, category: $('finance-fixed-category').value, type: $('finance-fixed-type').value, amount: $('finance-fixed-amount').value, startDate: $('finance-fixed-start').value, endDate: $('finance-fixed-end').value || null };
-  try { await api('/api/operations/finance/fixed-expenses', { method: 'POST', body }); closeResultExpenseForm(); await loadResultsFinance(); showNotice('Gasto guardado y resultado mensual recalculado.'); } catch (error) { $('finance-fixed-feedback').textContent = error.message; } finally { submit.disabled = false; }
+  try { await api('/api/operations/finance/fixed-expenses', { method: 'POST', body }); state.financeCache.clear(); closeResultExpenseForm(); await loadResultsFinance({ force: true }); showNotice('Gasto guardado y resultado mensual recalculado.'); } catch (error) { $('finance-fixed-feedback').textContent = error.message; } finally { submit.disabled = false; }
 }
 function renderResultsFinance() {
   const data = state.finance; if (!data) return; const totals = data.totals || {}; const counts = data.counts || {}; const eventCounts = data.eventCounts || {}; const currency = data.currency || 'EUR';
@@ -837,18 +837,30 @@ function renderResultsFinance() {
   $('finance-audit').replaceChildren(...Object.entries(data.controls || {}).map(([key, value]) => { const row = node('div', `audit-check ${value ? 'pass' : 'fail'}`); row.append(badge(value ? 'OK' : 'REVISAR'), node('span', '', key.replaceAll('_', ' ').replace(/([A-Z])/g, ' $1').toLowerCase())); return row; }));
   renderResultExpenses(data, currency);
 }
-async function loadResultsFinance() {
-  showNotice(''); const selected = $('finance-month').value || new Date().toISOString().slice(0, 7);
-  try {
-    state.finance = await api(`/api/operations/finance?month=${encodeURIComponent(selected)}`); const select = $('finance-month'); const months = state.finance.availableMonths?.length ? state.finance.availableMonths : [state.finance.period?.month || selected]; state.financeMonths = months;
-    const currentOptions = [...select.options].map((option) => option.value); if (currentOptions.join('|') !== months.join('|')) select.replaceChildren(...months.map((month) => { const option = node('option', '', monthLabel(month)); option.value = month; return option; }));
-    select.value = state.finance.period?.month || selected; updateFinanceMonthNavigation(); renderResultsFinance();
-  } catch (error) { showNotice(`No se pudo cargar el informe financiero: ${error.message}`); }
+function applyResultsFinance(data, selected, loadedAt = Date.now()) {
+  state.finance = data; state.financeLoadedAt = loadedAt; const select = $('finance-month'); const months = data.availableMonths?.length ? data.availableMonths : [data.period?.month || selected]; state.financeMonths = months;
+  const currentOptions = [...select.options].map((option) => option.value); if (currentOptions.join('|') !== months.join('|')) select.replaceChildren(...months.map((month) => { const option = node('option', '', monthLabel(month)); option.value = month; return option; }));
+  select.value = data.period?.month || selected; updateFinanceMonthNavigation(); renderResultsFinance();
 }
-async function refresh() {
+async function loadResultsFinance({ force = false, background = false } = {}) {
+  const selected = $('finance-month').value || new Date().toISOString().slice(0, 7);
+  const ttl = Number(state.config?.finance_refresh_interval_seconds || 120) * 1000; const cached = state.financeCache.get(selected);
+  if (!force && cached && Date.now() - cached.at < ttl) { applyResultsFinance(cached.data, selected, cached.at); return; }
+  const request = ++state.financeRequest; state.financeController?.abort(); const controller = new AbortController(); state.financeController = controller;
+  if (!background) showNotice('');
+  try {
+    const data = await api(`/api/operations/finance?month=${encodeURIComponent(selected)}`, { signal: controller.signal });
+    if (request !== state.financeRequest) return; const at = Date.now(); state.financeCache.set(selected, { at, data }); applyResultsFinance(data, selected, at); showNotice('');
+  } catch (error) {
+    if (controller.signal.aborted || request !== state.financeRequest) return;
+    if (cached) { applyResultsFinance(cached.data, selected, cached.at); showNotice('No se pudo actualizar ahora. Se mantiene el último informe cargado.'); }
+    else showNotice('No se pudo cargar el informe financiero. Reintentaremos automáticamente; también puedes pulsar Actualizar.');
+  } finally { if (request === state.financeRequest) state.financeController = null; }
+}
+async function refresh({ force = false, background = false } = {}) {
   if (state.refreshing) return; state.refreshing = true; $('refresh-button').disabled = true; $('refresh-button').textContent = 'Actualizando…';
   try {
-    if (state.view === 'finance') await loadResultsFinance();
+    if (state.view === 'finance') await loadResultsFinance({ force, background });
     else if (state.view === 'incidents') await loadQueue();
     else {
       const [summary] = await Promise.all([api('/api/operations/summary'), loadQueue()]);
@@ -873,9 +885,14 @@ async function init() {
   if (params.has('code')) state.token = await exchangeCode(params.get('code'), params.get('state'));
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
   $('login').hidden = true; $('app').hidden = false; renderHead(); renderFilters(); await refresh();
-  setInterval(() => { if (document.visibilityState === 'visible' && activeToken()) refresh(); }, state.config.refresh_interval_seconds * 1000);
+  setInterval(() => {
+    if (document.visibilityState !== 'visible' || !activeToken()) return;
+    const financeInterval = Number(state.config.finance_refresh_interval_seconds || 120) * 1000;
+    if (state.view === 'finance' && Date.now() - state.financeLoadedAt < financeInterval) return;
+    refresh({ background: true });
+  }, state.config.refresh_interval_seconds * 1000);
 }
-$('logout-button').addEventListener('click', () => signOut(true)); $('refresh-button').addEventListener('click', refresh); $('finance-month').addEventListener('change', () => { updateFinanceMonthNavigation(); loadResultsFinance(); }); $('finance-prev-month').addEventListener('click', () => moveFinanceMonth('older')); $('finance-next-month').addEventListener('click', () => moveFinanceMonth('newer')); $('page-size').addEventListener('change', (event) => { state.limit = Number(event.target.value); state.offset = 0; loadQueue(); }); $('prev-page').addEventListener('click', () => { state.offset = Math.max(0, state.offset - state.limit); loadQueue(); }); $('next-page').addEventListener('click', () => { state.offset += state.limit; loadQueue(); }); document.querySelectorAll('.nav-item').forEach((item) => item.addEventListener('click', () => setView(item.dataset.view))); $('close-drawer').addEventListener('click', closeDetail); $('drawer-backdrop').addEventListener('click', closeDetail); document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeDetail(); });
+$('logout-button').addEventListener('click', () => signOut(true)); $('refresh-button').addEventListener('click', () => refresh({ force: true })); $('finance-month').addEventListener('change', () => { updateFinanceMonthNavigation(); loadResultsFinance(); }); $('finance-prev-month').addEventListener('click', () => moveFinanceMonth('older')); $('finance-next-month').addEventListener('click', () => moveFinanceMonth('newer')); $('page-size').addEventListener('change', (event) => { state.limit = Number(event.target.value); state.offset = 0; loadQueue(); }); $('prev-page').addEventListener('click', () => { state.offset = Math.max(0, state.offset - state.limit); loadQueue(); }); $('next-page').addEventListener('click', () => { state.offset += state.limit; loadQueue(); }); document.querySelectorAll('.nav-item').forEach((item) => item.addEventListener('click', () => setView(item.dataset.view))); $('close-drawer').addEventListener('click', closeDetail); $('drawer-backdrop').addEventListener('click', closeDetail); document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeDetail(); });
 $('finance-add-fixed').addEventListener('click', () => openResultExpenseForm());
 $('finance-fixed-cancel').addEventListener('click', closeResultExpenseForm);
 $('finance-fixed-form').addEventListener('submit', saveResultExpense);

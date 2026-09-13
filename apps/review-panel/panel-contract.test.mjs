@@ -98,6 +98,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.doesNotMatch(script, /login-button'\)\.addEventListener\('click'/);
   assert.match(script, /if \(params\.has\('error'\)\)/);
   assert.match(script, /refresh_interval_seconds/);
+  assert.match(script, /finance_refresh_interval_seconds/);
+  assert.match(script, /financeCache: new Map\(\)/);
+  assert.match(script, /Se mantiene el último informe cargado/);
 });
 
 test('orders open on the pending dropshipper queue and expose Chatby intent', () => {
