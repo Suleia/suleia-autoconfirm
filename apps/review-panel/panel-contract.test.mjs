@@ -84,7 +84,7 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(css, /cost-breakdown-track/);
   assert.match(html, /id="finance-operational-summary"/);
   assert.match(html, /id="finance-data-summary"/);
-  assert.match(html, /ajuste contable inevitable de 0,01/);
+  assert.match(html, /precisión interna constante[\s\S]*redondea una sola vez/);
   assert.match(script, /miniSparkline/);
   assert.match(script, /Datos conciliados/);
   assert.match(html, /Resultado anterior frente al resultado corregido/);
