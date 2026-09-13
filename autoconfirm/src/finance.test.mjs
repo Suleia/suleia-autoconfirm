@@ -87,7 +87,9 @@ test('P&L keeps the selected creation cohort and attributes final economics to i
   assert.equal(report.days.find((day) => day.day === '2026-09-02').realRevenue, 0);
   assert.equal(report.days.find((day) => day.day === '2026-09-05').realRevenue, 34.99);
   const priorCohort = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({ created_at: '2026-08-28T08:00:00Z', delivered_at: '2026-09-05T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' })] });
-  assert.equal(priorCohort.totals.realRevenue, 0);
+  assert.equal(priorCohort.counts.created, 0);
+  assert.equal(priorCohort.eventCounts.delivered, 1);
+  assert.equal(priorCohort.totals.realRevenue, 34.99);
 });
 
 test('return cost is recognized once on its verified return day with traceable tariff', () => {
@@ -214,6 +216,45 @@ test('cohort rates consistently use the created-order population', () => {
   assert.equal(report.counts.deliveryRatePercent, 100);
 });
 
+test('economic day includes deliveries from an earlier creation cohort without changing the selected funnel cohort', () => {
+  const report = aggregateFinanceReport({
+    period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [],
+    orders: [
+      order({ id: 901, created_at: '2026-08-20T08:00:00Z', delivered_at: '2026-09-10T10:00:00Z', status: 'FINISH', sub_status: 'DELIVERED' }),
+      order({ id: 902, created_at: '2026-09-01T08:00:00Z', status: 'PENDING', sub_status: 'PENDING', confirmed_at: null, processing_at: null, tracking_number: null })
+    ]
+  });
+  assert.equal(report.counts.created, 1);
+  assert.equal(report.counts.delivered, 0);
+  assert.equal(report.eventCounts.delivered, 1);
+  assert.equal(report.days.find((day) => day.day === '2026-09-10').realRevenue, 34.99);
+  assert.equal(report.totals.realRevenue, 34.99);
+  assert.equal(report.coverage.dropeaBreakdownPublishedPercent, 0);
+});
+
+test('economic day includes shipment costs from an earlier creation cohort still in transit', () => {
+  const report = aggregateFinanceReport({
+    period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [],
+    orders: [
+      order({
+        id: 903,
+        created_at: '2026-08-20T08:00:00Z',
+        confirmed_at: '2026-09-10T08:30:00Z',
+        processing_at: '2026-09-10T09:00:00Z',
+        tracking_number: 'TRACK-903',
+        status: 'SHIPPING',
+        sub_status: 'SHIPPING'
+      })
+    ]
+  });
+  const economicDay = report.days.find((day) => day.day === '2026-09-10');
+  assert.equal(report.counts.created, 0);
+  assert.equal(report.eventCounts.shipped, 1);
+  assert.equal(economicDay.outboundShippingCost, 4.06);
+  assert.equal(economicDay.outboundFulfillmentCost, 1.2);
+  assert.equal(report.totals.totalCosts, 5.26);
+});
+
 test('confirmation rate excludes orders cancelled before shipment even when they retain stale confirmation evidence', () => {
   const accepted = Array.from({ length: 452 }, (_, index) => order({
     id: index + 1,
@@ -269,7 +310,7 @@ test('month selector input changes the complete report period', async () => {
   assert.ok(selectedMonthCall, 'the selected month must be loaded through its complete Madrid boundary');
 });
 
-test('lean current refresh reads only the selected month and skips the non-financial issue catalogue', async () => {
+test('lean current refresh reads only the three-month logistics window and skips the non-financial issue catalogue', async () => {
   const calls = [];
   await buildFinanceReport({
     month: '2026-09', force: true, leanRefresh: true, now, rules, expenses,
@@ -278,9 +319,11 @@ test('lean current refresh reads only the selected month and skips the non-finan
     metaLoader: async () => []
   });
   const orderCalls = calls.filter((call) => call.name === 'listOrders');
-  assert.equal(orderCalls.length, 1);
-  assert.equal(orderCalls[0].params.date_from, '2026-08-31T22:00:00.000Z');
-  assert.equal(orderCalls[0].params.date_to, '2026-09-11T21:59:59.999Z');
+  assert.equal(orderCalls.length, 3);
+  assert.deepEqual(orderCalls.map((call) => call.params.date_from).sort(), [
+    '2026-06-30T22:00:00.000Z', '2026-07-31T22:00:00.000Z', '2026-08-31T22:00:00.000Z'
+  ]);
+  assert.equal(orderCalls.every((call) => call.params.date_to <= '2026-09-11T21:59:59.999Z'), true);
   assert.equal(calls.some((call) => call.name === 'listIssues'), false);
 });
 
