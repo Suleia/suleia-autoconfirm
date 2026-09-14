@@ -1214,12 +1214,23 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       });
     }
     if (!claim?.acquired || claim?.persistent !== true) {
+      const existingStatus = String(claim?.existing?.status || '').toLowerCase();
+      const previouslyVerified = existingStatus === 'verified';
+      const previouslyApplied = previouslyVerified || existingStatus === 'applied_unverified';
       return {
         ...decision,
-        status: claim?.reason === 'already_claimed' ? 'ALREADY_CLAIMED' : 'BLOCKED_PERSISTENT_LEDGER',
-        verified: false,
-        reason: claim?.reason === 'already_claimed'
-          ? 'La devolucion ya fue solicitada o reclamada anteriormente.'
+        status: previouslyVerified
+          ? 'RETURN_REQUESTED_VERIFIED'
+          : previouslyApplied
+            ? 'RETURN_REQUESTED_UNVERIFIED'
+            : claim?.reason === 'already_claimed'
+              ? 'ALREADY_CLAIMED'
+              : 'BLOCKED_PERSISTENT_LEDGER',
+        verified: previouslyVerified,
+        reason: previouslyApplied
+          ? 'La solicitud de devolucion ya consta en el registro persistente.'
+          : claim?.reason === 'already_claimed'
+            ? 'La devolucion ya fue solicitada o reclamada anteriormente.'
           : 'No esta disponible el registro persistente; no se actua para evitar duplicados.'
       };
     }
@@ -2716,3 +2727,4 @@ export async function syncPendingIncidents({
     throw error;
   }
 }
+
