@@ -520,6 +520,19 @@ function queueDashboardBackgroundRefresh() {
 const financeRefreshInFlight = new Map();
 const financeBackgroundRefreshEnabled = process.env.FINANCE_BACKGROUND_REFRESH_ENABLED !== 'false';
 
+function financeSnapshotNeedsRefresh(finance, now = Date.now()) {
+  if (!finance?.generatedAt) return true;
+  const generatedAt = new Date(finance.generatedAt).getTime();
+  if (!Number.isFinite(generatedAt)) return true;
+  const unresolved = Number(finance.counts?.inAir || 0) + Number(finance.counts?.pending || 0);
+  const maximumAgeMs = finance.period?.current
+    ? 60 * 60 * 1000
+    : unresolved > 0
+      ? 6 * 60 * 60 * 1000
+      : 24 * 60 * 60 * 1000;
+  return now - generatedAt >= maximumAgeMs;
+}
+
 function queueFinanceReportRefresh(month) {
   const key = String(month || 'current');
   if (financeRefreshInFlight.has(key)) return false;
@@ -711,11 +724,13 @@ const server = http.createServer(async (req, res) => {
       } catch (error) {
         console.error('Finance snapshot read error:', error instanceof Error ? error.message : String(error));
       }
-      const queued = financeBackgroundRefreshEnabled && (force || !finance) ? queueFinanceReportRefresh(month) : false;
+      const stale = financeSnapshotNeedsRefresh(finance);
+      const queued = financeBackgroundRefreshEnabled && (force || !finance || stale) ? queueFinanceReportRefresh(month) : false;
       return sendJson(res, finance ? 200 : 202, {
         ok: true,
         finance,
         pending: !finance,
+        stale,
         refreshing: queued || financeRefreshInFlight.has(String(month || 'current'))
       });
     }
@@ -1384,3 +1399,4 @@ server.listen(config.port, async () => {
   startMetaDashboardSync();
   startFinanceReportRefreshScheduler();
 });
+
