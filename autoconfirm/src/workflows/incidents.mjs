@@ -39,7 +39,7 @@ import {
   classifyIncidentDiscountResponse,
   INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
 } from './incident-discount-policy.mjs';
-import { processIncidentNotification } from './incident-notifications.mjs';
+import { incidentTemplateNameForType, processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 
 const config = getAppConfig();
@@ -2505,7 +2505,9 @@ export async function syncPendingIncidents({
       const incidentCommunicationEnabled = incidentNotificationLaneEnabled({
         incidentType: item.incident.incidentType,
         returnOnly,
-        repositoryOwnsIncidentTemplates: chatbyRepositoryOwnsIncidentTemplate(),
+        repositoryOwnsIncidentTemplates: chatbyRepositoryOwnsIncidentTemplate(
+          incidentTemplateNameForType(item.incident.incidentType)
+        ),
         incidentNotificationsEnabled: config.defaultStore.incidentNotificationsEnabled === true,
         incidentDiscountTemplateEnabled: config.enableIncidentDiscountTemplate === true,
         incidentDiscountRealEnabled: config.incidentDiscountRealEnabled === true
@@ -2714,3 +2716,4 @@ export async function syncPendingIncidents({
     throw error;
   }
 }
+
