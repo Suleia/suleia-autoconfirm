@@ -1769,7 +1769,7 @@ function renderFinance() {
   setText('#finance-meta', reportCoverage.meta ? money(totals.metaSpend) : '—');
   setText('#finance-real-cpa', `CPA real ${money(totals.realCpa)}`);
   setText('#finance-return-cost', money(totals.returnCost));
-  setText('#finance-return-unit-cost', `Tarifa ${money(finance.policy?.returnPerReturnedOrder)}/pedido devuelto`);
+  setText('#finance-return-unit-cost', `Coste Dropea por pedido devuelto · ${money(finance.policy?.returnPerReturnedOrder)} solo como respaldo si falta el desglose`);
   setText('#finance-roi', percentValue(totals.roiPercent));
   setText('#finance-profit', money(totals.exactNetProfit));
   setText('#finance-product-cost', money(totals.productCost));
@@ -1874,6 +1874,10 @@ async function loadFinanceReport({ force = false } = {}) {
       return;
     }
     state.financeReport = payload.finance;
+    if (payload.refreshing) {
+      window.clearTimeout(state.financePollTimer);
+      state.financePollTimer = window.setTimeout(() => loadFinanceReport(), 5000);
+    }
   } catch (error) {
     state.financeError = error instanceof Error ? error.message : String(error);
   } finally {
@@ -2392,3 +2396,4 @@ syncButton.addEventListener('click', async () => {
 if (financeMonthInput) financeMonthInput.value = currentMadridMonth();
 scheduleAutoRefresh();
 Promise.all([loadDashboard(), loadFinanceReport()]).catch(() => {});
+

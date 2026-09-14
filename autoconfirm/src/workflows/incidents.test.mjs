@@ -207,6 +207,28 @@ test('does not call Dropea when the durable return claim is unavailable or alrea
   }
 });
 
+test('reports an existing completed return claim without calling Dropea twice', async () => {
+  for (const [existingStatus, expectedStatus, verified] of [
+    ['verified', 'RETURN_REQUESTED_VERIFIED', true],
+    ['applied_unverified', 'RETURN_REQUESTED_UNVERIFIED', false]
+  ]) {
+    let returned = 0;
+    const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+      now: Date.parse('2026-07-16T17:00:00.000Z'),
+      realEnabled: true,
+      credentialAvailable: true,
+      allowedIncidentIds: ['fixture-discount-issue'],
+      readCurrent: async () => currentReturnableIncident,
+      readMessages: async () => [],
+      claimReturn: async () => ({ acquired: false, persistent: true, reason: 'already_claimed', existing: { status: existingStatus } }),
+      returnIssue: async () => { returned += 1; }
+    });
+    assert.equal(result.status, expectedStatus);
+    assert.equal(result.verified, verified);
+    assert.equal(returned, 0);
+  }
+});
+
 test('recovers the exact order conversation from a verified current-incident merchandise delivery', async () => {
   const recovered = await chatbyContextFromExactTemplateDelivery({
     orderId: 'fixture-order',
@@ -670,3 +692,4 @@ test('keeps the order active when the customer accepts the verified discount', (
   assert.equal(decision.ruleId, 'core_incident_discount_accepted_requires_price_update');
   assert.equal(decision.confidence, 96);
 });
+

@@ -137,6 +137,19 @@ test('final Dropea breakdown uses the exact Wallet-aligned return charges per or
   assert.equal(report.orders[0].contributionAfterProduct, -10.12);
 });
 
+test('a refused order never charges a released product reserve beyond Dropea total_expenses', () => {
+  const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-05', { now }), rules, expenses: [], metaRows: [], orders: [order({
+    id: 1203981, created_at: '2026-05-02T08:00:00Z', processing_at: '2026-05-02T10:00:00Z', rejected_at: '2026-05-06T10:00:00Z', status: 'ERROR', sub_status: 'REJECTED',
+    line_items: [{ product_id: 30133, variant_id: 30133, sku: 'CREMAHIDRATANTE', product_name: 'Crema', quantity: 1, unit_price: 24.99, wholesale_price: 0 }],
+    expenses_breakdown: { product_price: 3.70, fulfillment_extra_unit_price: 0, fulfillment_outbound_price: 1, fulfillment_refused_price: 1, shipping_outbound_price: 4.06, shipping_refused_price: 4.06, cod_commission: 1.2, total_expenses: 10.12, is_estimate: false }
+  })] });
+  assert.equal(report.totals.productCost, 0);
+  assert.equal(report.totals.logisticsCost, 10.12);
+  assert.equal(report.totals.totalCosts, 10.12);
+  assert.equal(report.orders[0].recognizedCost, 10.12);
+  assert.equal(report.orders[0].contributionAfterProduct, -10.12);
+});
+
 test('final Dropea breakdown reconciles tax and adjustments without hiding business product COGS', () => {
   const report = aggregateFinanceReport({ period: resolveFinancePeriod('2026-09', { now }), rules, expenses: [], metaRows: [], orders: [order({
     id: 777, total_amount: 29.99, delivered_at: '2026-09-09T10:33:49Z', status: 'FINISH', sub_status: 'DELIVERED',
@@ -480,3 +493,4 @@ test('published May, August and September snapshots reconcile operational and ec
     assert.equal(report.orders.every((order) => !('customer' in order) && !('phone' in order)), true);
   }
 });
+
