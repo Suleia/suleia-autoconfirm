@@ -30,7 +30,15 @@ let successfulRequestsSinceRateLimit = 0;
 const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
   'dropea_pedido_nuevo_v1',
   'dropea_pedido_preparado_v1',
+  'dropea_incidencia_ausente_v2',
   'dropea_incidencia_mercancia_v1'
+]);
+
+// Chatby already emits this incident template from its native Dropea app.
+// It must never have a second repository sender, even when the legacy global
+// incident owner is still configured as `repository` for merchandise flows.
+const CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES = new Set([
+  'dropea_incidencia_ausente_v2'
 ]);
 
 function templateSlug(value) {
@@ -50,7 +58,9 @@ export function chatbyLifecycleTemplateOwner() {
 }
 
 function chatbyLifecycleTemplateOwnerFor(templateName) {
-  if (templateSlug(templateName) === 'dropea_incidencia_mercancia_v1') {
+  const slug = templateSlug(templateName);
+  if (CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES.has(slug)) return 'chatby_native';
+  if (slug === 'dropea_incidencia_mercancia_v1') {
     return String(process.env.CHATBY_INCIDENT_TEMPLATE_OWNER || chatbyLifecycleTemplateOwner())
       .trim()
       .toLowerCase();
@@ -63,7 +73,8 @@ export function chatbyNativeOwnsLifecycleTemplate(templateName) {
     && CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(templateName));
 }
 
-export function chatbyRepositoryOwnsIncidentTemplate() {
+export function chatbyRepositoryOwnsIncidentTemplate(templateName = '') {
+  if (CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES.has(templateSlug(templateName))) return false;
   return String(process.env.CHATBY_INCIDENT_TEMPLATE_OWNER || '').trim().toLowerCase() === 'repository';
 }
 
@@ -727,3 +738,4 @@ export async function deleteSubscriber(payload) {
     body: JSON.stringify(payload)
   });
 }
+
