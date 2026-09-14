@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
 import test from 'node:test';
 import {
   claimTemplateDelivery,
@@ -19,6 +20,13 @@ test('fails closed when the persistent template delivery ledger is unavailable',
   assert.equal(claim.acquired, false);
   assert.equal(claim.persistent, false);
   assert.equal(claim.reason, 'persistent_dedupe_unavailable');
+});
+
+test('stale return reclaim remains restricted to the exact expected ledger status', async () => {
+  const source = await fs.readFile(new URL('./supabase-store.mjs', import.meta.url), 'utf8');
+  assert.match(source, /expectedStatus = 'manual_reconciliation_required'/);
+  assert.match(source, /status: `eq\.\$\{safeExpectedStatus\}`/);
+  assert.match(source, /\['manual_reconciliation_required', 'claimed', 'reconciliation_claimed'\]/);
 });
 
 test('maps the current carrier incident and preserves its complete history', () => {
@@ -67,3 +75,4 @@ test('maps the current carrier incident and preserves its complete history', () 
   assert.equal(history[1].reason, 'DIRECCION INCORRECTA');
   assert.equal(history[1].observation, 'esta mal');
 });
+
