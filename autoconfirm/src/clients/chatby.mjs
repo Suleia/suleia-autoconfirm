@@ -738,4 +738,3 @@ export async function deleteSubscriber(payload) {
     body: JSON.stringify(payload)
   });
 }
-
