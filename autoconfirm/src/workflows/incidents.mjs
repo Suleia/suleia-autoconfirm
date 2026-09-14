@@ -1051,8 +1051,11 @@ const INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES = 30;
 const activeIncidentDiscountReturns = new Set();
 
 export function automaticIncidentReturnReconciliationDue(existing, { now = Date.now(), delayMinutes = INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES } = {}) {
-  if (existing?.status !== 'manual_reconciliation_required') return false;
-  if (!/^DROPEA_V2_ISSUE_ACTION_HTTP_5\d\d$/.test(String(existing?.last_error || ''))) return false;
+  const status = String(existing?.status || '').toLowerCase();
+  const staleClaim = status === 'claimed' || status === 'reconciliation_claimed';
+  const transientFailure = status === 'manual_reconciliation_required'
+    && /^DROPEA_V2_ISSUE_ACTION_HTTP_5\d\d$/.test(String(existing?.last_error || ''));
+  if (!staleClaim && !transientFailure) return false;
   const attemptedAt = Date.parse(String(existing?.attempted_at || existing?.updated_at || ''));
   const nowMs = Number(now);
   if (!Number.isFinite(attemptedAt) || !Number.isFinite(nowMs)) return false;
@@ -1210,7 +1213,8 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       claim = await reclaimReturn({
         storeId: config.defaultStore.id,
         orderId: incident.orderId,
-        incidenceId: incident.incidenceId
+        incidenceId: incident.incidenceId,
+        expectedStatus: claim.existing?.status
       });
     }
     if (!claim?.acquired || claim?.persistent !== true) {

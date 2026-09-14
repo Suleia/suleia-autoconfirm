@@ -233,13 +233,17 @@ export function claimIncidentDiscountReturn({ storeId = 'suleia', orderId, incid
   });
 }
 
-export async function reclaimIncidentDiscountReturn({ storeId = 'suleia', orderId, incidenceId } = {}) {
+export async function reclaimIncidentDiscountReturn({ storeId = 'suleia', orderId, incidenceId, expectedStatus = 'manual_reconciliation_required' } = {}) {
   if (!isSupabaseEnabled()) {
     return { acquired: false, persistent: false, reason: 'persistent_dedupe_unavailable' };
   }
   const templateName = `${INCIDENT_DISCOUNT_RETURN_LEDGER}:${String(incidenceId || '')}`;
   const templateKey = deliveryKey({ storeId, orderId, templateName });
   const attemptedAt = nowIso();
+  const safeExpectedStatus = ['manual_reconciliation_required', 'claimed', 'reconciliation_claimed']
+    .includes(String(expectedStatus || '').toLowerCase())
+    ? String(expectedStatus).toLowerCase()
+    : 'manual_reconciliation_required';
   const updated = await updateRows('template_delivery_ledger', {
     status: 'reconciliation_claimed',
     attempted_at: attemptedAt,
@@ -248,7 +252,7 @@ export async function reclaimIncidentDiscountReturn({ storeId = 'suleia', orderI
   }, {
     query: {
       template_key: `eq.${templateKey}`,
-      status: 'eq.manual_reconciliation_required'
+      status: `eq.${safeExpectedStatus}`
     },
     returning: 'representation'
   });
@@ -987,3 +991,4 @@ export async function hydrateLocalStateFromSupabase() {
   result.finishedAt = nowIso();
   return result;
 }
+
