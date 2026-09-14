@@ -2716,4 +2716,3 @@ export async function syncPendingIncidents({
     throw error;
   }
 }
-
