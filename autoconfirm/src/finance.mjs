@@ -276,7 +276,8 @@ function findCost(value, aliases) {
 function dropeaExpenseBreakdown(order = {}) {
   const value = order.expenses_breakdown;
   if (!value || typeof value !== 'object') return null;
-  let total = findCost(value, ['total_expenses']);
+  const publishedTotal = findCost(value, ['total_expenses']);
+  let total = publishedTotal;
   if (total === null) {
     // Older settled orders expose every Wallet component but omit the
     // convenience `total_expenses` field. Rebuild that total according to the
@@ -292,7 +293,7 @@ function dropeaExpenseBreakdown(order = {}) {
     const dropeaTaxRate = (Number(value.tax_rate_dropea) || 0) + (Number(value.equivalence_surcharge_rate) || 0);
     total = product + Math.round(product * supplierTaxRate / 100) + dropeaBase + Math.round(dropeaBase * dropeaTaxRate / 100);
   }
-  return { value, total, final: value.is_estimate === false };
+  return { value, total, publishedTotal: publishedTotal !== null, final: value.is_estimate === false };
 }
 
 function breakdownSum(order, aliases) {
@@ -634,9 +635,17 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
         else if (recordCharge({ orderId, day: returnedDay, costType, cents: cost.cents, source: cost.source, sourceType: cost.type, field })) allocateToProducts(list, cost.cents, productField, orderId, orderSet);
       }
       if (settledBreakdown) {
-        const actualProduct = breakdownSum(order, ['product_price']) || 0;
+        const publishedProduct = breakdownSum(order, ['product_price']) || 0;
+        const actualLogistics = actualComponents.reduce((sum, value) => sum + value, 0);
+        // On refused orders Dropea can expose the reserved product amount in
+        // product_price while total_expenses already reflects its Wallet
+        // release. The final published total is authoritative: only the part
+        // that remains after actual logistics may be recognised as product COGS.
+        const actualProduct = breakdown.publishedTotal
+          ? Math.min(publishedProduct, Math.max(0, breakdown.total - actualLogistics))
+          : publishedProduct;
         if (actualProduct > 0 && recordCharge({ orderId, day: returnedDay, costType: 'PRODUCT_COGS', cents: actualProduct, source: breakdownSource(order).source, sourceType: breakdownSource(order).type, field: 'product' })) allocateToProducts(list, actualProduct, 'productCost', orderId, 'returnedOrderIds');
-        const adjustment = Math.max(0, breakdown.total - actualProduct - actualComponents.reduce((sum, value) => sum + value, 0));
+        const adjustment = Math.max(0, breakdown.total - actualProduct - actualLogistics);
         if (recordCharge({ orderId, day: returnedDay, costType: 'DROPEA_TAX_AND_ADJUSTMENTS', cents: adjustment, source: breakdownSource(order).source, sourceType: breakdownSource(order).type, field: 'dropeaAdjustments' })) allocateToProducts(list, adjustment, 'dropeaAdjustments', orderId, 'returnedOrderIds');
       }
       for (const item of list) {
@@ -978,3 +987,4 @@ export async function buildFinanceReport({ month, force = false, leanRefresh = f
 export function clearFinanceCache() {
   cache.clear();
 }
+
