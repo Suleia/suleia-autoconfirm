@@ -168,6 +168,37 @@ test('re-reads Chatby and requests one persistently claimed Dropea return', asyn
   assert.equal(calls.finished.status, 'verified');
 });
 
+test('keeps retrying an active returnable incidence while Dropea marks it as managing with client', async () => {
+  let returned = 0;
+  const managingIncident = {
+    issue: {
+      id: 'fixture-discount-issue',
+      status: 'MANAGING_WITH_CLIENT',
+      raw: {
+        status: 'MANAGING_WITH_CLIENT',
+        is_active: true,
+        allowed_resolution_options: ['RETURN_REQUESTED']
+      }
+    },
+    order: { orderId: 'fixture-discount-order' }
+  };
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    automaticEnabled: true,
+    credentialAvailable: true,
+    readCurrent: async () => managingIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({ acquired: true, persistent: true }),
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(returned, 1);
+});
+
 test('a last-second Chatby action blocks the return before the persistent claim', async () => {
   const calls = { claimed: 0, returned: 0 };
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {

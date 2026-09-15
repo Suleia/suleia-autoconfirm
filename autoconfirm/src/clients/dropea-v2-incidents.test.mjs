@@ -76,7 +76,14 @@ test('Dropea V2 incident adapter uses pending-only GET reads and deduplicates ge
     async listAll(name, params, options) {
       calls.push({ method: 'GET', name, params, options });
       return {
-        items: [issue(9), issue(9), issue(10), issue(11, { is_active: false })],
+        items: [
+          issue(9),
+          issue(9),
+          issue(10),
+          issue(11, { is_active: false }),
+          issue(12, { status: 'MANAGING_WITH_CLIENT' }),
+          issue(13, { status: 'RESOLVED' })
+        ],
         complete: true
       };
     },
@@ -91,7 +98,7 @@ test('Dropea V2 incident adapter uses pending-only GET reads and deduplicates ge
     clientFactory: () => fakeClient
   });
 
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   assert.deepEqual(calls.map(({ name }) => name), ['listIssues', 'getOrder']);
   assert.deepEqual(calls[0].params, { only_pending_to_resolve: true });
   assert.equal(calls[0].options.maxPages, 30);
