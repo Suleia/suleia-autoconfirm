@@ -58,3 +58,12 @@ test('targeted incident returns require auth, explicit authorization and the run
   assert.match(source, /returnOnly: true/);
   assert.match(source, /persist: false/);
 });
+
+test('return status inspection is authenticated and exposes only sanitized ledger fields', () => {
+  assert.match(source, /url\.pathname === '\/api\/logistics\/incident-return-status'/);
+  assert.match(source, /incident-return-status'[\s\S]{0,180}isAuthorizedDashboardAction\(req\)/);
+  assert.match(source, /getTemplateDelivery\(\{/);
+  assert.match(source, /lastError: row\.last_error \|\| null/);
+  assert.doesNotMatch(source, /incident-return-status'[\s\S]{0,1800}customer_phone/);
+});
+
