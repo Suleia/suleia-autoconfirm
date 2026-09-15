@@ -1204,9 +1204,11 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     });
     if (
       claim?.reason === 'already_claimed'
-      && claim?.existing?.status === 'manual_reconciliation_required'
       && (
-        dependencies.allowManualReconciliationRetry === true
+        (
+          dependencies.allowManualReconciliationRetry === true
+          && claim?.existing?.status === 'manual_reconciliation_required'
+        )
         || (automaticEnabled === true && automaticIncidentReturnReconciliationDue(claim.existing, { now: dependencies.now ?? Date.now() }))
       )
     ) {
