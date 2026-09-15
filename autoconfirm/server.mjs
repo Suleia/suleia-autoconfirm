@@ -1102,6 +1102,52 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/logistics/reconcile-transient-incident-return') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'RETRY_TRANSIENT_RETURN_REQUEST') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const orderId = String(body.orderId || '').trim();
+      const incidenceId = String(body.incidenceId || '').trim();
+      if (!/^\d+$/.test(orderId) || !/^\d+$/.test(incidenceId)) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_identifiers' });
+      }
+      const row = await getTemplateDelivery({
+        storeId: config.defaultStore.id,
+        orderId,
+        templateName: `dropea_issue_discount_no_response_return_v1:${incidenceId}`
+      });
+      if (
+        String(row?.status || '').toLowerCase() !== 'manual_reconciliation_required'
+        || !/^DROPEA_V2_ISSUE_ACTION_HTTP_5\d\d$/.test(String(row?.last_error || ''))
+      ) {
+        return sendJson(res, 409, { ok: false, error: 'return_not_transient_reconcilable' });
+      }
+      const result = await syncPendingIncidents({
+        authorizedReturnIncidentIds: [incidenceId],
+        reconcileAmbiguousReturnIncidentIds: [incidenceId],
+        returnOnly: true,
+        persist: false
+      });
+      const target = result?.incidents?.find((incident) => (
+        String(incident.incidenceId || '') === incidenceId
+        && String(incident.orderId || '') === orderId
+      ));
+      return sendJson(res, 200, {
+        ok: Boolean(result?.ok && target),
+        return: target ? {
+          orderId,
+          incidenceId,
+          status: target.incidentDiscountReturnStatus || null,
+          verified: target.incidentDiscountReturnVerified === true,
+          reason: target.incidentDiscountReturnReason || null,
+          attemptedAt: target.incidentDiscountReturnAttemptedAt || null,
+          completedAt: target.incidentDiscountReturnCompletedAt || null
+        } : null
+      });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-sheet') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await ingestPendingOrders({ store: config.defaultStore });
