@@ -42,11 +42,13 @@ test('issue action credential requires read and resolve scopes while tolerating 
   );
 });
 
-test('return uses the official V2 issue endpoint, exact body and stable idempotency key', async () => {
+test('return uses the official V2 issue endpoint, exact body and a fresh logical-attempt key', async () => {
   const calls = [];
+  const nonces = ['attempt-one', 'attempt-two'];
   const client = createDropeaV2IssueActionClient({
     token: token(),
     market: 'ES',
+    idempotencyNonceFactory: () => nonces.shift(),
     fetchImpl: async (url, options) => {
       calls.push({ url: String(url), options });
       return {
@@ -63,11 +65,15 @@ test('return uses the official V2 issue endpoint, exact body and stable idempote
     }
   });
 
-  const result = await client.returnToOrigin(1280487);
-  assert.equal(result.resolution_status, 'RETURN_REQUESTED');
+  const first = await client.returnToOrigin(1280487);
+  const second = await client.returnToOrigin(1280487);
+  assert.equal(first.resolution_status, 'RETURN_REQUESTED');
+  assert.equal(second.resolution_status, 'RETURN_REQUESTED');
   assert.equal(calls[0].url, 'https://es.public-api.dropea.com/dropshipper/issues/1280487/resolve');
   assert.equal(calls[0].options.method, 'POST');
-  assert.equal(calls[0].options.headers['Idempotency-Key'], 'suleia-return-requested-1280487');
+  assert.equal(calls[0].options.headers['Idempotency-Key'], 'suleia-return-requested-1280487-attempt-one');
+  assert.equal(calls[1].options.headers['Idempotency-Key'], 'suleia-return-requested-1280487-attempt-two');
+  assert.notEqual(calls[0].options.headers['Idempotency-Key'], calls[1].options.headers['Idempotency-Key']);
   assert.deepEqual(JSON.parse(calls[0].options.body), {
     status: 'RESOLVED',
     resolution_status: 'RETURN_REQUESTED'

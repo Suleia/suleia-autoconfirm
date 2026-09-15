@@ -84,17 +84,18 @@ export function loadDropeaV2IssueActionStoreConfigs(env = process.env, { now = D
   });
 }
 
-function returnIdempotencyKey(issueId) {
-  const stable = `suleia-return-requested-${issueId}`;
-  if (/^[A-Za-z0-9_-]{1,255}$/.test(stable)) return stable;
-  return `suleia-return-requested-${crypto.createHash('sha256').update(String(issueId)).digest('hex').slice(0, 32)}`;
+function returnIdempotencyKey(issueId, nonce = crypto.randomUUID()) {
+  const candidate = `suleia-return-requested-${issueId}-${nonce}`;
+  if (/^[A-Za-z0-9_-]{1,255}$/.test(candidate)) return candidate;
+  return `suleia-return-requested-${issueId}-${crypto.createHash('sha256').update(String(nonce)).digest('hex').slice(0, 32)}`;
 }
 
 export function createDropeaV2IssueActionClient({
   token,
   market,
   fetchImpl = globalThis.fetch,
-  timeoutMs = 20_000
+  timeoutMs = 20_000,
+  idempotencyNonceFactory = crypto.randomUUID
 } = {}) {
   if (typeof fetchImpl !== 'function') fail('DROPEA_ISSUE_ACTION_FETCH_REQUIRED');
   const normalizedMarket = String(market || '').toUpperCase();
@@ -116,7 +117,11 @@ export function createDropeaV2IssueActionClient({
           Accept: 'application/json',
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
-          'Idempotency-Key': returnIdempotencyKey(id)
+          // Dropea caches an idempotency key for 24 hours. A retry after an
+          // explicit 5xx response is a new logical attempt and therefore must
+          // use a fresh key; the persistent workflow ledger still prevents
+          // concurrent or duplicate returns for the same issue.
+          'Idempotency-Key': returnIdempotencyKey(id, idempotencyNonceFactory())
         },
         body: JSON.stringify({ status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }),
         redirect: 'error',
