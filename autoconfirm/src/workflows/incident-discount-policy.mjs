@@ -176,7 +176,9 @@ export function incidentDiscountPolicy({
 } = {}) {
   if (!rejectedGoodsIncident(incident)) return { eligible: false, reason: 'incident_not_rejected_goods' };
   const status = normalize(incident?.issueStatus || incident?.status || 'pending');
-  if (!/pending|pendiente|open|abiert|unresolved|resolver/.test(status)) {
+  const activeResolvableStatus = status === 'managing_with_client'
+    || /pending|pendiente|open|abiert|unresolved|resolver/.test(status);
+  if (!activeResolvableStatus) {
     return { eligible: false, reason: 'incident_not_pending' };
   }
   if (incident?.chatbyReadVerified !== true) return { eligible: false, reason: 'chatby_context_unverified' };
