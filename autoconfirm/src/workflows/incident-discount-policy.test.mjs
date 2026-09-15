@@ -45,6 +45,17 @@ test('allows the discount exactly twenty-four hours later with no interaction', 
   assert.equal(result.discountAmountEur, 5);
 });
 
+test('keeps a Dropea incidence eligible while it is actively managing with the client', () => {
+  const result = incidentDiscountPolicy({
+    incident: incident({ issueStatus: 'MANAGING_WITH_CLIENT' }),
+    messages: [initialTemplate],
+    now: Date.parse('2026-07-29T08:00:00.000Z'),
+    discountTemplateName: 'es_es_dropea_incidencia_descuento_5'
+  });
+  assert.equal(result.eligible, true);
+  assert.equal(result.reason, 'discount_template_due');
+});
+
 test('uses the persistent delivery ledger when Chatby history omits the sent template', () => {
   const merchandisePersistentDelivery = {
     status: 'sent',
