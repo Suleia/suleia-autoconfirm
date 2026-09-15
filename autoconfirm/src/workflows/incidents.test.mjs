@@ -4,6 +4,7 @@ import {
   chatbyContextFromExactDiscountDelivery,
   chatbyContextFromExactTemplateDelivery,
   classifyIncident,
+  customerActivityForIncident,
   executeIncidentDiscountNoResponseReturn,
   executeIncorrectAddressResolution,
   incidentDiscountNoResponseReturnDecision,
@@ -277,6 +278,60 @@ test('recovers the exact order conversation from a verified current-incident mer
   assert.equal(recovered.chatbyReadVerified, true);
   assert.equal(recovered.orderAssociation, 'EXACT_ORDER_MERCHANDISE_LEDGER');
   assert.equal(recovered.userNs, 'fixture-chat');
+});
+
+test('shows only customer activity after the verified rejected-goods template', async () => {
+  const recovered = await chatbyContextFromExactTemplateDelivery({
+    orderId: 'fixture-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+    delivery: {
+      order_id: 'fixture-order',
+      status: 'sent',
+      sent_at: '2026-07-15T15:05:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async () => [
+      { type: 'in', created_at: '2026-07-15T15:04:00.000Z', content: 'Mensaje anterior' },
+      { type: 'out', created_at: '2026-07-15T15:05:00.000Z', content: 'Plantilla' },
+      { type: 'in', created_at: '2026-07-15T15:06:00.000Z', button_text: 'Entregar mañana' }
+    ]
+  });
+  const activity = customerActivityForIncident(recovered);
+
+  assert.equal(recovered.customerMessages, 1);
+  assert.equal(recovered.intent, 'delivery_instruction');
+  assert.equal(activity.detected, true);
+  assert.equal(activity.verified, true);
+  assert.equal(activity.referenceType, 'REJECTED_TEMPLATE');
+  assert.equal(activity.messageCount, 1);
+  assert.equal(activity.interactionType, 'BUTTON');
+  assert.match(activity.actionLabel, /instrucciones de entrega mediante botón/);
+  assert.equal(activity.firstAt, '2026-07-15T15:06:00.000Z');
+  assert.equal(activity.lastAt, '2026-07-15T15:06:00.000Z');
+});
+
+test('reports no customer action when the exact rejected template has no later inbound message', async () => {
+  const recovered = await chatbyContextFromExactTemplateDelivery({
+    orderId: 'fixture-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+    delivery: {
+      order_id: 'fixture-order',
+      status: 'sent',
+      sent_at: '2026-07-15T15:05:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async () => [
+      { type: 'out', created_at: '2026-07-15T15:05:00.000Z', content: 'Plantilla' }
+    ]
+  });
+  const activity = customerActivityForIncident(recovered);
+
+  assert.equal(activity.detected, false);
+  assert.equal(activity.messageCount, 0);
+  assert.equal(activity.actionCode, 'no_customer_activity');
+  assert.equal(activity.referenceLabel, 'plantilla de incidencia de rechazo');
 });
 
 test('reconciles one ambiguous return only through an explicit atomic reclaim', async () => {

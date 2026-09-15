@@ -513,13 +513,18 @@ function inferredIncidentTone(incident) {
 
 function incidentMatchesFilter(incident) {
   if (state.incidentFilter === 'all') return true;
-  if (state.incidentFilter === 'responded') return incident.customerResponded || Number(incident.customerMessages) > 0;
+  if (state.incidentFilter === 'responded') return incidentHasCustomerActivity(incident);
   return inferredIncidentType(incident) === state.incidentFilter;
+}
+
+function incidentHasCustomerActivity(incident) {
+  if (typeof incident.customerActivityDetected === 'boolean') return incident.customerActivityDetected;
+  return incident.customerResponded || Number(incident.customerMessages) > 0;
 }
 
 function incidentTone(incident) {
   if (incident.actionTone) return incident.actionTone;
-  if (incident.customerResponded || Number(incident.customerMessages) > 0) return 'positive';
+  if (incidentHasCustomerActivity(incident)) return 'positive';
   if (incident.incidentTypeTone) return incident.incidentTypeTone;
   return 'neutral';
 }
@@ -564,6 +569,9 @@ function renderIncidents() {
     incident.chatbySummary,
     incident.lastCustomerMessage,
     incident.customerIntentDetail,
+    incident.customerActivityActionLabel,
+    incident.customerActivityDetail,
+    incident.customerActivityReferenceLabel,
     incident.resolutionStage,
     incident.operationalInstruction,
     incident.templateRecommendation,
@@ -588,16 +596,21 @@ function renderIncidents() {
   });
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
-  const customerResponded = incidents.filter((incident) => incident.customerResponded || Number(incident.customerMessages) > 0).length;
+  const customerResponded = incidents.filter(incidentHasCustomerActivity).length;
+  const actionableActivity = incidents.filter((incident) => (
+    incidentHasCustomerActivity(incident)
+    && !['customer_unclear', 'customer_response', 'no_customer_activity'].includes(incident.customerActivityActionCode)
+  )).length;
   const learned = incidents.filter((incident) => incident.memoryApplied || incident.feedbackVerdict).length;
-  const highPriority = incidents.filter((incident) => incident.priority === 'high' || incident.customerResponded || Number(incident.customerMessages) > 0).length;
+  const highPriority = incidents.filter((incident) => incident.priority === 'high' || incidentHasCustomerActivity(incident)).length;
   const needsAddress = incidents.filter((incident) => inferredIncidentType(incident) === 'address').length;
   const absent = incidents.filter((incident) => inferredIncidentType(incident) === 'absent').length;
   const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
     { label: 'Con aprendizaje', value: learned, detail: 'Feedback aplicado al agente', tone: learned ? 'positive' : 'neutral' },
     { label: 'Alta prioridad', value: highPriority, detail: 'Respuesta o señal accionable', tone: highPriority ? 'positive' : 'neutral' },
-    { label: 'Con respuesta', value: customerResponded, detail: 'Alertas para resolver primero', tone: 'positive' },
+    { label: 'Actividad del cliente', value: customerResponded, detail: 'Respuesta o botón posterior verificado', tone: customerResponded ? 'positive' : 'neutral' },
+    { label: 'Acción identificada', value: actionableActivity, detail: 'Intención operativa clara', tone: actionableActivity ? 'positive' : 'neutral' },
     { label: 'Pendientes', value: incidents.length, detail: `Actualizado ${formatDateTime(data.updatedAt)}`, tone: 'neutral' },
     { label: 'Ausente', value: absent, detail: 'Coordinar nueva entrega', tone: 'warning' },
     { label: 'Dirección/datos', value: needsAddress, detail: 'Corregir datos de entrega', tone: 'warning' },
@@ -619,7 +632,7 @@ function renderIncidents() {
   }
 
   table.innerHTML = visible.map((incident) => {
-    const hasCustomerResponse = incident.customerResponded || Number(incident.customerMessages) > 0;
+    const hasCustomerResponse = incidentHasCustomerActivity(incident);
     const statusTone = incidentTone(incident);
     const type = inferredIncidentType(incident);
     const typeTone = incident.incidentTypeTone || inferredIncidentTone(incident);
@@ -630,6 +643,23 @@ function renderIncidents() {
     const customerSignalTone = incident.customerSignalTone || statusTone;
     const customerSignalLabel = incident.customerSignalLabel || (hasCustomerResponse ? 'Cliente respondio' : 'Sin respuesta del cliente');
     const customerSignalDetail = incident.customerSignalDetail || (hasCustomerResponse ? 'Hay respuesta entrante en Chatby.' : 'No veo respuesta entrante en Chatby.');
+    const activityActionLabel = incident.customerActivityActionLabel || (hasCustomerResponse ? customerSignalLabel : 'Sin respuesta ni acción posterior');
+    const activityReferenceLabel = incident.customerActivityReferenceLabel || 'apertura de la incidencia';
+    const activityMessageCount = Number(incident.customerActivityMessageCount ?? incident.customerMessages ?? 0);
+    const activityVerified = incident.customerActivityVerified === true || (
+      incident.customerActivityVerified === undefined && incident.chatbyReadVerified === true
+    );
+    const activityCard = `
+      <div class="incident-customer-activity ${hasCustomerResponse ? 'has-activity' : 'is-waiting'}">
+        <div class="incident-customer-activity__header">
+          <b>${escapeHtml(activityActionLabel)}</b>
+          <span class="${activityVerified ? 'is-verified' : 'is-unverified'}">${activityVerified ? 'Verificado' : 'Pendiente de verificar'}</span>
+        </div>
+        <small>${escapeHtml(activityMessageCount)} interacción(es) posterior(es) a la ${escapeHtml(activityReferenceLabel)}.</small>
+        ${incident.customerActivityReferenceAt ? `<small>Referencia: ${escapeHtml(formatDateTime(incident.customerActivityReferenceAt))}</small>` : ''}
+        ${incident.customerActivityLastAt ? `<time>Última actividad: ${escapeHtml(formatDateTime(incident.customerActivityLastAt))}</time>` : ''}
+        ${incident.customerActivityInteractionType === 'BUTTON' ? '<small class="incident-activity-channel">Incluye una acción mediante botón de Chatby</small>' : ''}
+      </div>`;
     const memory = incident.memoryApplied
       ? `<small class="incident-memory-applied">Aprendizaje aplicado: ${escapeHtml(incident.memoryText || 'Regla guardada')}</small>`
       : '';
@@ -661,7 +691,7 @@ function renderIncidents() {
           <small>Incidencia ${escapeHtml(incident.incidenceId || '-')}</small>
           <small>${escapeHtml(formatDateTime(incident.incidenceDate))}</small>
           ${Number.isFinite(Number(incident.incidentAgeHours)) ? `<small>${Math.round(Number(incident.incidentAgeHours))}h abierta</small>` : ''}
-          ${hasCustomerResponse ? '<span class="customer-response-badge">Cliente respondió</span>' : ''}
+          ${hasCustomerResponse ? '<span class="customer-response-badge">Actividad detectada</span>' : ''}
         </td>
         <td>
           <span class="pill ${typeTone}">${escapeHtml(incident.incidentTypeLabel || incidentTypeLabel(type))}</span>
@@ -675,8 +705,9 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${customerSignalTone}">${escapeHtml(customerSignalLabel)}</span>
           <small>${escapeHtml(customerSignalDetail)}</small>
+          ${activityCard}
           ${incident.resolutionStage ? `<small class="incident-stage">Etapa: ${escapeHtml(incident.resolutionStage)}</small>` : ''}
-          <small>${escapeHtml(incident.customerMessages || 0)} mensajes entrantes del cliente</small>
+          <small>${escapeHtml(activityMessageCount)} mensajes/acciones posteriores del cliente</small>
           ${incident.lastCustomerMessage
             ? `<div class="incident-customer-last"><b>Ultimo mensaje del cliente</b><time>${escapeHtml(formatDateTime(incident.lastCustomerAt))}</time><blockquote>${escapeHtml(incident.lastCustomerMessage)}</blockquote></div>`
             : '<div class="incident-customer-last is-waiting"><b>Sin respuesta del cliente</b><small>Pendiente de que el cliente conteste en Chatby.</small></div>'}

@@ -50,3 +50,11 @@ test('returned orders and returned units remain separate in UI and calculations'
   assert.match(script, /\['returnedUnits', 'Unidades devueltas'/);
   assert.match(dashboard, /tarifa es por pedido/);
 });
+
+test('incidents panel exposes verified customer activity and the detected action', () => {
+  assert.match(dashboard, /Con respuesta \/ acción/);
+  assert.match(script, /customerActivityActionLabel/);
+  assert.match(script, /customerActivityReferenceLabel/);
+  assert.match(script, /Última actividad/);
+  assert.match(script, /Incluye una acción mediante botón de Chatby/);
+});
