@@ -67,3 +67,12 @@ test('return status inspection is authenticated and exposes only sanitized ledge
   assert.doesNotMatch(source, /incident-return-status'[\s\S]{0,1800}customer_phone/);
 });
 
+test('dashboard retry accepts only an exact persisted transient return failure', () => {
+  assert.match(source, /url\.pathname === '\/api\/logistics\/reconcile-transient-incident-return'/);
+  assert.match(source, /reconcile-transient-incident-return'[\s\S]{0,180}isAuthorizedDashboardAction\(req\)/);
+  assert.match(source, /RETRY_TRANSIENT_RETURN_REQUEST/);
+  assert.match(source, /DROPEA_V2_ISSUE_ACTION_HTTP_5\\d\\d/);
+  assert.match(source, /reconcileAmbiguousReturnIncidentIds: \[incidenceId\]/);
+  assert.doesNotMatch(source, /reconcile-transient-incident-return'[\s\S]{0,2600}customer_phone/);
+});
+
