@@ -2948,6 +2948,62 @@ th {
   background: rgba(248, 240, 218, .62);
 }
 
+.incident-customer-activity {
+  display: grid;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid rgba(23, 69, 77, .14);
+  border-radius: 14px;
+  background: rgba(248, 240, 218, .62);
+}
+
+.incident-customer-activity.has-activity {
+  border-color: rgba(31, 171, 117, .28);
+  background: linear-gradient(135deg, rgba(205, 248, 236, .9), rgba(255, 255, 255, .82));
+  box-shadow: inset 4px 0 0 rgba(31, 171, 117, .76);
+}
+
+.incident-customer-activity__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.incident-customer-activity__header b {
+  line-height: 1.35;
+}
+
+.incident-customer-activity__header span,
+.incident-activity-channel {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 4px 7px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.incident-customer-activity__header .is-verified {
+  color: #087f58;
+  background: rgba(31, 171, 117, .15);
+}
+
+.incident-customer-activity__header .is-unverified {
+  color: #875611;
+  background: rgba(241, 189, 99, .25);
+}
+
+.incident-customer-activity time {
+  color: #536774;
+  font-size: 11px;
+}
+
+.incident-activity-channel {
+  color: #006b71 !important;
+  background: rgba(13, 139, 143, .12);
+}
+
 .incident-customer-last time,
 .incident-carrier-latest time,
 .incident-carrier-history time {

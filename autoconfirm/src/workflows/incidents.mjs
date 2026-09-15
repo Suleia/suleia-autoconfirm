@@ -1499,6 +1499,81 @@ function customerSignalForIncident(chatby) {
   };
 }
 
+function customerMessageUsesInteractiveAction(message) {
+  const raw = message?.raw || message || {};
+  const kind = normalize([
+    message?.type,
+    message?.message_type,
+    message?.content_type,
+    raw?.type,
+    raw?.message_type,
+    raw?.content_type,
+    raw?.interactive?.type
+  ].filter(Boolean).join(' '));
+  return Boolean(
+    message?.button_text
+    || raw?.button_text
+    || raw?.button?.text
+    || raw?.interactive?.button_reply
+    || raw?.interactive?.list_reply
+    || kind.includes('button')
+    || kind.includes('interactive')
+  );
+}
+
+function customerActivityActionLabel(intent, usedInteractiveAction) {
+  const labels = {
+    reject_or_cancel: 'Rechaza o cancela el pedido',
+    address_data: 'Aporta o corrige la dirección',
+    delivery_instruction: 'Da instrucciones de entrega',
+    reprogram_delivery: 'Solicita reprogramar la entrega',
+    positive_confirmation: 'Muestra conformidad',
+    customer_unclear: 'Responde sin una acción clara'
+  };
+  const base = labels[intent] || (usedInteractiveAction ? 'Pulsa una opción en Chatby' : 'Responde en Chatby');
+  return usedInteractiveAction && labels[intent] ? `${base} mediante botón` : base;
+}
+
+export function customerActivityForIncident(chatby = {}) {
+  const scopedMessages = Array.isArray(chatby.messagesAfterCurrentIncident)
+    ? chatby.messagesAfterCurrentIncident
+    : [];
+  const inbound = orderedMessagesChronologically(scopedMessages).filter(isCustomerMessage);
+  const firstAt = inbound.length ? messageDate(inbound[0]) : null;
+  const lastAt = inbound.length ? messageDate(inbound[inbound.length - 1]) : null;
+  const usedInteractiveAction = inbound.some(customerMessageUsesInteractiveAction);
+  const detected = inbound.length > 0;
+  const referenceType = chatby.activityReferenceType || 'INCIDENT_OPENED';
+  const referenceLabel = referenceType === 'REJECTED_TEMPLATE'
+    ? 'plantilla de incidencia de rechazo'
+    : referenceType === 'DISCOUNT_TEMPLATE'
+      ? 'plantilla de descuento de 5 €'
+      : referenceType === 'EXACT_TEMPLATE'
+        ? 'plantilla verificada'
+        : 'apertura de la incidencia';
+  const actionLabel = detected
+    ? customerActivityActionLabel(chatby.intent || '', usedInteractiveAction)
+    : 'Sin respuesta ni acción posterior';
+  return {
+    applies: Boolean(chatby.activityReferenceAt),
+    detected,
+    verified: chatby.chatbyReadVerified === true,
+    source: 'Chatby',
+    referenceType,
+    referenceLabel,
+    referenceAt: chatby.activityReferenceAt || null,
+    actionCode: detected ? (chatby.intent || 'customer_response') : 'no_customer_activity',
+    actionLabel,
+    interactionType: usedInteractiveAction ? 'BUTTON' : detected ? 'MESSAGE' : 'NONE',
+    messageCount: inbound.length,
+    firstAt,
+    lastAt,
+    detail: detected
+      ? `${inbound.length} interacción(es) del cliente después de la ${referenceLabel}.`
+      : `No hay interacción del cliente después de la ${referenceLabel}.`
+  };
+}
+
 function confidenceForIncident({ classification, chatby, recommendation }) {
   const intent = chatby.intent || '';
   const messages = Number(chatby.customerMessages || 0);
@@ -2035,15 +2110,25 @@ export async function chatbyContextFromExactTemplateDelivery({
   }
 
   const chatRead = await messagesByUserNs.get(userNs);
+  const activityReferenceAt = new Date(sentAtMs).toISOString();
+  const messagesAfterDelivery = messagesAfterCurrentIncident(chatRead.messages, activityReferenceAt)
+    .map((entry) => entry.message);
   return {
     ok: true,
     userNs,
     orderAssociation,
+    activityReferenceAt,
+    activityReferenceType: orderAssociation === 'EXACT_ORDER_MERCHANDISE_LEDGER'
+      ? 'REJECTED_TEMPLATE'
+      : orderAssociation === 'EXACT_ORDER_DISCOUNT_LEDGER'
+        ? 'DISCOUNT_TEMPLATE'
+        : 'EXACT_TEMPLATE',
     chatbyReadVerified: chatRead.verified === true,
     chatbyReadAttempts: chatRead.attempts,
     chatbyReadAt: chatRead.readAt || null,
     messagesForNotification: chatRead.messages,
-    ...summarizeConversation(chatRead.messages)
+    messagesAfterCurrentIncident: messagesAfterDelivery,
+    ...summarizeConversation(messagesAfterDelivery)
   };
 }
 
@@ -2142,14 +2227,17 @@ function scopeChatbyToCurrentIncident(chatby, incidentAt) {
   const allMessages = Array.isArray(chatby?.messagesForNotification)
     ? chatby.messagesForNotification
     : [];
-  const scopedMessages = messagesAfterCurrentIncident(allMessages, incidentAt)
+  const activityReferenceAt = chatby?.activityReferenceAt || incidentAt;
+  const scopedMessages = messagesAfterCurrentIncident(allMessages, activityReferenceAt)
     .map((entry) => entry.message);
   return {
     ...chatby,
     messagesForNotification: allMessages,
     messagesAfterCurrentIncident: scopedMessages,
     customerTextsAfterIncident: scopedMessages.filter(isCustomerMessage).map(messageText).filter(Boolean),
-    incidentConversationStartAt: incidentAt || null,
+    incidentConversationStartAt: activityReferenceAt || null,
+    activityReferenceAt: activityReferenceAt || null,
+    activityReferenceType: chatby?.activityReferenceType || 'INCIDENT_OPENED',
     ...summarizeConversation(scopedMessages)
   };
 }
@@ -2338,7 +2426,28 @@ export async function syncPendingIncidents({
           // Keep the original unverified context. Returns remain fail-closed.
         }
       }
+      if (classification.type === 'rejected_goods') {
+        try {
+          const merchandiseDelivery = await getTemplateDelivery({
+            storeId: config.defaultStore.id,
+            orderId,
+            templateName: INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
+          });
+          const exactRejectedTemplateContext = await chatbyContextFromExactTemplateDelivery({
+            orderId,
+            incidentAt: currentIncidenceDate,
+            delivery: merchandiseDelivery,
+            orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+            messagesByUserNs
+          });
+          if (exactRejectedTemplateContext) chatby = exactRejectedTemplateContext;
+        } catch {
+          // Keep the current-incident Chatby scope. The activity badge will
+          // remain unverified instead of attributing an old conversation.
+        }
+      }
       chatby = scopeChatbyToCurrentIncident(chatby, currentIncidenceDate);
+      const customerActivity = customerActivityForIncident(chatby);
       const previous = previousByOrderId.get(orderId);
       const sameIncidentAsPrevious = previous
         && String(previous.incidenceId || '') === String(issue?.id || issue?.incidenceId || '');
@@ -2457,6 +2566,20 @@ export async function syncPendingIncidents({
         customerMessages: chatby.customerMessages || 0,
         customerResponded: Number(chatby.customerMessages || 0) > 0,
         alertLevel: Number(chatby.customerMessages || 0) > 0 ? 'customer_response' : 'no_response',
+        customerActivityApplies: customerActivity.applies,
+        customerActivityDetected: customerActivity.detected,
+        customerActivityVerified: customerActivity.verified,
+        customerActivitySource: customerActivity.source,
+        customerActivityReferenceType: customerActivity.referenceType,
+        customerActivityReferenceLabel: customerActivity.referenceLabel,
+        customerActivityReferenceAt: customerActivity.referenceAt,
+        customerActivityActionCode: customerActivity.actionCode,
+        customerActivityActionLabel: customerActivity.actionLabel,
+        customerActivityInteractionType: customerActivity.interactionType,
+        customerActivityMessageCount: customerActivity.messageCount,
+        customerActivityFirstAt: customerActivity.firstAt,
+        customerActivityLastAt: customerActivity.lastAt,
+        customerActivityDetail: customerActivity.detail,
         chatbyUserNs: chatby.userNs || null,
         chatbyOrderAssociation: chatby.orderAssociation || 'NONE',
         chatbyReadVerified: chatby.chatbyReadVerified === true,
@@ -2482,7 +2605,11 @@ export async function syncPendingIncidents({
             customerMessages: Number(chatby.customerMessages || 0),
             lastCustomerMessage: chatby.lastCustomerMessage || '',
             lastCustomerAt: chatby.lastCustomerAt || null,
-            intent: chatby.intent || 'unknown'
+            intent: chatby.intent || 'unknown',
+            activityReferenceType: customerActivity.referenceType,
+            activityReferenceAt: customerActivity.referenceAt,
+            activityDetected: customerActivity.detected,
+            activityAction: customerActivity.actionLabel
           },
           incidentResponseWait: {
             state: responseWait.state,
@@ -2676,6 +2803,20 @@ export async function syncPendingIncidents({
       manualReconciliation: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'MANUAL_RECONCILIATION_REQUIRED').length,
       alreadyClaimed: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'ALREADY_CLAIMED').length
     };
+    const customerActivitySummary = {
+      checked: sortedIncidents.length,
+      detected: sortedIncidents.filter((incident) => incident.customerActivityDetected === true).length,
+      verified: sortedIncidents.filter((incident) => incident.customerActivityVerified === true).length,
+      afterRejectedTemplate: sortedIncidents.filter((incident) => (
+        incident.customerActivityDetected === true
+        && incident.customerActivityReferenceType === 'REJECTED_TEMPLATE'
+      )).length,
+      actionable: sortedIncidents.filter((incident) => (
+        incident.customerActivityDetected === true
+        && !['customer_unclear', 'customer_response', 'no_customer_activity'].includes(incident.customerActivityActionCode)
+      )).length,
+      viaButton: sortedIncidents.filter((incident) => incident.customerActivityInteractionType === 'BUTTON').length
+    };
     const payload = {
       ok: true,
       updatedAt,
@@ -2691,6 +2832,7 @@ export async function syncPendingIncidents({
         : 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
       discountRecoverySummary,
       discountReturnSummary,
+      customerActivitySummary,
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
