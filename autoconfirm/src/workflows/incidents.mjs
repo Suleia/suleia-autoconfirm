@@ -960,7 +960,9 @@ async function verifyIncidentLeftPending(incident, attempts = 3) {
     const order = await getDropeaOrderById(incident.orderId).catch(() => null);
     if (!order) continue;
     const issue = issueList(order?.raw?.issues).find((item) => String(item?.id || '') === String(incident.incidenceId));
-    if (!issue || !isPendingIssue(issue)) {
+    const currentStatus = issueStatus(issue);
+    const stillOpen = isPendingIssue(issue) || currentStatus === 'MANAGING_WITH_CLIENT';
+    if (!issue || !stillOpen) {
       return { verified: true, issueStatus: issue ? issueStatus(issue) : 'NOT_PENDING' };
     }
   }
@@ -1151,11 +1153,12 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o no coincide exactamente con el pedido.' };
   }
   const currentRawIssue = current.issue?.raw || current.issue || {};
+  const currentStatus = String(current.issue?.status || currentRawIssue.status || '').toUpperCase();
   if (
-    String(current.issue?.status || currentRawIssue.status || '').toUpperCase() !== 'PENDING'
+    !['PENDING', 'MANAGING_WITH_CLIENT'].includes(currentStatus)
     || currentRawIssue.is_active !== true
   ) {
-    return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta PENDING y activa.' };
+    return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o gestionandose con el cliente de forma activa.' };
   }
   if (!Array.isArray(currentRawIssue.allowed_resolution_options)
     || !currentRawIssue.allowed_resolution_options.includes('RETURN_REQUESTED')) {

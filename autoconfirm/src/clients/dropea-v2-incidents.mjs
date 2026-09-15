@@ -302,8 +302,9 @@ export function normalizeDropeaV2Incident(issue = {}, order = {}, { market = 'ES
   };
 }
 
-function pendingActiveIssue(issue) {
-  return String(issue?.status || '').toUpperCase() === 'PENDING' && issue?.is_active === true;
+function activeResolvableIssue(issue) {
+  const status = String(issue?.status || '').toUpperCase();
+  return ['PENDING', 'MANAGING_WITH_CLIENT'].includes(status) && issue?.is_active === true;
 }
 
 export async function collectPendingDropeaV2Incidents({
@@ -331,7 +332,7 @@ export async function collectPendingDropeaV2Incidents({
       pagePauseMs: 0
     });
     for (const issue of result.items || []) {
-      if (!pendingActiveIssue(issue)) continue;
+      if (!activeResolvableIssue(issue)) continue;
       if (issue.id === undefined || issue.id === null) throw new Error('DROPEA_V2_ISSUE_ID_MISSING');
       if (issue.order_id === undefined || issue.order_id === null) throw new Error('DROPEA_V2_ISSUE_ORDER_ID_MISSING');
       const issueKey = `${client.market}:${issue.id}`;
