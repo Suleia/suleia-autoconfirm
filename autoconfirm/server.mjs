@@ -30,7 +30,7 @@ import { addFinanceExpense, loadFinanceExpenseLedger, removeFinanceExpense } fro
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { checkChatbyConnection } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
-import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
+import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, getTemplateDelivery, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
 import {
   previewIncidentDiscountTest,
@@ -1069,6 +1069,37 @@ const server = http.createServer(async (req, res) => {
         persist: false
       });
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/logistics/incident-return-status') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const orderId = String(url.searchParams.get('orderId') || '').trim();
+      const incidenceId = String(url.searchParams.get('incidenceId') || '').trim();
+      if (!/^\d+$/.test(orderId) || !/^\d+$/.test(incidenceId)) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_identifiers' });
+      }
+      const row = await getTemplateDelivery({
+        storeId: config.defaultStore.id,
+        orderId,
+        templateName: `dropea_issue_discount_no_response_return_v1:${incidenceId}`
+      });
+      const evidence = row?.raw && typeof row.raw === 'object' ? row.raw : {};
+      return sendJson(res, 200, {
+        ok: true,
+        exists: Boolean(row),
+        return: row ? {
+          orderId,
+          incidenceId,
+          status: row.status || null,
+          attemptedAt: row.attempted_at || null,
+          completedAt: row.sent_at || null,
+          updatedAt: row.updated_at || null,
+          lastError: row.last_error || null,
+          verified: evidence.verified === true,
+          responseStatus: evidence.responseStatus || null,
+          ruleId: evidence.ruleId || null
+        } : null
+      });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-sheet') {
