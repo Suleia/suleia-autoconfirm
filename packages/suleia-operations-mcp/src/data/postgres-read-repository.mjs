@@ -148,7 +148,7 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       values.push(safeLimit, safeOffset);
       const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
         FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_panel_context p
-          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id)) incident
+          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id,canonical_order_id)) incident
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY ${INCIDENT_SORT[sort] || INCIDENT_SORT.UPDATED_DESC}
         LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
@@ -159,7 +159,7 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       const incidentId = canonicalIssueId || dropeaIssueId;
       const identityColumn = canonicalIssueId ? 'canonical_issue_id' : 'dropea_issue_id';
       const rows = await query(`SELECT * FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_panel_context p
-          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id)) incident
+          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id,canonical_order_id)) incident
         WHERE ${identityColumn}=$1 LIMIT 1`, [incidentId]);
       if (!rows[0]) return null;
       const timeline = await query(`SELECT * FROM read_models.operations_order_timeline

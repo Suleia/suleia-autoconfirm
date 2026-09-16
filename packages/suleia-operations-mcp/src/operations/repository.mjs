@@ -90,7 +90,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
     ELSE 'REVIEW_INCIDENT'
   END AS operational_recommendation
  FROM read_models.operations_incident_panel_context p
- LEFT JOIN read_models.recipient_absent_shadow absent USING(canonical_issue_id)
+ LEFT JOIN read_models.recipient_absent_shadow absent USING(canonical_issue_id,canonical_order_id)
  LEFT JOIN read_models.operations_private_order_display private_order USING(canonical_order_id)
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount USING(canonical_issue_id)
  LEFT JOIN LATERAL (

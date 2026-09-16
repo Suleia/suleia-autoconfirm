@@ -1,4 +1,5 @@
 import test from 'node:test';import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {OperationsProjector} from '../src/operations/projector.mjs';
 import {simulateRecipientAbsent} from '../../platform-core/src/incident/recipient-absent-policy.mjs';
 import {projectRecipientAbsentShadow} from '../../platform-core/src/incident/absent-panel-projection.mjs';
@@ -16,4 +17,11 @@ test('canonical absent read projection exposes the persisted decision id and doe
   const d=decision(),s=d.absent_shadow;const row=projectRecipientAbsentShadow({absent_shadow:s});
   assert.equal(row.current_decision_id,d.decision_id);assert.equal(row.effective_decision_status,s.simulation_status);
   const other={type:'REFUSED_BY_RECIPIENT',next_action:'old'};assert.equal(projectRecipientAbsentShadow(other),other);
+});
+test('absent joins merge both identity keys without introducing duplicate order columns',()=>{
+  for(const path of ['../src/operations/repository.mjs','../src/data/postgres-read-repository.mjs']){
+    const source=readFileSync(new URL(path,import.meta.url),'utf8');
+    assert.match(source,/JOIN read_models\.recipient_absent_shadow \w+ USING\(canonical_issue_id,canonical_order_id\)/);
+    assert.doesNotMatch(source,/JOIN read_models\.recipient_absent_shadow \w+ USING\(canonical_issue_id\)/);
+  }
 });
