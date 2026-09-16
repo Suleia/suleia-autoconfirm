@@ -30,6 +30,7 @@ import {
 } from '../db/supabase-store.mjs';
 import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
 import { carrierIncidentDisplay } from './incident-carrier-history.mjs';
+import { incidentChatbyReadBlockCount } from '../incident-automation-retry.mjs';
 import {
   processIncidentDiscountRecovery,
   warmIncidentDiscountTemplateCache
@@ -2784,6 +2785,7 @@ export async function syncPendingIncidents({
       accepted: sortedIncidents.filter((incident) => incident.incidentDiscountResponseStatus === 'DISCOUNT_ACCEPTED').length,
       blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'customer_interaction_after_merchandise_template').length,
       failed: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'failed').length,
+      blockedChatbyRead: incidentChatbyReadBlockCount(sortedIncidents),
       waiting24Hours: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'waiting_discount_window').length,
       missingVerifiedInitialTemplate: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'merchandise_template_not_verified').length,
       crossSourceMismatch: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'cross_source_order_mismatch').length,

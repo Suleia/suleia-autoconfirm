@@ -28,10 +28,11 @@ import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentF
 import { applyFinanceExpenseLedger, buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot } from './src/finance.mjs';
 import { addFinanceExpense, loadFinanceExpenseLedger, removeFinanceExpense } from './src/finance-expenses.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
-import { checkChatbyConnection } from './src/clients/chatby.mjs';
+import { checkChatbyConnection, getChatbyRetryAfterMs } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
 import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, getTemplateDelivery, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
+import { createIncidentAutomationRetry } from './src/incident-automation-retry.mjs';
 import {
   previewIncidentDiscountTest,
   sendAuthorizedIncidentDiscountTest
@@ -1253,6 +1254,11 @@ function scheduleNetworkJob(name, work) {
   return scheduledNetworkJobs.schedule(name, work).catch(() => null);
 }
 
+const incidentAutomationRetry = createIncidentAutomationRetry({
+  getRetryAfterMs: getChatbyRetryAfterMs,
+  scheduleRetry: () => scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync)
+});
+
 function startChatbyHealthMonitor() {
   scheduleNetworkJob('chatby_health', refreshChatbyHealth);
   chatbyHealthTimer = setInterval(() => {
@@ -1337,6 +1343,9 @@ async function runScheduledIncidentsSync() {
   try {
     const result = await syncPendingIncidents();
     console.log(`Incidents sync checked ${result.count || 0} pending incidents.`);
+    if (incidentAutomationRetry.consider(result)) {
+      console.log('Incident automation deferred by Chatby; recovery queued after provider cooldown.');
+    }
   } catch (error) {
     console.error('Incidents sync error:', error);
   } finally {

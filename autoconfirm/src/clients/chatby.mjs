@@ -27,6 +27,12 @@ let rateLimitedUntil = 0;
 let adaptiveRequestMinIntervalMs = requestMinIntervalMs;
 let successfulRequestsSinceRateLimit = 0;
 
+// Read-only metadata for the incident scheduler. Never bypass the shared
+// provider cooldown or change the behaviour of another messaging lane.
+export function getChatbyRetryAfterMs() {
+  return Math.max(0, rateLimitedUntil - Date.now());
+}
+
 const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
   'dropea_pedido_nuevo_v1',
   'dropea_pedido_preparado_v1',
