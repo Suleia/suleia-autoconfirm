@@ -18,7 +18,7 @@ services=(api mcp-server ingestion-worker)
 for service in "${services[@]}"; do
   container="suleia-operations-staging-$service-1"
   docker inspect "$container" > "$backup/$service-before.json"
-  jq -e '.[0].Mounts|length==0' "$backup/$service-before.json" >/dev/null
+  jq -e '.[0].Mounts|all(.Type=="bind" and .RW==false and .Destination=="/app/private-runtime" and (.Source|test("^/opt/suleia-releases/[0-9a-f]{40}/private-runtime$")))' "$backup/$service-before.json" >/dev/null
   jq -e '.[0].HostConfig.PortBindings|length==0' "$backup/$service-before.json" >/dev/null
 done
 git rev-parse HEAD > "$backup/previous-commit"
@@ -38,7 +38,7 @@ override="$backup/runtime-preserving-override.json"
 jq -n --arg image "$image" --arg revision "$revision" \
   --slurpfile api "$backup/api-before.json" --slurpfile mcp "$backup/mcp-server-before.json" \
   --slurpfile worker "$backup/ingestion-worker-before.json" '
-  def service($snapshot): {image:$image,environment:($snapshot[0][0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))+["SULEIA_BUILD_REVISION="+$revision,"SULEIA_BUILD_BRANCH=feat/recipient-absent-shadow-v1"])};
+  def service($snapshot): {image:$image,environment:($snapshot[0][0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))+["SULEIA_BUILD_REVISION="+$revision,"SULEIA_BUILD_BRANCH=feat/recipient-absent-shadow-v1"]),volumes:($snapshot[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:true}))};
   {services:{api:service($api),"mcp-server":service($mcp),"ingestion-worker":service($worker)}}' > "$override"
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker
 for service in "${services[@]}"; do
@@ -50,7 +50,7 @@ for service in "${services[@]}"; do
   done
   cmp "$backup/$service-before-env.json" "$backup/$service-after-env.json"
   for phase in before after; do
-    jq -c '.[0]|{cmd:.Config.Cmd,entrypoint:.Config.Entrypoint,user:.Config.User,restart:.HostConfig.RestartPolicy,networks:(.NetworkSettings.Networks|keys|sort)}' "$backup/$service-$phase.json" > "$backup/$service-$phase-config.json"
+    jq -c '.[0]|{cmd:.Config.Cmd,entrypoint:.Config.Entrypoint,user:.Config.User,restart:.HostConfig.RestartPolicy,networks:(.NetworkSettings.Networks|keys|sort),mounts:(.Mounts|map({source:.Source,target:.Destination,write:.RW}))}' "$backup/$service-$phase.json" > "$backup/$service-$phase-config.json"
   done
   cmp "$backup/$service-before-config.json" "$backup/$service-after-config.json"
 done
