@@ -96,7 +96,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
  FROM read_models.operations_incident_evidence_context p
  LEFT JOIN read_models.recipient_absent_shadow absent ON absent.canonical_issue_id=p.canonical_issue_id
    AND absent.canonical_order_id=p.canonical_order_id AND p.notification_decision_current
- LEFT JOIN read_models.operations_private_order_display private_order USING(canonical_order_id)
+ LEFT JOIN read_models.operations_private_order_display private_order ON private_order.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount ON discount.canonical_issue_id=p.canonical_issue_id
    AND discount.dropea_order_id=p.dropea_order_id
  LEFT JOIN LATERAL (

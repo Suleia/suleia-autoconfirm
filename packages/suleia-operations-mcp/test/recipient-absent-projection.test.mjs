@@ -24,6 +24,7 @@ test('absent joins bind both identity keys and invalidate stale decisions before
     const source=readFileSync(new URL(path,import.meta.url),'utf8');
     assert.match(source,/JOIN read_models\.recipient_absent_shadow (\w+) ON \1\.canonical_issue_id=p\.canonical_issue_id\s+AND \1\.canonical_order_id=p\.canonical_order_id AND p\.notification_decision_current/);
     assert.doesNotMatch(source,/JOIN read_models\.recipient_absent_shadow \w+ USING\(canonical_issue_id\)/);
+    assert.doesNotMatch(source,/JOIN read_models\.operations_private_order_display private_order USING\(canonical_order_id\)/);
   }
 });
 test('new absent filters use canonical type and leave existing generic type filters intact',async()=>{

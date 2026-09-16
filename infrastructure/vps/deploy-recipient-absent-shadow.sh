@@ -44,8 +44,12 @@ sha256sum .env > "$backup/env.sha256"
 cp --preserve=mode "$install/.env" "$release/.env"
 cd "$release"
 sha256sum -c "$backup/env.sha256" >/dev/null
-"${compose[@]}" exec -T --interactive=false postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+"${compose[@]}" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
   --username suleia_admin --dbname suleia_staging < "migrations/$migration"
+if [[ "$scope" == incident-notification-evidence ]]; then
+  [[ "$("${compose[@]}" exec -T --interactive=false postgres psql -X -At -U suleia_admin -d suleia_staging \
+    -c "SELECT to_regclass('read_models.operations_incident_evidence_context') IS NOT NULL")" == t ]] || exit 2
+fi
 image="suleia-$scope:$revision"
 docker build -f infrastructure/docker/Dockerfile.node --build-arg "OCI_REVISION=$revision" \
   --build-arg OCI_SOURCE=https://github.com/Suleia/suleia-autoconfirm --build-arg "OCI_REF_NAME=$branch" \
