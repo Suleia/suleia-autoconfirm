@@ -1,5 +1,8 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
 import { projectRecipientAbsentShadow } from '../../../platform-core/src/incident/absent-panel-projection.mjs';
+import { projectNotificationScopedIncident } from '../../../platform-core/src/incident/notification-evidence.mjs';
+
+const projectIncident = item => projectNotificationScopedIncident(projectRecipientAbsentShadow(projectNotificationScopedIncident(item)));
 
 const clamp = (value, fallback = 100, maximum = 500) =>
   Math.min(maximum, Math.max(1, Number.parseInt(value, 10) || fallback));
@@ -103,9 +106,11 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       const operational = await query(`SELECT * FROM read_models.operations_order_context
         WHERE canonical_order_id=$1 OR dropea_order_id=$1 LIMIT 1`, [orderId]);
       if (operational[0]) {
-        const incidents = await query(`SELECT * FROM read_models.operations_incident_panel_context
-          WHERE canonical_order_id=$1 ORDER BY updated_at DESC`, [operational[0].canonical_order_id]);
-        return { ...operational[0], incidents };
+        const incidents = await query(`SELECT p.*,a.absent_shadow FROM read_models.operations_incident_evidence_context p
+          LEFT JOIN read_models.recipient_absent_shadow a ON a.canonical_issue_id=p.canonical_issue_id
+            AND a.canonical_order_id=p.canonical_order_id AND p.notification_decision_current
+          WHERE p.canonical_order_id=$1 ORDER BY p.updated_at DESC`, [operational[0].canonical_order_id]);
+        return { ...operational[0], incidents: incidents.map(projectIncident) };
       }
       return null;
     },
@@ -147,24 +152,26 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       const safeOffset = offset(requestedOffset);
       values.push(safeLimit, safeOffset);
       const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
-        FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_panel_context p
-          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id,canonical_order_id)) incident
+        FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_evidence_context p
+          LEFT JOIN read_models.recipient_absent_shadow a ON a.canonical_issue_id=p.canonical_issue_id
+            AND a.canonical_order_id=p.canonical_order_id AND p.notification_decision_current) incident
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY ${INCIDENT_SORT[sort] || INCIDENT_SORT.UPDATED_DESC}
         LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
-      return { items: rows.map(projectRecipientAbsentShadow), total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
+      return { items: rows.map(projectIncident), total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
     },
 
     async getIncident({ canonicalIssueId = null, dropeaIssueId = null } = {}) {
       const incidentId = canonicalIssueId || dropeaIssueId;
       const identityColumn = canonicalIssueId ? 'canonical_issue_id' : 'dropea_issue_id';
-      const rows = await query(`SELECT * FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_panel_context p
-          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id,canonical_order_id)) incident
+      const rows = await query(`SELECT * FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_evidence_context p
+          LEFT JOIN read_models.recipient_absent_shadow a ON a.canonical_issue_id=p.canonical_issue_id
+            AND a.canonical_order_id=p.canonical_order_id AND p.notification_decision_current) incident
         WHERE ${identityColumn}=$1 LIMIT 1`, [incidentId]);
       if (!rows[0]) return null;
       const timeline = await query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_issue_id=$1 ORDER BY occurred_at ASC LIMIT 200`, [rows[0].canonical_issue_id]);
-      const incident = projectRecipientAbsentShadow(rows[0]);
+      const incident = projectIncident(rows[0]);
       return {
         ...incident,
         traceability: {

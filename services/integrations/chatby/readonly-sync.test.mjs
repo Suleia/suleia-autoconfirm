@@ -27,6 +27,7 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
     canonical_issue_id: 'issue-hash-safe',
     issue_created_at: '2026-08-01T09:00:00Z',
     issue_updated_at: '2026-08-01T09:05:00Z'
+    ,issue_type: 'REFUSED_BY_RECIPIENT'
   }] }); } };
   const projector = {
     recordChatbyConversationEvent: async (event) => { recorded.push(event); return { inserted: true }; },
@@ -46,7 +47,7 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
     }
     return response({ data: [
       { id: 'old-message', type: 'in', msg_type: 'text', ts: Date.parse('2026-07-01T09:00:00Z'), content: 'stale' },
-      { id: 'operator-question', type: 'out', msg_type: 'text', ts: Date.parse('2026-08-01T09:30:00Z'), content: '¿Quiere recibir el pedido?' },
+      { id: 'operator-question', type: 'out', msg_type: 'template', ts: Date.parse('2026-08-01T09:30:00Z'), content: '¿Quiere recibir el pedido?', payload: { name: 'dropea_incidencia_mercancia_v1' } },
       { id: 'current-message', type: 'in', msg_type: 'postback', ts: Date.parse('2026-08-01T10:00:00Z'), payload: { title: 'Quiero el descuento' }, content: 'customer@example.com +34612345678' }
     ], meta: { current_page: 1, last_page: 1 } });
   };
@@ -152,7 +153,9 @@ test('Chatby mirror recovers a conversation from the exact technical order id in
   assert.equal(result.conversation_statuses.FOUND, 1);
   assert.equal(links[0].conversation_status, 'FOUND');
   assert.match(links[0].identity_method, /^CHATBY_PAYLOAD:/);
-  assert.equal(links[0].customer_replied, true);
+  // Exact contact identity is not proof that this was a response to an incident
+  // notification which is missing from the fetched history.
+  assert.equal(links[0].customer_replied, false);
 });
 
 test('Chatby mirror records the exact cause when no technical conversation reference exists', async () => {
@@ -209,7 +212,7 @@ test('conversation metrics keep a successful read fresh while separating old act
   ], '2026-08-01T09:00:00Z', new Date('2026-08-02T09:00:00Z'));
   assert.equal(metrics.customer_replied, false);
   assert.equal(metrics.conversation_freshness, 'FRESH');
-  assert.equal(metrics.last_button, 'FINAL_REJECTION');
+  assert.equal(metrics.last_button, null);
   assert.equal(metrics.message_count, 2);
   assert.equal(metrics.customer_messages[0].relation_to_issue, 'BEFORE_INCIDENT');
 });

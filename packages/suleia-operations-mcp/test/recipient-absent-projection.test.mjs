@@ -19,10 +19,10 @@ test('canonical absent read projection exposes the persisted decision id and doe
   assert.equal(row.current_decision_id,d.decision_id);assert.equal(row.effective_decision_status,s.simulation_status);
   const other={type:'REFUSED_BY_RECIPIENT',next_action:'old'};assert.equal(projectRecipientAbsentShadow(other),other);
 });
-test('absent joins merge both identity keys without introducing duplicate order columns',()=>{
+test('absent joins bind both identity keys and invalidate stale decisions before filtering',()=>{
   for(const path of ['../src/operations/repository.mjs','../src/data/postgres-read-repository.mjs']){
     const source=readFileSync(new URL(path,import.meta.url),'utf8');
-    assert.match(source,/JOIN read_models\.recipient_absent_shadow \w+ USING\(canonical_issue_id,canonical_order_id\)/);
+    assert.match(source,/JOIN read_models\.recipient_absent_shadow (\w+) ON \1\.canonical_issue_id=p\.canonical_issue_id\s+AND \1\.canonical_order_id=p\.canonical_order_id AND p\.notification_decision_current/);
     assert.doesNotMatch(source,/JOIN read_models\.recipient_absent_shadow \w+ USING\(canonical_issue_id\)/);
   }
 });

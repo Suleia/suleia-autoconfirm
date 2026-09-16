@@ -9,7 +9,7 @@ test('only current inbound and confirmed buttons can change current intent', () 
     { canonical_issue_id: 'issue-1', incident_version: 'v2', direction: 'OUTBOUND', message_type: 'TEMPLATE', intent: 'FINAL_REJECTION', created_at: '2026-08-02T08:00:00Z' },
     { canonical_issue_id: 'old-issue', incident_version: 'v1', direction: 'INBOUND', intent: 'FINAL_REJECTION', created_at: '2026-08-02T08:30:00Z' },
     { canonical_issue_id: 'issue-1', incident_version: 'v2', direction: 'INBOUND', intent: 'DELIVERY_RETRY', chatby_message_id: 'm1', created_at: '2026-08-02T09:00:00Z' },
-    { canonical_issue_id: 'issue-1', incident_version: 'v2', message_type: 'BUTTON', button_payload: 'PICKUP_AT_AGENCY', chatby_message_id: 'm2', created_at: '2026-08-02T09:30:00Z' }
+    { canonical_issue_id: 'issue-1', incident_version: 'v2', direction: 'INBOUND', message_type: 'BUTTON', button_payload: 'PICKUP_AT_AGENCY', chatby_message_id: 'm2', created_at: '2026-08-02T09:30:00Z' }
   ]));
   assert.equal(result.customer_intent, 'PICKUP_AT_AGENCY');
   assert.equal(result.messages_used, 2);

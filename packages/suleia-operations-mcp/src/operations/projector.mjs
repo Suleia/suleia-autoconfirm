@@ -609,8 +609,8 @@ export class OperationsProjector {
        conversation_status,reason_code,identity_method,evidence_hash,last_customer_message_at,
        last_suleia_message_at,last_button,latest_template_hash,customer_replied,
        conversation_age_seconds,conversation_freshness,message_count,observed_at,
-       actions_executed,production_writes)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now(),0,0)
+       history_covered_from,notification_observed_at,actions_executed,production_writes)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,coalesce($17::timestamptz,now()),$18,$19,0,0)
       ON CONFLICT(canonical_issue_id) DO UPDATE SET
        canonical_order_id=EXCLUDED.canonical_order_id,
        chatby_conversation_id_hash=EXCLUDED.chatby_conversation_id_hash,
@@ -622,7 +622,8 @@ export class OperationsProjector {
        latest_template_hash=EXCLUDED.latest_template_hash,customer_replied=EXCLUDED.customer_replied,
        conversation_age_seconds=EXCLUDED.conversation_age_seconds,
        conversation_freshness=EXCLUDED.conversation_freshness,message_count=EXCLUDED.message_count,
-       observed_at=now()`, [
+       observed_at=EXCLUDED.observed_at,history_covered_from=EXCLUDED.history_covered_from,
+       notification_observed_at=EXCLUDED.notification_observed_at`, [
       record.canonical_issue_id, record.canonical_order_id,
       record.chatby_conversation_id_hash || null, record.chatby_contact_id_hash || null,
       record.conversation_status, record.reason_code, record.identity_method,
@@ -630,7 +631,8 @@ export class OperationsProjector {
       record.last_suleia_message_at || null, record.last_button || null,
       record.latest_template_hash || null, record.customer_replied === true,
       record.conversation_age_seconds ?? null, record.conversation_freshness || 'UNKNOWN',
-      record.message_count || 0
+      record.message_count || 0, record.observed_at || null,
+      record.history_covered_from || null, record.notification_observed_at || null
     ]);
     const available = record.conversation_status === 'FOUND';
     await this.pool.query(`UPDATE read_models.operations_order_records SET

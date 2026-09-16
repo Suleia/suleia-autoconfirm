@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { incidentInsight } from './incident-insight.mjs';
 
-const base = { status: 'PENDING', is_active: true, dropea_sync_current: true, chatby_sync_current: true, mapping_status: 'MAPPED', interpreted_type: 'ADDRESS_INCORRECT', conversation_status: 'FOUND', operational_response_status: 'VALID_RESPONSE', customer_intent: 'ADDRESS_CHANGE', messages_used: 2 };
+const base = { status: 'PENDING', is_active: true, dropea_sync_current: true, chatby_sync_current: true, mapping_status: 'MAPPED', interpreted_type: 'ADDRESS_INCORRECT', conversation_status: 'FOUND', operational_response_status: 'VALID_RESPONSE', customer_intent: 'ADDRESS_CHANGE', messages_used: 2,
+  incident_notified_at: '2026-08-01T09:00:00Z', latest_private_customer_message_at: '2026-08-01T11:00:00Z', latest_customer_message_relation: 'AFTER_INCIDENT', latest_customer_incident_relevance: 'INCIDENT_RELEVANT' };
 
 test('incident insight uses the exact customer action for a tailored address proposal', () => {
   const result = incidentInsight({
@@ -77,7 +78,7 @@ test('exact Chatby next-day delivery instruction overrides stale no-response pro
   assert.equal(result.external_action_status, 'NOT_EXECUTED');
 });
 
-test('real Chatby delivery-slot button becomes next-day redelivery with an order-phone call', () => {
+test('delivery-slot button does not invent a call request from phone availability', () => {
   const result = incidentInsight({
     ...base, interpreted_type: 'RECIPIENT_ABSENT', operational_response_status: 'NO_VALID_RESPONSE',
     customer_intent: 'NO_RESPONSE', messages_used: 0,
@@ -87,7 +88,7 @@ test('real Chatby delivery-slot button becomes next-day redelivery with an order
   assert.equal(result.customer_evidence.code, 'DELIVERY_RETRY');
   assert.equal(result.customer_evidence.delivery_instruction.requested_window, 'MORNING_OR_AFTERNOON');
   assert.equal(result.tailored_recommendation.resolution_option, 'PROVIDE_SOLUTION');
-  assert.equal(result.tailored_recommendation.customer_instruction.call_before_delivery, true);
+  assert.equal(result.tailored_recommendation.customer_instruction.call_before_delivery, false);
 });
 
 test('a fresh affirmative answer to the exact receive question recovers a refused delivery', () => {
@@ -107,16 +108,15 @@ test('a fresh affirmative answer to the exact receive question recovers a refuse
   assert.equal(result.tailored_recommendation.decision_goal, 'RECOVER_DELIVERY_AFTER_PRIOR_REFUSAL');
 });
 
-test('a refused delivery without later acceptance remains a return proposal', () => {
+test('a refused delivery without verified offer respects the recovery workflow', () => {
   const result = incidentInsight({
     ...base,
     interpreted_type: 'REFUSED_BY_RECIPIENT',
     operational_response_status: 'NO_VALID_RESPONSE', customer_intent: 'NO_RESPONSE', messages_used: 0,
     allowed_resolution_options: ['RETURN_REQUESTED','MANAGED_BY_CLIENT']
   });
-  assert.equal(result.tailored_recommendation.code, 'RETURN_AFTER_REJECTION');
-  assert.equal(result.tailored_recommendation.resolution_option, 'RETURN_REQUESTED');
-  assert.equal(result.tailored_recommendation.decision_goal, 'STOP_UNWANTED_DELIVERY_AND_RETURN');
+  assert.equal(result.tailored_recommendation.code, 'CHECK_REJECTION_RECOVERY');
+  assert.equal(result.tailored_recommendation.resolution_option, null);
 });
 
 test('an accepted 5 EUR discount becomes a prominent incident-specific recovery proposal', () => {

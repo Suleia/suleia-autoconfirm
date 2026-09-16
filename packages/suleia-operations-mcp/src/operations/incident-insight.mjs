@@ -1,5 +1,6 @@
 import { interpretChatbyCustomerReply } from '../../../platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 import { projectRecipientAbsentShadow } from '../../../platform-core/src/incident/absent-panel-projection.mjs';
+import { projectNotificationScopedIncident } from '../../../platform-core/src/incident/notification-evidence.mjs';
 
 const intentLabels = {
   CONFIRM: 'El cliente confirma que quiere recibir el pedido.',
@@ -40,14 +41,15 @@ function discountRecovery(item) {
   const qualityVerified = item.discount_signal_quality === 'VERIFIED';
   const responseVerified = qualityVerified && deliveryVerified
     && (!['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'OTHER_RESPONSE'].includes(rawStatus)
-      || Boolean(item.discount_responded_at));
+      || Boolean(item.discount_responded_at && item.discount_sent_at
+        && new Date(item.discount_responded_at)>new Date(item.discount_sent_at)));
   const status = observed && responseVerified ? rawStatus
     : observed && rawStatus === 'NOT_SENT' && qualityVerified ? 'NOT_SENT'
       : observed ? 'NOT_VERIFIABLE' : 'NOT_AVAILABLE';
   const presentations = {
     DISCOUNT_ACCEPTED: ['Descuento aceptado', 'El cliente aceptó expresamente el descuento de 5 € después de recibir la plantilla.', 'accepted'],
     DISCOUNT_REJECTED: ['Descuento no aceptado', 'El cliente rechazó expresamente la oferta después de recibirla.', 'rejected'],
-    NO_RESPONSE: ['Sin respuesta al descuento', 'La plantilla de descuento está entregada, pero el cliente aún no ha contestado.', 'waiting'],
+    NO_RESPONSE: ['Sin respuesta al descuento', 'Consta el envío de la oferta, pero no una aceptación ni un rechazo posterior.', 'waiting'],
     OTHER_RESPONSE: ['Respondió · revisar', 'El cliente contestó después de la oferta, pero no aceptó ni rechazó de forma inequívoca.', 'review'],
     NOT_SENT: ['Descuento aún no enviado', 'No existe una entrega verificada de la plantilla de descuento para esta incidencia.', 'not-sent'],
     NOT_VERIFIABLE: ['Estado no verificable', 'La evidencia disponible no permite atribuir una aceptación o rechazo con seguridad.', 'review'],
@@ -71,34 +73,48 @@ function discountRecovery(item) {
 }
 
 function customerEvidence(item) {
-  const exactMessage = item.latest_customer_message || null;
+  const notifiedAt = item.incident_notified_at || null;
   const messageAt = item.latest_private_customer_message_at || item.latest_customer_activity_at || null;
   const relation = item.latest_customer_message_relation || null;
+  const scoped = Boolean(notifiedAt && messageAt && new Date(messageAt)>new Date(notifiedAt)
+    && relation === 'AFTER_INCIDENT'
+    && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT','BEFORE_NOTIFICATION','NOTIFICATION_NOT_OBSERVED'].includes(item.latest_customer_incident_relevance)
+    && !String(item.latest_customer_context_template || '').startsWith('dropea_pedido_'));
+  const exactMessage = scoped ? item.latest_customer_message || null : null;
   const privateInterpretation = exactMessage ? interpretChatbyCustomerReply({
     customerText: exactMessage,
     precedingOperatorText: item.latest_operator_message || ''
   }) : null;
   const privateIntent = normalizedIntent(privateInterpretation?.intent);
-  const privateCurrentSignal = exactMessage && relation === 'AFTER_INCIDENT' && privateIntent !== 'UNKNOWN';
-  if (!item.chatby_sync_current) return {
+  const privateCurrentSignal = exactMessage && privateIntent !== 'UNKNOWN';
+  if (item.conversation_status === 'NONE') return {
+    code: 'NO_CONVERSATION', title: 'Sin conversación exacta',
+    summary: 'No se ha localizado una conversación enlazada técnicamente con este pedido. Esto no equivale a que el cliente no haya contestado.',
+    messages: 0, latest_message: null, at: null, relation: null, notified_at: notifiedAt
+  };
+  if (!item.chatby_sync_current || !notifiedAt || item.conversation_status !== 'FOUND') return {
     code: 'NOT_VERIFIABLE', title: 'Chatby pendiente de actualizar',
-    summary: 'La última lectura de Chatby no está vigente; no se atribuye una acción nueva al cliente.',
-    messages: 0, latest_message: exactMessage, at: messageAt, relation
+    summary: !notifiedAt
+      ? 'No se ha observado la notificación de esta incidencia en el chat exacto. No se usan confirmaciones antiguas ni se deduce silencio del cliente.'
+      : 'La lectura de esta conversación no está verificada; no se atribuye una acción nueva al cliente.',
+    messages: 0, latest_message: null, at: null, relation: null, notified_at: notifiedAt
   };
   if (item.conversation_status === 'NONE') return {
     code: 'NO_CONVERSATION', title: 'Sin conversación exacta',
     summary: 'No se ha localizado una conversación enlazada técnicamente con este pedido. Esto no equivale a que el cliente no haya contestado.',
     messages: 0, latest_message: null, at: null, relation: null
   };
-  if (item.operational_response_status === 'VALID_RESPONSE' || privateCurrentSignal) {
+  if (scoped && (item.operational_response_status === 'VALID_RESPONSE' || privateCurrentSignal)) {
     const discount = discountRecovery(item);
-    const fallbackIntent = privateCurrentSignal
+    const fallbackIntent = exactMessage
       ? privateInterpretation.intent
       : item.customer_intent || item.latest_private_customer_intent || 'UNKNOWN';
     const fallbackNormalized = normalizedIntent(fallbackIntent);
-    const rawIntent = discount.status === 'DISCOUNT_ACCEPTED'
+    const discountIsLatest = ['DISCOUNT_ACCEPTED','DISCOUNT_REJECTED'].includes(fallbackNormalized)
+      && discount.responded_at && new Date(discount.responded_at)>=new Date(messageAt);
+    const rawIntent = discountIsLatest && discount.status === 'DISCOUNT_ACCEPTED'
       ? 'DISCOUNT_ACCEPTED'
-      : discount.status === 'DISCOUNT_REJECTED'
+      : discountIsLatest && discount.status === 'DISCOUNT_REJECTED'
         ? 'DISCOUNT_REJECTED'
         : ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED'].includes(fallbackNormalized)
           ? 'UNKNOWN'
@@ -113,30 +129,30 @@ function customerEvidence(item) {
       : intent === 'DISCOUNT_REJECTED' ? 'Descuento rechazado' : 'Cliente respondió';
     return {
       code: intent, raw_intent: rawIntent, title,
-      summary: item.interpretation_summary || intentLabels[rawIntent] || intentLabels[intent] || intentLabels.UNKNOWN,
-      messages: Number(item.messages_used || 0), latest_message: exactMessage,
-      at: messageAt, relation: relation || 'AFTER_INCIDENT',
+      summary: intentLabels[rawIntent] || intentLabels[intent] || intentLabels.UNKNOWN,
+      messages: Math.max(1,Number(item.messages_used || 0)), latest_message: exactMessage,
+      at: messageAt, relation: 'AFTER_NOTIFICATION', notified_at: notifiedAt,
       delivery_instruction: privateInterpretation?.delivery || null,
       address_instruction: privateInterpretation?.address || null,
       interpretation_basis: privateInterpretation?.interpretation_basis || null
     };
   }
   if (item.conversation_status === 'FOUND') {
-    if (exactMessage && relation === 'BEFORE_INCIDENT') return {
+    if (item.latest_customer_message && !scoped) return {
       code: 'NO_VALID_RESPONSE', title: 'Sin respuesta nueva a la incidencia',
-      summary: 'Existe una conversación exacta, pero el último mensaje del cliente es anterior a esta incidencia.',
-      messages: 0, latest_message: exactMessage, at: messageAt, relation
+      summary: 'La interacción almacenada no es una respuesta posterior a la notificación de esta incidencia y queda excluida.',
+      messages: 0, latest_message: null, at: null, relation: null, notified_at: notifiedAt
     };
     if (exactMessage) return {
       code: 'UNCLEAR', title: 'Respondió sin una instrucción concluyente',
       summary: 'Hay un mensaje posterior asociado al pedido, pero no permite resolver la incidencia de forma segura.',
       messages: Number(item.messages_used || 0), latest_message: exactMessage, at: messageAt,
-      relation: relation || 'AFTER_INCIDENT'
+      relation: 'AFTER_NOTIFICATION', notified_at: notifiedAt
     };
     return {
       code: 'NO_VALID_RESPONSE', title: 'No ha contestado a esta incidencia',
-      summary: 'La conversación está asociada correctamente, pero no hay ningún mensaje entrante del cliente posterior a la incidencia.',
-      messages: 0, latest_message: null, at: null, relation: null
+      summary: 'Se ha observado la notificación en la conversación exacta y no consta una respuesta posterior en la lectura verificada.',
+      messages: 0, latest_message: null, at: null, relation: null, notified_at: notifiedAt
     };
   }
   return {
@@ -161,6 +177,27 @@ function recommendation(item, customer) {
   const secondAttempt = /SEGUNDA\s+VEZ|SEGUNDO\s+INTENTO/i.test(description)
     || Number(item.delivery_attempt_number || 0) >= 2;
   const mentionsTomorrow = /\bMA[NÑ]ANA\b/i.test(description);
+  if (item.is_active !== true || item.status !== 'PENDING') return proposal(
+    'INCIDENT_NO_LONGER_PENDING', 'Incidencia fuera de la cola pendiente',
+    'El estado actual de Dropea no admite una nueva acción sobre esta incidencia.',
+    null, ['Consultar el resultado real y su cronología'], 'BLOCKED');
+  if (!item.dropea_sync_current) return proposal(
+    'REFRESH_DROPEA_SOURCE', 'Actualizar Dropea antes de resolver',
+    'La incidencia no tiene una lectura vigente. La solución queda bloqueada hasta confirmar que sigue pendiente.',
+    null, ['Actualizar la cola pendiente', 'Confirmar que esta incidencia continúa activa', 'Recalcular con la lectura nueva'], 'BLOCKED');
+  if (['NOT_VERIFIABLE','UNCLEAR','UNKNOWN'].includes(customer.code) || item.contradiction === true) return proposal(
+    'VERIFY_INCIDENT_RESPONSE', 'Verificar notificación y respuesta de esta incidencia',
+    'No hay una instrucción posterior verificable y concluyente. No corresponde proponer una devolución ni una nueva entrega como si el cliente hubiera decidido.',
+    null, ['Releer el chat exacto del pedido', 'Localizar la notificación del motivo actual', 'Contrastar la última respuesta, incluidos cambios de opinión', 'Recalcular con la política vigente'], 'REVIEW');
+  if (item.conversation_status === 'NONE') return proposal(
+    'LINK_CHATBY_CONVERSATION', 'Vincular la conversación correcta',
+    'No existe una asociación exacta y verificable con el chat de este pedido.',
+    null, ['Buscar el ID Dropea exacto', 'Validar identidad y notificación antes de atribuir respuestas'], 'REVIEW');
+  if (item.interpreted_type === 'PICKUP_AT_AGENCY') return proposal(
+    'VERIFY_AGENCY_PICKUP', 'Comprobar agencia, disponibilidad y plazo de recogida',
+    'Dropea identifica recogida en agencia; una confirmación inicial de compra no demuestra que el cliente acepte recoger el paquete.',
+    option(item,'PICKUP_AT_AGENCY','PROVIDE_SOLUTION'),
+    ['Verificar que el paquete está disponible y la agencia es correcta', 'Contrastar la respuesta posterior a la notificación', 'Validar el plazo de custodia antes de trasladar la solución'], 'REVIEW');
   if (customer.code === 'DISCOUNT_ACCEPTED') return proposal(
     'APPLY_ACCEPTED_DISCOUNT_AND_REDELIVER', 'Cliente ha aceptado el descuento de 5 €',
     'La respuesta posterior y asociada a esta incidencia acepta expresamente la oferta. Debe aplicarse una sola vez un descuento máximo de 5 € y gestionarse una nueva entrega.',
@@ -199,7 +236,7 @@ function recommendation(item, customer) {
       'El cliente solicita recoger el paquete. Debe usarse el punto verificado por el transportista.',
       option(item, 'PICKUP_AT_AGENCY'), ['Validar que el paquete admite recogida', 'Confirmar agencia y plazo de custodia', 'Seleccionar PICKUP_AT_AGENCY'], 'HIGH');
     if (customer.code === 'DELIVERY_RETRY' && customer.delivery_instruction?.requested_day === 'NEXT_DAY') {
-      const callBeforeDelivery = customer.delivery_instruction.call_before_delivery || Boolean(item.customer_phone);
+      const callBeforeDelivery = customer.delivery_instruction.call_before_delivery === true;
       const window = customer.delivery_instruction.requested_window === 'MORNING_OR_AFTERNOON'
         ? 'en la franja de mañana o tarde indicada por el cliente'
         : customer.delivery_instruction.requested_window === 'MORNING' ? 'por la mañana'
@@ -326,6 +363,15 @@ function recommendation(item, customer) {
         reasoning: 'Una aceptación posterior, fresca y exacta cambia la decisión; no se devuelve un pedido que el cliente aún quiere recibir.',
         guardrail: 'Sin aceptación posterior verificable, mantener la devolución como propuesta y exigir revisión.'
       });
+    const discount = discountRecovery(item);
+    if (discount.status === 'NO_RESPONSE' && discount.sent_at) return proposal(
+      'WAIT_DISCOUNT_RESPONSE', 'Esperar la respuesta al descuento antes de devolver',
+      'La oferta ya consta enviada. Se conserva la ventana de 24 horas del automatismo vigente y se revalida Chatby antes de cualquier devolución.',
+      null, ['No reenviar la oferta', 'Consultar la fecha límite real del automatismo', 'Al vencer, revalidar respuesta, estado y opciones de Dropea'], 'REVIEW');
+    if (customer.code === 'NO_VALID_RESPONSE' && ['NOT_SENT','NOT_AVAILABLE','NOT_VERIFIABLE'].includes(discount.status)) return proposal(
+      'CHECK_REJECTION_RECOVERY', 'Comprobar la recuperación de rechazo y la oferta de 5 €',
+      'No consta aceptación posterior. Antes de recomendar devolución, comprobar elegibilidad, entrega de la oferta, duplicidades y plazo de 24 horas según el automatismo vigente.',
+      null, ['Revalidar las condiciones del descuento', 'Consultar el registro del automatismo de rechazo', 'No inventar un rechazo a una oferta que no consta recibida'], 'REVIEW');
     return proposal(
       'RETURN_AFTER_REJECTION', 'Solicitar devolución salvo aceptación posterior verificable',
       customer.code === 'REJECT'
@@ -357,13 +403,26 @@ function recommendation(item, customer) {
 }
 
 export function incidentInsight(item) {
-  item = projectRecipientAbsentShadow(item);
+  item = projectNotificationScopedIncident(projectRecipientAbsentShadow(projectNotificationScopedIncident(item)));
   const discount = discountRecovery(item);
   const customer = customerEvidence(item);
   const shadow = item.interpreted_type === 'RECIPIENT_ABSENT' ? item.absent_shadow : null;
-  const proposed = shadow ? { code: shadow.simulation_action, title: shadow.next_action,
+  const absenceNeedsRecomputation = item.interpreted_type === 'RECIPIENT_ABSENT' && item.scoped_response_status && !shadow;
+  let proposed = absenceNeedsRecomputation ? proposal(
+    'RECOMPUTE_RECIPIENT_ABSENT_SHADOW', 'Recalcular AUSENTE con la respuesta actual',
+    'La evidencia actual no está vinculada a una simulación vigente de la política AUSENTE. No se reutiliza una solución anterior ni se propone una acción real.',
+    null, ['Releer la notificación y la respuesta del pedido', 'Recalcular la fecha desde el momento del mensaje', 'Validar intento, custodia, calendario y capacidad logística', 'Mantener SHADOW y los plazos vigentes'], 'REVIEW',
+    { policy_version: 'RECIPIENT_ABSENT_POLICY_V1', decision_basis: 'CANONICAL_SHADOW_RECOMPUTATION_REQUIRED' }
+  ) : shadow && item.chatby_sync_current && item.dropea_sync_current
+    && item.status==='PENDING' && item.is_active===true ? { code: shadow.simulation_action, title: shadow.next_action,
     summary: shadow.reason_text, resolution_option: null, execution_status: 'NOT_EXECUTED',
     policy_version: shadow.policy_version } : recommendation(item, customer);
+  if (!shadow && proposed.confidence==='HIGH' && !proposed.resolution_option) proposed = {
+    ...proposed, confidence: 'REVIEW', execution_status: 'BLOCKED_CAPABILITY_NOT_DECLARED',
+    guardrail: 'Dropea no declara una opción de resolución compatible; validar capacidad y logística antes de actuar.'
+  };
+  if (!shadow) proposed = { ...proposed, policy_version: proposed.policy_version || item.policy_version || null,
+    execution_status: proposed.execution_status || 'NOT_EXECUTED', decision_basis: proposed.decision_basis || 'NOTIFICATION_SCOPED_CURRENT_EVIDENCE' };
   const existingStatus = String(item.operational_action_status || item.external_action_status || '').toUpperCase();
   const handlingStatus = existingStatus && existingStatus !== 'NOT_EXECUTED'
     ? existingStatus

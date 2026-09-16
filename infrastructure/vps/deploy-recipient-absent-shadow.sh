@@ -3,6 +3,12 @@
 set -Eeuo pipefail
 revision="${1:?exact commit required}"
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 2
+scope="${2:-recipient-absent-shadow}"
+case "$scope" in
+  recipient-absent-shadow) branch=feat/recipient-absent-shadow-v1; migration=035_recipient_absent_shadow.sql ;;
+  incident-notification-evidence) branch=fix/incident-notification-evidence; migration=036_incident_notification_evidence.sql ;;
+  *) echo 'STOP: unsupported isolated deployment scope'; exit 2 ;;
+esac
 install=/opt/suleia-operations
 resolved="$(readlink -f "$install")"
 [[ "$resolved" =~ ^/opt/suleia-releases/[0-9a-f]{40}$ ]] || exit 2
@@ -11,7 +17,7 @@ release="/opt/suleia-releases/$revision"
 cd "$install"
 [[ -z "$(git status --porcelain)" ]] || { echo 'STOP: dirty source'; exit 2; }
 git cat-file -e "$revision^{commit}"
-backup="/opt/suleia-backups/recipient-absent-shadow-$revision"
+backup="/opt/suleia-backups/$scope-$revision"
 [[ ! -e "$backup/previous-commit" ]] || { echo 'STOP: deployment checkpoint already exists; inspect before resuming'; exit 2; }
 mkdir -p "$backup"
 chmod 0700 "$backup"
@@ -30,17 +36,19 @@ sha256sum .env > "$backup/env.sha256"
 "${compose[@]}" exec -T --interactive=false postgres pg_dump -U suleia_admin -d suleia_staging --schema-only > "$backup/schema.sql"
 "${compose[@]}" exec -T --interactive=false postgres pg_dump -U suleia_admin -d suleia_staging --format=custom \
   --table=read_models.operations_incident_records --table=operations.incident_timers \
-  --table=operations.incident_simulation_decisions --table=read_models.operations_incident_interpretations > "$backup/database.dump"
+  --table=operations.incident_simulation_decisions --table=read_models.operations_incident_interpretations \
+  --table=operations.chatby_conversation_links --table=operations.chatby_private_message_display > "$backup/database.dump"
 [[ -s "$backup/database.dump" ]] || exit 2
 # Keep the current release intact and prepare an exact new private release.
 (umask 022; git clone --local --no-hardlinks "$install" "$release"; git -C "$release" checkout --detach "$revision")
 cp --preserve=mode "$install/.env" "$release/.env"
 cd "$release"
 sha256sum -c "$backup/env.sha256" >/dev/null
-SULEIA_INSTALL_ROOT="$release" bash infrastructure/vps/apply-recipient-absent-shadow-migration.sh
-image="suleia-recipient-absent-shadow:$revision"
+"${compose[@]}" exec -T --interactive=false postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+  --username suleia_admin --dbname suleia_staging < "migrations/$migration"
+image="suleia-$scope:$revision"
 docker build -f infrastructure/docker/Dockerfile.node --build-arg "OCI_REVISION=$revision" \
-  --build-arg OCI_SOURCE=https://github.com/Suleia/suleia-autoconfirm --build-arg OCI_REF_NAME=feat/recipient-absent-shadow-v1 \
+  --build-arg OCI_SOURCE=https://github.com/Suleia/suleia-autoconfirm --build-arg "OCI_REF_NAME=$branch" \
   --build-arg "OCI_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg "OCI_VERSION=${revision:0:8}" -t "$image" .
 docker run --rm --network none --entrypoint node "$image" --input-type=module -e \
   'import {access,constants} from "node:fs/promises";for(const file of ["apps/api/server.mjs","services/shadow-readonly-worker.mjs","packages/suleia-operations-mcp/src/transports/http.mjs"]){await access(file,constants.R_OK);}await import("./packages/platform-core/src/incident/recipient-absent-policy.mjs");console.log("IMAGE_SOURCE_READ_CHECK|PASS");'
@@ -48,11 +56,11 @@ docker run --rm --network none --entrypoint node "$image" --input-type=module -e
 # directory. It is never printed, passed in arguments or committed.
 override="$backup/runtime-preserving-override.json"
 "${compose[@]}" config --format json > "$backup/current-compose.json"
-jq -n --arg image "$image" --arg revision "$revision" \
+jq -n --arg image "$image" --arg revision "$revision" --arg branch "$branch" \
   --slurpfile cfg "$backup/current-compose.json" \
   --slurpfile api "$backup/api-before.json" --slurpfile mcp "$backup/mcp-server-before.json" \
   --slurpfile worker "$backup/ingestion-worker-before.json" '
-  def service($snapshot;$name): {image:$image,environment:(($cfg[0].services[$name].environment|with_entries(.value=null))+($snapshot[0][0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))|map(capture("^(?<key>[^=]+)=(?<value>.*)$"))|from_entries)+{"SULEIA_BUILD_REVISION":$revision,"SULEIA_BUILD_BRANCH":"feat/recipient-absent-shadow-v1"}),volumes:($snapshot[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:true}))};
+  def service($snapshot;$name): {image:$image,environment:(($cfg[0].services[$name].environment|with_entries(.value=null))+($snapshot[0][0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))|map(capture("^(?<key>[^=]+)=(?<value>.*)$"))|from_entries)+{"SULEIA_BUILD_REVISION":$revision,"SULEIA_BUILD_BRANCH":$branch}),volumes:($snapshot[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:true}))};
   {services:{api:service($api;"api"),"mcp-server":service($mcp;"mcp-server"),"ingestion-worker":service($worker;"ingestion-worker")}}' > "$override"
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker review-panel
 link="/opt/suleia-operations-absent-$revision"
@@ -74,4 +82,4 @@ for service in "${services[@]}"; do
 done
 sha256sum -c "$backup/env.sha256" >/dev/null
 cmp "$resolved/.env" "$release/.env"
-printf 'ABSENT_DEPLOY|commit=%s|env_preserved=true|scope=api,mcp,ingestion,panel|live=false\n' "$revision"
+printf 'ISOLATED_DEPLOY|commit=%s|env_preserved=true|scope=%s|services=api,mcp,ingestion,panel|live=false\n' "$revision" "$scope"

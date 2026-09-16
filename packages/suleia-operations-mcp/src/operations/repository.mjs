@@ -46,6 +46,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
   private_message.relation_to_issue AS latest_customer_message_relation,
   private_message.intent AS latest_private_customer_intent,
   private_message.message_type AS latest_private_customer_message_type,
+  private_message.incident_relevance AS latest_customer_incident_relevance,
+  private_message.context_template_slug AS latest_customer_context_template,
   private_message.operator_message_text_ciphertext AS latest_operator_message_ciphertext,
   private_message.operator_message_at AS latest_operator_message_at,
   CASE
@@ -63,6 +65,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
     WHEN p.chatby_last_successful_sync_at IS NULL
       OR p.chatby_last_successful_sync_at < now()-interval '900 seconds'
       OR p.chatby_last_failure_at >= p.chatby_last_successful_sync_at THEN 'NOT_VERIFIABLE'
+    WHEN p.scoped_response_status='NOT_VERIFIABLE' THEN 'NOT_VERIFIABLE'
     WHEN p.conversation_status='FOUND' AND p.customer_replied_after_issue=true
       AND coalesce(p.messages_used,0)>0 THEN 'VALID_RESPONSE'
     WHEN p.conversation_status='FOUND' THEN 'NO_VALID_RESPONSE'
@@ -79,6 +82,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
   END AS operational_freshness_status,
   CASE
     WHEN p.conversation_status='NONE' THEN 'REVIEW_CHATBY_LINK'
+    WHEN p.scoped_response_status='NOT_VERIFIABLE' THEN 'HUMAN_REVIEW'
     WHEN p.response_evidence_status='VALID_RESPONSE' THEN 'REVIEW_CUSTOMER_RESPONSE'
     WHEN p.timer_status='ACTIVE' AND p.timer_due_at>now() THEN 'WAITING_CUSTOMER'
     ELSE 'HUMAN_REVIEW'
@@ -89,27 +93,32 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
     WHEN p.interpreted_type='REFUSED_BY_RECIPIENT' THEN 'REVIEW_REJECTION'
     ELSE 'REVIEW_INCIDENT'
   END AS operational_recommendation
- FROM read_models.operations_incident_panel_context p
- LEFT JOIN read_models.recipient_absent_shadow absent USING(canonical_issue_id,canonical_order_id)
+ FROM read_models.operations_incident_evidence_context p
+ LEFT JOIN read_models.recipient_absent_shadow absent ON absent.canonical_issue_id=p.canonical_issue_id
+   AND absent.canonical_order_id=p.canonical_order_id AND p.notification_decision_current
  LEFT JOIN read_models.operations_private_order_display private_order USING(canonical_order_id)
- LEFT JOIN read_models.operations_incident_discount_recovery_latest discount USING(canonical_issue_id)
+ LEFT JOIN read_models.operations_incident_discount_recovery_latest discount ON discount.canonical_issue_id=p.canonical_issue_id
+   AND discount.dropea_order_id=p.dropea_order_id
  LEFT JOIN LATERAL (
    SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
+     m.incident_relevance,m.context_template_slug,
      (SELECT o.message_text_ciphertext
         FROM read_models.operations_private_incident_messages o
-       WHERE o.canonical_issue_id=p.canonical_issue_id AND o.direction='OUTBOUND'
+       WHERE o.canonical_issue_id=p.canonical_issue_id AND o.canonical_order_id=p.canonical_order_id AND o.direction='OUTBOUND'
+         AND o.occurred_at>=p.incident_notified_at
          AND o.occurred_at<=m.occurred_at
        ORDER BY o.occurred_at DESC LIMIT 1) AS operator_message_text_ciphertext,
      (SELECT o.occurred_at
         FROM read_models.operations_private_incident_messages o
-       WHERE o.canonical_issue_id=p.canonical_issue_id AND o.direction='OUTBOUND'
+       WHERE o.canonical_issue_id=p.canonical_issue_id AND o.canonical_order_id=p.canonical_order_id AND o.direction='OUTBOUND'
+         AND o.occurred_at>=p.incident_notified_at
          AND o.occurred_at<=m.occurred_at
        ORDER BY o.occurred_at DESC LIMIT 1) AS operator_message_at
    FROM read_models.operations_private_incident_messages m
-   WHERE m.canonical_issue_id=p.canonical_issue_id AND m.direction='INBOUND'
-   ORDER BY (m.relation_to_issue='AFTER_INCIDENT') DESC,
-            (p.interpreted_type<>'RECIPIENT_ABSENT' AND m.intent<>'UNKNOWN') DESC,
-            m.occurred_at DESC LIMIT 1
+   WHERE m.canonical_issue_id=p.canonical_issue_id AND m.canonical_order_id=p.canonical_order_id
+     AND m.direction='INBOUND' AND m.chatby_message_id_hash=p.scoped_customer_message_hash
+     AND m.occurred_at>p.incident_notified_at
+   ORDER BY m.occurred_at DESC,m.chatby_message_id_hash DESC LIMIT 1
  ) private_message ON true)`;
 
 function integer(value, fallback, min, max) {
@@ -501,12 +510,17 @@ export class OperationsRepository {
         WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
         ORDER BY created_at DESC LIMIT 20`, [id]),
-      this.pool.query(`SELECT direction,message_type,intent,relation_to_issue,
-          message_text_ciphertext,occurred_at
-        FROM read_models.operations_private_incident_messages
-        WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
+      this.pool.query(`SELECT m.direction,m.message_type,m.intent,m.relation_to_issue,m.incident_relevance,
+          m.message_text_ciphertext,m.occurred_at,
+          CASE WHEN m.direction='INBOUND' AND m.occurred_at>s.incident_notified_at
+            AND s.scoped_response_status<>'NOT_VERIFIABLE'
+            AND m.incident_relevance NOT IN ('ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT','BEFORE_NOTIFICATION','NOTIFICATION_NOT_OBSERVED')
+            THEN 'AFTER_NOTIFICATION' ELSE 'HISTORICAL_NOT_INCIDENT_RESPONSE' END AS relation_to_notification
+        FROM read_models.operations_private_incident_messages m
+        JOIN read_models.operations_incident_notification_scope s USING(canonical_issue_id,canonical_order_id)
+        WHERE m.canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
-        ORDER BY occurred_at DESC LIMIT 20`, [id])
+        ORDER BY m.occurred_at DESC LIMIT 20`, [id])
     ]);
     return detail.rows[0] ? {
       incident: incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)),

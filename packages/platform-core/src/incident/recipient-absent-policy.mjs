@@ -112,7 +112,7 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
   if (issue.type !== 'RECIPIENT_ABSENT') throw new Error('ABSENT_POLICY_OUT_OF_SCOPE');
   const scoped = events.filter(e => e.canonical_issue_id === issue.canonical_issue_id
     && (!e.canonical_order_id || e.canonical_order_id === order.canonical_order_id)
-    && !['ORDER_LIFECYCLE_ONLY','DISCOUNT_RESPONSE','BEFORE_INCIDENT'].includes(e.incident_relevance)
+    && !['ORDER_LIFECYCLE_ONLY','DISCOUNT_RESPONSE','BEFORE_INCIDENT','BEFORE_NOTIFICATION','NOTIFICATION_NOT_OBSERVED'].includes(e.incident_relevance)
     && e.relevance_status === 'CURRENT_ORDER_EXACT_MATCH' && e.direction === 'INBOUND'
     && Number.isFinite(new Date(e.created_at).getTime()) && new Date(e.created_at) >= new Date(issue.created_at || issue.updated_at)
     && new Date(e.created_at) <= new Date(now)).sort((a,b) => new Date(a.created_at)-new Date(b.created_at));

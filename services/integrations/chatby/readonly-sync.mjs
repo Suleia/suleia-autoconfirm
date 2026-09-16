@@ -3,6 +3,7 @@ import { collectPaginated, createReadOnlyTransport } from '../../../packages/pla
 import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
 import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 import { ABSENT_BUTTONS } from '../../../packages/platform-core/src/incident/absent-template.mjs';
+import { INCIDENT_NOTIFICATION_TEMPLATES } from '../../../packages/platform-core/src/incident/notification-evidence.mjs';
 
 const ORDER_FIELD = 'dropea: numero';
 
@@ -91,7 +92,7 @@ function occurredAt(message) {
   const numeric = Number(value);
   const date = Number.isFinite(numeric) && numeric > 0
     ? new Date(numeric > 1e12 ? numeric : numeric * 1000)
-    : new Date(value || 0);
+    : new Date(value || Number.NaN);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
@@ -112,7 +113,8 @@ function rawMessageText(message) {
     message?.template_name,
     message?.template?.name,
     message?.payload?.template_name,
-    message?.payload?.template?.name
+    message?.payload?.template?.name,
+    messageType(message) === 'TEMPLATE' ? message?.payload?.name : null
   ].filter((value) => typeof value === 'string').join(' ')
     .replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
 }
@@ -140,13 +142,15 @@ function technicalMessageId(message, issueId, key) {
 
 function templateHash(message, key) {
   const value = message?.template_name ?? message?.template?.name
-    ?? message?.payload?.template_name ?? message?.payload?.template?.name;
+    ?? message?.payload?.template_name ?? message?.payload?.template?.name
+    ?? (messageType(message) === 'TEMPLATE' ? message?.payload?.name : null);
   return value ? hmac(value, key) : null;
 }
 
 function templateSlug(message) {
   const value = message?.template_name ?? message?.template?.name
-    ?? message?.payload?.template_name ?? message?.payload?.template?.name;
+    ?? message?.payload?.template_name ?? message?.payload?.template?.name
+    ?? (messageType(message) === 'TEMPLATE' ? message?.payload?.name : null);
   if (typeof value !== 'string') return null;
   const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
     .replace(/^\s*[a-z]{2}[_-][a-z]{2}\s+/, '').replace(/[^a-z0-9_-]+/g, '_')
@@ -171,27 +175,33 @@ function incidentMessageRelevance({ message, relationToIssue, contextTemplateSlu
   return 'INCIDENT_RELEVANT';
 }
 
-function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
+function conversationMetrics(messages, issueCreatedAt, now = new Date(), { issueType = 'UNKNOWN' } = {}) {
   const valid = messages.map((message) => ({ message, at: occurredAt(message) })).filter((item) => item.at)
     .sort((left, right) => new Date(left.at) - new Date(right.at));
   const inbound = valid.filter((item) => direction(item.message) === 'INBOUND');
   const outbound = valid.filter((item) => direction(item.message) === 'OUTBOUND');
-  const buttons = inbound.filter((item) => messageType(item.message) === 'BUTTON');
   const templates = outbound.filter((item) => messageType(item.message) === 'TEMPLATE');
   const latest = valid.at(-1)?.at || null;
   const issueAt = new Date(issueCreatedAt).getTime();
+  const allowedNotifications = INCIDENT_NOTIFICATION_TEMPLATES[issueType] || [];
+  // The first observed notification establishes the boundary; reminders never
+  // reset it or erase a response to the first notification.
+  const notification = templates.find(item => new Date(item.at).getTime()>=issueAt
+    && new Date(item.at)<=now && allowedNotifications.includes(templateSlug(item.message)));
+  const notifiedAt = notification ? new Date(notification.at).getTime() : null;
   const customerMessages = inbound.slice(-10).map((item) => {
     const relationToIssue = new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT';
-    const precedingOperator = outbound.filter((out) => new Date(out.at).getTime() <= new Date(item.at).getTime()).at(-1);
-    const contextTemplateSlug = precedingOperator ? templateSlug(precedingOperator.message) : null;
+    const precedingTemplate = templates.filter((out) => new Date(out.at).getTime() < new Date(item.at).getTime()).at(-1);
+    const contextTemplateSlug = precedingTemplate ? templateSlug(precedingTemplate.message) : null;
+    const relevance = incidentMessageRelevance({ message: item.message, relationToIssue, contextTemplateSlug });
     return {
       message: item.message,
       at: item.at,
       relation_to_issue: relationToIssue,
       context_template_slug: contextTemplateSlug,
-      incident_relevance: incidentMessageRelevance({
-        message: item.message, relationToIssue, contextTemplateSlug
-      })
+      incident_relevance: relevance === 'ORDER_LIFECYCLE_ONLY' || relationToIssue==='BEFORE_INCIDENT' ? relevance
+        : notifiedAt===null ? 'NOTIFICATION_NOT_OBSERVED'
+          : new Date(item.at).getTime()<=notifiedAt ? 'BEFORE_NOTIFICATION' : relevance
     };
   });
   const operatorMessages = outbound.slice(-10).map((item) => ({
@@ -201,12 +211,18 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
     context_template_slug: templateSlug(item.message),
     incident_relevance: new Date(item.at).getTime() >= issueAt ? 'INCIDENT_RELEVANT' : 'BEFORE_INCIDENT'
   }));
+  const responseMessages = customerMessages.filter(item => notifiedAt!==null
+    && new Date(item.at).getTime()>notifiedAt && new Date(item.at)<=now
+    && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT','NOTIFICATION_NOT_OBSERVED','BEFORE_NOTIFICATION'].includes(item.incident_relevance));
   return Object.freeze({
-    last_customer_message_at: inbound.at(-1)?.at || null,
+    incident_notified_at: notification?.at || null,
+    history_covered_from: valid[0]?.at || null,
+    last_customer_message_at: responseMessages.at(-1)?.at || null,
     last_suleia_message_at: outbound.at(-1)?.at || null,
-    last_button: buttons.length ? classifyIntent(buttons.at(-1).message) : null,
+    last_button: responseMessages.filter(item => messageType(item.message)==='BUTTON').length
+      ? classifyIntent(responseMessages.filter(item => messageType(item.message)==='BUTTON').at(-1).message) : null,
     latest_template_message: templates.at(-1)?.message || null,
-    customer_replied: inbound.some((item) => new Date(item.at).getTime() >= issueAt),
+    customer_replied: responseMessages.length>0,
     conversation_age_seconds: latest ? Math.max(0, Math.floor((now.getTime() - new Date(latest).getTime()) / 1000)) : null,
     // This field describes the freshness of the successful conversation read,
     // not the age of the last message. Message age and relation to the issue are
@@ -214,7 +230,8 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
     // for an unavailable Chatby source.
     conversation_freshness: 'FRESH',
     message_count: valid.length,
-    current_messages: valid.filter((item) => new Date(item.at).getTime() >= issueAt).map((item) => item.message),
+    current_messages: valid.filter((item) => new Date(item.at).getTime() >= issueAt
+      && (direction(item.message)!=='INBOUND' || responseMessages.some(reply => reply.message===item.message))).map((item) => item.message),
     customer_messages: customerMessages,
     operator_messages: operatorMessages
   });
@@ -308,7 +325,7 @@ export async function syncChatbyReadOnly({
 
   const candidates = await pool.query(`SELECT o.canonical_order_id,o.external_order_id_hash,o.dropea_order_id,
       o.created_at_utc AS order_created_at,i.canonical_issue_id,i.created_at_utc AS issue_created_at,
-      i.updated_at_utc AS issue_updated_at,i.canonical_type AS issue_type
+      i.updated_at_utc AS issue_updated_at,coalesce(nullif(i.canonical_type,'UNKNOWN'),i.raw_type) AS issue_type
     FROM integration.dropea_orders o
     JOIN integration.dropea_issues i USING(canonical_order_id)
     WHERE i.status='PENDING' AND i.is_active=true
@@ -467,7 +484,8 @@ export async function syncChatbyReadOnly({
       });
       continue;
     }
-    const metrics = conversationMetrics(messages.items, issue.issue_created_at);
+    const observedAt = exactConversation?.cacheFresh ? exactConversation.cached.fetchedAt : now();
+    const metrics = conversationMetrics(messages.items, issue.issue_created_at, new Date(observedAt), { issueType: issue.issue_type });
     const conversationHash = hmac(subscriber.user_ns, hmacKey);
     const contactHash = hmac(subscriber.user_id || subscriber.user_ns, hmacKey);
     for (const message of metrics.current_messages) {
@@ -532,7 +550,10 @@ export async function syncChatbyReadOnly({
       customer_replied: metrics.customer_replied,
       conversation_age_seconds: metrics.conversation_age_seconds,
       conversation_freshness: metrics.conversation_freshness,
-      message_count: metrics.message_count
+      message_count: metrics.message_count,
+      observed_at: new Date(observedAt).toISOString(),
+      history_covered_from: metrics.history_covered_from,
+      notification_observed_at: metrics.incident_notified_at
     });
     await projector.markChatbyConversationAvailable?.({
       canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id

@@ -49,8 +49,10 @@ export function interpretIncidentConversation({ events = [], issueId, issueVersi
     const currentVersion = !event.incident_version
       || sameIssueVersion(event.incident_version, issueVersion)
       || exactCurrentOrder;
-    const customerInput = event.direction === 'INBOUND' || event.message_type === 'BUTTON';
-    if (!currentIssue || !currentVersion || !customerInput) {
+    const customerInput = event.direction === 'INBOUND';
+    const excluded = ['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT','BEFORE_NOTIFICATION','NOTIFICATION_NOT_OBSERVED'].includes(event.incident_relevance);
+    const validDate = Number.isFinite(new Date(event.created_at).getTime()) && new Date(event.created_at)<=new Date(now);
+    if (!currentIssue || !currentVersion || !customerInput || excluded || !validDate) {
       ignored.push(event);
       continue;
     }

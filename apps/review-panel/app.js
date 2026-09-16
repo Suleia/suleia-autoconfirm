@@ -397,8 +397,9 @@ function customerMessageHistory(items = []) {
   const list = node('div', 'customer-message-list');
   for (const item of items) {
     const speaker = item.direction === 'OUTBOUND' ? 'Suleia' : 'Cliente';
-    const card = node('article', `customer-message ${item.direction === 'OUTBOUND' ? 'operator-message' : 'customer-reply'} ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'current' : 'previous'}`);
-    card.append(node('strong', 'message-speaker', speaker), node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${item.relation_to_issue === 'AFTER_INCIDENT' ? 'posterior a la incidencia' : 'anterior a la incidencia'} · ${translated(item.intent)}`));
+    const current = item.relation_to_notification === 'AFTER_NOTIFICATION';
+    const card = node('article', `customer-message ${item.direction === 'OUTBOUND' ? 'operator-message' : 'customer-reply'} ${current ? 'current' : 'previous'}`);
+    card.append(node('strong', 'message-speaker', speaker), node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${current ? 'respuesta posterior a la notificación' : 'histórico / contexto · no es evidencia de respuesta a esta incidencia'} · ${translated(item.intent)}`));
     list.append(card);
   }
   box.append(list); return box;
@@ -441,8 +442,8 @@ function discountRecoveryDetail(incident) {
   const priceVerified = discount.cross_source_verified === true;
   const fields = [
     ['Resultado', discount.title || 'NO DISPONIBLE', true],
-    ['Plantilla inicial', discount.initial_template_sent_at ? `ENTREGADA · ${date(discount.initial_template_sent_at)}` : 'NO VERIFICADA'],
-    ['Plantilla descuento', discount.sent_at ? `ENTREGADA · ${date(discount.sent_at)}` : 'NO VERIFICADA'],
+    ['Plantilla inicial', discount.initial_template_sent_at ? `ENVÍO REGISTRADO · ${date(discount.initial_template_sent_at)}` : 'NO VERIFICADA'],
+    ['Plantilla descuento', discount.sent_at ? `ENVÍO VERIFICADO · ${date(discount.sent_at)}` : 'NO VERIFICADA'],
     ['Respuesta posterior', discount.responded_at ? date(discount.responded_at) : 'SIN RESPUESTA'],
     ['Precio original', priceVerified ? money(discount.original_amount) : 'NO VERIFICADO'],
     ['Descuento', priceVerified && discount.discount_amount !== null ? money(discount.discount_amount) : 'NO VERIFICADO'],
@@ -479,7 +480,7 @@ async function openDetail(id) {
       root.append(
         section('Cliente y pedido', [['Cliente', incident.customer_name || 'NO DISPONIBLE'], ['Teléfono', incident.customer_phone || 'NO DISPONIBLE'], ['Pedido', incident.external_order_reference || `Dropea #${incident.dropea_order_id}`], ['Incidencia', `#${incident.dropea_issue_id}`]]),
         section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
-        section('Acción del cliente', [['Resultado', incident.customer_evidence?.title, true], ['Conclusión', incident.customer_evidence?.summary], ['Último mensaje', incident.customer_evidence?.latest_message || 'No hay mensaje entrante disponible'], ['Fecha del mensaje', date(incident.customer_evidence?.at)], ['Relación temporal', incident.customer_evidence?.relation === 'AFTER_INCIDENT' ? 'POSTERIOR A LA INCIDENCIA' : incident.customer_evidence?.relation === 'BEFORE_INCIDENT' ? 'ANTERIOR A LA INCIDENCIA' : 'SIN MENSAJE', true], ['Asociación', incident.conversation_status === 'FOUND' ? 'CONVERSACIÓN EXACTA DEL PEDIDO' : 'NO VERIFICADA', true]]),
+        section('Acción del cliente tras la notificación', [['Resultado', incident.customer_evidence?.title, true], ['Conclusión', incident.customer_evidence?.summary], ['Plantilla de esta incidencia', incident.incident_notification_template || 'NOTIFICACIÓN NO VERIFICADA'], ['Notificación observada', date(incident.incident_notified_at)], ['Última respuesta relevante', incident.customer_evidence?.latest_message || 'No hay respuesta posterior verificable'], ['Fecha de respuesta', date(incident.customer_evidence?.at)], ['Relación temporal', incident.customer_evidence?.relation === 'AFTER_NOTIFICATION' ? 'POSTERIOR A LA NOTIFICACIÓN' : 'SIN RESPUESTA POSTERIOR VERIFICABLE', true], ['Lectura de este chat', date(incident.incident_conversation_read_at)], ['Asociación', incident.conversation_status === 'FOUND' ? 'CONVERSACIÓN EXACTA DEL PEDIDO' : 'NO VERIFICADA', true]]),
         discountRecoveryDetail(incident),
         absentShadowCard(incident, true),
         customerMessageHistory(data.customer_messages),
