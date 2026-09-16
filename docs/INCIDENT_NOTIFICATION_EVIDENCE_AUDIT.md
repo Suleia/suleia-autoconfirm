@@ -46,5 +46,36 @@ Migration dry-run is validated against the private database inside a transaction
 that is rolled back. Publication/deployment and post-deployment results are
 recorded separately in the Agent Hub after actual verification.
 
+### Deployed verification (2026-09-16)
+
+- Exact canonical code release: `a3e7d113d803838563f379284238db674786a661`
+  on isolated branch `fix/incident-notification-evidence`; not merged into Render.
+- 556/556 canonical regression tests pass, zero skipped/failed, including a
+  cache regression preserving actual provider observation/notification times.
+- Migration 036 dry-run and real execution pass. The deploy helper now keeps
+  migration stdin open and checks view existence before service activation.
+- Actual private panel role: overview/detail pass; global invalid response
+  attributions and invalid decision projections both zero. Independent MCP
+  confirms original confirmation is no longer current incident evidence.
+- Six filters using the real MCP read role match projected decision, QA,
+  human-review, customer-response and evidence-status fields before pagination.
+- Autonomous worker completes its first natural cycle: `first_cycle_complete`
+  and `last_sync_ok` true, `last_error` null, zero messages/actions/writes.
+- Current active cases require verified notification/history coverage, so the
+  panel correctly reports missing proof instead of inventing customer silence.
+  This does not mean that customers did not respond, or pause live rejection
+  recovery. It is an honest limit of the currently ingested evidence.
+- All 596 pre-deployment timer rows match the private backup byte-for-field:
+  zero missing timers, changed invariants or changed existing rows. Comparison
+  uses a temporary transaction-local table and rolls back.
+- Public HTTPS assets match the exact release SHA-256:
+  `app.js`: `4b28b41386eba6fa42474a2de3b1cddc89a4bf4d28510aba60a1b98ddd2ffcd0`,
+  `styles.css`: `b737ff7945a973c3aee07ff19a2fc30e11566b95518ee407207e80ad26622c3a`,
+  `index.html`: `6b4bcfc86c97c12754e7ac87c18fb4a0061d295df2240237249ef4cb0032148a`.
+- Private HTTP without an authorized session returns 401. No browser was used;
+  served assets and private read-model behavior were verified, not screenshots.
+- Deployment checks preserve all pre-existing env/config/private mounts; no
+  external messages/actions are executed by this correction.
+
 Customer texts, phone numbers, operational case identifiers and credentials are
 deliberately excluded from this repository report and coordination comments.

@@ -13,6 +13,29 @@ function response(payload) {
   });
 }
 
+test('cached exact-case history retains its actual provider-read time, not the new cycle time',async()=>{
+  const readAt=Date.parse('2026-08-01T10:00:00Z');
+  const now=readAt+300000;
+  const links=[];
+  const subscriberCache={items:[{user_ns:'synthetic-case',user_fields:[{name:'Dropea: Número',value:'SYNTHETIC-ORDER'}]}],fetchedAt:readAt,pageCount:1};
+  const notification=Date.parse('2026-08-01T09:30:00Z');
+  const messages={items:[{id:'synthetic-notify',type:'out',msg_type:'template',ts:notification,payload:{name:'dropea_incidencia_mercancia_v1'}}]};
+  const conversationCache=new Map([['synthetic-case',{fetchedAt:readAt,messages}]]);
+  const pool={query:async()=>({rows:[{canonical_order_id:'synthetic-order',dropea_order_id:'SYNTHETIC-ORDER',
+    canonical_issue_id:'synthetic-issue',issue_type:'REFUSED_BY_RECIPIENT',
+    issue_created_at:'2026-08-01T09:00:00Z',issue_updated_at:'2026-08-01T09:00:00Z'}]})};
+  await syncChatbyReadOnly({pool,token:'test-token',hmacKey:key,subscriberCache,conversationCache,now:()=>now,
+    fetchImpl:()=>assert.fail('cached history must not make a network read'),projector:{
+      recordChatbyConversationEvent:async()=>({inserted:false}),
+      upsertChatbyPrivateMessage:async()=>{},markChatbyConversationAvailable:async()=>{},
+      upsertChatbyConversationLink:async row=>links.push(row)
+    }});
+  assert.equal(links.length,1);
+  assert.equal(links[0].observed_at,new Date(readAt).toISOString());
+  assert.equal(links[0].notification_observed_at,new Date(notification).toISOString());
+  assert.equal(links[0].history_covered_from,new Date(notification).toISOString());
+});
+
 test('Chatby mirror uses GET only, exact current-order identity and persists no raw content', async () => {
   const calls = [];
   const recorded = [];
