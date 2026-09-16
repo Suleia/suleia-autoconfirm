@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {OperationsProjector} from '../src/operations/projector.mjs';
+import {OperationsRepository} from '../src/operations/repository.mjs';
 import {simulateRecipientAbsent} from '../../platform-core/src/incident/recipient-absent-policy.mjs';
 import {projectRecipientAbsentShadow} from '../../platform-core/src/incident/absent-panel-projection.mjs';
 const issue={canonical_issue_id:'i',canonical_order_id:'o',type:'RECIPIENT_ABSENT',status:'PENDING',is_active:true,created_at:'2026-09-16T10:00:00Z',updated_at:'2026-09-16T10:00:00Z'};
@@ -24,4 +25,12 @@ test('absent joins merge both identity keys without introducing duplicate order 
     assert.match(source,/JOIN read_models\.recipient_absent_shadow \w+ USING\(canonical_issue_id,canonical_order_id\)/);
     assert.doesNotMatch(source,/JOIN read_models\.recipient_absent_shadow \w+ USING\(canonical_issue_id\)/);
   }
+});
+test('new absent filters use canonical type and leave existing generic type filters intact',async()=>{
+  const calls=[];const r=new OperationsRepository('',{pool:{query:async(sql,args)=>{calls.push({sql,args});return {rows:[]};}}});
+  await r.listIncidents(new URLSearchParams({scope:'ALL',absent:'AUSENTE'}));
+  assert.match(calls[0].sql,/WHERE normalized_type='RECIPIENT_ABSENT'/);
+  await r.listIncidents(new URLSearchParams({scope:'ALL',type:'REFUSED_BY_RECIPIENT'}));
+  assert.match(calls[1].sql,/WHERE interpreted_type = \$1/);
+  assert.deepEqual(calls[1].args.slice(0,1),['REFUSED_BY_RECIPIENT']);
 });

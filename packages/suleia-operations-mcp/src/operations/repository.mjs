@@ -141,7 +141,7 @@ function incidentSelection(searchParams) {
   const scope = String(searchParams.get('scope') || 'ACTIVE').toUpperCase();
   const absent = searchParams.get('absent');
   if (absent) {
-    selected.clauses.push("interpreted_type='RECIPIENT_ABSENT'");
+    selected.clauses.push("normalized_type='RECIPIENT_ABSENT'");
     const fields = { FIRST_ABSENCE: ['absence_attempt','FIRST_ABSENCE'], SECOND_ABSENCE: ['absence_attempt','SECOND_ABSENCE'],
       WAITING_CUSTOMER: ['waiting_customer','true'], CUSTOMER_RESPONDED: ['customer_response_status','RESPONDED'],
       RESCHEDULE_REQUESTED: ['customer_intent','RESCHEDULE_DELIVERY'], PICKUP_REQUESTED: ['customer_intent','PICKUP_AT_AGENCY'],
