@@ -64,6 +64,15 @@ test('ambiguous dates, clock, fuzzy button and contradictory response require hu
   }
 });
 test('first absence contact; no return as first option', () => assert.equal(simulate(input()).shadow.simulation_action,'WOULD_SEND_ABSENT_TEMPLATE'));
+test('negative availability or pickup is never interpreted as a positive delivery request',()=>{
+  for(const text of ['mañana por la tarde no estoy','no quiero recoger en agencia','no puedo recibirlo el viernes por la tarde']){
+    const x=input();x.events=[event(text)];assert.equal(simulate(x).shadow.simulation_action,'HUMAN_REVIEW_REQUIRED');
+  }
+});
+test('a stored generic intent label cannot override current original text',()=>{
+  const x=input();x.events=[{...event('mañana por la tarde'),intent:'RETURN_REQUEST'}];
+  assert.equal(simulate(x).shadow.customer_intent,'RESCHEDULE_DELIVERY');
+});
 test('second absence prefers agency and does not repeat first contact', () => {
   const x=input(); x.issue.delivery_attempt_number='2';
   assert.equal(simulate(x).shadow.logistics_preference,'AGENCY_PICKUP_PREFERRED');

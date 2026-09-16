@@ -28,18 +28,19 @@ export function interpretAbsentResponse(event = {}) {
   const text = fold(event.raw_text || event.sanitized_text);
   const base = { customer_intent: 'UNCLEAR', requested_date: null, requested_time_window: null,
     time_from: null, time_to: null, all_day: false, pickup_requested: false, button_pressed: button?.payload || null,
-    raw_customer_text_hash: absentHash(event.raw_text || ''), confidence: 0, reason_code: 'AMBIGUOUS_CUSTOMER_RESPONSE' };
+    raw_customer_text_hash: absentHash(event.raw_text || event.sanitized_text || ''), confidence: 0, reason_code: 'AMBIGUOUS_CUSTOMER_RESPONSE' };
   const day = madridDay(event.created_at);
   let intent = null;
-  const returnIntent = /\b(devuelvelo|devolverlo|quiero devolver|no lo quiero|cancelalo)\b/.test(text);
+  const returnIntent = /\b(devuelvelo|quiero devolverlo|quiero devolver|no lo quiero|no quiero (?:el |este |mi )?pedido|cancelalo)\b/.test(text);
   const addressIntent = /\b(cambia|cambiar|cambio)\b.*\b(direccion|domicilio)\b/.test(text);
   const pickupIntent = button?.payload === 'ABSENT_PICKUP_AGENCY' || /\b(recoger|recogida)\b.*\b(agencia|oficina)\b/.test(text);
   const receiveIntent = button && ['ABSENT_TOMORROW_AM','ABSENT_TOMORROW_PM'].includes(button.payload)
     || /\b(manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|esta tarde|recibir|reparto)\b/.test(text);
+  if (/\bno (?:estoy|estare|puedo|podre|hay|habra|quiero recoger|quiero cambiar|cambies|vengas|entregues|quiero recibir)\b/.test(text)) return {...base,reason_code:'NEGATED_OR_CORRECTED_CUSTOMER_REQUEST'};
   if ([returnIntent, addressIntent, pickupIntent, Boolean(receiveIntent)].filter(Boolean).length > 1) return { ...base, customer_intent: 'CONTRADICTORY', reason_code: 'CONTRADICTORY_CUSTOMER_RESPONSE' };
-  if (returnIntent || ['RETURN_REQUEST','FINAL_REJECTION'].includes(event.intent)) intent = 'RETURN_REQUEST';
-  else if (addressIntent || ['ADDRESS_CHANGE','CHANGE_ADDRESS'].includes(event.intent)) intent = 'ADDRESS_CHANGE';
-  else if (pickupIntent || event.intent === 'PICKUP_AT_AGENCY') intent = 'PICKUP_AT_AGENCY';
+  if (returnIntent) intent = 'RETURN_REQUEST';
+  else if (addressIntent) intent = 'ADDRESS_CHANGE';
+  else if (pickupIntent) intent = 'PICKUP_AT_AGENCY';
   else if (button?.payload === 'ABSENT_OTHER_SLOT') intent = 'CUSTOM_TIME_SLOT';
   if (intent) return { ...base, customer_intent: intent, pickup_requested: intent === 'PICKUP_AT_AGENCY', confidence: 1, reason_code: 'EXPLICIT_CUSTOMER_INTENT' };
   if (!day) return { ...base, reason_code: 'CUSTOMER_MESSAGE_TIMESTAMP_NOT_VERIFIED' };
