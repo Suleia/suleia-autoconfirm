@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { collectPaginated, createReadOnlyTransport } from '../../../packages/platform-core/src/read-only-transport.mjs';
 import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
 import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
+import { ABSENT_BUTTONS } from '../../../packages/platform-core/src/incident/absent-template.mjs';
 
 const ORDER_FIELD = 'dropea: numero';
 
@@ -107,7 +108,11 @@ function rawMessageText(message) {
     message?.text,
     message?.payload?.text,
     message?.payload?.title,
-    message?.button_text
+    message?.button_text,
+    message?.template_name,
+    message?.template?.name,
+    message?.payload?.template_name,
+    message?.payload?.template?.name
   ].filter((value) => typeof value === 'string').join(' ')
     .replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
 }
@@ -134,8 +139,36 @@ function technicalMessageId(message, issueId, key) {
 }
 
 function templateHash(message, key) {
-  const value = message?.template_name ?? message?.template?.name ?? message?.payload?.template_name;
+  const value = message?.template_name ?? message?.template?.name
+    ?? message?.payload?.template_name ?? message?.payload?.template?.name;
   return value ? hmac(value, key) : null;
+}
+
+function templateSlug(message) {
+  const value = message?.template_name ?? message?.template?.name
+    ?? message?.payload?.template_name ?? message?.payload?.template?.name;
+  if (typeof value !== 'string') return null;
+  const normalized = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/^\s*[a-z]{2}[_-][a-z]{2}\s+/, '').replace(/[^a-z0-9_-]+/g, '_')
+    .replace(/^_+|_+$/g, '').slice(0, 160);
+  return normalized || null;
+}
+
+function incidentMessageRelevance({ message, relationToIssue, contextTemplateSlug }) {
+  if (relationToIssue !== 'AFTER_INCIDENT') return 'BEFORE_INCIDENT';
+  const normalized = messageText(message).replace(/[^a-z0-9]+/g, ' ').trim();
+  const initialOrderTemplate = String(contextTemplateSlug || '').includes('dropea_pedido_nuevo_v1');
+  const initialOrderConfirmation = normalized === 'confirmar mi pedido'
+    || normalized === 'confirmar pedido';
+  if ((initialOrderTemplate && normalized.includes('confirmar'))
+      || (messageType(message) === 'BUTTON' && initialOrderConfirmation)) {
+    return 'ORDER_LIFECYCLE_ONLY';
+  }
+  if (String(contextTemplateSlug || '').includes('descuento')
+      || ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED'].includes(classifyIntent(message))) {
+    return 'DISCOUNT_RESPONSE';
+  }
+  return 'INCIDENT_RELEVANT';
 }
 
 function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
@@ -147,15 +180,26 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date()) {
   const templates = outbound.filter((item) => messageType(item.message) === 'TEMPLATE');
   const latest = valid.at(-1)?.at || null;
   const issueAt = new Date(issueCreatedAt).getTime();
-  const customerMessages = inbound.slice(-10).map((item) => ({
-    message: item.message,
-    at: item.at,
-    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT'
-  }));
+  const customerMessages = inbound.slice(-10).map((item) => {
+    const relationToIssue = new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT';
+    const precedingOperator = outbound.filter((out) => new Date(out.at).getTime() <= new Date(item.at).getTime()).at(-1);
+    const contextTemplateSlug = precedingOperator ? templateSlug(precedingOperator.message) : null;
+    return {
+      message: item.message,
+      at: item.at,
+      relation_to_issue: relationToIssue,
+      context_template_slug: contextTemplateSlug,
+      incident_relevance: incidentMessageRelevance({
+        message: item.message, relationToIssue, contextTemplateSlug
+      })
+    };
+  });
   const operatorMessages = outbound.slice(-10).map((item) => ({
     message: item.message,
     at: item.at,
-    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT'
+    relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT',
+    context_template_slug: templateSlug(item.message),
+    incident_relevance: new Date(item.at).getTime() >= issueAt ? 'INCIDENT_RELEVANT' : 'BEFORE_INCIDENT'
   }));
   return Object.freeze({
     last_customer_message_at: inbound.at(-1)?.at || null,
@@ -212,6 +256,8 @@ export async function syncChatbyReadOnly({
   retryBaseMs = 5_000,
   subscriberCache = null,
   subscriberCacheTtlMs = 900_000,
+  conversationCache = null,
+  conversationCacheTtlMs = 900_000,
   now = Date.now,
   fetchImpl = globalThis.fetch
 }) {
@@ -262,11 +308,10 @@ export async function syncChatbyReadOnly({
 
   const candidates = await pool.query(`SELECT o.canonical_order_id,o.external_order_id_hash,o.dropea_order_id,
       o.created_at_utc AS order_created_at,i.canonical_issue_id,i.created_at_utc AS issue_created_at,
-      i.updated_at_utc AS issue_updated_at
+      i.updated_at_utc AS issue_updated_at,i.canonical_type AS issue_type
     FROM integration.dropea_orders o
     JOIN integration.dropea_issues i USING(canonical_order_id)
-    WHERE i.status='PENDING'
-      AND (i.is_active=true OR i.updated_at_utc >= now()-interval '14 days')
+    WHERE i.status='PENDING' AND i.is_active=true
     ORDER BY i.updated_at_utc DESC`);
   const byExternalHash = new Map();
   const byDropeaOrderId = new Map();
@@ -308,13 +353,58 @@ export async function syncChatbyReadOnly({
     }
   }
 
+  // Select only a bounded, fair set of provider reads for this cycle. Never-read
+  // conversations are prioritized, followed by the oldest cached observation.
+  // This prevents the read-only panel from exhausting the same account quota
+  // used by transactional template delivery.
+  const cycleNow = now();
+  if (conversationCache instanceof Map) {
+    for (const [userNs, entry] of conversationCache.entries()) {
+      if (!Number.isFinite(entry?.fetchedAt) || cycleNow - entry.fetchedAt > conversationCacheTtlMs * 4) {
+        conversationCache.delete(userNs);
+      }
+    }
+  }
+  const exactConversationByIssue = new Map();
+  const networkCandidates = [];
+  for (const issue of candidates.rows) {
+    const entries = matchesByIssue.get(issue.canonical_issue_id) || [];
+    const unique = new Map();
+    for (const entry of entries) {
+      const technicalId = String(entry.subscriber.user_ns || '');
+      if (!unique.has(technicalId)) unique.set(technicalId, entry);
+    }
+    const values = [...unique.values()];
+    if (values.length !== 1 || !values[0].subscriber.user_ns) continue;
+    const userNs = String(values[0].subscriber.user_ns);
+    const cached = conversationCache instanceof Map ? conversationCache.get(userNs) : null;
+    const cacheFresh = Boolean(cached?.messages && Number.isFinite(cached.fetchedAt)
+      && cycleNow - cached.fetchedAt < conversationCacheTtlMs);
+    exactConversationByIssue.set(issue.canonical_issue_id, {
+      ...values[0], userNs, cached, cacheFresh
+    });
+    if (!cacheFresh) {
+      networkCandidates.push({
+        issueId: issue.canonical_issue_id,
+        neverRead: !cached,
+        fetchedAt: Number.isFinite(cached?.fetchedAt) ? cached.fetchedAt : 0
+      });
+    }
+  }
+  networkCandidates.sort((left, right) => Number(right.neverRead) - Number(left.neverRead)
+    || left.fetchedAt - right.fetchedAt
+    || String(left.issueId).localeCompare(String(right.issueId)));
+  const networkIssueIds = new Set(networkCandidates
+    .slice(0, Math.max(0, Number(maxConversations) || 0))
+    .map((item) => item.issueId));
+
   const foundOrders = new Set();
   let availableIssues = 0;
   let eventsInserted = 0;
   let conversationsRead = 0;
   let identityConflicts = 0;
+  let conversationCacheHits = 0;
   const statusCounts = { NONE: 0, FOUND: 0, MULTIPLE: 0, STALE: 0, BROKEN: 0, UNKNOWN: 0 };
-  let conversationBudget = maxConversations;
   for (const issue of candidates.rows) {
     const entries = matchesByIssue.get(issue.canonical_issue_id) || [];
     const subscribersByTechnicalId = new Map();
@@ -342,7 +432,8 @@ export async function syncChatbyReadOnly({
       });
       continue;
     }
-    if (conversationBudget <= 0) {
+    const exactConversation = exactConversationByIssue.get(issue.canonical_issue_id);
+    if (!exactConversation?.cacheFresh && !networkIssueIds.has(issue.canonical_issue_id)) {
       statusCounts.UNKNOWN += 1;
       await projector.upsertChatbyConversationLink?.({
         canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id,
@@ -352,11 +443,19 @@ export async function syncChatbyReadOnly({
       });
       continue;
     }
-    conversationBudget -= 1;
     const { subscriber, evidence } = subscribersForIssue[0];
     let messages;
     try {
-      messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages });
+      if (exactConversation?.cacheFresh) {
+        messages = exactConversation.cached.messages;
+        conversationCacheHits += 1;
+      } else {
+        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages });
+        if (conversationCache instanceof Map) {
+          conversationCache.set(String(subscriber.user_ns), { messages, fetchedAt: now() });
+        }
+        conversationsRead += 1;
+      }
     } catch (error) {
       statusCounts.BROKEN += 1;
       await projector.upsertChatbyConversationLink?.({
@@ -368,7 +467,6 @@ export async function syncChatbyReadOnly({
       });
       continue;
     }
-    conversationsRead += 1;
     const metrics = conversationMetrics(messages.items, issue.issue_created_at);
     const conversationHash = hmac(subscriber.user_ns, hmacKey);
     const contactHash = hmac(subscriber.user_id || subscriber.user_ns, hmacKey);
@@ -386,7 +484,9 @@ export async function syncChatbyReadOnly({
         direction: direction(message),
         message_type: type,
         template_id_hash: null,
-        button_payload: type === 'BUTTON' && intent !== 'UNKNOWN' ? intent : null,
+        button_payload: type === 'BUTTON' ? ((issue.issue_type === 'RECIPIENT_ABSENT' && ABSENT_BUTTONS.find(b => b.payload === message?.payload?.payload
+          || b.payload === message?.interactive?.button_reply?.id || b.text === message?.payload?.title)?.payload
+          ) || (intent !== 'UNKNOWN' ? intent : null)) : null,
         sanitized_text: intent === 'UNKNOWN' ? 'UNCLASSIFIED_MESSAGE_PRESENT' : `INTENT:${intent}`,
         occurred_at: at,
         source_event_id: `chatby:${messageHash}`,
@@ -414,6 +514,8 @@ export async function syncChatbyReadOnly({
         message_type: messageType(item.message),
         intent,
         relation_to_issue: item.relation_to_issue,
+        context_template_slug: item.context_template_slug,
+        incident_relevance: item.incident_relevance,
         message_text_ciphertext: encryptPrivateJson({ text }, hmacKey),
         occurred_at: item.at
       });
@@ -454,6 +556,7 @@ export async function syncChatbyReadOnly({
     exact_orders: foundOrders.size,
     available_issues: availableIssues,
     conversations_read: conversationsRead,
+    conversation_cache_hits: conversationCacheHits,
     events_inserted: eventsInserted,
     identity_conflicts: identityConflicts + referenceConflicts,
     reference_conflicts: referenceConflicts,
@@ -469,5 +572,5 @@ export async function syncChatbyReadOnly({
 export const chatbyReadOnlyInternals = Object.freeze({
   normalizeLabel, normalizeReference, orderReference, occurredAt, direction,
   messageType, classifyIntent, rawMessageText, referenceHashes, payloadReferences, technicalReferences,
-  conversationMetrics
+  templateSlug, incidentMessageRelevance, conversationMetrics
 });

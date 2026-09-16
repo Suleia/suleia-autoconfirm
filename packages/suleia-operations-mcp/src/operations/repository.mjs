@@ -26,7 +26,7 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_order_records r USING(canonical_order_id)
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
-const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
+const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
   private_order.external_order_id_ciphertext,private_order.shipping_address_ciphertext,
   discount.recovery_status AS discount_recovery_status,
   discount.response_status AS discount_recovery_response_status,
@@ -90,6 +90,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
     ELSE 'REVIEW_INCIDENT'
   END AS operational_recommendation
  FROM read_models.operations_incident_panel_context p
+ LEFT JOIN read_models.recipient_absent_shadow absent USING(canonical_issue_id)
  LEFT JOIN read_models.operations_private_order_display private_order USING(canonical_order_id)
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount USING(canonical_issue_id)
  LEFT JOIN LATERAL (
@@ -107,7 +108,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*,
    FROM read_models.operations_private_incident_messages m
    WHERE m.canonical_issue_id=p.canonical_issue_id AND m.direction='INBOUND'
    ORDER BY (m.relation_to_issue='AFTER_INCIDENT') DESC,
-            (m.intent<>'UNKNOWN') DESC,
+            (p.interpreted_type<>'RECIPIENT_ABSENT' AND m.intent<>'UNKNOWN') DESC,
             m.occurred_at DESC LIMIT 1
  ) private_message ON true)`;
 
@@ -138,6 +139,16 @@ function incidentSelection(searchParams) {
     discount_response: 'discount_recovery_response_status'
   });
   const scope = String(searchParams.get('scope') || 'ACTIVE').toUpperCase();
+  const absent = searchParams.get('absent');
+  if (absent) {
+    selected.clauses.push("interpreted_type='RECIPIENT_ABSENT'");
+    const fields = { FIRST_ABSENCE: ['absence_attempt','FIRST_ABSENCE'], SECOND_ABSENCE: ['absence_attempt','SECOND_ABSENCE'],
+      WAITING_CUSTOMER: ['waiting_customer','true'], CUSTOMER_RESPONDED: ['customer_response_status','RESPONDED'],
+      RESCHEDULE_REQUESTED: ['customer_intent','RESCHEDULE_DELIVERY'], PICKUP_REQUESTED: ['customer_intent','PICKUP_AT_AGENCY'],
+      LOGISTICS_VALIDATION_REQUIRED: ['current_step','LOGISTICS_VALIDATION_REQUIRED'], HUMAN_REVIEW_REQUIRED: ['simulation_status','HUMAN_REVIEW_REQUIRED'], SIMULATION_READY: ['simulation_status','SIMULATION_READY'] };
+    const criterion = fields[absent];
+    if (criterion) { selected.values.push(criterion[1]); selected.clauses.push(`absent_shadow->>'${criterion[0]}'=$${selected.values.length}`); }
+  }
   if (scope === 'ACTIVE') selected.clauses.push("status='PENDING' AND is_active=true");
   else if (scope === 'HISTORICAL') selected.clauses.push("NOT (status='PENDING' AND is_active=true)");
   else if (scope !== 'ALL') selected.clauses.push("status='PENDING' AND is_active=true");

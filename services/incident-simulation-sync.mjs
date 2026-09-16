@@ -1,7 +1,9 @@
 import { buildIncidentSimulation } from '../packages/platform-core/src/incident/simulation-record.mjs';
 import crypto from 'node:crypto';
+import { decryptOperationsPrivateJson } from '../packages/suleia-operations-mcp/src/operations/private-display.mjs';
+import { ABSENT_TEMPLATE_NAME } from '../packages/platform-core/src/incident/absent-template.mjs';
 
-export async function syncIncidentSimulations({ pool, projector, now = () => new Date(), maxRecords = 500 }) {
+export async function syncIncidentSimulations({ pool, projector, now = () => new Date(), maxRecords = 500, privateDataKey = '', absentLogisticsRead = null, onlyRecipientAbsent = false }) {
   const candidates = await pool.query(`SELECT i.*, o.identity_status, o.total_amount,
     o.lifecycle_classification, o.canonical_state,l.conversation_status,
     l.reason_code AS conversation_reason,l.conversation_freshness,
@@ -9,8 +11,10 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
     FROM read_models.operations_incident_records i
     JOIN read_models.operations_order_records o USING(canonical_order_id)
     LEFT JOIN operations.chatby_conversation_links l USING(canonical_issue_id)
-    WHERE i.status='PENDING' AND i.is_active=true
-    ORDER BY i.updated_at ASC LIMIT $1`, [maxRecords]);
+    WHERE ((i.status='PENDING' AND i.is_active=true)
+      OR (i.type='RECIPIENT_ABSENT' AND i.absent_shadow IS NULL))
+      AND ($2::boolean=false OR i.type='RECIPIENT_ABSENT')
+    ORDER BY i.updated_at ASC LIMIT $1`, [maxRecords,onlyRecipientAbsent]);
   let interpreted = 0;
   let simulated = 0;
   let blocked = 0;
@@ -39,6 +43,47 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
       package_available_for_pickup: row.pickup_point_masked?.is_active === true,
       agency_distance_km: null
     };
+    if (row.type === 'RECIPIENT_ABSENT') {
+      const evidence = await pool.query(`SELECT m.canonical_issue_id,m.canonical_order_id,m.direction,m.message_type,
+        m.occurred_at AS created_at,m.message_text_ciphertext,m.intent,m.context_template_slug,m.incident_relevance,
+        m.chatby_message_id_hash AS chatby_message_id,e.button_payload,
+        'CURRENT_ORDER_EXACT_MATCH'::text AS relevance_status
+        FROM operations.chatby_private_message_display m LEFT JOIN operations.chatby_conversation_events e
+        ON e.canonical_issue_id=m.canonical_issue_id AND e.chatby_message_id_hash=m.chatby_message_id_hash
+        WHERE m.canonical_order_id=$1 ORDER BY m.occurred_at`, [row.canonical_order_id]);
+      const timers = await pool.query(`SELECT timer_id,timer_type,started_at,due_at,status,policy_version
+        FROM operations.incident_timers WHERE canonical_issue_id=$1
+        AND timer_type='CUSTOMER_INITIAL_RESPONSE_48H' ORDER BY created_at DESC LIMIT 1`, [row.canonical_issue_id]);
+      const history = await pool.query(`SELECT h.* FROM read_models.customer_operational_history h
+        JOIN read_models.operations_order_records o ON o.customer_identity_hash=h.customer_key
+        WHERE o.canonical_order_id=$1`, [row.canonical_order_id]);
+      const previous = await pool.query(`SELECT count(*)::integer AS previous_absences
+        FROM integration.dropea_issues i JOIN read_models.operations_order_records o USING(canonical_order_id)
+        WHERE o.customer_identity_hash=(SELECT customer_identity_hash FROM read_models.operations_order_records WHERE canonical_order_id=$1)
+        AND i.canonical_order_id<>$1 AND i.canonical_type='RECIPIENT_ABSENT'
+        AND i.initial_carrier_code IS DISTINCT FROM 'NAM' AND i.created_at_utc<$2`, [row.canonical_order_id, row.created_at]);
+      const fresh = await pool.query(`SELECT last_successful_sync_at FROM read_models.operations_data_freshness
+        WHERE market=$1 AND store_id=$2 AND resource_type='issues' AND pagination_complete=true
+        ORDER BY last_successful_sync_at DESC LIMIT 1`, [row.market || 'ES', row.store_id]);
+      const clearEvents = evidence.rows.map(e => ({ ...e,
+        raw_text: decryptOperationsPrivateJson(e.message_text_ciphertext, privateDataKey)?.text || '',
+        message_text_ciphertext: undefined }));
+      const context = absentLogisticsRead ? await absentLogisticsRead(issue) : { gls: {} };
+      const result = buildIncidentSimulation({ issue: { ...issue, last_successful_sync_at: context.dropea_observed_at || fresh.rows[0]?.last_successful_sync_at,
+          capability_status: row.capability_status || 'NOT_DECLARED' }, order: { ...order, canonical_state: context.order_state || row.canonical_state },
+        events: clearEvents.length ? clearEvents : events.rows, gls: { ...gls, ...context.gls },
+        chatby: { verified: row.conversation_status === 'FOUND' && row.conversation_freshness === 'FRESH',
+          observed_at: row.conversation_observed_at, template_contact_verified: clearEvents.some(e => e.canonical_issue_id===row.canonical_issue_id
+            && e.direction==='OUTBOUND' && e.message_type==='TEMPLATE' && e.context_template_slug===ABSENT_TEMPLATE_NAME) },
+        history: { ...history.rows[0], verified: Boolean(history.rows[0]), previous_absences: previous.rows[0]?.previous_absences || 0 },
+        previousTimer: timers.rows[0] || null, now: now() });
+      await projector.upsertIncidentInterpretation(result.interpretation);
+      await projector.recordIncidentSimulation(result.simulation_record);
+      await projector.applyRecipientAbsentShadow({ issue, interpretation: result.interpretation, decision: result.decision });
+      interpreted += 1; simulated += 1;
+      if (result.decision.qa_result === 'BLOCKED') blocked += 1;
+      continue;
+    }
     if (row.conversation_status !== 'FOUND') {
       const chatbyReason = row.conversation_status
         ? `CHATBY_${row.conversation_status}:${row.conversation_reason || 'UNSPECIFIED'}`

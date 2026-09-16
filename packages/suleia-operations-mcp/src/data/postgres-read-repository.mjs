@@ -1,4 +1,5 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
+import { projectRecipientAbsentShadow } from '../../../platform-core/src/incident/absent-panel-projection.mjs';
 
 const clamp = (value, fallback = 100, maximum = 500) =>
   Math.min(maximum, Math.max(1, Number.parseInt(value, 10) || fallback));
@@ -146,22 +147,24 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       const safeOffset = offset(requestedOffset);
       values.push(safeLimit, safeOffset);
       const rows = await query(`SELECT *,count(*) OVER()::integer AS total_count
-        FROM read_models.operations_incident_panel_context
+        FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_panel_context p
+          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id)) incident
         ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
         ORDER BY ${INCIDENT_SORT[sort] || INCIDENT_SORT.UPDATED_DESC}
         LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
-      return { items: rows, total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
+      return { items: rows.map(projectRecipientAbsentShadow), total: rows[0]?.total_count || 0, limit: safeLimit, offset: safeOffset };
     },
 
     async getIncident({ canonicalIssueId = null, dropeaIssueId = null } = {}) {
       const incidentId = canonicalIssueId || dropeaIssueId;
       const identityColumn = canonicalIssueId ? 'canonical_issue_id' : 'dropea_issue_id';
-      const rows = await query(`SELECT * FROM read_models.operations_incident_panel_context
+      const rows = await query(`SELECT * FROM (SELECT p.*,a.absent_shadow FROM read_models.operations_incident_panel_context p
+          LEFT JOIN read_models.recipient_absent_shadow a USING(canonical_issue_id)) incident
         WHERE ${identityColumn}=$1 LIMIT 1`, [incidentId]);
       if (!rows[0]) return null;
       const timeline = await query(`SELECT * FROM read_models.operations_order_timeline
         WHERE canonical_issue_id=$1 ORDER BY occurred_at ASC LIMIT 200`, [rows[0].canonical_issue_id]);
-      const incident = rows[0];
+      const incident = projectRecipientAbsentShadow(rows[0]);
       return {
         ...incident,
         traceability: {

@@ -73,7 +73,7 @@ test('Chatby mirror uses GET only, exact current-order identity and persists no 
   assert.deepEqual(available, [{ canonical_order_id: 'order-hash-safe', canonical_issue_id: 'issue-hash-safe' }]);
   assert.deepEqual(calls.map((call) => call.options.method), ['GET', 'GET']);
   assert.equal(calls.every((call) => call.options.body === undefined), true);
-  assert.match(candidateQuery, /i\.is_active=true OR i\.updated_at_utc >= now\(\)-interval '14 days'/);
+  assert.match(candidateQuery, /i\.status='PENDING' AND i\.is_active=true/);
 });
 
 test('Chatby mirror blocks ambiguous subscribers for the same current order', async () => {

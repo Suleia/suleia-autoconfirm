@@ -181,6 +181,12 @@ function renderFilters() {
     select.addEventListener('change', () => changed(key, select.value)); root.append(select);
   }
   if (state.view === 'incidents') {
+    for (const [value, label] of [['AUSENTE','AUSENTE'],['FIRST_ABSENCE','Primera ausencia'],['SECOND_ABSENCE','Segunda ausencia'],
+      ['WAITING_CUSTOMER','Esperando cliente'],['CUSTOMER_RESPONDED','Cliente respondió'],['RESCHEDULE_REQUESTED','Nueva entrega'],
+      ['PICKUP_REQUESTED','Recogida agencia'],['LOGISTICS_VALIDATION_REQUIRED','Validar logística'],['HUMAN_REVIEW_REQUIRED','Revisión humana'],['SIMULATION_READY','Simulación preparada']]) {
+      const button = node('button', `filter-chip ${state.filters.absent === value ? 'active' : ''}`.trim(), label);
+      button.type = 'button'; button.addEventListener('click', () => changed('absent', state.filters.absent === value ? '' : value)); root.append(button);
+    }
     for (const [key, label, type] of [['q', 'Buscar pedido o incidencia', 'search']]) {
       const input = node('input', 'filter-select'); input.type = type; input.placeholder = label;
       input.setAttribute('aria-label', label); input.value = state.filters[key] || '';
@@ -291,7 +297,7 @@ function rowIncident(item) {
     cell(stacked(translated(item.interpreted_type), item.initial_carrier_description_sanitized || 'Sin descripción adicional de Dropea')),
     cell(evidence, 'signal-cell'),
     cell(discountStatusCard(item), 'discount-cell'),
-    cell(stacked(recommendation.title, `${recommendation.summary} · ${resolution}`), 'decision-card'),
+    cell(item.absent_shadow ? absentShadowCard(item) : stacked(recommendation.title, `${recommendation.summary} · ${resolution}`), 'decision-card'),
     cell(stacked(translated(item.handling_status), `${item.source_truth === 'PENDING_IN_DROPEA' ? 'Pendiente en Dropea' : 'Fuera de la cola pendiente'} · ${item.operational_freshness_status === 'FRESH' ? 'datos vigentes' : 'revisar actualización'}`))
   );
   tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
@@ -397,6 +403,34 @@ function customerMessageHistory(items = []) {
   }
   box.append(list); return box;
 }
+function absentShadowCard(item, expanded = false) {
+  const s = item.absent_shadow;
+  const card = node('div', 'absent-shadow-card');
+  if (!s) return card;
+  const labels = { WOULD_SEND_ABSENT_TEMPLATE: 'Preparar contacto AUSENTE', WOULD_REQUEST_CUSTOM_SLOT: 'Pedir fecha y franja',
+    WOULD_VALIDATE_LOGISTICS: 'Validar disponibilidad GLS', WOULD_REQUEST_NEW_DELIVERY: 'Proponer nueva entrega',
+    WOULD_REQUEST_PICKUP_AT_AGENCY: 'Proponer recogida en agencia', WOULD_RETURN_TO_ORIGIN: 'Proponer devolución',
+    WOULD_REQUEST_ADDRESS_CHANGE: 'Revisar cambio de dirección', HUMAN_REVIEW_REQUIRED: 'Revisión humana necesaria', HOLD_WAITING_CUSTOMER: 'Esperar selección de franja' };
+  card.append(node('small', 'absent-shadow-label', 'SIGUIENTE ACCIÓN · SIMULACIÓN'),
+    node('strong', '', labels[s.next_action] || s.next_action),
+    node('small', '', s.absence_attempt === 'FIRST_ABSENCE' ? 'Primera ausencia' : s.absence_attempt === 'SECOND_ABSENCE' ? 'Segunda ausencia' : 'Intento no verificable'),
+    node('small', '', s.reason_text), node('small', '', 'No ejecutado · no se envía ni modifica el pedido'));
+  const details = node('details', 'absent-shadow-details'); details.open = expanded;
+  details.append(node('summary', '', 'Ver evidencia, logística y plazo'));
+  details.append(section('Control AUSENTE', [
+    ['Estado', s.current_step], ['Respuesta', s.customer_response_status], ['Intent', s.customer_intent],
+    ['Botón', s.button_pressed || 'No detectado'], ['Fecha solicitada', s.requested_date || 'No indicada'],
+    ['Franja', s.requested_time_window || 'No indicada'], ['Desde / hasta', `${s.time_from || '—'} / ${s.time_to || '—'}`],
+    ['Todo el día', s.all_day ? 'Sí' : 'No'], ['Recogida solicitada', s.pickup_requested ? 'Sí' : 'No'],
+    ['Historial relevante', s.history_relevant ? 'Sí · señal logística, no sanción' : 'No verificado o no relevante'],
+    ['Viabilidad', s.logistics_feasibility], ['Confianza', `${Math.round(s.decision_confidence * 100)} %`],
+    ['Prioridad logística', s.logistics_preference || 'Sin preferencia'], ['Fallo tras franja del cliente', s.delivery_failed_after_customer_slot ? 'Sí · requiere validación logística' : 'No verificado'],
+    ['Timer existente', s.existing_timer?.timer_type || 'No disponible'], ['Fecha límite', date(s.due_at)],
+    ['Dropea / Chatby / GLS', Object.values(s.data_freshness || {}).join(' / ')],
+    ['Estado simulación', s.simulation_status], ['Policy', s.policy_version]
+  ]));
+  card.append(details); return card;
+}
 function discountRecoveryDetail(incident) {
   const discount = incident.discount_recovery || {};
   if (!discount.applies) return document.createDocumentFragment();
@@ -447,6 +481,7 @@ async function openDetail(id) {
         section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
         section('Acción del cliente', [['Resultado', incident.customer_evidence?.title, true], ['Conclusión', incident.customer_evidence?.summary], ['Último mensaje', incident.customer_evidence?.latest_message || 'No hay mensaje entrante disponible'], ['Fecha del mensaje', date(incident.customer_evidence?.at)], ['Relación temporal', incident.customer_evidence?.relation === 'AFTER_INCIDENT' ? 'POSTERIOR A LA INCIDENCIA' : incident.customer_evidence?.relation === 'BEFORE_INCIDENT' ? 'ANTERIOR A LA INCIDENCIA' : 'SIN MENSAJE', true], ['Asociación', incident.conversation_status === 'FOUND' ? 'CONVERSACIÓN EXACTA DEL PEDIDO' : 'NO VERIFICADA', true]]),
         discountRecoveryDetail(incident),
+        absentShadowCard(incident, true),
         customerMessageHistory(data.customer_messages),
         recommendationPanel(incident, data.feedback),
         section('Control y seguridad', [['Gestión', translated(incident.handling_status), true], ['Opción propuesta en Dropea', incident.tailored_recommendation?.resolution_option || 'PENDIENTE DE VALIDACIÓN'], ['Opciones permitidas', (incident.allowed_resolution_options || []).join(', ') || 'NO INFORMADAS'], ['Datos', translated(incident.operational_freshness_status), true], ['Última lectura Dropea', date(incident.last_successful_sync_at)], ['Última lectura Chatby', date(incident.chatby_last_successful_sync_at)], ['Estado de acción externa', translated(incident.external_action_status || 'NOT_EXECUTED'), true]]),

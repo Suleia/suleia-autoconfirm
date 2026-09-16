@@ -1,0 +1,28 @@
+{
+  "template_name": "dropea_ausente_v1",
+  "chatby_template_id": 1549385,
+  "meta_template_id": "1490544536242876",
+  "language": "es_ES",
+  "category_requested": "UTILITY",
+  "category_final": "UTILITY",
+  "approval_status": "PENDING",
+  "submitted_at": "2026-09-16T14:52:13.000000Z",
+  "rejection_reason": null,
+  "body_hash": "f001e01ed2647314f46cadca4ac886533541f299625672bcb5641e5d0e5e17cb",
+  "buttons_hash": "fccf8ae38cc4752c1ccfb7771f10807b19e50cd24044d8ade222b066a18bd561",
+  "button_mapping_hash": "6bae634d550cad47b021686645963654f22291fe9e02b8a8be96031e250f9c02",
+  "unicode": "NFC",
+  "character_validation": "PASS",
+  "call_buttons": 0,
+  "content_roundtrip_verified": true,
+  "customer_messages_sent": 0,
+  "dropea_writes": 0,
+  "gls_writes": 0,
+  "production_resolutions": 0,
+  "live_flags": {
+    "AUSENTE_AUTOMATION_LIVE": false,
+    "CHATBY_REAL_SENDS": false,
+    "DROPEA_ACTIONS_ENABLED": false,
+    "GLS_ACTIONS_ENABLED": false
+  }
+}

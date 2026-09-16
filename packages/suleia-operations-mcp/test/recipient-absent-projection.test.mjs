@@ -1,0 +1,19 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {OperationsProjector} from '../src/operations/projector.mjs';
+import {simulateRecipientAbsent} from '../../platform-core/src/incident/recipient-absent-policy.mjs';
+import {projectRecipientAbsentShadow} from '../../platform-core/src/incident/absent-panel-projection.mjs';
+const issue={canonical_issue_id:'i',canonical_order_id:'o',type:'RECIPIENT_ABSENT',status:'PENDING',is_active:true,created_at:'2026-09-16T10:00:00Z',updated_at:'2026-09-16T10:00:00Z'};
+const decision=()=>simulateRecipientAbsent({issue,order:{canonical_order_id:'o'},chatby:{},events:[]},{now:'2026-09-16T12:00:00Z'}).decision;
+test('shadow projector updates only the additive absent column, never status/actions/timer deadlines',async()=>{
+  const calls=[];const p=new OperationsProjector({query:async(sql,args)=>{calls.push({sql,args});return {rowCount:1};}});
+  await p.applyIncidentDecision({issue,decision:decision()});assert.equal(calls.length,1);
+  assert.match(calls[0].sql,/SET absent_shadow/);assert.match(calls[0].sql,/AND type='RECIPIENT_ABSENT'/);
+  assert.doesNotMatch(calls[0].sql,/SET status|SET due_at|discount|incident_timers/);
+  const d=decision();d.timer={timer_type:'T_PLUS_12H'};await assert.rejects(p.applyRecipientAbsentShadow({issue,decision:d}),/TIMER_POLICY_INVALID/);assert.equal(calls.length,1);
+  await assert.rejects(p.applyRecipientAbsentShadow({issue:{...issue,type:'ADDRESS_INCORRECT'},decision:decision()}),/PROJECTION_INVALID/);
+});
+test('canonical absent read projection exposes the persisted decision id and does not alter other lanes',()=>{
+  const d=decision(),s=d.absent_shadow;const row=projectRecipientAbsentShadow({absent_shadow:s});
+  assert.equal(row.current_decision_id,d.decision_id);assert.equal(row.effective_decision_status,s.simulation_status);
+  const other={type:'REFUSED_BY_RECIPIENT',next_action:'old'};assert.equal(projectRecipientAbsentShadow(other),other);
+});

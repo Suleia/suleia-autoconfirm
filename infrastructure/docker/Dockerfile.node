@@ -27,7 +27,9 @@ WORKDIR /app
 COPY --from=dependencies /app/packages/suleia-operations-mcp/node_modules ./packages/suleia-operations-mcp/node_modules
 COPY apps ./apps
 COPY services ./services
+COPY autoconfirm/src/clients/gls.mjs ./autoconfirm/src/clients/gls.mjs
 COPY scripts/run-dropea-v2-shadow-phase.mjs ./scripts/run-dropea-v2-shadow-phase.mjs
+COPY scripts/replay-recipient-absent-shadow.mjs ./scripts/replay-recipient-absent-shadow.mjs
 COPY contracts/external/dropea/public-api-v2/0.1.0 ./contracts/external/dropea/public-api-v2/0.1.0
 COPY packages/platform-core ./packages/platform-core
 COPY packages/suleia-operations-mcp ./packages/suleia-operations-mcp

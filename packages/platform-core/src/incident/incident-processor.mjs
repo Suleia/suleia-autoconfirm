@@ -4,6 +4,7 @@ import { GLS_POLICY_IDS, GLS_POLICY_VERSION } from './gls-policies.mjs';
 import { createIncidentTimer, INCIDENT_RESPONSE_HOURS } from './incident-timers.mjs';
 import { prepareDiscountOffer } from './discount-workflow.mjs';
 import { maskText } from '../masking.mjs';
+import { simulateRecipientAbsent } from './recipient-absent-policy.mjs';
 
 const RESOLUTION_OPTION = Object.freeze({
   RETRY: 'RETRY', CHANGE_ADDRESS: 'CHANGE_ADDRESS', PICKUP_AT_AGENCY: 'PICKUP_AT_AGENCY',
@@ -49,27 +50,6 @@ function inferProposal(input, calendar, now) {
   if (wantsReturn || (issue.type === 'REFUSED_BY_RECIPIENT' && chatby.rejection_explicit === true)) {
     return { state: 'SOLUTION_READY', resolution: 'RETURN_REQUESTED', risk: 'MEDIUM' };
   }
-  if (issue.type === 'RECIPIENT_ABSENT') {
-    if (intent === 'PICKUP_AT_AGENCY' && gls.pickup_point_verified && gls.package_available_for_pickup) {
-      return { state: 'SOLUTION_READY', resolution: 'PICKUP_AT_AGENCY', risk: 'MEDIUM' };
-    }
-    if (wantsReceive && chatby.fresh === true) {
-      if (Number(gls.delivery_attempt_number) >= 2) {
-        return { state: 'RECOVERY_EXCEPTION', resolution: 'RETRY', risk: 'HIGH', force_review: true,
-          data: { date: chatby.requested_date || calendar.earliest_operational_date, time_window: chatby.requested_time_window || null } };
-      }
-      return {
-        state: 'SOLUTION_READY', resolution: 'RETRY', risk: gls.delivery_attempt_number >= 2 || gls.delivery_attempt_number === 'UNKNOWN' ? 'HIGH' : 'MEDIUM',
-        data: { date: chatby.requested_date || calendar.earliest_operational_date, time_window: chatby.requested_time_window || 'afternoon' }
-      };
-    }
-    if (chatby.customer_response_status === 'NO_RESPONSE' && waitedHours >= 48) {
-      return input.order?.shipped === false
-        ? { state: 'SIMULATED_CANCEL', resolution: null, risk: 'MEDIUM' }
-        : { state: 'SOLUTION_READY', resolution: 'RETURN_REQUESTED', risk: 'MEDIUM' };
-    }
-    return { state: 'WAITING_CUSTOMER_RESPONSE', resolution: null, risk: 'LOW', start_timer: true };
-  }
   if (issue.type === 'ADDRESS_INCORRECT' && chatby.intent === 'CHANGE_ADDRESS' && chatby.address_validated === true) {
     return { state: 'SOLUTION_READY', resolution: 'CHANGE_ADDRESS', risk: 'HIGH', data: { address: chatby.supplied_address } };
   }
@@ -100,6 +80,7 @@ function inferProposal(input, calendar, now) {
 }
 
 export function simulateIncidentProcess(input, { now = new Date(), holidays = [] } = {}) {
+  if (input.issue.type === 'RECIPIENT_ABSENT') return simulateRecipientAbsent(input,{now}).decision;
   const { issue, order, identity, chatby = {}, gls = {}, sourceEventId } = input;
   const trace = [
     'ISSUE_RECEIVED', 'AUTHENTICITY_VALIDATED', 'EVENT_DEDUPLICATED', 'FULL_ISSUE_READ'

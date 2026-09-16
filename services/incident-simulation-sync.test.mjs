@@ -17,6 +17,7 @@ test('incident sync reads mirror rows and records only zero-action simulations',
     upsertIncidentInterpretation: async (value) => calls.push(['interpretation', value]),
     recordIncidentSimulation: async (value) => calls.push(['simulation', value]),
     applyIncidentDecision: async (value) => calls.push(['decision', value])
+    ,applyRecipientAbsentShadow: async (value) => calls.push(['decision', value])
   };
   const result = await syncIncidentSimulations({ pool, projector, now: () => new Date('2026-08-02T09:00:00Z') });
   assert.equal(result.simulated, 1);
@@ -54,12 +55,14 @@ test('incident sync preserves exact-order evidence after a later incident timest
     if (sql.includes('FROM read_models.operations_incident_records')) return { rows: [{
       canonical_issue_id: 'issue-current', canonical_order_id: 'order-current',
       type: 'RECIPIENT_ABSENT', raw_type: 'RECIPIENT_ABSENT', mapping_status: 'MAPPED',
+      created_at: '2026-09-01T09:49:50.992Z',
       status: 'PENDING', is_active: true, carrier: 'GLS', allowed_resolution_options: ['RETRY'],
       updated_at: '2026-09-01T17:07:03.475Z', observed_at: '2026-09-02T17:00:00Z',
       freshness: 'FRESH', source_version: '0.1.0', identity_status: 'EXACT', total_amount: 20,
       lifecycle_classification: 'ACTIVE', canonical_state: 'DELIVERY_ATTEMPTED',
       delivery_attempt_number: '1', discount_status: 'NOT_OFFERED', conversation_status: 'FOUND'
     }] };
+    if (!sql.includes('FROM operations.chatby_conversation_events')) return { rows: [] };
     assert.match(sql, /incident_version,relevance_status,intent/);
     return { rows: [{
       canonical_issue_id: 'issue-current', direction: 'INBOUND', message_type: 'TEXT',
@@ -71,7 +74,8 @@ test('incident sync preserves exact-order evidence after a later incident timest
   const projector = {
     upsertIncidentInterpretation: async (value) => calls.push(['interpretation', value]),
     recordIncidentSimulation: async (value) => calls.push(['simulation', value]),
-    applyIncidentDecision: async (value) => calls.push(['decision', value])
+    applyIncidentDecision: async (value) => calls.push(['decision', value]),
+    applyRecipientAbsentShadow: async (value) => calls.push(['decision', value])
   };
   await syncIncidentSimulations({ pool, projector, now: () => new Date('2026-09-02T17:00:00Z') });
   assert.equal(calls[0][0], 'interpretation');

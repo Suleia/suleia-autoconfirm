@@ -234,7 +234,7 @@ test('incident active=false is applied and does not silently fall back to the ac
   assert.equal(calls[0].values[0], false);
   assert.doesNotMatch(calls[0].sql, /status='PENDING' AND is_active=true/);
   assert.match(calls[0].sql, /\(m\.relation_to_issue='AFTER_INCIDENT'\) DESC/);
-  assert.match(calls[0].sql, /\(m\.intent<>'UNKNOWN'\) DESC/);
+  assert.match(calls[0].sql, /\(p\.interpreted_type<>'RECIPIENT_ABSENT' AND m\.intent<>'UNKNOWN'\) DESC/);
 });
 
 test('incident overview returns table and counters from one materialized selection', async () => {

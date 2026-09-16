@@ -13,7 +13,7 @@ const base = (overrides = {}) => ({
   identity: { status: 'EXACT' },
   order: { canonical_order_id: 'order-fixture', total_amount: 29.99 },
   issue: {
-    canonical_issue_id: 'issue-fixture', carrier: 'GLS', type: 'RECIPIENT_ABSENT',
+    canonical_issue_id: 'issue-fixture', carrier: 'GLS', type: 'ADDRESS_INCORRECT',
     status: 'PENDING', is_active: true, allowed_resolution_options: ['RETRY', 'RETURN_REQUESTED'],
     updated_at: '2026-08-03T10:00:00.000Z'
   },
@@ -44,19 +44,21 @@ test('incident timer is versioned, independent, stable and supersedes an older i
   assert.equal(first.actions_executed, 0);
 });
 
-test('absent with current receive evidence prepares an allowed RETRY simulation', () => {
+test('legacy absent entry delegates to canonical shadow policy and cannot invent a slot from RECEIVE', () => {
   const result = simulateIncidentProcess(base({
+    issue:{...base().issue,type:'RECIPIENT_ABSENT'},
     chatby: { customer_response_status: 'RESPONDED', intent: 'RECEIVE', fresh: true, contradiction_status: 'NONE', requested_time_window: 'afternoon' }
   }), { now: AT });
-  assert.equal(result.proposed_resolution, 'RETRY');
-  assert.equal(result.proposed_payload.resolution_data.time_window, 'afternoon');
+  assert.equal(result.proposed_resolution, null);
+  assert.equal(result.policy_version,'RECIPIENT_ABSENT_POLICY_V1');
+  assert.equal(result.absent_shadow.simulation_action,'HUMAN_REVIEW_REQUIRED');
   assert.equal(result.actions_executed, 0);
   assert.equal(result.issues_resolved, 0);
 });
 
 test('a resolution not exposed by Dropea is blocked for human review', () => {
   const result = simulateIncidentProcess(base({
-    issue: { ...base().issue, allowed_resolution_options: [] },
+    issue: { ...base().issue, type:'REFUSED_BY_RECIPIENT', allowed_resolution_options: [] },
     chatby: { customer_response_status: 'RESPONDED', intent: 'RECEIVE', fresh: true, contradiction_status: 'NONE' }
   }), { now: AT });
   assert.equal(result.process_status, 'HUMAN_REVIEW');

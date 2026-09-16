@@ -1,11 +1,32 @@
 import { interpretIncidentConversation } from './conversation-intelligence.mjs';
 import { simulateIncidentProcess } from './incident-processor.mjs';
+import { simulateRecipientAbsent } from './recipient-absent-policy.mjs';
 
 function sourceEvent(issue) {
   return issue.source_event_id || `poll:${issue.canonical_issue_id}:${issue.updated_at}`;
 }
 
-export function buildIncidentSimulation({ issue, order, events = [], gls = {}, now = new Date(), holidays = [] }) {
+export function buildIncidentSimulation({ issue, order, events = [], gls = {}, chatby = {}, history = {}, previousTimer = null, timeline = [], now = new Date(), holidays = [] }) {
+  if (issue.type === 'RECIPIENT_ABSENT') {
+    const result = simulateRecipientAbsent({ issue, order, events, gls, chatby, history, previousTimer, timeline }, { now });
+    return { ...result, simulation_record: {
+      simulation_id: result.decision.decision_id, canonical_issue_id: issue.canonical_issue_id,
+      canonical_order_id: order.canonical_order_id, issue_version: issue.updated_at,
+      source_event_id: `${sourceEvent(issue)}:input:${result.shadow.input_snapshot_hash}`,
+      dropea_snapshot_at: issue.observed_at || issue.updated_at, chatby_snapshot_at: chatby.observed_at || null,
+      policy_version: result.decision.policy_version, connector_version: issue.source_version || '0.1.0',
+      issue_type: issue.type, delivery_attempt_number: issue.delivery_attempt_number || 'UNKNOWN',
+      customer_has_replied: result.interpretation.has_customer_replied, customer_intent: result.interpretation.customer_intent,
+      interpretation_summary: result.shadow.reason_text, facts_used: ['CANONICAL_DROPEA_ISSUE','CURRENT_ORDER_CHATBY','CUSTOMER_OPERATIONAL_HISTORY','EXISTING_TIMER'],
+      facts_ignored: [], allowed_resolution_options: issue.allowed_resolution_options || [],
+      gls_feasibility: result.decision.gls_feasibility, simulated_decision: result.decision.simulated_decision,
+      simulated_action: result.decision.simulated_action, missing_data: result.shadow.blocking_reasons,
+      blocking_reasons: result.shadow.blocking_reasons, risk: result.decision.risk,
+      confidence: result.shadow.decision_confidence, qa_status: result.decision.qa_result,
+      human_review: result.decision.requires_human_review, timer_status: previousTimer?.status || null,
+      execution_available: false, external_write_attempted: false, actions_executed: 0, production_writes: 0
+    } };
+  }
   const issueVersion = issue.updated_at;
   const interpretation = interpretIncidentConversation({
     events,

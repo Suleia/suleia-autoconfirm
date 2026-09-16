@@ -15,8 +15,10 @@ test('builds an immutable zero-action simulation from current inbound evidence',
     canonical_issue_id: 'issue-fixture', incident_version: issue.updated_at, direction: 'INBOUND',
     intent: 'DELIVERY_RETRY', intent_confidence: 1, chatby_message_id: 'message-fixture', created_at: '2026-08-01T11:00:00Z'
   }] });
-  assert.equal(result.decision.proposed_resolution, 'RETRY');
-  assert.equal(result.simulation_record.customer_intent, 'DELIVERY_RETRY');
+  // Legacy RECEIVE evidence cannot invent a date/capability in the new lane.
+  assert.equal(result.decision.proposed_resolution, null);
+  assert.equal(result.decision.policy_version, 'RECIPIENT_ABSENT_POLICY_V1');
+  assert.equal(result.shadow.simulation_action, 'HUMAN_REVIEW_REQUIRED');
   assert.equal(result.simulation_record.execution_available, false);
   assert.equal(result.simulation_record.external_write_attempted, false);
   assert.equal(result.simulation_record.actions_executed, 0);

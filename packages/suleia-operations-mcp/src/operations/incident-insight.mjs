@@ -1,4 +1,5 @@
 import { interpretChatbyCustomerReply } from '../../../platform-core/src/operational-truth/chatby-customer-instruction.mjs';
+import { projectRecipientAbsentShadow } from '../../../platform-core/src/incident/absent-panel-projection.mjs';
 
 const intentLabels = {
   CONFIRM: 'El cliente confirma que quiere recibir el pedido.',
@@ -356,9 +357,13 @@ function recommendation(item, customer) {
 }
 
 export function incidentInsight(item) {
+  item = projectRecipientAbsentShadow(item);
   const discount = discountRecovery(item);
   const customer = customerEvidence(item);
-  const proposed = recommendation(item, customer);
+  const shadow = item.interpreted_type === 'RECIPIENT_ABSENT' ? item.absent_shadow : null;
+  const proposed = shadow ? { code: shadow.simulation_action, title: shadow.next_action,
+    summary: shadow.reason_text, resolution_option: null, execution_status: 'NOT_EXECUTED',
+    policy_version: shadow.policy_version } : recommendation(item, customer);
   const existingStatus = String(item.operational_action_status || item.external_action_status || '').toUpperCase();
   const handlingStatus = existingStatus && existingStatus !== 'NOT_EXECUTED'
     ? existingStatus

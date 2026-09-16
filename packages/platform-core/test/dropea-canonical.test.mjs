@@ -232,12 +232,18 @@ test('order and carrier display labels redact embedded contact data before proje
 });
 
 test('empty carrier code and timezone-less timestamps fail closed safely', () => {
-  const mappedIssue = mapDropeaIssue(issue({ initial_carrier_code: '', initial_carrier_description: '' }), ISSUE_CONTEXT);
+  const mappedIssue = mapDropeaIssue(issue({ type: 'GENERAL_INCIDENCE', initial_carrier_code: '', initial_carrier_description: '' }), ISSUE_CONTEXT);
   assert.equal(mappedIssue.type, 'UNKNOWN');
   assert.equal(mappedIssue.human_review, true);
   assert.equal(mappedIssue.actionable, false);
   const mappedOrder = mapDropeaOrder(order({ created_at: '2026-08-01T10:00:00' }), { hmacKey: HMAC_KEY, market: 'ES', observedAt: AT });
   assert.equal(mappedOrder.created_at, '2026-08-01T10:00:00.000Z');
+});
+test('explicit RECIPIENT_ABSENT and governed AS map only the absent lane; NAM and DI stay unchanged', () => {
+  assert.equal(mapDropeaIssue(issue({initial_carrier_code:''}),ISSUE_CONTEXT).type,'RECIPIENT_ABSENT');
+  assert.equal(mapDropeaIssue(issue({type:'GENERAL_INCIDENCE',initial_carrier_code:'AS'}),ISSUE_CONTEXT).type,'RECIPIENT_ABSENT');
+  assert.equal(mapDropeaIssue(issue({type:'GENERAL_INCIDENCE',initial_carrier_code:'NAM'}),ISSUE_CONTEXT).type,'RECIPIENT_ABSENT');
+  assert.equal(mapDropeaIssue(issue({type:'GENERAL_INCIDENCE',initial_carrier_code:'DI'}),ISSUE_CONTEXT).type,'ADDRESS_INCORRECT');
 });
 
 test('historical cutover metadata and verified canonical override preserve one functional identity', () => {

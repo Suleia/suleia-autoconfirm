@@ -582,17 +582,21 @@ export class OperationsProjector {
     const result = await this.pool.query(`/* SHADOW_READ_ONLY: encrypted private display only */
       INSERT INTO operations.chatby_private_message_display
         (chatby_message_id_hash,canonical_order_id,canonical_issue_id,direction,message_type,
-         intent,relation_to_issue,message_text_ciphertext,occurred_at)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         intent,relation_to_issue,message_text_ciphertext,occurred_at,context_template_slug,
+         incident_relevance)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
       ON CONFLICT(canonical_issue_id,chatby_message_id_hash) DO UPDATE SET
         direction=EXCLUDED.direction,message_type=EXCLUDED.message_type,intent=EXCLUDED.intent,
         relation_to_issue=EXCLUDED.relation_to_issue,
         message_text_ciphertext=EXCLUDED.message_text_ciphertext,
+        context_template_slug=EXCLUDED.context_template_slug,
+        incident_relevance=EXCLUDED.incident_relevance,
         occurred_at=EXCLUDED.occurred_at,updated_at=now()
       RETURNING (xmax = 0) AS inserted`, [
       record.chatby_message_id_hash, record.canonical_order_id, record.canonical_issue_id,
       record.direction, record.message_type, record.intent, record.relation_to_issue,
-      record.message_text_ciphertext, record.occurred_at
+      record.message_text_ciphertext, record.occurred_at,
+      record.context_template_slug || null, record.incident_relevance || 'INCIDENT_RELEVANT'
     ]);
     return { inserted: result.rows[0]?.inserted === true, encrypted_private_display: true,
       actions_executed: 0, production_writes: 0 };
@@ -724,7 +728,30 @@ export class OperationsProjector {
     return { projected: true, resource: 'incident_simulation', actions_executed: 0, production_writes: 0 };
   }
 
+  async applyRecipientAbsentShadow({ issue, decision }) {
+    if (issue.type !== 'RECIPIENT_ABSENT' || decision.policy_version !== 'RECIPIENT_ABSENT_POLICY_V1'
+      || decision.absent_shadow?.executed !== false || decision.absent_shadow?.external_action !== false
+      || decision.absent_shadow?.production_write !== false) throw new Error('ABSENT_SHADOW_PROJECTION_INVALID');
+    assertSafe(decision);
+    if (decision.timer && (decision.timer.timer_type!=='CUSTOMER_INITIAL_RESPONSE_48H'
+      || new Date(decision.timer.due_at)-new Date(decision.timer.started_at)!==48*3_600_000
+      || decision.timer.issue_id!==issue.canonical_issue_id)) throw new Error('ABSENT_GENERAL_TIMER_POLICY_INVALID');
+    // Additive projection only. Never update existing timers, status or discounts.
+    await this.pool.query(`UPDATE read_models.operations_incident_records
+      SET absent_shadow=$2::jsonb WHERE canonical_issue_id=$1 AND type='RECIPIENT_ABSENT'
+      AND absent_shadow IS DISTINCT FROM $2::jsonb`, [issue.canonical_issue_id, JSON.stringify(decision.absent_shadow)]);
+    if (decision.timer) {
+      const t=decision.timer;
+      await this.pool.query(`INSERT INTO operations.incident_timers
+        (timer_id,canonical_order_id,canonical_issue_id,issue_version,source_event_id,timer_type,started_at,due_at,status,policy_version,actions_executed,production_writes)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,'ACTIVE',$9,0,0)
+        ON CONFLICT DO NOTHING`,[t.timer_id,t.order_id,t.issue_id,t.issue_version,t.relevant_event_id,t.timer_type,t.started_at,t.due_at,t.policy_version]);
+    }
+    return { projected: true, actions_executed: 0, production_writes: 0 };
+  }
+
   async applyIncidentDecision({ issue, interpretation, decision }) {
+    if (issue.type === 'RECIPIENT_ABSENT') return this.applyRecipientAbsentShadow({ issue, interpretation, decision });
     assertSafe({ issue, interpretation, decision });
     await this.pool.query(`INSERT INTO read_models.operations_decision_cards
       (decision_id,canonical_order_id,canonical_issue_id,proposal,payload_masked,policy_version,

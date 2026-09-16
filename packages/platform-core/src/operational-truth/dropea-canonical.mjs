@@ -314,8 +314,10 @@ export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, market, store
   const status = String(required(issue.status, 'issue.status')).toUpperCase();
   const resolutionStatus = issue.resolution_status ? String(issue.resolution_status).toUpperCase() : null;
   const carrierCode = cleanTechnicalText(issue.initial_carrier_code, 80);
-  const canonicalByCarrierCode = Object.freeze({ DI: 'ADDRESS_INCORRECT', NAM: 'RECIPIENT_ABSENT' });
-  const canonicalType = canonicalByCarrierCode[String(carrierCode || '').toUpperCase()] || 'UNKNOWN';
+  const canonicalByCarrierCode = Object.freeze({ DI: 'ADDRESS_INCORRECT', NAM: 'RECIPIENT_ABSENT', AS: 'RECIPIENT_ABSENT', AUSENTE: 'RECIPIENT_ABSENT' });
+  // Only AUSENTE receives the explicit normalized-type override. Other mappings,
+  // including the legacy NAM conflict, remain untouched and are gated in policy.
+  const canonicalType = type === 'RECIPIENT_ABSENT' ? type : canonicalByCarrierCode[String(carrierCode || '').toUpperCase()] || 'UNKNOWN';
   const carrierCodeMapped = canonicalType !== 'UNKNOWN';
   const typeSupported = DROPEA_ISSUE_TYPES.includes(type);
   const supported = typeSupported

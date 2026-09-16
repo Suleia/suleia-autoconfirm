@@ -140,3 +140,8 @@ button,select,input{font:inherit}.queue-card[aria-busy="true"] .table-wrap{opaci
 @media(max-width:1500px){.results-dashboard .finance-hero{grid-template-columns:repeat(3,minmax(0,1fr))}.results-chart-grid{grid-template-columns:minmax(0,1.7fr) minmax(240px,1fr)}.daily-chart-panel{grid-row:span 3}.cost-breakdown-legend{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:980px){.results-dashboard .finance-hero{grid-template-columns:repeat(2,minmax(0,1fr))}.results-chart-grid,.results-insight-grid{grid-template-columns:1fr}.daily-chart-panel{grid-row:auto}.compact-chart-panel{min-height:auto}.donut-layout{height:auto;justify-content:center}.cost-breakdown-legend{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.results-dashboard .finance-hero{grid-template-columns:1fr}.result-metric strong{font-size:21px}.cost-breakdown-legend{grid-template-columns:1fr}.donut-layout{grid-template-columns:110px minmax(100px,1fr)}.results-dashboard .finance-toolbar{padding:17px}.results-dashboard .finance-toolbar h2{font-size:24px}}
+/* AUSENTE is a read-only policy projection; no execution controls are rendered. */
+.absent-shadow-card { display: grid; gap: .4rem; padding: .85rem; border: 1px solid #a7d8ef; border-radius: 12px; background: #f0f8ff; min-width: 230px; }
+.absent-shadow-label { color: #155b8b; font-weight: 800; letter-spacing: .04em; }
+.absent-shadow-details { border-top: 1px solid #cce1ef; padding-top: .45rem; }
+.absent-shadow-details summary { cursor: pointer; color: #175b87; font-weight: 650; }
