@@ -33,8 +33,7 @@ sha256sum .env > "$backup/env.sha256"
   --table=operations.incident_simulation_decisions --table=read_models.operations_incident_interpretations > "$backup/database.dump"
 [[ -s "$backup/database.dump" ]] || exit 2
 # Keep the current release intact and prepare an exact new private release.
-git clone --local --no-hardlinks "$install" "$release"
-git -C "$release" checkout --detach "$revision"
+(umask 022; git clone --local --no-hardlinks "$install" "$release"; git -C "$release" checkout --detach "$revision")
 cp --preserve=mode "$install/.env" "$release/.env"
 cd "$release"
 sha256sum -c "$backup/env.sha256" >/dev/null
@@ -43,14 +42,18 @@ image="suleia-recipient-absent-shadow:$revision"
 docker build -f infrastructure/docker/Dockerfile.node --build-arg "OCI_REVISION=$revision" \
   --build-arg OCI_SOURCE=https://github.com/Suleia/suleia-autoconfirm --build-arg OCI_REF_NAME=feat/recipient-absent-shadow-v1 \
   --build-arg "OCI_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg "OCI_VERSION=${revision:0:8}" -t "$image" .
+docker run --rm --network none --entrypoint node "$image" --input-type=module -e \
+  'import {access,constants} from "node:fs/promises";for(const file of ["apps/api/server.mjs","services/shadow-readonly-worker.mjs","packages/suleia-operations-mcp/src/transports/http.mjs"]){await access(file,constants.R_OK);}await import("./packages/platform-core/src/incident/recipient-absent-policy.mjs");console.log("IMAGE_SOURCE_READ_CHECK|PASS");'
 # Old runtime environment is copied only inside the approved private backup
 # directory. It is never printed, passed in arguments or committed.
 override="$backup/runtime-preserving-override.json"
+"${compose[@]}" config --format json > "$backup/current-compose.json"
 jq -n --arg image "$image" --arg revision "$revision" \
+  --slurpfile cfg "$backup/current-compose.json" \
   --slurpfile api "$backup/api-before.json" --slurpfile mcp "$backup/mcp-server-before.json" \
   --slurpfile worker "$backup/ingestion-worker-before.json" '
-  def service($snapshot): {image:$image,environment:($snapshot[0][0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))+["SULEIA_BUILD_REVISION="+$revision,"SULEIA_BUILD_BRANCH=feat/recipient-absent-shadow-v1"]),volumes:($snapshot[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:true}))};
-  {services:{api:service($api),"mcp-server":service($mcp),"ingestion-worker":service($worker)}}' > "$override"
+  def service($snapshot;$name): {image:$image,environment:(($cfg[0].services[$name].environment|with_entries(.value=null))+($snapshot[0][0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))|map(capture("^(?<key>[^=]+)=(?<value>.*)$"))|from_entries)+{"SULEIA_BUILD_REVISION":$revision,"SULEIA_BUILD_BRANCH":"feat/recipient-absent-shadow-v1"}),volumes:($snapshot[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:true}))};
+  {services:{api:service($api;"api"),"mcp-server":service($mcp;"mcp-server"),"ingestion-worker":service($worker;"ingestion-worker")}}' > "$override"
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker review-panel
 link="/opt/suleia-operations-absent-$revision"
 [[ ! -e "$link" && ! -L "$link" ]] || exit 2
