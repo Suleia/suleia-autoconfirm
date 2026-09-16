@@ -4,7 +4,10 @@ set -Eeuo pipefail
 revision="${1:?exact commit required}"
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 2
 install=/opt/suleia-operations
-[[ "$(readlink -f "$install")" == /opt/suleia-operations ]] || exit 2
+resolved="$(readlink -f "$install")"
+[[ "$resolved" =~ ^/opt/suleia-releases/[0-9a-f]{40}$ ]] || exit 2
+release="/opt/suleia-releases/$revision"
+[[ ! -e "$release" ]] || { echo 'STOP: target release already exists'; exit 2; }
 cd "$install"
 [[ -z "$(git status --porcelain)" ]] || { echo 'STOP: dirty source'; exit 2; }
 git cat-file -e "$revision^{commit}"
@@ -22,12 +25,17 @@ for service in "${services[@]}"; do
   jq -e '.[0].HostConfig.PortBindings|length==0' "$backup/$service-before.json" >/dev/null
 done
 git rev-parse HEAD > "$backup/previous-commit"
+printf '%s\n' "$resolved" > "$backup/previous-release"
 sha256sum .env > "$backup/env.sha256"
 "${compose[@]}" exec -T postgres pg_dump -U suleia_admin -d suleia_staging --format=custom > "$backup/database.dump"
 [[ -s "$backup/database.dump" ]] || exit 2
-git checkout --detach "$revision"
+# Keep the current release intact and prepare an exact new private release.
+git clone --local --no-hardlinks "$install" "$release"
+git -C "$release" checkout --detach "$revision"
+cp --preserve=mode "$install/.env" "$release/.env"
+cd "$release"
 sha256sum -c "$backup/env.sha256" >/dev/null
-bash infrastructure/vps/apply-recipient-absent-shadow-migration.sh
+SULEIA_INSTALL_ROOT="$release" bash infrastructure/vps/apply-recipient-absent-shadow-migration.sh
 image="suleia-recipient-absent-shadow:$revision"
 docker build -f infrastructure/docker/Dockerfile.node --build-arg "OCI_REVISION=$revision" \
   --build-arg OCI_SOURCE=https://github.com/Suleia/suleia-autoconfirm --build-arg OCI_REF_NAME=feat/recipient-absent-shadow-v1 \
@@ -40,7 +48,11 @@ jq -n --arg image "$image" --arg revision "$revision" \
   --slurpfile worker "$backup/ingestion-worker-before.json" '
   def service($snapshot): {image:$image,environment:($snapshot[0][0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))+["SULEIA_BUILD_REVISION="+$revision,"SULEIA_BUILD_BRANCH=feat/recipient-absent-shadow-v1"]),volumes:($snapshot[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:true}))};
   {services:{api:service($api),"mcp-server":service($mcp),"ingestion-worker":service($worker)}}' > "$override"
-"${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker
+"${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker review-panel
+link="/opt/suleia-operations-absent-$revision"
+[[ ! -e "$link" && ! -L "$link" ]] || exit 2
+ln -s "$release" "$link"
+mv -T "$link" "$install"
 for service in "${services[@]}"; do
   container="suleia-operations-staging-$service-1"
   docker inspect "$container" > "$backup/$service-after.json"
@@ -55,4 +67,5 @@ for service in "${services[@]}"; do
   cmp "$backup/$service-before-config.json" "$backup/$service-after-config.json"
 done
 sha256sum -c "$backup/env.sha256" >/dev/null
+cmp "$resolved/.env" "$release/.env"
 printf 'ABSENT_DEPLOY|commit=%s|env_preserved=true|scope=api,mcp,ingestion,panel|live=false\n' "$revision"
