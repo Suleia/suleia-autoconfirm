@@ -1,0 +1,98 @@
+{
+  "scope": "RECIPIENT_ABSENT_ONLY",
+  "code_revision_deployed": "9473d529c45fcbf338b75a696f057f5f1ef31c4d",
+  "run_mode": "SHADOW_READ_ONLY",
+  "rejected_goods_render_unchanged": true,
+  "live_flags": {
+    "AUSENTE_AUTOMATION_LIVE": false,
+    "CHATBY_REAL_SENDS": false,
+    "DROPEA_ACTIONS_ENABLED": false,
+    "GLS_ACTIONS_ENABLED": false
+  },
+  "tests": { "canonical_pass": 543, "autoconfirm_pass": 78, "failed": 0, "skipped": 0 },
+  "historical_replay": {
+    "replay_at": "2026-09-16T15:51:32.313Z",
+    "source": "CANONICAL_RECIPIENT_ABSENT_CANDIDATES",
+    "external_reads": false,
+    "metrics": {
+      "total": 109,
+      "first_absence": 0,
+      "second_absence": 0,
+      "unknown_attempt": 109,
+      "customer_response_available": 2,
+      "customer_response_not_verifiable": 109,
+      "reschedule_requested": 0,
+      "pickup_requested": 0,
+      "return_requested": 0,
+      "logistics_feasible": 0,
+      "logistics_unknown": 0,
+      "logistics_not_feasible": 100,
+      "logistics_stale": 9,
+      "human_review_required": 109,
+      "would_automate": 0,
+      "would_not_automate": 109,
+      "mapping_not_verifiable": 100,
+      "history_available": 109
+    },
+    "coverage_warning": "Legacy NAM terminal candidates and active candidates without verified attempt/capability evidence; not a representative estimate of eligible live absences. Stored-response and not-verifiable metrics overlap."
+  },
+  "real_panel_role": {
+    "read_ok": true,
+    "overview_total": 109,
+    "active_absent": 9,
+    "page_rows": 100,
+    "page_shadow_cards": 100,
+    "page_missing_shadow": 0,
+    "page_safety_flags_false": true,
+    "filters": {
+      "AUSENTE": 109,
+      "FIRST_ABSENCE": 0,
+      "SECOND_ABSENCE": 0,
+      "WAITING_CUSTOMER": 107,
+      "CUSTOMER_RESPONDED": 0,
+      "RESCHEDULE_REQUESTED": 0,
+      "PICKUP_REQUESTED": 0,
+      "LOGISTICS_VALIDATION_REQUIRED": 109,
+      "HUMAN_REVIEW_REQUIRED": 109,
+      "SIMULATION_READY": 0
+    },
+    "private_response_detail_cases_checked": 2,
+    "original_private_text_present": true,
+    "unauthenticated_http_status": 401,
+    "mcp_search_and_detail_shadow_verified": true,
+    "browser_used": false,
+    "actual_browser_screenshots_available": false
+  },
+  "autonomous_worker": { "first_cycle_complete": true, "last_sync_ok": true, "last_error": null },
+  "stable_input_repeat": { "candidates_each_pass": 8, "ledger_before": 116, "ledger_after": 116, "idempotent": true },
+  "final_ledger": {
+    "verified_at": "2026-09-16T15:56:12.458Z",
+    "projected": 109,
+    "issues": 109,
+    "records": 117,
+    "actions_executed": 0,
+    "production_writes": 0,
+    "execution_or_external_write_attempt": false
+  },
+  "existing_timers": {
+    "rows": 588,
+    "before_sorted_copy_rows_sha256": "b4202ffa173fb9dbd9d28270aa3eb884cde3345c69c71caac1ff97da1bf3e850",
+    "after_sorted_copy_rows_sha256": "b4202ffa173fb9dbd9d28270aa3eb884cde3345c69c71caac1ff97da1bf3e850",
+    "contents_preserved": true
+  },
+  "served_assets_sha256": {
+    "app.js": "1cbe6a72a87ff23ef7475626c7cefb3045c37377e791e1930c9cd556a512ca99",
+    "styles.css": "b737ff7945a973c3aee07ff19a2fc30e11566b95518ee407207e80ad26622c3a",
+    "index.html": "4c6850138b306a918cf9e059f3a7e9faaf6a44bc31b4506c7c6683575270501b"
+  },
+  "new_absent_lane_effects": {
+    "customer_messages_sent": 0,
+    "dropea_writes": 0,
+    "gls_writes": 0,
+    "returns_executed": 0,
+    "delivery_requests_executed": 0,
+    "agency_pickups_executed": 0,
+    "production_resolutions": 0,
+    "administrative_template_creations_and_submissions": 1
+  }
+}
