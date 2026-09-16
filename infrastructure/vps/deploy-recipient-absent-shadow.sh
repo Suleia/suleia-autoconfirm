@@ -27,7 +27,10 @@ done
 git rev-parse HEAD > "$backup/previous-commit"
 printf '%s\n' "$resolved" > "$backup/previous-release"
 sha256sum .env > "$backup/env.sha256"
-"${compose[@]}" exec -T postgres pg_dump -U suleia_admin -d suleia_staging --format=custom > "$backup/database.dump"
+"${compose[@]}" exec -T --interactive=false postgres pg_dump -U suleia_admin -d suleia_staging --schema-only > "$backup/schema.sql"
+"${compose[@]}" exec -T --interactive=false postgres pg_dump -U suleia_admin -d suleia_staging --format=custom \
+  --table=read_models.operations_incident_records --table=operations.incident_timers \
+  --table=operations.incident_simulation_decisions --table=read_models.operations_incident_interpretations > "$backup/database.dump"
 [[ -s "$backup/database.dump" ]] || exit 2
 # Keep the current release intact and prepare an exact new private release.
 git clone --local --no-hardlinks "$install" "$release"

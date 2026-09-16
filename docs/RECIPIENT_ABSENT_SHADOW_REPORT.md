@@ -71,7 +71,7 @@ Para evitar que el paquete sea devuelto, indícanos cuándo te viene mejor recib
 | Otra fecha u horario | ABSENT_OTHER_SLOT |
 | Recoger en agencia | ABSENT_PICKUP_AGENCY |
 
-Chatby ID: **1549385**. Meta ID: **1490544536242876**. Submission: **2026-09-16T14:52:13Z**. Estado inicial: **PENDING**. Ejemplos sintéticos: Carlos, 1400000. {{1}} nombre; {{2}} referencia legible autorizada. No se han rellenado/envíado variables de clientes reales.
+Chatby ID: **1549385**. Meta ID: **1490544536242876**. Submission: **2026-09-16T14:52:13Z**. Estado inicial PENDING; última consulta de catálogo: **APPROVED**, UTILITY, igualdad de texto/botones verificada. No se ha resubmitted ni creado otra plantilla. Ejemplos sintéticos: Carlos, 1400000. {{1}} nombre; {{2}} referencia legible autorizada. No se han rellenado/envíado variables de clientes reales.
 
 Body SHA-256: `f001e01ed2647314f46cadca4ac886533541f299625672bcb5641e5d0e5e17cb`.
 
