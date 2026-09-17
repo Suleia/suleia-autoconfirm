@@ -27,5 +27,5 @@ test('isolated deployment tests current image, preserves unrelated runtime and h
 test('general ingestion cannot overwrite independent absence Chatby projections',()=>{
  const worker=read('../../services/shadow-readonly-worker.mjs');
  assert.match(worker,/excludeRecipientAbsent: true/);assert.match(worker,/onlyRecipientAbsent:true/);assert.match(worker,/submit:false/);
- assert.match(worker,/checked\.template_name==='dropea_ausente_v1'/);assert.match(worker,/setInterval\(runAbsent,120000\)/);
+ assert.match(worker,/checked\.template_name===ABSENT_TEMPLATE_NAME/);assert.match(worker,/setInterval\(runAbsent,120000\)/);
 });

@@ -17,11 +17,11 @@ const event = raw_text => ({ canonical_issue_id: 'i', canonical_order_id: 'o', d
   relevance_status: 'CURRENT_ORDER_EXACT_MATCH', created_at: '2026-09-16T11:00:00Z', chatby_message_id: 'm', raw_text });
 const simulate = x => simulateRecipientAbsent(x, { now });
 
-test('exact NFC template, placeholders, four quick replies and safe JSON/persisted roundtrip', () => {
+test('exact NFC template, placeholders, three visible quick replies and safe JSON/persisted roundtrip', () => {
   const payload = absentTemplatePayload();
   assert.equal(payload.components[0].text, ABSENT_TEMPLATE_BODY);
   assert.deepEqual(payload.components[0].text.match(/\{\{\d\}\}/g), ['{{1}}','{{2}}']);
-  assert.deepEqual(payload.components[1].buttons.map(b=>b.text), ['Mañana por la mañana','Mañana por la tarde','Otra fecha u horario','Recoger en agencia']);
+  assert.deepEqual(payload.components[1].buttons.map(b=>b.text), ['Mañana por la mañana','Mañana por la tarde','Otro día o datos']);
   assert.equal(validateAbsentTemplate(JSON.parse(JSON.stringify(payload))).call_buttons, 0);
   assert.doesNotMatch(JSON.stringify(payload), /PHONE_NUMBER|CALL|Necesito que me llamen|\u200b|\u200c|\u200d|\ufeff|\ufffd|\u00a0/);
   assert.deepEqual(validateAbsentTemplate(payload), validateAbsentTemplate(JSON.parse(JSON.stringify(payload))));
@@ -30,7 +30,7 @@ test('exact NFC template, placeholders, four quick replies and safe JSON/persist
     assert.throws(()=>validateAbsentTemplate(bad));
   }
 });
-for (const [index,intent,window,action] of [[0,'RESCHEDULE_DELIVERY','MORNING','WOULD_REQUEST_NEW_DELIVERY'],[1,'RESCHEDULE_DELIVERY','AFTERNOON','WOULD_REQUEST_NEW_DELIVERY'],[2,'CUSTOM_TIME_SLOT',null,'WOULD_REQUEST_CUSTOM_SLOT'],[3,'PICKUP_AT_AGENCY',null,'WOULD_REQUEST_PICKUP_AT_AGENCY']]) {
+for (const [index,intent,window,action] of [[0,'RESCHEDULE_DELIVERY','MORNING','WOULD_REQUEST_NEW_DELIVERY'],[1,'RESCHEDULE_DELIVERY','AFTERNOON','WOULD_REQUEST_NEW_DELIVERY'],[2,'CUSTOM_TIME_SLOT',null,'WOULD_REQUEST_CUSTOM_SLOT'],[3,'ADDRESS_DATA_REQUEST',null,'WOULD_REQUEST_ADDRESS_DATA']]) {
   test(`exact button ${ABSENT_BUTTONS[index].payload}`, () => {
     const x = input(); x.events = [{ ...event(''), button_payload: ABSENT_BUTTONS[index].payload }];
     const result = simulate(x);

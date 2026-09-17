@@ -1,0 +1,31 @@
+{
+  "template_name": "dropea_ausente_v3",
+  "chatby_template_id": 1552419,
+  "meta_template_id": "1123671516755556",
+  "language": "es_ES",
+  "category_requested": "UTILITY",
+  "category_observed": "UTILITY",
+  "approval_status": "PENDING",
+  "submitted_at": "2026-09-17T18:31:45.000000Z",
+  "verified_at": "2026-09-17T18:31:45.775Z",
+  "content_roundtrip_verified": true,
+  "body_hash": "304597bc67147572536ac8e0f608b0446747df8369b6643b8c3b047205815c1b",
+  "buttons_hash": "b8dbbd447eae60548a38ae420f140c79cda0b3946fc50ff995a5946177ca100c",
+  "button_mapping_hash": "1dc4b8a5252b188f35a05b771ef7c514face9a3c31d23d746592ecb7ad38f5b1",
+  "button_emojis_supported": false,
+  "template_buttons": 3,
+  "retired_templates": ["dropea_ausente_v1", "dropea_ausente_v2"],
+  "retirement_scope": "SULEIA_SELECTION_ONLY_NOT_PROVIDER_DELETION",
+  "administrative_creation_successes": 1,
+  "administrative_validation_failures": 3,
+  "customer_messages_sent": 0,
+  "dropea_writes": 0,
+  "gls_writes": 0,
+  "production_resolutions": 0,
+  "live_flags": {
+    "AUSENTE_AUTOMATION_LIVE": false,
+    "CHATBY_REAL_SENDS": false,
+    "DROPEA_ACTIONS_ENABLED": false,
+    "GLS_ACTIONS_ENABLED": false
+  }
+}

@@ -20,10 +20,9 @@ test('same exact approved template reused; approval cannot activate customer sen
   const r=await prepareAbsentTemplateApproval({token:'fixture',submit:true,fetchImpl:async(url)=>{calls++; assert.match(url,/\/list\?/); return response({data:[{...absentTemplatePayload(),status:'APPROVED',id:1}]});}});
   assert.equal(calls,1); assert.equal(r.reused,true); assert.equal(r.live_flags.AUSENTE_AUTOMATION_LIVE,false);
 });
-test('same name different content never overwritten; safe v2 validated',async()=>{
+test('same name different content never overwritten or silently versioned',async()=>{
   const old=absentTemplatePayload(); old.components[0].text='Different existing body';
-  const r=await prepareAbsentTemplateApproval({token:'fixture',fetchImpl:async()=>response({data:[old]})});
-  assert.equal(r.template_name,'dropea_ausente_v2'); assert.equal(r.created,false);
+  await assert.rejects(prepareAbsentTemplateApproval({token:'fixture',submit:true,fetchImpl:async(url)=>{assert.match(url,/\/list\?/);return response({data:[old]});}}),/SAFE_VERSION_CONFLICT/);
 });
 test('rejected exact template is not resubmitted or silently versioned',async()=>{
   const r=await prepareAbsentTemplateApproval({token:'fixture',submit:true,fetchImpl:async(url)=>{assert.match(url,/\/list\?/); return response({data:[{...absentTemplatePayload(),status:'REJECTED',rejected_reason:'fixture rejection'}]});}});

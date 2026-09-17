@@ -82,7 +82,7 @@ test('incident sync preserves exact-order evidence after a later incident timest
     if (!sql.includes('FROM operations.chatby_conversation_events')) return { rows: [] };
     assert.match(sql, /incident_version,relevance_status,intent/);
     return { rows: [{
-      canonical_issue_id: 'issue-current', direction: 'INBOUND', message_type: 'TEXT',
+      canonical_issue_id: 'issue-current', canonical_order_id:'order-current', direction: 'INBOUND', message_type: 'TEXT',
       created_at: '2026-09-01T17:04:11.000Z', incident_version: '2026-09-01T09:49:50.992Z',
       relevance_status: 'CURRENT_ORDER_EXACT_MATCH', intent: 'UNKNOWN', intent_confidence: 0,
       chatby_message_id: 'message-current'

@@ -1,0 +1,36 @@
+{
+  "name": "dropea_ausente_v3",
+  "language": "es_ES",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "👋 Hola, {{1}}\n\n📦 *Queremos que recibas tu pedido cuanto antes*\n\nGLS nos ha avisado de que hoy no ha podido entregarte tu pedido *{{2}}*, ya que no había nadie disponible en ese momento.\n\nNo te preocupes 💚 *tu pedido sigue en camino* y podemos organizar un nuevo intento de entrega.\n\n✨ *¿Cuándo te viene mejor recibirlo?*",
+      "example": {
+        "body_text": [
+          [
+            "Carlos",
+            "1400000"
+          ]
+        ]
+      }
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "QUICK_REPLY",
+          "text": "Mañana por la mañana"
+        },
+        {
+          "type": "QUICK_REPLY",
+          "text": "Mañana por la tarde"
+        },
+        {
+          "type": "QUICK_REPLY",
+          "text": "Otro día o datos"
+        }
+      ]
+    }
+  ]
+}

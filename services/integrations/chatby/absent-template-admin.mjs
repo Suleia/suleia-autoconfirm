@@ -1,4 +1,4 @@
-import { absentTemplatePayload, validateAbsentTemplate, absentHash, ABSENT_BUTTONS, ABSENT_LIVE_FLAGS } from '../../../packages/platform-core/src/incident/absent-template.mjs';
+import { absentTemplatePayload, validateAbsentTemplate, absentHash, ABSENT_BUTTONS, ABSENT_TEMPLATE_BUTTONS, ABSENT_RETIRED_TEMPLATES, ABSENT_LIVE_FLAGS } from '../../../packages/platform-core/src/incident/absent-template.mjs';
 
 function components(row) {
   if (typeof row.components === 'string') { try { return JSON.parse(row.components); } catch { return []; } }
@@ -34,15 +34,15 @@ export async function prepareAbsentTemplateApproval({ token, baseUrl = 'https://
     throw new Error('CHATBY_TEMPLATE_CATALOG_INCOMPLETE');
   };
   let rows = await list();
-  let payload = absentTemplatePayload();
+  const payload = absentTemplatePayload();
+  const validation = validateAbsentTemplate(payload);
   let selected = rows.find(r=>r.name===payload.name && sameTemplate(r,payload));
   const conflict = rows.find(r=>r.name===payload.name && r.language===payload.language && !sameTemplate(r,payload));
-  if (conflict && !selected) {
+  if (conflict) {
     if (!components(conflict).length) throw new Error('CHATBY_TEMPLATE_CONFLICT_CONTENT_UNVERIFIABLE');
-    payload = absentTemplatePayload('dropea_ausente_v2');
-    selected = rows.find(r=>r.name===payload.name && sameTemplate(r,payload));
-    if (rows.some(r=>r.name===payload.name && r.language===payload.language && !sameTemplate(r,payload))) throw new Error('CHATBY_TEMPLATE_SAFE_VERSION_CONFLICT');
+    throw new Error('CHATBY_TEMPLATE_SAFE_VERSION_CONFLICT');
   }
+  if (rows.filter(r=>r.name===payload.name && r.language===payload.language).length>1) throw new Error('CHATBY_TEMPLATE_CATALOG_AMBIGUOUS');
   let created = false;
   if (!selected && submit) {
     // Exactly one non-retried administrative creation. An uncertain response is
@@ -53,13 +53,13 @@ export async function prepareAbsentTemplateApproval({ token, baseUrl = 'https://
     selected = rows.find(r=>r.name===payload.name && sameTemplate(r,payload));
     if (!selected) throw new Error('CHATBY_TEMPLATE_SUBMISSION_UNVERIFIED_CHECK_CATALOG_ONLY');
   }
-  const validation = validateAbsentTemplate(payload);
   return { template_name: payload.name, chatby_template_id: selected?.id || null,
     meta_template_id: selected?.wa_template_id || null, language: payload.language,
     category_requested: 'UTILITY', category_final: selected?.category || null,
     approval_status: selected?.status || 'DRAFT', rejection_reason: selected?.rejected_reason || null,
     submitted_at: selected?.created_at || null, created, reused: Boolean(selected) && !created,
     content_roundtrip_verified: Boolean(selected && sameTemplate(selected,payload)), ...validation,
-    button_mapping_hash: absentHash(ABSENT_BUTTONS), live_flags: ABSENT_LIVE_FLAGS,
+    button_mapping_hash: absentHash([ABSENT_TEMPLATE_BUTTONS, ABSENT_BUTTONS]), retired_templates: ABSENT_RETIRED_TEMPLATES,
+    retirement_scope: 'SULEIA_SELECTION_ONLY_NOT_PROVIDER_DELETION', live_flags: ABSENT_LIVE_FLAGS,
     customer_messages_sent: 0, dropea_writes: 0, gls_writes: 0, production_resolutions: 0 };
 }

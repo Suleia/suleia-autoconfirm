@@ -1,15 +1,15 @@
 import { buildIncidentSimulation } from '../packages/platform-core/src/incident/simulation-record.mjs';
 import crypto from 'node:crypto';
 import { decryptOperationsPrivateJson } from '../packages/suleia-operations-mcp/src/operations/private-display.mjs';
-import { ABSENT_TEMPLATE_NAME } from '../packages/platform-core/src/incident/absent-template.mjs';
 import { ABSENT_POLICY_HASH } from '../packages/platform-core/src/incident/absent-evidence.mjs';
+import { INCIDENT_NOTIFICATION_TEMPLATES } from '../packages/platform-core/src/incident/notification-evidence.mjs';
 
 export async function syncIncidentSimulations({ pool, projector, now = () => new Date(), maxRecords = 500, privateDataKey = '', absentLogisticsRead = null, onlyRecipientAbsent = false, excludeRecipientAbsent = false, replayAllAbsent = false, absentTemplateStatus = 'NOT_VERIFIED' }) {
   const candidates = await pool.query(`SELECT i.*, o.identity_status, o.total_amount,
     o.lifecycle_classification, o.canonical_state,l.conversation_status,
     l.reason_code AS conversation_reason,l.conversation_freshness,
     l.observed_at AS conversation_observed_at,l.notification_observed_at AS incident_notified_at,
-    l.history_covered_from
+    l.history_covered_from,l.chatby_conversation_id_hash,l.chatby_contact_id_hash
     FROM read_models.operations_incident_records i
     JOIN read_models.operations_order_records o USING(canonical_order_id)
     LEFT JOIN operations.chatby_conversation_links l USING(canonical_issue_id)
@@ -23,7 +23,7 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
   let simulated = 0;
   let blocked = 0;
   for (const row of candidates.rows) {
-    const events = await pool.query(`SELECT canonical_issue_id,direction,message_type,button_payload,
+    const events = await pool.query(`SELECT canonical_issue_id,canonical_order_id,direction,message_type,button_payload,
       sanitized_text,occurred_at AS created_at,incident_version,relevance_status,intent,intent_confidence,
       chatby_message_id_hash AS chatby_message_id
       FROM operations.chatby_conversation_events
@@ -50,7 +50,7 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
     if (row.type === 'RECIPIENT_ABSENT') {
       const evidence = await pool.query(`SELECT m.canonical_issue_id,m.canonical_order_id,m.direction,m.message_type,
         m.occurred_at AS created_at,m.message_text_ciphertext,m.intent,m.context_template_slug,m.incident_relevance,
-        m.chatby_message_id_hash AS chatby_message_id,e.button_payload,
+        m.chatby_message_id_hash AS chatby_message_id,e.button_payload,e.chatby_conversation_id_hash,e.chatby_contact_id_hash,
         'CURRENT_ORDER_EXACT_MATCH'::text AS relevance_status
         FROM operations.chatby_private_message_display m LEFT JOIN operations.chatby_conversation_events e
         ON e.canonical_issue_id=m.canonical_issue_id AND e.chatby_message_id_hash=m.chatby_message_id_hash
@@ -91,8 +91,10 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         chatby: { verified: row.conversation_status === 'FOUND' && row.conversation_freshness === 'FRESH',
           incident_notified_at: row.incident_notified_at,
           template_status: absentTemplateStatus,
+          chatby_conversation_id_hash:row.chatby_conversation_id_hash,chatby_contact_id_hash:row.chatby_contact_id_hash,
           observed_at: row.conversation_observed_at, template_contact_verified: clearEvents.some(e => e.canonical_issue_id===row.canonical_issue_id
-            && e.direction==='OUTBOUND' && e.message_type==='TEMPLATE' && e.context_template_slug===ABSENT_TEMPLATE_NAME) },
+            && e.direction==='OUTBOUND' && e.message_type==='TEMPLATE' && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(e.context_template_slug)
+            && new Date(e.created_at)>=new Date(row.created_at)) },
         history: { ...history.rows[0], verified: Boolean(history.rows[0]), previous_absences: previous.rows[0]?.previous_absences || 0 },
         previousTimer: timers.rows[0] || null,timeline:timeline.rows,policy:{...policy.rows[0],registry_required:true}, now: now() });
       await projector.upsertIncidentInterpretation(result.interpretation);

@@ -12,6 +12,18 @@ test('concurrent exclusive phases coalesce a complete catalogue traversal withou
  await Promise.all([syncChatbyReadOnly({...input,onlyRecipientAbsent:true}),syncChatbyReadOnly({...input,excludeRecipientAbsent:true})]);assert.equal(calls,1);assert.equal(cache.inFlight,undefined);
 });
 
+test('v3 read lane binds notification and stable button ID; duplicate provider event remains idempotent and initial confirmation excluded',async()=>{
+ const events=[],links=[],privateMessages=[],known=new Set();
+ const button={id:'safe-button',type:'in',msg_type:'button',created_at:'2026-09-17T14:00:00Z',payload:{payload:'ABSENT_OTHER_DAY',title:'📅 Elegir otro día'}};
+ const messages=[{id:'safe-old-template',type:'out',msg_type:'template',created_at:'2026-09-17T11:00:00Z',template_name:'es_ES dropea_pedido_nuevo_v1'},
+  {id:'safe-checkout-confirmation',type:'in',msg_type:'button',created_at:'2026-09-17T12:05:00Z',content:'CONFIRMAR MI PEDIDO'},
+  {id:'safe-v3-template',type:'out',msg_type:'template',created_at:'2026-09-17T13:00:00Z',template_name:'es_ES dropea_ausente_v3'},button,structuredClone(button)];
+ const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-issue')]})},projector:{...projector(),recordChatbyConversationEvent:async e=>{events.push(e);const inserted=!known.has(e.source_event_id);known.add(e.source_event_id);return {inserted};},upsertChatbyPrivateMessageDisplay:async e=>privateMessages.push(e),upsertChatbyConversationLink:async e=>links.push(e)},token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),onlyRecipientAbsent:true,minRequestIntervalMs:0,fetchImpl:async()=>response({data:messages,meta:{last_page:1}})});
+ const replies=events.filter(e=>e.direction==='INBOUND');assert.equal(replies.length,2);assert.equal(replies[0].source_event_id,replies[1].source_event_id);assert.equal(replies[0].button_payload,'ABSENT_OTHER_DAY');assert.equal(replies[0].canonical_order_id,'safe-order');
+ assert.equal(links[0].notification_observed_at,'2026-09-17T13:00:00.000Z');assert.equal(links[0].customer_replied,true);assert.equal(privateMessages.find(e=>e.incident_relevance==='ORDER_LIFECYCLE_ONLY')?.context_template_slug,'dropea_pedido_nuevo_v1');
+ assert.equal(result.actions_executed,0);assert.equal(result.production_writes,0);assert.equal(result.messages_sent,0);assert.deepEqual(result.external_methods,['GET']);
+});
+
 test('AUSENTE 429 makes one GET and retains the full provider cooldown, never fake freshness',async()=>{
  let calls=0;let writes=0;const cache={};const started=Date.now();
  await assert.rejects(syncChatbyReadOnly({pool:{query:async()=>({rows:[]})},projector:{...projector(),upsertChatbyConversationLink:async()=>{writes++;}},token:'mock',hmacKey:'safe-mock-key-long-enough',onlyRecipientAbsent:true,subscriberCache:cache,minRequestIntervalMs:0,fetchImpl:async()=>{calls++;return new Response('{}',{status:429,headers:{'retry-after':'386'}});}}),e=>e.code==='CHATBY_SUBSCRIBERS_HTTP_429' && e.retryNotBefore>=started+386000);

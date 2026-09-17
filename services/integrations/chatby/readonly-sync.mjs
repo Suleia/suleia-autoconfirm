@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { collectPaginated, createReadOnlyTransport } from '../../../packages/platform-core/src/read-only-transport.mjs';
 import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
 import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
-import { ABSENT_BUTTONS } from '../../../packages/platform-core/src/incident/absent-template.mjs';
+import { absentButtonFor } from '../../../packages/platform-core/src/incident/absent-template.mjs';
 import { INCIDENT_NOTIFICATION_TEMPLATES } from '../../../packages/platform-core/src/incident/notification-evidence.mjs';
 
 const ORDER_FIELD = 'dropea: numero';
@@ -551,8 +551,7 @@ export async function syncChatbyReadOnly({
         direction: direction(message),
         message_type: type,
         template_id_hash: null,
-        button_payload: type === 'BUTTON' ? ((issue.issue_type === 'RECIPIENT_ABSENT' && ABSENT_BUTTONS.find(b => b.payload === message?.payload?.payload
-          || b.payload === message?.interactive?.button_reply?.id || b.text === message?.payload?.title)?.payload
+        button_payload: type === 'BUTTON' ? ((issue.issue_type === 'RECIPIENT_ABSENT' && absentButtonFor({...message,raw_text:rawMessageText(message)})?.payload
           ) || (intent !== 'UNKNOWN' ? intent : null)) : null,
         sanitized_text: intent === 'UNKNOWN' ? 'UNCLASSIFIED_MESSAGE_PRESENT' : `INTENT:${intent}`,
         occurred_at: at,

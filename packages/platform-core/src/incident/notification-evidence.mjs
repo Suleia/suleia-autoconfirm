@@ -1,6 +1,6 @@
 // Notification aliases are observations of existing templates, not send rules.
 export const INCIDENT_NOTIFICATION_TEMPLATES = Object.freeze({
-  RECIPIENT_ABSENT: ['dropea_ausente_v1','dropea_incidencia_ausente_v1','dropea_incidencia_ausente_v2'],
+  RECIPIENT_ABSENT: ['dropea_ausente_v3','dropea_ausente_v2','dropea_ausente_v1','dropea_incidencia_ausente_v1','dropea_incidencia_ausente_v2'],
   PICKUP_AT_AGENCY: ['dropea_ausente_v1','dropea_incidencia_ausente_v1','dropea_incidencia_ausente_v2'],
   REFUSED_BY_RECIPIENT: ['dropea_incidencia_mercancia_v1'],
   ADDRESS_INCORRECT: ['dropea_incidencia_direccion_v1'],

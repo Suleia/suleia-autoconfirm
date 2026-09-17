@@ -15,6 +15,7 @@ import { syncRenderIncidentDiscountSignals } from './integrations/render/inciden
 import { shadowWorkerHealth,applyAbsentReadHealth } from './shadow-worker-health.mjs';
 import { createAbsentLogisticsReader } from './integrations/gls/absent-read-context.mjs';
 import { prepareAbsentTemplateApproval } from './integrations/chatby/absent-template-admin.mjs';
+import { ABSENT_TEMPLATE_NAME } from '../packages/platform-core/src/incident/absent-template.mjs';
 
 const config = loadShadowConfig();
 const repository = new ShadowRepository(config.databaseUrl);
@@ -182,7 +183,7 @@ async function runAbsent() {
     if(!absentTemplate || Date.now()-absentTemplate.checkedAt>3600000){
       try {
       const checked=await prepareAbsentTemplateApproval({token:process.env.CHATBY_TOKEN,baseUrl:process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',submit:false});
-      absentTemplate={status:checked.template_name==='dropea_ausente_v1' && checked.content_roundtrip_verified && checked.reused && !checked.created
+      absentTemplate={status:checked.template_name===ABSENT_TEMPLATE_NAME && checked.content_roundtrip_verified && checked.reused && !checked.created
         ? checked.approval_status : 'CONTENT_NOT_VERIFIED',checkedAt:Date.now()};
       } catch { absentTemplate={status:'NOT_VERIFIED',checkedAt:Date.now()-3540000}; audit({event:'absent_template_catalog_read_unavailable',mutations:0}); }
     }

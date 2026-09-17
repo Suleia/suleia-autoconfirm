@@ -104,6 +104,16 @@ function customerEvidence(item) {
     summary: 'No se ha localizado una conversación enlazada técnicamente con este pedido. Esto no equivale a que el cliente no haya contestado.',
     messages: 0, latest_message: null, at: null, relation: null, notified_at: notifiedAt
   };
+  if (item.interpreted_type==='RECIPIENT_ABSENT' && scoped && item.chatby_sync_current && item.conversation_status==='FOUND' && item.notification_decision_current===true
+    && item.snapshot_status==='PERSISTED' && absent?.snapshot_status==='PERSISTED' && absent.policy_id===item.policy_id
+    && absent.input_snapshot_hash===item.input_snapshot_hash
+    && absent?.customer_response_status==='RESPONDED' && absent.scoped_customer_activity_at
+    && new Date(absent.scoped_customer_activity_at).getTime()===new Date(messageAt).getTime()) return {
+    code:absent.customer_intent,title:'Cliente actuó',summary:'Respuesta válida posterior a la notificación de esta incidencia AUSENTE.',
+    latest_message:exactMessage,at:messageAt,intent:absent.customer_intent,messages:Math.max(1,Number(item.messages_used || 0)),
+    relation:'AFTER_NOTIFICATION',notified_at:notifiedAt,button_payload:absent.button_pressed || null,
+    evidence_basis:'CURRENT_NOTIFICATION_BOUND_SHADOW_RESPONSE'
+  };
   if (!item.chatby_sync_current || !notifiedAt || item.conversation_status !== 'FOUND') return {
     code: 'NOT_VERIFIABLE', title: 'Chatby pendiente de actualizar',
     summary: !notifiedAt
@@ -426,7 +436,7 @@ export function incidentInsight(item) {
     null, ['Releer la notificación y la respuesta del pedido', 'Recalcular la fecha desde el momento del mensaje', 'Validar intento, custodia, calendario y capacidad logística', 'Mantener SHADOW y los plazos vigentes'], 'REVIEW',
     { policy_version: 'RECIPIENT_ABSENT_POLICY_V1', decision_basis: 'CANONICAL_SHADOW_RECOMPUTATION_REQUIRED' }
   ) : shadow && item.chatby_sync_current && item.dropea_sync_current
-    && item.status==='PENDING' && item.is_active===true ? { code: shadow.simulation_action, title: shadow.next_action,
+    && item.status==='PENDING' && item.is_active===true ? { code: shadow.simulation_action, title: shadow.concrete_solution || shadow.next_action,
     summary: shadow.reason_text, resolution_option: null, execution_status: 'NOT_EXECUTED',
     policy_version: shadow.policy_version } : recommendation(item, customer);
   if (!shadow && proposed.confidence==='HIGH' && !proposed.resolution_option) proposed = {
