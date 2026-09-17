@@ -11,6 +11,7 @@ const {
   CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS,
   CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS,
   chatbyRateLimitBackoffMs,
+  chatbyResponseBackoffMs,
   chatbyLifecycleTemplateOwner,
   chatbyNativeOwnsLifecycleTemplate,
   chatbyRepositoryOwnsIncidentTemplate,
@@ -27,6 +28,14 @@ const {
 
 test('uses a conservative production request interval to stay below the Chatby burst limit', () => {
   assert.equal(CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS, 3500);
+});
+
+test('honors an HTTP-date Retry-After and the full exhausted-quota reset without clipping it', () => {
+  const now=Date.parse('2026-09-17T17:00:00Z');
+  assert.equal(chatbyResponseBackoffMs(new Headers({'retry-after':'Thu, 17 Sep 2026 17:08:00 GMT'}),now),480000);
+  assert.equal(chatbyResponseBackoffMs(new Headers({'retry-after':'60','x-ratelimit-remaining':'0','x-ratelimit-reset':String((now+900000)/1000)}),now),900000);
+  assert.equal(chatbyResponseBackoffMs(new Headers({'ratelimit-remaining':'0','ratelimit-reset':'540'}),now),540000);
+  assert.equal(chatbyResponseBackoffMs(new Headers(),now),60000);
 });
 
 test('uses a fail-fast one-minute cooldown when Chatby omits Retry-After', () => {

@@ -120,6 +120,22 @@ export function chatbyRateLimitBackoffMs(retryAfterSeconds, attempt = 1) {
     : rateLimitCooldownMs;
 }
 
+export function chatbyResponseBackoffMs(headers, now = Date.now()) {
+  const retry = headers?.get?.('retry-after');
+  const seconds = retry === null || retry === undefined ? NaN : Number(retry);
+  const date = Number.isFinite(seconds) ? NaN : Date.parse(String(retry || ''));
+  let delay = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000
+    : Number.isFinite(date) && date > now ? date - now : 0;
+  const remaining = headers?.get?.('x-ratelimit-remaining') ?? headers?.get?.('ratelimit-remaining');
+  if (remaining !== null && remaining !== undefined && Number(remaining) === 0) {
+    const rawReset = headers?.get?.('x-ratelimit-reset') ?? headers?.get?.('ratelimit-reset');
+    const reset = rawReset === null || rawReset === undefined ? NaN : Number(rawReset);
+    const resetDelay = Number.isFinite(reset) ? (reset > 1e12 ? reset - now : reset > 1e9 ? reset * 1000 - now : reset * 1000) : Date.parse(String(rawReset || '')) - now;
+    if (Number.isFinite(resetDelay) && resetDelay > 0) delay = Math.max(delay, resetDelay);
+  }
+  return delay > 0 ? delay : rateLimitCooldownMs;
+}
+
 function recordRateLimit() {
   successfulRequestsSinceRateLimit = 0;
   adaptiveRequestMinIntervalMs = Math.min(
@@ -202,6 +218,7 @@ async function request(path, options = {}) {
         }
       });
     } catch (error) {
+      if (error?.code === 'CHATBY_RATE_LIMITED') throw error;
       if (canRetry && !providedSignal && attempt < maxAttempts) {
         await sleep(readRetryDelay(attempt));
         continue;
@@ -220,7 +237,7 @@ async function request(path, options = {}) {
     }
 
     const backoffMs = response.status === 429
-      ? chatbyRateLimitBackoffMs(response.headers.get('retry-after'), attempt)
+      ? chatbyResponseBackoffMs(response.headers)
       : readRetryDelay(attempt);
     if (response.status === 429) {
       recordRateLimit();
@@ -234,7 +251,10 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    throw new Error(`Chatby respondió ${response.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+    const error = new Error(`Chatby respondió ${response.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+    error.status = response.status;
+    if (response.status === 429) { error.code = 'CHATBY_RATE_LIMITED'; error.retryAfterMs = getChatbyRetryAfterMs(); }
+    throw error;
   }
   assertNoChatbyError(data);
   return data;

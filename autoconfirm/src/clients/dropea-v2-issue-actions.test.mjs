@@ -42,6 +42,31 @@ test('issue action credential requires read and resolve scopes while tolerating 
   );
 });
 
+test('an ambiguous network write is classified once, never retried in the HTTP client', async () => {
+  let calls = 0;
+  const client = createDropeaV2IssueActionClient({ token: token(), market: 'ES',
+    fetchImpl: async () => { calls += 1; throw new Error('connection lost'); }
+  });
+  await assert.rejects(client.returnToOrigin(1280487), error => error.code === 'DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN');
+  assert.equal(calls, 1);
+});
+
+test('replaying one persistent attempt preserves its exact idempotency key', async () => {
+  const keys = [];
+  const client = createDropeaV2IssueActionClient({ token: token(), market: 'ES',
+    idempotencyNonceFactory: () => '2026-09-17T17:00:00.000Z',
+    fetchImpl: async (_url, options) => {
+      keys.push(options.headers['Idempotency-Key']);
+      return { ok: true, status: 200, json: async () => ({ success: true,
+        data: { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' } }) };
+    }
+  });
+  await client.returnToOrigin(1280487);
+  await client.returnToOrigin(1280487);
+  assert.equal(keys[0], keys[1]);
+  assert.match(keys[0], /^suleia-return-requested-1280487-/);
+});
+
 test('return uses the official V2 issue endpoint, exact body and a fresh logical-attempt key', async () => {
   const calls = [];
   const nonces = ['attempt-one', 'attempt-two'];

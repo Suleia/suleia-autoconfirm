@@ -7,7 +7,8 @@ import {
   collectPendingDropeaV2Incidents,
   createDropeaV2IncidentClient,
   DROPEA_V2_READ_SCOPES,
-  normalizeDropeaV2Incident
+  normalizeDropeaV2Incident,
+  readDropeaV2ReturnIssueState
 } from './dropea-v2-incidents.mjs';
 
 function token(scopes = DROPEA_V2_READ_SCOPES, exp = 1_817_398_431) {
@@ -108,6 +109,14 @@ test('Dropea V2 incident adapter uses pending-only GET reads and deduplicates ge
   assert.equal(rows[0].order.customerPhone, '+34600000000');
   assert.equal(rows[0].issue.incidence_code, 'AS');
   assert.equal(rows[0].issue.raw.source, 'DROPEA_PUBLIC_API_V2');
+});
+
+test('exact return revalidation uses the official issue GET and rejects a different order',async()=>{
+  let path;
+  const factory=opts=>createDropeaV2IncidentClient({...opts,fetchImpl:async url=>{path=String(url);return new Response(JSON.stringify({success:true,message:'ok',data:{id:51,order_id:61,status:'PENDING',is_active:true}}));}});
+  const result=await readDropeaV2ReturnIssueState({incidenceId:'51',orderId:'61'},{env:envFor(),clientFactory:factory});
+  assert.equal(path,'https://es.public-api.dropea.com/dropshipper/issues/51');assert.equal(result.issue.status,'PENDING');
+  await assert.rejects(readDropeaV2ReturnIssueState({incidenceId:'51',orderId:'62'},{env:envFor(),clientFactory:factory}),/IDENTITY_MISMATCH/);
 });
 
 test('Dropea V2 incident adapter rejects a token with any write scope before creating a client', async () => {

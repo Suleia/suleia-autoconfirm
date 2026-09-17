@@ -10,7 +10,7 @@ import {
   pickupDropeaIssueAtDepot,
   resolveDropeaIssue
 } from '../clients/dropea.mjs';
-import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
+import { collectPendingDropeaV2Incidents, readDropeaV2ReturnIssueState } from '../clients/dropea-v2-incidents.mjs';
 import {
   getDropeaV2IssueActionReadiness,
   returnDropeaV2IssueToOrigin
@@ -24,6 +24,7 @@ import {
   finishIncidentDiscountReturn,
   finishIncidentAddressResolution,
   getTemplateDelivery,
+  listIncidentDiscountReturnsForReconciliation,
   reclaimIncidentDiscountReturn,
   syncAgentMemoryRuleToSupabase,
   syncIncidentsCacheToSupabase
@@ -1057,12 +1058,71 @@ export function automaticIncidentReturnReconciliationDue(existing, { now = Date.
   const status = String(existing?.status || '').toLowerCase();
   const staleClaim = status === 'claimed' || status === 'reconciliation_claimed';
   const transientFailure = status === 'manual_reconciliation_required'
-    && /^DROPEA_V2_ISSUE_ACTION_HTTP_5\d\d$/.test(String(existing?.last_error || ''));
-  if (!staleClaim && !transientFailure) return false;
+    && /^DROPEA_V2_ISSUE_ACTION_HTTP_(429|5\d\d)$/.test(String(existing?.last_error || ''));
+  const nonceAt = Date.parse(String(existing?.raw?.requestNonce || ''));
+  const ambiguousFailure = status === 'manual_reconciliation_required'
+    && ['DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN', 'DROPEA_V2_ISSUE_ACTION_RESPONSE_SCHEMA_INVALID'].includes(existing?.last_error)
+    && Number.isFinite(nonceAt) && Number(now) >= nonceAt && Number(now) - nonceAt < 24 * 3_600_000;
+  if (!staleClaim && !transientFailure && !ambiguousFailure) return false;
   const attemptedAt = Date.parse(String(existing?.attempted_at || existing?.updated_at || ''));
   const nowMs = Number(now);
   if (!Number.isFinite(attemptedAt) || !Number.isFinite(nowMs)) return false;
   return nowMs - attemptedAt >= Math.max(1, Number(delayMinutes) || INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES) * 60_000;
+}
+
+export async function verifyExactIncidentReturn(incident, {
+  readCurrent = readDropeaV2ReturnIssueState, attempts = 3,
+  wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+} = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt) await wait(750 * attempt);
+    const current = await readCurrent(incident).catch(() => null);
+    const issue = current?.issue?.raw || current?.issue;
+    if (String(issue?.id || '') === String(incident.incidenceId)
+        && String(issue?.order_id || '') === String(incident.orderId)
+        && issue.status === 'RESOLVED' && issue.resolution_status === 'RETURN_REQUESTED') {
+      return { verified: true, issueStatus: issue.status, resolutionStatus: issue.resolution_status,
+        resolutionChangedAt: issue.resolution_changed_at || null };
+    }
+  }
+  return { verified: false, issueStatus: 'NOT_VERIFIED' };
+}
+
+export async function reconcileIncidentDiscountReturnLedger({
+  list = listIncidentDiscountReturnsForReconciliation,
+  readCurrent = readDropeaV2ReturnIssueState,
+  finish = finishIncidentDiscountReturn, now = Date.now()
+} = {}) {
+  const summary = { checked: 0, verified: 0, closedWithoutReturn: 0, finalWorkflowBlocked: 0, retryable: 0, readFailed: 0 };
+  const rows = await list().catch(() => null);
+  if (!Array.isArray(rows)) return { ...summary, ledgerReadFailed: true };
+  for (const row of rows) {
+    const incidenceId = String(row.template_name || '').match(/^dropea_issue_discount_no_response_return_v1:(\d+)$/)?.[1];
+    if (!incidenceId || !/^\d+$/.test(String(row.order_id || ''))) continue;
+    // A concurrent in-flight writer must finish before its claim is inspected.
+    if (['claimed', 'reconciliation_claimed'].includes(row.status)
+        && !automaticIncidentReturnReconciliationDue(row, { now })) continue;
+    summary.checked += 1;
+    const current = await readCurrent({ incidenceId, orderId: row.order_id }).catch(() => null);
+    const issue = current?.issue?.raw || current?.issue;
+    if (String(issue?.id || '') !== incidenceId || String(issue?.order_id || '') !== String(row.order_id)) { summary.readFailed += 1; continue; }
+    const applied = issue.status === 'RESOLVED' && issue.resolution_status === 'RETURN_REQUESTED';
+    const closed = issue.is_active === false;
+    const final = ['MANAGING_WITH_CLIENT', 'RESOLVED', 'INFO'].includes(issue.status);
+    if (!applied && !closed && !final) { summary.retryable += 1; continue; }
+    const status = applied ? 'verified' : closed ? 'closed_without_return_request' : 'blocked_final_workflow_state';
+    try {
+      await finish({ storeId: row.store_id, orderId: row.order_id, incidenceId, status,
+        attemptedAt: row.attempted_at,
+        completedAt: applied ? (issue.resolution_changed_at || row.sent_at || new Date(now).toISOString()) : row.sent_at,
+        lastError: applied ? null : closed ? 'DROPEA_ISSUE_INACTIVE_NOT_RETURN_VERIFIED' : 'DROPEA_ISSUE_WORKFLOW_FINAL',
+        evidence: { ...(row.raw || {}), reconciliationAt: new Date(now).toISOString(),
+          verified: applied, dropeaStatus: issue.status, dropeaResolution: issue.resolution_status,
+          dropeaActive: issue.is_active } });
+      if (applied) summary.verified += 1; else if (closed) summary.closedWithoutReturn += 1; else summary.finalWorkflowBlocked += 1;
+    } catch { summary.readFailed += 1; }
+  }
+  return summary;
 }
 
 export function incidentDiscountNoResponseReturnDecision({ incident, discountRecovery, now = Date.now() } = {}) {
@@ -1148,7 +1208,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     return { ...decision, status: 'BLOCKED_MISSING_CREDENTIAL', verified: false, reason: 'No hay credencial Dropea disponible.' };
   }
 
-  const readCurrent = dependencies.readCurrent || currentPendingIncident;
+  const readCurrent = dependencies.readCurrent || ((incidenceId, orderId) => readDropeaV2ReturnIssueState({ incidenceId, orderId }));
   const current = await readCurrent(incident.incidenceId, incident.orderId).catch(() => null);
   if (!current) {
     return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o no coincide exactamente con el pedido.' };
@@ -1156,10 +1216,10 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   const currentRawIssue = current.issue?.raw || current.issue || {};
   const currentStatus = String(current.issue?.status || currentRawIssue.status || '').toUpperCase();
   if (
-    !['PENDING', 'MANAGING_WITH_CLIENT'].includes(currentStatus)
+    currentStatus !== 'PENDING'
     || currentRawIssue.is_active !== true
   ) {
-    return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o gestionandose con el cliente de forma activa.' };
+    return { ...decision, status: currentStatus === 'MANAGING_WITH_CLIENT' ? 'BLOCKED_FINAL_WORKFLOW_STATE' : 'BLOCKED_NOT_PENDING', verified: false, reason: 'La API solo permite resolver incidencias PENDING y activas. Gestion con cliente es un estado final, no una devolucion verificada.' };
   }
   if (!Array.isArray(currentRawIssue.allowed_resolution_options)
     || !currentRawIssue.allowed_resolution_options.includes('RETURN_REQUESTED')) {
@@ -1197,9 +1257,10 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   const finishReturn = dependencies.finishReturn || finishIncidentDiscountReturn;
   const reclaimReturn = dependencies.reclaimReturn || reclaimIncidentDiscountReturn;
   const returnIssue = dependencies.returnIssue || returnDropeaV2IssueToOrigin;
-  const verifyReturn = dependencies.verifyReturn || verifyIncidentLeftPending;
+  const verifyReturn = dependencies.verifyReturn || verifyExactIncidentReturn;
   const auditReturn = dependencies.auditReturn || auditIncidentAction;
   const attemptedAt = new Date(dependencies.now ?? Date.now()).toISOString();
+  let replayNonce = null;
   try {
     let claim = await claimReturn({
       storeId: config.defaultStore.id,
@@ -1216,6 +1277,11 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
         || (automaticEnabled === true && automaticIncidentReturnReconciliationDue(claim.existing, { now: dependencies.now ?? Date.now() }))
       )
     ) {
+      const existing = claim.existing;
+      if (['claimed', 'reconciliation_claimed'].includes(existing?.status)
+          || ['DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN', 'DROPEA_V2_ISSUE_ACTION_RESPONSE_SCHEMA_INVALID'].includes(existing?.last_error)) {
+        replayNonce = existing.raw?.requestNonce || existing.attempted_at;
+      }
       claim = await reclaimReturn({
         storeId: config.defaultStore.id,
         orderId: incident.orderId,
@@ -1245,9 +1311,10 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       };
     }
 
+    const requestNonce = replayNonce || claim.row?.attempted_at || attemptedAt;
     let response;
     try {
-      response = await returnIssue(incident.incidenceId);
+      response = await returnIssue(incident.incidenceId, { idempotencyNonce: requestNonce });
     } catch (error) {
       const errorCode = safeIncidentActionError(error);
       await finishReturn({
@@ -1257,7 +1324,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
         status: 'manual_reconciliation_required',
         attemptedAt,
         lastError: errorCode,
-        evidence: { ruleId: decision.ruleId, responseStatus: expectedResponseStatus }
+        evidence: { ruleId: decision.ruleId, responseStatus: expectedResponseStatus, requestNonce }
       }).catch(() => null);
       const result = { ...decision, status: 'MANUAL_RECONCILIATION_REQUIRED', attemptedAt, verified: false, error: errorCode };
       await auditReturn(incident, decision, result).catch(() => null);
@@ -1276,7 +1343,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       attemptedAt,
       completedAt,
       lastError: verified ? null : 'INCIDENT_STILL_PENDING_AFTER_RETURN_REQUEST',
-      evidence: { ruleId: decision.ruleId, verified, responseStatus: expectedResponseStatus }
+      evidence: { ruleId: decision.ruleId, verified, responseStatus: expectedResponseStatus, requestNonce }
     });
     const result = { ...decision, status, attemptedAt, completedAt, verified, response };
     await auditReturn(incident, decision, result).catch(() => null);
@@ -2101,6 +2168,7 @@ export async function chatbyContextFromExactTemplateDelivery({
           }
         } catch (error) {
           lastError = error;
+          if (error?.code === 'CHATBY_RATE_LIMITED') throw error;
         }
         if (attempt < 3) {
           await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
@@ -2194,6 +2262,7 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
           }
         } catch (error) {
           lastError = error;
+          if (error?.code === 'CHATBY_RATE_LIMITED') throw error;
         }
         await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
       }
@@ -2325,6 +2394,9 @@ export async function syncPendingIncidents({
     const chatbyByPhone = new Map();
     const messagesByUserNs = new Map();
     let discountTemplatePromise = null;
+    const returnReconciliationSummary = config.defaultStore.incidentDiscountReturnAutomaticEnabled === true
+      ? await reconcileIncidentDiscountReturnLedger()
+      : null;
     const allPending = await collectPendingIncidents({ limit, pages });
     const pending = requestedIncidentIdSet.size
       ? allPending.filter(({ issue }) => requestedIncidentIdSet.has(String(issue?.id || issue?.incidenceId || '')))
@@ -2834,6 +2906,7 @@ export async function syncPendingIncidents({
         : 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
       discountRecoverySummary,
       discountReturnSummary,
+      returnReconciliationSummary,
       customerActivitySummary,
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
       count: sortedIncidents.length,
@@ -2855,6 +2928,7 @@ export async function syncPendingIncidents({
       state.lastIncidentDiscountRecoveryAt = updatedAt;
       state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
       state.lastIncidentDiscountReturnSummary = discountReturnSummary;
+      state.lastIncidentReturnReconciliationSummary = returnReconciliationSummary;
       saveState(state);
     }
     return payload;

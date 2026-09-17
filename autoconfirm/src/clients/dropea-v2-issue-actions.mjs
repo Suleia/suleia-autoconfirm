@@ -128,6 +128,8 @@ export function createDropeaV2IssueActionClient({
         signal: controller.signal
       });
       payload = await response.json().catch(() => null);
+    } catch {
+      fail('DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN');
     } finally {
       clearTimeout(timer);
     }
@@ -147,12 +149,14 @@ export function createDropeaV2IssueActionClient({
 
 function issueActionClient({
   env = process.env,
+  idempotencyNonce,
   clientFactory = createDropeaV2IssueActionClient,
   configLoader = loadDropeaV2IssueActionStoreConfigs
 } = {}) {
   const [store] = configLoader(env);
   if (!store) fail('DROPEA_ISSUE_ACTIONS_STORES_CONFIG_EMPTY');
-  return clientFactory({ token: store.token, market: store.market });
+  return clientFactory({ token: store.token, market: store.market,
+    idempotencyNonceFactory: idempotencyNonce ? () => idempotencyNonce : undefined });
 }
 
 export async function returnDropeaV2IssueToOrigin(issueId, options = {}) {

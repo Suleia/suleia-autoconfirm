@@ -186,6 +186,18 @@ export async function claimTemplateDelivery({
 const INCIDENT_ADDRESS_RESOLUTION_LEDGER = 'dropea_issue_address_solution_v1';
 const INCIDENT_DISCOUNT_RETURN_LEDGER = 'dropea_issue_discount_no_response_return_v1';
 
+export async function listIncidentDiscountReturnsForReconciliation({ limit = 100 } = {}) {
+  if (!isSupabaseEnabled()) return [];
+  return selectRows('template_delivery_ledger', {
+    query: {
+      select: 'store_id,order_id,template_name,status,attempted_at,sent_at,last_error,raw',
+      template_name: `like.${INCIDENT_DISCOUNT_RETURN_LEDGER}:*`,
+      status: 'in.(manual_reconciliation_required,applied_unverified,claimed,reconciliation_claimed)',
+      order: 'attempted_at.asc'
+    }, limit: Math.max(1, Math.min(500, Number(limit) || 100))
+  });
+}
+
 export function claimIncidentAddressResolution({ storeId = 'suleia', orderId, incidenceId } = {}) {
   return claimTemplateDelivery({
     storeId,

@@ -84,6 +84,11 @@ export function loadDropeaV2IncidentStoreConfigs(env = process.env, { now = Date
 }
 
 function operation(name, params = {}) {
+  if (name === 'getIssue') {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id < 1 || Object.keys(params).some(key => key !== 'id')) fail('DROPEA_V2_ISSUE_ID_INVALID');
+    return { path: `/dropshipper/issues/${encodeURIComponent(id)}`, paginated: false };
+  }
   if (name === 'listIssues') {
     const allowed = new Set(['page', 'limit', 'only_pending_to_resolve']);
     if (Object.keys(params).some((key) => !allowed.has(key))) fail('DROPEA_V2_PARAMETER_NOT_ALLOWED');
@@ -116,6 +121,23 @@ function operation(name, params = {}) {
     return { path: `/dropshipper/orders/${encodeURIComponent(id)}`, paginated: false };
   }
   return fail('DROPEA_V2_OPERATION_BLOCKED');
+}
+
+// Exact owned incidence, never absence from a pending list or a legacy order's
+// missing issues field. GET /issues/{id} is the official V2 read contract.
+export async function readDropeaV2ReturnIssueState(incident, {
+  env = process.env, configLoader = loadDropeaV2IncidentStoreConfigs,
+  clientFactory = createDropeaV2IncidentClient
+} = {}) {
+  const stores = configLoader(env);
+  if (stores.length !== 1) fail('DROPEA_V2_RETURN_STORE_AMBIGUOUS');
+  const store = stores[0];
+  const client = clientFactory({ token: store.token, market: store.market });
+  const payload = await client.request('getIssue', { id: Number(incident.incidenceId) });
+  const issue = payload?.data;
+  if (String(issue?.id || '') !== String(incident.incidenceId)
+      || String(issue?.order_id || '') !== String(incident.orderId)) fail('DROPEA_V2_RETURN_ISSUE_IDENTITY_MISMATCH');
+  return { issue: { ...issue, raw: issue }, order: { orderId: String(issue.order_id) } };
 }
 
 export function createDropeaV2IncidentClient({

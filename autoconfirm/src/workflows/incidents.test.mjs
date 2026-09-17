@@ -169,7 +169,7 @@ test('re-reads Chatby and requests one persistently claimed Dropea return', asyn
   assert.equal(calls.finished.status, 'verified');
 });
 
-test('keeps retrying an active returnable incidence while Dropea marks it as managing with client', async () => {
+test('does not POST an illegal final-state transition even when carrier options still include return', async () => {
   let returned = 0;
   const managingIncident = {
     issue: {
@@ -196,8 +196,8 @@ test('keeps retrying an active returnable incidence while Dropea marks it as man
     finishReturn: async () => null,
     auditReturn: async () => null
   });
-  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
-  assert.equal(returned, 1);
+  assert.equal(result.status, 'BLOCKED_FINAL_WORKFLOW_STATE');
+  assert.equal(returned, 0);
 });
 
 test('a last-second Chatby action blocks the return before the persistent claim', async () => {

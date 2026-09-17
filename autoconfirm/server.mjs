@@ -32,7 +32,7 @@ import { checkChatbyConnection, getChatbyRetryAfterMs } from './src/clients/chat
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
 import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, getTemplateDelivery, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
-import { createIncidentAutomationRetry } from './src/incident-automation-retry.mjs';
+import { createIncidentAutomationRetry, discountSchedulerOwnsIncidentSync } from './src/incident-automation-retry.mjs';
 import {
   previewIncidentDiscountTest,
   sendAuthorizedIncidentDiscountTest
@@ -368,6 +368,9 @@ function storeSummary({ publicView = false } = {}) {
     lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
     lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,
     lastIncidentDiscountReturnSummary: state.lastIncidentDiscountReturnSummary || null,
+    lastIncidentReturnReconciliationSummary: state.lastIncidentReturnReconciliationSummary || null,
+    incidentAutomationRecovery: incidentAutomationRetry.status(),
+    buildRevision: process.env.RENDER_GIT_COMMIT || null,
     lastOperationalOrdersSyncAt: state.lastOperationalOrdersSyncAt,
     lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
     lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
@@ -1354,6 +1357,9 @@ async function runScheduledIncidentsSync() {
 }
 
 function startIncidentsScheduler() {
+  // Recovery already synchronizes every incident, not just discounts. Two
+  // periodic owners otherwise re-read the same Chatby conversations seconds apart.
+  if (discountSchedulerOwnsIncidentSync(config.enableIncidentDiscountTemplate, config.incidentDiscountIntervalMinutes)) return;
   const intervalMinutes = config.defaultStore.incidentsSyncIntervalMinutes || 360;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 

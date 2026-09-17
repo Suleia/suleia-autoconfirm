@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { automaticIncidentReturnReconciliationDue, executeIncidentDiscountNoResponseReturn } from './incidents.mjs';
+import { automaticIncidentReturnReconciliationDue, executeIncidentDiscountNoResponseReturn, verifyExactIncidentReturn, reconcileIncidentDiscountReturnLedger } from './incidents.mjs';
 
 test('reconciles only stale persistent claims or old transient action failures', () => {
   const current = Date.parse('2026-07-16T17:00:00.000Z');
@@ -8,8 +8,48 @@ test('reconciles only stale persistent claims or old transient action failures',
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'claimed', attempted_at: '2026-07-16T16:45:00.000Z' }, { now: current }), false);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'reconciliation_claimed', attempted_at: '2026-07-16T16:29:00.000Z' }, { now: current }), true);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:29:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_503' }, { now: current }), true);
+  assert.equal(automaticIncidentReturnReconciliationDue({ status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:29:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_429' }, { now: current }), true);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:29:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_400' }, { now: current }), false);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'applied_unverified', attempted_at: '2026-07-16T16:00:00.000Z' }, { now: current }), false);
+});
+
+test('verifies only the exact owned issue with the actual RETURN_REQUESTED resolution', async () => {
+  const incident={incidenceId:'51',orderId:'61'};
+  for(const issue of [null,{id:51,order_id:61,status:'PENDING',is_active:false},
+    {id:51,order_id:61,status:'RESOLVED',resolution_status:'RETRY'},
+    {id:52,order_id:61,status:'RESOLVED',resolution_status:'RETURN_REQUESTED'},
+    {id:51,order_id:62,status:'RESOLVED',resolution_status:'RETURN_REQUESTED'}]) {
+    assert.equal((await verifyExactIncidentReturn(incident,{attempts:1,readCurrent:async()=>({issue})})).verified,false);
+  }
+  assert.equal((await verifyExactIncidentReturn(incident,{attempts:1,readCurrent:async()=>({issue:{id:51,order_id:61,status:'RESOLVED',resolution_status:'RETURN_REQUESTED'}})})).verified,true);
+  assert.equal((await verifyExactIncidentReturn(incident,{attempts:1,readCurrent:async()=>{throw Error('offline')}})).verified,false);
+});
+
+test('reconciles ambiguous applied actions without a POST and separates carrier closure from a return', async () => {
+  const writes=[];const rows=[1,2,3,4,5].map(id=>({order_id:'61',template_name:`dropea_issue_discount_no_response_return_v1:${id}`,status:'manual_reconciliation_required',attempted_at:'2026-09-16T12:00:00Z',raw:{ruleId:'fixture'}}));
+  const states={1:{status:'RESOLVED',resolution_status:'RETURN_REQUESTED',is_active:false},2:{status:'PENDING',is_active:false},3:{status:'MANAGING_WITH_CLIENT',is_active:true},4:{status:'PENDING',is_active:true}};
+  const result=await reconcileIncidentDiscountReturnLedger({list:async()=>rows,
+    readCurrent:async i=>{if(i.incidenceId==='5')throw Error('read failed');return {issue:{id:Number(i.incidenceId),order_id:61,...states[i.incidenceId]}};},
+    finish:async row=>writes.push(row)});
+  assert.deepEqual(result,{checked:5,verified:1,closedWithoutReturn:1,finalWorkflowBlocked:1,retryable:1,readFailed:1});
+  assert.deepEqual(writes.map(r=>r.status),['verified','closed_without_return_request','blocked_final_workflow_state']);
+  assert.equal(writes[1].evidence.verified,false);
+});
+
+test('ambiguous network outcomes replay the original persistent nonce only within its 24h life', async () => {
+  const now=Date.parse('2026-09-17T17:00:00Z');
+  const original='2026-09-17T16:00:00Z';
+  const existing={status:'manual_reconciliation_required',attempted_at:original,last_error:'DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN',raw:{requestNonce:original}};
+  assert.equal(automaticIncidentReturnReconciliationDue(existing,{now}),true);
+  assert.equal(automaticIncidentReturnReconciliationDue(existing,{now:now+24*3600000}),false);
+  let nonce;
+  const result=await executeIncidentDiscountNoResponseReturn({incidenceId:'51',orderId:'61',incidentType:'rejected_goods',chatbyUserNs:'fixture',chatbyReadVerified:true},
+    {templateName:'fixture',sentAt:'2026-09-15T12:00:00Z',verified:true,responseStatus:'NO_RESPONSE'},
+    {now,realEnabled:true,automaticEnabled:true,credentialAvailable:true,
+      readCurrent:async()=>({issue:{status:'PENDING',is_active:true,allowed_resolution_options:['RETURN_REQUESTED']}}),readMessages:async()=>[],
+      claimReturn:async()=>({acquired:false,persistent:true,reason:'already_claimed',existing}),reclaimReturn:async()=>({acquired:true,persistent:true,row:{attempted_at:'2026-09-17T17:00:00Z'}}),
+      returnIssue:async(_id,opts)=>{nonce=opts.idempotencyNonce;return {};},verifyReturn:async()=>({verified:true}),finishReturn:async()=>null,auditReturn:async()=>null});
+  assert.equal(result.verified,true);assert.equal(nonce,original);
 });
 
 test('an automatic cycle atomically reclaims one stale claim and calls Dropea once', async () => {
