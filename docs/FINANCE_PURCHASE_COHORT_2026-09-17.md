@@ -74,7 +74,8 @@ verified again after deployment.
 
 ## Completed deployed verification
 
-Financial executable/asset revision: `5a1771f8bfd5f00eff01b12c1e0b0f5641a4a5e8`.
+Financial executable/asset revision: `2a7798f41ffbcd85cad423c02564495942595269`.
+Actual API image ID: `sha256:3d7f76343e2686d055f3953a131bc82ddc46af34a51bcb18168a5412a20fc3a7`.
 Actual new image: 684 tests executed, 684 PASS, zero FAIL. An initial pre-rollout
 attempt correctly stopped because a UI contract test still expected the old
 asset query version; the test was updated to require the new version, and the
@@ -83,12 +84,18 @@ Only API and review-panel changed; nine other container IDs, protected API
 environment and mounts, database and incident code were preserved. The
 nonfinancial app source prefix is byte-identical after newline normalization.
 
-Public HTTPS checks at 16:42:54 UTC: HTML/JS/CSS all HTTP 200, `no-store`, exact
+Public HTTPS checks after the final rollout: HTML/JS/CSS all HTTP 200, `no-store`, exact
 published bytes; unauthenticated financial route remains HTTP 401. Actual
 `suleia_api_login` data rendered with the deployed HTML and JS successfully for
 May/June/July/August/September: 31/30/31/31/17 labeled bars, all exact daily tiles,
 selected-month return donut, clickable day details and the same cohort profit
 in the table footer and monthly headline. All reconciliation controls passed.
+The final review additionally removed event-date counts from historical-chart
+tooltips, propagated each historical month's temporal model, and removed false
+zero profits/margins for unavailable or event-date fallback history. The actual
+API-role verifier also checked every historical tooltip's cohort counts and
+profit. The public app JS SHA-256 is
+`79043a004bf3a09dfe24b72290013ad678bbd9d4d2916f1dc4b529cbaf99848f`.
 
 An independent **account-level Meta Marketing API** read at 16:47 UTC confirmed
 EUR/Europe/Madrid and zero closed-day differences in all five months:
@@ -100,12 +107,14 @@ its missing September records and earlier differences are not panel-source
 errors. The audit now names this legacy comparison explicitly and offers a
 direct independent read tool that fails on any closed-day mismatch.
 
-At the 16:42:41 source snapshot, September purchase-cohort revenue 6273.08 minus
-total costs 5528.26 equals **744.82 EUR provisional**, with 192 delivered and
+At the final verification's 16:52:06 source snapshot, September purchase-cohort
+revenue 6273.08 minus total costs 5529.48 equals **743.60 EUR provisional**, with 192 delivered and
 49 returned. Fixed charges 176.39 and one-off charges 34.99 are deducted. The
 current monthly cohort still has 67 sent orders without delivered/returned final
 outcome; today's advertising and order states can change this provisional result.
-Do not substitute the screenshot's older value or promise a fixed live profit.
+Meta spend is now 2731.11 EUR; its movement since the independent 16:47 audit
+is today's active advertising, not a changed historic result. Do not substitute
+the screenshot's older value or promise a fixed live profit.
 
 ## Regression protection and verification
 

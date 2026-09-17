@@ -61,9 +61,18 @@ try {
     const footer=get('finance-daily').children[0].children[0].children.at(-1).children[0];
     assert.equal(footer.children[2].textContent,new Intl.NumberFormat('es-ES').format(report.counts.delivered));
     assert.equal(footer.children[3].textContent,new Intl.NumberFormat('es-ES').format(report.counts.returned));
+    const historicalRows=report.history.slice(-context.__results.state.financeHistoryWindow);
+    const historicalBars=get('finance-history-chart').children[0].children[0].children.filter(c=>c.role==='button');
+    assert.equal(historicalBars.length,historicalRows.length);
+    historicalBars.forEach((bar,index)=>{
+      const row=historicalRows[index];const format=new Intl.NumberFormat('es-ES');
+      assert.ok(bar.textContent.includes(`Entregados ${format.format(row.counts.delivered)}`));
+      assert.ok(bar.textContent.includes(`Devueltos ${format.format(row.counts.returned)}`));
+      assert.ok(bar.textContent.includes(new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(row.totals.exactNetProfit)));
+    });
     context.__results.state.financeDailyBasis='cohort';context.__results.renderResultsFinance();
     assert.match(get('finance-daily').textContent,/TOTAL DEL MES/);
-    console.log(JSON.stringify({month,uiRendered:true,htmlControlsVerified:true,dailyBars:bars.length,returnRate:report.counts.returnRatePercent,
+    console.log(JSON.stringify({month,generatedAt:report.generatedAt,totals:report.totals,counts:report.counts,uiRendered:true,htmlControlsVerified:true,historyCohortTooltipsVerified:true,dailyBars:bars.length,returnRate:report.counts.returnRatePercent,
       inTransit:report.counts.inTransit,otherOutcome:report.counts.otherOutcome,cohortProfit:report.totals.exactNetProfit,
       fixedMonthly:report.totals.fixedCosts,settlementFixed:report.dailySettlements.totals.fixedCosts,
       calendarSettlements:report.dailySettlements.eventCounts,settlementAudit:report.dailySettlements.audit,
