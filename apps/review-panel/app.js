@@ -716,7 +716,11 @@ function niceMoneyScale(values, tickCount = 4) {
 }
 function appendSvgTitle(element, content) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = content; element.append(title); return element; }
 function selectedDailyView(data) {
-  if (state.financeDailyBasis==='settlement' && data.dailySettlements) return {...data,...data.dailySettlements,counts:{...data.counts,created:(data.days || []).reduce((n,r)=>n+Number(r.created || 0),0)},dailyBasis:'settlement'};
+  if (state.financeDailyBasis==='settlement' && data.dailySettlements) {
+    const rows=data.dailySettlements.days || [];
+    const created=rows.every(r=>r.created!==null&&r.created!==undefined) ? rows.reduce((n,r)=>n+Number(r.created),0) : null;
+    return {...data,...data.dailySettlements,counts:{...data.counts,created},dailyBasis:'settlement'};
+  }
   return {...data,dailyBasis:'cohort'};
 }
 function dailyDetail(row,currency) {
@@ -838,7 +842,9 @@ function dailyTable(data, currency) {
   };
   (data.days || []).slice().reverse().forEach((row) => { const tr = node('tr', Number(row.netProfit || 0) < 0 ? 'loss-row' : 'profit-row'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', cellValue(row, key)); tr.append(td); }); body.append(tr); });
   const totalRow = {
-    day: 'TOTAL', created: data.counts?.created, delivered: data.eventCounts?.delivered ?? data.counts?.delivered, returned: data.eventCounts?.returned ?? data.counts?.returned,
+    day: 'TOTAL', created: data.counts?.created,
+    delivered: data.dailyBasis==='settlement' ? data.eventCounts?.delivered : data.eventCounts?.delivered ?? data.counts?.delivered,
+    returned: data.dailyBasis==='settlement' ? data.eventCounts?.returned : data.eventCounts?.returned ?? data.counts?.returned,
     ...totals, netProfit: totals.exactNetProfit
   };
   const foot = node('tfoot'); const tr = node('tr'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', key === 'day' ? (data.dailyBasis==='settlement'?'TOTAL · LIQUIDACIONES':'TOTAL DEL MES') : cellValue(totalRow, key)); tr.append(td); }); foot.append(tr); table.append(head, body, foot);

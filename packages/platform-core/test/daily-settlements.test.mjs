@@ -59,5 +59,6 @@ test('a stale snapshot crossing midnight displays today as unavailable, not a ze
   assert.equal(today.realRevenue,null);
   assert.equal(today.netProfit,null);
   assert.equal(today.delivered,null);
+  assert.deepEqual(result.eventCounts,{delivered:null,returned:null});
   assert.equal(today.closeStatus,'CURRENT_PARTIAL');
 });

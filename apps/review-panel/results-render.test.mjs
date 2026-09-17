@@ -74,6 +74,13 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   const svg=get('finance-trend').children[0].children.find(c=>c.tagName==='svg');
   const group=svg.children.find(c=>c.role==='button'); group.events.click();
   assert.equal(context.__results.state.financeSelectedDay,'2026-07-01');
+  const settlements=context.__results.state.finance.dailySettlements;
+  settlements.days=[{...settlements.days[0],created:null,delivered:null,returned:null,realRevenue:null,totalCosts:null,netProfit:null}];
+  settlements.eventCounts={delivered:null,returned:null};
+  settlements.totals={realRevenue:null,totalCosts:null,exactNetProfit:null};
+  context.__results.renderResultsFinance();
+  const footer=get('finance-daily').children[0].children[0].children.at(-1).children[0];
+  for(const index of [1,2,3]) assert.equal(footer.children[index].textContent,'—');
   context.__results.state.finance.period = { month: '2026-09', current: true, elapsedDays: 13 };
   context.__results.state.finance.accounting = { closedThrough: '2026-09-12', pendingDays: 1, currentDayPartial: true };
   context.__results.state.finance.dataAvailability = { status: 'MTD', label: 'MTD · día 13' };

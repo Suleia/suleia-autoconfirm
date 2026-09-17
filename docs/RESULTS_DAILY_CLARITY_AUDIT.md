@@ -16,6 +16,8 @@ Incident notification/evidence protections remain unchanged.
   unsettled orders remain in the cohort and are not falsely called settled gains.
 - Today is partial, not closed. Missing financial inputs or a snapshot that has
   not reached today are unavailable, never a fabricated zero-revenue loss.
+  Unknown daily event totals remain unknown; the settlement footer must not
+  substitute counts from the different creation-cohort summary.
 - Fixed expenses are subtracted once. Cohort reporting includes the full committed
   monthly charge allocated over observed days. Settlement analysis accrues the same
   recurring ledger across eligible calendar days. Both policies are visible.
@@ -81,5 +83,31 @@ verified. Open snapshots and later final outcomes remain subject to updates.
 Isolated deployment script changes only API and review-panel, preserves existing
 environment/config/private mounts, checks untouched worker/MCP/scheduler/engine
 container identities, and keeps rollback configuration. No browser is used under
-the repository safety rule. Exact deployed assets, read-role reports and rendering
+the repository safety rule. Exact deployed assets, API-role reports and rendering
 with those reports must be checked after publication; evidence is added below.
+
+### Initial live verification, 2026-09-17
+
+Release `b1f7e139b5c61ca91e39efe32c0cbacf28be071b` was deployed only to
+API and review-panel. Runtime preservation checks passed; other service container
+identities were unchanged and no migrations or production order actions occurred.
+HTTPS returned 200 for all three panel assets; SHA-256 hashes matched the deployed
+files. The financial endpoint remained protected (unauthenticated 401).
+
+Using the existing API database role (`suleia_api_login`), the deployed panel code
+rendered with each of the five private financial reports in a Node VM, not a browser.
+All referenced HTML controls, ten headline cards, five-month return-rate history,
+both table bases and interactive day selection passed. All financial controls
+passed; source daily net profit and fixed costs reconciled to the cohort headlines.
+Observed settlement days numbered 31 / 30 / 31 / 31 / 17. Settlement component/date/
+finality/duplicate-conflict audit counters were all zero.
+
+The unchanged ingestion worker subsequently reported 503 due to
+`CHATBY_READ_FAILED`; Dropea read events continued to report `READ_OK`.
+This is a separate connector failure, not proof that every source is current.
+No worker restart or messaging change was made. Snapshot freshness is visible
+on the panel and independent direct Meta verification remains pending as above.
+
+Additional regression covers crossing midnight with a missing snapshot: incomplete
+event totals and the settlement footer stay unavailable rather than borrowing
+monthly cohort counts. Final release verification follows publication of that guard.

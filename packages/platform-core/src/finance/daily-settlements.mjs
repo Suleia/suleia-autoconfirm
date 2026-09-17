@@ -81,7 +81,8 @@ export function buildDailySettlements({ month, currentDay, reports = [] } = {}) 
   totals.roiPercent=totals.totalCosts && totals.netProfit!==null ? round(totals.netProfit*100/totals.totalCosts) : null;
   totals.roas=totals.metaSpend && totals.realRevenue!==null ? round(totals.realRevenue/totals.metaSpend) : null;
   return { basis:'ACTUAL_ORDER_SETTLEMENT_DATE', days:rows, totals,
-    eventCounts:{delivered:rows.reduce((n,r)=>n+r.delivered,0),returned:rows.reduce((n,r)=>n+r.returned,0)},
+    eventCounts:Object.fromEntries(['delivered','returned'].map(key=>[key,
+      rows.every(r=>r[key]!==null&&r[key]!==undefined) ? rows.reduce((n,r)=>n+r[key],0) : null])),
     audit:{missingDates,missingComponents,duplicateConflicts,nonFinal},
     label:'Entregas/devoluciones por fecha real · costes del pedido liquidado − Meta del día − gastos devengados',
     limitation:'No es el movimiento diario de wallet: los costes de pedidos aún sin liquidar quedan en el resumen mensual de la cohorte. No se incluyen pedidos creados antes del primer mes disponible.',
