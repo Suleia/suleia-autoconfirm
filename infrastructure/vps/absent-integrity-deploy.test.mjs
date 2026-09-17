@@ -2,6 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
+test('real MCP absence registry has schema usage without CREATE or any mutation grants',()=>{
+ const sql=read('../../migrations/039_absent_policy_registry_read_usage.sql');
+ assert.match(sql,/GRANT USAGE ON SCHEMA configuration TO suleia_mcp_readonly,suleia_operations_readonly/);
+ assert.doesNotMatch(sql,/GRANT\s+(ALL|CREATE|INSERT|UPDATE|DELETE)/i);
+ assert.ok(read('./deploy-absent-integrity.sh').includes('migrations/039_absent_policy_registry_read_usage.sql'));
+});
 test('notification vocabulary accepts only the two precise missing states without weakening encryption or zero-action guards',()=>{
  const sql=read('../../migrations/038_chatby_notification_boundary_vocabulary.sql');
  assert.match(sql,/NOTIFICATION_NOT_OBSERVED/);assert.match(sql,/BEFORE_NOTIFICATION/);assert.match(sql,/ADD CONSTRAINT.*CHECK\(/s);
