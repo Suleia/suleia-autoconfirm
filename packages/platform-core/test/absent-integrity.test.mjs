@@ -41,6 +41,13 @@ test('missing timer after known contact is explicit and does not invent a produc
   const x=fixture();x.issue.delivery_attempt_number='1';x.chatby.verified=false;x.chatby.template_contact_verified=true;
   const s=simulate(x).shadow;assert.notEqual(s.reason_code,'WAIT_EXISTING_CUSTOMER_TIMER');assert.equal(s.waiting_customer,false);assert.equal(s.existing_timer,null);
 });
+
+test('blocked or inactive cases cannot retain a waiting step/reason from a valid historical timer',()=>{
+  for(const change of [x=>x.issue.is_active=false,x=>x.order.identity_status='AMBIGUOUS',x=>x.chatby.verified=false]){
+    const x=fixture();x.previousTimer={timer_id:'fixture-timer',timer_type:'CUSTOMER_INITIAL_RESPONSE_48H',started_at:'2026-09-17T12:00:00Z',due_at:'2026-09-19T12:00:00Z',status:'ACTIVE'};change(x);
+    const s=simulate(x).shadow;assert.equal(s.waiting_customer,false);assert.equal(s.current_step,'HUMAN_REVIEW_REQUIRED');assert.equal(s.trace.at(-1),'HUMAN_REVIEW_REQUIRED');assert.notEqual(s.reason_code,'WAIT_EXISTING_CUSTOMER_TIMER');assert.deepEqual(s.existing_timer,x.previousTimer);
+  }
+});
 test('shadow timer owner creates only stable 48h timer from observed notification',()=>{
   const x=fixture();x.issue.delivery_attempt_number='1';x.chatby.template_contact_verified=true;x.chatby.incident_notified_at='2026-09-17T12:05:00Z';const d=simulate(x).decision;
   assert.equal(new Date(d.timer.due_at)-new Date(d.timer.started_at),48*3600000);assert.equal(d.timer.policy_version,'RECIPIENT_ABSENT_POLICY_V1');

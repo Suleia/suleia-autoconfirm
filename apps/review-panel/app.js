@@ -438,7 +438,9 @@ function absentShadowCard(item, expanded = false) {
     ['Capacidad declarada Dropea',s.logistics_capabilities?.dropea_resolution_capability || 'UNKNOWN'],
     ['Capacidad verificada transportista',s.logistics_capabilities?.carrier_capability || 'UNKNOWN'],
     ['Dropea / Chatby / GLS', Object.values(s.data_freshness || {}).join(' / ')],
-    ['Estado simulación', s.simulation_status], ['Policy', s.policy_version]
+    ['Estado simulación', s.simulation_status], ['Policy', s.policy_version],
+    ['ID del registro',s.policy_id || 'NO PERSISTIDO'],['Hash de policy',s.policy_snapshot_hash || 'NO DISPONIBLE'],
+    ['Hash de entrada',s.input_snapshot_hash || 'NO DISPONIBLE'],['Decisión vigente',s.decision_id || 'NO DISPONIBLE']
   ]));
   card.append(details); return card;
 }

@@ -97,8 +97,11 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
   if (latest && scoped.some(e => e !== latest && new Date(e.created_at).getTime() === new Date(latest.created_at).getTime() && interpretAbsentResponse(e).customer_intent !== response.customer_intent)) reasons.push('CONFLICTING_SIMULTANEOUS_RESPONSES');
   const conditionalAction = action;
   if (latest && logistics.status === 'FEASIBLE' && !reasons.length && requirement !== 'INTERPRET_RESPONSE') { action={RESCHEDULE:'WOULD_REQUEST_NEW_DELIVERY',PICKUP:'WOULD_REQUEST_PICKUP_AT_AGENCY',RETURN:'WOULD_RETURN_TO_ORIGIN',ADDRESS:'WOULD_REQUEST_ADDRESS_CHANGE'}[requirement]; step='WAITING_EXECUTION'; }
-  if (reasons.length) action='HUMAN_REVIEW_REQUIRED';
-  const waiting = validTimer && !expired && !latest && chatbyCurrent && step === 'WAITING_CUSTOMER_RESPONSE';
+  if (reasons.length) {
+    action='HUMAN_REVIEW_REQUIRED'; step='HUMAN_REVIEW_REQUIRED';
+    reason=cause.interpreted_type!=='RECIPIENT_ABSENT'?cause.secondary_reason:reasons[0];
+  }
+  const waiting = !reasons.length && validTimer && !expired && !latest && chatbyCurrent && step === 'WAITING_CUSTOMER_RESPONSE';
   const responseHash = latest ? absentHash([latest.chatby_message_id,response.raw_customer_text_hash,latest.created_at]) : null;
   const snapshot = {issue_id:issue.canonical_issue_id,issue_version:issue.updated_at,order_id:order.canonical_order_id,issue_status:issue.status,is_active:issue.is_active,order_state:order.canonical_state,
     response_hash:responseHash,response:{intent:response.customer_intent,date:response.requested_date || null,window:response.requested_time_window || null,time_from:response.time_from || null},
