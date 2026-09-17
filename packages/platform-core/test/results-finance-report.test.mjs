@@ -273,3 +273,47 @@ test('known lost orders are not presented as in transit and independent confirme
   assert.equal(result.counts.deliveryRatePercent,33.33);
   assert.equal(result.accounting.closedThrough,null);
 });
+
+function auditedPurchaseSource() {
+  const costs={productCost:0,outboundShippingCost:4.06,outboundFulfillmentCost:1,codCost:1.2,returnCost:0,dropeaAdjustmentsCost:0};
+  const rows=[
+    {orderId:'9001',createdDay:'2026-09-01',settlementDay:'2026-09-15',status:'DELIVERED',breakdownStatus:'DROPEA_FINAL',units:1,realizedRevenue:29.99,...costs,productCost:1.01,dropeaAdjustmentsCost:1.13,recognizedCost:8.4,contributionAfterProduct:21.59},
+    {orderId:'9002',createdDay:'2026-09-02',settlementDay:'2026-09-16',status:'DELIVERED',breakdownStatus:'DROPEA_FINAL',units:1,realizedRevenue:29.99,...costs,productCost:1.01,recognizedCost:7.27,contributionAfterProduct:22.72},
+    {orderId:'9003',createdDay:'2026-09-01',settlementDay:'2026-09-17',status:'RETURNED',breakdownStatus:'DROPEA_FINAL',units:3,realizedRevenue:0,...costs,codCost:0,returnCost:5.06,recognizedCost:10.12,contributionAfterProduct:-10.12}
+  ];
+  const fields=['productCost','outboundShippingCost','outboundFulfillmentCost','codCost','returnCost','dropeaAdjustmentsCost'];
+  const days=Array.from({length:3},(_,i)=>{
+    const day=`2026-09-0${i+1}`;const group=rows.filter(r=>r.createdDay===day);
+    return {day,created:group.length,delivered:group.filter(r=>r.status==='DELIVERED').length,returned:group.filter(r=>r.status==='RETURNED').length,realRevenue:group.reduce((n,r)=>n+r.realizedRevenue,0),...Object.fromEntries(fields.map(f=>[f,group.reduce((n,r)=>n+r[f],0)])),metaSpend:i===0?5:i===1?3:0,fixedCosts:0,oneOffCosts:0,otherCosts:0};
+  });
+  return source('2026-09',3,{orders:rows,days,counts:{created:3,confirmed:3,sent:3,delivered:2,returned:1,inTransit:0,pending:0,cancelled:0},totals:{...Object.fromEntries(fields.map(f=>[f,Number(rows.reduce((n,r)=>n+r[f],0).toFixed(2))])),realRevenue:59.98,totalCosts:33.79,exactNetProfit:26.19,metaSpend:8,fixedCosts:0,oneOffCosts:0,otherCosts:0}});
+}
+
+test('purchase-day controls include per-order VAT once and actual multi-unit return cost once',()=>{
+  const report=buildResultsFinanceReport({month:'2026-09',supplementalReports:[auditedPurchaseSource()],now:new Date('2026-09-17T17:00:00Z')});
+  assert.equal(report.controls.sourceDailyCohortCountsReconciled,true);
+  assert.equal(report.controls.sourceDailyCohortAmountsReconciled,true);
+  assert.equal(report.controls.sourceSettledCostsReconciled,true);
+  assert.equal(report.controls.sourceSettledProfitReconciled,true);
+  assert.equal(report.days[0].delivered,1);assert.equal(report.days[1].delivered,1);
+  assert.equal(report.totals.dropeaAdjustmentsCost,1.13);assert.equal(report.totals.returnCost,5.06);
+  assert.equal(report.totals.exactNetProfit,26.19);
+  assert.equal(Number(report.days.reduce((n,r)=>n+r.netProfit,0).toFixed(2)),26.19);
+});
+
+test('daily cohort audit detects date mixing even when monthly revenue and costs still reconcile',()=>{
+  const s=auditedPurchaseSource();s.days[0].realRevenue+=10;s.days[1].realRevenue-=10;s.days[0].delivered++;
+  const r=buildResultsFinanceReport({month:'2026-09',supplementalReports:[s],now:new Date('2026-09-17T17:00:00Z')});
+  assert.equal(r.controls.sourceDailyRevenueReconciled,true);
+  assert.equal(r.controls.sourceDailyCohortAmountsReconciled,false);
+  assert.equal(r.controls.sourceDailyCohortCountsReconciled,false);
+  assert.equal(r.quality.status,'REVIEW');
+});
+
+test('duplicate VAT recognition and missing purchase date fail the per-order audit',()=>{
+  const s=auditedPurchaseSource();s.orders[0].recognizedCost+=1.13;s.orders[1].createdDay=null;
+  const r=buildResultsFinanceReport({month:'2026-09',supplementalReports:[s],now:new Date('2026-09-17T17:00:00Z')});
+  assert.equal(r.controls.sourceCreationDatesComplete,false);
+  assert.equal(r.controls.sourceSettledCostsReconciled,false);
+  assert.equal(r.quality.status,'REVIEW');
+});

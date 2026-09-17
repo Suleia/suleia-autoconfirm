@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260917-results-daily-v4">
+  <link rel="stylesheet" href="styles.css?v=20260917-purchase-cohort-v5">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -80,7 +80,7 @@
         <section id="finance-hero" class="finance-hero"></section>
         <section class="results-chart-grid" aria-label="Gráficos de resultados">
           <article class="finance-panel daily-chart-panel">
-            <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA</p><h3 id="finance-daily-title">Ganancia o pérdida por día</h3></div><div class="chart-heading-actions"><select id="finance-daily-basis" class="mini-select" aria-label="Base de cálculo del gráfico y tabla diaria"><option value="settlement">Entregas / devoluciones reales</option><option value="cohort">Pedidos creados ese día</option></select><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Resultado</button><button id="finance-chart-pnl" type="button">Ingresos y costes</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
+            <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA · FECHA DE COMPRA</p><h3 id="finance-daily-title">Ganancia o pérdida por día</h3></div><div class="chart-heading-actions"><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Resultado</button><button id="finance-chart-pnl" type="button">Ingresos y costes</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
             <p id="finance-daily-model" class="daily-model-note"></p>
             <div id="finance-trend" class="finance-chart" aria-label="Evolución diaria del beneficio"></div>
           </article>
@@ -156,6 +156,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260917-results-daily-v4" defer></script>
+  <script src="app.js?v=20260917-purchase-cohort-v5" defer></script>
 </body>
 </html>

@@ -48,19 +48,27 @@ try {
     assert.equal(round(report.days.reduce((n,r)=>n+r.fixedCosts,0)),report.totals.fixedCosts);
     context.__results.state.finance=report;context.__results.state.financeDailyBasis='settlement';context.__results.renderResultsFinance();
     assert.equal(get('finance-hero').children.length,10);
-    assert.match(get('finance-daily').textContent,/TOTAL · LIQUIDACIONES/);
-    assert.match(get('finance-daily-caption').textContent,/no el de pedidos creados/);
-    assert.equal(get('finance-return-rates').children[0].children.length,5);
-    const chart=get('finance-trend').children[0];const svg=chart.children.find(c=>c.tagName==='svg');
-    const bars=svg.children.filter(c=>c.role==='button');assert.equal(bars.length,report.dailySettlements.days.length);
-    bars[0].events.click();assert.equal(context.__results.state.financeSelectedDay,report.dailySettlements.days[0].day);
+    assert.match(get('finance-daily').textContent,/TOTAL DEL MES/);
+    assert.match(get('finance-daily-caption').textContent,/misma cohorte/);
+    assert.match(get('finance-daily').textContent,new RegExp(new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(report.totals.exactNetProfit).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+    assert.match(get('finance-return-rates').children[0].children[1].className || '',/donut-layout/);
+    const chart=get('finance-trend').children[0];const svg=chart.children[1].children[0];
+    const bars=svg.children.filter(c=>c.role==='button');assert.equal(bars.length,report.days.length);
+    assert.equal(svg.children.filter(c=>c.class==='chart-day-label').length,report.days.length);
+    bars[0].events.click();assert.equal(context.__results.state.financeSelectedDay,report.days[0].day);
+    const calendar=chart.children.find(c=>c.className==='daily-result-calendar');assert.equal(calendar.children.length,report.days.length);
+    for(const day of ['2026-09-05','2026-09-12','2026-09-13','2026-09-15']){const index=report.days.findIndex(r=>r.day===day);if(index>=0){calendar.children[index].events.click();assert.equal(context.__results.state.financeSelectedDay,day);assert.match(get('finance-trend').textContent,/Pedidos comprados este día/);}}
+    const footer=get('finance-daily').children[0].children[0].children.at(-1).children[0];
+    assert.equal(footer.children[2].textContent,new Intl.NumberFormat('es-ES').format(report.counts.delivered));
+    assert.equal(footer.children[3].textContent,new Intl.NumberFormat('es-ES').format(report.counts.returned));
     context.__results.state.financeDailyBasis='cohort';context.__results.renderResultsFinance();
     assert.match(get('finance-daily').textContent,/TOTAL DEL MES/);
     console.log(JSON.stringify({month,uiRendered:true,htmlControlsVerified:true,dailyBars:bars.length,returnRate:report.counts.returnRatePercent,
       inTransit:report.counts.inTransit,otherOutcome:report.counts.otherOutcome,cohortProfit:report.totals.exactNetProfit,
       fixedMonthly:report.totals.fixedCosts,settlementFixed:report.dailySettlements.totals.fixedCosts,
       calendarSettlements:report.dailySettlements.eventCounts,settlementAudit:report.dailySettlements.audit,
-      currentDay:report.dailySettlements.days.at(-1).day,currentDayProfit:report.dailySettlements.days.at(-1).netProfit,
+      currentDay:report.days.at(-1).day,currentDayProfit:report.days.at(-1).netProfit,
+      focusDays:report.days.filter(r=>['2026-09-05','2026-09-12','2026-09-13','2026-09-15'].includes(r.day)).map(r=>({day:r.day,created:r.created,delivered:r.delivered,returned:r.returned,revenue:r.realRevenue,profit:r.netProfit})),
       failedControls:failed,role:role.rows[0].role,actions:0,writes:0}));
   }
 } finally {await repo.close();}

@@ -696,7 +696,7 @@ function comparisonText(field, mode = 'percent') {
   return `${value >= 0 ? '↗' : '↘'} ${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 1 }).format(Math.abs(value))}${suffix} respecto al periodo anterior`;
 }
 function miniSparkline(values, tone) {
-  const series = (values || []).map(Number).filter(Number.isFinite); const svg = svgEl('svg', { viewBox: '0 0 120 28', class: `metric-sparkline ${tone || ''}`, 'aria-hidden': 'true' });
+  const series = (values || []).filter(value=>value!==null&&value!==undefined).map(Number).filter(Number.isFinite); const svg = svgEl('svg', { viewBox: '0 0 120 28', class: `metric-sparkline ${tone || ''}`, 'aria-hidden': 'true' });
   if (!series.length) return svg;
   const low = Math.min(...series); const high = Math.max(...series); const spread = Math.max(1, high - low);
   const points = series.map((value, index) => `${series.length === 1 ? 60 : index * 116 / (series.length - 1) + 2},${25 - (value - low) * 20 / spread}`).join(' ');
@@ -728,27 +728,24 @@ function niceMoneyScale(values, tickCount = 4) {
 }
 function appendSvgTitle(element, content) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = content; element.append(title); return element; }
 function selectedDailyView(data) {
-  if (state.financeDailyBasis==='settlement' && data.dailySettlements) {
-    const rows=data.dailySettlements.days || [];
-    const created=rows.every(r=>r.created!==null&&r.created!==undefined) ? rows.reduce((n,r)=>n+Number(r.created),0) : null;
-    return {...data,...data.dailySettlements,counts:{...data.counts,created},dailyBasis:'settlement'};
-  }
+  // The owner-selected purchase cohort is the same basis as the monthly KPI.
+  // Settlement diagnostics remain available in the API, never merged here.
   return {...data,dailyBasis:'cohort'};
 }
 function dailyDetail(row,currency) {
   const root=node('section','daily-detail'); root.setAttribute('aria-live','polite');
   const pending=row.netProfit===null || row.netProfit===undefined; const positive=Number(row.netProfit)>=0;
   const lead=node('div',`daily-detail-lead ${pending?'pending':positive?'positive':'negative'}`);
-  lead.append(stacked(date(row.day,true),row.closeLabel || 'Estado actual de pedidos'),stacked(pending?'Resultado no disponible':positive?'Ganancia del día':'Pérdida del día',money(row.netProfit,currency))); root.append(lead);
+  lead.append(stacked(date(row.day,true),`Pedidos comprados este día · ${row.closeLabel || 'estado actual en Dropea'}`),stacked(pending?'Resultado no disponible':positive?'Ganancia diaria':'Pérdida diaria',money(row.netProfit,currency))); root.append(lead);
   const stats=node('div','daily-detail-stats'); [['Facturación',money(row.realRevenue,currency)],['Costes totales',money(row.totalCosts,currency)],['Entregados',row.delivered===null?'—':number(row.delivered)],['Devueltos',row.returned===null?'—':number(row.returned)]].forEach(([label,value])=>stats.append(stacked(label,value))); root.append(stats);
-  const costs=node('dl','daily-detail-costs'); [['Producto','productCost'],['Envío','outboundShippingCost'],['Fulfillment','outboundFulfillmentCost'],['COD','codCost'],['Devolución','returnCost'],['Ajustes Dropea','dropeaAdjustmentsCost'],['Meta del día','metaSpend'],['Fijos','fixedCosts'],['Puntuales','oneOffCosts'],['Otros','otherCosts']].forEach(([label,key])=>{const item=node('div'); item.append(node('dt','',label),node('dd','',money(row[key],currency))); costs.append(item);}); root.append(costs);
+  const costs=node('dl','daily-detail-costs'); [['Producto','productCost'],['Envío','outboundShippingCost'],['Fulfillment','outboundFulfillmentCost'],['COD','codCost'],['Devolución','returnCost'],['Ajustes / IVA Dropea','dropeaAdjustmentsCost'],['Meta del día','metaSpend'],['Fijos','fixedCosts'],['Puntuales','oneOffCosts'],['Otros','otherCosts']].forEach(([label,key])=>{const item=node('div'); item.append(node('dt','',label),node('dd','',money(row[key],currency))); costs.append(item);}); root.append(costs);
   return root;
 }
 function dailyResultsChart(days, currency) {
   const rows = (days || []).filter((row) => row.day);
   const root = node('div', 'daily-results-chart');
   if (!rows.length) { root.append(stacked('Todavía no hay días conciliados', 'Los datos aparecerán cuando se complete la primera sincronización.')); return root; }
-  const mode = state.financeChartMode; const width = 820; const height = 320; const left = 52; const right = 24; const top = 30; const bottom = 46;
+  const mode = state.financeChartMode; const width = Math.max(820,rows.length*36+76); const height = 320; const left = 52; const right = 24; const top = 30; const bottom = 46;
   const primaryValues = (mode === 'pnl' ? rows.flatMap((row) => [row.realRevenue, row.totalCosts, row.netProfit]) : rows.map((row) => row.netProfit)).filter(value=>value!==null&&value!==undefined);
   const scale = niceMoneyScale(primaryValues); const range = Math.max(1, scale.maximum - scale.minimum); const plotWidth = width - left - right; const plotHeight = height - top - bottom;
   const x = (index) => left + (index + .5) * plotWidth / rows.length; const y = (value) => top + (scale.maximum - Number(value || 0)) / range * plotHeight;
@@ -760,8 +757,8 @@ function dailyResultsChart(days, currency) {
     const label = svgEl('text', { x: left - 6, y: gridY + 4, class: 'chart-axis-label', 'text-anchor': 'end' });
     label.textContent = `${Math.round(tick)} €`; svg.append(label);
   });
-  const detail=node('div','daily-detail-slot'); const groups=[];
-  const selectDay=row=>{state.financeSelectedDay=row.day; detail.replaceChildren(dailyDetail(row,currency)); groups.forEach(([day,group])=>group.setAttribute('class',`chart-day-group${day===row.day?' is-selected':''}`));};
+  const detail=node('div','daily-detail-slot'); const groups=[]; const buttons=[];
+  const selectDay=row=>{state.financeSelectedDay=row.day; detail.replaceChildren(dailyDetail(row,currency)); groups.forEach(([day,group])=>group.setAttribute('class',`chart-day-group${day===row.day?' is-selected':''}`)); buttons.forEach(([day,button])=>{button.classList.toggle('is-selected',day===row.day);button.setAttribute('aria-pressed',String(day===row.day));});};
   const groupWidth = plotWidth / rows.length; const profitWidth = Math.max(5, Math.min(24, groupWidth * (mode === 'pnl' ? .22 : .68)));
   rows.forEach((row, index) => {
     const center = x(index); const profit = Number(row.netProfit || 0); const missing=row.netProfit===null||row.netProfit===undefined; const partial = row.closeStatus === 'CURRENT_PARTIAL' ? ' partial' : '';
@@ -777,17 +774,20 @@ function dailyResultsChart(days, currency) {
       const profitY = y(profit); group.append(svgEl('rect', { x: center + widthPnl * .7, y: Math.min(zeroY, profitY), width: widthPnl, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 2, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }));
     } else {
       const profitY = y(profit); group.append(svgEl('rect', { x: center - profitWidth / 2, y: Math.min(zeroY, profitY), width: profitWidth, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 3, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }));
-      if(rows.length<=18) {const value=svgEl('text',{x:center,y:profit>=0?profitY-7:profitY+13,class:`daily-bar-value ${profit>=0?'positive':'negative'}`,'text-anchor':'middle'});value.textContent=`${profit>=0?'+':''}${Math.round(profit)}€`;group.append(value);}
+      {const value=svgEl('text',{x:center,y:profit>=0?profitY-7:profitY+13,class:`daily-bar-value ${profit>=0?'positive':'negative'}`,'text-anchor':'middle'});value.textContent=`${profit>=0?'+':''}${Math.round(profit)}€`;group.append(value);}
     }
     svg.append(group);
-    if (index === 0 || index === rows.length - 1 || Number(row.day.slice(-2)) % 5 === 0) { const label = svgEl('text', { x: center, y: height - 16, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = Number(row.day.slice(-2)); svg.append(label); }
+    const label = svgEl('text', { x: center, y: height - 16, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = Number(row.day.slice(-2)); svg.append(label);
     if (row.closeStatus === 'CURRENT_PARTIAL') { const partialLabel = svgEl('text', { x: center, y: height - 5, class: 'chart-partial-label', 'text-anchor': 'middle' }); partialLabel.textContent = 'PARCIAL'; svg.append(partialLabel); }
   });
   const legend = node('div', 'chart-legend'); const series = mode === 'pnl' ? [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio']] : [['profit', 'Beneficio diario'], ['loss', 'Pérdida diaria']]; series.forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); });
   const summary=node('div','daily-performance-summary'); const completeRows=rows.filter(row=>row.netProfit!==null&&row.netProfit!==undefined);
   [['Días con ganancia',completeRows.filter(r=>r.netProfit>0).length,'positive'],['Días con pérdida',completeRows.filter(r=>r.netProfit<0).length,'negative'],['Sin datos completos',rows.length-completeRows.length,'pending']].forEach(([label,value,tone])=>{const box=node('div',tone);box.append(node('strong','',String(value)),node('span','',label));summary.append(box);});
+  const calendar=node('div','daily-result-calendar'); calendar.setAttribute('aria-label','Resultado de todos los días por fecha de compra');
+  rows.forEach(row=>{const missing=row.netProfit===null||row.netProfit===undefined;const button=node('button',`daily-result-day ${missing?'pending':Number(row.netProfit)>=0?'positive':'negative'}`);button.type='button';button.append(node('span','',`Día ${Number(row.day.slice(-2))}`),node('strong','',money(row.netProfit,currency)));button.setAttribute('aria-label',`${date(row.day,true)} · ${money(row.netProfit,currency)} · ver desglose`);button.addEventListener('click',()=>selectDay(row));buttons.push([row.day,button]);calendar.append(button);});
   selectDay(rows.find(row=>row.day===state.financeSelectedDay)||rows.at(-1));
-  root.append(summary,svg,legend,node('p','chart-instruction','Pasa el cursor, toca una barra o usa las flechas del teclado para ver el desglose.'),detail); return root;
+  const viewport=node('div','daily-chart-viewport');svg.style.minWidth=`${width}px`;viewport.append(svg);
+  root.append(summary,viewport,legend,node('p','chart-instruction','Cada barra y tarjeta corresponde a los pedidos comprados ese día. Selecciona cualquier día para ver sus ingresos y todos sus costes.'),calendar,detail); return root;
 }
 function donutChart(value, centerLabel, rows, tone = 'green') {
   const root = node('div', 'donut-layout'); const donut = node('div', `result-donut ${tone}`); const palette = { green: '#17a874', blue: '#1478ed', red: '#f04f72', gray: '#a9b6c2' }; const total = rows.reduce((sum, row) => sum + Number(row[1] || 0), 0); let angle = 0; const stops = rows.map(([, count, color]) => { const start = angle; angle += total ? Number(count || 0) * 360 / total : 0; return `${palette[color] || palette.gray} ${start}deg ${angle}deg`; }); donut.style.background = `conic-gradient(${stops.join(',') || '#e8eff5 0deg 360deg'})`;
@@ -809,13 +809,13 @@ function monthlyHistoryChart(history, currency) {
   const points = rows.map((row, index) => `${x(index)},${marginY(row.totals?.marginPercent)}`).join(' '); svg.append(svgEl('polyline', { points, class: 'chart-margin-line', fill: 'none' })); rows.forEach((row, index) => svg.append(appendSvgTitle(svgEl('circle', { cx: x(index), cy: marginY(row.totals?.marginPercent), r: 2.7, class: 'chart-margin-point' }), `${monthLabel(row.month || row.period?.month)} · Margen ${percentNumber(row.totals?.marginPercent)}`)));
   const legend = node('div', 'chart-legend'); [['profit', 'Beneficio'], ['loss', 'Pérdida'], ['margin', 'Margen neto %'], ['partial', 'Mes parcial']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); }); root.append(svg, legend); return root;
 }
-function monthlyReturnRateChart(history) {
-  const root=node('div','monthly-return-rates'); const rows=(history || []).slice().sort((a,b)=>a.month.localeCompare(b.month));
-  if(!rows.length) return stacked('Sin histórico de devoluciones','No hay meses con fuente de pedidos.');
-  rows.forEach(row=>{const sent=Number(row.counts?.sent || 0);const returned=Number(row.counts?.returned || 0);const rate=sent?returned*100/sent:null;const item=node('button',`return-rate-month${row.month===state.finance?.period?.month?' is-selected':''}`);item.type='button';
-    item.setAttribute('aria-label',`${monthLabel(row.month)} · ${percentNumber(rate)} · ${returned} pedidos devueltos de ${sent} enviados`);
-    const top=node('div');top.append(node('span','',monthLabel(row.month)),node('strong','',percentNumber(rate)));const track=node('span','return-rate-track');const fill=node('i');fill.style.width=`${rate===null?0:Math.min(100,rate)}%`;track.append(fill);
-    const unsettled=Math.max(0,sent-Number(row.counts?.delivered || 0)-returned);item.append(top,track,node('small','',`${returned} devueltos / ${sent} enviados${unsettled?` · ${unsettled} sin resultado final`:''}`));item.addEventListener('click',()=>{$('finance-month').value=row.month;loadResultsFinance();});root.append(item);});return root;
+function monthlyReturnRateChart(data) {
+  const counts=data.counts || {};const sent=counts.sent;const returned=counts.returned;
+  const root=node('div','selected-month-return');root.append(node('p','return-month-label',monthLabel(data.period?.month)));
+  if(sent===null||sent===undefined||returned===null||returned===undefined||Number(sent)===0){root.append(stacked('Tasa no disponible','No hay pedidos enviados verificados en el mes seleccionado.'));return root;}
+  root.append(donutChart(Number(returned)*100/Number(sent),'Devueltos',[
+    ['Devueltos',returned,'red'],['Entregados',counts.delivered,'green'],['En tránsito',counts.inTransit,'blue'],['Incidencia / otro',counts.otherOutcome ?? Math.max(0,Number(sent)-Number(returned)-Number(counts.delivered||0)-Number(counts.inTransit||0)),'gray']
+  ],'red'),node('p','return-rate-description',`${number(returned)} devueltos de ${number(sent)} enviados · pedidos comprados en este mes`));return root;
 }
 function costBreakdown(totals, currency) {
   const logistics = ['outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost', 'dropeaAdjustmentsCost'].reduce((sum, key) => sum + Number(totals[key] || 0), 0);
@@ -839,7 +839,7 @@ function dailyTable(data, currency) {
   const columns = [
     ['Fecha', 'day'], ['Creados', 'created'], ['Entregados', 'delivered'], ['Devueltos', 'returned'], ['Facturación', 'realRevenue'],
     ['Producto', 'productCost'], ['Envío', 'outboundShippingCost'], ['Fulfillment', 'outboundFulfillmentCost'], ['COD', 'codCost'],
-    ['Devoluciones', 'returnCost'], ['Ajustes Dropea', 'dropeaAdjustmentsCost'], ['Meta Ads', 'metaSpend'],
+    ['Devoluciones', 'returnCost'], ['Ajustes / IVA Dropea', 'dropeaAdjustmentsCost'], ['Meta Ads', 'metaSpend'],
     ['Fijos', 'fixedCosts'], ['Puntuales', 'oneOffCosts'], ['Otros', 'otherCosts'],
     ['Costes totales', 'totalCosts'], ['Beneficio neto', 'netProfit'], ['Margen', 'marginPercent'], ['ROI', 'roiPercent'], ['ROAS', 'roas']
   ];
@@ -855,8 +855,8 @@ function dailyTable(data, currency) {
   (data.days || []).slice().reverse().forEach((row) => { const tr = node('tr', Number(row.netProfit || 0) < 0 ? 'loss-row' : 'profit-row'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', cellValue(row, key)); tr.append(td); }); body.append(tr); });
   const totalRow = {
     day: 'TOTAL', created: data.counts?.created,
-    delivered: data.dailyBasis==='settlement' ? data.eventCounts?.delivered : data.eventCounts?.delivered ?? data.counts?.delivered,
-    returned: data.dailyBasis==='settlement' ? data.eventCounts?.returned : data.eventCounts?.returned ?? data.counts?.returned,
+    delivered: data.counts?.delivered,
+    returned: data.counts?.returned,
     ...totals, netProfit: totals.exactNetProfit
   };
   const foot = node('tfoot'); const tr = node('tr'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', key === 'day' ? (data.dailyBasis==='settlement'?'TOTAL · LIQUIDACIONES':'TOTAL DEL MES') : cellValue(totalRow, key)); tr.append(td); }); foot.append(tr); table.append(head, body, foot);
@@ -877,7 +877,11 @@ async function saveResultExpense(event) {
   try { await api('/api/operations/finance/fixed-expenses', { method: 'POST', body }); state.financeCache.clear(); closeResultExpenseForm(); await loadResultsFinance({ force: true }); showNotice('Gasto guardado y resultado mensual recalculado.'); } catch (error) { $('finance-fixed-feedback').textContent = error.message; } finally { submit.disabled = false; }
 }
 function renderResultsFinance() {
-  const data = state.finance; if (!data) return; const totals = data.totals || {}; const counts = data.counts || {}; const eventCounts = data.eventCounts || {}; const currency = data.currency || 'EUR';
+  const sourceData = state.finance; if (!sourceData) return;
+  // Never relabel an event-date outage fallback as purchase-cohort profit.
+  const wrongBasis=sourceData.temporalModels?.pnl==='REALIZED_EVENT_DATE';
+  const data=wrongBasis?{...sourceData,days:[],history:[],totals:Object.fromEntries(Object.keys(sourceData.totals||{}).map(k=>[k,null])),quality:{status:'REVIEW',issues:['PURCHASE_COHORT_UNAVAILABLE']},controls:{...sourceData.controls,purchaseCohortAvailable:false},warnings:['Informe por fecha de compra no disponible. No se sustituyen sus importes por liquidaciones de otros meses.']}:sourceData;
+  const totals = data.totals || {}; const counts = data.counts || {}; const currency = data.currency || 'EUR';
   $('last-sync').textContent = date(data.generatedAt); const current = data.period?.current;
   const closedThrough = data.accounting?.closedThrough; const pendingDays = number(data.accounting?.pendingDays);
   const accountingLabel = current
@@ -885,8 +889,7 @@ function renderResultsFinance() {
       ? `Parcial · cierre contable hasta ${date(closedThrough, true)}${pendingDays ? ` · ${pendingDays} día(s) pendiente(s)` : ' · día actual parcial'}`
       : `Cohorte actualizada hasta ${date(data.accounting?.observedThrough || data.period?.until,true)} · hoy parcial`
     : `Estado actual del mes${Number(data.accounting?.unsettledOrders || 0)>0?` · ${number(data.accounting.unsettledOrders)} pedidos sin resultado final`:''}`;
-  $('finance-exactness').textContent = data.quality?.status === 'OK' || current
-    ? accountingLabel : `Revisión de datos · ${number(data.quality?.issues?.length)} aviso(s)`;
+  $('finance-exactness').textContent = `${accountingLabel}${data.quality?.status === 'OK'?'':` · Revisión de datos: ${number(data.quality?.issues?.length)} aviso(s)`}`;
   const days = (data.days || []).filter((row) => row.day);
   const availability = current ? `${data.dataAvailability?.label || `MTD · día ${data.period.elapsedDays}`} · ${accountingLabel}`
     : (data.dataAvailability?.label || 'Mes completo');
@@ -904,23 +907,22 @@ function renderResultsFinance() {
     resultMetric('Devueltos', number(counts.returned), 'Pedidos creados en el mes devueltos; coste real por pedido', 'loss', 'returns', days.map((row) => row.returned)),
     resultMetric('En tránsito', number(counts.inTransit ?? counts.inAir), 'Enviados sin entrega ni devolución; no incluye incidencias', 'revenue', 'transit', [])
   );
-  const daily=selectedDailyView(data); $('finance-daily-basis').value=daily.dailyBasis;
-  $('finance-daily-model').textContent=daily.dailyBasis==='settlement'
-    ? `${daily.label}. ${daily.limitation}`
-    : 'Pedidos creados cada día con su estado actual. Los costes de pedidos pendientes pueden producir pérdidas provisionales: no representa las entregas de ese día. Reparte el cargo fijo mensual completo entre los días observados.';
+  const daily=selectedDailyView(data);
+  $('finance-daily-model').textContent='Por fecha de compra: entregados y devueltos son el resultado actual de los pedidos comprados ese día. Ingresos solo de entregados; costes de pedidos pendientes ya reconocidos también se restan. El mes en curso es provisional. Los fijos incluyen el compromiso mensual completo, repartido entre los días observados.';
   $('finance-trend').replaceChildren(dailyResultsChart(daily.days, currency));
   $('finance-delivery-chart').replaceChildren(donutChart(counts.deliveryRatePercent, 'Entregados', [['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inTransit, 'blue'], ['Devueltos', counts.returned, 'red'], ['Incidencia / otro', counts.otherOutcome, 'gray']], 'green'));
   $('finance-confirmation-chart').replaceChildren(donutChart(counts.confirmationRatePercent, 'Confirmados', [['Confirmados', counts.confirmed, 'blue'], ['No confirmados todavía', counts.pendingConfirmation, 'gray'], ['Cancelados antes de confirmar', counts.cancelledBeforeConfirmation, 'red']], 'blue'));
-  $('finance-history-chart').replaceChildren(monthlyHistoryChart(data.history, currency)); $('finance-return-rates').replaceChildren(monthlyReturnRateChart(data.history));
+  $('finance-history-chart').replaceChildren(monthlyHistoryChart(data.history, currency)); $('finance-return-rates').replaceChildren(monthlyReturnRateChart(data));
   for (const [id,kind] of [['finance-daily-title','profit'],['finance-delivery-title','delivery'],['finance-confirmation-title','confirmation'],['finance-history-title','history'],['finance-return-title','returns']]) {const title=$(id);const label=title.textContent;title.replaceChildren(financeIcon(kind),document.createTextNode(label));}
   $('finance-operational-summary').replaceChildren(operationalSummary(counts)); $('finance-data-summary').replaceChildren(dataQualitySummary(data));
   $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(daily, currency));
-  $('finance-daily-caption').textContent=daily.dailyBasis==='settlement'?'Tabla y gráfico usan fechas reales de entrega/devolución. Su total es el de liquidaciones del mes, no el de pedidos creados en el mes del resumen superior. Fijos devengados sobre días de calendario.':'Tabla y gráfico usan pedidos creados cada día. La fila TOTAL DEL MES concilia con los indicadores superiores; los recurrentes incluyen el cargo completo del mes.';
+  $('finance-daily-caption').textContent='Fecha de compra del pedido (Europe/Madrid). Entregados/devueltos muestran su estado actual en Dropea, no entregas ocurridas ese día. TOTAL DEL MES usa la misma cohorte, costes y beneficio que el resumen superior. Los fijos incluyen el cargo mensual completo.';
   $('finance-quality').replaceChildren(
     stacked('Modelo temporal', 'P&L y embudo por cohorte de creación · resultado final actual de Dropea'),
     stacked('Fuente de pedidos y costes', data.sources?.orders || 'Dropea Public API V2'),
     stacked('Fórmula', data.definitions?.netProfit || 'Facturación real − costes de Dropea − Meta − gastos mensuales'),
     stacked('Coste de devolución', data.definitions?.returnCost || 'Coste real del pedido; respaldo de 5,26 € por pedido devuelto'),
+    stacked('IVA', data.definitions?.vat || 'IVA y recargo aplicables por pedido incluidos en los gastos finales de Dropea y en Ajustes / IVA; no se añade un porcentaje general ni se cobran dos veces. La columna también incluye otros ajustes.'),
     stacked('Cobertura Dropea final', `${number(data.coverage?.dropeaBreakdownPercent)} %`),
     ...((data.warnings || []).slice(0, 8).map((warning) => stacked('Aviso de calidad', warning)))
   );
@@ -988,6 +990,5 @@ $('finance-fixed-cancel').addEventListener('click', closeResultExpenseForm);
 $('finance-fixed-form').addEventListener('submit', saveResultExpense);
 $('finance-chart-profit').addEventListener('click', () => { state.financeChartMode = 'profit'; $('finance-chart-profit').classList.add('is-active'); $('finance-chart-pnl').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(selectedDailyView(state.finance).days, state.finance.currency || 'EUR')); });
 $('finance-chart-pnl').addEventListener('click', () => { state.financeChartMode = 'pnl'; $('finance-chart-pnl').classList.add('is-active'); $('finance-chart-profit').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(selectedDailyView(state.finance).days, state.finance.currency || 'EUR')); });
-$('finance-daily-basis').addEventListener('change',event=>{state.financeDailyBasis=event.target.value;state.financeSelectedDay=null;if(state.finance)renderResultsFinance();});
 $('finance-history-window').addEventListener('change', (event) => { state.financeHistoryWindow = Number(event.target.value) || 6; if (state.finance) $('finance-history-chart').replaceChildren(monthlyHistoryChart(state.finance.history, state.finance.currency || 'EUR')); });
 init().catch(async (error) => { $('login').hidden = false; $('app').hidden = true; try { if (state.config) await prepareLogin(); } catch {} showLoginError(error.message); });

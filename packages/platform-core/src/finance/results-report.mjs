@@ -381,6 +381,14 @@ function authoritativeControls(source, days) {
       ['dropeaAdjustmentsCost', 'dropeaAdjustmentsCost']
     ];
     controls.sourceOrderIdsUnique = new Set(orders.map((row) => row.orderId)).size === orders.length;
+    controls.sourceCreationDatesComplete = orders.every(row=>/^\d{4}-\d{2}-\d{2}$/.test(row.createdDay || '')&&row.createdDay.startsWith(source.period.month));
+    const cohortByDay=new Map();
+    for(const row of orders){const group=cohortByDay.get(row.createdDay)||[];group.push(row);cohortByDay.set(row.createdDay,group);}
+    controls.sourceDailyCohortCountsReconciled=controls.sourceCreationDatesComplete&&days.every(day=>{
+      const rows=cohortByDay.get(day.day)||[];
+      return closeEnough(rows.length,day.created,0)&&closeEnough(rows.filter(r=>['DELIVERED','FINISHED'].includes(r.status)).length,day.delivered,0)
+        &&closeEnough(rows.filter(r=>r.status==='RETURNED').length,day.returned,0);
+    })&&closeEnough(sumRows(days,'created'),orders.length,0);
     const costs = ['productCost','outboundShippingCost','outboundFulfillmentCost','codCost','returnCost','dropeaAdjustmentsCost'];
     controls.sourceOrderCostsComplete = orders.every(row => costs.every(key => row[key] !== null && row[key] !== undefined && Number.isFinite(Number(row[key]))));
     const settled=orders.filter(row => ['DELIVERED','FINISHED','RETURNED'].includes(row.status));
@@ -389,6 +397,7 @@ function authoritativeControls(source, days) {
     controls.sourceSettledRevenueComplete = settled.every(row => row.status==='RETURNED' || row.realizedRevenue !== null && row.realizedRevenue !== undefined);
     controls.sourceSettledDatesComplete = settled.every(row => Boolean(row.settlementDay));
     for (const [field, total] of pairs) controls[`sourceOrder${total[0].toUpperCase()}${total.slice(1)}Reconciled`] = closeEnough(sumRows(orders, field), totals[total]);
+    controls.sourceDailyCohortAmountsReconciled=controls.sourceCreationDatesComplete&&days.every(day=>pairs.every(([field,total])=>closeEnough(sumRows(cohortByDay.get(day.day)||[],field),day[total])));
   }
   return controls;
 }
@@ -440,6 +449,7 @@ function mapAuthoritativeSource(source, month, currentDay, freshness, canonicalO
     definitions: { ...(source.definitions || {}),
       netProfit: 'Facturación entregada − costes reales por pedido de Dropea − Meta − gastos fijos/puntuales',
       returnCost: 'Coste real expuesto por Dropea para cada pedido devuelto; 5,26 € solo como respaldo si falta',
+      vat: 'IVA y recargo aplicables obtenidos de los gastos finales de cada pedido de Dropea; incluidos en los costes, no añadidos de nuevo. Ajustes / IVA también contiene otros cargos o ajustes reales.',
       period: 'Pedidos creados en el mes, valorados con su estado y desglose financiero final verificado' },
     costTraceability: source.costTraceability || {}, expenseLedger: source.expenseLedger || [],
     generatedAt: source.generatedAt || new Date().toISOString(), currency: source.currency || 'EUR',

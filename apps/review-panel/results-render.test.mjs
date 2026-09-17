@@ -46,7 +46,7 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   assert.equal(get('finance-hero').children.length, 10);
   assert.match(content(get('finance-hero')), /Beneficio mensual conciliado/);
   assert.match(content(get('finance-hero')), /1558,99/);
-  assert.equal(get('finance-trend').children[0].children[1].tagName, 'svg');
+  assert.equal(get('finance-trend').children[0].children[1].children[0].tagName, 'svg');
   assert.match(content(get('finance-daily')), /TOTAL DEL MES/);
   assert.match(content(get('finance-daily')), /Meta Ads/);
   assert.match(content(get('finance-daily')), /Fijos/);
@@ -59,28 +59,46 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   assert.match(content(get('finance-data-summary')), /Datos conciliados/);
   assert.doesNotMatch(content(get('finance-trend')), /Acumulado|Beneficio acumulado/);
   assert.equal(content(get('finance-order-ledger')), '');
-  assert.match(content(get('finance-return-rates')), /junio|julio/);
+  assert.match(content(get('finance-return-rates')), /julio/);
+  assert.doesNotMatch(content(get('finance-return-rates')), /junio/);
+  assert.equal(get('finance-return-rates').children[0].children[1].className,'donut-layout');
   assert.doesNotMatch(content(get('finance-return-rates')), /Creados|Confirmados/);
   const countTags=(element,tag)=>Number(element.tagName===tag)+element.children.reduce((n,c)=>n+(typeof c==='string'?0:countTags(c,tag)),0);
   assert.equal(countTags(get('finance-hero'),'svg'),20); // Distinct native icons + real sparklines.
   context.__results.state.finance.dailySettlements={label:'Fecha real',limitation:'No mezclar con cohorte',days:[{...context.__results.state.finance.days[0],realRevenue:300,netProfit:105.52,closeLabel:'Liquidaciones observadas'}],totals:{realRevenue:300,totalCosts:194.48,exactNetProfit:105.52},eventCounts:{delivered:10,returned:2}};
   context.__results.renderResultsFinance();
-  assert.match(content(get('finance-daily-model')), /Fecha real/);
-  assert.match(content(get('finance-daily-caption')), /no el de pedidos creados/);
-  assert.match(content(get('finance-trend')), /Ganancia del día|Meta del día/);
-  assert.match(content(get('finance-daily')), /TOTAL · LIQUIDACIONES/);
-  assert.match(content(get('finance-trend')), /105,52/);
+  assert.match(content(get('finance-daily-model')), /fecha de compra/);
+  assert.match(content(get('finance-daily-caption')), /misma cohorte/);
+  assert.match(content(get('finance-trend')), /Ganancia diaria|Meta del día/);
+  assert.match(content(get('finance-daily')), /TOTAL DEL MES/);
+  assert.doesNotMatch(content(get('finance-trend')), /105,52/);
+  assert.match(content(get('finance-daily')), /1558,99/);
+  const cohortFooter=get('finance-daily').children[0].children[0].children.at(-1).children[0];
+  assert.equal(cohortFooter.children[2].textContent,'280');
+  assert.equal(cohortFooter.children[3].textContent,'100');
   assert.equal(countTags(get('finance-trend'),'title'),0); // No enormous native tooltip.
-  const svg=get('finance-trend').children[0].children.find(c=>c.tagName==='svg');
+  const svg=get('finance-trend').children[0].children[1].children[0];
   const group=svg.children.find(c=>c.role==='button'); group.events.click();
   assert.equal(context.__results.state.financeSelectedDay,'2026-07-01');
-  const settlements=context.__results.state.finance.dailySettlements;
-  settlements.days=[{...settlements.days[0],created:null,delivered:null,returned:null,realRevenue:null,totalCosts:null,netProfit:null}];
-  settlements.eventCounts={delivered:null,returned:null};
-  settlements.totals={realRevenue:null,totalCosts:null,exactNetProfit:null};
+  const finance=context.__results.state.finance;
+  finance.days=[{...finance.days[0],created:null,delivered:null,returned:null,realRevenue:null,totalCosts:null,netProfit:null}];
+  finance.counts={created:null,delivered:null,returned:null};
+  finance.totals={realRevenue:null,totalCosts:null,exactNetProfit:null};
   context.__results.renderResultsFinance();
   const footer=get('finance-daily').children[0].children[0].children.at(-1).children[0];
   for(const index of [1,2,3]) assert.equal(footer.children[index].textContent,'—');
+  // Every day has an axis label and an exact, selectable amount, including
+  // previously unlabeled 12/13. Large negative amounts stay below zero.
+  finance.days=Array.from({length:31},(_,i)=>({...finance.days[0],day:`2026-07-${String(i+1).padStart(2,'0')}`,netProfit:i===12?-200:50,created:21,delivered:11,returned:0}));
+  context.__results.renderResultsFinance();
+  const calendar=get('finance-trend').children[0].children.find(c=>c.className==='daily-result-calendar');
+  assert.equal(calendar.children.length,31);
+  const allDaysSvg=get('finance-trend').children[0].children[1].children[0];
+  assert.equal(allDaysSvg.children.filter(c=>c.class==='chart-day-label').length,31);
+  for(const day of [5,12,13]){calendar.children[day-1].events.click();assert.equal(context.__results.state.financeSelectedDay,`2026-07-${String(day).padStart(2,'0')}`);assert.match(content(get('finance-trend')),/Pedidos comprados este día/);}
+  finance.temporalModels={pnl:'REALIZED_EVENT_DATE'};finance.totals={exactNetProfit:9999};
+  context.__results.renderResultsFinance();assert.doesNotMatch(content(get('finance-hero')),/9999/);assert.match(content(get('finance-quality')),/no disponible/);
+  delete finance.temporalModels;
   context.__results.state.finance.period = { month: '2026-09', current: true, elapsedDays: 13 };
   context.__results.state.finance.accounting = { closedThrough: '2026-09-12', pendingDays: 1, currentDayPartial: true };
   context.__results.state.finance.dataAvailability = { status: 'MTD', label: 'MTD · día 13' };

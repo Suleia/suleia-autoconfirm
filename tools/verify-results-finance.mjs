@@ -43,15 +43,19 @@ try {
     };
     process.stdout.write(`${JSON.stringify(summary)}\n`);
 
-    assert.equal(report.source, 'operations_canonical_finance_v3');
-    assert.equal(report.temporalModels.pnl, 'REALIZED_EVENT_DATE');
+    assert.equal(report.source, 'dropea_order_finance_v4');
+    assert.equal(report.temporalModels.pnl, 'ORDER_CREATION_COHORT_FINAL_BREAKDOWN');
     assert.equal(report.productionWrites, 0);
     assert.equal(report.actions_executed, 0);
     assert.equal(report.controls.confirmationCohortReconciled, true);
     assert.equal(report.controls.deliveryOutcomeReconciled, true);
-    assert.equal(report.eventCounts.delivered, report.days.reduce((sum, day) => sum + Number(day.delivered || 0), 0));
-    assert.equal(report.eventCounts.returned, report.days.reduce((sum, day) => sum + Number(day.returned || 0), 0));
-    assert.equal(report.totals.returnCost, Number((report.eventCounts.returned * 5.26).toFixed(2)));
+    assert.equal(report.counts.created, report.days.reduce((sum, day) => sum + Number(day.created), 0));
+    assert.equal(report.counts.delivered, report.days.reduce((sum, day) => sum + Number(day.delivered), 0));
+    assert.equal(report.counts.returned, report.days.reduce((sum, day) => sum + Number(day.returned), 0));
+    assert.ok(Object.values(report.controls).every(v=>v===true));
+    // A blanket 5.26 multiplication would replace the actual per-order cost.
+    const source=supplementalReports.find(r=>r.period.month===month);
+    assert.equal(report.totals.returnCost,Number(source.orders.reduce((n,r)=>n+Number(r.returnCost),0).toFixed(2)));
     assert.equal(report.totals.exactNetProfit,
       Number((report.totals.realRevenue - report.totals.totalCosts).toFixed(2)));
 
