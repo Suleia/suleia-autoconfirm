@@ -111,3 +111,45 @@ on the panel and independent direct Meta verification remains pending as above.
 Additional regression covers crossing midnight with a missing snapshot: incomplete
 event totals and the settlement footer stay unavailable rather than borrowing
 monthly cohort counts. Final release verification follows publication of that guard.
+
+### Final live verification, 2026-09-17
+
+Final deployed code: `854848e5ef53bfd85f676dc6072d0c5f5d798580`.
+The isolated deployment again confirmed preserved API environment/config/mounts,
+unchanged worker/MCP/scheduler/engine container identities and zero migrations.
+The API was healthy; no claim is made that the unchanged Chatby connector is healthy.
+All 563 canonical tests passed again (zero failures/skips).
+
+Public HTTPS asset hashes matched the release exactly (HTTP 200):
+
+| Asset | SHA-256 |
+| --- | --- |
+| app.js | `6fc4f81f95a288101ea573d2933097d83e8f96951e64db590a98d296d0b10d0f` |
+| styles.css | `ce33df4465a7b792071fdd6c9ff110d0537faf3d5b6dffaa47b786862f164801` |
+| index.html | `2800a445db202e346df5c0d41be56af7cd851c387bdea7ab6fe2c713d47594a9` |
+
+`tools/verify-results-live.mjs` was rerun against the final deployed module/HTML
+and the five private reports: all controls, both daily-table bases, chart day
+selection, ten metric cards, five-month return-rate history and reconciliations
+passed. Current-month results changed during observation as new returns arrived;
+they are snapshots, not immutable or finally closed figures.
+
+An additional direct order-level crosscheck at **2026-09-17 04:46:58 UTC** traversed
+17 Dropea pages / 1,613 orders and compared **all 1,114 settled report orders**:
+35 / 199 / 451 / 206 / 223 by creation month May–September.
+There were **zero** missing direct matches, outcome mismatches, settlement-date
+mismatches, Dropea-expense mismatches or nonfinal settled breakdowns.
+Only privacy-minimised projections were streamed in memory between the trusted
+services. No projections, customer identities, messages or credentials were saved
+or included in this repository. Zero actions/writes were performed.
+
+The September snapshot contained 372 created orders against 373 in the newer
+direct read. The final settled rows all matched; one newly observed nonsettled
+order was outside the older snapshot. Therefore the panel is not asserted to be
+transactionally realtime, and source observation times must be respected.
+
+For the remaining independent Meta leg, Render documents a per-key GET that avoids
+listing all environment secrets: [retrieve environment variable](https://api-docs.render.com/reference/retrieve-env-var).
+No credential GET was attempted after the security rejection. The remaining next
+step is explicit authorisation for only the stored Meta credential/config required
+for read-only account daily-insights verification, without exposing its value.
