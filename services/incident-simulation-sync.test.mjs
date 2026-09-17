@@ -60,7 +60,8 @@ test('incident sync preserves exact-order evidence after a later incident timest
       updated_at: '2026-09-01T17:07:03.475Z', observed_at: '2026-09-02T17:00:00Z',
       freshness: 'FRESH', source_version: '0.1.0', identity_status: 'EXACT', total_amount: 20,
       lifecycle_classification: 'ACTIVE', canonical_state: 'DELIVERY_ATTEMPTED',
-      delivery_attempt_number: '1', discount_status: 'NOT_OFFERED', conversation_status: 'FOUND'
+      delivery_attempt_number: '1', discount_status: 'NOT_OFFERED', conversation_status: 'FOUND',
+      conversation_freshness:'FRESH',conversation_observed_at:'2026-09-02T17:00:00Z'
     }] };
     if (!sql.includes('FROM operations.chatby_conversation_events')) return { rows: [] };
     assert.match(sql, /incident_version,relevance_status,intent/);

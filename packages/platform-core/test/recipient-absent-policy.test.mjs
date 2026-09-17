@@ -11,7 +11,7 @@ const input = () => ({ issue: { canonical_issue_id: 'i', canonical_order_id: 'o'
   carrier_retention_deadline: '2026-09-25T18:00:00Z', capability_status: 'VERIFIED',
   allowed_resolution_options: ['RETRY','RETURN_REQUESTED','CHANGE_ADDRESS','PICKUP_AT_AGENCY'] },
   order: { canonical_order_id: 'o', identity_status: 'EXACT', canonical_state: 'IN_TRANSIT' },
-  chatby: { verified: true, observed_at: now }, gls: { observed_at: now, capability_status: 'VERIFIED', calendar_verified:true, package_operable: true,
+  chatby: { verified: true, observed_at: now, template_status:'APPROVED' }, gls: { observed_at: now, capability_status: 'VERIFIED', calendar_verified:true, package_operable: true,
     pickup_point_verified: true, package_available_for_pickup: true }, events: [] });
 const event = raw_text => ({ canonical_issue_id: 'i', canonical_order_id: 'o', direction: 'INBOUND',
   relevance_status: 'CURRENT_ORDER_EXACT_MATCH', created_at: '2026-09-16T11:00:00Z', chatby_message_id: 'm', raw_text });
@@ -113,7 +113,7 @@ test('requested date outside verified retention is not feasible', () => {
   assert.equal(simulate(x).shadow.logistics_feasibility,'NOT_FEASIBLE');
 });
 test('existing 48h timer deadline is immutable; expiry only proposes shadow return', () => {
-  const x=input(); x.previousTimer={timer_id:'t',timer_type:'CUSTOMER_INITIAL_RESPONSE_48H',due_at:'2026-09-16T10:00:00Z',status:'ACTIVE'};
+  const x=input(); x.previousTimer={timer_id:'t',timer_type:'CUSTOMER_INITIAL_RESPONSE_48H',started_at:'2026-09-14T10:00:00Z',due_at:'2026-09-16T10:00:00Z',status:'ACTIVE'};
   const r=simulate(x); assert.equal(r.shadow.simulation_action,'WOULD_RETURN_TO_ORIGIN'); assert.deepEqual(r.shadow.existing_timer,x.previousTimer);
   assert.equal(r.decision.timer,null);
 });

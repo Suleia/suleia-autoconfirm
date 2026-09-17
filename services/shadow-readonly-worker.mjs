@@ -14,6 +14,7 @@ import { syncOperationalOrderSignals } from './integrations/chatby/operational-o
 import { syncRenderIncidentDiscountSignals } from './integrations/render/incident-discount-signal-sync.mjs';
 import { shadowWorkerHealth } from './shadow-worker-health.mjs';
 import { createAbsentLogisticsReader } from './integrations/gls/absent-read-context.mjs';
+import { prepareAbsentTemplateApproval } from './integrations/chatby/absent-template-admin.mjs';
 
 const config = loadShadowConfig();
 const repository = new ShadowRepository(config.databaseUrl);
@@ -34,6 +35,9 @@ let running = false, lastResult = null, lastError = null;
 // through health/API responses.
 const chatbySubscriberCache = {};
 const chatbyConversationCache = new Map();
+const absentSubscriberCache = {}, absentConversationCache = new Map(), absentLogisticsCache = new Map();
+let absentRunning=false, absentLastResult=null, absentLastError=null, absentTemplate=null;
+const absentReader=createAbsentLogisticsReader(dropeaClients);
 const webhookRate = new Map();
 
 function boundedMilliseconds(value, fallback, minimum) {
@@ -116,6 +120,7 @@ async function run() {
         chatby = await syncChatbyReadOnly({
           pool: repository.pool,
           projector: operationsProjector,
+          excludeRecipientAbsent: true,
           token: process.env.CHATBY_TOKEN,
           hmacKey: config.hashKey,
           baseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
@@ -154,7 +159,7 @@ async function run() {
       pool: repository.pool,
       projector: operationsProjector,
       privateDataKey: config.hashKey,
-      absentLogisticsRead: createAbsentLogisticsReader(dropeaClients),
+      excludeRecipientAbsent: true,
       maxRecords: Number(process.env.INCIDENT_SIMULATION_MAX_RECORDS || 500)
     });
     lastResult = { ok: legacy.ok && (dropea.ok ?? true) && chatby.ok && operationalSignals.ok
@@ -167,18 +172,56 @@ async function run() {
   finally { running = false; }
 }
 
+// Single owner of AUSENTE shadow decisions and its sole 48h response timer.
+// Independent reads: slow legacy ingestion cannot starve exact-case reads.
+async function runAbsent() {
+  if(absentRunning) return;
+  absentRunning=true;
+  try {
+    if(!absentTemplate || Date.now()-absentTemplate.checkedAt>3600000){
+      try {
+      const checked=await prepareAbsentTemplateApproval({token:process.env.CHATBY_TOKEN,baseUrl:process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',submit:false});
+      absentTemplate={status:checked.template_name==='dropea_ausente_v1' && checked.content_roundtrip_verified && checked.reused && !checked.created
+        ? checked.approval_status : 'CONTENT_NOT_VERIFIED',checkedAt:Date.now()};
+      } catch { absentTemplate={status:'NOT_VERIFIED',checkedAt:Date.now()-3540000}; audit({event:'absent_template_catalog_read_unavailable',mutations:0}); }
+    }
+    const chatby=await syncChatbyReadOnly({pool:repository.pool,projector:operationsProjector,token:process.env.CHATBY_TOKEN,hmacKey:config.hashKey,
+      onlyRecipientAbsent:true,maxConversations:10,maxPages:200,minRequestIntervalMs:chatbyMinRequestIntervalMs,retryBaseMs:chatbyRetryBaseMs,
+      subscriberCache:absentSubscriberCache,subscriberCacheTtlMs:240000,conversationCache:absentConversationCache,conversationCacheTtlMs:120000});
+    let reads=0;
+    const boundedLogistics=async issue=>{
+      const cached=absentLogisticsCache.get(issue.canonical_issue_id);
+      if(cached && Date.now()-cached.readAt<900000) return cached.context;
+      if(reads>=2) return cached?.context || {gls:{},reason:'GLS_READ_DEFERRED_BOUNDED_CYCLE'};
+      reads++;
+      const context=await absentReader(issue);
+      absentLogisticsCache.set(issue.canonical_issue_id,{readAt:Date.now(),context});
+      return context;
+    };
+    const incidents=await syncIncidentSimulations({pool:repository.pool,projector:operationsProjector,privateDataKey:config.hashKey,
+      onlyRecipientAbsent:true,absentLogisticsRead:boundedLogistics,absentTemplateStatus:absentTemplate.status});
+    absentLastResult={ok:chatby.ok && incidents.ok,completed_at:new Date().toISOString(),chatby,incidents}; absentLastError=null;
+    audit({event:'absent_shadow_cycle_completed',...absentLastResult});
+  } catch(error) {
+    absentLastError=String(error.code || 'ABSENT_SHADOW_CYCLE_FAILED').replace(/[^A-Z0-9_]/g,'_');
+    audit({event:'absent_shadow_cycle_failed',reason:absentLastError});
+  } finally {absentRunning=false;}
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (req.method === 'POST' && await receiveWebhook(req, res)) return;
   if (req.method === 'GET' && req.url === '/health') {
     const health = shadowWorkerHealth({ lastResult, lastError, running });
     res.statusCode = health.statusCode;
-    res.end(JSON.stringify(health.body)); return;
+    res.end(JSON.stringify({...health.body,absent_shadow:{running:absentRunning,last_completed_cycle_at:absentLastResult?.completed_at || null,last_sync_ok:absentLastResult?.ok ?? null,last_error:absentLastError}})); return;
   }
   res.statusCode = 404; res.end(JSON.stringify({ ok: false, error: 'not_found' }));
 });
 
 server.listen(Number(process.env.PORT || 3302), '0.0.0.0');
 run();
+runAbsent();
+const absentPoll=setInterval(runAbsent,120000); absentPoll.unref();
 const timer = setInterval(run, config.pollIntervalMs); timer.unref();
-process.on('SIGTERM', async () => { clearInterval(timer); server.close(); await repository.close(); });
+process.on('SIGTERM', async () => { clearInterval(timer); clearInterval(absentPoll); server.close(); await repository.close(); });

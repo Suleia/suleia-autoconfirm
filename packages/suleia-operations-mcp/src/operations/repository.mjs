@@ -73,6 +73,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
     ELSE 'NOT_VERIFIABLE'
   END AS operational_response_status,
   CASE
+    WHEN p.normalized_type='RECIPIENT_ABSENT' THEN p.effective_freshness_status
     WHEN p.last_successful_sync_at IS NULL
       OR p.last_successful_sync_at < now()-interval '900 seconds' THEN 'STALE'
     WHEN p.chatby_last_successful_sync_at IS NULL
@@ -117,7 +118,9 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
    FROM read_models.operations_private_incident_messages m
    WHERE m.canonical_issue_id=p.canonical_issue_id AND m.canonical_order_id=p.canonical_order_id
      AND m.direction='INBOUND' AND m.chatby_message_id_hash=p.scoped_customer_message_hash
-     AND m.occurred_at>p.incident_notified_at
+     AND (m.occurred_at>p.incident_notified_at OR (p.incident_notified_at IS NULL
+       AND p.normalized_type='RECIPIENT_ABSENT' AND p.notification_decision_current
+       AND p.scoped_response_reason='SHADOW_ISSUE_CREATED_ANCHOR_ONLY_NOT_NOTIFICATION' AND m.occurred_at>p.created_at))
    ORDER BY m.occurred_at DESC,m.chatby_message_id_hash DESC LIMIT 1
  ) private_message ON true)`;
 
@@ -152,11 +155,13 @@ function incidentSelection(searchParams) {
   if (absent) {
     selected.clauses.push("normalized_type='RECIPIENT_ABSENT'");
     const fields = { FIRST_ABSENCE: ['absence_attempt','FIRST_ABSENCE'], SECOND_ABSENCE: ['absence_attempt','SECOND_ABSENCE'],
+      ABSENCE_ATTEMPT_UNKNOWN:['absence_attempt','ABSENCE_ATTEMPT_UNKNOWN'],
       WAITING_CUSTOMER: ['waiting_customer','true'], CUSTOMER_RESPONDED: ['customer_response_status','RESPONDED'],
       RESCHEDULE_REQUESTED: ['customer_intent','RESCHEDULE_DELIVERY'], PICKUP_REQUESTED: ['customer_intent','PICKUP_AT_AGENCY'],
       LOGISTICS_VALIDATION_REQUIRED: ['current_step','LOGISTICS_VALIDATION_REQUIRED'], HUMAN_REVIEW_REQUIRED: ['simulation_status','HUMAN_REVIEW_REQUIRED'], SIMULATION_READY: ['simulation_status','SIMULATION_READY'] };
     const criterion = fields[absent];
     if (criterion) { selected.values.push(criterion[1]); selected.clauses.push(`absent_shadow->>'${criterion[0]}'=$${selected.values.length}`); }
+    if(absent==='STALE') selected.clauses.push("effective_freshness_status='STALE'");
   }
   if (scope === 'ACTIVE') selected.clauses.push("status='PENDING' AND is_active=true");
   else if (scope === 'HISTORICAL') selected.clauses.push("NOT (status='PENDING' AND is_active=true)");
@@ -477,6 +482,20 @@ export class OperationsRepository {
            count(*) FILTER (WHERE operational_freshness_status<>'FRESH')::integer AS stale,
            count(*) FILTER (WHERE effective_timer_status='EXPIRED')::integer AS timers_expired,
            count(*) FILTER (WHERE interpreted_type='RECIPIENT_ABSENT')::integer AS recipient_absent,
+           jsonb_build_object(
+             'AUSENTE',count(*) FILTER(WHERE normalized_type='RECIPIENT_ABSENT'),
+             'FIRST_ABSENCE',count(*) FILTER(WHERE absent_shadow->>'absence_attempt'='FIRST_ABSENCE'),
+             'SECOND_ABSENCE',count(*) FILTER(WHERE absent_shadow->>'absence_attempt'='SECOND_ABSENCE'),
+             'ABSENCE_ATTEMPT_UNKNOWN',count(*) FILTER(WHERE absent_shadow->>'absence_attempt'='ABSENCE_ATTEMPT_UNKNOWN'),
+             'STALE',count(*) FILTER(WHERE normalized_type='RECIPIENT_ABSENT' AND effective_freshness_status='STALE'),
+             'WAITING_CUSTOMER',count(*) FILTER(WHERE absent_shadow->>'waiting_customer'='true'),
+             'CUSTOMER_RESPONDED',count(*) FILTER(WHERE absent_shadow->>'customer_response_status'='RESPONDED'),
+             'RESCHEDULE_REQUESTED',count(*) FILTER(WHERE absent_shadow->>'customer_intent'='RESCHEDULE_DELIVERY'),
+             'PICKUP_REQUESTED',count(*) FILTER(WHERE absent_shadow->>'customer_intent'='PICKUP_AT_AGENCY'),
+             'LOGISTICS_VALIDATION_REQUIRED',count(*) FILTER(WHERE absent_shadow->>'current_step'='LOGISTICS_VALIDATION_REQUIRED'),
+             'HUMAN_REVIEW_REQUIRED',count(*) FILTER(WHERE absent_shadow->>'simulation_status'='HUMAN_REVIEW_REQUIRED'),
+             'SIMULATION_READY',count(*) FILTER(WHERE absent_shadow->>'simulation_status'='SIMULATION_READY')
+           ) AS absent_filters,
            count(*) FILTER (WHERE interpreted_type='ADDRESS_INCORRECT')::integer AS address_issues,
            count(*) FILTER (WHERE interpreted_type='REFUSED_BY_RECIPIENT')::integer AS refused,
            count(*) FILTER (WHERE discount_recovery_response_status='DISCOUNT_ACCEPTED')::integer AS discount_accepted,

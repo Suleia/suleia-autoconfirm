@@ -394,6 +394,7 @@ export class OperationsProjector {
        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39,$40,$41,
        0,0,'SHADOW_READ_ONLY')
       ON CONFLICT(canonical_issue_id) DO UPDATE SET
+       absent_shadow=CASE WHEN EXCLUDED.type='RECIPIENT_ABSENT' THEN read_models.operations_incident_records.absent_shadow ELSE NULL END,
        type=EXCLUDED.type,raw_type=EXCLUDED.raw_type,mapping_status=EXCLUDED.mapping_status,
        schema_drift_alert=EXCLUDED.schema_drift_alert,status=EXCLUDED.status,
        is_active=EXCLUDED.is_active,actionable=EXCLUDED.actionable,
@@ -735,6 +736,16 @@ export class OperationsProjector {
       || decision.absent_shadow?.executed !== false || decision.absent_shadow?.external_action !== false
       || decision.absent_shadow?.production_write !== false) throw new Error('ABSENT_SHADOW_PROJECTION_INVALID');
     assertSafe(decision);
+    const s=decision.absent_shadow;
+    if (s.policy_id && s.snapshot_status==='PERSISTED') {
+      await this.pool.query(`INSERT INTO operations.recipient_absent_decision_snapshots
+        (decision_id,canonical_issue_id,canonical_order_id,issue_version,policy_id,policy_version,
+         policy_snapshot_hash,input_snapshot_hash,snapshot,decision_status,supersedes_decision_id)
+        SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,
+          (SELECT decision_id FROM operations.recipient_absent_decision_snapshots WHERE canonical_issue_id=$2 ORDER BY decided_at DESC LIMIT 1)
+        WHERE NOT EXISTS(SELECT 1 FROM operations.recipient_absent_decision_snapshots WHERE decision_id=$1)
+        ON CONFLICT(decision_id) DO NOTHING`,[s.decision_id,issue.canonical_issue_id,issue.canonical_order_id,issue.updated_at,s.policy_id,s.policy_version,s.policy_snapshot_hash,s.input_snapshot_hash,JSON.stringify(s),s.simulation_status]);
+    }
     if (decision.timer && (decision.timer.timer_type!=='CUSTOMER_INITIAL_RESPONSE_48H'
       || new Date(decision.timer.due_at)-new Date(decision.timer.started_at)!==48*3_600_000
       || decision.timer.issue_id!==issue.canonical_issue_id)) throw new Error('ABSENT_GENERAL_TIMER_POLICY_INVALID');

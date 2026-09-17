@@ -30,9 +30,9 @@ test('actual incident frontend renders the canonical shadow card without executi
   const injected=context.ui.absentShadowCard({absent_shadow:{...shadow,reason_text:'<img src=x onerror=alert(1)>'}});
   assert.ok(content(injected).includes('<img src=x onerror=alert(1)>'));assert.equal(descendants(injected).some(e=>e.tagName==='img'),false);
 });
-test('ten absent filters are clickable and are absent from the order lane',async()=>{
+test('twelve absent filters are clickable and are absent from the order lane',async()=>{
   const {context,get}=await fixture();context.ui.state.view='incidents';context.ui.renderFilters();
-  const chips=get('filters').children.filter(e=>e.tagName==='button');assert.equal(chips.length,10);
+  const chips=get('filters').children.filter(e=>e.tagName==='button');assert.equal(chips.length,12);
   assert.equal(chips.every(e=>typeof e.events.click==='function'),true);chips[0].events.click();assert.equal(context.ui.state.filters.absent,'AUSENTE');
   context.ui.state.view='orders';context.ui.renderFilters();assert.equal(content(get('filters')).includes('Primera ausencia'),false);
 });

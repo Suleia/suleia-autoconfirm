@@ -182,9 +182,12 @@ function renderFilters() {
   }
   if (state.view === 'incidents') {
     for (const [value, label] of [['AUSENTE','AUSENTE'],['FIRST_ABSENCE','Primera ausencia'],['SECOND_ABSENCE','Segunda ausencia'],
+      ['ABSENCE_ATTEMPT_UNKNOWN','Intento no verificable'],['STALE','Datos atrasados'],
       ['WAITING_CUSTOMER','Esperando cliente'],['CUSTOMER_RESPONDED','Cliente respondió'],['RESCHEDULE_REQUESTED','Nueva entrega'],
       ['PICKUP_REQUESTED','Recogida agencia'],['LOGISTICS_VALIDATION_REQUIRED','Validar logística'],['HUMAN_REVIEW_REQUIRED','Revisión humana'],['SIMULATION_READY','Simulación preparada']]) {
-      const button = node('button', `filter-chip ${state.filters.absent === value ? 'active' : ''}`.trim(), label);
+      const count = state.summary?.incidents?.absent_filters?.[value];
+      const button = node('button', `filter-chip ${state.filters.absent === value ? 'active' : ''}`.trim(), count===undefined?label:`${label} · ${count}`);
+      button.title='Número de incidencias en la selección actual; incluye los filtros activos';
       button.type = 'button'; button.addEventListener('click', () => changed('absent', state.filters.absent === value ? '' : value)); root.append(button);
     }
     for (const [key, label, type] of [['q', 'Buscar pedido o incidencia', 'search']]) {
@@ -315,7 +318,7 @@ async function loadQueue() {
     const endpoint = view === 'incidents' ? `/api/operations/incidents/overview?${params}` : `/api/operations/orders?${params}`;
     const data = await api(endpoint, { signal: state.queueController.signal });
     if (request !== state.queueRequest || view !== state.view) return;
-    if (view === 'incidents') { state.summary = { ...(state.summary || {}), incidents: data.summary }; renderSummary(); }
+    if (view === 'incidents') { state.summary = { ...(state.summary || {}), incidents: data.summary }; renderSummary(); renderFilters(); }
     if (data.total > 0 && state.offset >= data.total) {
       state.offset = Math.floor((data.total - 1) / state.limit) * state.limit;
       loadQueue(); return;
@@ -411,7 +414,7 @@ function absentShadowCard(item, expanded = false) {
   const labels = { WOULD_SEND_ABSENT_TEMPLATE: 'Preparar contacto AUSENTE', WOULD_REQUEST_CUSTOM_SLOT: 'Pedir fecha y franja',
     WOULD_VALIDATE_LOGISTICS: 'Validar disponibilidad GLS', WOULD_REQUEST_NEW_DELIVERY: 'Proponer nueva entrega',
     WOULD_REQUEST_PICKUP_AT_AGENCY: 'Proponer recogida en agencia', WOULD_RETURN_TO_ORIGIN: 'Proponer devolución',
-    WOULD_REQUEST_ADDRESS_CHANGE: 'Revisar cambio de dirección', HUMAN_REVIEW_REQUIRED: 'Revisión humana necesaria', HOLD_WAITING_CUSTOMER: 'Esperar selección de franja' };
+    WOULD_CREATE_OR_REQUIRE_48H_TIMER:'Falta plazo de respuesta de 48 h', WOULD_REQUEST_ADDRESS_CHANGE: 'Revisar cambio de dirección', HUMAN_REVIEW_REQUIRED: 'Revisión humana necesaria', HOLD_WAITING_CUSTOMER: 'Esperar selección de franja' };
   card.append(node('small', 'absent-shadow-label', 'SIGUIENTE ACCIÓN · SIMULACIÓN'),
     node('strong', '', labels[s.next_action] || s.next_action),
     node('small', '', s.absence_attempt === 'FIRST_ABSENCE' ? 'Primera ausencia' : s.absence_attempt === 'SECOND_ABSENCE' ? 'Segunda ausencia' : 'Intento no verificable'),
@@ -420,6 +423,9 @@ function absentShadowCard(item, expanded = false) {
   details.append(node('summary', '', 'Ver evidencia, logística y plazo'));
   details.append(section('Control AUSENTE', [
     ['Estado', s.current_step], ['Respuesta', s.customer_response_status], ['Intent', s.customer_intent],
+    ['Causa interpretada',s.interpreted_type || 'RECIPIENT_ABSENT'],['Ruta',s.routing_policy || s.policy_version],
+    ['Evidencia temporal',s.response_anchor_kind==='SHADOW_ISSUE_CREATED_ONLY'?'Solo simulación desde la incidencia; no prueba notificación':'Desde notificación observada'],
+    ['Respuesta cliente',item.latest_customer_message || 'No hay respuesta verificable disponible'],
     ['Botón', s.button_pressed || 'No detectado'], ['Fecha solicitada', s.requested_date || 'No indicada'],
     ['Franja', s.requested_time_window || 'No indicada'], ['Desde / hasta', `${s.time_from || '—'} / ${s.time_to || '—'}`],
     ['Todo el día', s.all_day ? 'Sí' : 'No'], ['Recogida solicitada', s.pickup_requested ? 'Sí' : 'No'],
@@ -427,6 +433,10 @@ function absentShadowCard(item, expanded = false) {
     ['Viabilidad', s.logistics_feasibility], ['Confianza', `${Math.round(s.decision_confidence * 100)} %`],
     ['Prioridad logística', s.logistics_preference || 'Sin preferencia'], ['Fallo tras franja del cliente', s.delivery_failed_after_customer_slot ? 'Sí · requiere validación logística' : 'No verificado'],
     ['Timer existente', s.existing_timer?.timer_type || 'No disponible'], ['Fecha límite', date(s.due_at)],
+    ['Tiempo restante',s.due_at?`${Math.max(0,Math.floor((new Date(s.due_at)-Date.now())/3600000))} h ${Math.max(0,Math.floor((new Date(s.due_at)-Date.now())/60000)%60)} min`:'Sin timer válido'],
+    ['Estado general de datos',item.effective_freshness_status || s.effective_freshness_status],
+    ['Capacidad declarada Dropea',s.logistics_capabilities?.dropea_resolution_capability || 'UNKNOWN'],
+    ['Capacidad verificada transportista',s.logistics_capabilities?.carrier_capability || 'UNKNOWN'],
     ['Dropea / Chatby / GLS', Object.values(s.data_freshness || {}).join(' / ')],
     ['Estado simulación', s.simulation_status], ['Policy', s.policy_version]
   ]));

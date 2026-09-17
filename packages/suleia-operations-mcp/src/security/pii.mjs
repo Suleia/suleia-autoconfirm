@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 const SENSITIVE_KEY = /(name|phone|email|address|street|city|postal|zip|dni|nif|document|conversation|message|raw|payload)/i;
-const TECHNICAL_NAME_KEY = /^(schema_name|object_name|column_name|constraint_name|index_name|trigger_name|function_name)$/i;
+const TECHNICAL_NAME_KEY = /^(schema_name|object_name|column_name|constraint_name|index_name|trigger_name|function_name|template_name|policy_name)$/i;
 const PHONE = /(?:\+\d{9,15}\b|\b[6-9]\d{8}\b)/g;
 const EMAIL = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi;
 
@@ -46,6 +46,11 @@ export function maskPii(value, key = '') {
       // name. Still scan their string value for accidental phone/e-mail data.
       output[childKey] = maskPii(childValue, 'technical_identifier');
       continue;
+    }
+    // Governing JSON is structured metadata, not customer free text. Recursing
+    // with its original key would scalarize live_flags/snapshot objects.
+    if (['live_flags','input_snapshot','simulated_action_type','absent_shadow'].includes(childKey) && childValue && typeof childValue==='object') {
+      output[childKey]=maskPii(childValue,'technical_metadata'); continue;
     }
     output[childKey] = SENSITIVE_KEY.test(childKey)
       ? maskPii(maskScalar(childKey, childValue), childKey)

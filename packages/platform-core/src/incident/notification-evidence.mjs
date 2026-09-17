@@ -16,6 +16,12 @@ export function incidentNotificationBoundary(events, { issueId, orderId, issueTy
     .sort((a,b) => new Date(a.created_at)-new Date(b.created_at))[0]?.created_at || null;
 }
 export function projectNotificationScopedIncident(item) {
+  // SQL has independently bound the persisted SHADOW snapshot to current issue,
+  // policy, order state, message watermark and freshness. Historical simulation
+  // anchors are labelled explicitly and never used by another incident lane.
+  if (item.normalized_type==='RECIPIENT_ABSENT' && item.notification_decision_current===true
+      && item.snapshot_status==='PERSISTED' && item.absent_shadow?.snapshot_status==='PERSISTED'
+      && item.absent_shadow.policy_id===item.policy_id && item.absent_shadow.input_snapshot_hash===item.input_snapshot_hash) return item;
   if (!item.scoped_response_status) return item;
   const verified = item.scoped_response_status === 'VALID_RESPONSE';
   const invalid = item.scoped_response_status === 'NOT_VERIFIABLE';

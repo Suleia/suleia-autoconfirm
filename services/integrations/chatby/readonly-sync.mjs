@@ -237,7 +237,8 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date(), { issue
   });
 }
 
-async function readMessages({ transport, base, token, userNs, maxPages }) {
+async function readMessages({ transport, base, token, userNs, maxPages, cached = null }) {
+  let reused=0;
   const pages = await collectPaginated({
     firstCursor: 1,
     maxPages,
@@ -250,6 +251,18 @@ async function readMessages({ transport, base, token, userNs, maxPages }) {
         method: 'GET', headers: { Accept: 'application/json', Authorization: `Bearer ${token}` }
       }), 'chatby_messages');
       const rows = responseRows(payload);
+      if(page===1 && cached?.complete && rows.length>=100) {
+        const id=m=>m.id || m.mid;
+        const known=new Map(cached.items.filter(m=>id(m)).map(m=>[String(id(m)),m]));
+        const dated=rows.map(occurredAt);
+        const descending=dated.every((at,i)=>at && (!i || new Date(at)<=new Date(dated[i-1])));
+        if(descending && rows.some(m=>id(m) && known.has(String(id(m))))) {
+          const combined=new Map(cached.items.map(m=>[String(id(m) || JSON.stringify(m)),m]));
+          for(const m of rows) combined.set(String(id(m) || JSON.stringify(m)),m);
+          reused=Math.max(0,combined.size-rows.length);
+          return {items:[...combined.values()],next_cursor:null};
+        }
+      }
       return { items: rows, next_cursor: nextPage(payload, rows, Number(page)) };
     }
   });
@@ -258,7 +271,7 @@ async function readMessages({ transport, base, token, userNs, maxPages }) {
     error.code = 'CHATBY_MESSAGE_PAGINATION_INCOMPLETE';
     throw error;
   }
-  return pages;
+  return {...pages,reused_message_count:reused};
 }
 
 export async function syncChatbyReadOnly({
@@ -276,7 +289,9 @@ export async function syncChatbyReadOnly({
   conversationCache = null,
   conversationCacheTtlMs = 900_000,
   now = Date.now,
-  fetchImpl = globalThis.fetch
+  fetchImpl = globalThis.fetch,
+  onlyRecipientAbsent = false,
+  excludeRecipientAbsent = false
 }) {
   if (!token) return Object.freeze({
     ok: false, enabled: true, consultable: false, error: 'CHATBY_GET_CREDENTIAL_MISSING',
@@ -329,6 +344,8 @@ export async function syncChatbyReadOnly({
     FROM integration.dropea_orders o
     JOIN integration.dropea_issues i USING(canonical_order_id)
     WHERE i.status='PENDING' AND i.is_active=true
+      ${onlyRecipientAbsent ? "AND coalesce(nullif(i.canonical_type,'UNKNOWN'),i.raw_type)='RECIPIENT_ABSENT'" : ''}
+      ${excludeRecipientAbsent ? "AND coalesce(nullif(i.canonical_type,'UNKNOWN'),i.raw_type)<>'RECIPIENT_ABSENT'" : ''}
     ORDER BY i.updated_at_utc DESC`);
   const byExternalHash = new Map();
   const byDropeaOrderId = new Map();
@@ -402,6 +419,7 @@ export async function syncChatbyReadOnly({
     });
     if (!cacheFresh) {
       networkCandidates.push({
+        userNs,
         issueId: issue.canonical_issue_id,
         neverRead: !cached,
         fetchedAt: Number.isFinite(cached?.fetchedAt) ? cached.fetchedAt : 0
@@ -411,9 +429,10 @@ export async function syncChatbyReadOnly({
   networkCandidates.sort((left, right) => Number(right.neverRead) - Number(left.neverRead)
     || left.fetchedAt - right.fetchedAt
     || String(left.issueId).localeCompare(String(right.issueId)));
-  const networkIssueIds = new Set(networkCandidates
-    .slice(0, Math.max(0, Number(maxConversations) || 0))
-    .map((item) => item.issueId));
+  // Charge the budget once per EXACT provider conversation, not once per issue.
+  const networkUsers = new Set([...new Map(networkCandidates.map(c=>[c.userNs,c])).values()]
+    .slice(0, Math.max(0, Number(maxConversations) || 0)).map(c=>c.userNs));
+  const networkIssueIds = new Set(networkCandidates.filter(c=>networkUsers.has(c.userNs)).map(c=>c.issueId));
 
   const foundOrders = new Set();
   let availableIssues = 0;
@@ -421,6 +440,8 @@ export async function syncChatbyReadOnly({
   let conversationsRead = 0;
   let identityConflicts = 0;
   let conversationCacheHits = 0;
+  let messagesRead = 0, messagesReused = 0, messagesIgnored = 0, budgetExhausted = 0;
+  const cycleReads=new Map();
   const statusCounts = { NONE: 0, FOUND: 0, MULTIPLE: 0, STALE: 0, BROKEN: 0, UNKNOWN: 0 };
   for (const issue of candidates.rows) {
     const entries = matchesByIssue.get(issue.canonical_issue_id) || [];
@@ -451,6 +472,10 @@ export async function syncChatbyReadOnly({
     }
     const exactConversation = exactConversationByIssue.get(issue.canonical_issue_id);
     if (!exactConversation?.cacheFresh && !networkIssueIds.has(issue.canonical_issue_id)) {
+      budgetExhausted++;
+      // Do not destroy a previously successful exact link because this cycle
+      // deferred a read. Its original timestamp naturally becomes STALE.
+      if (exactConversation?.cached) continue;
       statusCounts.UNKNOWN += 1;
       await projector.upsertChatbyConversationLink?.({
         canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id,
@@ -463,11 +488,15 @@ export async function syncChatbyReadOnly({
     const { subscriber, evidence } = subscribersForIssue[0];
     let messages;
     try {
-      if (exactConversation?.cacheFresh) {
-        messages = exactConversation.cached.messages;
+      if (exactConversation?.cacheFresh || cycleReads.has(String(subscriber.user_ns))) {
+        messages = cycleReads.get(String(subscriber.user_ns))?.messages || exactConversation.cached.messages;
+        messagesReused += messages.items.length;
         conversationCacheHits += 1;
       } else {
-        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages });
+        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages, cached:exactConversation?.cached?.messages });
+        messagesRead += messages.items.length-(messages.reused_message_count || 0);
+        messagesReused += messages.reused_message_count || 0;
+        cycleReads.set(String(subscriber.user_ns),{messages,fetchedAt:now()});
         if (conversationCache instanceof Map) {
           conversationCache.set(String(subscriber.user_ns), { messages, fetchedAt: now() });
         }
@@ -484,8 +513,9 @@ export async function syncChatbyReadOnly({
       });
       continue;
     }
-    const observedAt = exactConversation?.cacheFresh ? exactConversation.cached.fetchedAt : now();
+    const observedAt = cycleReads.get(String(subscriber.user_ns))?.fetchedAt || (exactConversation?.cacheFresh ? exactConversation.cached.fetchedAt : now());
     const metrics = conversationMetrics(messages.items, issue.issue_created_at, new Date(observedAt), { issueType: issue.issue_type });
+    messagesIgnored += metrics.message_count-metrics.current_messages.length;
     const conversationHash = hmac(subscriber.user_ns, hmacKey);
     const contactHash = hmac(subscriber.user_id || subscriber.user_ns, hmacKey);
     for (const message of metrics.current_messages) {
@@ -564,7 +594,7 @@ export async function syncChatbyReadOnly({
   }
   if (projector.recordSourceFreshness) {
     await projector.recordSourceFreshness({
-      source: 'chatby', last_success_at: new Date().toISOString(), lag_seconds: 0, status: 'FRESH'
+      source: 'chatby', last_success_at: new Date(now()).toISOString(), lag_seconds: 0, status: 'FRESH'
     });
   }
   return Object.freeze({
@@ -578,6 +608,10 @@ export async function syncChatbyReadOnly({
     available_issues: availableIssues,
     conversations_read: conversationsRead,
     conversation_cache_hits: conversationCacheHits,
+    conversation_lookup_attempts: candidates.rows.length,
+    conversation_exact_hits: exactConversationByIssue.size,
+    irrelevant_conversations_read: 0, messages_read: messagesRead, messages_reused_from_cache: messagesReused,
+    messages_ignored: messagesIgnored, budget_exhausted: budgetExhausted, lookup_latency_ms: Math.max(0,now()-cycleNow),
     events_inserted: eventsInserted,
     identity_conflicts: identityConflicts + referenceConflicts,
     reference_conflicts: referenceConflicts,

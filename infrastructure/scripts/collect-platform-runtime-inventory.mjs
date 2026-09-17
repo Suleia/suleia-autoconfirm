@@ -67,6 +67,7 @@ const ps = parseJsonOutput(fixed('docker', [...composeArgs, 'ps', '--format', 'j
 const stats = parseJsonOutput(fixed('docker', ['stats', '--no-stream', '--format', '{{json .}}'])
   || runtimeSnapshot('docker-stats.json'));
 const statsByName = new Map(stats.map((item) => [String(item.Name || '').toLowerCase(), item]));
+const provenanceByService=new Map(parseJsonOutput(runtimeSnapshot('containers-provenance.json')).map(item=>[item.service,item]));
 const functionalHealth = (() => {
   try {
     const value = JSON.parse(runtimeSnapshot('functional-health.json'));
@@ -79,6 +80,9 @@ const functionalByService = new Map((functionalHealth?.components || [])
 const containers = ps.map((item) => {
   const observedStats = statsByName.get(String(item.Name || '').toLowerCase()) || {};
   const observedFunctionalHealth = functionalByService.get(String(item.Service || '').toLowerCase()) || null;
+  const healthAt=new Date(observedFunctionalHealth?.checked_at).getTime();
+  const functionalCurrent=Number.isFinite(healthAt) && Date.now()-healthAt>=0 && Date.now()-healthAt<=300000;
+  const provenance=provenanceByService.get(item.Service) || {};
   const [ramUsage, ramLimit] = String(observedStats.MemUsage || '').split('/').map((part) => bytes(part?.trim()));
   const inspect = parseJsonOutput(fixed('docker', ['inspect', String(item.ID || item.Name),
     '--format', '{{json .HostConfig.RestartPolicy}}']))[0] || {};
@@ -88,8 +92,11 @@ const containers = ps.map((item) => {
     image: item.Image || null,
     version: String(item.Image || '').includes(':') ? String(item.Image).split(':').at(-1) : null,
     status: item.State || item.Status || 'UNKNOWN',
-    health: observedFunctionalHealth?.health_status || item.Health || 'UNKNOWN',
+    health: functionalCurrent?observedFunctionalHealth.health_status:item.Health || 'UNKNOWN',
     functional_health: observedFunctionalHealth,
+    functional_health_is_current:functionalCurrent,
+    image_revision:provenance.image_revision || null,container_revision:provenance.container_revision || null,
+    image_id:provenance.image_id || null,container_id:provenance.container_id || null,
     cpu_percent: Number.parseFloat(String(observedStats.CPUPerc || '').replace('%', '')) || null,
     ram_usage_bytes: ramUsage,
     ram_limit_bytes: ramLimit,
@@ -134,7 +141,7 @@ const files = componentPaths.flatMap((relativePath) => {
 });
 
 let testCount = 0;
-for (const root of ['packages', 'apps', 'infrastructure']) {
+for (const root of ['packages', 'apps', 'services', 'infrastructure']) {
   const absoluteRoot = path.join(installRoot, root);
   if (!fs.existsSync(absoluteRoot)) continue;
   for (const entry of fs.readdirSync(absoluteRoot, { recursive: true, withFileTypes: true })) {

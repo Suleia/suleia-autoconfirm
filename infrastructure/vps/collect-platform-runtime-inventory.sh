@@ -9,6 +9,7 @@ COMPOSE_FILE="${INSTALL_ROOT}/infrastructure/docker/compose.yaml"
 ENV_FILE="${INSTALL_ROOT}/.env"
 PS_SNAPSHOT="${OUTPUT_DIR}/compose-ps.json"
 STATS_SNAPSHOT="${OUTPUT_DIR}/docker-stats.json"
+PROVENANCE_SNAPSHOT="${OUTPUT_DIR}/containers-provenance.json"
 
 install -d -m 0755 "${OUTPUT_DIR}"
 umask 077
@@ -18,6 +19,11 @@ docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" \
 mv "${PS_SNAPSHOT}.tmp" "${PS_SNAPSHOT}"
 docker stats --no-stream --format '{{json .}}' > "${STATS_SNAPSHOT}.tmp"
 mv "${STATS_SNAPSHOT}.tmp" "${STATS_SNAPSHOT}"
+# Whitelisted provenance only. Never export Config.Env or full inspections.
+docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" ps -q \
+  | xargs -r docker inspect --format '{{json .}}' \
+  | jq -s 'map({service:.Config.Labels["com.docker.compose.service"],container_id:.Id,image_id:.Image,image_revision:.Config.Labels["org.opencontainers.image.revision"],container_revision:(.Config.Env|map(select(startswith("SULEIA_BUILD_REVISION=")))|first|ltrimstr("SULEIA_BUILD_REVISION="))})' > "${PROVENANCE_SNAPSHOT}.tmp"
+mv "${PROVENANCE_SNAPSHOT}.tmp" "${PROVENANCE_SNAPSHOT}"
 
 git_commit="${SULEIA_RUNTIME_GIT_COMMIT:-$(git -C "${INSTALL_ROOT}" rev-parse HEAD 2>/dev/null || true)}"
 git_branch="${SULEIA_RUNTIME_GIT_BRANCH:-$(git -C "${INSTALL_ROOT}" branch --show-current 2>/dev/null || true)}"
@@ -43,5 +49,5 @@ docker run --rm --user "$(id -u):$(id -g)" --network none --read-only --cap-drop
   /workspace /workspace/private-runtime/platform-runtime.json
 
 chmod 0644 "${OUTPUT_FILE}"
-rm -f "${PS_SNAPSHOT}" "${STATS_SNAPSHOT}"
+rm -f "${PS_SNAPSHOT}" "${STATS_SNAPSHOT}" "${PROVENANCE_SNAPSHOT}"
 echo 'PLATFORM_RUNTIME_INVENTORY|PASS|secret_fields=0|actions=0|production_writes=0'

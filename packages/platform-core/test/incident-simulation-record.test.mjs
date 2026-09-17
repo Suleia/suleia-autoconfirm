@@ -29,6 +29,7 @@ test('stale outbound and older issue messages cannot change the decision', () =>
     { canonical_issue_id: 'issue-fixture', incident_version: 'old', direction: 'INBOUND', intent: 'FINAL_REJECTION', created_at: '2026-08-01T09:00:00Z' },
     { canonical_issue_id: 'issue-fixture', incident_version: issue.updated_at, direction: 'OUTBOUND', intent: 'FINAL_REJECTION', created_at: '2026-08-01T11:00:00Z' }
   ] });
-  assert.equal(result.interpretation.customer_intent, 'NO_RESPONSE');
+  // No successful case read was supplied: unknown is not proof of silence.
+  assert.equal(result.interpretation.customer_intent, 'UNKNOWN');
   assert.equal(result.decision.proposed_resolution, null);
 });
