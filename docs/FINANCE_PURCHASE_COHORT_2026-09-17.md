@@ -72,6 +72,41 @@ These are point-in-time results, not promises that open-order outcomes or live
 advertising spend will never change. Source snapshots and updated totals are
 verified again after deployment.
 
+## Completed deployed verification
+
+Financial executable/asset revision: `5a1771f8bfd5f00eff01b12c1e0b0f5641a4a5e8`.
+Actual new image: 684 tests executed, 684 PASS, zero FAIL. An initial pre-rollout
+attempt correctly stopped because a UI contract test still expected the old
+asset query version; the test was updated to require the new version, and the
+entire suite reran successfully before replacement. No failed test was bypassed.
+Only API and review-panel changed; nine other container IDs, protected API
+environment and mounts, database and incident code were preserved. The
+nonfinancial app source prefix is byte-identical after newline normalization.
+
+Public HTTPS checks at 16:42:54 UTC: HTML/JS/CSS all HTTP 200, `no-store`, exact
+published bytes; unauthenticated financial route remains HTTP 401. Actual
+`suleia_api_login` data rendered with the deployed HTML and JS successfully for
+May/June/July/August/September: 31/30/31/31/17 labeled bars, all exact daily tiles,
+selected-month return donut, clickable day details and the same cohort profit
+in the table footer and monthly headline. All reconciliation controls passed.
+
+An independent **account-level Meta Marketing API** read at 16:47 UTC confirmed
+EUR/Europe/Madrid and zero closed-day differences in all five months:
+May 301.04, June 1453.10, July 3744.52, August 1902.14 EUR. September report spend
+2729.89 versus live 2730.03 differs only by 0.14 EUR in today's still-running
+advertising, not a historic/day-attribution error. The old diagnostic endpoint
+`/api/finance-meta-source` is a separate Supabase mirror stopped on August 29;
+its missing September records and earlier differences are not panel-source
+errors. The audit now names this legacy comparison explicitly and offers a
+direct independent read tool that fails on any closed-day mismatch.
+
+At the 16:42:41 source snapshot, September purchase-cohort revenue 6273.08 minus
+total costs 5528.26 equals **744.82 EUR provisional**, with 192 delivered and
+49 returned. Fixed charges 176.39 and one-off charges 34.99 are deducted. The
+current monthly cohort still has 67 sent orders without delivered/returned final
+outcome; today's advertising and order states can change this provisional result.
+Do not substitute the screenshot's older value or promise a fixed live profit.
+
 ## Regression protection and verification
 
 New report controls check purchase dates, every day's delivered/returned count,
