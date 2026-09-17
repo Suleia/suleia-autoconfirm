@@ -1,6 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
+import { readFileSync } from 'node:fs';
+import { createAbsentLogisticsReader } from './integrations/gls/absent-read-context.mjs';
+
+test('AUSENTE issue freshness cannot be renewed by a separate order-only read', () => {
+  const source=readFileSync(new URL('./incident-simulation-sync.mjs',import.meta.url),'utf8');
+  assert.match(source,/last_successful_sync_at: fresh\.rows\[0\]\?\.last_successful_sync_at/);
+  assert.doesNotMatch(source,/last_successful_sync_at: context\./);
+});
+
+test('AUSENTE direct order recheck uses the shared canonical mapper, not raw status', async () => {
+  const reader=createAbsentLogisticsReader([{store:{market:'ES',store_id:'fixture'},client:{request:async()=>({data:{id:1,status:'SHIPPING',sub_status:'DELIVERY_EXCEPTION'}})}}],{glsRead:async()=>null});
+  const context=await reader({type:'RECIPIENT_ABSENT',market:'ES',store_id:'fixture',dropea_order_id:1});
+  assert.equal(context.order_state,'INCIDENCE');
+  assert.ok(context.dropea_order_observed_at);
+  assert.equal(context.dropea_observed_at,undefined);
+});
 
 test('incident sync reads mirror rows and records only zero-action simulations', async () => {
   const calls = [];

@@ -84,7 +84,8 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         'RECIPIENT_ABSENT'::text AS normalized_type,true AS verified FROM integration.dropea_issues
         WHERE canonical_order_id=$1 AND canonical_type='RECIPIENT_ABSENT' AND initial_carrier_code IS DISTINCT FROM 'NAM'
         AND created_at_utc<=$2`,[row.canonical_order_id,row.created_at]);
-      const result = buildIncidentSimulation({ issue: { ...issue, last_successful_sync_at: context.dropea_observed_at || fresh.rows[0]?.last_successful_sync_at,
+      // A recent getOrder read is not evidence that the issue collection is recent.
+      const result = buildIncidentSimulation({ issue: { ...issue, last_successful_sync_at: fresh.rows[0]?.last_successful_sync_at,
           capability_status: row.capability_status || 'NOT_DECLARED' }, order: { ...order, canonical_state: context.order_state || row.canonical_state },
         events: clearEvents.length ? clearEvents : events.rows, gls: { ...gls, ...context.gls },
         chatby: { verified: row.conversation_status === 'FOUND' && row.conversation_freshness === 'FRESH',
