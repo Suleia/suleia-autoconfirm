@@ -145,9 +145,13 @@ de notificación v3/callback/duplicado pasan. Payload JSON idéntico al objeto d
 creación; UTF-8/NFC/negrita/límites verificados. Validación real externa creó una
 única plantilla y comprobó su body/botones de vuelta en el catálogo.
 
-Estado observado 2026-09-17T18:31:45.775Z: PENDING, categoría UTILITY; Chatby
-1552419, Meta 1123671516755556. Enviada a aprobación, NO aprobada aún.
-Hub claim: 5719137138. Pendiente de registrar despliegue/verificación final.
+Presentada 2026-09-17T18:31:45.000000Z; verificación inicial PENDING.
+El catálogo real, leído desde el servicio desplegado a
+2026-09-17T18:41:33.822Z, confirma APPROVED, categoría UTILITY; Chatby
+1552419, Meta 1123671516755556. Body y botones exactos comprobados de vuelta.
+La hora observada de aprobación no se confunde con la hora exacta del cambio
+de estado, que el proveedor no expuso en esta comprobación.
+Hub claim: 5719137138.
 Las 10 simulaciones mínimas y los casos adicionales están en
 `packages/platform-core/test/absent-template-v3.test.mjs`; ninguna envía mensajes.
 La retirada histórica no afirma que el proveedor haya borrado/pausado el registro.
@@ -156,10 +160,50 @@ de presentación se vincula por separado al snapshot con nombre v3, body_hash y
 mapping_hash: no se altera retrospectivamente el documento/checksum histórico V1
 que describía v1 ni se crea una nueva ventana de respuesta por cambiar de texto.
 
+## Despliegue y verificación efectiva
+
+Código publicado en la rama `fix/absent-template-v3`, commit ejecutable
+`4823c62685a6d9e59f4a31762bd19bd0580b12ec`. Solo API, MCP e ingestion-worker
+usan la imagen nueva; los tres están sanos y sus etiquetas OCI coinciden con
+ese commit. No se fusiona ni despliega esta rama sobre Render.
+
+Pruebas de la imagen efectiva Node 22.22.0: 704/704 PASS en el helper de despliegue
+y 3/3 PASS auxiliares de scripts en una ejecución separada de la misma imagen,
+ambas sin red. Total 707/707, cero fallos. Suite local Node 24: 707/707 PASS.
+Se conservan los resultados del helper en la copia privada de despliegue del VPS;
+no se publican inspecciones privadas, credenciales ni mensajes de clientes.
+
+Se revalidó después del despliegue la igualdad de entorno y configuración de
+los tres servicios, los IDs de los ocho servicios ajenos y cuatro archivos
+financieros byte a byte. Panel financiero estático sin reinicio; `.env` sin cambio;
+cero migraciones. Descuentos y devoluciones de rechazo en Render no se tocaron.
+
+Verificación efectiva a 18:41:33Z: v3 seleccionada, v1/v2 retiradas; los cuatro
+flags LIVE son explícitamente false. El worker informa un ciclo autónomo AUSENTE
+completado correctamente a 18:40:27.981Z, sin error y sin acciones externas.
+La aprobación del catálogo se consulta con la cadencia existente del worker;
+esta comprobación de lectura no reinicia su caché ni sus plazos.
+
+Replay íntegro de los 116 registros canónicos AUSENTE a 18:42:54.491Z mediante
+conexión PostgreSQL con `default_transaction_read_only=on`: población completa,
+cero mensajes, devoluciones, reintentos o escrituras operativas. Dos registros
+activos ya tenían proyección v3; los 114 inactivos conservan sus snapshots v1
+históricos, que no constituyen selección futura ni envío. No se reescribe historia.
+Las limitaciones logísticas/lecturas históricas conservan revisión humana y no
+se fabrican candidatos ejecutables por estar aprobada la plantilla.
+
+Lectura mediante el repositorio efectivo del panel a 18:44:19.139Z: la incidencia
+activa clasificada AUSENTE devuelve v3 y evidencia explícita «simulación». El otro
+registro canónico AUSENTE se reclasifica según la política vigente de dirección;
+no se fuerza a mostrarlo como AUSENTE. No se añaden evidencias sintéticas al panel.
+La interfaz de evidencia de nuevos botones se verifica con las simulaciones;
+no existe un envío real v3 para afirmar una interacción real con esa plantilla.
+
 ## Pendiente antes de LIVE
 
-Aprobación real de contenido exacto; autorización separada de AUSENTE LIVE;
-sender/subflujos gobernados, payloads de callback vinculados al caso, validación
+La aprobación real del contenido exacto ya está verificada. Quedan una
+autorización separada de AUSENTE LIVE, sender/subflujos gobernados,
+payloads de callback vinculados al caso, validación
 de custodia/capacidad/calendario GLS, exclusión de otros propietarios de envío,
 idempotencia persistente y verificación posterior de cada acción. No se activan
 sender ni flujos externos como efecto secundario de una aprobación.
