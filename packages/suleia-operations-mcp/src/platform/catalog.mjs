@@ -404,7 +404,13 @@ export function createPlatformKnowledge({ repository, config }) {
           }))
         };
       }
-      if (section === 'POLICIES') return { policies: [...BUSINESS_POLICIES, ...TEMPORAL_POLICIES] };
+      if (section === 'POLICIES') {
+        const assigned=await repository.getAssignedShadowPolicies?.().catch(()=>null);
+        return {policies:[...BUSINESS_POLICIES,...TEMPORAL_POLICIES,...(assigned || []).map(p=>({...p,
+          domain:'incident',location:'packages/platform-core/src/incident/absent-decision.mjs',
+          source:'CONFIGURATION_POLICY_REGISTRY',execution_available:false}))],
+          recipient_absent_registry_status:assigned===null || assigned===undefined?'NOT_VERIFIABLE':assigned.length?'PERSISTED_SHADOW':'POLICY_NOT_PERSISTED'};
+      }
       if (section === 'TIMERS') return {
         timers: timerComponents().map((item) => ({
           timer_type: item.component_id,
@@ -453,9 +459,13 @@ export function createPlatformKnowledge({ repository, config }) {
           ...declared,
           version: live.version || null,
           image: live.image || declared.image,
-          commit: snapshot?.git?.commit || null,
+          commit: live.container_revision || live.image_revision || null,
+          source_commit:snapshot?.git?.commit || null,
+          image_commit:live.image_revision || null,container_commit:live.container_revision || null,
+          image_id:live.image_id || null,
           status: live.status || declared.declared_status,
-          health: functionalHealth?.health_status || live.health || 'UNKNOWN',
+          health: live.functional_health_is_current===true?functionalHealth?.health_status || live.health || 'UNKNOWN':live.health || 'UNKNOWN',
+          functional_health_is_current:live.functional_health_is_current===true,
           health_reason: functionalHealth?.reason || null,
           health_checked_at: functionalHealth?.checked_at || null,
           health_evidence: functionalHealth?.evidence || null,
@@ -466,7 +476,8 @@ export function createPlatformKnowledge({ repository, config }) {
           disk: declared.service === 'postgres' ? database?.database_size_bytes ?? null : null,
           ports: live.ports || [],
           restart_policy: live.restart_policy || null,
-          last_deploy: snapshot?.generated_at || null,
+          last_deploy: live.deployed_at || null,
+          last_observed_at:snapshot?.generated_at || null,
           last_failure: live.last_failure || null,
           backup_status: declared.service === 'backup' ? snapshot?.backup || { status: 'UNKNOWN' } : null,
           environment

@@ -37,6 +37,11 @@ calculations and all non-AUSENTE customer workflows remain unchanged.
    notification-boundary reader. Migration 038 adds exactly those two enum
    values; it does not remove the constraint or treat these as notified replies.
    Existing encrypted messages and all unrelated safety constraints are kept.
+10. The runtime catalogue attributed the checkout commit to every container and
+    reused stale functional health. Runtime provenance now uses each actual
+    container/image revision, labels checkout source separately and distinguishes
+    observation from deployment time. Assigned absence policies are read from
+    the real registry, not represented by a static catalogue declaration.
 
 ## Policy and timer ownership
 

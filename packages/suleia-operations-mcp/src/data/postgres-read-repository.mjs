@@ -385,6 +385,14 @@ export function createPostgresReadRepository(config, { pool } = {}) {
       return rows[0] || {};
     },
 
+    async getAssignedShadowPolicies() {
+      return query(`SELECT p.id AS policy_id,p.policy_name,v.version AS policy_version,v.checksum AS policy_snapshot_hash,
+        v.status AS version_status,a.status,a.workflow,v.effective_from
+        FROM configuration.policies p JOIN configuration.policy_versions v USING(policy_name)
+        JOIN configuration.policy_assignments a ON a.policy_id=p.id AND a.version_id=v.id
+        WHERE a.workflow='RECIPIENT_ABSENT' AND a.status='SHADOW' AND v.status='SHADOW'`);
+    },
+
     async getRuntimeMetrics() {
       const rows = await query(`SELECT current_database() AS database,
         current_setting('server_version') AS server_version,
