@@ -28,6 +28,13 @@ async function responseJson(response, source) {
   if (!response.ok) {
     const error = new Error(`${source} GET failed with HTTP ${response.status}`);
     error.code = `${source.toUpperCase()}_HTTP_${response.status}`;
+    if(response.status===429){
+      const header=response.headers.get('retry-after');const seconds=Number(header);
+      const reset=Number(response.headers.get('x-ratelimit-reset'));
+      error.retryNotBefore=Math.max(Date.now()+60000,
+        header && Number.isFinite(seconds)?Date.now()+seconds*1000:Date.parse(header)||0,
+        Number.isFinite(reset)?reset*1000:0);
+    }
     throw error;
   }
   return response.json();
@@ -304,14 +311,16 @@ export async function syncChatbyReadOnly({
   const transport = createReadOnlyTransport({
     fetchImpl,
     allowedHosts: [base.hostname],
-    maxRetries: 4,
+    // AUSENTE defers to the next scheduled cycle on provider throttling;
+    // it never retries sooner than the actual Retry-After deadline.
+    maxRetries: onlyRecipientAbsent ? 0 : 4,
     retryBaseMs,
     maxRetryDelayMs: 60_000,
     minRequestIntervalMs
   });
   const cacheHit = Boolean(subscriberCache?.items && Number.isFinite(subscriberCache.fetchedAt)
     && now() - subscriberCache.fetchedAt < subscriberCacheTtlMs);
-  const subscribers = cacheHit
+  const loadSubscribers = async()=>cacheHit
     ? { complete: true, reason: null, items: subscriberCache.items, page_count: subscriberCache.pageCount }
     : await collectPaginated({
       firstCursor: 1,
@@ -327,6 +336,15 @@ export async function syncChatbyReadOnly({
         return { items: rows, next_cursor: nextPage(payload, rows, Number(page)) };
       }
     });
+  // Both exclusive phases share only the complete subscriber catalogue.
+  // Coalesce its in-flight GET traversal; conversation caches remain separate.
+  const sharedInflight=subscriberCache?.inFlight;
+  const loading=sharedInflight || loadSubscribers();
+  if(subscriberCache && !sharedInflight)subscriberCache.inFlight=loading;
+  let subscribers;
+  try{subscribers=await loading;}finally{
+    if(subscriberCache?.inFlight===loading)delete subscriberCache.inFlight;
+  }
   if (!subscribers.complete) {
     const error = new Error(`Chatby subscriber pagination incomplete: ${subscribers.reason}`);
     error.code = 'CHATBY_SUBSCRIBER_PAGINATION_INCOMPLETE';
@@ -503,6 +521,7 @@ export async function syncChatbyReadOnly({
         conversationsRead += 1;
       }
     } catch (error) {
+      if(onlyRecipientAbsent && /_HTTP_429$/.test(error.code || ''))throw error;
       statusCounts.BROKEN += 1;
       await projector.upsertChatbyConversationLink?.({
         canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id,

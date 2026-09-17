@@ -42,6 +42,14 @@ calculations and all non-AUSENTE customer workflows remain unchanged.
     container/image revision, labels checkout source separately and distinguishes
     observation from deployment time. Assigned absence policies are read from
     the real registry, not represented by a static catalogue declaration.
+11. A prolonged real run encountered provider HTTP429 with Retry-After=386s,
+    quota remaining=0. Exclusive phases now coalesce their complete subscriber
+    catalogue traversal, retaining actual timestamps and unchanged TTLs. Only
+    AUSENTE defers without immediate retries to the complete provider deadline,
+    rather than truncating it to 60s. Its health becomes unsuccessful/503 until
+    an actual subsequent successful read; old snapshots naturally become stale.
+12. The real MCP role had table SELECT but no configuration schema USAGE.
+    Migration 039 grants schema USAGE to the read roles, not CREATE or mutations.
 
 ## Policy and timer ownership
 

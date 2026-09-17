@@ -17,3 +17,9 @@ export function shadowWorkerHealth({ lastResult, lastError, running }) {
   });
 }
 
+export function applyAbsentReadHealth(health,{running=false,lastResult=null,lastError=null,retryNotBefore=0}={}) {
+  return {statusCode:lastError?503:health.statusCode,body:{...health.body,ok:health.body.ok && !lastError,
+    absent_shadow:{running,last_completed_cycle_at:lastResult?.completed_at || null,
+      last_sync_ok:lastError?false:lastResult?.ok ?? null,last_error:lastError,
+      retry_not_before:retryNotBefore?new Date(retryNotBefore).toISOString():null}}};
+}

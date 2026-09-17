@@ -12,7 +12,7 @@ import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
 import { syncChatbyReadOnly } from './integrations/chatby/readonly-sync.mjs';
 import { syncOperationalOrderSignals } from './integrations/chatby/operational-order-signal-sync.mjs';
 import { syncRenderIncidentDiscountSignals } from './integrations/render/incident-discount-signal-sync.mjs';
-import { shadowWorkerHealth } from './shadow-worker-health.mjs';
+import { shadowWorkerHealth,applyAbsentReadHealth } from './shadow-worker-health.mjs';
 import { createAbsentLogisticsReader } from './integrations/gls/absent-read-context.mjs';
 import { prepareAbsentTemplateApproval } from './integrations/chatby/absent-template-admin.mjs';
 
@@ -35,8 +35,9 @@ let running = false, lastResult = null, lastError = null;
 // through health/API responses.
 const chatbySubscriberCache = {};
 const chatbyConversationCache = new Map();
-const absentSubscriberCache = {}, absentConversationCache = new Map(), absentLogisticsCache = new Map();
+const absentSubscriberCache = chatbySubscriberCache, absentConversationCache = new Map(), absentLogisticsCache = new Map();
 let absentRunning=false, absentLastResult=null, absentLastError=null, absentTemplate=null;
+let absentRetryNotBefore=0;
 const absentReader=createAbsentLogisticsReader(dropeaClients);
 const webhookRate = new Map();
 
@@ -175,7 +176,7 @@ async function run() {
 // Single owner of AUSENTE shadow decisions and its sole 48h response timer.
 // Independent reads: slow legacy ingestion cannot starve exact-case reads.
 async function runAbsent() {
-  if(absentRunning) return;
+  if(absentRunning || Date.now()<absentRetryNotBefore) return;
   absentRunning=true;
   try {
     if(!absentTemplate || Date.now()-absentTemplate.checkedAt>3600000){
@@ -200,11 +201,12 @@ async function runAbsent() {
     };
     const incidents=await syncIncidentSimulations({pool:repository.pool,projector:operationsProjector,privateDataKey:config.hashKey,
       onlyRecipientAbsent:true,absentLogisticsRead:boundedLogistics,absentTemplateStatus:absentTemplate.status});
-    absentLastResult={ok:chatby.ok && incidents.ok,completed_at:new Date().toISOString(),chatby,incidents}; absentLastError=null;
+    absentLastResult={ok:chatby.ok && incidents.ok,completed_at:new Date().toISOString(),chatby,incidents}; absentLastError=null;absentRetryNotBefore=0;
     audit({event:'absent_shadow_cycle_completed',...absentLastResult});
   } catch(error) {
     absentLastError=String(error.code || 'ABSENT_SHADOW_CYCLE_FAILED').replace(/[^A-Z0-9_]/g,'_');
-    audit({event:'absent_shadow_cycle_failed',reason:absentLastError});
+    if(/_HTTP_429$/.test(error.code || ''))absentRetryNotBefore=Math.max(Date.now()+60000,Number(error.retryNotBefore)||0);
+    audit({event:'absent_shadow_cycle_failed',reason:absentLastError,retry_not_before:absentRetryNotBefore?new Date(absentRetryNotBefore).toISOString():null});
   } finally {absentRunning=false;}
 }
 
@@ -212,9 +214,10 @@ const server = http.createServer(async (req, res) => {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (req.method === 'POST' && await receiveWebhook(req, res)) return;
   if (req.method === 'GET' && req.url === '/health') {
-    const health = shadowWorkerHealth({ lastResult, lastError, running });
+    const health = applyAbsentReadHealth(shadowWorkerHealth({ lastResult, lastError, running }),
+      {running:absentRunning,lastResult:absentLastResult,lastError:absentLastError,retryNotBefore:absentRetryNotBefore});
     res.statusCode = health.statusCode;
-    res.end(JSON.stringify({...health.body,absent_shadow:{running:absentRunning,last_completed_cycle_at:absentLastResult?.completed_at || null,last_sync_ok:absentLastResult?.ok ?? null,last_error:absentLastError}})); return;
+    res.end(JSON.stringify(health.body)); return;
   }
   res.statusCode = 404; res.end(JSON.stringify({ ok: false, error: 'not_found' }));
 });

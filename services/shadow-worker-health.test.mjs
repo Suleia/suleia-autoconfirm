@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { shadowWorkerHealth } from './shadow-worker-health.mjs';
+import { shadowWorkerHealth,applyAbsentReadHealth } from './shadow-worker-health.mjs';
+
+test('an AUSENTE throttle is unhealthy even after an earlier successful cycle and preserves the actual retry deadline',()=>{
+ const prior={ok:true,completed_at:'2026-09-17T15:47:05Z'};const until=Date.parse('2026-09-17T16:01:01Z');
+ const h=applyAbsentReadHealth(shadowWorkerHealth({lastResult:{ok:true},lastError:null,running:false}),{lastResult:prior,lastError:'CHATBY_SUBSCRIBERS_HTTP_429',retryNotBefore:until});
+ assert.equal(h.statusCode,503);assert.equal(h.body.ok,false);assert.equal(h.body.absent_shadow.last_sync_ok,false);assert.equal(h.body.absent_shadow.last_completed_cycle_at,prior.completed_at);assert.equal(h.body.absent_shadow.retry_not_before,new Date(until).toISOString());
+});
+
+test('AUSENTE health recovers only after the next successful read, not by relabelling old success',()=>{
+ const h=applyAbsentReadHealth(shadowWorkerHealth({lastResult:{ok:true},lastError:null,running:false}),{lastResult:{ok:true,completed_at:'2026-09-17T16:03:01Z'},lastError:null});
+ assert.equal(h.statusCode,200);assert.equal(h.body.absent_shadow.last_sync_ok,true);assert.equal(h.body.absent_shadow.last_error,null);assert.equal(h.body.actions_executed,0);
+});
 
 test('worker is not healthy before the first complete synchronization', () => {
   const state = shadowWorkerHealth({ lastResult: null, lastError: null, running: true });
