@@ -32,6 +32,11 @@ calculations and all non-AUSENTE customer workflows remain unchanged.
 8. Contact/wait inherited operational carrier prerequisites. Requirements now
    depend on the phase. Dropea options are declarations, never proof of a GLS
    slot, agency custody, package operability or retention deadline.
+9. The database's original private-message vocabulary rejected the fail-closed
+   NOTIFICATION_NOT_OBSERVED/BEFORE_NOTIFICATION states already emitted by the
+   notification-boundary reader. Migration 038 adds exactly those two enum
+   values; it does not remove the constraint or treat these as notified replies.
+   Existing encrypted messages and all unrelated safety constraints are kept.
 
 ## Policy and timer ownership
 

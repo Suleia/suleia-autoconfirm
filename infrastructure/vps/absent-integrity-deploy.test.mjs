@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 const read=p=>readFileSync(new URL(p,import.meta.url),'utf8');
+test('notification vocabulary accepts only the two precise missing states without weakening encryption or zero-action guards',()=>{
+ const sql=read('../../migrations/038_chatby_notification_boundary_vocabulary.sql');
+ assert.match(sql,/NOTIFICATION_NOT_OBSERVED/);assert.match(sql,/BEFORE_NOTIFICATION/);assert.match(sql,/ADD CONSTRAINT.*CHECK\(/s);
+ assert.doesNotMatch(sql,/message_text_ciphertext|actions_executed|production_writes|UPDATE|DELETE/);
+});
 test('absence migration persists SHADOW registry/snapshots and never modifies existing timer rows',()=>{
  const sql=read('../../migrations/037_recipient_absent_shadow_integrity.sql');
  for(const evidence of ['configuration.policy_assignments','operations.recipient_absent_decision_snapshots','supersedes_decision_id','ABSENT_ASSIGNMENT_CONFLICT','absent_v1_one_response_timer_per_issue','configuration.shadow_schema_releases'])assert.ok(sql.includes(evidence));

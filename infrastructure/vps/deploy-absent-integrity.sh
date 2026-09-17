@@ -74,9 +74,13 @@ rollback(){
 trap rollback ERR
 "${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/037_recipient_absent_shadow_integrity.sql
 migrated=true
+"${compose[@]}" exec -T postgres psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/038_chatby_notification_boundary_vocabulary.sql
 migration_hash="$(sha256sum migrations/037_recipient_absent_shadow_integrity.sql | cut -d' ' -f1)"
 "${compose[@]}" exec -T --interactive=false postgres psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging \
   -c "INSERT INTO configuration.shadow_schema_releases(version,source_commit,migration_sha256) VALUES('037_recipient_absent_shadow_integrity','$revision','$migration_hash') ON CONFLICT(version) DO NOTHING;"
+boundary_hash="$(sha256sum migrations/038_chatby_notification_boundary_vocabulary.sql | cut -d' ' -f1)"
+"${compose[@]}" exec -T --interactive=false postgres psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging \
+  -c "INSERT INTO configuration.shadow_schema_releases(version,source_commit,migration_sha256) VALUES('038_chatby_notification_boundary_vocabulary','$revision','$boundary_hash') ON CONFLICT(version) DO NOTHING;"
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker review-panel
 for service in "${services[@]}"; do
   docker inspect "suleia-operations-staging-$service-1" > "$backup/$service-after.json"
@@ -102,4 +106,4 @@ link="/opt/suleia-operations-absent-integrity-$revision"
 [[ ! -e "$link" && ! -L "$link" ]] || exit 2
 ln -s "$release" "$link";mv -T "$link" "$install"
 trap - ERR
-printf 'ABSENT_INTEGRITY_DEPLOY|commit=%s|env_preserved=true|other_services_unchanged=true|migration=037|services=api,mcp,ingestion,panel|mode=SHADOW\n' "$revision"
+printf 'ABSENT_INTEGRITY_DEPLOY|commit=%s|env_preserved=true|other_services_unchanged=true|migration=037,038|services=api,mcp,ingestion,panel|mode=SHADOW\n' "$revision"
