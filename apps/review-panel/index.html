@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260916-incident-evidence-v2">
+  <link rel="stylesheet" href="styles.css?v=20260916-results-daily-v3">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -80,13 +80,14 @@
         <section id="finance-hero" class="finance-hero"></section>
         <section class="results-chart-grid" aria-label="Gráficos de resultados">
           <article class="finance-panel daily-chart-panel">
-            <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA</p><h3>Beneficio neto realizado por día</h3><p>Cada barra agrupa exclusivamente los pedidos creados ese día y su resultado actual en Dropea.</p></div><div class="chart-heading-actions"><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Beneficio</button><button id="finance-chart-pnl" type="button">P&amp;L completo</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
+            <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA</p><h3 id="finance-daily-title">Ganancia o pérdida por día</h3></div><div class="chart-heading-actions"><select id="finance-daily-basis" class="mini-select" aria-label="Base de cálculo del gráfico y tabla diaria"><option value="settlement">Entregas / devoluciones reales</option><option value="cohort">Pedidos creados ese día</option></select><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Resultado</button><button id="finance-chart-pnl" type="button">Ingresos y costes</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
+            <p id="finance-daily-model" class="daily-model-note"></p>
             <div id="finance-trend" class="finance-chart" aria-label="Evolución diaria del beneficio"></div>
           </article>
-          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">OPERACIÓN</p><h3>Tasa de entrega</h3></div></div><div id="finance-delivery-chart"></div></article>
-          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">CONVERSIÓN</p><h3>Tasa de confirmación</h3></div></div><div id="finance-confirmation-chart"></div></article>
-          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">HISTÓRICO</p><h3>Evolución del beneficio</h3></div><select id="finance-history-window" class="mini-select" aria-label="Ventana histórica"><option value="6">6 meses</option><option value="12">12 meses</option></select></div><div id="finance-history-chart"></div></article>
-          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">EMBUDO</p><h3>Pedidos</h3></div></div><div id="finance-funnel" class="results-funnel"></div></article>
+          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">OPERACIÓN</p><h3 id="finance-delivery-title">Tasa de entrega</h3></div></div><div id="finance-delivery-chart"></div></article>
+          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">CONVERSIÓN</p><h3 id="finance-confirmation-title">Tasa de confirmación</h3></div></div><div id="finance-confirmation-chart"></div></article>
+          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">HISTÓRICO</p><h3 id="finance-history-title">Evolución del beneficio</h3></div><select id="finance-history-window" class="mini-select" aria-label="Ventana histórica"><option value="6">6 meses</option><option value="12">12 meses</option></select></div><div id="finance-history-chart"></div></article>
+          <article class="finance-panel compact-chart-panel"><div class="panel-heading"><div><p class="eyebrow">DEVOLUCIONES</p><h3 id="finance-return-title">Tasa de devolución mensual</h3><p>Pedidos devueltos / enviados. No incluye cancelaciones sin envío.</p></div></div><div id="finance-return-rates"></div></article>
         </section>
         <section class="results-insight-grid" aria-label="Resumen operativo y calidad de los datos">
           <article class="finance-panel insight-panel"><div class="panel-heading"><div><p class="eyebrow">RESUMEN OPERATIVO</p><h3>Actividad del mes</h3></div></div><div id="finance-operational-summary"></div></article>
@@ -97,7 +98,7 @@
           <div id="finance-costs" class="results-costs"></div>
         </section>
         <section class="finance-panel daily-table-panel">
-          <div class="panel-heading"><div><p class="eyebrow">HISTÓRICO DIARIO</p><h3>Detalle diario del mes</h3><p>La fila TOTAL reconcilia exactamente con los indicadores superiores.</p><p class="allocation-note">Los gastos recurrentes se devengan con precisión interna constante durante cada tramo activo. El total mensual se redondea una sola vez, evitando diferencias artificiales de céntimos entre días equivalentes.</p></div></div>
+          <div class="panel-heading"><div><p class="eyebrow">HISTÓRICO DIARIO</p><h3>Detalle diario del mes</h3><p id="finance-daily-caption"></p><p class="allocation-note">Los gastos recurrentes se devengan con precisión interna constante durante cada tramo activo. El total mensual se redondea una sola vez, evitando diferencias artificiales de céntimos entre días equivalentes.</p></div></div>
           <div id="finance-daily" class="finance-daily-table-wrap" aria-label="Tabla histórica diaria"></div>
         </section>
         <details class="finance-panel finance-audit-disclosure">
@@ -155,6 +156,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260916-incident-evidence-v2" defer></script>
+  <script src="app.js?v=20260916-results-daily-v3" defer></script>
 </body>
 </html>

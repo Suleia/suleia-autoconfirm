@@ -260,3 +260,16 @@ test('results finance refresh remains fast with a production-sized order history
   assert.equal(result.history.length, months.length);
   assert.ok(elapsedMs < 3_000, `production-sized refresh took ${elapsedMs.toFixed(0)}ms`);
 });
+
+test('known lost orders are not presented as in transit and independent confirmed count outranks sent',()=>{
+  const july=source('2026-07',31,{counts:{created:5,confirmed:4,sent:3,delivered:1,returned:1,inTransit:1,pending:0,cancelled:1,returnRatePercent:100,deliveryRatePercent:100},
+    totals:{realRevenue:0,totalCosts:0,exactNetProfit:0},
+    orders:[{orderId:'105',status:'INTRANSIT',productCost:0,outboundShippingCost:0,outboundFulfillmentCost:0,codCost:0,returnCost:0,dropeaAdjustmentsCost:0}]});
+  const result=buildResultsFinanceReport({month:'2026-07',orders:[order('105','2026-07-01T10:00:00Z','2026-07-01T11:00:00Z',{lifecycle_status:'LOST_OR_DAMAGED'})],supplementalReports:[july],now:new Date('2026-09-17T04:00:00Z')});
+  assert.equal(result.counts.inTransit,0);
+  assert.equal(result.counts.otherOutcome,1);
+  assert.equal(result.counts.confirmationRatePercent,80);
+  assert.equal(result.counts.returnRatePercent,33.33);
+  assert.equal(result.counts.deliveryRatePercent,33.33);
+  assert.equal(result.accounting.closedThrough,null);
+});

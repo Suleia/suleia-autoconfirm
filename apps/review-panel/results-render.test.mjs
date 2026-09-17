@@ -9,7 +9,7 @@ class Element {
   append(...children) { this.children.push(...children); }
   replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) { this[name] = String(value); }
-  addEventListener() {}
+  addEventListener(name,callback) { (this.events ||= {})[name]=callback; }
   reset() {}
   focus() {}
   querySelector() { return new Element('button'); }
@@ -44,7 +44,7 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   };
   context.__results.renderResultsFinance();
   assert.equal(get('finance-hero').children.length, 10);
-  assert.match(content(get('finance-hero')), /Beneficio conciliado/);
+  assert.match(content(get('finance-hero')), /Beneficio mensual conciliado/);
   assert.match(content(get('finance-hero')), /1558,99/);
   assert.equal(get('finance-trend').children[0].children[1].tagName, 'svg');
   assert.match(content(get('finance-daily')), /TOTAL DEL MES/);
@@ -59,6 +59,21 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   assert.match(content(get('finance-data-summary')), /Datos conciliados/);
   assert.doesNotMatch(content(get('finance-trend')), /Acumulado|Beneficio acumulado/);
   assert.equal(content(get('finance-order-ledger')), '');
+  assert.match(content(get('finance-return-rates')), /junio|julio/);
+  assert.doesNotMatch(content(get('finance-return-rates')), /Creados|Confirmados/);
+  const countTags=(element,tag)=>Number(element.tagName===tag)+element.children.reduce((n,c)=>n+(typeof c==='string'?0:countTags(c,tag)),0);
+  assert.equal(countTags(get('finance-hero'),'svg'),20); // Distinct native icons + real sparklines.
+  context.__results.state.finance.dailySettlements={label:'Fecha real',limitation:'No mezclar con cohorte',days:[{...context.__results.state.finance.days[0],realRevenue:300,netProfit:105.52,closeLabel:'Liquidaciones observadas'}],totals:{realRevenue:300,totalCosts:194.48,exactNetProfit:105.52},eventCounts:{delivered:10,returned:2}};
+  context.__results.renderResultsFinance();
+  assert.match(content(get('finance-daily-model')), /Fecha real/);
+  assert.match(content(get('finance-daily-caption')), /no el de pedidos creados/);
+  assert.match(content(get('finance-trend')), /Ganancia del día|Meta del día/);
+  assert.match(content(get('finance-daily')), /TOTAL · LIQUIDACIONES/);
+  assert.match(content(get('finance-trend')), /105,52/);
+  assert.equal(countTags(get('finance-trend'),'title'),0); // No enormous native tooltip.
+  const svg=get('finance-trend').children[0].children.find(c=>c.tagName==='svg');
+  const group=svg.children.find(c=>c.role==='button'); group.events.click();
+  assert.equal(context.__results.state.financeSelectedDay,'2026-07-01');
   context.__results.state.finance.period = { month: '2026-09', current: true, elapsedDays: 13 };
   context.__results.state.finance.accounting = { closedThrough: '2026-09-12', pendingDays: 1, currentDayPartial: true };
   context.__results.state.finance.dataAvailability = { status: 'MTD', label: 'MTD · día 13' };

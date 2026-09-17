@@ -22,9 +22,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /id="finance-view"/);
   assert.match(html, /id="finance-month"/);
   assert.match(html, /RENDIMIENTO DEL NEGOCIO/);
-  assert.match(script, /Beneficio conciliado/);
+  assert.match(script, /Beneficio mensual conciliado/);
   assert.match(`${html}\n${script}`, /Beneficio neto/);
-  assert.match(html, /Beneficio neto realizado por día/);
+  assert.match(html, /Ganancia o pérdida por día/);
   assert.match(html, /Distribución del coste total del mes/);
   assert.match(html, /Detalle diario del mes/);
   assert.match(html, /id="finance-delivery-chart"/);
@@ -61,9 +61,11 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260916-incident-evidence-v2">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260916-results-daily-v3">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260916-incident-evidence-v2" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260916-results-daily-v3" defer><\/script>/);
+  assert.match(html,/Tasa de devolución mensual/);
+  assert.doesNotMatch(html,/EMBUDO|finance-funnel/);
   assert.match(html, /id="finance-fixed-form"/);
   assert.match(script, /saveFixedExpense/);
   assert.doesNotMatch(css, /finance-daily-table\{min-width:1900px/);

@@ -1,4 +1,4 @@
-const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, financeMonths: [], financeChartMode: 'profit', financeHistoryWindow: 6, financeCache: new Map(), financeLoadedAt: 0, financeRequest: 0, financeController: null, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
+const state = { view: 'orders', offset: 0, limit: 25, total: 0, filters: {}, config: null, token: null, summary: null, finance: null, financeMonths: [], financeChartMode: 'profit', financeDailyBasis: 'settlement', financeSelectedDay: null, financeHistoryWindow: 6, financeCache: new Map(), financeLoadedAt: 0, financeRequest: 0, financeController: null, queueRequest: 0, queueController: null, detailRequest: 0, detailController: null, refreshing: false };
 const operationsBase = location.pathname.startsWith('/operations') ? '/operations' : '';
 const $ = (id) => document.getElementById(id);
 const text = (value, fallback = '—') => value === undefined || value === null || value === '' ? fallback : String(value);
@@ -692,8 +692,19 @@ function miniSparkline(values, tone) {
 }
 function resultMetric(label, value, detail, tone, icon, series) {
   const card = node('article', `result-metric ${tone || ''}`.trim());
-  card.append(node('span', 'result-metric-icon', icon), node('span', 'result-metric-label', label), node('strong', '', value), miniSparkline(series, tone), node('small', '', detail));
+  const iconBox=node('span','result-metric-icon'); iconBox.append(financeIcon(icon));
+  card.append(iconBox, node('span', 'result-metric-label', label), node('strong', '', value), miniSparkline(series, tone), node('small', '', detail));
   return card;
+}
+function financeIcon(kind) {
+  const paths={ profit:['M4 18V12M10 18V8M16 18V4','m3 8 6-4 5 2 6-4'], revenue:['M6 3h12v18l-3-2-3 2-3-2-3 2Z','M9 7h6M9 11h6M9 15h3'],
+    costs:['M3 5h18v14H3Z','M3 9h18M15 14h3'], roi:['M12 3a9 9 0 1 0 9 9','m16 3 5 0 0 5','M21 3 12 12'],
+    roas:['m3 10 13-5v14L3 14Z','M16 8h3a3 3 0 0 1 0 6h-3M6 15l1 6h4l-1-5'], margin:['M6 18 18 6','M7 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8','M17 13a4 4 0 1 0 0 8 4 4 0 0 0 0-8'],
+    delivery:['M12 3a9 9 0 1 0 9 9','m7 12 3 3 7-8'], delivered:['m3 7 9-4 9 4v10l-9 4-9-4Z','m3 7 9 4 9-4M12 11v10','m8 15 2 2 4-4'],
+    returns:['m7 4-4 4 4 4','M3 8h12a6 6 0 0 1 0 12h-4'], transit:['M2 5h12v12H2ZM14 9h4l4 4v4h-8','M7 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4M18 17a2 2 0 1 0 0 4 2 2 0 0 0 0-4'],
+    confirmation:['M8 3h8v3H8ZM6 5H4v17h16V5h-2','m8 13 3 3 5-6'], history:['M3 3v18h18','m6 15 5-6 4 3 5-8'] };
+  const svg=svgEl('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':1.7,'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'});
+  (paths[kind] || paths.profit).forEach(d=>svg.append(svgEl('path',{d}))); return svg;
 }
 function svgEl(tag, attributes = {}) { const element = document.createElementNS('http://www.w3.org/2000/svg', tag); Object.entries(attributes).forEach(([key, value]) => element.setAttribute(key, String(value))); return element; }
 function niceMoneyScale(values, tickCount = 4) {
@@ -704,16 +715,25 @@ function niceMoneyScale(values, tickCount = 4) {
   return { minimum, maximum, step, ticks: Array.from({ length: Math.round((maximum - minimum) / step) + 1 }, (_, index) => minimum + index * step) };
 }
 function appendSvgTitle(element, content) { const title = document.createElementNS('http://www.w3.org/2000/svg', 'title'); title.textContent = content; element.append(title); return element; }
-function dailyTooltip(row, currency) {
-  const logistics = Number(row.outboundShippingCost || 0) + Number(row.outboundFulfillmentCost || 0) + Number(row.codCost || 0) + Number(row.dropeaAdjustmentsCost || 0);
-  return [date(row.day, true), `Facturación ${money(row.realRevenue, currency)}`, `Coste producto ${money(row.productCost, currency)}`, `Logística ${money(logistics, currency)}`, `Devoluciones ${money(row.returnCost, currency)}`, `Publicidad ${money(row.metaSpend, currency)}`, `Gastos fijos ${money(row.fixedCosts, currency)}`, `Gastos puntuales ${money(row.oneOffCosts, currency)}`, `Otros ${money(row.otherCosts, currency)}`, `Costes totales ${money(row.totalCosts, currency)}`, `Beneficio neto ${money(row.netProfit, currency)}`, `Margen ${percentNumber(row.marginPercent)}`, `ROI ${percentNumber(row.roiPercent)}`, `ROAS ${Number(row.roas) ? `${Number(row.roas).toFixed(2)}x` : '—'}`, row.closeStatus === 'CURRENT_PARTIAL' ? row.closeLabel : 'Día cerrado reconstruido'].join(' · ');
+function selectedDailyView(data) {
+  if (state.financeDailyBasis==='settlement' && data.dailySettlements) return {...data,...data.dailySettlements,counts:{...data.counts,created:(data.days || []).reduce((n,r)=>n+Number(r.created || 0),0)},dailyBasis:'settlement'};
+  return {...data,dailyBasis:'cohort'};
+}
+function dailyDetail(row,currency) {
+  const root=node('section','daily-detail'); root.setAttribute('aria-live','polite');
+  const pending=row.netProfit===null || row.netProfit===undefined; const positive=Number(row.netProfit)>=0;
+  const lead=node('div',`daily-detail-lead ${pending?'pending':positive?'positive':'negative'}`);
+  lead.append(stacked(date(row.day,true),row.closeLabel || 'Estado actual de pedidos'),stacked(pending?'Resultado no disponible':positive?'Ganancia del día':'Pérdida del día',money(row.netProfit,currency))); root.append(lead);
+  const stats=node('div','daily-detail-stats'); [['Facturación',money(row.realRevenue,currency)],['Costes totales',money(row.totalCosts,currency)],['Entregados',row.delivered===null?'—':number(row.delivered)],['Devueltos',row.returned===null?'—':number(row.returned)]].forEach(([label,value])=>stats.append(stacked(label,value))); root.append(stats);
+  const costs=node('dl','daily-detail-costs'); [['Producto','productCost'],['Envío','outboundShippingCost'],['Fulfillment','outboundFulfillmentCost'],['COD','codCost'],['Devolución','returnCost'],['Ajustes Dropea','dropeaAdjustmentsCost'],['Meta del día','metaSpend'],['Fijos','fixedCosts'],['Puntuales','oneOffCosts'],['Otros','otherCosts']].forEach(([label,key])=>{const item=node('div'); item.append(node('dt','',label),node('dd','',money(row[key],currency))); costs.append(item);}); root.append(costs);
+  return root;
 }
 function dailyResultsChart(days, currency) {
-  const rows = (days || []).filter((row) => row.day && row.totalCosts !== null && row.netProfit !== null);
+  const rows = (days || []).filter((row) => row.day);
   const root = node('div', 'daily-results-chart');
   if (!rows.length) { root.append(stacked('Todavía no hay días conciliados', 'Los datos aparecerán cuando se complete la primera sincronización.')); return root; }
   const mode = state.financeChartMode; const width = 820; const height = 320; const left = 52; const right = 24; const top = 30; const bottom = 46;
-  const primaryValues = mode === 'pnl' ? rows.flatMap((row) => [row.realRevenue, row.totalCosts, row.netProfit]) : rows.map((row) => row.netProfit);
+  const primaryValues = (mode === 'pnl' ? rows.flatMap((row) => [row.realRevenue, row.totalCosts, row.netProfit]) : rows.map((row) => row.netProfit)).filter(value=>value!==null&&value!==undefined);
   const scale = niceMoneyScale(primaryValues); const range = Math.max(1, scale.maximum - scale.minimum); const plotWidth = width - left - right; const plotHeight = height - top - bottom;
   const x = (index) => left + (index + .5) * plotWidth / rows.length; const y = (value) => top + (scale.maximum - Number(value || 0)) / range * plotHeight;
   const zeroY = y(0);
@@ -724,24 +744,34 @@ function dailyResultsChart(days, currency) {
     const label = svgEl('text', { x: left - 6, y: gridY + 4, class: 'chart-axis-label', 'text-anchor': 'end' });
     label.textContent = `${Math.round(tick)} €`; svg.append(label);
   });
-  const groupWidth = plotWidth / rows.length; const profitWidth = Math.max(5, Math.min(18, groupWidth * (mode === 'pnl' ? .22 : .62)));
+  const detail=node('div','daily-detail-slot'); const groups=[];
+  const selectDay=row=>{state.financeSelectedDay=row.day; detail.replaceChildren(dailyDetail(row,currency)); groups.forEach(([day,group])=>group.setAttribute('class',`chart-day-group${day===row.day?' is-selected':''}`));};
+  const groupWidth = plotWidth / rows.length; const profitWidth = Math.max(5, Math.min(24, groupWidth * (mode === 'pnl' ? .22 : .68)));
   rows.forEach((row, index) => {
-    const center = x(index); const profit = Number(row.netProfit || 0); const title = dailyTooltip(row, currency); const partial = row.closeStatus === 'CURRENT_PARTIAL' ? ' partial' : '';
-    if (mode === 'pnl') {
+    const center = x(index); const profit = Number(row.netProfit || 0); const missing=row.netProfit===null||row.netProfit===undefined; const partial = row.closeStatus === 'CURRENT_PARTIAL' ? ' partial' : '';
+    const group=svgEl('g',{class:'chart-day-group',tabindex:0,role:'button','aria-label':`${date(row.day,true)} · ${missing?'Sin datos completos':money(row.netProfit,currency)} · consultar detalle`});
+    group.append(svgEl('rect',{x:center-groupWidth/2+1,y:top,width:Math.max(1,groupWidth-2),height:plotHeight,rx:5,class:'chart-day-hit'}));
+    for (const event of ['mouseenter','focus','click']) group.addEventListener(event,()=>selectDay(row));
+    group.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();selectDay(row);}else if(event.key==='ArrowRight'||event.key==='ArrowLeft'){event.preventDefault(); const next=Math.max(0,Math.min(rows.length-1,index+(event.key==='ArrowRight'?1:-1)));selectDay(rows[next]);groups[next][1].focus();}}); groups.push([row.day,group]);
+    if (missing) {group.append(svgEl('rect',{x:center-5,y:zeroY-3,width:10,height:6,rx:2,class:'chart-missing-bar'}));}
+    else if (mode === 'pnl') {
       const revenueY = y(row.realRevenue); const costsY = y(row.totalCosts); const widthPnl = Math.max(3, Math.min(9, groupWidth * .2));
-      svg.append(appendSvgTitle(svgEl('rect', { x: center - widthPnl * 1.6, y: revenueY, width: widthPnl, height: Math.max(1, zeroY - revenueY), rx: 2, class: `chart-bar revenue${partial}` }), title));
-      svg.append(appendSvgTitle(svgEl('rect', { x: center - widthPnl * .45, y: costsY, width: widthPnl, height: Math.max(1, zeroY - costsY), rx: 2, class: `chart-bar costs${partial}` }), title));
-      const profitY = y(profit); svg.append(appendSvgTitle(svgEl('rect', { x: center + widthPnl * .7, y: Math.min(zeroY, profitY), width: widthPnl, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 2, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }), title));
+      group.append(svgEl('rect', { x: center - widthPnl * 1.6, y: Math.min(zeroY,revenueY), width: widthPnl, height: Math.max(1, Math.abs(zeroY - revenueY)), rx: 2, class: `chart-bar revenue${partial}` }));
+      group.append(svgEl('rect', { x: center - widthPnl * .45, y: Math.min(zeroY,costsY), width: widthPnl, height: Math.max(1, Math.abs(zeroY - costsY)), rx: 2, class: `chart-bar costs${partial}` }));
+      const profitY = y(profit); group.append(svgEl('rect', { x: center + widthPnl * .7, y: Math.min(zeroY, profitY), width: widthPnl, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 2, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }));
     } else {
-      const profitY = y(profit); svg.append(appendSvgTitle(svgEl('rect', { x: center - profitWidth / 2, y: Math.min(zeroY, profitY), width: profitWidth, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 3, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }), title));
+      const profitY = y(profit); group.append(svgEl('rect', { x: center - profitWidth / 2, y: Math.min(zeroY, profitY), width: profitWidth, height: Math.max(2, Math.abs(zeroY - profitY)), rx: 3, class: `chart-bar ${profit >= 0 ? 'profit' : 'loss'}${partial}` }));
+      if(rows.length<=18) {const value=svgEl('text',{x:center,y:profit>=0?profitY-7:profitY+13,class:`daily-bar-value ${profit>=0?'positive':'negative'}`,'text-anchor':'middle'});value.textContent=`${profit>=0?'+':''}${Math.round(profit)}€`;group.append(value);}
     }
+    svg.append(group);
     if (index === 0 || index === rows.length - 1 || Number(row.day.slice(-2)) % 5 === 0) { const label = svgEl('text', { x: center, y: height - 16, class: 'chart-day-label', 'text-anchor': 'middle' }); label.textContent = Number(row.day.slice(-2)); svg.append(label); }
     if (row.closeStatus === 'CURRENT_PARTIAL') { const partialLabel = svgEl('text', { x: center, y: height - 5, class: 'chart-partial-label', 'text-anchor': 'middle' }); partialLabel.textContent = 'PARCIAL'; svg.append(partialLabel); }
   });
   const legend = node('div', 'chart-legend'); const series = mode === 'pnl' ? [['revenue', 'Facturación'], ['costs', 'Costes'], ['profit', 'Beneficio']] : [['profit', 'Beneficio diario'], ['loss', 'Pérdida diaria']]; series.forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); });
-  const latest = rows.at(-1); const current = node('div', 'chart-current-row');
-  current.append(node('span', '', latest.closeStatus === 'CURRENT_PARTIAL' ? latest.closeLabel : `Último día cerrado · ${date(latest.day, true)}`), node('strong', '', `Facturación ${money(latest.realRevenue, currency)}`), node('strong', '', `Costes ${money(latest.totalCosts, currency)}`), node('strong', Number(latest.netProfit || 0) >= 0 ? 'positive' : 'negative', `Beneficio diario ${money(latest.netProfit, currency)}`));
-  root.append(current, svg, legend); return root;
+  const summary=node('div','daily-performance-summary'); const completeRows=rows.filter(row=>row.netProfit!==null&&row.netProfit!==undefined);
+  [['Días con ganancia',completeRows.filter(r=>r.netProfit>0).length,'positive'],['Días con pérdida',completeRows.filter(r=>r.netProfit<0).length,'negative'],['Sin datos completos',rows.length-completeRows.length,'pending']].forEach(([label,value,tone])=>{const box=node('div',tone);box.append(node('strong','',String(value)),node('span','',label));summary.append(box);});
+  selectDay(rows.find(row=>row.day===state.financeSelectedDay)||rows.at(-1));
+  root.append(summary,svg,legend,node('p','chart-instruction','Pasa el cursor, toca una barra o usa las flechas del teclado para ver el desglose.'),detail); return root;
 }
 function donutChart(value, centerLabel, rows, tone = 'green') {
   const root = node('div', 'donut-layout'); const donut = node('div', `result-donut ${tone}`); const palette = { green: '#17a874', blue: '#1478ed', red: '#f04f72', gray: '#a9b6c2' }; const total = rows.reduce((sum, row) => sum + Number(row[1] || 0), 0); let angle = 0; const stops = rows.map(([, count, color]) => { const start = angle; angle += total ? Number(count || 0) * 360 / total : 0; return `${palette[color] || palette.gray} ${start}deg ${angle}deg`; }); donut.style.background = `conic-gradient(${stops.join(',') || '#e8eff5 0deg 360deg'})`;
@@ -763,9 +793,13 @@ function monthlyHistoryChart(history, currency) {
   const points = rows.map((row, index) => `${x(index)},${marginY(row.totals?.marginPercent)}`).join(' '); svg.append(svgEl('polyline', { points, class: 'chart-margin-line', fill: 'none' })); rows.forEach((row, index) => svg.append(appendSvgTitle(svgEl('circle', { cx: x(index), cy: marginY(row.totals?.marginPercent), r: 2.7, class: 'chart-margin-point' }), `${monthLabel(row.month || row.period?.month)} · Margen ${percentNumber(row.totals?.marginPercent)}`)));
   const legend = node('div', 'chart-legend'); [['profit', 'Beneficio'], ['loss', 'Pérdida'], ['margin', 'Margen neto %'], ['partial', 'Mes parcial']].forEach(([tone, label]) => { const item = node('span'); item.append(node('i', tone), document.createTextNode(label)); legend.append(item); }); root.append(svg, legend); return root;
 }
-function orderFunnel(counts) {
-  const created = Number(counts.created || 0); const rows = [['Creados', counts.created, 100], ['Confirmados', counts.confirmed, created ? Number(counts.confirmed || 0) * 100 / created : 0], ['Enviados', counts.sent, created ? Number(counts.sent || 0) * 100 / created : 0], ['Entregados', counts.delivered, created ? Number(counts.delivered || 0) * 100 / created : 0]];
-  const root = node('div', 'funnel-stack'); rows.forEach(([label, count, share], index) => { const row = node('div', `funnel-step step-${index + 1}`); row.style.width = `${Math.max(58, 100 - index * 10)}%`; row.append(node('span', '', label), node('strong', '', number(count)), node('small', '', percentNumber(share))); root.append(row); }); return root;
+function monthlyReturnRateChart(history) {
+  const root=node('div','monthly-return-rates'); const rows=(history || []).slice().sort((a,b)=>a.month.localeCompare(b.month));
+  if(!rows.length) return stacked('Sin histórico de devoluciones','No hay meses con fuente de pedidos.');
+  rows.forEach(row=>{const sent=Number(row.counts?.sent || 0);const returned=Number(row.counts?.returned || 0);const rate=sent?returned*100/sent:null;const item=node('button',`return-rate-month${row.month===state.finance?.period?.month?' is-selected':''}`);item.type='button';
+    item.setAttribute('aria-label',`${monthLabel(row.month)} · ${percentNumber(rate)} · ${returned} pedidos devueltos de ${sent} enviados`);
+    const top=node('div');top.append(node('span','',monthLabel(row.month)),node('strong','',percentNumber(rate)));const track=node('span','return-rate-track');const fill=node('i');fill.style.width=`${rate===null?0:Math.min(100,rate)}%`;track.append(fill);
+    const unsettled=Math.max(0,sent-Number(row.counts?.delivered || 0)-returned);item.append(top,track,node('small','',`${returned} devueltos / ${sent} enviados${unsettled?` · ${unsettled} sin resultado final`:''}`));item.addEventListener('click',()=>{$('finance-month').value=row.month;loadResultsFinance();});root.append(item);});return root;
 }
 function costBreakdown(totals, currency) {
   const logistics = ['outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost', 'dropeaAdjustmentsCost'].reduce((sum, key) => sum + Number(totals[key] || 0), 0);
@@ -777,7 +811,7 @@ function costBreakdown(totals, currency) {
   root.append(track, legend); return root;
 }
 function operationalSummary(counts) {
-  const root = node('div', 'insight-stat-grid'); const rows = [['Pedidos creados', counts.created, 'blue'], ['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inAir, 'sky'], ['Devueltos', counts.returned, 'red']];
+  const root = node('div', 'insight-stat-grid'); const rows = [['Pedidos creados', counts.created, 'blue'], ['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inTransit, 'sky'], ['Devueltos', counts.returned, 'red']];
   rows.forEach(([label, value, tone]) => { const item = node('div', `insight-stat ${tone}`); item.append(node('span', '', label), node('strong', '', number(value))); root.append(item); }); return root;
 }
 function dataQualitySummary(data) {
@@ -797,7 +831,7 @@ function dailyTable(data, currency) {
   const body = node('tbody');
   const cellValue = (row, key) => {
     if (key === 'day') return date(row.day, true);
-    if (['created', 'delivered', 'returned'].includes(key)) return number(row[key]);
+    if (['created', 'delivered', 'returned'].includes(key)) return row[key]===null||row[key]===undefined?'—':number(row[key]);
     if (['marginPercent', 'roiPercent'].includes(key)) return percentNumber(row[key]);
     if (key === 'roas') return Number(row[key]) ? `${Number(row[key]).toFixed(2)}x` : '—';
     return money(row[key], currency);
@@ -807,7 +841,7 @@ function dailyTable(data, currency) {
     day: 'TOTAL', created: data.counts?.created, delivered: data.eventCounts?.delivered ?? data.counts?.delivered, returned: data.eventCounts?.returned ?? data.counts?.returned,
     ...totals, netProfit: totals.exactNetProfit
   };
-  const foot = node('tfoot'); const tr = node('tr'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', key === 'day' ? 'TOTAL DEL MES' : cellValue(totalRow, key)); tr.append(td); }); foot.append(tr); table.append(head, body, foot);
+  const foot = node('tfoot'); const tr = node('tr'); columns.forEach(([, key]) => { const td = node('td', key === 'netProfit' ? 'daily-net-cell' : '', key === 'day' ? (data.dailyBasis==='settlement'?'TOTAL · LIQUIDACIONES':'TOTAL DEL MES') : cellValue(totalRow, key)); tr.append(td); }); foot.append(tr); table.append(head, body, foot);
   const wrap = node('div', 'results-table-scroll'); wrap.append(table); return wrap;
 }
 function closeResultExpenseForm() { $('finance-fixed-form').hidden = true; $('finance-fixed-form').reset(); $('finance-fixed-feedback').textContent = ''; }
@@ -831,33 +865,39 @@ function renderResultsFinance() {
   const accountingLabel = current
     ? closedThrough
       ? `Parcial · cierre contable hasta ${date(closedThrough, true)}${pendingDays ? ` · ${pendingDays} día(s) pendiente(s)` : ' · día actual parcial'}`
-      : 'Parcial · todavía sin día contable cerrado'
-    : (data.dataAvailability?.label || 'Mes cerrado');
+      : `Cohorte actualizada hasta ${date(data.accounting?.observedThrough || data.period?.until,true)} · hoy parcial`
+    : `Estado actual del mes${Number(data.accounting?.unsettledOrders || 0)>0?` · ${number(data.accounting.unsettledOrders)} pedidos sin resultado final`:''}`;
   $('finance-exactness').textContent = data.quality?.status === 'OK' || current
     ? accountingLabel : `Revisión de datos · ${number(data.quality?.issues?.length)} aviso(s)`;
   const days = (data.days || []).filter((row) => row.day);
   const availability = current ? `${data.dataAvailability?.label || `MTD · día ${data.period.elapsedDays}`} · ${accountingLabel}`
     : (data.dataAvailability?.label || 'Mes completo');
-  const freshness = data.freshness?.sources || {}; $('finance-freshness').replaceChildren(...[['Dropea', freshness.dropea], ['Meta', freshness.meta], ['Chatby', freshness.chatby]].map(([label, source]) => { const status = source?.status || 'UNAVAILABLE'; const item = node('span', status === 'OK' ? 'is-fresh' : status === 'STALE' ? 'is-stale' : 'is-neutral'); const timing = source?.ageMinutes === null || source?.ageMinutes === undefined ? (status === 'NOT_A_FINANCE_DEPENDENCY' ? 'no interviene en el P&L' : 'sin marca de tiempo') : `hace ${number(source.ageMinutes)} min`; item.textContent = `${label} · ${timing}`; return item; }));
-  const fullyReconciled = data.quality?.status === 'OK' && Number(data.coverage?.dropeaBreakdownPercent) === 100 && totals.exactNetProfit !== null && totals.exactNetProfit !== undefined;
+  const freshness = data.freshness?.sources || {}; $('finance-freshness').replaceChildren(...[['Dropea', freshness.dropea], ['Meta', freshness.meta], ['Informe', freshness.report]].map(([label, source]) => { const status = source?.status || 'UNAVAILABLE'; const item = node('span', status === 'OK' ? 'is-fresh' : status === 'STALE' ? 'is-stale' : 'is-neutral'); const timing = source?.ageMinutes === null || source?.ageMinutes === undefined ? 'sin marca de tiempo' : `hace ${number(source.ageMinutes)} min`; item.textContent = `${label} · ${timing}${status==='STALE'?' · pendiente de actualizar':''}`; return item; }));
+  const fullyReconciled = !current && Number(data.accounting?.unsettledOrders || 0)===0 && data.quality?.status === 'OK' && Number(data.coverage?.dropeaBreakdownPercent) === 100 && totals.exactNetProfit !== null && totals.exactNetProfit !== undefined;
   $('finance-hero').replaceChildren(
-    resultMetric(fullyReconciled ? 'Beneficio conciliado' : 'Beneficio provisional', money(totals.exactNetProfit, currency), `${availability} · ${comparisonText('exactNetProfit')}`, Number(totals.exactNetProfit || 0) >= 0 ? 'profit' : 'loss', '↗', days.map((row) => row.netProfit)),
-    resultMetric('Facturación', money(totals.realRevenue, currency), comparisonText('realRevenue'), 'revenue', '🛒', days.map((row) => row.realRevenue)),
-    resultMetric('Costes totales', money(totals.totalCosts, currency), comparisonText('totalCosts'), 'costs', '◉', days.map((row) => row.totalCosts)),
-    resultMetric('ROI', percentNumber(totals.roiPercent), comparisonText('roiPercent', 'points'), 'roi', '⌁', days.map((row) => row.roiPercent)),
-    resultMetric('ROAS', totals.roas === null || totals.roas === undefined ? '—' : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(totals.roas)}x`, comparisonText('roas', 'multiplier'), 'roas', '◎', days.map((row) => Number(row.metaSpend || 0) > 0 ? Number(row.realRevenue || 0) / Number(row.metaSpend) : 0)),
-    resultMetric('Margen neto', percentNumber(totals.marginPercent), comparisonText('marginPercent', 'points'), 'margin', '%', days.map((row) => row.marginPercent)),
-    resultMetric('Tasa de entrega', percentNumber(counts.deliveryRatePercent), `${comparisonText('deliveryRatePercent', 'points')} · ${percentNumber(counts.deliveryRateCreatedPercent)} sobre creados`, 'margin', '✓', []),
-    resultMetric('Entregados', number(eventCounts.delivered ?? counts.delivered), 'Pedidos del mes con entrega verificada en Dropea', 'profit', '▣', days.map((row) => row.delivered)),
-    resultMetric('Devueltos', number(eventCounts.returned ?? counts.returned), 'Pedidos del mes devueltos; coste real por pedido', 'loss', '↩', days.map((row) => row.returned)),
-    resultMetric('En tránsito', number(counts.inTransit ?? counts.inAir), 'Solo dentro del universo de enviados', 'revenue', '→', [])
+    resultMetric(fullyReconciled ? 'Beneficio mensual conciliado' : 'Beneficio mensual provisional', money(totals.exactNetProfit, currency), `Pedidos creados en el mes · ${availability} · ${comparisonText('exactNetProfit')}`, Number(totals.exactNetProfit || 0) >= 0 ? 'profit' : 'loss', 'profit', days.map((row) => row.netProfit)),
+    resultMetric('Facturación', money(totals.realRevenue, currency), comparisonText('realRevenue'), 'revenue', 'revenue', days.map((row) => row.realRevenue)),
+    resultMetric('Costes totales', money(totals.totalCosts, currency), comparisonText('totalCosts'), 'costs', 'costs', days.map((row) => row.totalCosts)),
+    resultMetric('ROI', percentNumber(totals.roiPercent), comparisonText('roiPercent', 'points'), 'roi', 'roi', days.map((row) => row.roiPercent)),
+    resultMetric('ROAS', totals.roas === null || totals.roas === undefined ? '—' : `${new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(totals.roas)}x`, comparisonText('roas', 'multiplier'), 'roas', 'roas', days.map((row) => Number(row.metaSpend || 0) > 0 ? Number(row.realRevenue || 0) / Number(row.metaSpend) : 0)),
+    resultMetric('Margen neto', percentNumber(totals.marginPercent), comparisonText('marginPercent', 'points'), 'margin', 'margin', days.map((row) => row.marginPercent)),
+    resultMetric('Tasa de entrega', percentNumber(counts.deliveryRatePercent), `${comparisonText('deliveryRatePercent', 'points')} · ${percentNumber(counts.deliveryRateCreatedPercent)} sobre creados`, 'margin', 'delivery', []),
+    resultMetric('Entregados', number(counts.delivered), 'Pedidos creados en el mes con entrega verificada en Dropea', 'profit', 'delivered', days.map((row) => row.delivered)),
+    resultMetric('Devueltos', number(counts.returned), 'Pedidos creados en el mes devueltos; coste real por pedido', 'loss', 'returns', days.map((row) => row.returned)),
+    resultMetric('En tránsito', number(counts.inTransit ?? counts.inAir), 'Enviados sin entrega ni devolución; no incluye incidencias', 'revenue', 'transit', [])
   );
-  $('finance-trend').replaceChildren(dailyResultsChart(data.days, currency));
+  const daily=selectedDailyView(data); $('finance-daily-basis').value=daily.dailyBasis;
+  $('finance-daily-model').textContent=daily.dailyBasis==='settlement'
+    ? `${daily.label}. ${daily.limitation}`
+    : 'Pedidos creados cada día con su estado actual. Los costes de pedidos pendientes pueden producir pérdidas provisionales: no representa las entregas de ese día. Reparte el cargo fijo mensual completo entre los días observados.';
+  $('finance-trend').replaceChildren(dailyResultsChart(daily.days, currency));
   $('finance-delivery-chart').replaceChildren(donutChart(counts.deliveryRatePercent, 'Entregados', [['Entregados', counts.delivered, 'green'], ['En tránsito', counts.inTransit, 'blue'], ['Devueltos', counts.returned, 'red'], ['Incidencia / otro', counts.otherOutcome, 'gray']], 'green'));
   $('finance-confirmation-chart').replaceChildren(donutChart(counts.confirmationRatePercent, 'Confirmados', [['Confirmados', counts.confirmed, 'blue'], ['No confirmados todavía', counts.pendingConfirmation, 'gray'], ['Cancelados antes de confirmar', counts.cancelledBeforeConfirmation, 'red']], 'blue'));
-  $('finance-history-chart').replaceChildren(monthlyHistoryChart(data.history, currency)); $('finance-funnel').replaceChildren(orderFunnel(counts));
+  $('finance-history-chart').replaceChildren(monthlyHistoryChart(data.history, currency)); $('finance-return-rates').replaceChildren(monthlyReturnRateChart(data.history));
+  for (const [id,kind] of [['finance-daily-title','profit'],['finance-delivery-title','delivery'],['finance-confirmation-title','confirmation'],['finance-history-title','history'],['finance-return-title','returns']]) {const title=$(id);const label=title.textContent;title.replaceChildren(financeIcon(kind),document.createTextNode(label));}
   $('finance-operational-summary').replaceChildren(operationalSummary(counts)); $('finance-data-summary').replaceChildren(dataQualitySummary(data));
-  $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(data, currency));
+  $('finance-cost-total').textContent = `Costes totales ${money(totals.totalCosts, currency)}`; $('finance-costs').replaceChildren(costBreakdown(totals, currency)); $('finance-daily').replaceChildren(dailyTable(daily, currency));
+  $('finance-daily-caption').textContent=daily.dailyBasis==='settlement'?'Tabla y gráfico usan fechas reales de entrega/devolución. Su total es el de liquidaciones del mes, no el de pedidos creados en el mes del resumen superior. Fijos devengados sobre días de calendario.':'Tabla y gráfico usan pedidos creados cada día. La fila TOTAL DEL MES concilia con los indicadores superiores; los recurrentes incluyen el cargo completo del mes.';
   $('finance-quality').replaceChildren(
     stacked('Modelo temporal', 'P&L y embudo por cohorte de creación · resultado final actual de Dropea'),
     stacked('Fuente de pedidos y costes', data.sources?.orders || 'Dropea Public API V2'),
@@ -928,7 +968,8 @@ $('logout-button').addEventListener('click', () => signOut(true)); $('refresh-bu
 $('finance-add-fixed').addEventListener('click', () => openResultExpenseForm());
 $('finance-fixed-cancel').addEventListener('click', closeResultExpenseForm);
 $('finance-fixed-form').addEventListener('submit', saveResultExpense);
-$('finance-chart-profit').addEventListener('click', () => { state.financeChartMode = 'profit'; $('finance-chart-profit').classList.add('is-active'); $('finance-chart-pnl').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(state.finance.days, state.finance.currency || 'EUR')); });
-$('finance-chart-pnl').addEventListener('click', () => { state.financeChartMode = 'pnl'; $('finance-chart-pnl').classList.add('is-active'); $('finance-chart-profit').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(state.finance.days, state.finance.currency || 'EUR')); });
+$('finance-chart-profit').addEventListener('click', () => { state.financeChartMode = 'profit'; $('finance-chart-profit').classList.add('is-active'); $('finance-chart-pnl').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(selectedDailyView(state.finance).days, state.finance.currency || 'EUR')); });
+$('finance-chart-pnl').addEventListener('click', () => { state.financeChartMode = 'pnl'; $('finance-chart-pnl').classList.add('is-active'); $('finance-chart-profit').classList.remove('is-active'); if (state.finance) $('finance-trend').replaceChildren(dailyResultsChart(selectedDailyView(state.finance).days, state.finance.currency || 'EUR')); });
+$('finance-daily-basis').addEventListener('change',event=>{state.financeDailyBasis=event.target.value;state.financeSelectedDay=null;if(state.finance)renderResultsFinance();});
 $('finance-history-window').addEventListener('change', (event) => { state.financeHistoryWindow = Number(event.target.value) || 6; if (state.finance) $('finance-history-chart').replaceChildren(monthlyHistoryChart(state.finance.history, state.finance.currency || 'EUR')); });
 init().catch(async (error) => { $('login').hidden = false; $('app').hidden = true; try { if (state.config) await prepareLogin(); } catch {} showLoginError(error.message); });
