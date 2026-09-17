@@ -557,7 +557,7 @@ export function buildResultsFinanceReport({ month, orders = [], rates = [], supp
   selected.history = [...mapped.values()].sort((a, b) => a.period.month.localeCompare(b.period.month)).map((item) => ({
     month: item.period.month, period: item.period, counts: item.counts, eventCounts: item.eventCounts,
     totals: item.totals, status: item.status, statusLabel: item.statusLabel, quality: item.quality,
-    dataAvailability: item.dataAvailability
+    dataAvailability: item.dataAvailability, temporalModels:item.temporalModels
   }));
   selected.comparison = comparison(selected, prior, comparisonPeriod);
   if (selected.period.current && selected.source==='dropea_order_finance_v4') {

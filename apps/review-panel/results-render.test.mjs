@@ -76,6 +76,14 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
   const cohortFooter=get('finance-daily').children[0].children[0].children.at(-1).children[0];
   assert.equal(cohortFooter.children[2].textContent,'280');
   assert.equal(cohortFooter.children[3].textContent,'100');
+  context.__results.state.finance.history[1].counts={delivered:280,returned:100};
+  context.__results.state.finance.history[1].eventCounts={delivered:314,returned:137};
+  context.__results.state.finance.history[0].temporalModels={pnl:'REALIZED_EVENT_DATE'};
+  context.__results.renderResultsFinance();
+  assert.match(content(get('finance-history-chart')),/Entregados 280/);
+  assert.doesNotMatch(content(get('finance-history-chart')),/Entregados 314/);
+  assert.match(content(get('finance-history-chart')),/Sin datos/);
+  assert.doesNotMatch(content(get('finance-history-chart')),/1643,99/);
   assert.equal(countTags(get('finance-trend'),'title'),0); // No enormous native tooltip.
   const svg=get('finance-trend').children[0].children[1].children[0];
   const group=svg.children.find(c=>c.role==='button'); group.events.click();
