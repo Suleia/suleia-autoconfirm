@@ -340,7 +340,7 @@ export async function syncChatbyReadOnly({
   // Coalesce its in-flight GET traversal; conversation caches remain separate.
   const sharedInflight=subscriberCache?.inFlight;
   const loading=sharedInflight || loadSubscribers();
-  if(subscriberCache && !sharedInflight)subscriberCache.inFlight=loading;
+  if(subscriberCache && !sharedInflight && !cacheHit)subscriberCache.inFlight=loading;
   let subscribers;
   try{subscribers=await loading;}finally{
     if(subscriberCache?.inFlight===loading)delete subscriberCache.inFlight;

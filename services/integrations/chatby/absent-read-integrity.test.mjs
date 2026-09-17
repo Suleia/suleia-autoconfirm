@@ -17,6 +17,12 @@ test('AUSENTE 429 makes one GET and retains the full provider cooldown, never fa
  await assert.rejects(syncChatbyReadOnly({pool:{query:async()=>({rows:[]})},projector:{...projector(),upsertChatbyConversationLink:async()=>{writes++;}},token:'mock',hmacKey:'safe-mock-key-long-enough',onlyRecipientAbsent:true,subscriberCache:cache,minRequestIntervalMs:0,fetchImpl:async()=>{calls++;return new Response('{}',{status:429,headers:{'retry-after':'386'}});}}),e=>e.code==='CHATBY_SUBSCRIBERS_HTTP_429' && e.retryNotBefore>=started+386000);
  assert.equal(calls,1);assert.equal(writes,0);assert.equal(cache.fetchedAt,undefined);assert.equal(cache.inFlight,undefined);
 });
+
+test('a cached general catalogue is not a provider traversal that can renew a shorter absence cache',async()=>{
+ let calls=0;const cache=subscriberCache();cache.fetchedAt=at-300000;
+ const input={pool:{query:async()=>({rows:[]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',subscriberCache:cache,now:()=>at,minRequestIntervalMs:0,fetchImpl:async()=>{calls++;return response({data:[],meta:{last_page:1}});}};
+ await Promise.all([syncChatbyReadOnly({...input,excludeRecipientAbsent:true,subscriberCacheTtlMs:900000}),syncChatbyReadOnly({...input,onlyRecipientAbsent:true,subscriberCacheTtlMs:240000})]);assert.equal(calls,1);assert.equal(cache.fetchedAt,at);
+});
 test('two exact issues charge one conversation budget and make one history request',async()=>{
  let calls=0;const links=[];
  const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a'),issue('safe-b')]})},projector:{...projector(),upsertChatbyConversationLink:async row=>links.push(row)},token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),maxConversations:1,minRequestIntervalMs:0,
