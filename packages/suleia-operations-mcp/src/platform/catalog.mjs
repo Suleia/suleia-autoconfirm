@@ -455,6 +455,11 @@ export function createPlatformKnowledge({ repository, config }) {
       let items = SERVICE_MANIFEST.map((declared) => {
         const live = observed.get(declared.service.toLowerCase()) || {};
         const functionalHealth = live.functional_health || functional.get(declared.service.toLowerCase()) || null;
+        const healthAge = Date.now() - new Date(functionalHealth?.checked_at).getTime();
+        // A fresh flag recorded by the collector is not a perpetual lease.
+        // Keep the old observation as evidence, never as current health.
+        const functionalCurrent = live.functional_health_is_current === true
+          && Number.isFinite(healthAge) && healthAge >= 0 && healthAge <= 300_000;
         return {
           ...declared,
           version: live.version || null,
@@ -464,8 +469,9 @@ export function createPlatformKnowledge({ repository, config }) {
           image_commit:live.image_revision || null,container_commit:live.container_revision || null,
           image_id:live.image_id || null,
           status: live.status || declared.declared_status,
-          health: live.functional_health_is_current===true?functionalHealth?.health_status || live.health || 'UNKNOWN':live.health || 'UNKNOWN',
-          functional_health_is_current:live.functional_health_is_current===true,
+          health: functionalCurrent ? functionalHealth?.health_status || 'UNKNOWN'
+            : functionalHealth ? 'UNKNOWN' : live.health || 'UNKNOWN',
+          functional_health_is_current:functionalCurrent,
           health_reason: functionalHealth?.reason || null,
           health_checked_at: functionalHealth?.checked_at || null,
           health_evidence: functionalHealth?.evidence || null,
