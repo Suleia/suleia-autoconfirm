@@ -76,6 +76,18 @@ function customerEvidence(item) {
   const notifiedAt = item.incident_notified_at || null;
   const messageAt = item.latest_private_customer_message_at || item.latest_customer_activity_at || null;
   const relation = item.latest_customer_message_relation || null;
+  const absent=item.absent_shadow;
+  if(!notifiedAt && item.notification_decision_current===true && item.snapshot_status==='PERSISTED'
+    && absent?.snapshot_status==='PERSISTED' && absent.policy_id===item.policy_id
+    && absent.input_snapshot_hash===item.input_snapshot_hash && absent.response_anchor_kind==='SHADOW_ISSUE_CREATED_ONLY') {
+    const replied=absent.customer_response_status==='RESPONDED';
+    return {code:replied?'SHADOW_RESPONSE':absent.customer_response_status==='NO_RESPONSE'?'SHADOW_NO_RESPONSE':'NOT_VERIFIABLE',
+      title:replied?'Respuesta posterior a la incidencia · simulación':'Evidencia AUSENTE · simulación',
+      summary:'Ancla de creación de incidencia solo para SHADOW; no demuestra que se notificó al cliente.',
+      latest_message:replied?item.latest_customer_message || null:null,at:replied?absent.scoped_customer_activity_at:null,
+      intent:absent.customer_intent,messages:replied?Number(item.messages_used || 1):0,relation:'SHADOW_ISSUE_CREATED_ONLY',notified_at:null,
+      evidence_basis:'SHADOW_ONLY_NOT_OBSERVED_NOTIFICATION'};
+  }
   const scoped = Boolean(notifiedAt && messageAt && new Date(messageAt)>new Date(notifiedAt)
     && relation === 'AFTER_INCIDENT'
     && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT','BEFORE_NOTIFICATION','NOTIFICATION_NOT_OBSERVED'].includes(item.latest_customer_incident_relevance)

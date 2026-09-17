@@ -44,7 +44,8 @@ docker build -f infrastructure/docker/Dockerfile.node --build-arg "OCI_REVISION=
   --build-arg "OCI_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" --build-arg "OCI_VERSION=${revision:0:8}" -t "$image" .
 # Actual new image tests, not an old catalog count. Source additions read-only;
 # the current image's installed modules and modified executable files are used.
-docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
+docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges -e NODE_ENV=test \
+  --tmpfs /app/autoconfirm/data:rw,mode=1777 \
   -v "$release/infrastructure:/app/infrastructure:ro" -v "$release/migrations:/app/migrations:ro" \
   -v "$release/scripts:/app/scripts:ro" -v "$release/docs:/app/docs:ro" \
   -v "$release/autoconfirm:/app/autoconfirm:ro" --entrypoint node "$image" --input-type=module -e '
