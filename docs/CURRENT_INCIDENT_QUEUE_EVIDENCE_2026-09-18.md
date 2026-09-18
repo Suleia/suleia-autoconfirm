@@ -48,6 +48,43 @@ Todos los flags LIVE/provider-send permanecen false y siete servicios ajenos
 se preservan. Cálculo/render/HTML financiero y estilos existentes se comparan
 byte a byte antes de publicar. No se usa navegador.
 
-Pruebas focalizadas: 48/48 PASS. La comprobación completa de la imagen y la
-confrontación final con la cola oficial se registrarán tras su ejecución; este
-documento no afirma todavía un despliegue verificado.
+Versión ejecutable desplegada: `991d180dc4f24e8a56b4e15ef3d4706353663f78`
+(corrección funcional `f7d579ae02fe423f73fe0ab2cbf6e7c18b887a29`).
+Pruebas focalizadas: 48/48 PASS; batería completa local y dentro de la imagen
+Node 22.22.0 del despliegue: 742/742 PASS. Guard financiero byte a byte PASS,
+configuración previa preservada salvo el presupuesto GET y siete contenedores
+ajenos intactos. Sin migración, envíos ni acciones Dropea/GLS.
+
+El primer intento restauró automáticamente los contenedores anteriores porque
+el guard esperaba solo 40 segundos: el lector publica 503 durante STARTING hasta
+completar realmente su primer ciclo. Se amplió únicamente esa espera acotada,
+sin modificar el contrato de salud. Despliegue final y primer ciclo completo
+PASS; lector HTTP 200, `last_sync_ok=true`, sin errores, presupuesto 8 y los
+cuatro flags de ejecución real false. Render permanece fuera del despliegue.
+
+Verificación HTTP de la página existente: HTML y JS HTTP 200; versión de
+recursos `20260918-current-incidents-v2`, pendientes por defecto, histórico
+explícito y etiquetas de evidencia observada verificadas. No se afirma haber
+inspeccionado una sesión interactiva del propietario; verificación por recursos
+servidos, pruebas DOM y proyección real autenticada.
+
+Instantánea consistente `2026-09-18T18:06:26.672Z`: API oficial de Dropea 20
+pendientes, panel 20 y mismos IDs exactos; 710 históricas separadas, 730 totales.
+Los diez contadores coinciden con sus filas/flags en la misma instantánea.
+Invariantes por caso PASS: texto enlazado por hash, identidad exacta, aviso de
+esta incidencia anterior a la respuesta y lectura vigente; silencio no equivale
+a falta de evidencia. Primer ciclo: tres ausencias de acción verificadas y
+diecisiete casos aún no verificables, incluyendo lectura aplazada y ausencia
+de aviso real. No se convierten esos diecisiete casos en silencio ficticio.
+
+Segundo ciclo AUTÓNOMO comprobado, sin ejecutar un barrido manual: instantánea
+`2026-09-18T18:11:10.869Z`, mismos 20 IDs pendientes que la API oficial, diez
+contadores/filas coincidentes y todas las invariantes por caso PASS. Se observó
+una respuesta real con texto literal enlazado y fecha posterior al aviso de su
+incidencia; seis casos sin acción verificada. Las lecturas diferidas del primer
+ciclo se actualizaron naturalmente entre 18:09:59Z y 18:10:34Z. Los trece casos
+restantes carecen de un aviso verificable de la incidencia actual (incluye
+ausencias aún en SHADOW); ningún caso queda no verificable por lectura aplazada
+en esta instantánea. Las notificaciones de incidencias anteriores no se
+reatribuyen a una nueva incidencia del mismo pedido. No se publican mensajes,
+teléfonos, nombres ni identificadores de contacto en este informe/GitHub.
