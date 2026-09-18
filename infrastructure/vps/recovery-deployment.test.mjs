@@ -8,6 +8,8 @@ test('current-incident deployment isolates GET-only reader/API/MCP/UI and preser
   assert.match(source,/startswith\("CHATBY_READ_MAX_CONVERSATIONS="\)\|not/);
   assert.match(source,/rollback\.json.*up -d --no-deps --no-build api mcp-server review-panel ingestion-worker/);
   assert.match(source,/127\.0\.0\.1:3302\/health/);
+  assert.match(source,/for attempt in \{1\.\.120\}/);
+  assert.match(source,/wget -T 5/);
   assert.match(source,/cmp .*finance\/results-report\.mjs/);
   assert.match(source,/financial\(old\),financial\(next\)/);
   assert.match(source,/unchanged\(readFileSync\("\/previous\/apps\/review-panel\/styles\.css"/);

@@ -90,9 +90,17 @@ done
 healthy=false
 for attempt in {1..20};do
   if docker exec suleia-operations-staging-api-1 wget -qO- http://127.0.0.1:3200/health > "$backup/api-health.json" \
-    && docker exec suleia-operations-staging-mcp-server-1 wget -qO- http://127.0.0.1:3100/health > "$backup/mcp-health.json" \
-    && docker exec suleia-operations-staging-ingestion-worker-1 wget -qO- http://127.0.0.1:3302/health > "$backup/worker-health.json";then healthy=true;break;fi
+    && docker exec suleia-operations-staging-mcp-server-1 wget -qO- http://127.0.0.1:3100/health > "$backup/mcp-health.json";then healthy=true;break;fi
   sleep 2
+done
+[[ "$healthy" == true ]]
+# Health is deliberately 503 until the first complete read-only cycle. Cold
+# legacy ingestion plus eight paced conversations cannot finish in 40 seconds.
+# Wait for real readiness, never relabel STARTING/failed reads as healthy.
+healthy=false
+for attempt in {1..120};do
+  if docker exec suleia-operations-staging-ingestion-worker-1 wget -T 5 -qO- http://127.0.0.1:3302/health > "$backup/worker-health.json";then healthy=true;break;fi
+  sleep 5
 done
 [[ "$healthy" == true ]]
 docker exec suleia-operations-staging-review-panel-1 wget -qO- http://127.0.0.1/app.js > "$backup/served-app.js"
