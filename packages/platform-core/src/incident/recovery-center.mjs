@@ -49,13 +49,15 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
       || customerActed && later(c.at,d.sent_at));
   const acted = customerActed || discountActed;
   const deliveredAt = item.recovery_delivered_at, returnedAt = item.recovery_returned_at;
-  const delivered = lifecycle === 'DELIVERED' && validTime(deliveredAt, clock) && ms(deliveredAt) >= ms(created);
-  const returned = ['RETURNED','RETURN_TO_ORIGIN'].includes(lifecycle) && validTime(returnedAt, clock) && ms(returnedAt) >= ms(created);
+  // Reuse the canonical Dropea outcome timestamps, as the existing finance
+  // projection does. Raw FINISHED/REJECTED labels are preserved, not redefined.
+  const returned = validTime(returnedAt, clock) && ms(returnedAt) >= ms(created);
+  const delivered = !returned && validTime(deliveredAt, clock) && ms(deliveredAt) >= ms(created);
   const returnedUnknownDate = ['RETURNED','RETURN_TO_ORIGIN'].includes(lifecycle) && !returned;
   const requestedReturn = item.resolution_status === 'RETURN_REQUESTED';
   const officialRecovery = recoverableTypes.has(item.interpreted_type) && item.status === 'RESOLVED'
     && ['RETRY','CHANGE_ADDRESS','PROVIDE_SOLUTION','PICKUP_AT_AGENCY'].includes(item.resolution_status);
-  const recovered = officialRecovery && !requestedReturn && !['RETURNED','RETURN_TO_ORIGIN','CANCELLED'].includes(lifecycle);
+  const recovered = officialRecovery && !requestedReturn && !returned && !['RETURNED','RETURN_TO_ORIGIN','REJECTED','CANCELLED'].includes(lifecycle);
   const redelivery = officialRecovery && item.resolution_status === 'RETRY';
   const intent = s?.customer_intent || c.intent || c.code;
   const address = c.address_instruction || item.tailored_recommendation?.prepared_dropea_solution?.address;
@@ -76,7 +78,7 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
   const returnIntent = customerActed && ['REJECT','RETURN_REQUEST','FINAL_REJECTION'].includes(c.code)
     && (!discountAccepted || later(c.at,d.responded_at));
   const recoverable = active && recoveryEvidence && sourceCurrent && gls && capability && policyReady && !returnIntent && !requestedReturn
-    && !['DELIVERED','RETURNED','RETURN_TO_ORIGIN','CANCELLED'].includes(lifecycle) && item.contradiction!==true;
+    && !delivered && !returned && !['DELIVERED','FINISHED','RETURNED','RETURN_TO_ORIGIN','REJECTED','CANCELLED'].includes(lifecycle) && item.contradiction!==true;
   const waitingSuleia = active && acted && !collectingData && !requestedReturn && !returnIntent;
   const contacted = validTime(notified, clock) && ms(notified) >= ms(created) || offerVerified;
   const noReplyVerified = item.scoped_response_status === 'NO_VALID_RESPONSE' && item.chatby_sync_current === true && exact;
@@ -111,6 +113,14 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
   if (uncertain) add(-20,'Fuentes o relación temporal no verificadas');
   if (!active || requestedReturn || returnIntent) add(-score,'Sin oportunidad comercial activa: cierre, devolución solicitada o intención explícita');
   let solution = item.tailored_recommendation || {};
+  if (!acted && (initialConfirmation(c.latest_message) || template.startsWith('dropea_pedido_')
+    || c.at && !scoped && !['SHADOW_RESPONSE','SHADOW_NO_RESPONSE'].includes(c.code))) {
+    solution={code:'VERIFY_CURRENT_INCIDENT_EVIDENCE',title:'Validar la respuesta de ESTA incidencia antes de proponer recuperación',
+      summary:'El mensaje observado no está vinculado inequívocamente al aviso actual. No se utiliza la confirmación inicial ni un mensaje de otro contexto.',
+      resolution_option:null,prepared_dropea_solution:null,execution_status:'NOT_EXECUTED',
+      steps:['Comprobar pedido, incidencia y conversación exactos','Localizar la notificación real y un mensaje posterior válido','Reevaluar la propuesta con la política vigente'],
+      reasoning:'FOUND no demuestra respuesta; faltan las condiciones canónicas de evidencia.',guardrail:'No trasladar una instrucción sin vinculación ni ejecutar desde la vista.'};
+  }
   if (item.interpreted_type === 'REFUSED_BY_RECIPIENT' && active) {
     const code = returnIntent ? 'REVIEW_EXPLICIT_RETURN_POLICY' : discountAccepted ? 'VERIFY_DISCOUNT_AND_REDELIVERY'
       : discountRejected ? 'REEVALUATE_RETURN_POLICY' : offerVerified && d.status === 'NO_RESPONSE' ? 'WAIT_DISCOUNT_POLICY_TIMER'
@@ -120,7 +130,12 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
         : discountRejected ? 'Reevaluar devolución tras rechazo expreso del descuento'
           : offerVerified && d.status === 'NO_RESPONSE' ? 'Esperar el deadline real del descuento; revalidar al vencer'
             : offerVerified ? 'Revisar respuesta no concluyente a la oferta' : 'Comprobar elegibilidad y contacto antes de ofrecer 5 €';
-    solution={...solution,code,title,resolution_option:null,execution_status:'NOT_EXECUTED',
+    solution={code,title,summary:title,resolution_option:null,prepared_dropea_solution:null,execution_status:'NOT_EXECUTED',
+      steps:discountAccepted?['Revalidar aceptación posterior al descuento y ausencia de cancelación posterior','Comprobar importe/etiqueta con descuento y opciones reales de GLS/Dropea','Proponer reintento únicamente según la política vigente']
+        :returnIntent || discountRejected?['Revalidar la intención explícita posterior y el estado actual del pedido','Evaluar la devolución únicamente en el ejecutor gobernado con la política vigente']
+          :offerVerified?['Esperar respuesta y consultar el deadline real del ejecutor','Al vencer, releer conversación, pedido e incidencia antes de reevaluar']
+            :['Comprobar elegibilidad real, contacto de rechazo y ausencia de respuesta válida','Comprobar que no se envió ya la oferta','Dejar el envío al automatismo gobernado vigente'],
+      reasoning:`Oferta verificada: ${offerVerified?'sí':'no'}; respuesta posterior a la oferta: ${discountReplyVerified?'sí':'no'}; devolución solicitada: ${requestedReturn?'sí':'no'}. La política de Render es la autoridad, no el timer shadow antiguo.`,
       guardrail:'La vista no ejecuta nada. Render conserva la política real; una oferta sin respuesta no equivale a rechazo.'};
   }
   const discountStatus = !offerVerified ? d.status === 'NOT_SENT' ? 'NOT_OFFERED' : 'EVIDENCE_UNCERTAIN'
@@ -218,6 +233,10 @@ export function buildRecoveryOverview(items, {filters={},now=new Date(),limit=25
     denominator_definition:recoveryMetrics(base).denominator_definition},actions_executed:0,production_writes:0,customer_messages_sent:0};
 }
 
+export function recoveryMessageValidity(message) {
+  return initialConfirmation(message.text) || String(message.context_template_slug || '').startsWith('dropea_pedido_')
+    ? 'ORDER_LIFECYCLE_ONLY' : message.relation_to_notification || 'NOT_VERIFIABLE';
+}
 export function recoveryTimeline(item, events=[], messages=[]) {
   const order=item.canonical_order_id,issue=item.canonical_issue_id,now=item.recovery?.derived_at || new Date().toISOString();
   const entries=events.filter(e=>e.canonical_order_id===order && (!e.canonical_issue_id || e.canonical_issue_id===issue)
@@ -225,8 +244,7 @@ export function recoveryTimeline(item, events=[], messages=[]) {
   if(validTime(item.created_at,now))entries.push({timeline_event_id:`incident:${issue}`,occurred_at:item.created_at,source:'DROPEA',label:'Incidencia detectada',event_type:'INCIDENT_OPENED',observed:true});
   for(const m of messages){if(!validTime(m.occurred_at,now))continue;
     entries.push({timeline_event_id:m.chatby_message_id_hash || `${m.direction}:${m.occurred_at}:${m.message_type}`,occurred_at:m.occurred_at,source:m.direction==='OUTBOUND'?'SULEIA / CHATBY':'CLIENTE',label:m.text,event_type:m.message_type,
-      template:m.context_template_slug || null,validity:initialConfirmation(m.text) || String(m.context_template_slug || '').startsWith('dropea_pedido_')
-        ?'ORDER_LIFECYCLE_ONLY':m.relation_to_notification || 'NOT_VERIFIABLE',observed:true});
+      template:m.context_template_slug || null,validity:recoveryMessageValidity(m),observed:true});
   }
   if(validTime(item.recovery?.delivered_at,now))entries.push({timeline_event_id:`delivered:${order}`,occurred_at:item.recovery.delivered_at,source:'DROPEA',label:'Entregado después de la incidencia',event_type:'GLS_DELIVERED',observed:true});
   if(validTime(item.recovery?.returned_at,now))entries.push({timeline_event_id:`returned:${order}`,occurred_at:item.recovery.returned_at,source:'DROPEA',label:'Pedido devuelto',event_type:'GLS_RETURNED',observed:true});

@@ -2,7 +2,7 @@ import { evaluateSourceFreshness } from '../../../platform-core/src/operational-
 import { buildResultsFinanceReport } from '../../../platform-core/src/finance/results-report.mjs';
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
-import { buildRecoveryOverview, recoveryProjection, recoveryTimeline } from '../../../platform-core/src/incident/recovery-center.mjs';
+import { buildRecoveryOverview, recoveryProjection, recoveryTimeline, recoveryMessageValidity } from '../../../platform-core/src/incident/recovery-center.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
@@ -492,7 +492,8 @@ export class OperationsRepository {
     ]);
     if (!detail.rows[0]) return null;
     const incident=recoveryProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
-    const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey);
+    const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey)
+      .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message)}));
     return {incident,customer_messages:messages,timeline:timeline.rows,feedback:feedback.rows,
       recovery_timeline:recoveryTimeline(incident,timeline.rows,messages)};
   }

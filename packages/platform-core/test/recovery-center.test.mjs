@@ -32,6 +32,10 @@ for(const [label,patch] of [
 ])test(`${label} cannot activate incident response or commercial recovery`,()=>{
   const row=project(issue(patch));assert.equal(recoverySelector(row,'CUSTOMER_ACTED'),false);assert.equal(recoverySelector(row,'RECOVERABLE_NOW'),false);
   assert.equal(row.recovery.evidence.message,null);
+  if(label==='initial confirmation' || label==='initial template'){
+    assert.equal(row.tailored_recommendation.code,'VERIFY_CURRENT_INCIDENT_EVIDENCE');
+    assert.equal(row.tailored_recommendation.prepared_dropea_solution,null);
+  }
 });
 test('FOUND and stale sources are not silence; fresh observed silence waits on real deadline',()=>{
   const c={code:'NO_VALID_RESPONSE',at:null,relation:null};
@@ -72,6 +76,8 @@ test('discount due_at offer eligibility is not a return deadline; current reject
   row.discount_recovery.status='NO_RESPONSE';row.discount_recovery.responded_at=null;
   const p=project(row);assert.equal(p.recovery.timer.deadline,null);assert.equal(recoverySelector(p,'RETURN_RISK'),false);
   assert.equal(p.tailored_recommendation.code,'WAIT_DISCOUNT_POLICY_TIMER');assert.equal(p.tailored_recommendation.resolution_option,null);
+  assert.ok(p.tailored_recommendation.steps.every(step=>!step.includes('Solicitar devolución')));
+  assert.equal(p.tailored_recommendation.prepared_dropea_solution,null);
   row.discount_response_deadline='2026-09-18T15:00:00Z';assert.equal(recoverySelector(project(row),'RETURN_RISK'),true);
 });
 test('requested return, resolved recovery, and physically returned/delivered are separate facts',()=>{
@@ -79,8 +85,10 @@ test('requested return, resolved recovery, and physically returned/delivered are
   const recovered=project(issue({status:'RESOLVED',is_active:false,resolution_status:'RETRY'}));assert.equal(recoverySelector(recovered,'RECOVERED'),true);assert.equal(recovered.recovery.recovered_at,null);
   assert.equal(recoverySelector(recovered,'DELIVERED_AFTER_INCIDENT'),false);assert.equal(recoverySelector(recovered,'REDELIVERY'),true);
   const returned=project(issue({recovery_order_state:'RETURNED',recovery_returned_at:'2026-09-18T13:00:00Z'}));assert.equal(recoverySelector(returned,'RETURNED'),true);
+  assert.equal(recoverySelector(project(issue({recovery_order_state:'REJECTED',recovery_returned_at:'2026-09-18T13:00:00Z'})),'RETURNED'),true);
   assert.equal(recoverySelector(project(issue({recovery_order_state:'RETURNED'})),'RETURNED'),false);
   const delivered=project(issue({recovery_order_state:'DELIVERED',recovery_delivered_at:'2026-09-18T13:00:00Z'}));assert.equal(recoverySelector(delivered,'DELIVERED_AFTER_INCIDENT'),true);
+  assert.equal(recoverySelector(project(issue({recovery_order_state:'FINISHED',recovery_delivered_at:'2026-09-18T13:00:00Z'})),'DELIVERED_AFTER_INCIDENT'),true);
   assert.equal(recoverySelector(project(issue({recovery_order_state:'DELIVERED',recovery_delivered_at:'2026-09-17T13:00:00Z'})),'DELIVERED_AFTER_INCIDENT'),false);
 });
 test('every KPI shares the exact selector with rows; filtering precedes pagination for all 10 KPIs',()=>{
