@@ -61,6 +61,7 @@ function refusal(patch={}){return issue({interpreted_type:'REFUSED_BY_RECIPIENT'
   discount_recovery:{delivery_verified:true,status:'DISCOUNT_ACCEPTED',sent_at:'2026-09-18T11:00:00Z',responded_at:'2026-09-18T12:00:00Z'},...patch});}
 test('discount acceptance must follow verified offer, and superseded rejection cannot authorize recovery',()=>{
   assert.equal(recoverySelector(project(refusal()),'RECOVERABLE_NOW'),true);
+  assert.equal(project(refusal()).recovery.evidence.no_action_verified,false);
   const previous=refusal();previous.discount_recovery.responded_at='2026-09-18T10:30:00Z';assert.equal(recoverySelector(project(previous),'RECOVERABLE_NOW'),false);
   const laterCancel=refusal({customer_evidence:{code:'REJECT',latest_message:'Quiero devolver',at:'2026-09-18T13:00:00Z',relation:'AFTER_NOTIFICATION'}});
   assert.equal(recoverySelector(project(laterCancel),'RECOVERABLE_NOW'),false);assert.equal(project(laterCancel).recovery.score,0);
@@ -93,12 +94,40 @@ test('requested return, resolved recovery, and physically returned/delivered are
 });
 test('every KPI shares the exact selector with rows; filtering precedes pagination for all 10 KPIs',()=>{
   const raw=[issue(),refusal(),issue({canonical_issue_id:'i3',status:'RESOLVED',is_active:false,resolution_status:'RETRY'}),issue({canonical_issue_id:'i4',recovery_order_state:'RETURNED',recovery_returned_at:'2026-09-18T13:00:00Z'}),issue({canonical_issue_id:'i5',chatby_sync_current:false})];
-  const overview=buildRecoveryOverview(raw,{now});assert.equal(overview.summary.kpis.length,10);
-  for(const kpi of overview.summary.kpis){const a=buildRecoveryOverview(raw,{now,filters:{recovery:kpi.key},limit:1});
+  const overview=buildRecoveryOverview(raw,{now,filters:{scope:'ALL'}});assert.equal(overview.summary.kpis.length,10);
+  for(const kpi of overview.summary.kpis){const a=buildRecoveryOverview(raw,{now,filters:{scope:'ALL',recovery:kpi.key},limit:1});
     assert.equal(kpi.count,a.total);assert.equal(kpi.count,overview.items.filter(i=>recoverySelector(i,kpi.key)).length);
     assert.ok(a.items.every(i=>recoverySelector(i,kpi.key)));assert.ok(a.items.length<=1);
   }
   const all=buildRecoveryOverview(raw,{now,filters:{recovery:'PENDING'},limit:1,offset:1});assert.equal(all.items.length,1);assert.equal(all.total,4);
+});
+test('default and invalid scope show only current PENDING/active issues across all months; history requires explicit scope',()=>{
+  const pending=issue({canonical_issue_id:'old-pending',created_at:'2026-05-01T10:00:00Z'});
+  const inactive=issue({canonical_issue_id:'inactive',is_active:false});
+  const closed=issue({canonical_issue_id:'closed',status:'RESOLVED',is_active:false});
+  const managing=issue({canonical_issue_id:'managed',status:'MANAGING_WITH_CLIENT'});
+  for(const filters of [{},{scope:'INVALID'},{scope:'active'}]){
+    const result=buildRecoveryOverview([pending,inactive,closed,managing],{now,filters});
+    assert.equal(result.summary.scope,'ACTIVE');assert.equal(result.total,1);assert.equal(result.items[0].canonical_issue_id,'old-pending');
+  }
+  assert.equal(buildRecoveryOverview([pending,inactive,closed,managing],{now,filters:{scope:'HISTORICAL'}}).total,3);
+  assert.equal(buildRecoveryOverview([pending,inactive,closed,managing],{now,filters:{scope:'HISTORICAL'}}).summary.absent_filters.AUSENTE,3);
+  assert.equal(buildRecoveryOverview([pending,inactive,closed,managing],{now,filters:{scope:'ALL'}}).total,4);
+});
+test('verified silence uses exact phrase semantics; stale, missing notification and SHADOW creation are not silence',()=>{
+  const silent=issue({customer_evidence:{code:'NO_VALID_RESPONSE'},scoped_response_status:'NO_VALID_RESPONSE',incident_conversation_read_at:now});
+  assert.equal(project(silent).recovery.evidence.no_action_verified,true);
+  assert.equal(project(silent).recovery.evidence.display_status,'NO_ACTION');
+  for(const patch of [{chatby_sync_current:false},{conversation_status:'NONE'},{incident_notified_at:null},{scoped_response_status:'NOT_VERIFIABLE'},{customer_evidence:{code:'SHADOW_NO_RESPONSE'}}]){
+    const e=project({...silent,...patch}).recovery.evidence;assert.equal(e.no_action_verified,false);assert.equal(e.display_status,'NOT_VERIFIABLE');
+  }
+});
+test('ambiguous post-notification reply is real activity but never a business instruction or silence',()=>{
+  const input=issue({absent_shadow:null,customer_evidence:{code:'UNKNOWN',title:'Cliente respondió',latest_message:'Tengo una duda',at:'2026-09-18T13:00:00Z',relation:'AFTER_NOTIFICATION'},latest_private_customer_message_type:'BUTTON'});
+  const row=project(input);assert.equal(recoverySelector(row,'CUSTOMER_ACTED'),true);
+  assert.equal(row.recovery.evidence.message,'Tengo una duda');assert.equal(row.recovery.evidence.message_type,'BUTTON');
+  assert.equal(row.recovery.evidence.valid_response,false);assert.equal(row.recovery.evidence.no_action_verified,false);
+  assert.equal(recoverySelector(row,'RECOVERABLE_NOW'),false);assert.equal(recoverySelector(row,'WAITING_SULEIA'),false);
 });
 test('combinable monthly, type, active, template and priority filters define one universe',()=>{
   const raw=[issue(),refusal(),issue({canonical_issue_id:'old',created_at:'2026-08-31T21:59:00Z'})];

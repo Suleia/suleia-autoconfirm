@@ -45,7 +45,7 @@ function productText(value) { if (Array.isArray(value)) return value.filter(Bool
 function stacked(primary, secondary, className = '') { const box = node('div', `stacked ${className}`.trim()); box.append(node('strong', '', text(primary))); if (secondary) box.append(node('small', '', text(secondary))); return box; }
 function percentage(value, total) { return total ? `${Math.round((Number(value || 0) / Number(total)) * 100)} %` : 'No disponible'; }
 const labels = {
-  ACTIVE: 'Activas', HISTORICAL: 'Históricas', ALL: 'Todas',
+  ACTIVE: 'Pendientes actuales en Dropea', HISTORICAL: 'Histórico (no pendientes)', ALL: 'Todas (incluye histórico)',
   ADDRESS_INCORRECT: 'Problema de dirección', RECIPIENT_ABSENT: 'Destinatario ausente',
   REFUSED_BY_RECIPIENT: 'Rechazado por destinatario', GENERAL_INCIDENCE: 'Incidencia general',
   UNKNOWN: 'No determinado', VALID_RESPONSE: 'Respuesta válida',
@@ -173,14 +173,18 @@ function renderFilters() {
     select.addEventListener('change', () => changed(key, select.value)); root.append(select);
   }
   if (state.view === 'incidents') {
-    for (const [label,scope] of [['Todas','ALL'],['Activas','ACTIVE']]) {
+    for (const [label,scope] of [['Pendientes actuales','ACTIVE'],['Consultar histórico','HISTORICAL'],['Todas (incluye histórico)','ALL']]) {
       const button=node('button','recovery-reset',label);button.type='button';
-      button.addEventListener('click',()=>{state.filters={scope,month:state.filters.month || ''};state.offset=0;renderFilters();loadQueue();});root.append(button);
+      button.addEventListener('click',()=>{state.filters=scope==='ACTIVE'?{scope}:{scope,month:state.filters.month || ''};state.offset=0;renderFilters();loadQueue();});root.append(button);
     }
     const month=node('select','filter-select');month.setAttribute('aria-label','Mes de creación de incidencia');
     month.append(new Option('Todos los meses',''));
     for(const value of state.summary?.incidents?.available_months || [])month.append(new Option(value,value));
     month.value=state.filters.month || '';month.addEventListener('change',()=>changed('month',month.value));root.append(month);
+    for(const [key,label] of [['from','Desde · fecha de incidencia'],['to','Hasta · fecha de incidencia']]){
+      const input=node('input','filter-select');input.type='date';input.setAttribute('aria-label',label);input.title=label;
+      input.value=state.filters[key] || '';input.addEventListener('change',()=>changed(key,input.value));root.append(input);
+    }
     const template=node('select','filter-select');template.setAttribute('aria-label','Plantilla relacionada');
     template.append(new Option('Todas las plantillas',''));
     for(const value of state.summary?.incidents?.by_template || [])template.append(new Option(value.key,value.key));
@@ -336,7 +340,11 @@ function renderRecoveryCenter(data) {
 }
 function recoveryEvidenceDetail(item) {
   const e=item.recovery?.evidence || {};
-  return section('Evidencia Chatby de ESTA incidencia', [['Conversación',e.conversation==='EXACT'?'Encontrada y exacta':e.conversation || 'No verificable'],['Cliente actuó',e.customer_acted?'Sí · respuesta válida posterior':'No verificado',true],['Respuesta real',e.message || 'Sin texto/botón posterior verificable'],['Fecha/hora',date(e.response_at)],['Notificación observada',date(e.notification_at)],['Plantilla/origen',e.template || 'N/D — falta plantilla observada'],['Validez',e.validity || 'NOT_VERIFIABLE',true],['Motivo técnico',e.reason]]);
+  return section('Evidencia Chatby de ESTA incidencia', [['Conversación',e.conversation==='EXACT'?'Encontrada y exacta':e.conversation || 'No verificable'],['Actividad',recoveryEvidenceLabel(e)],['Mensaje o acción real',e.message || e.action_label || (e.no_action_verified?'Ninguna acción realizada':'No se pudo verificar una interacción posterior al aviso')],['Tipo',e.message_type==='BUTTON'?'Botón / acción del cliente':e.message_type==='TEXT'?'Mensaje del cliente':'—'],['Fecha/hora',date(e.response_at)],['Notificación observada',date(e.notification_at)],['Última lectura de esta conversación',date(e.read_at)],['Plantilla/origen',e.template || 'N/D — falta plantilla observada'],['Validez',e.validity || 'NOT_VERIFIABLE',true],['Motivo técnico',e.reason]]);
+}
+function recoveryEvidenceLabel(e) {
+  return e.customer_acted ? e.valid_response?'Cliente actuó':'Cliente respondió · revisar intención'
+    : e.no_action_verified?'Ninguna acción realizada':e.reason==='INCIDENT_NOTIFICATION_NOT_OBSERVED'?'Sin aviso verificable de esta incidencia':'Chatby no verificable';
 }
 function recoveryDetail(item) {
   const r=item.recovery || {};
@@ -353,8 +361,9 @@ function recoveryTimelinePanel(events) {
 function rowIncident(item) {
   const tr=node('tr');tr.tabIndex=0;
   const r=item.recovery || {},e=r.evidence || {};
-  const evidence=stacked(e.customer_acted?'Cliente actuó':e.validity==='NOT_VERIFIABLE'?'Respuesta no verificable':'Sin respuesta válida',`${e.conversation==='EXACT'?'Conversación exacta':'Sin conversación exacta'} · ${date(e.response_at)}`,'incident-evidence');
+  const evidence=stacked(recoveryEvidenceLabel(e),e.customer_acted?`${e.message_type==='BUTTON'?'Botón / acción':'Mensaje'} · ${date(e.response_at)}`:e.no_action_verified?`Lectura verificada · ${date(e.read_at)}`:'Sin cobertura verificada de aviso a lectura','incident-evidence');
   if(e.message)evidence.append(node('q','message-quote',e.message));
+  else if(e.action_label)evidence.append(node('small','',`Acción verificada: ${e.action_label} · texto literal no disponible`));
   const discount=discountStatusCard(item);
   if(r.discount)discount.append(node('small','',recoveryLabels[r.discount.status] || r.discount.status));
   const recommendation=item.tailored_recommendation || {};
@@ -400,7 +409,7 @@ async function loadQueue() {
     if (!items.length && view === 'incidents') $('empty-state').textContent = state.filters.scope === 'ACTIVE' ? 'Dropea no tiene incidencias pendientes de resolver.' : 'No hay incidencias para los filtros seleccionados.';
     $('result-count').textContent = view === 'orders'
       ? `${data.total} pedido(s) pendiente(s) en Dropea`
-      : `${data.total} incidencia(s) de la selección · contador y filtro canónicos`;
+      : `${data.total} incidencia(s) · ${data.summary?.scope==='ACTIVE'?'pendientes actuales en Dropea':data.summary?.scope==='HISTORICAL'?'histórico, no pendientes':'todas, incluye histórico'}`;
     $('queue-source').textContent = view === 'orders'
       ? `Fuente: Dropea · Chatby por pedido · refresco automático cada ${state.config.refresh_interval_seconds} s`
       : `Fuente: Dropea, Chatby y policy vigente · refresco automático cada ${state.config.refresh_interval_seconds} s`;
@@ -1036,7 +1045,7 @@ async function refresh({ force = false, background = false } = {}) {
   finally { state.refreshing = false; $('refresh-button').disabled = false; $('refresh-button').textContent = 'Actualizar'; }
 }
 function setView(view) {
-  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ALL',month:new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit'}).format(new Date()) } : {}; closeDetail();
+  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : {}; closeDetail();
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
   const titles = { orders: 'Pedidos operativos', incidents: 'Centro de recuperación', finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance'; $('summary').hidden = finance; $('finance-view').hidden = !finance; $('queue-card').hidden = finance;

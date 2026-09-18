@@ -111,18 +111,30 @@ function direction(message) {
 }
 
 function rawMessageText(message) {
-  return [
+  const text = [
     message?.content,
     message?.text,
     message?.payload?.text,
     message?.payload?.title,
     message?.button_text,
+    message?.buttonText,
+    message?.interactive?.button_reply?.title,
+    message?.interactive?.list_reply?.title,
+    message?.payload?.button_reply?.title,
+    message?.payload?.list_reply?.title,
     message?.template_name,
     message?.template?.name,
     message?.payload?.template_name,
     message?.payload?.template?.name,
     messageType(message) === 'TEMPLATE' ? message?.payload?.name : null
-  ].filter((value) => typeof value === 'string').join(' ')
+  ].filter((value) => typeof value === 'string' && value.trim()).join(' ');
+  // A title-less callback is still an observed action, never customer silence.
+  // It is kept ONLY in the existing encrypted private display, not public logs.
+  const callback = messageType(message) === 'BUTTON' ? [message?.interactive?.button_reply?.id,
+    message?.interactive?.list_reply?.id,message?.payload?.button_reply?.id,
+    message?.payload?.list_reply?.id,message?.payload?.payload,message?.payload?.id,
+    message?.button_payload,message?.postback?.payload].find(v=>typeof v==='string' && v.trim()) : null;
+  return (text || (callback ? `Acción de botón: ${callback}` : ''))
     .replace(/[\u0000-\u001f\u007f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 1000);
 }
 
@@ -136,6 +148,8 @@ function classifyIntent(message) {
 
 function messageType(message) {
   const value = String(message?.msg_type || message?.message_type || '').toLowerCase();
+  if (message?.interactive?.button_reply || message?.interactive?.list_reply
+    || message?.payload?.button_reply || message?.payload?.list_reply) return 'BUTTON';
   if (['postback', 'button', 'quick_reply'].includes(value)) return 'BUTTON';
   if (value.includes('template')) return 'TEMPLATE';
   if (value === 'text') return 'TEXT';
@@ -211,7 +225,12 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date(), { issue
           : new Date(item.at).getTime()<=notifiedAt ? 'BEFORE_NOTIFICATION' : relevance
     };
   });
-  const operatorMessages = outbound.slice(-10).map((item) => ({
+  // Retain the first notification and the actual preceding operator context of
+  // each displayed reply, even when they fall outside the latest ten outbounds.
+  const operatorContext = customerMessages.map(reply=>outbound.filter(out=>new Date(out.at)<new Date(reply.at)).at(-1));
+  const retainedOutbound = [...new Set([notification,...operatorContext,...outbound.slice(-10)].filter(Boolean))]
+    .sort((a,b)=>new Date(a.at)-new Date(b.at));
+  const operatorMessages = retainedOutbound.map((item) => ({
     message: item.message,
     at: item.at,
     relation_to_issue: new Date(item.at).getTime() >= issueAt ? 'AFTER_INCIDENT' : 'BEFORE_INCIDENT',

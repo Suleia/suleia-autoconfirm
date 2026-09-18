@@ -12,7 +12,7 @@ function fixture(){
   const context={URL,URLSearchParams,Intl,console,Node:Element,AbortController,setInterval(){},location:{origin:'https://mcp.suleia.com',pathname:'/operations/',search:''},history:{replaceState(){}},sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},Option:class extends Element{constructor(label,value){super('option');this.textContent=label;this.value=value;}},
     document:{getElementById:get,createElement:tag=>new Element(tag),createElementNS:(_,tag)=>new Element(tag),createTextNode:t=>t,querySelectorAll:()=>[],addEventListener(){}},
     fetch:async()=>({ok:true,json:async()=>({oauth:{}})})};
-  vm.runInNewContext(fs.readFileSync(new URL('./app.js',import.meta.url),'utf8')+'\nloadQueue=async()=>{};globalThis.ui={state,renderSummary,renderRecoveryCenter,rowIncident,recoveryEvidenceDetail,recoveryDetail,recoveryTimelinePanel,renderFilters,renderHead};',context);
+  vm.runInNewContext(fs.readFileSync(new URL('./app.js',import.meta.url),'utf8')+'\nloadQueue=async()=>{};globalThis.ui={state,setView,renderSummary,renderRecoveryCenter,rowIncident,recoveryEvidenceDetail,recoveryDetail,recoveryTimelinePanel,renderFilters,renderHead};',context);
   return {context,get};
 }
 const raw={canonical_issue_id:'i',canonical_order_id:'o',dropea_issue_id:'test',dropea_order_id:'test-order',interpreted_type:'RECIPIENT_ABSENT',normalized_type:'RECIPIENT_ABSENT',status:'PENDING',is_active:true,created_at:'2026-09-18T10:00:00Z',updated_at:'2026-09-18T13:00:00Z',incident_notified_at:'2026-09-18T10:10:00Z',incident_notification_template:'dropea_ausente_v3',conversation_status:'FOUND',chatby_sync_current:true,dropea_sync_current:true,scoped_customer_message_hash:'a',latest_private_customer_message_hash:'a',customer_evidence:{code:'DELIVERY_RETRY',latest_message:'Mañana por la mañana',at:'2026-09-18T13:00:00Z',relation:'AFTER_NOTIFICATION',delivery_instruction:{requested_day:'SATURDAY'}}};
@@ -23,8 +23,23 @@ test('actual frontend renders every canonical KPI as a selected/toggleable share
   for(let i=0;i<cards.length;i++){assert.equal(cards[i].tagName,'button');assert.equal(cards[i]['aria-pressed'],'false');cards[i].events.click();assert.equal(context.ui.state.filters.recovery,data.summary.kpis[i].key);}
   context.ui.renderSummary();const selected=get('summary').children.at(-1);assert.equal(selected['aria-pressed'],'true');selected.events.click();assert.equal(context.ui.state.filters.recovery,'');
   context.ui.state.filters={recovery:'PENDING',priority:'1',month:'2026-09'};context.ui.renderFilters();
-  get('filters').children.find(e=>e.className==='recovery-reset' && e.textContent==='Todas').events.click();
+  get('filters').children.find(e=>e.className==='recovery-reset' && e.textContent==='Todas (incluye histórico)').events.click();
   assert.equal(context.ui.state.filters.scope,'ALL');assert.equal(context.ui.state.filters.month,'2026-09');assert.equal(context.ui.state.filters.priority,undefined);
+  context.ui.renderFilters();get('filters').children.find(e=>e.className==='recovery-reset' && e.textContent==='Pendientes actuales').events.click();
+  assert.equal(context.ui.state.filters.scope,'ACTIVE');assert.equal(context.ui.state.filters.month,undefined);
+});
+test('entering incidents selects the full current queue, not the current monthly history',()=>{
+  const {context}=fixture();context.ui.setView('incidents');
+  assert.equal(context.ui.state.filters.scope,'ACTIVE');assert.equal(context.ui.state.filters.month,undefined);
+});
+test('actual row and detail distinguish verified no action from unavailable read and ambiguous reply',()=>{
+  const {context}=fixture();
+  const silent=buildRecoveryOverview([{...raw,customer_evidence:{code:'NO_VALID_RESPONSE'},scoped_response_status:'NO_VALID_RESPONSE',incident_conversation_read_at:'2026-09-18T14:00:00Z'}],{now:'2026-09-18T14:00:00Z'}).items[0];
+  for(const render of [context.ui.rowIncident,context.ui.recoveryEvidenceDetail])assert.match(content(render(silent)),/Ninguna acción realizada/);
+  const stale=buildRecoveryOverview([{...silent,chatby_sync_current:false}],{now:'2026-09-18T14:00:00Z'}).items[0];
+  assert.doesNotMatch(content(context.ui.rowIncident(stale)),/Ninguna acción realizada/);assert.match(content(context.ui.rowIncident(stale)),/Chatby no verificable/);
+  const ambiguous=buildRecoveryOverview([{...raw,customer_evidence:{code:'UNKNOWN',latest_message:'Una duda de prueba',at:'2026-09-18T13:00:00Z',relation:'AFTER_NOTIFICATION'},latest_private_customer_message_type:'BUTTON'}],{now:'2026-09-18T14:00:00Z'}).items[0];
+  assert.match(content(context.ui.rowIncident(ambiguous)),/Una duda de prueba/);assert.match(content(context.ui.rowIncident(ambiguous)),/Botón \/ acción/);
 });
 test('actual row/detail uses scoped evidence, all original states and missing events without execution buttons or HTML',()=>{
   const {context}=fixture(),data=buildRecoveryOverview([raw],{now:'2026-09-18T14:00:00Z'}),item=data.items[0];

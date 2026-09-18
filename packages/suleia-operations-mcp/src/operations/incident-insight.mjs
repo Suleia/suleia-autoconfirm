@@ -161,7 +161,7 @@ function customerEvidence(item) {
   }
   if (item.conversation_status === 'FOUND') {
     if (item.latest_customer_message && !scoped) return {
-      code: 'NO_VALID_RESPONSE', title: 'Sin respuesta nueva a la incidencia',
+      code: 'NO_VALID_RESPONSE', title: 'Ninguna acción realizada',
       summary: 'La interacción almacenada no es una respuesta posterior a la notificación de esta incidencia y queda excluida.',
       messages: 0, latest_message: null, at: null, relation: null, notified_at: notifiedAt
     };
@@ -172,7 +172,7 @@ function customerEvidence(item) {
       relation: 'AFTER_NOTIFICATION', notified_at: notifiedAt
     };
     return {
-      code: 'NO_VALID_RESPONSE', title: 'No ha contestado a esta incidencia',
+      code: 'NO_VALID_RESPONSE', title: 'Ninguna acción realizada',
       summary: 'Se ha observado la notificación en la conversación exacta y no consta una respuesta posterior en la lectura verificada.',
       messages: 0, latest_message: null, at: null, relation: null, notified_at: notifiedAt
     };

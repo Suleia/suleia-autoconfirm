@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Existing operations read API and static incident page only. No migrations or workers.
+# Existing operations page/API plus GET-only evidence reader. No migrations/actions.
 set -Eeuo pipefail
 revision="${1:?exact commit required}"
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 2
@@ -15,12 +15,12 @@ cd "$install"
 git cat-file -e "$revision^{commit}"
 umask 077
 mkdir -p "$backup";chmod 0700 "$backup"
-services=(api mcp-server review-panel)
+services=(api mcp-server review-panel ingestion-worker)
 for service in "${services[@]}";do
   docker inspect "suleia-operations-staging-$service-1" > "$backup/$service-before.json"
   jq -e '.[0].Config.Env|all(test("^(AUSENTE_AUTOMATION_LIVE|CHATBY_REAL_SENDS|DROPEA_ACTIONS_ENABLED|GLS_ACTIONS_ENABLED)=true$")|not)' "$backup/$service-before.json" >/dev/null
 done
-for service in ingestion-worker scheduler decision-engine postgres keycloak reverse-proxy mcp-edge monitoring;do
+for service in scheduler decision-engine postgres keycloak reverse-proxy mcp-edge monitoring;do
   docker inspect --format '{{.Id}}' "suleia-operations-staging-$service-1" > "$backup/$service-id-before"
 done
 sha256sum .env > "$backup/env.sha256"
@@ -62,32 +62,36 @@ compose=(docker compose --env-file .env -f infrastructure/docker/compose.yaml)
 override="$backup/runtime-preserving-override.json"
 jq -n --arg image "$image" --arg revision "$revision" --arg branch "$branch" --arg panel "$release/apps/review-panel" \
   --slurpfile cfg "$backup/current-compose.json" --slurpfile api "$backup/api-before.json" \
-  --slurpfile mcp "$backup/mcp-server-before.json" --slurpfile review "$backup/review-panel-before.json" '
+  --slurpfile mcp "$backup/mcp-server-before.json" --slurpfile review "$backup/review-panel-before.json" \
+  --slurpfile worker "$backup/ingestion-worker-before.json" '
   def original($s):{image:$s[0][0].Config.Image,environment:($s[0][0].Config.Env|map(capture("^(?<key>[^=]+)=(?<value>.*)$"))|from_entries),volumes:($s[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:(.RW|not)}))};
   def runtime($s;$name):original($s)+{image:$image,environment:(($cfg[0].services[$name].environment|with_entries(.value=null))+(original($s).environment|with_entries(select(.key|startswith("SULEIA_BUILD_")|not)))+{"SULEIA_BUILD_REVISION":$revision,"SULEIA_BUILD_BRANCH":$branch})};
-  {services:{api:runtime($api;"api"),"mcp-server":runtime($mcp;"mcp-server"),"review-panel":(original($review)|.volumes|=map(if .target=="/usr/share/nginx/html" then .source=$panel else . end))}}' > "$override"
-jq -n --slurpfile api "$backup/api-before.json" --slurpfile mcp "$backup/mcp-server-before.json" --slurpfile review "$backup/review-panel-before.json" '
+  {services:{api:runtime($api;"api"),"mcp-server":runtime($mcp;"mcp-server"),"ingestion-worker":(runtime($worker;"ingestion-worker")|.environment.CHATBY_READ_MAX_CONVERSATIONS="8"),"review-panel":(original($review)|.volumes|=map(if .target=="/usr/share/nginx/html" then .source=$panel else . end))}}' > "$override"
+jq -n --slurpfile api "$backup/api-before.json" --slurpfile mcp "$backup/mcp-server-before.json" --slurpfile review "$backup/review-panel-before.json" --slurpfile worker "$backup/ingestion-worker-before.json" '
   def original($s):{image:$s[0][0].Config.Image,environment:($s[0][0].Config.Env|map(capture("^(?<key>[^=]+)=(?<value>.*)$"))|from_entries),volumes:($s[0][0].Mounts|map({type:"bind",source:.Source,target:.Destination,read_only:(.RW|not)}))};
-  {services:{api:original($api),"mcp-server":original($mcp),"review-panel":original($review)}}' > "$backup/rollback.json"
-rollback(){ trap - ERR;"${compose[@]}" -f "$backup/rollback.json" up -d --no-deps --no-build api mcp-server review-panel >/dev/null; }
+  {services:{api:original($api),"mcp-server":original($mcp),"review-panel":original($review),"ingestion-worker":original($worker)}}' > "$backup/rollback.json"
+rollback(){ trap - ERR;"${compose[@]}" -f "$backup/rollback.json" up -d --no-deps --no-build api mcp-server review-panel ingestion-worker >/dev/null; }
 trap rollback ERR
-"${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server review-panel
+"${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server review-panel ingestion-worker
 for service in "${services[@]}";do
   docker inspect "suleia-operations-staging-$service-1" > "$backup/$service-after.json"
   for phase in before after;do
-    jq -c '.[0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not))|sort' "$backup/$service-$phase.json" > "$backup/$service-$phase-env.json"
+    jq -c --arg service "$service" '.[0].Config.Env|map(select(startswith("SULEIA_BUILD_")|not)|select($service!="ingestion-worker" or (startswith("CHATBY_READ_MAX_CONVERSATIONS=")|not)))|sort' "$backup/$service-$phase.json" > "$backup/$service-$phase-env.json"
     jq -c '.[0]|{cmd:.Config.Cmd,entrypoint:.Config.Entrypoint,user:.Config.User,restart:.HostConfig.RestartPolicy,networks:(.NetworkSettings.Networks|keys|sort),mounts:(.Mounts|map(select(.Destination!="/usr/share/nginx/html")|{source:.Source,target:.Destination,write:.RW}))}' "$backup/$service-$phase.json" > "$backup/$service-$phase-config.json"
   done
   cmp "$backup/$service-before-env.json" "$backup/$service-after-env.json"
   cmp "$backup/$service-before-config.json" "$backup/$service-after-config.json"
+  jq -e '.[0].Config.Env|all(test("^(AUSENTE_AUTOMATION_LIVE|CHATBY_REAL_SENDS|DROPEA_ACTIONS_ENABLED|GLS_ACTIONS_ENABLED)=true$")|not)' "$backup/$service-after.json" >/dev/null
 done
-for service in ingestion-worker scheduler decision-engine postgres keycloak reverse-proxy mcp-edge monitoring;do
+jq -e '.[0].Config.Env|any(.=="CHATBY_READ_MAX_CONVERSATIONS=8")' "$backup/ingestion-worker-after.json" >/dev/null
+for service in scheduler decision-engine postgres keycloak reverse-proxy mcp-edge monitoring;do
   [[ "$(docker inspect --format '{{.Id}}' "suleia-operations-staging-$service-1")" == "$(cat "$backup/$service-id-before")" ]]
 done
 healthy=false
 for attempt in {1..20};do
   if docker exec suleia-operations-staging-api-1 wget -qO- http://127.0.0.1:3200/health > "$backup/api-health.json" \
-    && docker exec suleia-operations-staging-mcp-server-1 wget -qO- http://127.0.0.1:3100/health > "$backup/mcp-health.json";then healthy=true;break;fi
+    && docker exec suleia-operations-staging-mcp-server-1 wget -qO- http://127.0.0.1:3100/health > "$backup/mcp-health.json" \
+    && docker exec suleia-operations-staging-ingestion-worker-1 wget -qO- http://127.0.0.1:3302/health > "$backup/worker-health.json";then healthy=true;break;fi
   sleep 2
 done
 [[ "$healthy" == true ]]
@@ -98,4 +102,4 @@ link="/opt/suleia-operations-recovery-center-$revision"
 [[ ! -e "$link" && ! -L "$link" ]] || exit 2
 ln -s "$release" "$link";mv -T "$link" "$install"
 trap - ERR
-printf 'RECOVERY_CENTER_DEPLOY|commit=%s|env_preserved=true|eight_other_services_unchanged=true|finance_renderer_preserved=true|migration=none|services=api,mcp,review|business_actions=0\n' "$revision"
+printf 'RECOVERY_CENTER_DEPLOY|commit=%s|env_preserved_except_read_budget=true|seven_other_services_unchanged=true|finance_renderer_preserved=true|migration=none|services=api,mcp,review,readonly-reader|business_actions=0\n' "$revision"

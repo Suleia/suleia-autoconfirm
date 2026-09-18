@@ -6,6 +6,24 @@ import { syncChatbyReadOnly, chatbyReadOnlyInternals } from './readonly-sync.mjs
 const key = 'chatby-readonly-test-key-that-is-long-enough';
 const exactHash = crypto.createHmac('sha256', key).update('ORDER-EXACT').digest('hex');
 
+test('private display retains the actual initial notification outside the last ten outbound messages',()=>{
+  const start=Date.parse('2026-09-18T09:00:00Z');
+  const notice={id:'synthetic-notice',type:'out',msg_type:'template',ts:start+60000,payload:{name:'dropea_incidencia_mercancia_v1'}};
+  const later=Array.from({length:12},(_,i)=>({id:`synthetic-out-${i}`,type:'out',msg_type:'text',ts:start+(i+2)*60000,content:'Contexto sintético'}));
+  const metrics=chatbyReadOnlyInternals.conversationMetrics([notice,...later],new Date(start).toISOString(),new Date(start+3600000),{issueType:'REFUSED_BY_RECIPIENT'});
+  assert.equal(metrics.operator_messages[0].message,notice);
+  assert.equal(metrics.incident_notified_at,new Date(notice.ts).toISOString());
+  assert.equal(metrics.operator_messages.length,11);
+});
+test('interactive titles and title-less callbacks remain observed private button actions',()=>{
+  const titled={type:'in',msg_type:'interactive',interactive:{button_reply:{id:'synthetic-choice',title:'Mañana por la tarde'}}};
+  assert.equal(chatbyReadOnlyInternals.messageType(titled),'BUTTON');
+  assert.equal(chatbyReadOnlyInternals.rawMessageText(titled),'Mañana por la tarde');
+  const callback={type:'in',msg_type:'postback',payload:{payload:'synthetic-choice'}};
+  assert.equal(chatbyReadOnlyInternals.rawMessageText(callback),'Acción de botón: synthetic-choice');
+  assert.equal(chatbyReadOnlyInternals.direction({...callback,type:'out'}),'OUTBOUND');
+});
+
 function response(payload) {
   return new Response(JSON.stringify(payload), {
     status: 200,

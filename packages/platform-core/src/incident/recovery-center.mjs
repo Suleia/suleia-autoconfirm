@@ -29,11 +29,19 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
     && item.scoped_customer_message_hash === item.latest_private_customer_message_hash);
   const scoped = exact && messageBound && validTime(notified, clock) && ms(notified) >= ms(created)
     && later(c.at, notified) && validTime(c.at, clock) && item.chatby_sync_current === true
+    && item.scoped_response_status !== 'NOT_VERIFIABLE'
     && ['AFTER_NOTIFICATION','AFTER_INCIDENT'].includes(c.relation)
     && !template.startsWith('dropea_pedido_') && !initialConfirmation(c.latest_message)
     && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT','BEFORE_NOTIFICATION','NOTIFICATION_NOT_OBSERVED'].includes(item.latest_customer_incident_relevance);
   const nonAction = ['UNKNOWN','UNCLEAR','CONTRADICTORY','NO_RESPONSE','NO_VALID_RESPONSE','NOT_VERIFIABLE','NO_CONVERSATION','SHADOW_RESPONSE','SHADOW_NO_RESPONSE'];
   const customerActed = scoped && !nonAction.includes(String(c.code || 'UNKNOWN'));
+  // Observing a reply/button and understanding its business intent are separate.
+  // An ambiguous reply must be visible, but must not authorize a recovery action.
+  const interactionObserved = scoped && Boolean(c.latest_message);
+  const noActionVerified = exact && item.chatby_sync_current === true
+    && validTime(notified, clock) && ms(notified) >= ms(created)
+    && item.scoped_response_status === 'NO_VALID_RESPONSE'
+    && c.code === 'NO_VALID_RESPONSE' && !interactionObserved;
   const d = item.discount_recovery || {};
   const offerVerified = d.delivery_verified === true && item.discount_signal_quality === 'VERIFIED'
     && validTime(d.sent_at, clock) && ms(d.sent_at) >= ms(created);
@@ -92,7 +100,7 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
     ? Boolean(item.discount_response_deadline) : (s?.existing_timer?.status || item.timer_status) === 'ACTIVE';
   const risk = active && !acted && waiting && deadlineValid && timerLive && remaining <= nearReturnSeconds;
   const uncertain = !sourceCurrent || !exact || !notified || !acted && !noReplyVerified && !offerVerified || returnedUnknownDate;
-  const flags = { PENDING:active, CUSTOMER_ACTED:acted, RECOVERABLE_NOW:recoverable, WAITING_CUSTOMER:waiting,
+  const flags = { PENDING:active, CUSTOMER_ACTED:interactionObserved || discountActed, RECOVERABLE_NOW:recoverable, WAITING_CUSTOMER:waiting,
     WAITING_SULEIA:waitingSuleia, RETURN_RISK:risk, RECOVERED:recovered,
     DELIVERED_AFTER_INCIDENT:delivered, RETURNED:returned, CONTACTED:contacted,
     REDELIVERY:redelivery && recovered, EVIDENCE_UNCERTAIN:Boolean(uncertain) };
@@ -152,10 +160,15 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
       sent_at:validTime(notified,clock)?notified:null,customer_response:acted,
       response_at:customerActed?c.at:discountActed?d.responded_at:null,
       recovered,delivered,returned},
-    evidence:{conversation:exact?'EXACT':item.conversation_status || 'UNKNOWN',validity:acted?'VALID':scoped?'INCONCLUSIVE':notified?'NOT_VALID':'NOT_VERIFIABLE',
-      customer_acted:acted,message:scoped?c.latest_message || null:null,response_at:customerActed?c.at:discountActed?d.responded_at:null,
+    evidence:{conversation:exact?'EXACT':item.conversation_status || 'UNKNOWN',validity:acted?'VALID':interactionObserved?'INCONCLUSIVE':noActionVerified?'VERIFIED_NO_ACTION':'NOT_VERIFIABLE',
+      customer_acted:interactionObserved || discountActed,valid_response:acted,no_action_verified:noActionVerified && !discountActed,
+      display_status:interactionObserved || discountActed?'ACTION_OBSERVED':noActionVerified?'NO_ACTION':'NOT_VERIFIABLE',
+      message:scoped?c.latest_message || null:null,response_at:interactionObserved?c.at:discountActed?d.responded_at:null,
+      message_type:interactionObserved?item.latest_private_customer_message_type || item.scoped_customer_message_type || null:null,
+      action_label:interactionObserved?c.title || null:discountActed?d.status==='DISCOUNT_ACCEPTED'?'Descuento aceptado':'Descuento rechazado':null,
+      read_at:item.incident_conversation_read_at || null,
       template:template || item.incident_notification_template || null,notification_at:notified || null,
-      reason:initialConfirmation(c.latest_message)?'INITIAL_ORDER_CONFIRMATION_NOT_INCIDENT_RESPONSE':acted?'EXACT_POST_NOTIFICATION_RESPONSE':'NO_VERIFIED_INCIDENT_RESPONSE'},
+      reason:initialConfirmation(c.latest_message)?'INITIAL_ORDER_CONFIRMATION_NOT_INCIDENT_RESPONSE':interactionObserved || discountActed?'EXACT_POST_NOTIFICATION_RESPONSE':noActionVerified?'NO_CUSTOMER_INPUT_AFTER_OBSERVED_NOTIFICATION':item.scoped_response_reason || 'NO_VERIFIED_INCIDENT_RESPONSE'},
     discount:{status:discountStatus,sent_at:offerVerified?d.sent_at:null,responded_at:discountReplyVerified?d.responded_at:null,amount_eur:offerVerified?item.discount_amount_eur:null,
       next_step:discountAccepted && !recovered?'REDELIVERY_PENDING':null},
     timer:{deadline:deadlineValid?deadline:null,state:deadlineValid?timerLive?remaining===0?'EXPIRED':'ACTIVE':'INACTIVE':'UNAVAILABLE',remaining_seconds:remaining,
@@ -167,7 +180,7 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
 export function recoverySelector(item, key) { return item.recovery?.flags?.[key] === true; }
 const day = value => new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(value));
 export function recoveryBaseSelector(item, filters = {}) {
-  const scope = filters.scope || 'ALL';
+  const scope = filters.scope || 'ACTIVE';
   if (scope==='ACTIVE' && !recoverySelector(item,'PENDING') || scope==='HISTORICAL' && recoverySelector(item,'PENDING')) return false;
   for(const [key,field] of [['type','interpreted_type'],['risk','effective_risk'],['response','operational_response_status'],['discount_response','discount_recovery_response_status'],['status','status'],['mapping','mapping_status'],['freshness','operational_freshness_status']])
     if(filters[key] && item[field]!==filters[key]) return false;
@@ -218,6 +231,8 @@ export function recoveryMetrics(items) {
     denominator_definition:'KPIs: incidencias únicas. Tasas: pedidos únicos en cohorte de creación de incidencia (Europe/Madrid), resultado observado hasta la lectura; elegibles por tipología de recuperación, no permiso de ejecución. Respuesta: respondieron y contactados / contactados. Entrega/devolución: hitos posteriores con fecha real / pedidos con incidencia. Duraciones: solo primeras respuestas y recuperaciones con timestamp real; cobertura explícita.'};
 }
 export function buildRecoveryOverview(items, {filters={},now=new Date(),limit=25,offset=0,availableMonths=[]}={}) {
+  const scope=String(filters.scope || 'ACTIVE').toUpperCase();
+  filters={...filters,scope:['ACTIVE','HISTORICAL','ALL'].includes(scope)?scope:'ACTIVE'};
   const hours=Number(filters.near_return_hours || 3),nearReturnSeconds=Number.isFinite(hours)&&hours>=0.25&&hours<=72?Math.round(hours*3600):10800;
   const projected=items.map(i=>recoveryProjection(i,{now,nearReturnSeconds}));
   const base=projected.filter(i=>recoveryBaseSelector(i,filters));
@@ -225,9 +240,9 @@ export function buildRecoveryOverview(items, {filters={},now=new Date(),limit=25
   selected.sort((a,b)=>a.recovery.priority-b.recovery.priority || b.recovery.score-a.recovery.score || ms(b.updated_at)-ms(a.updated_at) || String(a.canonical_issue_id).localeCompare(String(b.canonical_issue_id)));
   const kpis=RECOVERY_KPIS.map(([key,label,icon])=>({key,label,icon,count:base.filter(i=>recoverySelector(i,key)).length}));
   const group=(field)=>[...new Set(base.map(field))].filter(Boolean).map(key=>({key,...recoveryMetrics(base.filter(i=>field(i)===key))}));
-  return {items:selected.slice(offset,offset+limit),total:selected.length,limit,offset,summary:{scope:filters.scope || 'ALL',universe_count:base.length,
+  return {items:selected.slice(offset,offset+limit),total:selected.length,limit,offset,summary:{scope:filters.scope,universe_count:base.length,
     kpis,metrics:recoveryMetrics(base),by_type:group(i=>i.interpreted_type),by_template:group(i=>i.incident_notification_template || null),
-    absent_filters:Object.fromEntries(['AUSENTE','FIRST_ABSENCE','SECOND_ABSENCE','ABSENCE_ATTEMPT_UNKNOWN','STALE','WAITING_CUSTOMER','CUSTOMER_RESPONDED','RESCHEDULE_REQUESTED','PICKUP_REQUESTED','LOGISTICS_VALIDATION_REQUIRED','HUMAN_REVIEW_REQUIRED','SIMULATION_READY'].map(key=>[key,base.filter(i=>recoveryBaseSelector(i,{absent:key})).length])),
+    absent_filters:Object.fromEntries(['AUSENTE','FIRST_ABSENCE','SECOND_ABSENCE','ABSENCE_ATTEMPT_UNKNOWN','STALE','WAITING_CUSTOMER','CUSTOMER_RESPONDED','RESCHEDULE_REQUESTED','PICKUP_REQUESTED','LOGISTICS_VALIDATION_REQUIRED','HUMAN_REVIEW_REQUIRED','SIMULATION_READY'].map(key=>[key,base.filter(i=>recoveryBaseSelector(i,{scope:'ALL',absent:key})).length])),
     available_months:availableMonths,selected_recovery:filters.recovery || null,near_threshold_seconds:nearReturnSeconds,
     last_sync_at:base.map(i=>i.panel_updated_at || i.updated_at).filter(Boolean).sort((a,b)=>ms(b)-ms(a))[0] || null,
     denominator_definition:recoveryMetrics(base).denominator_definition},actions_executed:0,production_writes:0,customer_messages_sent:0};
