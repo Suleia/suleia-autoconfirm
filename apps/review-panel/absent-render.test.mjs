@@ -32,7 +32,7 @@ test('actual incident frontend renders the canonical shadow card without executi
 });
 test('twelve absent filters are clickable and are absent from the order lane',async()=>{
   const {context,get}=await fixture();context.ui.state.view='incidents';context.ui.renderFilters();
-  const chips=get('filters').children.filter(e=>e.tagName==='button');assert.equal(chips.length,12);
+  const chips=get('filters').children.filter(e=>e.tagName==='button' && e.className.includes('absent-filter'));assert.equal(chips.length,12);
   assert.equal(chips.every(e=>typeof e.events.click==='function'),true);chips[0].events.click();assert.equal(context.ui.state.filters.absent,'AUSENTE');
   context.ui.state.view='orders';context.ui.renderFilters();assert.equal(content(get('filters')).includes('Primera ausencia'),false);
 });

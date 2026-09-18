@@ -225,49 +225,35 @@ test('order search is exact, parameterized and never interpolated into SQL', asy
   assert.equal(calls[0].values[0], "1357847' OR true --");
 });
 
-test('incident active=false is applied and does not silently fall back to the active queue', async () => {
-  const calls = [];
-  const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
-  const repository = new OperationsRepository(null, { pool });
-  await repository.listIncidents(new URLSearchParams({ scope: 'ALL', active: 'false' }));
-  assert.match(calls[0].sql, /is_active=\$1::boolean/);
-  assert.equal(calls[0].values[0], false);
-  assert.doesNotMatch(calls[0].sql, /status='PENDING' AND is_active=true/);
-  assert.match(calls[0].sql, /m\.chatby_message_id_hash=p\.scoped_customer_message_hash/);
-  assert.match(calls[0].sql, /m\.occurred_at>p\.incident_notified_at/);
-  assert.doesNotMatch(calls[0].sql, /m\.intent<>'UNKNOWN'/);
+const incidentFixture={canonical_issue_id:'masked-issue',canonical_order_id:'masked-order',dropea_issue_id:'test-issue',created_at:'2026-08-10T10:00:00Z',updated_at:'2026-08-10T11:00:00Z',status:'PENDING',is_active:true,effective_risk:'HIGH',interpreted_type:'REFUSED_BY_RECIPIENT'};
+test('incident active=false is applied and never silently falls back to the active queue', async () => {
+  const calls=[];const pool={query:async(sql,values=[])=>{calls.push({sql,values});return {rows:sql.includes('SELECT DISTINCT')?[]:[incidentFixture,{...incidentFixture,canonical_issue_id:'inactive',is_active:false,status:'RESOLVED'}]};}};
+  const repository=new OperationsRepository(null,{pool});
+  const result=await repository.listIncidents(new URLSearchParams({scope:'ALL',active:'false'}));
+  assert.equal(result.total,1);assert.equal(result.items[0].canonical_issue_id,'inactive');
+  assert.match(calls[0].sql,/m\.chatby_message_id_hash=p\.scoped_customer_message_hash/);
+  assert.match(calls[0].sql,/m\.occurred_at>p\.incident_notified_at/);
+  assert.doesNotMatch(calls[0].sql,/m\.intent<>'UNKNOWN'/);
 });
-
-test('incident overview returns table and counters from one materialized selection', async () => {
-  const calls = [];
-  const pool = { query: async (sql, values = []) => {
-    calls.push({ sql, values });
-    return { rows: [{ items: [{ canonical_issue_id: 'masked-issue' }], total: 1, summary: { pending: 1, high_risk: 0 } }] };
-  }, end: async () => {} };
-  const repository = new OperationsRepository(null, { pool });
-  const result = await repository.incidentOverview(new URLSearchParams({ scope: 'ACTIVE', to: '2026-08-15', risk: 'HIGH' }));
-  assert.equal(calls.length, 1);
-  assert.match(calls[0].sql, /WITH selected AS MATERIALIZED/);
-  assert.match(calls[0].sql, /effective_risk = \$1/);
-  assert.match(calls[0].sql, /created_at < \(\(\$2::date \+ 1\)::timestamp AT TIME ZONE 'Europe\/Madrid'\)/);
-  assert.match(calls[0].sql, /status='PENDING' AND is_active=true/);
-  assert.match(calls[0].sql, /operational_response_status/);
-  assert.match(calls[0].sql, /operational_freshness_status/);
-  assert.match(calls[0].sql, /NO_CONVERSATION/);
-  assert.match(calls[0].sql, /discount_recovery_response_status='DISCOUNT_ACCEPTED'/);
-  assert.equal(result.total, 1);
-  assert.equal(result.summary.pending, 1);
-  assert.equal(result.limit, 25);
+test('incident overview returns table and counters from one complete canonical universe',async()=>{
+  const calls=[];const pool={query:async(sql,values=[])=>{calls.push({sql,values});return {rows:sql.includes('SELECT DISTINCT')?[{month:'2026-08'}]:[incidentFixture,{...incidentFixture,canonical_issue_id:'other',effective_risk:'LOW'}]};}};
+  const repository=new OperationsRepository(null,{pool});
+  const result=await repository.incidentOverview(new URLSearchParams({scope:'ACTIVE',to:'2026-08-15',risk:'HIGH',month:'2026-08',recovery:'PENDING'}));
+  assert.equal(calls.length,2);assert.deepEqual(calls[0].values,['2026-08']);
+  assert.match(calls[0].sql,/AT TIME ZONE 'Europe\/Madrid'/);
+  assert.doesNotMatch(calls[0].sql,/incident\s+.*LIMIT/); // universe has no pagination before canonical selection
+  assert.equal(result.total,1);assert.equal(result.summary.kpis.find(k=>k.key==='PENDING').count,result.total);
+  assert.equal(result.summary.universe_count,1);assert.equal(result.limit,25);
+  assert.equal(result.actions_executed,0);assert.equal(result.customer_messages_sent,0);
 });
-
-test('incident discount filter is parameterized and uses only verified recovery status', async () => {
-  const calls = [];
-  const pool = { query: async (sql, values = []) => { calls.push({ sql, values }); return { rows: [] }; }, end: async () => {} };
-  const repository = new OperationsRepository(null, { pool });
-  await repository.listIncidents(new URLSearchParams({ scope: 'ACTIVE', discount_response: 'DISCOUNT_ACCEPTED' }));
-  assert.match(calls[0].sql, /discount_recovery_response_status = \$1/);
-  assert.equal(calls[0].values[0], 'DISCOUNT_ACCEPTED');
-  assert.match(calls[0].sql, /operations_incident_discount_recovery_latest/);
+test('discount filter is exact and injection-like values cannot expand the derived universe',async()=>{
+  const calls=[];const row={...incidentFixture,discount_signal_quality:'VERIFIED',discount_delivery_verified:true,discount_recovery_response_status:'DISCOUNT_ACCEPTED',discount_sent_at:'2026-08-10T11:00:00Z',discount_responded_at:'2026-08-10T12:00:00Z'};
+  const pool={query:async(sql,values=[])=>{calls.push({sql,values});return {rows:sql.includes('SELECT DISTINCT')?[]:[row]};}};
+  const repository=new OperationsRepository(null,{pool});
+  const good=await repository.listIncidents(new URLSearchParams({scope:'ACTIVE',discount_response:'DISCOUNT_ACCEPTED'}));
+  assert.equal(good.total,1);assert.match(calls[0].sql,/operations_incident_discount_recovery_latest/);
+  const bad=await repository.listIncidents(new URLSearchParams({scope:'ACTIVE',discount_response:"DISCOUNT_ACCEPTED' OR true --"}));
+  assert.equal(bad.total,0);assert.ok(calls.every(c=>!c.sql.includes('OR true')));
 });
 
 test('monthly financial summary is GET-only and missing sources remain unknown', async () => {

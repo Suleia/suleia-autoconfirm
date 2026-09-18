@@ -115,27 +115,14 @@ function renderSummary() {
       summaryCard('Bloqueados', Number(data?.reject_signal || 0) + Number(data?.review_signal || 0), 'Rechazo, ambigüedad o falta de evidencia', 'red')
     );
   } else {
-    const activeScope = (data?.scope || 'ACTIVE') === 'ACTIVE';
-    const updated = `Actualizado ${date(data?.last_sync_at)}`;
-    root.append(
-      summaryCard(activeScope ? 'Pendientes reales en Dropea' : 'Seleccionadas', data?.pending, `${activeScope ? 'Cola actual de resolución' : `Alcance: ${translated(data?.scope)}`} · ${updated}`),
-      summaryCard('Cliente actuó', data?.responded, `Respuesta válida ligada a la incidencia · ${updated}`, 'green'),
-      summaryCard('Aceptaron 5 €', data?.discount_accepted, 'Oferta entregada y aceptación posterior verificada', 'green', () => {
-        state.filters.discount_response = state.filters.discount_response === 'DISCOUNT_ACCEPTED' ? '' : 'DISCOUNT_ACCEPTED';
-        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
-      }, state.filters.discount_response === 'DISCOUNT_ACCEPTED'),
-      summaryCard('No aceptaron 5 €', data?.discount_rejected, 'Rechazo explícito posterior a la oferta', 'red', () => {
-        state.filters.discount_response = state.filters.discount_response === 'DISCOUNT_REJECTED' ? '' : 'DISCOUNT_REJECTED';
-        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
-      }, state.filters.discount_response === 'DISCOUNT_REJECTED'),
-      summaryCard('Esperando descuento', data?.discount_no_response, 'Plantilla entregada; todavía sin respuesta', 'amber', () => {
-        state.filters.discount_response = state.filters.discount_response === 'NO_RESPONSE' ? '' : 'NO_RESPONSE';
-        state.offset = 0; renderFilters(); renderSummary(); loadQueue();
-      }, state.filters.discount_response === 'NO_RESPONSE'),
-      summaryCard('Sin conversación exacta', data?.without_conversation, `No se presupone que el cliente no respondió · ${updated}`, 'purple'),
-      summaryCard('Dirección', data?.address_issues, `Requieren datos de entrega válidos · ${updated}`, 'amber'),
-      summaryCard('Atención prioritaria', data?.high_risk, `Riesgo alto o crítico · ${updated}`, 'red')
-    );
+    for(const kpi of data?.kpis || []) {
+      const card=summaryCard(kpi.label,kpi.count,'Abrir las incidencias de este contador',kpi.key==='RETURNED' || kpi.key==='RETURN_RISK'?'red':kpi.key==='RECOVERABLE_NOW' || kpi.key==='RECOVERED'?'green':'',()=>{
+        state.filters.recovery=state.filters.recovery===kpi.key?'':kpi.key;
+        state.offset=0;renderSummary();loadQueue();
+      },state.filters.recovery===kpi.key);
+      card.append(recoveryIcon(kpi.icon));root.append(card);
+    }
+    renderRecoveryCenter(data);
   }
   const last = data?.last_sync_at || state.summary?.protections?.last_reconciled_at;
   $('last-sync').textContent = date(last);
@@ -146,10 +133,15 @@ const filterDefinitions = {
   orders: [],
   incidents: [
     ['scope', 'Alcance', ['ACTIVE', 'HISTORICAL', 'ALL']],
-    ['type', 'Qué ocurre', ['RECIPIENT_ABSENT', 'ADDRESS_INCORRECT', 'REFUSED_BY_RECIPIENT', 'GENERAL_INCIDENCE', 'UNKNOWN']],
+    ['type', 'Qué ocurre', ['RECIPIENT_ABSENT', 'ADDRESS_INCORRECT', 'PENDING_DATA', 'REFUSED_BY_RECIPIENT', 'GENERAL_INCIDENCE', 'UNKNOWN']],
     ['response', 'Evidencia cliente', ['VALID_RESPONSE', 'NO_VALID_RESPONSE', 'NO_CONVERSATION', 'NOT_VERIFIABLE']],
     ['discount_response', 'Descuento 5 €', ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'NO_RESPONSE', 'OTHER_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE']],
-    ['risk', 'Prioridad', ['HIGH', 'CRITICAL']]
+    ['risk', 'Riesgo original', ['HIGH', 'CRITICAL']],
+    ['recovery_status', 'Estado recuperación', ['CONTACT_PENDING','WAITING_CUSTOMER','WAITING_SULEIA','RECOVERABLE_NOW','RETURN_RISK','RECOVERED','DELIVERED_AFTER_INCIDENT','RETURN_REQUESTED','RETURNED','EVIDENCE_UNCERTAIN','UNRESOLVED']],
+    ['timer', 'Temporizador', ['ACTIVE','EXPIRED','INACTIVE','UNAVAILABLE']],
+    ['priority', 'Prioridad recuperación', ['1','2','4','5','6']],
+    ['client_acted', 'Cliente actuó', ['true','false']],
+    ['recoverable', 'Recuperable', ['true','false']]
   ]
 };
 function renderFilters() {
@@ -181,12 +173,28 @@ function renderFilters() {
     select.addEventListener('change', () => changed(key, select.value)); root.append(select);
   }
   if (state.view === 'incidents') {
+    for (const [label,scope] of [['Todas','ALL'],['Activas','ACTIVE']]) {
+      const button=node('button','recovery-reset',label);button.type='button';
+      button.addEventListener('click',()=>{state.filters={scope,month:state.filters.month || ''};state.offset=0;renderFilters();loadQueue();});root.append(button);
+    }
+    const month=node('select','filter-select');month.setAttribute('aria-label','Mes de creación de incidencia');
+    month.append(new Option('Todos los meses',''));
+    for(const value of state.summary?.incidents?.available_months || [])month.append(new Option(value,value));
+    month.value=state.filters.month || '';month.addEventListener('change',()=>changed('month',month.value));root.append(month);
+    const template=node('select','filter-select');template.setAttribute('aria-label','Plantilla relacionada');
+    template.append(new Option('Todas las plantillas',''));
+    for(const value of state.summary?.incidents?.by_template || [])template.append(new Option(value.key,value.key));
+    template.value=state.filters.template || '';template.addEventListener('change',()=>changed('template',template.value));root.append(template);
+    const riskWindow=node('input','filter-select');riskWindow.type='number';riskWindow.min='0.25';riskWindow.max='72';riskWindow.step='0.25';
+    riskWindow.value=state.filters.near_return_hours || '3';riskWindow.setAttribute('aria-label','Cerca de devolución: umbral visual en horas');
+    riskWindow.title='Umbral visual configurable; no modifica la política ni el deadline de devolución';
+    riskWindow.addEventListener('change',()=>changed('near_return_hours',riskWindow.value));root.append(riskWindow);
     for (const [value, label] of [['AUSENTE','AUSENTE'],['FIRST_ABSENCE','Primera ausencia'],['SECOND_ABSENCE','Segunda ausencia'],
       ['ABSENCE_ATTEMPT_UNKNOWN','Intento no verificable'],['STALE','Datos atrasados'],
       ['WAITING_CUSTOMER','Esperando cliente'],['CUSTOMER_RESPONDED','Cliente respondió'],['RESCHEDULE_REQUESTED','Nueva entrega'],
       ['PICKUP_REQUESTED','Recogida agencia'],['LOGISTICS_VALIDATION_REQUIRED','Validar logística'],['HUMAN_REVIEW_REQUIRED','Revisión humana'],['SIMULATION_READY','Simulación preparada']]) {
       const count = state.summary?.incidents?.absent_filters?.[value];
-      const button = node('button', `filter-chip ${state.filters.absent === value ? 'active' : ''}`.trim(), count===undefined?label:`${label} · ${count}`);
+      const button = node('button', `filter-chip absent-filter ${state.filters.absent === value ? 'active' : ''}`.trim(), count===undefined?label:`${label} · ${count}`);
       button.title='Número de incidencias en la selección actual; incluye los filtros activos';
       button.type = 'button'; button.addEventListener('click', () => changed('absent', state.filters.absent === value ? '' : value)); root.append(button);
     }
@@ -285,27 +293,90 @@ function discountStatusCard(item) {
   if (discount.responded_at) card.append(node('small', 'discount-evidence', `Respondió ${date(discount.responded_at)}`));
   return card;
 }
-function rowIncident(item) {
-  const tr = node('tr'); tr.tabIndex = 0;
-  const customer = item.customer_evidence || {};
-  const recommendation = item.tailored_recommendation || {};
-  const identity = stacked(item.customer_name || 'Cliente no disponible', item.customer_phone || 'Teléfono no disponible', 'incident-identity');
-  const evidence = node('div', 'stacked incident-evidence');
-  evidence.append(node('strong', '', text(customer.title)), node('small', '', text(customer.summary)));
-  if (customer.latest_message) evidence.append(node('q', 'message-quote', customer.latest_message));
-  const resolution = recommendation.resolution_option ? `Opción Dropea: ${recommendation.resolution_option}` : 'Pendiente de validación humana';
-  tr.append(
-    cell(stacked(`Incidencia #${short(item.dropea_issue_id)}`, `Pedido Dropea #${short(item.dropea_order_id)} · ${date(item.created_at)}`)),
-    cell(identity, 'customer-cell'),
-    cell(stacked(translated(item.interpreted_type), item.initial_carrier_description_sanitized || 'Sin descripción adicional de Dropea')),
-    cell(evidence, 'signal-cell'),
-    cell(discountStatusCard(item), 'discount-cell'),
-    cell(item.absent_shadow ? absentShadowCard(item) : stacked(recommendation.title, `${recommendation.summary} · ${resolution}`), 'decision-card'),
-    cell(stacked(translated(item.handling_status), `${item.source_truth === 'PENDING_IN_DROPEA' ? 'Pendiente en Dropea' : 'Fuera de la cola pendiente'} · ${item.operational_freshness_status === 'FRESH' ? 'datos vigentes' : 'revisar actualización'}`))
-  );
-  tr.addEventListener('click', () => openDetail(item.canonical_issue_id)); tr.addEventListener('keydown', (event) => { if (event.key === 'Enter') openDetail(item.canonical_issue_id); }); return tr;
+const recoveryLabels={PENDING:'Pendiente real',CONTACT_PENDING:'Contacto pendiente',CUSTOMER_ACTED:'Cliente actuó',RECOVERABLE_NOW:'Recuperable ahora',WAITING_CUSTOMER:'Esperando cliente',WAITING_SULEIA:'Esperando acción Suleia',RETURN_RISK:'Cerca de devolución',RECOVERED:'Recuperado',DELIVERED_AFTER_INCIDENT:'Entregado tras incidencia',RETURN_REQUESTED:'Devolución solicitada',RETURNED:'Devuelto',EVIDENCE_UNCERTAIN:'Evidencia no concluyente',UNRESOLVED:'Sin recuperación verificada',WAITING_RESPONSE:'Esperando respuesta',NOT_OFFERED:'No ofrecido',ACCEPTED:'Aceptado',REJECTED:'Rechazado',INCONCLUSIVE_RESPONSE:'Respuesta no concluyente'};
+function recoveryIcon(kind) {
+  const paths={package:['m3 7 9-4 9 4v10l-9 4-9-4Z','m3 7 9 4 9-4M12 11v10'],message:['M3 4h18v13H8l-5 4Z','M7 8h10M7 12h7'],retry:['M4 10a8 8 0 1 1 1 8','m4 4 0 6 6 0'],clock:['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18','M12 7v5l4 2'],task:['M8 3h8v3H8ZM6 5H4v17h16V5h-2','m8 13 3 3 5-6'],warning:['m12 3 10 18H2Z','M12 9v5M12 17h.01'],check:['M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18','m7 12 3 3 7-7'],truck:['M2 5h12v12H2ZM14 9h4l4 4v4h-8','M7 17v3M18 17v3'],return:['m7 4-4 4 4 4','M3 8h12a6 6 0 0 1 0 12h-4'],search:['M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14','m15 15 6 6']};
+  const svg=svgEl('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':1.8,'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true',class:'recovery-icon'});
+  (paths[kind] || paths.search).forEach(d=>svg.append(svgEl('path',{d})));return svg;
 }
-function renderHead() { const labels = state.view === 'orders' ? ['Pedido / fecha', 'Producto', 'Acción recomendada', 'Acción real', 'Respuesta del cliente', 'Cliente / importe', 'Calidad'] : ['Incidencia / pedido', 'Cliente / teléfono', 'Qué ocurre', 'Evidencia de Chatby', 'Descuento 5 €', 'Solución concreta', 'Estado real']; const tr = node('tr'); labels.forEach((label) => tr.append(node('th', '', label))); $('table-head').replaceChildren(tr); }
+function recoveryDuration(seconds) {
+  if(seconds===null || seconds===undefined)return 'N/D — falta deadline real';
+  const minutes=Math.max(0,Math.floor(Number(seconds)/60));return `${Math.floor(minutes/60)} h ${minutes%60} min`;
+}
+function recoveryTimer(item) {
+  const timer=item.recovery?.timer || {};
+  return stacked(timer.state==='ACTIVE'?recoveryDuration(timer.remaining_seconds):timer.state==='EXPIRED'?'Plazo vencido · reevaluar policy':'Deadline no verificable',timer.deadline?date(timer.deadline):'Sin inventar plazos', 'recovery-timer');
+}
+function renderRecoveryCenter(data) {
+  $('recovery-center').hidden=state.view!=='incidents';if(state.view!=='incidents')return;
+  const m=data?.metrics || {};
+  $('recovery-caption').textContent=`${data?.universe_count ?? 0} incidencias · ${state.filters.month || 'todos los meses'} · ${translated(state.filters.scope || 'ALL')} · actualizado ${date(data?.last_sync_at)}`;
+  const stages=[['Incidencias',m.orders,null],['Contactados',m.contact_missing_event?null:m.contacted,'CONTACTED'],['Respondieron',m.response_missing_event?null:m.replied,'CUSTOMER_ACTED'],['Recuperados',m.recovery_missing_event?null:m.recovered,'RECOVERED'],['Nueva entrega',m.redelivery_missing_event?null:m.redelivery,'REDELIVERY'],['Entregados',m.delivered,'DELIVERED_AFTER_INCIDENT']];
+  const funnel=$('recovery-funnel');funnel.replaceChildren();
+  for(let index=0;index<stages.length;index++){
+    const [label,value,key]=stages[index],card=node(key?'button':'div','recovery-stage');
+    card.append(node('small','',label),node('strong','',value===null || value===undefined?'N/D':String(value)),node('small','',value===null?'Falta hito verificado':`${percentage(value,m.orders)} del total · ${index?percentage(value,stages[index-1][1]):'base de pedidos únicos'}`));
+    if(key){card.type='button';card.addEventListener('click',()=>{state.filters.recovery=key;state.offset=0;loadQueue();});}funnel.append(card);
+  }
+  const metrics=$('recovery-business-metrics');metrics.replaceChildren();
+  for(const [label,value] of [['Tasa de respuesta',m.response_rate],['Tasa de recuperación',m.recovery_rate],['Entrega post-incidencia',m.delivery_rate],['Tasa de devolución',m.return_rate]]){
+    const field=node('div','recovery-business-metric');field.append(node('small','',label),node('strong','',value===null || value===undefined?'N/D':`${Number(value).toFixed(1)} %`));metrics.append(field);
+  }
+  for(const [label,value,coverage] of [['Tiempo medio de respuesta',m.mean_response_seconds,m.response_duration_coverage],['Tiempo medio de recuperación',m.mean_recovery_seconds,m.recovery_duration_coverage]]){
+    const field=node('div','recovery-business-metric');field.append(node('small','',label),node('strong','',value===null || value===undefined?'N/D — falta timestamp del hito':recoveryDuration(value)),node('small','',`${coverage || 0} intervalos con fecha verificada`));metrics.append(field);
+  }
+  const performance=(id,title,rows)=>{
+    const root=$(id);root.replaceChildren(node('h3','',title));const table=node('table','recovery-performance-table');
+    const head=node('tr');for(const label of ['Grupo','Pedidos con incidencia','Respuesta','Recuperación','Entrega','Devolución'])head.append(node('th','',label));table.append(head);
+    for(const row of rows || []){const tr=node('tr');tr.append(cell(translated(row.key)),cell(row.orders));for(const value of [row.response_rate,row.recovery_rate,row.delivery_rate,row.return_rate])tr.append(cell(value===null?'N/D':`${Number(value).toFixed(1)} %`));table.append(tr);}root.append(table);
+  };
+  performance('recovery-by-type','Rendimiento por tipo de incidencia',data?.by_type);
+  performance('recovery-by-template','Rendimiento por plantilla observada',data?.by_template);
+  $('recovery-method').textContent=`${data?.denominator_definition || ''} ${m.uncertain_incidents || 0} incidencias con evidencia no concluyente. Cobertura de respuesta: ${m.response_evidence_coverage || 0}/${m.response_evidence_total || 0} pedidos contactados. El embudo cuenta pedidos únicos; la tabla y KPIs, incidencias. Las plantillas agrupan el contacto inicial realmente observado, sin atribuir causalidad. Cerca de devolución: umbral visual ${recoveryDuration(data?.near_threshold_seconds)}; no modifica políticas.`;
+}
+function recoveryEvidenceDetail(item) {
+  const e=item.recovery?.evidence || {};
+  return section('Evidencia Chatby de ESTA incidencia', [['Conversación',e.conversation==='EXACT'?'Encontrada y exacta':e.conversation || 'No verificable'],['Cliente actuó',e.customer_acted?'Sí · respuesta válida posterior':'No verificado',true],['Respuesta real',e.message || 'Sin texto/botón posterior verificable'],['Fecha/hora',date(e.response_at)],['Notificación observada',date(e.notification_at)],['Plantilla/origen',e.template || 'N/D — falta plantilla observada'],['Validez',e.validity || 'NOT_VERIFIABLE',true],['Motivo técnico',e.reason]]);
+}
+function recoveryDetail(item) {
+  const r=item.recovery || {};
+  return section('Recuperación del pedido', [['Estado interno Suleia',recoveryLabels[r.status] || r.status,true],['Estado original Dropea',item.recovery_order_state || item.order_status],['Solución actual',item.tailored_recommendation?.title],['Opción Dropea',item.tailored_recommendation?.resolution_option || 'Pendiente de validación'],['Prioridad',r.priority],['Recovery Score',`${r.score ?? 0}/100 · informativo, nunca ejecuta acciones`],['Por qué', (r.score_reasons || []).map(v=>`${v.points>0?'+':''}${v.points}: ${v.reason}`).join(' · ') || 'Sin oportunidad verificada'],['Deadline real',date(r.timer?.deadline)],['Tiempo restante',recoveryDuration(r.timer?.remaining_seconds)],['Policy',r.timer?.policy_reason],['Última actualización',date(r.derived_at)]]);
+}
+function recoveryTimelinePanel(events) {
+  const section=node('section','detail-section recovery-chronology');section.append(node('h3','','Timeline cronológica del pedido'));
+  const list=node('ol','timeline');for(const event of events || []){
+    const row=node('li','timeline-item');row.append(node('time','',date(event.occurred_at)),node('strong','',event.source || 'Fuente no informada'),node('span','',event.label || event.event_type));
+    if(event.validity)row.append(node('small','',event.validity==='AFTER_NOTIFICATION'?'Posterior a la notificación · verificar intención':'Histórico / no demuestra respuesta a esta incidencia'));
+    if(String(event.event_type).includes('SIMULAT'))row.append(node('small','','Propuesta en simulación, no acción ejecutada'));list.append(row);
+  }section.append(list);if(!(events || []).length)section.append(node('p','muted','N/D — faltan eventos observados'));return section;
+}
+function rowIncident(item) {
+  const tr=node('tr');tr.tabIndex=0;
+  const r=item.recovery || {},e=r.evidence || {};
+  const evidence=stacked(e.customer_acted?'Cliente actuó':e.validity==='NOT_VERIFIABLE'?'Respuesta no verificable':'Sin respuesta válida',`${e.conversation==='EXACT'?'Conversación exacta':'Sin conversación exacta'} · ${date(e.response_at)}`,'incident-evidence');
+  if(e.message)evidence.append(node('q','message-quote',e.message));
+  const discount=discountStatusCard(item);
+  if(r.discount)discount.append(node('small','',recoveryLabels[r.discount.status] || r.discount.status));
+  const recommendation=item.tailored_recommendation || {};
+  tr.append(
+    cell(stacked(item.external_order_reference || `Pedido Dropea #${short(item.dropea_order_id)}`,`Incidencia #${item.dropea_issue_id} · ${date(item.created_at)}`)),
+    cell(stacked(item.customer_name || 'Cliente no disponible',item.customer_phone || 'Teléfono no disponible')),
+    cell(stacked(translated(item.interpreted_type),item.initial_carrier_description_sanitized || 'Sin descripción')),
+    cell(stacked(item.recovery_order_state || item.lifecycle_status || item.order_status || 'N/D',item.carrier || 'Transportista no informado')),
+    cell(node('span',`recovery-status ${(r.status || '').toLowerCase()}`,recoveryLabels[r.status] || 'N/D')),
+    cell(evidence,'signal-cell'),cell(discount,'discount-cell'),cell(recoveryTimer(item)),
+    cell(stacked(recommendation.title || 'Revisar evidencia',recommendation.guardrail || recommendation.summary),'decision-card'),
+    cell(stacked(`P${r.priority || 6} · ${r.score ?? 0}/100`,(r.score_reasons || []).map(x=>x.reason).join(' · '))),
+    cell(stacked(date(item.panel_updated_at || item.updated_at),r.source_current?'Fuentes vigentes':'Fuentes pendientes de verificar'))
+  );
+  tr.addEventListener('click',()=>openDetail(item.canonical_issue_id));
+  tr.addEventListener('keydown',event=>{if(event.key==='Enter')openDetail(item.canonical_issue_id);});return tr;
+}
+function renderHead() {
+  const labels=state.view==='orders'?['Pedido / fecha','Producto','Acción recomendada','Acción real','Respuesta del cliente','Cliente / importe','Calidad']
+    :['Pedido / incidencia','Cliente / teléfono','Qué ocurre','Estado GLS / Dropea','Recuperación','Evidencia Chatby','Descuento 5 €','Timer real','Solución concreta','Prioridad','Actualización'];
+  const tr=node('tr');labels.forEach(label=>tr.append(node('th','',label)));$('table-head').replaceChildren(tr);
+}
 
 async function loadQueue() {
   if (state.view === 'finance') return;
@@ -329,10 +400,10 @@ async function loadQueue() {
     if (!items.length && view === 'incidents') $('empty-state').textContent = state.filters.scope === 'ACTIVE' ? 'Dropea no tiene incidencias pendientes de resolver.' : 'No hay incidencias para los filtros seleccionados.';
     $('result-count').textContent = view === 'orders'
       ? `${data.total} pedido(s) pendiente(s) en Dropea`
-      : `${data.total} incidencia(s) pendiente(s) de resolver`;
+      : `${data.total} incidencia(s) de la selección · contador y filtro canónicos`;
     $('queue-source').textContent = view === 'orders'
       ? `Fuente: Dropea · Chatby por pedido · refresco automático cada ${state.config.refresh_interval_seconds} s`
-      : `Fuente: incidencias pendientes de Dropea · refresco automático cada ${state.config.refresh_interval_seconds} s`;
+      : `Fuente: Dropea, Chatby y policy vigente · refresco automático cada ${state.config.refresh_interval_seconds} s`;
     if (data.last_sync_at) $('last-sync').textContent = date(data.last_sync_at);
     $('page-status').textContent = data.total ? `${state.offset + 1}–${Math.min(state.offset + state.limit, data.total)} de ${data.total}` : '0 de 0';
     $('prev-page').disabled = state.offset === 0; $('next-page').disabled = state.offset + state.limit >= data.total;
@@ -492,7 +563,9 @@ async function openDetail(id) {
       root.append(
         section('Cliente y pedido', [['Cliente', incident.customer_name || 'NO DISPONIBLE'], ['Teléfono', incident.customer_phone || 'NO DISPONIBLE'], ['Pedido', incident.external_order_reference || `Dropea #${incident.dropea_order_id}`], ['Incidencia', `#${incident.dropea_issue_id}`]]),
         section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
-        section('Acción del cliente tras la notificación', [['Resultado', incident.customer_evidence?.title, true], ['Conclusión', incident.customer_evidence?.summary], ['Plantilla de esta incidencia', incident.incident_notification_template || 'NOTIFICACIÓN NO VERIFICADA'], ['Notificación observada', date(incident.incident_notified_at)], ['Última respuesta relevante', incident.customer_evidence?.latest_message || 'No hay respuesta posterior verificable'], ['Fecha de respuesta', date(incident.customer_evidence?.at)], ['Relación temporal', incident.customer_evidence?.relation === 'AFTER_NOTIFICATION' ? 'POSTERIOR A LA NOTIFICACIÓN' : 'SIN RESPUESTA POSTERIOR VERIFICABLE', true], ['Lectura de este chat', date(incident.incident_conversation_read_at)], ['Asociación', incident.conversation_status === 'FOUND' ? 'CONVERSACIÓN EXACTA DEL PEDIDO' : 'NO VERIFICADA', true]]),
+        recoveryDetail(incident),
+        recoveryEvidenceDetail(incident),
+        recoveryTimelinePanel(data.recovery_timeline),
         discountRecoveryDetail(incident),
         absentShadowCard(incident, true),
         customerMessageHistory(data.customer_messages),
@@ -963,12 +1036,13 @@ async function refresh({ force = false, background = false } = {}) {
   finally { state.refreshing = false; $('refresh-button').disabled = false; $('refresh-button').textContent = 'Actualizar'; }
 }
 function setView(view) {
-  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : {}; closeDetail();
+  state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ALL',month:new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit'}).format(new Date()) } : {}; closeDetail();
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
-  const titles = { orders: 'Pedidos operativos', incidents: 'Incidencias', finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
+  const titles = { orders: 'Pedidos operativos', incidents: 'Centro de recuperación', finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance'; $('summary').hidden = finance; $('finance-view').hidden = !finance; $('queue-card').hidden = finance;
+  $('recovery-center').hidden=view!=='incidents';
   if (finance) { loadResultsFinance(); return; }
-  $('queue-title').textContent = view === 'orders' ? 'Pedidos pendientes en Dropea · señal Chatby por pedido' : 'Incidencias pendientes de resolver en Dropea · contexto Chatby'; renderHead(); renderFilters(); renderSummary(); loadQueue();
+  $('queue-title').textContent = view === 'orders' ? 'Pedidos pendientes en Dropea · señal Chatby por pedido' : 'Cola de recuperación · acción, evidencia y tiempo restante'; renderHead(); renderFilters(); renderSummary(); loadQueue();
 }
 
 async function init() {

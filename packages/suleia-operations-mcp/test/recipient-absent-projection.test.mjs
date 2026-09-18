@@ -27,11 +27,14 @@ test('absent joins bind both identity keys and invalidate stale decisions before
     assert.doesNotMatch(source,/JOIN read_models\.operations_private_order_display private_order USING\(canonical_order_id\)/);
   }
 });
-test('new absent filters use canonical type and leave existing generic type filters intact',async()=>{
+test('new absent filters use the same derived universe and leave generic types isolated',async()=>{
   const calls=[];const r=new OperationsRepository('',{pool:{query:async(sql,args)=>{calls.push({sql,args});return {rows:[]};}}});
   await r.listIncidents(new URLSearchParams({scope:'ALL',absent:'AUSENTE'}));
-  assert.match(calls[0].sql,/WHERE normalized_type='RECIPIENT_ABSENT'/);
+  assert.match(calls[0].sql,/read_models\.recipient_absent_shadow/);
   await r.listIncidents(new URLSearchParams({scope:'ALL',type:'REFUSED_BY_RECIPIENT'}));
-  assert.match(calls[1].sql,/WHERE interpreted_type = \$1/);
-  assert.deepEqual(calls[1].args.slice(0,1),['REFUSED_BY_RECIPIENT']);
+  assert.match(calls[2].sql,/read_models\.recipient_absent_shadow/);
+  assert.ok(calls.every(c=>!/^\s*(INSERT|UPDATE|DELETE)/.test(c.sql)));
+  const source=readFileSync(new URL('../../platform-core/src/incident/recovery-center.mjs',import.meta.url),'utf8');
+  assert.match(source,/item\.normalized_type!=='RECIPIENT_ABSENT'/);
+  assert.match(source,/\['type','interpreted_type'\]/);
 });

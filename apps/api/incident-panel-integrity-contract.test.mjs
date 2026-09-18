@@ -33,13 +33,16 @@ test('incident panel projection preserves separate source semantics and safe exe
 
 test('API table and cards share the same incident selection builder', () => {
   assert.match(repository, /function incidentSelection/);
-  assert.equal((repository.match(/incidentSelection\(searchParams\)/g) || []).length, 4);
+  assert.equal((repository.match(/incidentSelection\(searchParams\)/g) || []).length, 2);
   assert.match(repository, /scope === 'ACTIVE'.*status='PENDING' AND is_active=true/s);
   assert.match(repository, /operations_incident_panel_context/);
   assert.match(repository, /customer_replied_after_issue=true[\s\S]{0,100}messages_used,0\)>0 THEN 'VALID_RESPONSE'/);
   assert.equal((repository.match(/chatby_last_successful_sync_at < now\(\)-interval '900 seconds'/g) || []).length, 3);
-  assert.match(repository, /WITH selected AS MATERIALIZED/);
-  assert.match(repository, /jsonb_agg\(to_jsonb\(p\)/);
+  assert.match(repository, /return this\.incidentOverview\(searchParams\)/);
+  assert.match(repository, /return buildRecoveryOverview\(items/);
+  const recovery=fs.readFileSync(new URL('../../packages/platform-core/src/incident/recovery-center.mjs',import.meta.url),'utf8');
+  assert.match(recovery,/count:base\.filter\(i=>recoverySelector\(i,key\)\)\.length/);
+  assert.match(recovery,/selected=base\.filter\(i=>!filters\.recovery \|\| recoverySelector\(i,filters\.recovery\)\)/);
   assert.match(repository, /AT TIME ZONE 'Europe\/Madrid'/);
 });
 

@@ -2,6 +2,7 @@ import { evaluateSourceFreshness } from '../../../platform-core/src/operational-
 import { buildResultsFinanceReport } from '../../../platform-core/src/finance/results-report.mjs';
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
+import { buildRecoveryOverview, recoveryProjection, recoveryTimeline } from '../../../platform-core/src/incident/recovery-center.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
@@ -27,6 +28,8 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
+  outcome.lifecycle_status AS recovery_order_state,outcome.delivered_at_utc AS recovery_delivered_at,
+  outcome.returned_at_utc AS recovery_returned_at,
   private_order.external_order_id_ciphertext,private_order.shipping_address_ciphertext,
   discount.recovery_status AS discount_recovery_status,
   discount.response_status AS discount_recovery_response_status,
@@ -42,6 +45,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
   discount.signal_quality AS discount_signal_quality,
   discount.source_updated_at AS discount_source_updated_at,
   private_message.message_text_ciphertext AS latest_customer_message_ciphertext,
+  private_message.chatby_message_id_hash AS latest_private_customer_message_hash,
   private_message.occurred_at AS latest_private_customer_message_at,
   private_message.relation_to_issue AS latest_customer_message_relation,
   private_message.intent AS latest_private_customer_intent,
@@ -95,13 +99,14 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
     ELSE 'REVIEW_INCIDENT'
   END AS operational_recommendation
  FROM read_models.operations_incident_evidence_context p
+ LEFT JOIN read_models.operations_order_context outcome ON outcome.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.recipient_absent_shadow absent ON absent.canonical_issue_id=p.canonical_issue_id
    AND absent.canonical_order_id=p.canonical_order_id AND p.notification_decision_current
  LEFT JOIN read_models.operations_private_order_display private_order ON private_order.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount ON discount.canonical_issue_id=p.canonical_issue_id
    AND discount.dropea_order_id=p.dropea_order_id
  LEFT JOIN LATERAL (
-   SELECT m.message_text_ciphertext,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
+   SELECT m.message_text_ciphertext,m.chatby_message_id_hash,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
      m.incident_relevance,m.context_template_slug,
      (SELECT o.message_text_ciphertext
         FROM read_models.operations_private_incident_messages o
@@ -440,96 +445,40 @@ export class OperationsRepository {
   }
 
   async listIncidents(searchParams) {
-    const limit = integer(searchParams.get('limit'), 50, 1, 100);
-    const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
-    const selected = incidentSelection(searchParams);
-    selected.values.push(limit, offset);
-    const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
-    const result = await this.pool.query(
-      `SELECT *, count(*) OVER()::integer AS total_count
-       FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}
-       ORDER BY updated_at DESC, canonical_issue_id
-       LIMIT $${selected.values.length - 1} OFFSET $${selected.values.length}`,
-      selected.values
-    );
-    return { items: result.rows.map((row) => incidentInsight(privateIncidentDisplay(row, this.privateDataKey))), total: result.rows[0]?.total_count || 0, limit, offset };
+    return this.incidentOverview(searchParams);
   }
 
   async incidentOverview(searchParams) {
     const limit = integer(searchParams.get('limit'), 25, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
-    const selected = incidentSelection(searchParams);
-    const scopeParameter = selected.values.length + 1;
-    selected.values.push(selected.scope, limit, offset);
-    const limitParameter = selected.values.length - 1;
-    const offsetParameter = selected.values.length;
-    const where = selected.clauses.length ? `WHERE ${selected.clauses.join(' AND ')}` : '';
-    const result = await this.pool.query(
-      `WITH selected AS MATERIALIZED (
-         SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}
-       ), page AS (
-         SELECT * FROM selected
-         ORDER BY updated_at DESC,canonical_issue_id
-         LIMIT $${limitParameter} OFFSET $${offsetParameter}
-       ), metrics AS (
-         SELECT count(*)::integer AS pending,
-           count(*) FILTER (WHERE operational_response_status='VALID_RESPONSE')::integer AS responded,
-           count(*) FILTER (WHERE waiting_customer)::integer AS awaiting_customer,
-           count(*) FILTER (WHERE operational_response_status='NOT_VERIFIABLE')::integer AS not_verifiable,
-           count(*) FILTER (WHERE operational_response_status='NO_CONVERSATION')::integer AS without_conversation,
-           count(*) FILTER (WHERE effective_risk IN ('HIGH','CRITICAL'))::integer AS high_risk,
-           count(*) FILTER (WHERE currently_blocked AND cardinality(effective_blocking_reasons)>0)::integer AS blocked,
-           count(*) FILTER (WHERE operational_freshness_status<>'FRESH')::integer AS stale,
-           count(*) FILTER (WHERE effective_timer_status='EXPIRED')::integer AS timers_expired,
-           count(*) FILTER (WHERE interpreted_type='RECIPIENT_ABSENT')::integer AS recipient_absent,
-           jsonb_build_object(
-             'AUSENTE',count(*) FILTER(WHERE normalized_type='RECIPIENT_ABSENT'),
-             'FIRST_ABSENCE',count(*) FILTER(WHERE absent_shadow->>'absence_attempt'='FIRST_ABSENCE'),
-             'SECOND_ABSENCE',count(*) FILTER(WHERE absent_shadow->>'absence_attempt'='SECOND_ABSENCE'),
-             'ABSENCE_ATTEMPT_UNKNOWN',count(*) FILTER(WHERE absent_shadow->>'absence_attempt'='ABSENCE_ATTEMPT_UNKNOWN'),
-             'STALE',count(*) FILTER(WHERE normalized_type='RECIPIENT_ABSENT' AND effective_freshness_status='STALE'),
-             'WAITING_CUSTOMER',count(*) FILTER(WHERE absent_shadow->>'waiting_customer'='true'),
-             'CUSTOMER_RESPONDED',count(*) FILTER(WHERE absent_shadow->>'customer_response_status'='RESPONDED'),
-             'RESCHEDULE_REQUESTED',count(*) FILTER(WHERE absent_shadow->>'customer_intent'='RESCHEDULE_DELIVERY'),
-             'PICKUP_REQUESTED',count(*) FILTER(WHERE absent_shadow->>'customer_intent'='PICKUP_AT_AGENCY'),
-             'LOGISTICS_VALIDATION_REQUIRED',count(*) FILTER(WHERE absent_shadow->>'current_step'='LOGISTICS_VALIDATION_REQUIRED'),
-             'HUMAN_REVIEW_REQUIRED',count(*) FILTER(WHERE absent_shadow->>'simulation_status'='HUMAN_REVIEW_REQUIRED'),
-             'SIMULATION_READY',count(*) FILTER(WHERE absent_shadow->>'simulation_status'='SIMULATION_READY')
-           ) AS absent_filters,
-           count(*) FILTER (WHERE interpreted_type='ADDRESS_INCORRECT')::integer AS address_issues,
-           count(*) FILTER (WHERE interpreted_type='REFUSED_BY_RECIPIENT')::integer AS refused,
-           count(*) FILTER (WHERE discount_recovery_response_status='DISCOUNT_ACCEPTED')::integer AS discount_accepted,
-           count(*) FILTER (WHERE discount_recovery_response_status='DISCOUNT_REJECTED')::integer AS discount_rejected,
-           count(*) FILTER (WHERE discount_recovery_response_status='NO_RESPONSE')::integer AS discount_no_response,
-           count(*) FILTER (WHERE discount_recovery_response_status='OTHER_RESPONSE')::integer AS discount_other_response,
-           count(*) FILTER (WHERE discount_recovery_response_status='NOT_SENT')::integer AS discount_not_sent,
-           max(panel_updated_at) AS last_sync_at,$${scopeParameter}::text AS scope,
-           0::integer AS actions_executed,0::integer AS production_writes
-         FROM selected
-       )
-       SELECT coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.updated_at DESC,p.canonical_issue_id)
-                        FROM page p),'[]'::jsonb) AS items,
-              (SELECT count(*)::integer FROM selected) AS total,
-              (SELECT to_jsonb(m) FROM metrics m) AS summary`,
-      selected.values
-    );
-    const row = result.rows[0] || {};
-    return { items: (row.items || []).map((item) => incidentInsight(privateIncidentDisplay(item, this.privateDataKey))), total: row.total || 0, limit, offset, summary: row.summary || {} };
+    const month = searchParams.get('month');
+    if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('INVALID_RECOVERY_MONTH');
+    const values = month ? [month] : [];
+    const where = month ? "WHERE to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM')=$1" : '';
+    // One complete universe, no truncation. Pagination follows canonical filtering.
+    const [result,months] = await Promise.all([
+      this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}`,values),
+      this.pool.query(`SELECT DISTINCT to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM') AS month
+        FROM read_models.operations_incident_records ORDER BY month DESC`)
+    ]);
+    const items=result.rows.map(row=>incidentInsight(privateIncidentDisplay(row,this.privateDataKey)));
+    return buildRecoveryOverview(items,{filters:Object.fromEntries(searchParams),limit,offset,availableMonths:months.rows.map(r=>r.month)});
   }
 
   async incidentDetail(id) {
     const [detail, timeline, feedback, customerMessages] = await Promise.all([
       this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1`, [id]),
       this.pool.query(`SELECT * FROM read_models.operations_order_timeline
-        WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_panel_context
+        WHERE canonical_order_id=(SELECT canonical_order_id FROM read_models.operations_incident_panel_context
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
-        ORDER BY occurred_at DESC LIMIT 200`, [id]),
+        ORDER BY occurred_at ASC`, [id]),
       this.pool.query(`SELECT feedback_type,reason_code,created_at
         FROM decision_memory.incident_recommendation_feedback
         WHERE canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
         ORDER BY created_at DESC LIMIT 20`, [id]),
-      this.pool.query(`SELECT m.direction,m.message_type,m.intent,m.relation_to_issue,m.incident_relevance,
+      this.pool.query(`SELECT m.direction,m.message_type,m.intent,m.relation_to_issue,m.incident_relevance,m.context_template_slug,
+          m.chatby_message_id_hash,
           m.message_text_ciphertext,m.occurred_at,
           CASE WHEN m.direction='INBOUND' AND m.occurred_at>s.incident_notified_at
             AND s.scoped_response_status<>'NOT_VERIFIABLE'
@@ -539,13 +488,13 @@ export class OperationsRepository {
         JOIN read_models.operations_incident_notification_scope s USING(canonical_issue_id,canonical_order_id)
         WHERE m.canonical_issue_id=(SELECT canonical_issue_id FROM read_models.operations_incident_records
           WHERE canonical_issue_id=$1 OR dropea_issue_id=$1 LIMIT 1)
-        ORDER BY m.occurred_at DESC LIMIT 20`, [id])
+        ORDER BY m.occurred_at ASC`, [id])
     ]);
-    return detail.rows[0] ? {
-      incident: incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)),
-      customer_messages: privateIncidentMessages(customerMessages.rows, this.privateDataKey),
-      timeline: timeline.rows, feedback: feedback.rows
-    } : null;
+    if (!detail.rows[0]) return null;
+    const incident=recoveryProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
+    const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey);
+    return {incident,customer_messages:messages,timeline:timeline.rows,feedback:feedback.rows,
+      recovery_timeline:recoveryTimeline(incident,timeline.rows,messages)};
   }
 
   async metaBudgetSimulation(searchParams) {
