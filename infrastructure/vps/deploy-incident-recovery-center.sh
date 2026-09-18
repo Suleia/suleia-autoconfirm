@@ -54,8 +54,8 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges \
   const financial=s=>s.slice(s.indexOf("function financeMetric("),s.indexOf("function setView("));assert.equal(financial(old),financial(next));
   const section=s=>s.slice(s.indexOf("<section id=\"finance-view\""),s.indexOf("<section id=\"queue-card\"")).split("<section id=\"recovery-center\"")[0].trim();
   assert.equal(section(readFileSync("/previous/apps/review-panel/index.html","utf8")),section(readFileSync("apps/review-panel/index.html","utf8")));
-  const css=readFileSync("apps/review-panel/styles.css","utf8"),start=css.indexOf("/* Recovery Center"),end=css.indexOf("/* Verified 5 EUR",start);
-  assert.ok(start>=0&&end>start);assert.equal(css.slice(0,start)+css.slice(end),readFileSync("/previous/apps/review-panel/styles.css","utf8"));
+  const unchanged=s=>{const start=s.indexOf("/* Recovery Center");if(start<0)return s;const end=s.indexOf("/* Verified 5 EUR",start);assert.ok(end>start);return s.slice(0,start)+s.slice(end);};
+  assert.equal(unchanged(readFileSync("apps/review-panel/styles.css","utf8")),unchanged(readFileSync("/previous/apps/review-panel/styles.css","utf8")));
   console.log("FINANCIAL_RENDERER_BYTES|PRESERVED");'
 compose=(docker compose --env-file .env -f infrastructure/docker/compose.yaml)
 "${compose[@]}" config --format json > "$backup/current-compose.json"
