@@ -63,3 +63,56 @@ de filtrar. Métricas históricas por pedidos distintos; operativas por incidenc
 distintas. Ventana por creación de incidencia en Europe/Madrid; resultados
 posteriores observados hasta la fecha de lectura. Campos incompletos visibles
 como N/D/cobertura parcial. Score determinista informativo, sin autoridad de acción.
+
+## Publicación y verificación final
+
+- Rama privada: `fix/incident-recovery-center`.
+- Revisión ejecutable activada: `e0e136a478564971ad226ec6c81ccec1a2f1487d`.
+- API/MCP y estáticos de la página existente publicados en VPS; no otro panel.
+- 735/735 pruebas PASS en la imagen exacta Node 22.22, sin acceso a red.
+- Cálculo financiero, sección HTML financiera, renderer financiero y estilos
+  preexistentes preservados. Ninguna migración, cambio de Render o policy.
+- Variables y configuración de ejecución conservadas; ocho contenedores ajenos
+  idénticos, incluido el trabajador de ingesta/automatización AUSENTE.
+- Enlace público `/operations/`: HTTP 200, `Cache-Control: no-store`, versión
+  `20260918-recovery-center-v1`; script servido contiene los nuevos renderers.
+- Lectura real de la implementación desplegada, finalizada
+  `2026-09-18T17:13:14.159Z`, transacción PostgreSQL READ ONLY/REPEATABLE READ:
+  50 comparaciones KPI/total filtrado PASS (10 por cada mes mayo–septiembre);
+  10 comparaciones de resultados físicos contra timestamps Dropea PASS;
+  detalle real con timeline cronológica comprobado.
+- Incidencias consultadas por mes: mayo 12, junio 64, julio 217, agosto 123,
+  septiembre 312. Son incidencias, no cifras de pedidos únicos: una compra puede
+  tener varias incidencias. El embudo y las tasas de negocio deduplican pedidos.
+- Los estados originales FINISHED/REJECTED no se sustituyen. El resultado físico
+  procede del timestamp canónico real posterior a la incidencia, como en la
+  fuente financiera existente; una etiqueta de estado sola no basta.
+- Meta: catálogo administrativo actual verificado otra vez
+  `2026-09-18T17:12:55.692Z`: `dropea_ausente_v3`, APPROVED, UTILITY, es_ES,
+  Meta ID 1123671516755556, contenido exacto. Consulta `submit:false`.
+- Mensajes enviados por este trabajo: 0. Acciones Dropea/GLS: 0.
+
+## Cobertura y límites explícitos
+
+No existen ACTION_VERIFIED/ACTION_EXECUTED en la timeline consultada. Tampoco
+hay suficientes hitos verificables de recuperación/nueva entrega o timestamps
+de primera respuesta en los registros históricos para publicar esas duraciones
+como un número. Se muestra N/D, no una recuperación inferida de inactividad.
+La respuesta requiere mensaje exacto y lectura actual; los históricos sin
+evidencia posterior verificable permanecen no concluyentes. Las tasas de
+respuesta sin cobertura completa no se presentan como cero. El modelo por
+plantilla incluye versión, contacto, respuesta y resultado observados, sin
+atribuir causalidad ni activar A/B tests.
+
+El deadline real de respuesta al descuento de Render sigue sin estar expuesto
+en esta proyección: N/D. No se usó `discount_due_at` ni se inventó 24/48 h.
+La clasificación y el score son informativos. No habilitan envíos, resoluciones,
+cambios de dirección ni devoluciones. AUSENTE_AUTOMATION_LIVE, CHATBY_REAL_SENDS,
+DROPEA_ACTIONS_ENABLED y GLS_ACTIONS_ENABLED continúan false.
+
+Una revisión intermedia (6401e63) fue detenida por el guard de estilos antes
+de recrear servicios; el guard se corrigió para soportar actualizaciones
+sucesivas del Centro. La revisión final e0e136a completó todos los guards.
+La verificación se realizó sin navegador: recursos servidos, renderer DOM,
+repositorio real, filtros, estados y timestamps; no se afirma inspección visual
+de una sesión interactiva del usuario.
