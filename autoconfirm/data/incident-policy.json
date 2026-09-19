@@ -1,0 +1,40 @@
+{
+  "policy_name": "INCIDENT_AUTOPILOT_POLICY",
+  "policy_version": "2026-09-19.1",
+  "timezone": "Europe/Madrid",
+  "carrier": "GLS",
+  "discount_amount_eur": 5,
+  "discount_offer_delay_hours": 24,
+  "discount_response_timeout_hours": 24,
+  "initial_incident_response_timeout_hours": 48,
+  "absent_response_timeout_hours": 48,
+  "unknown_review_timeout_hours": 72,
+  "freshness_seconds": {
+    "dropea": 600,
+    "chatby": 300,
+    "gls": 900,
+    "shopify": 1800
+  },
+  "autopilot_mode": "SIMULATION",
+  "action_modes": {
+    "SEND_CHATBY_TEMPLATE": "SIMULATION",
+    "SEND_CHATBY_MESSAGE": "SIMULATION",
+    "REQUEST_REDELIVERY": "SIMULATION",
+    "UPDATE_DELIVERY_DATA": "SIMULATION",
+    "APPLY_DISCOUNT": "SIMULATION",
+    "REQUEST_AGENCY_PICKUP": "SIMULATION",
+    "REQUEST_RETURN": "SIMULATION",
+    "RESOLVE_INCIDENT": "SIMULATION"
+  },
+  "existing_live_owners": {
+    "SEND_REJECTED_GOODS_TEMPLATE": "render_incident_automation",
+    "SEND_DISCOUNT_OFFER": "render_incident_automation",
+    "REQUEST_RETURN_AFTER_REJECTION": "render_incident_automation",
+    "RESOLVE_VALID_ADDRESS": "render_incident_automation"
+  },
+  "initial_confirmation_template": "dropea_pedido_nuevo_v1",
+  "initial_confirmation_labels": [
+    "CONFIRMAR MI PEDIDO",
+    "CONFIRMAR PEDIDO"
+  ]
+}

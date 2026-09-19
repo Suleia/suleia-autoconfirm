@@ -19,9 +19,9 @@ const raw={canonical_issue_id:'i',canonical_order_id:'o',dropea_issue_id:'test',
 test('actual frontend renders every canonical KPI as a selected/toggleable shared filter and clear buttons reset it',()=>{
   const {context,get}=fixture(),data=buildRecoveryOverview([raw],{now:'2026-09-18T14:00:00Z',availableMonths:['2026-09']});
   context.ui.state.view='incidents';context.ui.state.summary={incidents:data.summary};context.ui.renderSummary();
-  const cards=get('summary').children;assert.equal(cards.length,10);
-  for(let i=0;i<cards.length;i++){assert.equal(cards[i].tagName,'button');assert.equal(cards[i]['aria-pressed'],'false');cards[i].events.click();assert.equal(context.ui.state.filters.recovery,data.summary.kpis[i].key);}
-  context.ui.renderSummary();const selected=get('summary').children.at(-1);assert.equal(selected['aria-pressed'],'true');selected.events.click();assert.equal(context.ui.state.filters.recovery,'');
+  const cards=get('summary').children;assert.equal(cards.length,7);
+  for(let i=0;i<cards.length;i++){assert.equal(cards[i].tagName,'button');assert.equal(cards[i]['aria-pressed'],'false');cards[i].events.click();assert.equal(context.ui.state.filters.autopilot,data.summary.autopilot.kpis[i].key);}
+  context.ui.renderSummary();const selected=get('summary').children.at(-1);assert.equal(selected['aria-pressed'],'true');selected.events.click();assert.equal(context.ui.state.filters.autopilot,'');
   context.ui.state.filters={recovery:'PENDING',priority:'1',month:'2026-09'};context.ui.renderFilters();
   get('filters').children.find(e=>e.className==='recovery-reset' && e.textContent==='Todas (incluye histórico)').events.click();
   assert.equal(context.ui.state.filters.scope,'ALL');assert.equal(context.ui.state.filters.month,'2026-09');assert.equal(context.ui.state.filters.priority,undefined);
@@ -43,7 +43,7 @@ test('actual row and detail distinguish verified no action from unavailable read
 });
 test('actual row/detail uses scoped evidence, all original states and missing events without execution buttons or HTML',()=>{
   const {context}=fixture(),data=buildRecoveryOverview([raw],{now:'2026-09-18T14:00:00Z'}),item=data.items[0];
-  const row=context.ui.rowIncident(item);assert.equal(row.children.length,11);assert.match(content(row),/Cliente actuó|Esperando acción Suleia/);
+  const row=context.ui.rowIncident(item);assert.equal(row.children.length,8);assert.match(content(row),/Cliente actuó|Esperando acción Suleia|Recuperable ahora/);
   const injection='<img src=x onerror=alert(1)>';item.recovery.evidence.message=injection;
   const detail=context.ui.recoveryEvidenceDetail(item);assert.ok(content(detail).includes(injection));assert.equal(all(detail).some(e=>e.tagName==='img'),false);
   assert.equal(all(context.ui.recoveryDetail(item)).some(e=>e.tagName==='button'),false);

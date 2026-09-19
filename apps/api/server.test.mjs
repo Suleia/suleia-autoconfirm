@@ -239,7 +239,8 @@ test('incident overview returns table and counters from one complete canonical u
   const calls=[];const pool={query:async(sql,values=[])=>{calls.push({sql,values});return {rows:sql.includes('SELECT DISTINCT')?[{month:'2026-08'}]:[incidentFixture,{...incidentFixture,canonical_issue_id:'other',effective_risk:'LOW'}]};}};
   const repository=new OperationsRepository(null,{pool});
   const result=await repository.incidentOverview(new URLSearchParams({scope:'ACTIVE',to:'2026-08-15',risk:'HIGH',month:'2026-08',recovery:'PENDING'}));
-  assert.equal(calls.length,2);assert.deepEqual(calls[0].values,['2026-08']);
+  assert.equal(calls.length,3);assert.deepEqual(calls[0].values,['2026-08']);
+  assert.match(calls[2].sql,/operations_connector_health/);
   assert.match(calls[0].sql,/AT TIME ZONE 'Europe\/Madrid'/);
   assert.doesNotMatch(calls[0].sql,/incident\s+.*LIMIT/); // universe has no pagination before canonical selection
   assert.equal(result.total,1);assert.equal(result.summary.kpis.find(k=>k.key==='PENDING').count,result.total);

@@ -3,6 +3,24 @@ import crypto from 'node:crypto';
 import { decryptOperationsPrivateJson } from '../packages/suleia-operations-mcp/src/operations/private-display.mjs';
 import { ABSENT_POLICY_HASH } from '../packages/platform-core/src/incident/absent-evidence.mjs';
 import { INCIDENT_NOTIFICATION_TEMPLATES } from '../packages/platform-core/src/incident/notification-evidence.mjs';
+import { buildIncidentAutopilotProjection } from '../packages/platform-core/src/incident/autopilot.mjs';
+
+async function persistAutopilot(projector, { issue, order, interpretation, decision, now }) {
+  if (typeof projector.recordIncidentAutopilotProjection !== 'function') return null;
+  const previousState = typeof projector.getIncidentAutopilotState === 'function'
+    ? await projector.getIncidentAutopilotState(issue.canonical_issue_id) : 'DETECTED';
+  const projection = buildIncidentAutopilotProjection({
+    issue,
+    order: { ...order, canonical_state: order.canonical_state || order.lifecycle_classification },
+    interpretation,
+    decision,
+    timer: decision.timer || null,
+    previousState: previousState || 'DETECTED',
+    now
+  });
+  await projector.recordIncidentAutopilotProjection(projection);
+  return projection;
+}
 
 export async function syncIncidentSimulations({ pool, projector, now = () => new Date(), maxRecords = 500, privateDataKey = '', absentLogisticsRead = null, onlyRecipientAbsent = false, excludeRecipientAbsent = false, replayAllAbsent = false, absentTemplateStatus = 'NOT_VERIFIED' }) {
   const candidates = await pool.query(`SELECT i.*, o.identity_status, o.total_amount,
@@ -100,6 +118,8 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
       await projector.upsertIncidentInterpretation(result.interpretation);
       await projector.recordIncidentSimulation(result.simulation_record);
       await projector.applyRecipientAbsentShadow({ issue, interpretation: result.interpretation, decision: result.decision });
+      await persistAutopilot(projector, { issue, order: { ...order, canonical_state: context.order_state || row.canonical_state },
+        interpretation: result.interpretation, decision: result.decision, now: now() });
       interpreted += 1; simulated += 1;
       if (result.decision.qa_result === 'BLOCKED') blocked += 1;
       continue;
@@ -110,7 +130,7 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         : 'CHATBY_UNKNOWN:LINK_NOT_ASSESSED';
       const sourceEventId = row.source_event_id || `poll:${row.canonical_issue_id}:${row.updated_at}`;
       const simulationId = crypto.createHash('sha256').update(`WAITING_CHATBY_SOURCE|${row.canonical_issue_id}|${row.updated_at}`).digest('hex');
-      await projector.upsertIncidentInterpretation({
+      const interpretation = {
         canonical_issue_id: row.canonical_issue_id, canonical_order_id: row.canonical_order_id,
         issue_version: row.updated_at, has_customer_replied: false, latest_inbound_message_at: null,
         latest_relevant_message_hash: null, customer_intent: 'UNKNOWN', previous_intents: [],
@@ -121,8 +141,8 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         interpretation_confidence: 0, interpretation_summary: chatbyReason,
         messages_used: 0, messages_ignored: 0, missing_information: [chatbyReason],
         freshness: row.freshness || 'UNKNOWN', interpreted_at: now().toISOString()
-      });
-      await projector.recordIncidentSimulation({
+      };
+      const simulationRecord = {
         simulation_id: simulationId, canonical_issue_id: row.canonical_issue_id,
         canonical_order_id: row.canonical_order_id, issue_version: row.updated_at,
         source_event_id: sourceEventId, dropea_snapshot_at: row.observed_at || row.updated_at,
@@ -137,7 +157,15 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         risk: 'HIGH', confidence: 0, qa_status: 'BLOCKED', human_review: true,
         timer_status: null, execution_available: false, external_write_attempted: false,
         actions_executed: 0, production_writes: 0
-      });
+      };
+      await projector.upsertIncidentInterpretation(interpretation);
+      await projector.recordIncidentSimulation(simulationRecord);
+      await persistAutopilot(projector, { issue, order: { ...order, canonical_state: row.canonical_state },
+        interpretation, decision: {
+          decision_id: simulationId, policy_version: 'CHATBY_SOURCE_GATE_V1',
+          simulated_action: null, requires_human_review: true, qa_result: 'BLOCKED',
+          blocking_reasons: simulationRecord.blocking_reasons
+        }, now: now() });
       interpreted += 1; simulated += 1; blocked += 1;
       continue;
     }
@@ -145,6 +173,8 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
     await projector.upsertIncidentInterpretation(result.interpretation);
     await projector.recordIncidentSimulation(result.simulation_record);
     await projector.applyIncidentDecision({ issue, interpretation: result.interpretation, decision: result.decision });
+    await persistAutopilot(projector, { issue, order: { ...order, canonical_state: row.canonical_state },
+      interpretation: result.interpretation, decision: result.decision, now: now() });
     interpreted += 1;
     simulated += 1;
     if (result.decision.qa_result === 'BLOCKED') blocked += 1;

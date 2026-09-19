@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260918-current-incidents-v2">
+  <link rel="stylesheet" href="styles.css?v=20260919-incident-autopilot-v1">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -124,10 +124,10 @@
         </section>
       </section>
 
-      <section id="recovery-center" class="recovery-center" hidden aria-label="Centro de recuperación de pedidos">
-        <header class="recovery-heading"><div><p class="eyebrow">RECUPERACIÓN DE PEDIDOS</p><h2>De la incidencia a la entrega</h2><p id="recovery-caption"></p></div><span class="badge purple">Vista operativa · sin ejecución</span></header>
-        <div id="recovery-funnel" class="recovery-funnel" aria-label="Flujo de recuperación observado"></div>
-        <div id="recovery-business-metrics" class="recovery-business-metrics"></div>
+      <section id="recovery-center" class="recovery-center" hidden aria-label="Suleia Incident Autopilot">
+        <header class="recovery-heading"><div><p class="eyebrow">CENTRO DE SUPERVISIÓN</p><h2>SULEIA INCIDENT AUTOPILOT</h2><p id="recovery-caption"></p></div><span class="badge purple">SIMULATION / SHADOW</span></header>
+        <div class="autopilot-overview-grid"><section><h3>Necesitan atención</h3><div id="autopilot-attention" class="autopilot-attention"></div></section><section><h3>Salud del Autopilot</h3><div id="autopilot-health" class="autopilot-health"></div></section></div>
+        <details class="recovery-performance"><summary>Embudo y métricas de negocio</summary><div id="recovery-funnel" class="recovery-funnel" aria-label="Flujo de recuperación observado"></div><div id="recovery-business-metrics" class="recovery-business-metrics"></div></details>
         <details class="recovery-performance"><summary>Rendimiento por tipología y plantilla</summary><div id="recovery-by-type"></div><div id="recovery-by-template"></div></details>
         <details class="recovery-method"><summary>Fuentes, denominadores y cobertura</summary><p id="recovery-method"></p><p>No se ejecutan pedidos, mensajes ni devoluciones desde esta vista. N/D significa que falta evidencia, no que el resultado sea cero.</p></details>
       </section>
@@ -163,6 +163,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260918-current-incidents-v2" defer></script>
+  <script src="app.js?v=20260919-incident-autopilot-v1" defer></script>
 </body>
 </html>

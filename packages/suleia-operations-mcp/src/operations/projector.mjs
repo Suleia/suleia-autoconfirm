@@ -731,6 +731,76 @@ export class OperationsProjector {
     return { projected: true, resource: 'incident_simulation', actions_executed: 0, production_writes: 0 };
   }
 
+  async recordIncidentAutopilotProjection(record) {
+    assertSafe(record);
+    const previous = await this.pool.query(`SELECT state FROM operations.incident_autopilot_cases
+      WHERE canonical_issue_id=$1`, [record.incidentId]);
+    await this.pool.query(`INSERT INTO operations.incident_autopilot_cases
+      (canonical_issue_id,canonical_order_id,state,mode,policy_name,policy_version,decision_id,
+       next_action,reason,waiting_for,due_at,human_review,error_code,source_snapshot_hash,
+       updated_at,actions_executed,production_writes)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,0,0)
+      ON CONFLICT(canonical_issue_id) DO UPDATE SET
+       canonical_order_id=EXCLUDED.canonical_order_id,state=EXCLUDED.state,mode=EXCLUDED.mode,
+       policy_name=EXCLUDED.policy_name,policy_version=EXCLUDED.policy_version,
+       decision_id=EXCLUDED.decision_id,next_action=EXCLUDED.next_action,reason=EXCLUDED.reason,
+       waiting_for=EXCLUDED.waiting_for,due_at=EXCLUDED.due_at,human_review=EXCLUDED.human_review,
+       error_code=EXCLUDED.error_code,source_snapshot_hash=EXCLUDED.source_snapshot_hash,
+       updated_at=EXCLUDED.updated_at`, [
+      record.incidentId, record.orderId, record.state, record.mode, record.policyName,
+      record.policyVersion, record.decisionId, record.nextAction, record.reason,
+      record.waitingFor, record.dueAt, record.humanReview, record.errorCode,
+      record.sourceSnapshotHash, record.updatedAt
+    ]);
+    const fromState = previous.rows[0]?.state || record.transitions?.[0]?.fromState || record.transition?.fromState || 'DETECTED';
+    const transitions = record.transitions || (record.transition ? [record.transition] : []);
+    const found = transitions.findIndex(value => value.fromState === fromState);
+    for (const transition of transitions.slice(found < 0 ? transitions.length : found)) {
+      await this.pool.query(`INSERT INTO operations.incident_autopilot_transitions
+        (transition_id,canonical_issue_id,from_state,to_state,occurred_at,reason,policy_name,
+         policy_version,evidence_refs,decision_id,action_id,actions_executed,production_writes)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,0,0)
+        ON CONFLICT(transition_id) DO NOTHING`, [
+        transition.transitionId, record.incidentId, transition.fromState, transition.toState,
+        transition.timestamp, transition.reason, transition.policyName, transition.policyVersion,
+        transition.evidence, transition.decisionId, transition.actionId
+      ]);
+    }
+    if (record.action) {
+      const action = record.action;
+      await this.pool.query(`INSERT INTO operations.incident_action_outbox
+        (action_id,idempotency_key,canonical_order_id,canonical_issue_id,action_type,payload,
+         created_at,executed_at,status,attempt,mode,provider,provider_response,
+         verification_status,policy_name,policy_version,external_write_attempted,
+         actions_executed,production_writes)
+        VALUES($1,$2,$3,$4,$5,$6,$7,NULL,$8,0,$9,$10,NULL,$11,$12,$13,false,0,0)
+        ON CONFLICT(idempotency_key) DO NOTHING`, [
+        action.actionId, action.idempotencyKey, action.orderId, action.incidentId,
+        action.type, JSON.stringify(action.payload), action.createdAt, action.status,
+        action.mode, action.provider, action.verificationStatus, action.policyName,
+        action.policyVersion
+      ]);
+    }
+    if (record.humanReview) {
+      await this.pool.query(`INSERT INTO operations.incident_human_review_queue
+        (canonical_issue_id,reason_code,status,opened_at,updated_at,actions_executed,production_writes)
+        VALUES($1,$2,'OPEN',$3,$3,0,0)
+        ON CONFLICT(canonical_issue_id) DO UPDATE SET reason_code=EXCLUDED.reason_code,
+          status='OPEN',updated_at=EXCLUDED.updated_at`, [record.incidentId, record.errorCode || record.reason, record.updatedAt]);
+    } else {
+      await this.pool.query(`UPDATE operations.incident_human_review_queue
+        SET status='RESOLVED',updated_at=$2 WHERE canonical_issue_id=$1 AND status='OPEN'`, [record.incidentId, record.updatedAt]);
+    }
+    return { projected: true, resource: 'incident_autopilot', actions_executed: 0,
+      production_writes: 0, external_write_attempted: false };
+  }
+
+  async getIncidentAutopilotState(canonicalIssueId) {
+    const result = await this.pool.query(`SELECT state FROM operations.incident_autopilot_cases
+      WHERE canonical_issue_id=$1`, [canonicalIssueId]);
+    return result.rows[0]?.state || null;
+  }
+
   async applyRecipientAbsentShadow({ issue, decision }) {
     if (issue.type !== 'RECIPIENT_ABSENT' || decision.policy_version !== 'RECIPIENT_ABSENT_POLICY_V1'
       || decision.absent_shadow?.executed !== false || decision.absent_shadow?.external_action !== false

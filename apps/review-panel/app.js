@@ -64,6 +64,9 @@ const labels = {
   NOT_VERIFIABLE: 'No verificable', NO_CONVERSATION: 'Sin conversación asociada',
   REVIEW_CHATBY_LINK: 'Revisar enlace con Chatby', REVIEW_CUSTOMER_RESPONSE: 'Revisar respuesta del cliente',
   WAITING_CUSTOMER: 'Esperando al cliente', HUMAN_REVIEW: 'Revisión humana',
+  AUTOMATIC: 'Gestión automática', RECOVERABLE_NOW: 'Recuperable ahora', RECOVERED: 'Recuperada',
+  ERROR: 'Error', READY_FOR_DECISION: 'Lista para decidir', ACTION_PENDING: 'Acción simulada preparada',
+  ACTION_VERIFYING: 'Verificación pendiente', RETURN_ELIGIBLE: 'Elegible para devolución', RETURNED: 'Devuelta',
   REVIEW_ADDRESS_CHANGE: 'Revisar dirección', REVIEW_DELIVERY_AVAILABILITY: 'Revisar disponibilidad',
   REVIEW_REJECTION: 'Revisar rechazo', REVIEW_INCIDENT: 'Revisar incidencia',
   READY_FOR_ADDRESS_AUTOMATION: 'Lista para resolución automática',
@@ -115,11 +118,11 @@ function renderSummary() {
       summaryCard('Bloqueados', Number(data?.reject_signal || 0) + Number(data?.review_signal || 0), 'Rechazo, ambigüedad o falta de evidencia', 'red')
     );
   } else {
-    for(const kpi of data?.kpis || []) {
+    for(const kpi of data?.autopilot?.kpis || []) {
       const card=summaryCard(kpi.label,kpi.count,'Abrir las incidencias de este contador',kpi.key==='RETURNED' || kpi.key==='RETURN_RISK'?'red':kpi.key==='RECOVERABLE_NOW' || kpi.key==='RECOVERED'?'green':'',()=>{
-        state.filters.recovery=state.filters.recovery===kpi.key?'':kpi.key;
+        state.filters.autopilot=state.filters.autopilot===kpi.key?'':kpi.key;
         state.offset=0;renderSummary();loadQueue();
-      },state.filters.recovery===kpi.key);
+      },state.filters.autopilot===kpi.key);
       card.append(recoveryIcon(kpi.icon));root.append(card);
     }
     renderRecoveryCenter(data);
@@ -138,6 +141,7 @@ const filterDefinitions = {
     ['discount_response', 'Descuento 5 €', ['DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'NO_RESPONSE', 'OTHER_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE']],
     ['risk', 'Riesgo original', ['HIGH', 'CRITICAL']],
     ['recovery_status', 'Estado recuperación', ['CONTACT_PENDING','WAITING_CUSTOMER','WAITING_SULEIA','RECOVERABLE_NOW','RETURN_RISK','RECOVERED','DELIVERED_AFTER_INCIDENT','RETURN_REQUESTED','RETURNED','EVIDENCE_UNCERTAIN','UNRESOLVED']],
+    ['autopilot', 'Estado Autopilot', ['ACTIVE','AUTOMATIC','READY_FOR_DECISION','WAITING_CUSTOMER','RECOVERABLE_NOW','ACTION_PENDING','ACTION_VERIFYING','RETURN_ELIGIBLE','RECOVERED','RETURNED','HUMAN_REVIEW','ERROR']],
     ['timer', 'Temporizador', ['ACTIVE','EXPIRED','INACTIVE','UNAVAILABLE']],
     ['priority', 'Prioridad recuperación', ['1','2','4','5','6']],
     ['client_acted', 'Cliente actuó', ['true','false']],
@@ -315,6 +319,19 @@ function renderRecoveryCenter(data) {
   $('recovery-center').hidden=state.view!=='incidents';if(state.view!=='incidents')return;
   const m=data?.metrics || {};
   $('recovery-caption').textContent=`${data?.universe_count ?? 0} incidencias · ${state.filters.month || 'todos los meses'} · ${translated(state.filters.scope || 'ALL')} · actualizado ${date(data?.last_sync_at)}`;
+  const autopilot=data?.autopilot || {},attention=$('autopilot-attention');attention.replaceChildren();
+  for(const [key,label] of [['RECOVERABLE_NOW','Recuperables ahora'],['HUMAN_REVIEW','Revisión humana'],['ERROR','Errores']]){
+    const button=node('button',`autopilot-attention-card ${key==='ERROR'?'danger':''}`.trim());button.type='button';
+    button.append(node('span','',label),node('strong','',String(autopilot.attention?.[key] ?? 0)));
+    button.addEventListener('click',()=>{state.filters.autopilot=key;state.offset=0;renderFilters();loadQueue();});attention.append(button);
+  }
+  const health=$('autopilot-health');health.replaceChildren();
+  for(const connector of autopilot.connectors || []){
+    const row=node('div','autopilot-health-row');row.append(node('strong','',connector.connector || 'Fuente'),badge(translated(connector.freshness_status || connector.data_health || 'UNKNOWN')),node('small','',connector.age_seconds===null || connector.age_seconds===undefined?'Sin lectura válida':`hace ${duration(connector.age_seconds)}`));health.append(row);
+  }
+  const counters=node('div','autopilot-health-counters');counters.append(
+    node('span','',`Timers activos ${autopilot.timers?.active ?? 0}`),node('span','',`Vencidos ${autopilot.timers?.expired ?? 0}`),
+    node('span','',`Acciones simuladas ${autopilot.actions?.simulated ?? 0}`),node('span','',`Escrituras reales ${autopilot.actions?.production_writes ?? 0}`));health.append(counters);
   const stages=[['Incidencias',m.orders,null],['Contactados',m.contact_missing_event?null:m.contacted,'CONTACTED'],['Respondieron',m.response_missing_event?null:m.replied,'CUSTOMER_ACTED'],['Recuperados',m.recovery_missing_event?null:m.recovered,'RECOVERED'],['Nueva entrega',m.redelivery_missing_event?null:m.redelivery,'REDELIVERY'],['Entregados',m.delivered,'DELIVERED_AFTER_INCIDENT']];
   const funnel=$('recovery-funnel');funnel.replaceChildren();
   for(let index=0;index<stages.length;index++){
@@ -343,8 +360,17 @@ function recoveryEvidenceDetail(item) {
   return section('Evidencia Chatby de ESTA incidencia', [['Conversación',e.conversation==='EXACT'?'Encontrada y exacta':e.conversation || 'No verificable'],['Actividad',recoveryEvidenceLabel(e)],['Mensaje o acción real',e.message || e.action_label || (e.no_action_verified?'Ninguna acción realizada':'No se pudo verificar una interacción posterior al aviso')],['Tipo',e.message_type==='BUTTON'?'Botón / acción del cliente':e.message_type==='TEXT'?'Mensaje del cliente':'—'],['Fecha/hora',date(e.response_at)],['Notificación observada',date(e.notification_at)],['Última lectura de esta conversación',date(e.read_at)],['Plantilla/origen',e.template || 'N/D — falta plantilla observada'],['Validez',e.validity || 'NOT_VERIFIABLE',true],['Motivo técnico',e.reason]]);
 }
 function recoveryEvidenceLabel(e) {
-  return e.customer_acted ? e.valid_response?'Cliente actuó':'Cliente respondió · revisar intención'
+  return e.customer_acted ? 'Cliente actuó'
+    : e.customer_interacted?'Cliente respondió · intención no concluyente'
     : e.no_action_verified?'Ninguna acción realizada':e.reason==='INCIDENT_NOTIFICATION_NOT_OBSERVED'?'Sin aviso verificable de esta incidencia':'Chatby no verificable';
+}
+function autopilotDetail(item) {
+  const a=item.autopilot || {};
+  return section('Suleia Incident Autopilot', [['Estado',translated(a.state),true],['Modo',a.mode || 'SIMULATION / SHADOW',true],
+    ['Qué hará después',translated(a.next_action) || 'Reevaluar con fuentes vigentes'],['Por qué',a.reason || 'Sin decisión disponible'],
+    ['Espera a',translated(a.waiting_for) || 'Nada'],['Fecha límite',date(a.due_at)],['Revisión humana',a.human_review?'Sí':'No',true],
+    ['Error',a.error || 'Ninguno'],['Policy',`${a.policy_name || 'SULEIA_INCIDENT_AUTOPILOT'} · ${a.policy_version || 'N/D'}`],
+    ['Acciones reales nuevas','0'],['Escrituras externas nuevas','0']], 'autopilot-detail');
 }
 function recoveryDetail(item) {
   const r=item.recovery || {};
@@ -360,30 +386,29 @@ function recoveryTimelinePanel(events) {
 }
 function rowIncident(item) {
   const tr=node('tr');tr.tabIndex=0;
-  const r=item.recovery || {},e=r.evidence || {};
-  const evidence=stacked(recoveryEvidenceLabel(e),e.customer_acted?`${e.message_type==='BUTTON'?'Botón / acción':'Mensaje'} · ${date(e.response_at)}`:e.no_action_verified?`Lectura verificada · ${date(e.read_at)}`:'Sin cobertura verificada de aviso a lectura','incident-evidence');
+  const r=item.recovery || {},e=r.evidence || {},a=item.autopilot || {};
+  const evidence=stacked(recoveryEvidenceLabel(e),(e.customer_acted || e.customer_interacted)?`${e.message_type==='BUTTON'?'Botón / acción':'Mensaje'} · ${date(e.response_at)}`:e.no_action_verified?`Lectura verificada · ${date(e.read_at)}`:'Sin cobertura verificada de aviso a lectura','incident-evidence');
   if(e.message)evidence.append(node('q','message-quote',e.message));
   else if(e.action_label)evidence.append(node('small','',`Acción verificada: ${e.action_label} · texto literal no disponible`));
-  const discount=discountStatusCard(item);
-  if(r.discount)discount.append(node('small','',recoveryLabels[r.discount.status] || r.discount.status));
   const recommendation=item.tailored_recommendation || {};
   tr.append(
-    cell(stacked(item.external_order_reference || `Pedido Dropea #${short(item.dropea_order_id)}`,`Incidencia #${item.dropea_issue_id} · ${date(item.created_at)}`)),
-    cell(stacked(item.customer_name || 'Cliente no disponible',item.customer_phone || 'Teléfono no disponible')),
-    cell(stacked(translated(item.interpreted_type),item.initial_carrier_description_sanitized || 'Sin descripción')),
-    cell(stacked(item.recovery_order_state || item.lifecycle_status || item.order_status || 'N/D',item.carrier || 'Transportista no informado')),
-    cell(node('span',`recovery-status ${(r.status || '').toLowerCase()}`,recoveryLabels[r.status] || 'N/D')),
-    cell(evidence,'signal-cell'),cell(discount,'discount-cell'),cell(recoveryTimer(item)),
-    cell(stacked(recommendation.title || 'Revisar evidencia',recommendation.guardrail || recommendation.summary),'decision-card'),
-    cell(stacked(`P${r.priority || 6} · ${r.score ?? 0}/100`,(r.score_reasons || []).map(x=>x.reason).join(' · '))),
-    cell(stacked(date(item.panel_updated_at || item.updated_at),r.source_current?'Fuentes vigentes':'Fuentes pendientes de verificar'))
+    cell(stacked(item.external_order_reference || `Dropea #${short(item.dropea_order_id)}`,item.recovery_order_state || item.lifecycle_status || item.order_status || 'Estado no disponible')),
+    cell(stacked(`#${item.dropea_issue_id}`,`${translated(item.interpreted_type)} · ${date(item.created_at)}`)),
+    cell(stacked(translated(a.state),a.mode || 'SIMULATION / SHADOW'),'autopilot-state-cell'),
+    cell(stacked(item.customer_name || 'Cliente no disponible',recoveryEvidenceLabel(e)),'signal-cell'),
+    cell(stacked(translated(a.next_action) || recommendation.title || 'Reevaluar',a.reason || recommendation.summary),'decision-card'),
+    cell(recoveryTimer(item)),
+    cell(stacked(recoveryLabels[r.status] || r.status || 'N/D',e.message
+      ? `${e.message_type==='BUTTON'?'Botón / acción':'Mensaje'} · ${e.message}`
+      : e.action_label || (e.no_action_verified?'Ninguna acción realizada':'Sin acción válida'))),
+    cell(stacked(`P${r.priority || 6}`,a.human_review?'Revisión humana':a.error?'Error':`${r.score ?? 0}/100`))
   );
   tr.addEventListener('click',()=>openDetail(item.canonical_issue_id));
   tr.addEventListener('keydown',event=>{if(event.key==='Enter')openDetail(item.canonical_issue_id);});return tr;
 }
 function renderHead() {
   const labels=state.view==='orders'?['Pedido / fecha','Producto','Acción recomendada','Acción real','Respuesta del cliente','Cliente / importe','Calidad']
-    :['Pedido / incidencia','Cliente / teléfono','Qué ocurre','Estado GLS / Dropea','Recuperación','Evidencia Chatby','Descuento 5 €','Timer real','Solución concreta','Prioridad','Actualización'];
+    :['Pedido','Incidencia','Estado Autopilot','Cliente','Siguiente acción','Timer','Resultado','Prioridad'];
   const tr=node('tr');labels.forEach(label=>tr.append(node('th','',label)));$('table-head').replaceChildren(tr);
 }
 
@@ -572,6 +597,7 @@ async function openDetail(id) {
       root.append(
         section('Cliente y pedido', [['Cliente', incident.customer_name || 'NO DISPONIBLE'], ['Teléfono', incident.customer_phone || 'NO DISPONIBLE'], ['Pedido', incident.external_order_reference || `Dropea #${incident.dropea_order_id}`], ['Incidencia', `#${incident.dropea_issue_id}`]]),
         section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
+        autopilotDetail(incident),
         recoveryDetail(incident),
         recoveryEvidenceDetail(incident),
         recoveryTimelinePanel(data.recovery_timeline),

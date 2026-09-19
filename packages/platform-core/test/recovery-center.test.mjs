@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildRecoveryOverview,recoveryProjection,recoverySelector,recoveryTimeline,recoveryMetrics} from '../src/incident/recovery-center.mjs';
+import {autopilotSelector,buildRecoveryOverview,recoveryProjection,recoverySelector,recoveryTimeline,recoveryMetrics} from '../src/incident/recovery-center.mjs';
 const now='2026-09-18T14:00:00Z';
 function issue(patch={}) {
   return {canonical_issue_id:'i',canonical_order_id:'o',dropea_issue_id:'1',dropea_order_id:'2',
@@ -101,6 +101,18 @@ test('every KPI shares the exact selector with rows; filtering precedes paginati
   }
   const all=buildRecoveryOverview(raw,{now,filters:{recovery:'PENDING'},limit:1,offset:1});assert.equal(all.items.length,1);assert.equal(all.total,4);
 });
+test('every Autopilot KPI shares the exact selector with its filtered queue',()=>{
+  const raw=[issue(),refusal(),issue({canonical_issue_id:'i3',chatby_sync_current:false}),issue({canonical_issue_id:'i4',status:'RESOLVED',is_active:false,resolution_status:'RETRY'})];
+  const overview=buildRecoveryOverview(raw,{now,filters:{scope:'ALL'},connectorHealth:[{connector:'dropea',freshness_status:'FRESH'}]});
+  assert.equal(overview.summary.autopilot.mode,'SIMULATION / SHADOW');
+  assert.equal(overview.summary.autopilot.connectors.length,1);
+  for(const kpi of overview.summary.autopilot.kpis){
+    const filtered=buildRecoveryOverview(raw,{now,filters:{scope:'ALL',autopilot:kpi.key},limit:1});
+    assert.equal(kpi.count,filtered.total);
+    assert.ok(filtered.items.every(item=>autopilotSelector(item,kpi.key)));
+  }
+  assert.equal(overview.summary.autopilot.actions.production_writes,0);
+});
 test('default and invalid scope show only current PENDING/active issues across all months; history requires explicit scope',()=>{
   const pending=issue({canonical_issue_id:'old-pending',created_at:'2026-05-01T10:00:00Z'});
   const inactive=issue({canonical_issue_id:'inactive',is_active:false});
@@ -122,10 +134,11 @@ test('verified silence uses exact phrase semantics; stale, missing notification 
     const e=project({...silent,...patch}).recovery.evidence;assert.equal(e.no_action_verified,false);assert.equal(e.display_status,'NOT_VERIFIABLE');
   }
 });
-test('ambiguous post-notification reply is real activity but never a business instruction or silence',()=>{
+test('ambiguous post-notification reply is visible but never counted as a valid customer action',()=>{
   const input=issue({absent_shadow:null,customer_evidence:{code:'UNKNOWN',title:'Cliente respondió',latest_message:'Tengo una duda',at:'2026-09-18T13:00:00Z',relation:'AFTER_NOTIFICATION'},latest_private_customer_message_type:'BUTTON'});
-  const row=project(input);assert.equal(recoverySelector(row,'CUSTOMER_ACTED'),true);
+  const row=project(input);assert.equal(recoverySelector(row,'CUSTOMER_ACTED'),false);
   assert.equal(row.recovery.evidence.message,'Tengo una duda');assert.equal(row.recovery.evidence.message_type,'BUTTON');
+  assert.equal(row.recovery.evidence.customer_interacted,true);
   assert.equal(row.recovery.evidence.valid_response,false);assert.equal(row.recovery.evidence.no_action_verified,false);
   assert.equal(recoverySelector(row,'RECOVERABLE_NOW'),false);assert.equal(recoverySelector(row,'WAITING_SULEIA'),false);
 });

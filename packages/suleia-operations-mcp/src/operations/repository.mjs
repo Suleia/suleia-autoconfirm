@@ -28,6 +28,12 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
+  autopilot.state AS autopilot_state,autopilot.mode AS autopilot_mode,
+  autopilot.policy_name AS autopilot_policy_name,autopilot.policy_version AS autopilot_policy_version,
+  autopilot.next_action AS autopilot_next_action,autopilot.reason AS autopilot_reason,
+  autopilot.waiting_for AS autopilot_waiting_for,autopilot.due_at AS autopilot_due_at,
+  autopilot.human_review AS autopilot_human_review,autopilot.error_code AS autopilot_error_code,
+  autopilot.action_status AS autopilot_action_status,autopilot.verification_status AS autopilot_verification_status,
   outcome.lifecycle_status AS recovery_order_state,outcome.delivered_at_utc AS recovery_delivered_at,
   outcome.returned_at_utc AS recovery_returned_at,
   private_order.external_order_id_ciphertext,private_order.shipping_address_ciphertext,
@@ -100,6 +106,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
   END AS operational_recommendation
  FROM read_models.operations_incident_evidence_context p
  LEFT JOIN read_models.operations_order_context outcome ON outcome.canonical_order_id=p.canonical_order_id
+ LEFT JOIN read_models.operations_incident_autopilot_current autopilot ON autopilot.canonical_issue_id=p.canonical_issue_id
  LEFT JOIN read_models.recipient_absent_shadow absent ON absent.canonical_issue_id=p.canonical_issue_id
    AND absent.canonical_order_id=p.canonical_order_id AND p.notification_decision_current
  LEFT JOIN read_models.operations_private_order_display private_order ON private_order.canonical_order_id=p.canonical_order_id
@@ -456,13 +463,18 @@ export class OperationsRepository {
     const values = month ? [month] : [];
     const where = month ? "WHERE to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM')=$1" : '';
     // One complete universe, no truncation. Pagination follows canonical filtering.
-    const [result,months] = await Promise.all([
+    const [result,months,health] = await Promise.all([
       this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}`,values),
       this.pool.query(`SELECT DISTINCT to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM') AS month
-        FROM read_models.operations_incident_records ORDER BY month DESC`)
+        FROM read_models.operations_incident_records ORDER BY month DESC`),
+      this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector')
     ]);
     const items=result.rows.map(row=>incidentInsight(privateIncidentDisplay(row,this.privateDataKey)));
-    return buildRecoveryOverview(items,{filters:Object.fromEntries(searchParams),limit,offset,availableMonths:months.rows.map(r=>r.month)});
+    const connectors=health.rows.map(row=>({...row,...evaluateSourceFreshness({source:row.connector,source_observed_at:row.checked_at,
+      ingested_at:row.checked_at,last_successful_sync_at:row.last_success_at,last_failure_at:row.last_failure_at,
+      sync_complete:row.pagination_complete})}));
+    return buildRecoveryOverview(items,{filters:Object.fromEntries(searchParams),limit,offset,
+      availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors});
   }
 
   async incidentDetail(id) {

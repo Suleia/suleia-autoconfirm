@@ -5,3 +5,7 @@ export * from './discount-workflow.mjs';
 export * from './incident-processor.mjs';
 export * from './conversation-intelligence.mjs';
 export * from './simulation-record.mjs';
+export * from './autopilot-policy.mjs';
+export * from './autopilot.mjs';
+export * from './autopilot-verification.mjs';
+export * from './autopilot-replay.mjs';

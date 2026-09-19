@@ -3,10 +3,11 @@
 ## Estado
 
 - La política está implementada y probada.
-- El envío automático permanece desactivado hasta la aprobación expresa del
-  propietario.
-- El endpoint privado de prueba solo permite un envío explícitamente
-  autorizado y usa el registro persistente anti-duplicados.
+- El envío automático gobernado de Render permanece activo con los permisos
+  ya autorizados. El nuevo Incident Autopilot solo lo observa en SHADOW y no
+  se convierte en un segundo emisor.
+- La fuente canónica de tiempos y ownership es
+  `autoconfirm/data/incident-policy.json`.
 
 ## Elegibilidad automática futura
 
@@ -15,7 +16,7 @@ Un pedido solo será elegible si se cumplen simultáneamente estas condiciones:
 1. La incidencia logística vigente indica que la mercancía no fue aceptada.
 2. Chatby confirma mediante un `wamid` que se entregó
    `dropea_incidencia_mercancia_v1`.
-3. Han transcurrido al menos cuatro horas desde ese envío verificado.
+3. Han transcurrido al menos 24 horas desde ese envío verificado.
 4. No existe ningún mensaje, botón ni otra interacción del cliente posterior.
 5. La conversación pertenece al pedido actual.
 6. No existe un envío previo de la plantilla de descuento para el mismo
@@ -41,6 +42,7 @@ La sección `Descuentos` del Command Center clasifica:
 - `NO_RESPONSE`: ninguna interacción posterior.
 - `OTHER_RESPONSE`: respuesta distinta que requiere revisión.
 
-El envío de la plantilla no aplica todavía el descuento ni modifica el pedido.
-Esa acción requiere una política operativa independiente y autorización
-explícita.
+El envío de la plantilla no aplica por sí solo el descuento. La aplicación y
+la devolución siguen en el automatismo de Render ya autorizado, con relectura
+de contexto e idempotencia. El Autopilot nuevo registra la decisión en sombra
+hasta que se autorice un cambio explícito de ownership.

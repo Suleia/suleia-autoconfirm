@@ -61,9 +61,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260918-current-incidents-v2">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260919-incident-autopilot-v1">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260918-current-incidents-v2" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260919-incident-autopilot-v1" defer><\/script>/);
   assert.doesNotMatch(html,/id="finance-daily-basis"/);
   assert.match(script,/monthlyReturnRateChart\(data\)/);
   assert.match(script,/daily-result-calendar/);
@@ -149,6 +149,7 @@ test('orders open on the pending dropshipper queue and expose Chatby intent', ()
 });
 
 test('incidents use current connector polls and distinguish a missing association from a connector error', () => {
+  const html = fs.readFileSync(new URL('./index.html', import.meta.url), 'utf8');
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
   assert.match(script, /recoveryEvidenceDetail/);
@@ -156,7 +157,7 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /Sin conversación asociada/);
   assert.match(script, /Sin respuesta válida/);
   assert.match(script, /Estado de acción externa/i);
-  assert.match(script, /Cliente \/ teléfono/);
+  assert.match(script, /'Cliente','Siguiente acción','Timer','Resultado','Prioridad'/);
   assert.match(script, /customer_phone/);
   assert.match(script, /e\.message/);
   assert.match(script, /Opción Dropea/);
@@ -164,8 +165,14 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /Por qué propongo esta acción/);
   assert.match(script, /Cuándo no debe aplicarse/);
   assert.match(script, /item\.direction === 'OUTBOUND' \? 'Suleia' : 'Cliente'/);
-  assert.match(script, /data\?\.kpis/);
-  assert.match(script, /selected_recovery|state\.filters\.recovery/);
+  assert.match(script, /data\?\.autopilot\?\.kpis/);
+  assert.match(script, /state\.filters\.autopilot/);
+  assert.match(html, /SULEIA INCIDENT AUTOPILOT/);
+  assert.match(html, /SIMULATION \/ SHADOW/);
+  assert.match(html, /id="autopilot-attention"/);
+  assert.match(html, /id="autopilot-health"/);
+  assert.match(script, /autopilotDetail/);
+  assert.match(script, /Ninguna acción realizada/);
   assert.match(script, /recoveryTimer/);
   assert.match(script, /discount_recovery/);
   assert.match(script, /Sólo se muestra “aceptado” o “no aceptado”/);

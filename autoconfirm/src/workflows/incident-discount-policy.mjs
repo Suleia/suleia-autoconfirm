@@ -1,5 +1,9 @@
-export const INCIDENT_DISCOUNT_DELAY_HOURS = 24;
-export const INCIDENT_DISCOUNT_MAX_EUR = 5;
+import {
+  INCIDENT_DISCOUNT_DELAY_HOURS,
+  INCIDENT_DISCOUNT_MAX_EUR
+} from '../policies/incident-policy.mjs';
+
+export { INCIDENT_DISCOUNT_DELAY_HOURS, INCIDENT_DISCOUNT_MAX_EUR };
 export const INCIDENT_MERCHANDISE_TEMPLATE = 'dropea_incidencia_mercancia_v1';
 export const INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME = 'es_ES dropea_incidencia_mercancia_v1';
 

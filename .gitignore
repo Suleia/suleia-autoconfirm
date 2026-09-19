@@ -6,6 +6,7 @@
 data/*.json
 !data/.gitkeep
 autoconfirm/data/*.json
+!autoconfirm/data/incident-policy.json
 !autoconfirm/data/.gitkeep
 backups/
 private-runtime/
