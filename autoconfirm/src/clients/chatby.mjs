@@ -40,11 +40,12 @@ const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
   'dropea_incidencia_mercancia_v1'
 ]);
 
-// Chatby already emits this incident template from its native Dropea app.
-// It must never have a second repository sender, even when the legacy global
+// Chatby already emits these incident templates from its native Dropea app.
+// They must never have a second repository sender, even when the legacy global
 // incident owner is still configured as `repository` for merchandise flows.
 const CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES = new Set([
-  'dropea_incidencia_ausente_v2'
+  'dropea_incidencia_ausente_v2',
+  'dropea_incidencia_mercancia_v1'
 ]);
 
 function templateSlug(value) {

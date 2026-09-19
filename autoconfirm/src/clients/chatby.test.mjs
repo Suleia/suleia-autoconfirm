@@ -161,7 +161,7 @@ test('reports the single lifecycle owner without exposing credentials', () => {
   }
 });
 
-test('incident sender ownership can be restored without changing prepared-order ownership', () => {
+test('legacy incident ownership cannot override Chatby-native incident templates', () => {
   const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
   const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
   try {
@@ -169,10 +169,11 @@ test('incident sender ownership can be restored without changing prepared-order 
     process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = 'repository';
     assert.equal(chatbyRepositoryOwnsIncidentTemplate(), true);
     assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_ausente_v2'), false);
-    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_mercancia_v1'), true);
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_mercancia_v1'), false);
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_direccion_v1'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_ausente_v2'), true);
-    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), false);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), true);
   } finally {
     if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
     else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
@@ -181,7 +182,7 @@ test('incident sender ownership can be restored without changing prepared-order 
   }
 });
 
-test('blocks the repository absent template sender without changing merchandise sends', async () => {
+test('blocks repository sends for native incident templates without changing other incident sends', async () => {
   const originalFetch = globalThis.fetch;
   const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
   const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
@@ -207,10 +208,20 @@ test('blocks the repository absent template sender without changing merchandise 
     );
     assert.equal(calls, 0);
 
+    await assert.rejects(
+      sendWhatsappTemplate({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_incidencia_mercancia_v1', lang: 'es_ES', params: {} }
+      }),
+      (error) => error?.code === 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER'
+    );
+    assert.equal(calls, 0);
+
     await sendWhatsappTemplate({
       user_ns: 'fixture-user',
       user_id: 'fixture-recipient',
-      content: { name: 'dropea_incidencia_mercancia_v1', lang: 'es_ES', params: {} }
+      content: { name: 'dropea_incidencia_direccion_v1', lang: 'es_ES', params: {} }
     });
     assert.equal(calls, 1);
   } finally {
