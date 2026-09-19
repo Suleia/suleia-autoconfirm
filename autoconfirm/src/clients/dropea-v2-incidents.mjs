@@ -84,10 +84,34 @@ export function loadDropeaV2IncidentStoreConfigs(env = process.env, { now = Date
 }
 
 function operation(name, params = {}) {
+  if (name === 'getIssue') {
+    const id = Number(params.id);
+    if (!Number.isInteger(id) || id < 1 || Object.keys(params).some(key => key !== 'id')) fail('DROPEA_V2_ISSUE_ID_INVALID');
+    return { path: `/dropshipper/issues/${encodeURIComponent(id)}`, paginated: false };
+  }
   if (name === 'listIssues') {
     const allowed = new Set(['page', 'limit', 'only_pending_to_resolve']);
     if (Object.keys(params).some((key) => !allowed.has(key))) fail('DROPEA_V2_PARAMETER_NOT_ALLOWED');
     return { path: '/dropshipper/issues', paginated: true };
+  }
+  if (name === 'listOrders') {
+    const allowed = new Set([
+      'page',
+      'limit',
+      'status',
+      'store_id',
+      'date_from',
+      'date_to',
+      'date_type',
+      'sort_by',
+      'sort_order',
+      'carrier',
+      'service_type',
+      'payment_method',
+      'external_order_id'
+    ]);
+    if (Object.keys(params).some((key) => !allowed.has(key))) fail('DROPEA_V2_PARAMETER_NOT_ALLOWED');
+    return { path: '/dropshipper/orders', paginated: true };
   }
   if (name === 'getOrder') {
     const id = Number(params.id);
@@ -99,11 +123,30 @@ function operation(name, params = {}) {
   return fail('DROPEA_V2_OPERATION_BLOCKED');
 }
 
+// Exact owned incidence, never absence from a pending list or a legacy order's
+// missing issues field. GET /issues/{id} is the official V2 read contract.
+export async function readDropeaV2ReturnIssueState(incident, {
+  env = process.env, configLoader = loadDropeaV2IncidentStoreConfigs,
+  clientFactory = createDropeaV2IncidentClient
+} = {}) {
+  const stores = configLoader(env);
+  if (stores.length !== 1) fail('DROPEA_V2_RETURN_STORE_AMBIGUOUS');
+  const store = stores[0];
+  const client = clientFactory({ token: store.token, market: store.market });
+  const payload = await client.request('getIssue', { id: Number(incident.incidenceId) });
+  const issue = payload?.data;
+  if (String(issue?.id || '') !== String(incident.incidenceId)
+      || String(issue?.order_id || '') !== String(incident.orderId)) fail('DROPEA_V2_RETURN_ISSUE_IDENTITY_MISMATCH');
+  return { issue: { ...issue, raw: issue }, order: { orderId: String(issue.order_id) } };
+}
+
 export function createDropeaV2IncidentClient({
   token,
   market,
   fetchImpl = globalThis.fetch,
-  timeoutMs = 15_000
+  timeoutMs = 15_000,
+  maxReadRetries = 6,
+  retryDelayMs = 1_000
 } = {}) {
   if (typeof fetchImpl !== 'function') fail('DROPEA_V2_FETCH_REQUIRED');
   const normalizedMarket = String(market || '').toUpperCase();
@@ -114,36 +157,48 @@ export function createDropeaV2IncidentClient({
   async function request(name, params = {}) {
     const definition = operation(name, params);
     const url = new URL(`https://${host}${definition.path}`);
-    if (name === 'listIssues') {
+    if (definition.paginated) {
       for (const [key, value] of Object.entries(params)) {
         if (value !== undefined && value !== null) url.searchParams.set(key, typeof value === 'boolean' ? String(value) : value);
       }
     }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = await fetchImpl(url, {
-        method: 'GET',
-        headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-        body: undefined,
-        redirect: 'error',
-        signal: controller.signal
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) fail(`DROPEA_V2_HTTP_${response.status}`);
-      if (!payload || payload.success !== true || typeof payload.message !== 'string' || !('data' in payload)) {
-        fail('DROPEA_V2_RESPONSE_SCHEMA_INVALID');
+    for (let attempt = 0; attempt <= maxReadRetries; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(url, {
+          method: 'GET',
+          headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+          body: undefined,
+          redirect: 'error',
+          signal: controller.signal
+        });
+        const payload = await response.json().catch(() => null);
+        const retryable = response.status === 429 || [502, 503, 504].includes(response.status);
+        if (!response.ok && retryable && attempt < maxReadRetries) {
+          const retryAfterSeconds = Number(response.headers?.get?.('retry-after'));
+          const backoff = Number.isFinite(retryAfterSeconds) && retryAfterSeconds >= 0
+            ? retryAfterSeconds * 1_000
+            : retryDelayMs * (2 ** attempt);
+          await new Promise((resolve) => setTimeout(resolve, Math.min(30_000, Math.max(0, backoff))));
+          continue;
+        }
+        if (!response.ok) fail(`DROPEA_V2_HTTP_${response.status}`);
+        if (!payload || payload.success !== true || typeof payload.message !== 'string' || !('data' in payload)) {
+          fail('DROPEA_V2_RESPONSE_SCHEMA_INVALID');
+        }
+        if (definition.paginated && (!Array.isArray(payload.data?.items) || !payload.data?.pagination)) {
+          fail('DROPEA_V2_PAGINATION_SCHEMA_INVALID');
+        }
+        return payload;
+      } finally {
+        clearTimeout(timer);
       }
-      if (definition.paginated && (!Array.isArray(payload.data?.items) || !payload.data?.pagination)) {
-        fail('DROPEA_V2_PAGINATION_SCHEMA_INVALID');
-      }
-      return payload;
-    } finally {
-      clearTimeout(timer);
     }
+    return fail('DROPEA_V2_RETRY_EXHAUSTED');
   }
 
-  async function listAll(name, params = {}, { maxPages = 30, maxRecords = 3_000, requestedLimit = 100 } = {}) {
+  async function listAll(name, params = {}, { maxPages = 30, maxRecords = 3_000, requestedLimit = 100, itemFilter = null } = {}) {
     const items = [];
     const seen = new Set();
     const fingerprints = new Set();
@@ -157,7 +212,7 @@ export function createDropeaV2IncidentClient({
       for (const item of pageItems) {
         if (item?.id === undefined || item.id === null) fail('DROPEA_V2_ITEM_ID_MISSING');
         const key = String(item.id);
-        if (!seen.has(key)) {
+        if (!seen.has(key) && (!itemFilter || itemFilter(item))) {
           seen.add(key);
           items.push(item);
         }
@@ -269,8 +324,9 @@ export function normalizeDropeaV2Incident(issue = {}, order = {}, { market = 'ES
   };
 }
 
-function pendingActiveIssue(issue) {
-  return String(issue?.status || '').toUpperCase() === 'PENDING' && issue?.is_active === true;
+function activeResolvableIssue(issue) {
+  const status = String(issue?.status || '').toUpperCase();
+  return ['PENDING', 'MANAGING_WITH_CLIENT'].includes(status) && issue?.is_active === true;
 }
 
 export async function collectPendingDropeaV2Incidents({
@@ -298,7 +354,7 @@ export async function collectPendingDropeaV2Incidents({
       pagePauseMs: 0
     });
     for (const issue of result.items || []) {
-      if (!pendingActiveIssue(issue)) continue;
+      if (!activeResolvableIssue(issue)) continue;
       if (issue.id === undefined || issue.id === null) throw new Error('DROPEA_V2_ISSUE_ID_MISSING');
       if (issue.order_id === undefined || issue.order_id === null) throw new Error('DROPEA_V2_ISSUE_ORDER_ID_MISSING');
       const issueKey = `${client.market}:${issue.id}`;

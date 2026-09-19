@@ -2,16 +2,158 @@ import { getAppConfig } from '../config.mjs';
 
 const config = getAppConfig();
 
-const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 120000));
-const requestMinIntervalMs = Math.max(0, Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || 100));
+const subscriberIndexCacheMs = Math.max(1000, Number(process.env.CHATBY_SUBSCRIBER_CACHE_MS || 600000));
+export const CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS = 3500;
+export const CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS = 60_000;
+export const CHATBY_DEFAULT_ADAPTIVE_MAX_INTERVAL_MS = 15_000;
+const requestMinIntervalMs = Math.max(
+  0,
+  Number(process.env.CHATBY_REQUEST_MIN_INTERVAL_MS || CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS)
+);
+const rateLimitCooldownMs = Math.max(
+  5000,
+  Number(process.env.CHATBY_RATE_LIMIT_COOLDOWN_MS || CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS)
+);
+const adaptiveMaxIntervalMs = Math.max(
+  requestMinIntervalMs,
+  Number(process.env.CHATBY_ADAPTIVE_MAX_INTERVAL_MS || CHATBY_DEFAULT_ADAPTIVE_MAX_INTERVAL_MS)
+);
+const readRetryBaseMs = Math.max(0, Number(process.env.CHATBY_READ_RETRY_BASE_MS || 500));
 let subscriberIndexCache = null;
 let subscriberIndexInFlight = null;
 let requestQueue = Promise.resolve();
 let nextRequestAt = 0;
 let rateLimitedUntil = 0;
+let adaptiveRequestMinIntervalMs = requestMinIntervalMs;
+let successfulRequestsSinceRateLimit = 0;
+
+// Read-only metadata for the incident scheduler. Never bypass the shared
+// provider cooldown or change the behaviour of another messaging lane.
+export function getChatbyRetryAfterMs() {
+  return Math.max(0, rateLimitedUntil - Date.now());
+}
+
+const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
+  'dropea_pedido_nuevo_v1',
+  'dropea_pedido_preparado_v1',
+  'dropea_incidencia_ausente_v2',
+  'dropea_incidencia_mercancia_v1'
+]);
+
+// Chatby already emits these incident templates from its native Dropea app.
+// They must never have a second repository sender, even when the legacy global
+// incident owner is still configured as `repository` for merchandise flows.
+const CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES = new Set([
+  'dropea_incidencia_ausente_v2',
+  'dropea_incidencia_mercancia_v1'
+]);
+
+function templateSlug(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/^[a-z]{2}_[a-z]{2}\s+/, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+export function chatbyLifecycleTemplateOwner() {
+  return String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository')
+    .trim()
+    .toLowerCase();
+}
+
+function chatbyLifecycleTemplateOwnerFor(templateName) {
+  const slug = templateSlug(templateName);
+  if (CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES.has(slug)) return 'chatby_native';
+  if (slug === 'dropea_incidencia_mercancia_v1') {
+    return String(process.env.CHATBY_INCIDENT_TEMPLATE_OWNER || chatbyLifecycleTemplateOwner())
+      .trim()
+      .toLowerCase();
+  }
+  return chatbyLifecycleTemplateOwner();
+}
+
+export function chatbyNativeOwnsLifecycleTemplate(templateName) {
+  return chatbyLifecycleTemplateOwnerFor(templateName) === 'chatby_native'
+    && CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(templateName));
+}
+
+export function chatbyRepositoryOwnsIncidentTemplate(templateName = '') {
+  if (CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES.has(templateSlug(templateName))) return false;
+  return String(process.env.CHATBY_INCIDENT_TEMPLATE_OWNER || '').trim().toLowerCase() === 'repository';
+}
+
+function nativeLifecycleOwnershipError() {
+  const error = new Error('Lifecycle template blocked: Chatby native automation is the configured single sender.');
+  error.code = 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER';
+  return error;
+}
+
+function assertRepositoryOwnsTemplate(payload) {
+  const name = payload?.template_name
+    || payload?.templateName
+    || payload?.content?.name
+    || payload?.content?.template_name;
+  const owner = chatbyLifecycleTemplateOwnerFor(name);
+  if (owner !== 'chatby_native' || !CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(name))) return;
+
+  throw nativeLifecycleOwnershipError();
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function readRetryDelay(attempt) {
+  return Math.min(5000, readRetryBaseMs * (2 ** Math.max(0, attempt - 1)));
+}
+
+function retryableReadStatus(status) {
+  return status === 429 || [500, 502, 503, 504].includes(status);
+}
+
+export function chatbyRateLimitBackoffMs(retryAfterSeconds, attempt = 1) {
+  const retryAfter = Number(retryAfterSeconds);
+  return Number.isFinite(retryAfter) && retryAfter > 0
+    ? retryAfter * 1000
+    : rateLimitCooldownMs;
+}
+
+export function chatbyResponseBackoffMs(headers, now = Date.now()) {
+  const retry = headers?.get?.('retry-after');
+  const seconds = retry === null || retry === undefined ? NaN : Number(retry);
+  const date = Number.isFinite(seconds) ? NaN : Date.parse(String(retry || ''));
+  let delay = Number.isFinite(seconds) && seconds > 0 ? seconds * 1000
+    : Number.isFinite(date) && date > now ? date - now : 0;
+  const remaining = headers?.get?.('x-ratelimit-remaining') ?? headers?.get?.('ratelimit-remaining');
+  if (remaining !== null && remaining !== undefined && Number(remaining) === 0) {
+    const rawReset = headers?.get?.('x-ratelimit-reset') ?? headers?.get?.('ratelimit-reset');
+    const reset = rawReset === null || rawReset === undefined ? NaN : Number(rawReset);
+    const resetDelay = Number.isFinite(reset) ? (reset > 1e12 ? reset - now : reset > 1e9 ? reset * 1000 - now : reset * 1000) : Date.parse(String(rawReset || '')) - now;
+    if (Number.isFinite(resetDelay) && resetDelay > 0) delay = Math.max(delay, resetDelay);
+  }
+  return delay > 0 ? delay : rateLimitCooldownMs;
+}
+
+function recordRateLimit() {
+  successfulRequestsSinceRateLimit = 0;
+  adaptiveRequestMinIntervalMs = Math.min(
+    adaptiveMaxIntervalMs,
+    Math.max(5000, adaptiveRequestMinIntervalMs * 2)
+  );
+}
+
+function recordSuccessfulRequest() {
+  if (adaptiveRequestMinIntervalMs <= requestMinIntervalMs) return;
+  successfulRequestsSinceRateLimit += 1;
+  if (successfulRequestsSinceRateLimit < 20) return;
+  successfulRequestsSinceRateLimit = 0;
+  adaptiveRequestMinIntervalMs = Math.max(
+    requestMinIntervalMs,
+    Math.floor(adaptiveRequestMinIntervalMs * 0.8)
+  );
 }
 
 async function scheduleRequest(task) {
@@ -22,13 +164,19 @@ async function scheduleRequest(task) {
   });
 
   await previous.catch(() => {});
-  const waitMs = Math.max(0, nextRequestAt - Date.now(), rateLimitedUntil - Date.now());
-  if (waitMs) await sleep(waitMs);
-
   try {
+    const rateLimitWaitMs = Math.max(0, rateLimitedUntil - Date.now());
+    if (rateLimitWaitMs > 0) {
+      const error = new Error(`Chatby rate limited; retry after ${Math.ceil(rateLimitWaitMs / 1000)} seconds.`);
+      error.code = 'CHATBY_RATE_LIMITED';
+      error.retryAfterMs = rateLimitWaitMs;
+      throw error;
+    }
+    const requestWaitMs = Math.max(0, nextRequestAt - Date.now());
+    if (requestWaitMs) await sleep(requestWaitMs);
     return await task();
   } finally {
-    nextRequestAt = Date.now() + requestMinIntervalMs;
+    nextRequestAt = Date.now() + adaptiveRequestMinIntervalMs;
     release();
   }
 }
@@ -38,37 +186,48 @@ async function request(path, options = {}) {
   const {
     maxAttempts: configuredAttempts,
     timeoutMs: configuredTimeout = 20000,
+    retrySafe = false,
     signal: providedSignal,
     ...requestOptions
   } = options;
   const method = String(requestOptions.method || 'GET').toUpperCase();
   const methodIsReadOnly = method === 'GET' || method === 'HEAD';
-  const maxAttempts = Math.max(1, Number(configuredAttempts ?? (methodIsReadOnly ? 3 : 1)));
+  const canRetry = methodIsReadOnly || retrySafe === true;
+  const maxAttempts = Math.max(1, Number(configuredAttempts ?? (canRetry ? 3 : 1)));
   const timeoutMs = Math.max(1000, Number(configuredTimeout || 20000));
   let response;
   let text = '';
   let data = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const controller = providedSignal ? null : new AbortController();
-    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
     try {
-      response = await scheduleRequest(() => fetch(`${config.chatbyBaseUrl}${path}`, {
-        ...requestOptions,
-        signal: providedSignal || controller.signal,
-        headers: {
-          Authorization: `Bearer ${config.chatbyToken}`,
-          'Content-Type': 'application/json',
-          ...(requestOptions.headers || {})
+      response = await scheduleRequest(async () => {
+        const controller = providedSignal ? null : new AbortController();
+        const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+        try {
+          return await fetch(`${config.chatbyBaseUrl}${path}`, {
+            ...requestOptions,
+            signal: providedSignal || controller.signal,
+            headers: {
+              Authorization: `Bearer ${config.chatbyToken}`,
+              'Content-Type': 'application/json',
+              ...(requestOptions.headers || {})
+            }
+          });
+        } finally {
+          if (timeout) clearTimeout(timeout);
         }
-      }));
+      });
     } catch (error) {
+      if (error?.code === 'CHATBY_RATE_LIMITED') throw error;
+      if (canRetry && !providedSignal && attempt < maxAttempts) {
+        await sleep(readRetryDelay(attempt));
+        continue;
+      }
       if (error?.name === 'AbortError') {
         throw new Error(`Chatby no respondio en ${timeoutMs} ms para ${path}.`);
       }
       throw error;
-    } finally {
-      if (timeout) clearTimeout(timeout);
     }
 
     text = await response.text();
@@ -78,17 +237,25 @@ async function request(path, options = {}) {
       data = text;
     }
 
-    if (response.status !== 429 || attempt === maxAttempts) break;
-    const retryAfter = Number(response.headers.get('retry-after'));
-    const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0
-      ? retryAfter * 1000
-      : Math.min(30000, 2500 * (2 ** (attempt - 1)));
-    rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
+    const backoffMs = response.status === 429
+      ? chatbyResponseBackoffMs(response.headers)
+      : readRetryDelay(attempt);
+    if (response.status === 429) {
+      recordRateLimit();
+      rateLimitedUntil = Math.max(rateLimitedUntil, Date.now() + backoffMs);
+    } else if (response.ok) {
+      recordSuccessfulRequest();
+    }
+    if (!canRetry || !retryableReadStatus(response.status) || attempt === maxAttempts) break;
+    if (response.status === 429 && backoffMs > 5000) break;
     await sleep(backoffMs);
   }
 
   if (!response.ok) {
-    throw new Error(`Chatby respondió ${response.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+    const error = new Error(`Chatby respondió ${response.status}: ${typeof data === 'string' ? data : JSON.stringify(data)}`);
+    error.status = response.status;
+    if (response.status === 429) { error.code = 'CHATBY_RATE_LIMITED'; error.retryAfterMs = getChatbyRetryAfterMs(); }
+    throw error;
   }
   assertNoChatbyError(data);
   return data;
@@ -118,6 +285,82 @@ export async function createSubscriber(payload) {
 }
 
 export async function sendWhatsappTemplate(payload) {
+  assertRepositoryOwnsTemplate(payload);
+  if (!payload.content) {
+    payload = await buildWhatsappTemplatePayload(payload);
+  }
+  assertRepositoryOwnsTemplate(payload);
+
+  return request('/subscriber/send-whatsapp-template', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function sendPreparedTemplateRecovery(payload, {
+  verifiedMissingAt
+} = {}) {
+  const name = payload?.template_name
+    || payload?.templateName
+    || payload?.content?.name
+    || payload?.content?.template_name;
+  if (templateSlug(name) !== 'dropea_pedido_preparado_v1') {
+    const error = new Error('Prepared-template recovery is restricted to dropea_pedido_preparado_v1.');
+    error.code = 'CHATBY_PREPARED_RECOVERY_TEMPLATE_BLOCKED';
+    throw error;
+  }
+
+  // Chatby-native and repository recovery cannot both own the same lifecycle
+  // delivery. A delayed native message is not safe to distinguish from a
+  // missing one, so the repository must fail closed while native owns it.
+  if (chatbyNativeOwnsLifecycleTemplate(name)) {
+    throw nativeLifecycleOwnershipError();
+  }
+
+  const verifiedAtMs = new Date(verifiedMissingAt || 0).getTime();
+  if (!Number.isFinite(verifiedAtMs) || Math.abs(Date.now() - verifiedAtMs) > 60_000) {
+    const error = new Error('Prepared-template recovery requires a current exact-thread verification.');
+    error.code = 'CHATBY_PREPARED_RECOVERY_VERIFICATION_REQUIRED';
+    throw error;
+  }
+
+  if (!payload.content) {
+    payload = await buildWhatsappTemplatePayload(payload);
+  }
+
+  return request('/subscriber/send-whatsapp-template', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+export async function sendInitialTemplateRecovery(payload, {
+  verifiedMissingAt
+} = {}) {
+  const name = payload?.template_name
+    || payload?.templateName
+    || payload?.content?.name
+    || payload?.content?.template_name;
+  if (templateSlug(name) !== 'dropea_pedido_nuevo_v1') {
+    const error = new Error('Initial-template recovery is restricted to dropea_pedido_nuevo_v1.');
+    error.code = 'CHATBY_INITIAL_RECOVERY_TEMPLATE_BLOCKED';
+    throw error;
+  }
+
+  // There must be exactly one sender for lifecycle templates. When Chatby
+  // native owns the initial-order template, a repository-side recovery can
+  // race with a delayed/native delivery and create a duplicate WhatsApp.
+  if (chatbyNativeOwnsLifecycleTemplate(name)) {
+    throw nativeLifecycleOwnershipError();
+  }
+
+  const verifiedAtMs = new Date(verifiedMissingAt || 0).getTime();
+  if (!Number.isFinite(verifiedAtMs) || Math.abs(Date.now() - verifiedAtMs) > 60_000) {
+    const error = new Error('Initial-template recovery requires a current exact-thread verification.');
+    error.code = 'CHATBY_INITIAL_RECOVERY_VERIFICATION_REQUIRED';
+    throw error;
+  }
+
   if (!payload.content) {
     payload = await buildWhatsappTemplatePayload(payload);
   }
@@ -206,11 +449,12 @@ export async function clearSubscriberOrderConfirmationState(userNs) {
   return { ok: true, results };
 }
 
-export async function listWhatsappTemplates() {
+export async function listWhatsappTemplates({ page = 1, limit = 200 } = {}) {
   const response = await request('/whatsapp-template/list', {
     method: 'POST',
-    body: JSON.stringify({ page: 1, limit: 200 }),
+    body: JSON.stringify({ page, limit }),
     // This POST is a read-only listing operation and is safe to retry.
+    retrySafe: true,
     maxAttempts: 3
   });
   return response?.data ?? response;
@@ -221,7 +465,8 @@ export async function checkChatbyConnection() {
     method: 'POST',
     body: JSON.stringify({ page: 1, limit: 1 }),
     // This POST is a read-only health query and is safe to retry.
-    maxAttempts: 2,
+    retrySafe: true,
+    maxAttempts: 1,
     timeoutMs: 10000
   });
   const rows = response?.data ?? response;
@@ -341,6 +586,13 @@ export async function loadSubscriberIndex({ maxPages = 20, limit = 100, force = 
   }
 }
 
+export async function findSubscribersByPhone({ phone, maxPages = 20, limit = 100 } = {}) {
+  const phoneKey = digits(phone).slice(-9);
+  if (!phoneKey) return [];
+  const index = await loadSubscriberIndex({ maxPages, limit });
+  return [...(index.byPhone.get(phoneKey) || [])];
+}
+
 function digits(value) {
   return String(value || '').replace(/\D/g, '');
 }
@@ -361,17 +613,34 @@ function fieldValue(subscriber, fieldName) {
 function dropeaOrderFieldValue(subscriber) {
   const field = (subscriber.user_fields || []).find((item) => {
     const name = normalizeText(item.name);
-    return name.includes('dropea')
-      && (
+    const compactName = name.replace(/[^a-z0-9]+/g, '');
+    const explicitOrderField = compactName === 'pedido' || compactName === 'idpedido';
+    return explicitOrderField || (
+      name.includes('dropea') && (
         name.includes('numero')
         || name.includes('n mero')
         || name.includes('nã')
         || name.includes('num')
         || name.includes('order')
         || name.includes('pedido')
-      );
+      )
+    );
   });
   return field?.value ?? null;
+}
+
+function canonicalDropeaOrderId(value) {
+  const source = String(value || '').trim();
+  if (!source) return '';
+  const compact = source.replace(/[\s#_-]+/g, '').toUpperCase();
+  const numeric = compact.match(/^(?:ES)?(\d+)$/);
+  return numeric ? numeric[1] : compact;
+}
+
+function sameDropeaOrderId(left, right) {
+  const leftId = canonicalDropeaOrderId(left);
+  const rightId = canonicalDropeaOrderId(right);
+  return Boolean(leftId && rightId && leftId === rightId);
 }
 
 function subscriberContainsOrderId(subscriber, orderId) {
@@ -397,7 +666,7 @@ export function findSubscriberInIndexForOrder(index, { phone, orderId, allowConf
   const samePhoneSubscribers = phoneKey ? (index?.byPhone?.get(phoneKey) || []) : [];
 
   for (const subscriber of samePhoneSubscribers) {
-    if (String(dropeaOrderFieldValue(subscriber) || '') === String(orderId)) return subscriber;
+    if (sameDropeaOrderId(dropeaOrderFieldValue(subscriber), orderId)) return subscriber;
     if (subscriberContainsOrderId(subscriber, orderId)) return withSyntheticOrderField(subscriber, orderId);
   }
 
@@ -406,6 +675,16 @@ export function findSubscriberInIndexForOrder(index, { phone, orderId, allowConf
     : [];
   if (confirmedSamePhone.length === 1) return withSyntheticOrderField(confirmedSamePhone[0], orderId);
   return null;
+}
+
+export function findSubscriberInIndexForExactOrder(index, { phone, orderId } = {}) {
+  const phoneKey = digits(phone).slice(-9);
+  const targetOrder = canonicalDropeaOrderId(orderId);
+  if (!phoneKey || !targetOrder) return null;
+  const samePhoneSubscribers = index?.byPhone?.get(phoneKey) || [];
+  return samePhoneSubscribers.find((subscriber) => (
+    sameDropeaOrderId(dropeaOrderFieldValue(subscriber), targetOrder)
+  )) || null;
 }
 
 export function findSubscriberInIndexByPhone(index, { phone } = {}) {
@@ -450,9 +729,14 @@ export function subscriberConfirmsOrder(subscriber) {
     || Boolean(confirmedAt);
 }
 
-export async function findSubscriberForOrderRobust({ phone, orderId, maxPages = 10 } = {}) {
+export async function findSubscriberForOrderRobust({
+  phone,
+  orderId,
+  maxPages = 10,
+  allowConfirmedPhoneFallback = true
+} = {}) {
   const index = await loadSubscriberIndex({ maxPages, limit: 100 });
-  return findSubscriberInIndexForOrder(index, { phone, orderId });
+  return findSubscriberInIndexForOrder(index, { phone, orderId, allowConfirmedPhoneFallback });
 }
 
 export async function findSubscriberByPhone({ phone, maxPages = 20 } = {}) {

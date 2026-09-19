@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { subscriberConfirmationIsCurrent } from '../src/workflows/orders.mjs';
+import {
+  currentConfirmationSupersedesIntent,
+  subscriberConfirmationIsCurrent,
+  workflowStatusForPolledOrder
+} from '../src/workflows/orders.mjs';
 
 function subscriber(confirmedAt) {
   return {
@@ -50,4 +54,49 @@ test('accepts a current inbound confirmation even if the subscriber field is sta
     ),
     true
   );
+});
+
+test('a still-pending Dropea order leaves stale manual review and is reevaluated', () => {
+  assert.equal(
+    workflowStatusForPolledOrder({ status: 'MANUAL_REVIEW' }, 'PENDING'),
+    'PENDING'
+  );
+});
+
+test('address correction and terminal safety states remain blocked', () => {
+  assert.equal(
+    workflowStatusForPolledOrder({ status: 'PENDING_ADDRESS_CHANGE' }, 'PENDING'),
+    'PENDING_ADDRESS_CHANGE'
+  );
+  assert.equal(
+    workflowStatusForPolledOrder({ status: 'REJECTED_BLOCKED_CUSTOMER' }, 'PENDING'),
+    'REJECTED_BLOCKED_CUSTOMER'
+  );
+});
+
+test('a later exact-order Chatby confirmation supersedes an earlier rejection', () => {
+  assert.equal(currentConfirmationSupersedesIntent({
+    subscriber: subscriber('2026-07-23T20:10:00.000Z'),
+    order,
+    intent: { intent: 'CANCEL', occurred_at: '2026-07-23T20:00:00.000Z' }
+  }), true);
+});
+
+test('an earlier or different-order confirmation never supersedes a rejection', () => {
+  assert.equal(currentConfirmationSupersedesIntent({
+    subscriber: subscriber('2026-07-23T19:59:00.000Z'),
+    order,
+    intent: { intent: 'CANCEL', occurred_at: '2026-07-23T20:00:00.000Z' }
+  }), false);
+  assert.equal(currentConfirmationSupersedesIntent({
+    subscriber: {
+      ...subscriber('2026-07-23T20:10:00.000Z'),
+      user_fields: [
+        { name: 'Dropea: Numero', value: 'another-order' },
+        { name: 'P. Confirmado', value: '2026-07-23T20:10:00.000Z' }
+      ]
+    },
+    order,
+    intent: { intent: 'CANCEL', occurred_at: '2026-07-23T20:00:00.000Z' }
+  }), false);
 });

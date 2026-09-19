@@ -11,7 +11,13 @@ import { chatWithOperationsAgent } from './clients/openai.mjs';
 import { appendAgentMemoryRule, getAgentMemoryRules, getSheetRows, upsertSimulationDecision } from './clients/sheets.mjs';
 import { loadIncidentsCache } from './workflows/incidents.mjs';
 import { loadOperationalOrdersCache } from './workflows/operational-orders.mjs';
-import { syncAgentChatToSupabase, syncAgentFeedbackToSupabase, syncAgentMemoryRuleToSupabase } from './db/supabase-store.mjs';
+import {
+  listTemplateDeliveries,
+  syncAgentChatToSupabase,
+  syncAgentFeedbackToSupabase,
+  syncAgentMemoryRuleToSupabase
+} from './db/supabase-store.mjs';
+import { classifyIncidentDiscountResponse } from './workflows/incident-discount-policy.mjs';
 
 const config = getAppConfig();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -37,6 +43,65 @@ function normalize(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .trim();
+}
+
+function safeObject(value) {
+  if (!value) return {};
+  if (typeof value === 'object') return value;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isDiscountTemplate(value) {
+  return normalize(value).replace(/[^a-z0-9]+/g, '_').includes('dropea_incidencia_descuento_5');
+}
+
+async function buildIncidentDiscountRows(orders = []) {
+  let ledgerRows = [];
+  try {
+    ledgerRows = (await listTemplateDeliveries({ limit: 200 }))
+      .filter((row) => isDiscountTemplate(row.template_name))
+      .slice(0, 50);
+  } catch {
+    return [];
+  }
+
+  const byOrderId = new Map((Array.isArray(orders) ? orders : []).map((order) => [String(order.orderId), order]));
+  const rows = [];
+  for (const ledger of ledgerRows) {
+    const order = byOrderId.get(String(ledger.order_id)) || {};
+    const raw = safeObject(ledger.raw);
+    let response = { status: String(ledger.status || '').toUpperCase() || 'UNKNOWN', respondedAt: null };
+    if (ledger.chatby_user_ns && ['sent', 'already_seen'].includes(String(ledger.status || '').toLowerCase())) {
+      try {
+        response = classifyIncidentDiscountResponse(
+          await getChatMessages(ledger.chatby_user_ns),
+          ledger.template_name
+        );
+      } catch {
+        response = { status: 'STATUS_UNAVAILABLE', respondedAt: null };
+      }
+    }
+    const phone = String(order.phone || ledger.customer_phone || '').replace(/\D/g, '');
+    rows.push({
+      orderId: String(ledger.order_id || ''),
+      customer: order.customer || (phone ? `Cliente ***${phone.slice(-3)}` : 'Cliente'),
+      product: order.product || 'Producto',
+      originalAmount: raw.originalAmount || order.amount || null,
+      finalAmount: raw.finalAmount || (Number.isFinite(Number(order.amount)) ? Math.max(0, Number(order.amount) - 5) : null),
+      discountAmount: 5,
+      sentAt: ledger.sent_at || ledger.attempted_at || null,
+      deliveryStatus: String(ledger.status || '').toUpperCase(),
+      responseStatus: response.status,
+      respondedAt: response.respondedAt,
+      mode: raw.mode || 'AUTOMATION'
+    });
+  }
+  return rows;
 }
 
 function numberFrom(value) {
@@ -536,13 +601,23 @@ function agentCustomerSignal(order) {
     order.feedbackNote
   ].filter(Boolean).join(' '));
 
-  if (text.includes('would_cancel_unanswered') || text.includes('would_reject_unanswered') || text.includes('cancel_unanswered_timeout') || text.includes('reject_unanswered_timeout') || text.includes('36h') || text.includes('sin confirmacion ni cambio de direccion')) {
+  if (text.includes('would_cancel_unanswered') || text.includes('would_reject_unanswered') || text.includes('cancel_unanswered_timeout') || text.includes('reject_unanswered_timeout') || text.includes('36h') || text.includes('48h') || text.includes('sin confirmacion ni cambio de direccion')) {
     return {
       code: 'unanswered_timeout',
-      label: 'Sin respuesta 36h',
+      label: 'Sin respuesta 48h',
       detail: 'No hay confirmacion ni cambio de direccion tras el plazo operativo.',
       confidence: 100,
       tone: 'danger'
+    };
+  }
+
+  if (text.includes('no_response') || text.includes('wait_customer') || text.includes('sin respuesta del cliente')) {
+    return {
+      code: 'no_response',
+      label: 'Sin respuesta del cliente',
+      detail: 'No hay mensajes entrantes ni botones pulsados por el cliente.',
+      confidence: Number(order.agentConfidence) || 25,
+      tone: 'neutral'
     };
   }
 
@@ -651,8 +726,8 @@ function agentRecommendation(order) {
     return {
       code: 'reject_timeout',
       label: 'Rechazar en Dropea',
-      nextStep: 'Si no hay confirmacion ni cambio de direccion tras 36h, ejecutar rechazo/cancelacion en Dropea.',
-      explanation: 'No hay confirmacion ni cambio de direccion despues de 36 horas. La regla operativa indica rechazar el pedido.',
+      nextStep: 'Si no hay confirmacion ni cambio de direccion tras 48h, ejecutar rechazo/cancelacion en Dropea.',
+      explanation: 'No hay confirmacion ni cambio de direccion despues de 48 horas. La regla operativa indica rechazar el pedido.',
       tone: 'danger',
       confidence: 100
     };
@@ -734,7 +809,7 @@ function realActionForOrder(order) {
     return { label: 'Rechazado tras cancelar', tone: 'danger', detail: 'Cliente cancelo durante la espera de 1h' };
   }
   if (status.includes('rejected_unanswered') || intent.includes('reject_unanswered_timeout') || action.includes('rejected_unanswered_timeout')) {
-    return { label: 'Rechazado 36h sin respuesta', tone: 'danger', detail: 'Cancelacion ejecutada por silencio operativo' };
+    return { label: 'Rechazado 48h sin respuesta', tone: 'danger', detail: 'Cancelacion ejecutada por silencio operativo' };
   }
   if (intent.includes('confirm_delay_pending') || status.includes('confirm_delay')) {
     return { label: 'Programado', tone: 'warning', detail: order.confirmationDueAt ? `Confirmar desde ${order.confirmationDueAt}` : 'Esperando ventana de seguridad' };
@@ -825,9 +900,9 @@ function uniqueLessons(...groups) {
 function systemAgentMemoryRules() {
   return [
     {
-      id: 'system_unanswered_cancel_36h',
+      id: 'system_unanswered_cancel_48h',
       type: 'unanswered_timeout_cancel',
-      text: 'Si un pedido de Dropea permanece 36 horas sin confirmacion clara del cliente y sin solicitud de cambio de direccion/datos, el agente debe rechazarlo/cancelarlo automaticamente en Dropea. La accion operativa equivale a seleccionar el pedido, pulsar Cancelar y aceptar, ejecutada por API.',
+      text: 'Si un pedido de Dropea permanece 48 horas sin confirmacion clara del cliente y sin solicitud de cambio de direccion/datos, el agente debe rechazarlo/cancelarlo automaticamente en Dropea. La accion operativa equivale a seleccionar el pedido, pulsar Cancelar y aceptar, ejecutada por API.',
       source: 'system_rule',
       createdAt: '2026-06-23T00:00:00.000Z'
     }
@@ -836,11 +911,11 @@ function systemAgentMemoryRules() {
 
 function defaultFinanceSettings() {
   return {
-    dropeaProfit: numberFrom(process.env.DROPEA_DASHBOARD_PROFIT) ?? 448.19,
+    dropeaProfit: numberFrom(process.env.DROPEA_DASHBOARD_PROFIT),
     dropshipperId: process.env.DROPEA_DROPSHIPPER_ID || '17431',
-    source: process.env.DROPEA_DASHBOARD_PROFIT ? 'env_dropea_dashboard_profit' : 'manual_dropea_dashboard',
+    source: process.env.DROPEA_DASHBOARD_PROFIT ? 'env_dropea_dashboard_profit' : 'not_available',
     updatedAt: new Date().toISOString(),
-    note: 'Beneficio neto indicado por Dropea, ya descontando transporte y stock.'
+    note: 'Campo heredado. El panel financiero conciliado no lo usa como beneficio real.'
   };
 }
 
@@ -1043,32 +1118,29 @@ function buildCampaignAnalytics(campaignRows) {
 function calculateFinance({ orders, campaignRows, metaRows, financeSettings }) {
   const recognizedOrders = orders.filter(isRecognizedSale);
   const revenue = recognizedOrders.reduce((sum, order) => sum + (Number(order.amount) || 0), 0);
-  const productCost = recognizedOrders.reduce((sum, order) => sum + productCostForOrder(order), 0);
-  const paymentFees = recognizedOrders.reduce((sum, order) => sum + paymentCostForOrder(order), 0);
   const campaignSpend = campaignRows.reduce((sum, row) => sum + normalizeCampaignRow(row).spend, 0);
   const spendRow = metaRows.find((row) => normalize(row.Metrica) === 'gasto meta');
   const metaSpend = campaignSpend || numberFrom(spendRow?.Valor) || 0;
   const dropeaProfit = numberFrom(financeSettings?.dropeaProfit);
-  const businessProfit = dropeaProfit !== null ? dropeaProfit - metaSpend : revenue - productCost - paymentFees - metaSpend;
   const attributedOrders = campaignRows.reduce((sum, row) => sum + (numberFrom(row.pedidos_dropea_atribuidos) || 0), 0);
   const warnings = [
-    'El beneficio principal usa el beneficio neto marcado por Dropea y resta Meta.',
+    'Las cifras heredadas del dashboard no se presentan como beneficio real. Usa Panel de resultados para la conciliacion mensual.',
     !attributedOrders && metaSpend ? 'El gasto Meta no esta atribuido a pedidos concretos; se usa gasto del periodo disponible.' : null,
     campaignSpend ? null : 'Meta no esta disponible en vivo; se usa el ultimo dato guardado en Sheets si existe.',
-    dropeaProfit === null ? 'No hay beneficio Dropea disponible; se usa calculo alternativo.' : null
+    'La API publica de Dropea no publica el coste logistico completo; no se calcula un beneficio falso.'
   ].filter(Boolean);
 
   return {
     recognizedOrders: recognizedOrders.length,
     revenue,
-    productCost,
-    paymentFees,
+    productCost: null,
+    paymentFees: null,
     metaSpend,
     dropeaProfit,
-    businessProfit,
-    netProfit: revenue - productCost - paymentFees - metaSpend,
-    formula: 'Beneficio real = beneficio neto Dropea - gasto Meta',
-    alternativeFormula: 'Alternativo = ingresos pedidos reconocidos - coste producto estimado - comisiones estimadas - gasto Meta',
+    businessProfit: null,
+    netProfit: null,
+    formula: 'Beneficio exacto no disponible sin todos los costes publicados por Dropea',
+    alternativeFormula: null,
     source: financeSettings?.source || 'unknown',
     sourceNote: financeSettings?.note || '',
     dropshipperId: financeSettings?.dropshipperId || '17431',
@@ -1526,6 +1598,7 @@ function buildBusinessManager({ campaignAnalytics, finance, orders, lastRequeste
 }
 
 function moneyText(value) {
+  if (value === null || value === undefined || value === '') return 'sin dato';
   const number = Number(value);
   if (!Number.isFinite(number)) return 'sin dato';
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(number);
@@ -1537,7 +1610,7 @@ function buildAgentReply({ message, dashboard }) {
   const finance = dashboard.finance || {};
   let reply = 'He guardado tu mensaje como aprendizaje operativo. Lo tendre en cuenta junto con el feedback por pedido.';
   if (lower.includes('beneficio') || lower.includes('meta') || lower.includes('dropea')) {
-    reply = `Estoy usando beneficio Dropea (${moneyText(finance.dropeaProfit)}) menos Meta (${moneyText(finance.metaSpend)}). Beneficio final actual: ${moneyText(finance.businessProfit)}.`;
+    reply = `El gasto Meta disponible es ${moneyText(finance.metaSpend)}. Consulta Panel de resultados para la conciliacion mensual: no presento un beneficio neto exacto mientras Dropea no publique todos los costes logisticos y de producto.`;
   } else if (lower.includes('confirm') || lower.includes('pedido')) {
     reply = 'Aprendido. Para confirmaciones, priorizare boton de Chatby, etiqueta CONFIRMADO o mensaje explicito. Si hay cambio de direccion o datos de entrega, lo dejare pendiente por direccion y no lo confirmare.';
   }
@@ -1945,6 +2018,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
   };
   const orders = mergedOrders
     .map(enrichOrderForAgent);
+  const discounts = await buildIncidentDiscountRows(orders);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
   const manualReview = orders.filter(isManualReview);
@@ -1994,6 +2068,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
     },
     finance,
     orders: sortOrdersRecentFirst(orders),
+    discounts,
     decisions: latest(decisions, 'date', 40),
     feedback: latest(feedback, 'createdAt', 40),
     incidentFeedback: latest(incidentFeedback, 'createdAt', 40),

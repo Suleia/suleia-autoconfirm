@@ -8,6 +8,8 @@ import crypto from 'node:crypto';
 import { getAppConfig } from './src/config.mjs';
 import { findOrder, listOrders, loadState, saveState, upsertOrder } from './src/storage.mjs';
 import { cancelDropeaOrder, getDropeaOrderById } from './src/clients/dropea.mjs';
+import { getDropeaV2OrderActionReadiness } from './src/clients/dropea-v2-order-actions.mjs';
+import { getDropeaV2IssueActionReadiness } from './src/clients/dropea-v2-issue-actions.mjs';
 import {
   backfillTodayMissingInitialTemplates,
   backfillMissingPreparedTemplates,
@@ -23,11 +25,18 @@ import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cance
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
+import { applyFinanceExpenseLedger, buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot } from './src/finance.mjs';
+import { addFinanceExpense, loadFinanceExpenseLedger, removeFinanceExpense } from './src/finance-expenses.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
-import { checkChatbyConnection } from './src/clients/chatby.mjs';
+import { checkChatbyConnection, getChatbyRetryAfterMs } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
-import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
+import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, getTemplateDelivery, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
+import { createIncidentAutomationRetry, discountSchedulerOwnsIncidentSync } from './src/incident-automation-retry.mjs';
+import {
+  previewIncidentDiscountTest,
+  sendAuthorizedIncidentDiscountTest
+} from './src/workflows/incident-discount-service.mjs';
 
 const config = getAppConfig();
 dns.setDefaultResultOrder('ipv4first');
@@ -70,7 +79,7 @@ async function refreshChatbyHealth() {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     chatbyHealth.ready = false;
-    chatbyHealth.status = /429|too many requests/i.test(message) ? 'rate_limited' : 'unavailable';
+    chatbyHealth.status = /429|too many requests|rate limited/i.test(message) ? 'rate_limited' : 'unavailable';
     chatbyHealth.error = message.slice(0, 300);
   }
   return chatbyHealth;
@@ -270,8 +279,53 @@ async function sendDashboardFile(res, reqUrl) {
   return sendJson(res, 404, { ok: false, error: 'not_found' });
 }
 
-function storeSummary() {
+function lifecycleTemplateReadiness(state = loadState()) {
+  const owner = String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository').trim().toLowerCase();
+  const audit = state.lastLifecycleTemplateAudit || null;
+  const ownership = {
+    initial: 'repository_via_chatby_api',
+    prepared: owner === 'chatby_native' ? 'chatby_native' : 'repository_via_chatby_api',
+    incident: owner === 'chatby_native' ? 'chatby_native' : 'repository_via_chatby_api'
+  };
+  if (owner !== 'chatby_native') {
+    return { owner, ownership, ready: true, status: 'repository_sender', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
+  }
+  if (!audit || audit.owner !== owner) {
+    return { owner, ownership, ready: false, status: 'audit_pending', checkedAt: audit?.checkedAt || null, pending: 0, overdue: 0 };
+  }
+  const overdue = Number(audit.overdue || 0);
+  const pending = Number(audit.pending || 0);
+  return {
+    owner,
+    ownership,
+    ready: overdue === 0,
+    status: overdue > 0 ? 'native_delivery_overdue' : pending > 0 ? 'native_delivery_pending' : 'native_delivery_verified',
+    checkedAt: audit.checkedAt || null,
+    processed: Number(audit.processed || 0),
+    verified: Number(audit.verified || 0),
+    pending,
+    overdue,
+    sampleOrderIds: Array.isArray(audit.sampleOrderIds) ? audit.sampleOrderIds.slice(0, 10) : []
+  };
+}
+
+function storeSummary({ publicView = false } = {}) {
   const state = loadState();
+  const actionReadiness = getDropeaV2OrderActionReadiness();
+  const issueActionReadiness = getDropeaV2IssueActionReadiness();
+  const lifecycleTemplates = lifecycleTemplateReadiness(state);
+  const cancellationSummary = state.lastUnansweredCancellationSweepSummary || null;
+  const publicCancellationSummary = cancellationSummary ? {
+    thresholdHours: Number(cancellationSummary.thresholdHours || config.defaultStore.unansweredCancelAfterHours || 48),
+    checked: Number(cancellationSummary.checked || 0),
+    cancelled: Number(cancellationSummary.cancelled || 0),
+    skipped: Number(cancellationSummary.skipped || 0),
+    dryRun: Number(cancellationSummary.dryRun || 0)
+  } : null;
+  const automaticCancellationHistoryAll = Array.isArray(state.automaticUnansweredCancellations)
+    ? state.automaticUnansweredCancellations
+    : [];
+  const automaticCancellationHistory = automaticCancellationHistoryAll.slice(-50);
   return {
     store: config.defaultStore.name,
     webhookTokenSuffix: config.defaultStore.webhookToken?.slice(-6) || null,
@@ -296,18 +350,55 @@ function storeSummary() {
     lastAutoConfirmError: state.lastAutoConfirmError,
     lastUnansweredCancellationSweepAt: state.lastUnansweredCancellationSweepAt,
     lastUnansweredCancellationSweepError: state.lastUnansweredCancellationSweepError,
-    lastUnansweredCancellationSweepSummary: state.lastUnansweredCancellationSweepSummary || null,
-    automaticUnansweredCancellations: Array.isArray(state.automaticUnansweredCancellations)
-      ? state.automaticUnansweredCancellations.slice(-50)
-      : [],
+    lastUnansweredCancellationSweepSummary: publicView ? publicCancellationSummary : cancellationSummary,
+    automaticUnansweredCancellations: publicView
+      ? { count: automaticCancellationHistoryAll.length }
+      : automaticCancellationHistory,
     lastIncidentsSyncAt: state.lastIncidentsSyncAt,
     lastIncidentsSyncError: state.lastIncidentsSyncError,
     lastIncidentsSyncCount: state.lastIncidentsSyncCount,
+    incidentDiscountRecoveryEnabled: config.enableIncidentDiscountTemplate === true,
+    incidentDiscountRealEnabled: config.incidentDiscountRealEnabled === true,
+    incidentDiscountDelayHours: 24,
+    incidentDiscountIntervalMinutes: config.incidentDiscountIntervalMinutes,
+    incidentDiscountReturnRealEnabled: config.defaultStore.incidentDiscountReturnRealEnabled === true,
+    incidentDiscountReturnAutomaticEnabled: config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
+    incidentDiscountReturnDelayHours: 24,
+    incidentDiscountReturnReconciliationDelayMinutes: 30,
+    lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
+    lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,
+    lastIncidentDiscountReturnSummary: state.lastIncidentDiscountReturnSummary || null,
+    lastIncidentReturnReconciliationSummary: state.lastIncidentReturnReconciliationSummary || null,
+    incidentAutomationRecovery: incidentAutomationRetry.status(),
+    buildRevision: process.env.RENDER_GIT_COMMIT || null,
     lastOperationalOrdersSyncAt: state.lastOperationalOrdersSyncAt,
     lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
     lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
     unansweredCancellationIntervalMinutes: config.defaultStore.unansweredCancellationIntervalMinutes,
+    unansweredCancelAfterHours: config.defaultStore.unansweredCancelAfterHours,
     unansweredRejectRealEnabled: config.defaultStore.unansweredRejectRealEnabled,
+    dropeaV2Actions: actionReadiness,
+    dropeaV2IssueActions: issueActionReadiness,
+    lifecycleTemplates: publicView
+      ? { ...lifecycleTemplates, sampleOrderIds: undefined }
+      : lifecycleTemplates,
+    automationReadiness: {
+      confirmation: {
+        enabled: Boolean(config.defaultStore.agentEnabled && config.defaultStore.delayedConfirmRealEnabled),
+        ready: Boolean(config.defaultStore.agentEnabled
+          && config.defaultStore.delayedConfirmRealEnabled
+          && chatbyHealth.ready
+          && actionReadiness.ready
+          && !state.lastIngestError)
+      },
+      unansweredCancellation: {
+        enabled: Boolean(config.defaultStore.unansweredRejectRealEnabled),
+        ready: Boolean(config.defaultStore.unansweredRejectRealEnabled
+          && chatbyHealth.ready
+          && actionReadiness.ready
+          && !state.lastUnansweredCancellationSweepError)
+      }
+    },
     incidentsSyncIntervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
     operationalDashboardIntervalMinutes: config.defaultStore.operationalDashboardIntervalMinutes,
     metaDashboardEnabled: config.metaDashboardEnabled,
@@ -325,7 +416,27 @@ function storeSummary() {
 async function runAutomationAndUnansweredSweep(context = 'automation') {
   const cycle = await runStoreAutomationCycle({ store: config.defaultStore });
   const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
-  return { context, cycle, unanswered };
+  let operationalOrders;
+  try {
+    const runtimeState = loadState();
+    const configuredMinutes = Number(config.defaultStore.operationalDashboardIntervalMinutes);
+    const refreshMinutes = Math.min(Number.isFinite(configuredMinutes) && configuredMinutes > 0 ? configuredMinutes : 15, 15);
+    const lastRefreshAt = new Date(runtimeState.lastOperationalOrdersSyncAt || 0).getTime();
+    const refreshDue = Boolean(runtimeState.lastOperationalOrdersSyncError)
+      || !Number.isFinite(lastRefreshAt)
+      || lastRefreshAt <= Date.now() - (refreshMinutes * 60 * 1000);
+    if (refreshDue) {
+      operationalOrders = await syncOperationalOrders();
+      dashboardBuildCacheAt = 0;
+    } else {
+      operationalOrders = { ok: true, skipped: true, reason: 'fresh_cache', refreshMinutes };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[${context}] Operational orders refresh failed:`, error);
+    operationalOrders = { ok: false, error: message };
+  }
+  return { context, cycle, unanswered, operationalOrders };
 }
 
 async function runAutomationOnly(context = 'automation') {
@@ -410,16 +521,49 @@ function queueDashboardBackgroundRefresh() {
   }, 250);
 }
 
+const financeRefreshInFlight = new Map();
+const financeBackgroundRefreshEnabled = process.env.FINANCE_BACKGROUND_REFRESH_ENABLED !== 'false';
+
+function financeSnapshotNeedsRefresh(finance, now = Date.now()) {
+  if (!finance?.generatedAt) return true;
+  const generatedAt = new Date(finance.generatedAt).getTime();
+  if (!Number.isFinite(generatedAt)) return true;
+  const unresolved = Number(finance.counts?.inAir || 0) + Number(finance.counts?.pending || 0);
+  const maximumAgeMs = finance.period?.current
+    ? 60 * 60 * 1000
+    : unresolved > 0
+      ? 6 * 60 * 60 * 1000
+      : 24 * 60 * 60 * 1000;
+  return now - generatedAt >= maximumAgeMs;
+}
+
+function queueFinanceReportRefresh(month) {
+  const key = String(month || 'current');
+  if (financeRefreshInFlight.has(key)) return false;
+  const job = new Promise((resolve) => setTimeout(resolve, 250))
+    .then(() => buildFinanceReport({ month, force: true, leanRefresh: true }))
+    .then((report) => console.log(`Finance report refreshed (${report.period.month}).`))
+    .catch((error) => console.error('Finance report refresh error:', error instanceof Error ? error.message : String(error)))
+    .finally(() => financeRefreshInFlight.delete(key));
+  financeRefreshInFlight.set(key, job);
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
 
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
+      const state = loadState();
+      const lifecycleTemplates = lifecycleTemplateReadiness(state);
       return sendJson(res, 200, {
         ok: true,
-        operational: chatbyHealth.ready,
-        integrations: { chatby: { ...chatbyHealth } },
-        ...storeSummary()
+        operational: Boolean(chatbyHealth.ready
+          && getDropeaV2OrderActionReadiness().ready
+          && lifecycleTemplates.ready
+          && !state.lastIngestError),
+        integrations: { chatby: { ...chatbyHealth, lifecycleTemplates } },
+        ...storeSummary({ publicView: true })
       });
     }
 
@@ -513,6 +657,24 @@ const server = http.createServer(async (req, res) => {
       });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/incident-discounts/preview-test') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      const result = await previewIncidentDiscountTest({ phone: body.phone });
+      return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/incident-discounts/send-test') {
+      if (!requireDashboardAuth(req, res)) return;
+      const body = await readBody(req);
+      const result = await sendAuthorizedIncidentDiscountTest({
+        phone: body.phone,
+        authorization: body.authorization
+      });
+      dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: true, result });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/agent-feedback') {
       if (!requireDashboardAuth(req, res)) return;
       const body = await readBody(req);
@@ -535,6 +697,60 @@ const server = http.createServer(async (req, res) => {
       const settings = await saveFinanceSettings(body);
       dashboardBuildCacheAt = 0;
       return sendJson(res, 200, { ok: true, settings });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/finance-expenses') {
+      if (!requireDashboardAuth(req, res)) return;
+      const expenses = await loadFinanceExpenseLedger();
+      return sendJson(res, 200, { ok: true, expenses });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/finance-expenses') {
+      if (!requireDashboardAuth(req, res)) return;
+      const expense = await addFinanceExpense(await readBody(req));
+      return sendJson(res, 201, { ok: true, expense });
+    }
+
+    if (req.method === 'DELETE' && url.pathname === '/api/finance-expenses') {
+      if (!requireDashboardAuth(req, res)) return;
+      const removed = await removeFinanceExpense(url.searchParams.get('id'));
+      return sendJson(res, 200, { ok: true, removed });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/finance') {
+      if (!requireDashboardAuth(req, res)) return;
+      const month = url.searchParams.get('month') || undefined;
+      const force = url.searchParams.get('refresh') === '1';
+      let finance = null;
+      try {
+        finance = await loadFinanceSnapshot({ month });
+        if (finance) finance = applyFinanceExpenseLedger(finance, await loadFinanceExpenseLedger());
+      } catch (error) {
+        console.error('Finance snapshot read error:', error instanceof Error ? error.message : String(error));
+      }
+      const stale = financeSnapshotNeedsRefresh(finance);
+      const queued = financeBackgroundRefreshEnabled && (force || !finance || stale) ? queueFinanceReportRefresh(month) : false;
+      return sendJson(res, finance ? 200 : 202, {
+        ok: true,
+        finance,
+        pending: !finance,
+        stale,
+        refreshing: queued || financeRefreshInFlight.has(String(month || 'current'))
+      });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/finance-meta-source') {
+      if (!requireDashboardAuth(req, res)) return;
+      const source = await loadStoredMetaSpend({ since: url.searchParams.get('since'), until: url.searchParams.get('until') });
+      return sendJson(res, 200, { ok: true, source });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/finance-snapshot') {
+      if (!requireDashboardAuth(req, res)) return;
+      if (req.headers['x-finance-snapshot-authorization'] !== 'owner-authorized') return sendJson(res, 403, { ok: false, error: 'finance_snapshot_authorization_required' });
+      const body = await readBody(req);
+      const saved = await saveFinanceSnapshot(body.report);
+      return sendJson(res, 200, { ok: true, saved });
     }
 
     if (req.method === 'POST' && url.pathname === '/api/agent-chat') {
@@ -665,10 +881,19 @@ const server = http.createServer(async (req, res) => {
         }
 
         try {
-          const templateResult = await runCriticalTemplateDeliverySweep('dropea_webhook');
-          console.log('Critical template delivery processed:', JSON.stringify(templateResult));
+          const webhookOrderId = String(webhookResult?.orderId || '').replace(/\D/g, '');
+          const templateResult = webhookOrderId
+            ? await reconcileCriticalOrderTemplates({
+                store: config.defaultStore,
+                limit: 100,
+                pages: 2,
+                lookbackHours: 48,
+                orderIds: [webhookOrderId]
+              })
+            : { processed: 0, targeted: true, results: [] };
+          console.log('Exact webhook template delivery processed:', JSON.stringify(templateResult));
         } catch (error) {
-          console.error('Critical template delivery error:', error);
+          console.error('Exact webhook template delivery error:', error);
         }
 
         try {
@@ -747,7 +972,23 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/cron/template-delivery') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-      const result = await runCriticalTemplateDeliverySweep('cron_template_delivery');
+      const requestedOrderId = String(url.searchParams.get('orderId') || url.searchParams.get('order_id') || '').trim();
+      if (requestedOrderId && !/^\d+$/.test(requestedOrderId)) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_order_id' });
+      }
+      const result = requestedOrderId
+        ? {
+            context: 'cron_template_delivery_targeted',
+            delivery: await reconcileCriticalOrderTemplates({
+              store: config.defaultStore,
+              limit: 100,
+              pages: 2,
+              lookbackHours: 48,
+              orderIds: [requestedOrderId]
+            }),
+            error: null
+          }
+        : await runCriticalTemplateDeliverySweep('cron_template_delivery');
       return sendJson(res, 200, { ok: true, result });
     }
 
@@ -756,6 +997,12 @@ const server = http.createServer(async (req, res) => {
       const autoConfirm = await runAutoConfirm({ store: config.defaultStore });
       const unanswered = await runUnansweredCancellationSweep({ store: config.defaultStore });
       const result = { autoConfirm, unanswered };
+      return sendJson(res, 200, { ok: true, result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cron/automation-cycle') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const result = await runAutomationAndUnansweredSweep('cron_automation_cycle');
       return sendJson(res, 200, { ok: true, result });
     }
 
@@ -775,7 +1022,8 @@ const server = http.createServer(async (req, res) => {
         store: config.defaultStore,
         limit: Number(url.searchParams.get('limit') || 100),
         pages: Number(url.searchParams.get('pages') || 2),
-        targetDate: url.searchParams.get('date') || null
+        targetDate: url.searchParams.get('date') || null,
+        orderIds: url.searchParams.get('orderId') || url.searchParams.get('order_id') || []
       });
       return sendJson(res, 200, { ok: true, result });
     }
@@ -804,6 +1052,106 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, result });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/logistics/return-dropea-incidents') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'RETURN_REQUESTED_AUTHORIZED') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const incidentIds = [...new Set((Array.isArray(body.incidentIds) ? body.incidentIds : [])
+        .map((value) => String(value || '').trim()))];
+      if (!incidentIds.length || incidentIds.length > 20 || incidentIds.some((value) => !/^\d+$/.test(value))) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_incident_ids' });
+      }
+      const allowed = new Set(config.defaultStore.incidentReturnAllowedIds || []);
+      if (incidentIds.some((value) => !allowed.has(value))) {
+        return sendJson(res, 403, { ok: false, error: 'incident_not_in_runtime_allowlist' });
+      }
+      const result = await syncPendingIncidents({
+        authorizedReturnIncidentIds: incidentIds,
+        returnOnly: true,
+        persist: false
+      });
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
+    if (req.method === 'GET' && url.pathname === '/api/logistics/incident-return-status') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const orderId = String(url.searchParams.get('orderId') || '').trim();
+      const incidenceId = String(url.searchParams.get('incidenceId') || '').trim();
+      if (!/^\d+$/.test(orderId) || !/^\d+$/.test(incidenceId)) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_identifiers' });
+      }
+      const row = await getTemplateDelivery({
+        storeId: config.defaultStore.id,
+        orderId,
+        templateName: `dropea_issue_discount_no_response_return_v1:${incidenceId}`
+      });
+      const evidence = row?.raw && typeof row.raw === 'object' ? row.raw : {};
+      return sendJson(res, 200, {
+        ok: true,
+        exists: Boolean(row),
+        return: row ? {
+          orderId,
+          incidenceId,
+          status: row.status || null,
+          attemptedAt: row.attempted_at || null,
+          completedAt: row.sent_at || null,
+          updatedAt: row.updated_at || null,
+          lastError: row.last_error || null,
+          verified: evidence.verified === true,
+          responseStatus: evidence.responseStatus || null,
+          ruleId: evidence.ruleId || null
+        } : null
+      });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/logistics/reconcile-transient-incident-return') {
+      if (!isAuthorizedDashboardAction(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'RETRY_TRANSIENT_RETURN_REQUEST') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const orderId = String(body.orderId || '').trim();
+      const incidenceId = String(body.incidenceId || '').trim();
+      if (!/^\d+$/.test(orderId) || !/^\d+$/.test(incidenceId)) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_identifiers' });
+      }
+      const row = await getTemplateDelivery({
+        storeId: config.defaultStore.id,
+        orderId,
+        templateName: `dropea_issue_discount_no_response_return_v1:${incidenceId}`
+      });
+      if (
+        String(row?.status || '').toLowerCase() !== 'manual_reconciliation_required'
+        || !/^DROPEA_V2_ISSUE_ACTION_HTTP_5\d\d$/.test(String(row?.last_error || ''))
+      ) {
+        return sendJson(res, 409, { ok: false, error: 'return_not_transient_reconcilable' });
+      }
+      const result = await syncPendingIncidents({
+        authorizedReturnIncidentIds: [incidenceId],
+        reconcileAmbiguousReturnIncidentIds: [incidenceId],
+        returnOnly: true,
+        persist: false
+      });
+      const target = result?.incidents?.find((incident) => (
+        String(incident.incidenceId || '') === incidenceId
+        && String(incident.orderId || '') === orderId
+      ));
+      return sendJson(res, 200, {
+        ok: Boolean(result?.ok && target),
+        return: target ? {
+          orderId,
+          incidenceId,
+          status: target.incidentDiscountReturnStatus || null,
+          verified: target.incidentDiscountReturnVerified === true,
+          reason: target.incidentDiscountReturnReason || null,
+          attemptedAt: target.incidentDiscountReturnAttemptedAt || null,
+          completedAt: target.incidentDiscountReturnCompletedAt || null
+        } : null
+      });
+    }
+
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-sheet') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await ingestPendingOrders({ store: config.defaultStore });
@@ -819,6 +1167,37 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-incidents') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
       const result = await syncPendingIncidents();
+      dashboardBuildCacheAt = 0;
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cron/reconcile-dropea-incident-returns') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'RECONCILE_AMBIGUOUS_RETURN_REQUESTS') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const incidentIds = [...new Set((Array.isArray(body.incidentIds) ? body.incidentIds : [])
+        .map((value) => String(value || '').trim()))];
+      if (!incidentIds.length || incidentIds.length > 20 || incidentIds.some((value) => !/^\d+$/.test(value))) {
+        return sendJson(res, 400, { ok: false, error: 'invalid_incident_ids' });
+      }
+      const result = await syncPendingIncidents({
+        authorizedReturnIncidentIds: incidentIds,
+        reconcileAmbiguousReturnIncidentIds: incidentIds,
+        returnOnly: true,
+        persist: false
+      });
+      return sendJson(res, 200, { ok: Boolean(result?.ok), result });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/cron/send-pending-rejected-discounts-now') {
+      if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      const body = await readBody(req);
+      if (body.authorization !== 'SEND_PENDING_REJECTED_DISCOUNTS_NOW') {
+        return sendJson(res, 400, { ok: false, error: 'explicit_authorization_required' });
+      }
+      const result = await syncPendingIncidents({ authorizedImmediateDiscounts: true });
       dashboardBuildCacheAt = 0;
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
@@ -858,10 +1237,12 @@ let unansweredCancellationTimer = null;
 let unansweredCancellationRunning = false;
 let incidentsSyncTimer = null;
 let incidentNotificationsTimer = null;
+let incidentDiscountRecoveryTimer = null;
 let incidentsSyncRunning = false;
 let operationalOrdersSyncTimer = null;
 let operationalOrdersSyncRunning = false;
 let chatbyHealthTimer = null;
+let financeReportRefreshTimer = null;
 const scheduledNetworkJobs = createScheduledJobQueue({
   onEvent(event) {
     if (event.type === 'skipped') {
@@ -875,6 +1256,11 @@ const scheduledNetworkJobs = createScheduledJobQueue({
 function scheduleNetworkJob(name, work) {
   return scheduledNetworkJobs.schedule(name, work).catch(() => null);
 }
+
+const incidentAutomationRetry = createIncidentAutomationRetry({
+  getRetryAfterMs: getChatbyRetryAfterMs,
+  scheduleRetry: () => scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync)
+});
 
 function startChatbyHealthMonitor() {
   scheduleNetworkJob('chatby_health', refreshChatbyHealth);
@@ -941,7 +1327,7 @@ async function runScheduledUnansweredCancellationSweep() {
 }
 
 function startUnansweredCancellationScheduler() {
-  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 300;
+  const intervalMinutes = config.defaultStore.unansweredCancellationIntervalMinutes || 60;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;
@@ -960,6 +1346,9 @@ async function runScheduledIncidentsSync() {
   try {
     const result = await syncPendingIncidents();
     console.log(`Incidents sync checked ${result.count || 0} pending incidents.`);
+    if (incidentAutomationRetry.consider(result)) {
+      console.log('Incident automation deferred by Chatby; recovery queued after provider cooldown.');
+    }
   } catch (error) {
     console.error('Incidents sync error:', error);
   } finally {
@@ -968,6 +1357,9 @@ async function runScheduledIncidentsSync() {
 }
 
 function startIncidentsScheduler() {
+  // Recovery already synchronizes every incident, not just discounts. Two
+  // periodic owners otherwise re-read the same Chatby conversations seconds apart.
+  if (discountSchedulerOwnsIncidentSync(config.enableIncidentDiscountTemplate, config.incidentDiscountIntervalMinutes)) return;
   const intervalMinutes = config.defaultStore.incidentsSyncIntervalMinutes || 360;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
@@ -983,6 +1375,10 @@ function startIncidentsScheduler() {
 
 function startIncidentNotificationsScheduler() {
   if (!config.defaultStore.incidentNotificationsEnabled) return;
+  // The discount scheduler already runs the complete incident synchronization,
+  // including ordinary incident notifications. Do not duplicate every Chatby
+  // read in a second timer when discount recovery is active.
+  if (config.enableIncidentDiscountTemplate) return;
   const intervalMinutes = config.defaultStore.incidentNotificationIntervalMinutes || 30;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
@@ -994,6 +1390,22 @@ function startIncidentNotificationsScheduler() {
       intervalMs
     );
   }, 90000);
+}
+
+function startIncidentDiscountRecoveryScheduler() {
+  if (!config.enableIncidentDiscountTemplate) return;
+  const intervalMinutes = config.incidentDiscountIntervalMinutes || 15;
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    scheduleNetworkJob('incident_discount_recovery', runScheduledIncidentsSync);
+    incidentDiscountRecoveryTimer = setInterval(
+      () => scheduleNetworkJob('incident_discount_recovery', runScheduledIncidentsSync),
+      intervalMs
+    );
+    incidentDiscountRecoveryTimer.unref?.();
+  }, 45000);
 }
 
 async function runScheduledOperationalOrdersSync() {
@@ -1010,7 +1422,7 @@ async function runScheduledOperationalOrdersSync() {
 }
 
 function startOperationalOrdersScheduler() {
-  const intervalMinutes = config.defaultStore.operationalDashboardIntervalMinutes || 240;
+  const intervalMinutes = config.defaultStore.operationalDashboardIntervalMinutes || 15;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
 
   const intervalMs = intervalMinutes * 60 * 1000;
@@ -1043,6 +1455,18 @@ function startMetaDashboardSync() {
   }, 45000);
 }
 
+function startFinanceReportRefreshScheduler() {
+  if (!financeBackgroundRefreshEnabled) return;
+  const intervalMinutes = Number(process.env.FINANCE_REFRESH_INTERVAL_MINUTES || 60);
+  if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
+  const intervalMs = intervalMinutes * 60 * 1000;
+  setTimeout(() => {
+    queueFinanceReportRefresh(undefined);
+    financeReportRefreshTimer = setInterval(() => queueFinanceReportRefresh(undefined), intervalMs);
+    financeReportRefreshTimer.unref?.();
+  }, 90000);
+}
+
 server.listen(config.port, async () => {
   console.log(`AutoConfirm listening on http://localhost:${config.port}`);
   console.log(`Webhook: /api/webhooks/dropea/${config.defaultStore.webhookToken}`);
@@ -1063,5 +1487,8 @@ server.listen(config.port, async () => {
   startOperationalOrdersScheduler();
   startIncidentsScheduler();
   startIncidentNotificationsScheduler();
+  startIncidentDiscountRecoveryScheduler();
   startMetaDashboardSync();
+  startFinanceReportRefreshScheduler();
 });
+

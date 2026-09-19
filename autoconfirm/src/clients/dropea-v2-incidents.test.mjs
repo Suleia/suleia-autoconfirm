@@ -7,7 +7,8 @@ import {
   collectPendingDropeaV2Incidents,
   createDropeaV2IncidentClient,
   DROPEA_V2_READ_SCOPES,
-  normalizeDropeaV2Incident
+  normalizeDropeaV2Incident,
+  readDropeaV2ReturnIssueState
 } from './dropea-v2-incidents.mjs';
 
 function token(scopes = DROPEA_V2_READ_SCOPES, exp = 1_817_398_431) {
@@ -76,7 +77,14 @@ test('Dropea V2 incident adapter uses pending-only GET reads and deduplicates ge
     async listAll(name, params, options) {
       calls.push({ method: 'GET', name, params, options });
       return {
-        items: [issue(9), issue(9), issue(10), issue(11, { is_active: false })],
+        items: [
+          issue(9),
+          issue(9),
+          issue(10),
+          issue(11, { is_active: false }),
+          issue(12, { status: 'MANAGING_WITH_CLIENT' }),
+          issue(13, { status: 'RESOLVED' })
+        ],
         complete: true
       };
     },
@@ -91,7 +99,7 @@ test('Dropea V2 incident adapter uses pending-only GET reads and deduplicates ge
     clientFactory: () => fakeClient
   });
 
-  assert.equal(rows.length, 2);
+  assert.equal(rows.length, 3);
   assert.deepEqual(calls.map(({ name }) => name), ['listIssues', 'getOrder']);
   assert.deepEqual(calls[0].params, { only_pending_to_resolve: true });
   assert.equal(calls[0].options.maxPages, 30);
@@ -101,6 +109,14 @@ test('Dropea V2 incident adapter uses pending-only GET reads and deduplicates ge
   assert.equal(rows[0].order.customerPhone, '+34600000000');
   assert.equal(rows[0].issue.incidence_code, 'AS');
   assert.equal(rows[0].issue.raw.source, 'DROPEA_PUBLIC_API_V2');
+});
+
+test('exact return revalidation uses the official issue GET and rejects a different order',async()=>{
+  let path;
+  const factory=opts=>createDropeaV2IncidentClient({...opts,fetchImpl:async url=>{path=String(url);return new Response(JSON.stringify({success:true,message:'ok',data:{id:51,order_id:61,status:'PENDING',is_active:true}}));}});
+  const result=await readDropeaV2ReturnIssueState({incidenceId:'51',orderId:'61'},{env:envFor(),clientFactory:factory});
+  assert.equal(path,'https://es.public-api.dropea.com/dropshipper/issues/51');assert.equal(result.issue.status,'PENDING');
+  await assert.rejects(readDropeaV2ReturnIssueState({incidenceId:'51',orderId:'62'},{env:envFor(),clientFactory:factory}),/IDENTITY_MISMATCH/);
 });
 
 test('Dropea V2 incident adapter rejects a token with any write scope before creating a client', async () => {
@@ -146,6 +162,41 @@ test('encapsulated V2 client emits GET-only requests to the official market host
   assert.match(calls[0].url, /only_pending_to_resolve=true/);
 });
 
+test('read client retries a temporary Dropea rate limit without changing the request', async () => {
+  let attempts = 0;
+  const client = createDropeaV2IncidentClient({
+    token: token(),
+    market: 'ES',
+    retryDelayMs: 0,
+    fetchImpl: async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        return { ok: false, status: 429, headers: { get: () => '0' }, async json() { return { success: false }; } };
+      }
+      return { ok: true, status: 200, async json() { return { success: true, message: 'ok', data: order }; } };
+    }
+  });
+  const result = await client.request('getOrder', { id: 41 });
+  assert.equal(attempts, 2);
+  assert.equal(result.data.id, 41);
+});
+
+test('paginated V2 reads can discard out-of-period rows before retaining them', async () => {
+  const client = createDropeaV2IncidentClient({
+    token: token(),
+    market: 'ES',
+    fetchImpl: async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { success: true, message: 'ok', data: { items: [{ id: 1, created_at: '2025-01-01T00:00:00Z' }, { id: 2, created_at: '2026-09-01T00:00:00Z' }], pagination: { total: 2, page: 1, limit: 100, total_pages: 1 } } };
+      }
+    })
+  });
+  const result = await client.listAll('listIssues', {}, { itemFilter: (item) => item.created_at.startsWith('2026-09') });
+  assert.deepEqual(result.items.map((item) => item.id), [2]);
+});
+
 test('Dropea V2 normalization preserves the dashboard shape without creating actions', () => {
   const row = normalizeDropeaV2Incident(issue(9), order, { market: 'ES' });
   assert.equal(row.order.raw.customer.full_name, 'Cliente de prueba');
@@ -155,13 +206,21 @@ test('Dropea V2 normalization preserves the dashboard shape without creating act
   assert.equal(row.issue.tracking, 'TRACK-MASKED');
 });
 
-test('dashboard workflow contains a hard V2 read-only boundary', () => {
+test('dashboard workflow permits only the separately gated and persistently claimed Dropea incident actions', () => {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const source = fs.readFileSync(path.resolve(here, '../workflows/incidents.mjs'), 'utf8');
   assert.match(source, /collectPendingDropeaV2Incidents/);
   assert.doesNotMatch(source, /listDropeaIncidences|listDropeaOrdersByStatus\(/);
-  assert.doesNotMatch(source, /processIncidentNotification/);
-  assert.match(source, /status: 'blocked_read_only'/);
+  assert.match(source, /processIncidentNotification/);
+  assert.match(source, /incidentNotificationLaneEnabled/);
+  assert.match(source, /incidentDiscountRealEnabled === true/);
+  assert.match(source, /chatbyRepositoryOwnsIncidentTemplate/);
   assert.match(source, /reason: 'dropea_v2_dashboard_read_only'/);
+  assert.match(source, /executeIncorrectAddressResolution/);
+  assert.match(source, /incidentAddressResolutionRealEnabled/);
+  assert.match(source, /executeIncidentDiscountNoResponseReturn/);
+  assert.match(source, /incidentDiscountReturnRealEnabled/);
+  assert.match(source, /claimIncidentDiscountReturn/);
+  assert.match(source, /BLOCKED_PERSISTENT_LEDGER/);
   assert.equal((source.match(/executeIncidentOperationalDecision\(/g) || []).length, 1);
 });

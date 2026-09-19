@@ -193,7 +193,9 @@ export function upsertOrder(storeId, order, extras = {}) {
     chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || previous.chatbyTemplateAttemptedAt || null,
     chatbyTemplateName: order.chatbyTemplateName || previous.chatbyTemplateName || null,
     chatbyTemplateSendStatus: order.chatbyTemplateSendStatus || previous.chatbyTemplateSendStatus || null,
-    chatbyTemplateLastError: order.chatbyTemplateLastError || previous.chatbyTemplateLastError || null,
+    chatbyTemplateLastError: Object.hasOwn(order, 'chatbyTemplateLastError')
+      ? order.chatbyTemplateLastError
+      : previous.chatbyTemplateLastError || null,
     chatbyLastSendResponse: order.chatbyLastSendResponse || previous.chatbyLastSendResponse || null,
     chatbyConfirmationStateResetAt: order.chatbyConfirmationStateResetAt || previous.chatbyConfirmationStateResetAt || null,
     chatbyConfirmationStateResetError: order.chatbyConfirmationStateResetError ?? previous.chatbyConfirmationStateResetError ?? null,
@@ -201,8 +203,12 @@ export function upsertOrder(storeId, order, extras = {}) {
     preparedTemplateAttemptedAt: order.preparedTemplateAttemptedAt || previous.preparedTemplateAttemptedAt || null,
     preparedTemplateName: order.preparedTemplateName || previous.preparedTemplateName || null,
     preparedTemplateSendStatus: order.preparedTemplateSendStatus || previous.preparedTemplateSendStatus || null,
-    preparedTemplateLastError: order.preparedTemplateLastError || previous.preparedTemplateLastError || null,
-    preparedTemplateLastResponse: order.preparedTemplateLastResponse || previous.preparedTemplateLastResponse || null,
+    preparedTemplateLastError: Object.hasOwn(order, 'preparedTemplateLastError')
+      ? order.preparedTemplateLastError
+      : previous.preparedTemplateLastError || null,
+    preparedTemplateLastResponse: Object.hasOwn(order, 'preparedTemplateLastResponse')
+      ? order.preparedTemplateLastResponse
+      : previous.preparedTemplateLastResponse || null,
     operationalNote: order.operationalNote || previous.operationalNote || null,
     raw: mergeRawRecords(previous.raw, order.raw),
     updatedAt: now,

@@ -127,7 +127,7 @@ function telegramKeyboard() {
     keyboard: [
       [{ text: 'Estado' }, { text: 'Pedidos de hoy' }],
       [{ text: 'Incidencias' }, { text: 'Meta hoy' }],
-      [{ text: 'Cancelaciones 36h' }, { text: 'Ideas para escalar' }]
+      [{ text: 'Cancelaciones 48h' }, { text: 'Ideas para escalar' }]
     ],
     resize_keyboard: true,
     one_time_keyboard: false
@@ -156,7 +156,7 @@ function helpText(chatId) {
     'Cuantos pedidos han entrado hoy?',
     'Como van las campanas de Meta hoy?',
     'Que incidencias necesitan accion?',
-    'Ha cancelado algo el automatismo de 36h?',
+    'Ha cancelado algo el automatismo de 48h?',
     '',
     'Tambien tienes botones rapidos abajo. Si pides una accion critica, la ejecutare solo si la intencion es clara.',
     `Chat ID seguro: ${chatId}`
@@ -490,16 +490,16 @@ function cancellationsText() {
     ? state.automaticBlockedCustomerCancellations.slice(-10)
     : [];
   return [
-    'Automatismo 36h',
+    'Automatismo 48h',
     '',
     `Ultimo barrido: ${shortDate(state.lastUnansweredCancellationSweepAt)}`,
     `Error: ${state.lastUnansweredCancellationSweepError || 'ninguno'}`,
     `Revisados: ${summary.checked ?? 0}`,
-    `Cancelados 36h: ${summary.cancelled ?? 0}`,
+    `Cancelados 48h: ${summary.cancelled ?? 0}`,
     `Saltados: ${summary.skipped ?? 0}`,
     '',
-    'Ultimas cancelaciones 36h:',
-    ...(automatic.length ? automatic.map((item) => `#${item.orderId} / ${shortDate(item.cancelledAt)} / ${item.elapsedHours ?? '-'}h`) : ['Sin cancelaciones automaticas 36h registradas.']),
+    'Ultimas cancelaciones 48h:',
+    ...(automatic.length ? automatic.map((item) => `#${item.orderId} / ${shortDate(item.cancelledAt)} / ${item.elapsedHours ?? '-'}h`) : ['Sin cancelaciones automaticas 48h registradas.']),
     '',
     'Clientes bloqueados:',
     ...(blocked.length ? blocked.map((item) => `#${item.orderId} / ${shortDate(item.cancelledAt)}`) : ['Sin cancelaciones por cliente bloqueado registradas.'])
@@ -544,7 +544,7 @@ async function replyForText(text, health = {}) {
     return metaTodayText(await metaTodaySummary());
   }
 
-  if (clean === '/cancelaciones' || clean === 'cancelaciones 36h' || clean.includes('cancelaciones automaticas') || clean.includes('automatismo 36')) {
+  if (clean === '/cancelaciones' || clean === 'cancelaciones 36h' || clean === 'cancelaciones 48h' || clean.includes('cancelaciones automaticas') || clean.includes('automatismo 36') || clean.includes('automatismo 48')) {
     return cancellationsText();
   }
 
@@ -552,7 +552,7 @@ async function replyForText(text, health = {}) {
     const result = await runUnansweredCancellationSweep({ store: config.defaultStore });
     const cancelled = result.results?.filter((item) => item.action === 'cancelled_unanswered' || item.action === 'cancelled_blocked_customer') || [];
     return [
-      'Barrido 36h ejecutado.',
+      'Barrido 48h ejecutado.',
       '',
       `Pedidos revisados: ${result.processed ?? result.results?.length ?? 0}`,
       `Cancelados: ${cancelled.length}`,

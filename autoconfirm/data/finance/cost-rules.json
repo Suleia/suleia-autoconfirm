@@ -1,0 +1,129 @@
+{
+  "currency": "EUR",
+  "version": "2026-09-12-business-verified-v2",
+  "effective_from": "2026-05-01",
+  "source": "Fuentes de negocio verificadas y cierre contable Finanzas_07-2026 (1).xlsx",
+  "rates": [
+    {
+      "cost_type": "PRODUCT_COGS",
+      "amount_cents": 400,
+      "unit": "PER_DELIVERED_UNIT",
+      "product_id": 30133,
+      "variant_id": 30133,
+      "skus": ["038_CREMAHIDRATANTE", "CREMAHIDRATANTE"],
+      "product_name": "Crema Hidratante Definitiva HOYGI 100G",
+      "source": "BUSINESS_VERIFIED_HISTORICAL_PRODUCT_RATE",
+      "currency": "EUR",
+      "effective_from": "2026-05-01",
+      "effective_to": null,
+      "created_at": "2026-09-12T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00"
+    },
+    {
+      "cost_type": "PRODUCT_COGS",
+      "amount_cents": 101,
+      "unit": "PER_DELIVERED_UNIT",
+      "product_id": 31666,
+      "variant_id": 31666,
+      "skus": ["COLLAGUM", "1969_COLLAGUM"],
+      "product_name": "Polvo Dental de Colágeno Colla Gum",
+      "source": "BUSINESS_VERIFIED_PRODUCT_RATE",
+      "currency": "EUR",
+      "effective_from": "2026-06-28",
+      "effective_to": null,
+      "created_at": "2026-09-12T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00"
+    },
+    {
+      "cost_type": "PRODUCT_COGS",
+      "amount_cents": 144,
+      "unit": "PER_DELIVERED_UNIT",
+      "product_id": 31547,
+      "variant_id": 31547,
+      "skus": ["CREMANIDA", "1969_CREMANIDA"],
+      "product_name": "Crema NIDA Hidratante Definitiva",
+      "source": "BUSINESS_VERIFIED_PRODUCT_RATE",
+      "currency": "EUR",
+      "effective_from": "2026-06-18",
+      "effective_to": null,
+      "created_at": "2026-09-12T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00"
+    },
+    {
+      "cost_type": "PRODUCT_COGS",
+      "amount_cents": 200,
+      "unit": "PER_DELIVERED_UNIT",
+      "product_id": 31839,
+      "variant_id": 31839,
+      "skus": ["WHITEO2", "1989_WHITEO2"],
+      "product_name": "Tiras Blanqueadoras Dentales V34",
+      "source": "JULY_CLOSED_ACTUAL_RECONCILIATION",
+      "currency": "EUR",
+      "effective_from": "2026-07-01",
+      "effective_to": null,
+      "created_at": "2026-09-11T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00"
+    },
+    {
+      "cost_type": "OUTBOUND_SHIPPING",
+      "amount_cents": 406,
+      "unit": "PER_SENT_ORDER",
+      "source": "JULY_CLOSED_ACTUAL_RECONCILIATION",
+      "currency": "EUR",
+      "effective_from": "2026-05-01",
+      "effective_to": null,
+      "created_at": "2026-09-11T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00"
+    },
+    {
+      "cost_type": "OUTBOUND_FULFILLMENT",
+      "amount_cents": 120,
+      "unit": "PER_SENT_ORDER",
+      "source": "JULY_CLOSED_ACTUAL_RECONCILIATION",
+      "currency": "EUR",
+      "effective_from": "2026-05-01",
+      "effective_to": null,
+      "created_at": "2026-09-11T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00"
+    },
+    {
+      "cost_type": "COD",
+      "amount_cents": 100,
+      "unit": "PER_DELIVERED_ORDER",
+      "source": "JULY_CLOSED_ACTUAL_RECONCILIATION",
+      "currency": "EUR",
+      "effective_from": "2026-05-01",
+      "effective_to": null,
+      "created_at": "2026-09-11T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00"
+    },
+    {
+      "cost_type": "RETURN_LOGISTICS_COMBINED",
+      "amount_cents": 526,
+      "unit": "PER_RETURNED_ORDER",
+      "source": "BUSINESS_VERIFIED_DROPEA_RATE",
+      "currency": "EUR",
+      "effective_from": "2026-05-01",
+      "effective_to": null,
+      "created_at": "2026-09-12T00:00:00+02:00",
+      "updated_at": "2026-09-12T00:00:00+02:00",
+      "notes": "Transporte de retorno y fulfillment de retorno combinados. No se divide ni se multiplica por unidades."
+    }
+  ],
+  "logistics": {
+    "outbound_shipping_per_sent_cents": 406,
+    "fulfillment_per_sent_cents": 120,
+    "cod_per_delivered_cents": 100,
+    "return_per_returned_order_cents": 526
+  },
+  "products": {
+    "038_CREMAHIDRATANTE": 400,
+    "CREMAHIDRATANTE": 400,
+    "COLLAGUM": 101,
+    "CREMANIDA": 144,
+    "WHITEO2": 200,
+    "1969_COLLAGUM": 101,
+    "1969_CREMANIDA": 144,
+    "1989_WHITEO2": 200
+  }
+}

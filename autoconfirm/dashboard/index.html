@@ -21,11 +21,12 @@
           <button class="nav-item is-active" data-section="overview">Vista general</button>
           <button class="nav-item" data-section="orders">Pedidos</button>
           <button class="nav-item" data-section="incidents">Incidencias</button>
+          <button class="nav-item" data-section="discounts">Descuentos</button>
           <button class="nav-item" data-section="agent">Agente</button>
           <button class="nav-item" data-section="meta">Meta Ads</button>
           <button class="nav-item" data-section="products">Productos</button>
           <button class="nav-item" data-section="research">Competencia</button>
-          <button class="nav-item" data-section="settings">Costes y reglas</button>
+          <button class="nav-item" data-section="settings">Panel de resultados</button>
         </nav>
 
         <div class="side-card">
@@ -149,7 +150,7 @@
               <button class="incident-type-button" type="button" data-incident-filter="absent">Ausente</button>
               <button class="incident-type-button" type="button" data-incident-filter="address">Dirección / datos</button>
               <button class="incident-type-button" type="button" data-incident-filter="rejected_goods">No acepta mercancía</button>
-              <button class="incident-type-button" type="button" data-incident-filter="responded">Con respuesta</button>
+              <button class="incident-type-button" type="button" data-incident-filter="responded">Con respuesta / acción</button>
             </div>
             <div class="table-wrap incidents-table-wrap">
               <table>
@@ -170,7 +171,34 @@
             </div>
           </article>
 
-          <article class="panel span-12" data-panel="overview settings">
+          <article class="panel span-12 discounts-panel" data-panel="discounts">
+            <div class="panel-head">
+              <div>
+                <p class="eyebrow">RecuperaciÃ³n de pedidos</p>
+                <h3>Descuentos de 5 â‚¬</h3>
+              </div>
+              <span class="chip">MÃ¡ximo estricto Â· 5 â‚¬</span>
+            </div>
+            <div id="discounts-summary" class="orders-summary"></div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pedido</th>
+                    <th>Cliente</th>
+                    <th>Producto</th>
+                    <th>Precio original</th>
+                    <th>Precio con descuento</th>
+                    <th>Enviado</th>
+                    <th>Respuesta</th>
+                  </tr>
+                </thead>
+                <tbody id="discounts-table"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="panel span-12" data-panel="overview">
             <div class="panel-head">
               <div>
                 <p class="eyebrow">Conexiones</p>
@@ -181,29 +209,153 @@
             <div id="sources-list" class="sources-grid"></div>
           </article>
 
-          <article class="panel span-12" data-panel="overview">
+          <article class="panel span-12 finance-panel finance-command" data-panel="overview settings">
             <div class="panel-head">
               <div>
-                <p class="eyebrow">Finanzas</p>
-                <h3>Beneficio real</h3>
+                <p class="eyebrow">Analytics · Dropea + Meta</p>
+                <h3>Panel de resultados</h3>
               </div>
-              <span class="chip">Cálculo auditable</span>
+              <div class="finance-toolbar">
+                <button class="mini-button" id="finance-prev" type="button" aria-label="Mes anterior">‹</button>
+                <label>Periodo <input id="finance-month" type="month"></label>
+                <button class="mini-button" id="finance-next" type="button" aria-label="Mes siguiente">›</button>
+                <label class="finance-compare"><input id="finance-compare" type="checkbox" checked> Comparar mes anterior</label>
+                <button class="mini-button" id="finance-refresh" type="button">Actualizar</button>
+              </div>
             </div>
-            <div class="finance-grid">
-              <div><span>Beneficio Dropea</span><strong id="finance-dropea-profit">€0,00</strong><small>Ya incluye stock y transporte</small></div>
-              <div><span>Gasto Meta</span><strong id="finance-meta">€0,00</strong><small>Periodo disponible</small></div>
-              <div class="finance-result"><span>Beneficio final</span><strong id="finance-profit">€0,00</strong><small id="finance-formula">Fórmula</small></div>
-              <div><span>Ingresos reconocidos</span><strong id="finance-revenue">€0,00</strong><small id="finance-orders">Lectura secundaria</small></div>
-              <div><span>Costes estimados alternativos</span><strong id="finance-alt-costs">€0,00</strong><small>No usados en beneficio final</small></div>
+            <section class="finance-result-hero" aria-labelledby="finance-result-heading">
+              <div class="finance-result-total">
+                <p class="eyebrow">Resultado del periodo</p>
+                <h4 id="finance-result-heading">Beneficio mensual total</h4>
+                <strong id="finance-result-profit">—</strong>
+                <span id="finance-result-month">Periodo seleccionado</span>
+                <small id="finance-result-formula">Facturación − costes Dropea − producto − Meta − gastos fijos y puntuales</small>
+              </div>
+              <div class="finance-result-facts" role="list" aria-label="Resumen mensual">
+                <div role="listitem"><span>Facturación</span><strong id="finance-result-revenue">—</strong></div>
+                <div role="listitem"><span>Costes totales</span><strong id="finance-result-costs">—</strong></div>
+                <div role="listitem"><span>Meta Ads</span><strong id="finance-result-meta">—</strong></div>
+                <div role="listitem"><span>Fijos y puntuales</span><strong id="finance-result-fixed">—</strong></div>
+                <div role="listitem"><span>Entregados</span><strong id="finance-result-delivered">—</strong></div>
+                <div role="listitem"><span>Devueltos</span><strong id="finance-result-returned">—</strong></div>
+                <div role="listitem"><span>En el aire</span><strong id="finance-result-inair">—</strong></div>
+                <div role="listitem"><span>Margen neto</span><strong id="finance-result-margin">—</strong></div>
+              </div>
+            </section>
+            <div class="finance-period-head">
+              <div id="finance-coverage" class="finance-coverage">Preparando conciliación del periodo...</div>
+              <span id="finance-status-badge" class="chip">Conciliando</span>
             </div>
-            <form class="inline-form" id="finance-settings-form">
-              <label>
-                Actualizar beneficio neto de Dropea
-                <input id="finance-dropea-input" inputmode="decimal" placeholder="448,19">
-              </label>
-              <button class="mini-button" type="submit">Guardar beneficio Dropea</button>
-            </form>
+            <div id="finance-freshness" class="finance-freshness"></div>
+            <div id="finance-audit" class="finance-audit" hidden></div>
+            <div class="finance-executive-grid" id="finance-kpi-grid">
+              <article class="finance-executive-card is-primary" title="Facturación realizada menos todos los costes"><span>Beneficio neto</span><strong id="finance-profit">—</strong><small id="finance-delta-profit">—</small><div class="finance-spark" data-finance-spark="exactNetProfit"></div></article>
+              <article class="finance-executive-card"><span>Facturación</span><strong id="finance-revenue">—</strong><small id="finance-delta-revenue">—</small><div class="finance-spark" data-finance-spark="realRevenue"></div></article>
+              <article class="finance-executive-card"><span>Costes totales</span><strong id="finance-total-costs">—</strong><small id="finance-delta-costs">—</small><div class="finance-spark" data-finance-spark="totalCosts"></div></article>
+              <article class="finance-executive-card"><span>ROI</span><strong id="finance-roi">—</strong><small id="finance-delta-roi">Beneficio / costes</small><div class="finance-spark" data-finance-spark="roiPercent"></div></article>
+              <article class="finance-executive-card"><span>ROAS</span><strong id="finance-roas">—</strong><small id="finance-delta-roas">Facturación / publicidad</small><div class="finance-spark" data-finance-spark="roas"></div></article>
+              <article class="finance-executive-card"><span>Margen neto</span><strong id="finance-margin">—</strong><small id="finance-delta-margin">Beneficio / facturación</small><div class="finance-spark" data-finance-spark="marginPercent"></div></article>
+            </div>
+            <div id="finance-projection" class="finance-projection" hidden></div>
+            <h4 class="finance-section-title">Cohorte de pedidos creados en el mes</h4>
+            <div class="finance-ops-grid">
+              <div><span>Pedidos</span><strong id="finance-orders">—</strong><small>Creados válidos</small></div>
+              <div><span>Confirmados</span><strong id="finance-confirmed">—</strong><small id="finance-confirm-rate">—</small></div>
+              <div><span>Rechazados</span><strong id="finance-rejected">—</strong><small id="finance-reject-rate">—</small></div>
+              <div><span>Enviados</span><strong id="finance-sent">—</strong><small>Con evidencia logística</small></div>
+              <div><span>En tránsito</span><strong id="finance-transit">—</strong><small>Estado actual de la cohorte</small></div>
+              <div><span>Entregados</span><strong id="finance-delivered">—</strong><small id="finance-delivery-rate">—</small></div>
+              <div><span>Unidades entregadas</span><strong id="finance-delivered-units">—</strong><small>Unidades, no pedidos</small></div>
+              <div><span>Devueltos</span><strong id="finance-returned">—</strong><small id="finance-return-rate">—</small></div>
+              <div><span>Unidades devueltas</span><strong id="finance-returned-units">—</strong><small>Informativo; la tarifa es por pedido</small></div>
+              <div><span>Incidencias</span><strong id="finance-incidents">—</strong><small id="finance-incident-rate">—</small></div>
+            </div>
+            <div id="finance-controls" class="finance-controls"></div>
             <div id="finance-warnings" class="warning-list"></div>
+            <section class="finance-daily-detail" aria-labelledby="finance-daily-title">
+              <div class="finance-table-toolbar">
+                <div>
+                  <p class="eyebrow">Histórico diario</p>
+                  <h4 id="finance-daily-title">Beneficio o pérdida de cada día</h4>
+                  <small>Cada fila concilia pedidos Dropea, logística, producto, Meta y gastos fijos o puntuales. La fila TOTAL reproduce el beneficio mensual.</small>
+                </div>
+                <div><button class="mini-button" id="finance-columns" type="button">Columnas</button><button class="mini-button" id="finance-csv" type="button">Exportar CSV</button></div>
+              </div>
+              <div id="finance-column-menu" class="finance-column-menu" hidden></div>
+              <div class="table-wrap">
+                <table id="finance-daily-table">
+                  <thead id="finance-days-head"></thead>
+                  <tbody id="finance-days-table"></tbody>
+                  <tfoot id="finance-days-total"></tfoot>
+                </table>
+              </div>
+            </section>
+            <div class="finance-charts">
+              <article class="finance-chart-card finance-chart-wide">
+                <div class="finance-chart-title"><div><p class="eyebrow">P&amp;L por cohorte</p><h4>Rentabilidad diaria por fecha del pedido</h4></div><div class="finance-series-toggles"><label><input type="checkbox" data-finance-series="realRevenue" checked> Facturación</label><label><input type="checkbox" data-finance-series="totalCosts" checked> Costes</label><label><input type="checkbox" data-finance-series="netProfit" checked> Beneficio</label></div></div>
+                <div id="finance-trend-chart" class="finance-trend-chart"></div>
+              </article>
+              <article class="finance-chart-card">
+                <div><p class="eyebrow">Conversión</p><h4>Funnel de pedidos</h4></div>
+                <div id="finance-funnel" class="finance-funnel"></div>
+              </article>
+              <article class="finance-chart-card">
+                <div><p class="eyebrow">Composición</p><h4>En qué se gasta cada euro</h4></div>
+                <div id="finance-cost-chart" class="finance-cost-chart"></div>
+              </article>
+              <article class="finance-chart-card">
+                <div><p class="eyebrow">Estado de la cohorte</p><h4>Entregados, devueltos y en el aire</h4></div>
+                <div id="finance-status-chart" class="finance-history-chart"></div>
+              </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div><p class="eyebrow">Operación diaria</p><h4>Pedidos creados, entregados y devueltos</h4></div>
+                <div id="finance-volume-chart" class="finance-history-chart"></div>
+              </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div><p class="eyebrow">Resultado diario</p><h4>Progresión de beneficio y pérdida</h4></div>
+                <div id="finance-daily-profit-chart" class="finance-history-chart"></div>
+              </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div><p class="eyebrow">Tesorería operativa</p><h4>Beneficio acumulado del mes</h4></div>
+                <div id="finance-cumulative-chart" class="finance-history-chart"></div>
+              </article>
+              <article class="finance-chart-card finance-chart-wide">
+                <div class="finance-chart-title"><div><p class="eyebrow">Tendencia</p><h4>Evolución mensual</h4></div><div class="finance-history-controls"><select id="finance-history-window"><option value="6">6 meses</option><option value="12">12 meses</option></select><select id="finance-history-metric"><option value="exactNetProfit">Beneficio</option><option value="realRevenue">Facturación</option><option value="totalCosts">Costes</option><option value="metaSpend">Publicidad</option><option value="delivered">Entregados</option><option value="returned">Devoluciones</option></select></div></div>
+                <div id="finance-history-chart" class="finance-history-chart"></div>
+              </article>
+            </div>
+            <section class="finance-expenses-panel" aria-labelledby="finance-expenses-title">
+              <div class="finance-table-toolbar">
+                <div><p class="eyebrow">Gastos fijos</p><h4 id="finance-expenses-title">Recurrentes y puntuales del mes</h4></div>
+                <button class="mini-button" id="finance-expense-toggle" type="button">+ Añadir gasto</button>
+              </div>
+              <div id="finance-expense-totals" class="finance-expense-totals"></div>
+              <form id="finance-expense-form" class="finance-expense-form" hidden>
+                <label>Concepto<input id="finance-expense-name" name="name" maxlength="80" required></label>
+                <label>Tipo<select id="finance-expense-type" name="type"><option value="recurring_monthly">Recurrente mensual</option><option value="one_off">Puntual</option></select></label>
+                <label>Importe (€)<input id="finance-expense-amount" name="amount" type="number" min="0.01" max="100000" step="0.01" required></label>
+                <label>Inicio / fecha<input id="finance-expense-start" name="startDate" type="date" required></label>
+                <label>Fin opcional<input id="finance-expense-end" name="endDate" type="date"></label>
+                <label>Categoría<select id="finance-expense-category" name="category"><option>Software</option><option>Infraestructura</option><option>Publicidad</option><option>Mensajería</option><option>Otros</option></select></label>
+                <button class="primary-button" type="submit">Guardar gasto</button>
+                <small id="finance-expense-message"></small>
+              </form>
+              <div class="table-wrap finance-expense-table-wrap">
+                <table><thead><tr><th>Gasto</th><th>Tipo</th><th>Categoría</th><th>Importe</th><th>Aplicado al mes</th><th>Inicio</th><th>Fin</th><th>Fuente</th></tr></thead><tbody id="finance-expenses-table"></tbody></table>
+              </div>
+            </section>
+            <div id="finance-summary" class="finance-summary"></div>
+            <div class="finance-tables">
+              <div class="finance-order-detail">
+                <div class="finance-table-toolbar"><div><p class="eyebrow">Auditoría por pedido</p><h4>Coste y beneficio desglosado desde Dropea</h4></div><small>Sin datos personales</small></div>
+                <div class="table-wrap">
+                  <table>
+                    <thead><tr><th>Pedido</th><th>Estado</th><th>Alta</th><th>Cierre</th><th>Uds.</th><th>Importe</th><th>Coste Dropea</th><th>Producto</th><th>Envío</th><th>Fulfillment</th><th>COD</th><th>Devolución</th><th>IVA / ajustes</th><th>Beneficio Dropea</th><th>Contribución tras producto</th><th>Origen</th></tr></thead>
+                    <tbody id="finance-orders-cost-table"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           </article>
 
           <article class="panel span-12" data-panel="agent">
@@ -490,6 +642,16 @@
       </form>
     </dialog>
 
-    <script src="/dashboard/main.js"></script>
+    <dialog class="feedback-dialog finance-drilldown-dialog" id="finance-drilldown-dialog">
+      <div class="feedback-head">
+        <div><p class="eyebrow">Trazabilidad</p><h3 id="finance-drilldown-title">Pedidos del indicador</h3></div>
+        <button class="ghost-button" type="button" id="finance-drilldown-close">Cerrar</button>
+      </div>
+      <p id="finance-drilldown-note" class="muted-copy"></p>
+      <div id="finance-drilldown-orders" class="finance-drilldown-orders"></div>
+    </dialog>
+
+    <script src="/dashboard/vendor/echarts-6.1.0.min.js" defer></script>
+    <script src="/dashboard/main.js" defer></script>
   </body>
 </html>

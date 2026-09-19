@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { ensureDir, readJson, writeJson } from '../lib/files.mjs';
-import { insertRows, isSupabaseEnabled, selectRows, supabaseStatus, upsertRows } from '../clients/supabase.mjs';
+import { insertRows, isSupabaseEnabled, selectRows, supabaseStatus, updateRows, upsertRows } from '../clients/supabase.mjs';
 
 const config = getAppConfig();
 
@@ -183,6 +183,122 @@ export async function claimTemplateDelivery({
   }
 }
 
+const INCIDENT_ADDRESS_RESOLUTION_LEDGER = 'dropea_issue_address_solution_v1';
+const INCIDENT_DISCOUNT_RETURN_LEDGER = 'dropea_issue_discount_no_response_return_v1';
+
+export async function listIncidentDiscountReturnsForReconciliation({ limit = 100 } = {}) {
+  if (!isSupabaseEnabled()) return [];
+  return selectRows('template_delivery_ledger', {
+    query: {
+      select: 'store_id,order_id,template_name,status,attempted_at,sent_at,last_error,raw',
+      template_name: `like.${INCIDENT_DISCOUNT_RETURN_LEDGER}:*`,
+      status: 'in.(manual_reconciliation_required,applied_unverified,claimed,reconciliation_claimed)',
+      order: 'attempted_at.asc'
+    }, limit: Math.max(1, Math.min(500, Number(limit) || 100))
+  });
+}
+
+export function claimIncidentAddressResolution({ storeId = 'suleia', orderId, incidenceId } = {}) {
+  return claimTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_ADDRESS_RESOLUTION_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: ''
+  });
+}
+
+export function finishIncidentAddressResolution({
+  storeId = 'suleia',
+  orderId,
+  incidenceId,
+  status,
+  attemptedAt,
+  completedAt = null,
+  lastError = null,
+  evidence = null
+} = {}) {
+  return finishTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_ADDRESS_RESOLUTION_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: '',
+    status,
+    attemptedAt,
+    sentAt: completedAt,
+    lastError,
+    raw: evidence
+  });
+}
+
+export function claimIncidentDiscountReturn({ storeId = 'suleia', orderId, incidenceId } = {}) {
+  return claimTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_DISCOUNT_RETURN_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: ''
+  });
+}
+
+export async function reclaimIncidentDiscountReturn({ storeId = 'suleia', orderId, incidenceId, expectedStatus = 'manual_reconciliation_required' } = {}) {
+  if (!isSupabaseEnabled()) {
+    return { acquired: false, persistent: false, reason: 'persistent_dedupe_unavailable' };
+  }
+  const templateName = `${INCIDENT_DISCOUNT_RETURN_LEDGER}:${String(incidenceId || '')}`;
+  const templateKey = deliveryKey({ storeId, orderId, templateName });
+  const attemptedAt = nowIso();
+  const safeExpectedStatus = ['manual_reconciliation_required', 'claimed', 'reconciliation_claimed']
+    .includes(String(expectedStatus || '').toLowerCase())
+    ? String(expectedStatus).toLowerCase()
+    : 'manual_reconciliation_required';
+  const updated = await updateRows('template_delivery_ledger', {
+    status: 'reconciliation_claimed',
+    attempted_at: attemptedAt,
+    last_error: null,
+    updated_at: attemptedAt
+  }, {
+    query: {
+      template_key: `eq.${templateKey}`,
+      status: `eq.${safeExpectedStatus}`
+    },
+    returning: 'representation'
+  });
+  const row = Array.isArray(updated) ? updated[0] : null;
+  if (row) return { acquired: true, persistent: true, templateKey, row, reconciled: true };
+  const existing = await getTemplateDelivery({ storeId, orderId, templateName });
+  return { acquired: false, persistent: true, templateKey, existing, reason: 'not_reconcilable' };
+}
+
+export function finishIncidentDiscountReturn({
+  storeId = 'suleia',
+  orderId,
+  incidenceId,
+  status,
+  attemptedAt,
+  completedAt = null,
+  lastError = null,
+  evidence = null
+} = {}) {
+  return finishTemplateDelivery({
+    storeId,
+    orderId,
+    customerPhone: '',
+    templateName: `${INCIDENT_DISCOUNT_RETURN_LEDGER}:${String(incidenceId || '')}`,
+    provider: 'dropea',
+    chatbyUserNs: '',
+    status,
+    attemptedAt,
+    sentAt: completedAt,
+    lastError,
+    raw: evidence
+  });
+}
+
 export async function finishTemplateDelivery({
   storeId = 'suleia',
   orderId,
@@ -213,6 +329,29 @@ export async function finishTemplateDelivery({
     raw: safeJson(raw),
     updated_at: nowIso()
   }, { onConflict: 'template_key' });
+}
+
+export async function listTemplateDeliveries({ limit = 200 } = {}) {
+  if (!isSupabaseEnabled()) return [];
+  return selectRows('template_delivery_ledger', {
+    query: { order: 'updated_at.desc' },
+    limit: Math.max(1, Math.min(500, Number(limit) || 200))
+  });
+}
+
+export async function getTemplateDelivery({
+  storeId = 'suleia',
+  orderId,
+  templateName
+} = {}) {
+  if (!isSupabaseEnabled()) return null;
+  if (!String(orderId || '').trim() || !String(templateName || '').trim()) return null;
+  const templateKey = deliveryKey({ storeId, orderId, templateName });
+  const rows = await selectRows('template_delivery_ledger', {
+    query: { template_key: `eq.${templateKey}`, limit: 1 },
+    limit: 1
+  });
+  return rows[0] || null;
 }
 
 function operationalOrderRow(order = {}) {
@@ -902,3 +1041,4 @@ export async function hydrateLocalStateFromSupabase() {
   result.finishedAt = nowIso();
   return result;
 }
+

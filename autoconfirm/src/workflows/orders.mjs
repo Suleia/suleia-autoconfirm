@@ -1,4 +1,4 @@
-﻿import { getAppConfig } from '../config.mjs';
+import { getAppConfig } from '../config.mjs';
 import {
   findOrder,
   hasRecentWebhookEvent,
@@ -13,6 +13,7 @@ import {
   cancelDropeaOrder,
   confirmDropeaOrder,
   getDropeaOrderById,
+  listDropeaOrdersByStatus,
   listRecentDropeaOrders,
   listPendingDropeaOrders,
   repairDropeaErrorReviewOrders,
@@ -20,10 +21,13 @@ import {
 } from '../clients/dropea.mjs';
 import {
   clearSubscriberOrderConfirmationState,
+  chatbyNativeOwnsLifecycleTemplate,
   createSubscriber,
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
+  findSubscribersByPhone,
   getChatMessages,
+  sendInitialTemplateRecovery,
   sendTextMessage,
   sendWhatsappTemplate,
   subscriberConfirmsOrderRobust as subscriberConfirmsOrder
@@ -32,15 +36,26 @@ import { sendMetaWhatsappTemplate } from '../clients/meta-whatsapp.mjs';
 import { runOpenAIAssistantAnalysis } from '../clients/openai-assistant.mjs';
 import { classifyConversation } from '../clients/openai.mjs';
 import { getShopifyOrderFinancialStatus, listRecentShopifyOrders } from '../clients/shopify.mjs';
+import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
 import { appendAgentDecision, getSimulationDecision, upsertSheetRow } from '../clients/sheets.mjs';
+import {
+  collectActiveOrderSnapshot,
+  findBlockingActivePriorOrder
+} from '../policies/active-order-duplicates.mjs';
 import { blockedCustomerReason, isBlockedCustomerOrder } from '../policies/blocked-customers.mjs';
-import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
-import { evaluateOperationalTestPhone } from '../lib/operational-test-phone.mjs';
+import {
+  claimTemplateDelivery,
+  finishTemplateDelivery,
+  getTemplateDelivery
+} from '../db/supabase-store.mjs';
 
 const config = getAppConfig();
 let automationCycleRunning = false;
 const activeInitialTemplateClaims = new Set();
 const activePreparedTemplateClaims = new Set();
+let activeOrderSnapshotCache = null;
+let activeOrderSnapshotInFlight = null;
+const ACTIVE_ORDER_SNAPSHOT_CACHE_MS = 60 * 1000;
 const DROPEA_REPAIR_BACKOFF_MS = 15 * 60 * 1000;
 const DROPEA_REPAIR_BLOCKED_BACKOFF_MS = 6 * 60 * 60 * 1000;
 const DROPEA_REPAIR_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -519,7 +534,9 @@ const ADDRESS_CHANGE_PATTERNS = [
   /\bcambio direccion\b/,
   /\bdireccion (mal|incorrecta|equivocada)\b/,
   /\bcambiar datos\b/,
+  /\bcambiar los datos\b/,
   /\bmodificar datos\b/,
+  /\bmodificar los datos\b/,
   /\bcambiar envio\b/,
   /\bcambiar el envio\b/,
   /\bcorregir direccion\b/,
@@ -741,7 +758,7 @@ function confirmedStoredOrder(order, store) {
   return String(order.aiIntent || '').toUpperCase() === 'CONFIRM' && confidence >= threshold;
 }
 
-function workflowStatusForPolledOrder(existing, polledStatus) {
+export function workflowStatusForPolledOrder(existing, polledStatus) {
   const remoteStatus = String(polledStatus || 'PENDING').toUpperCase();
   const localStatus = String(existing?.status || '').toUpperCase();
 
@@ -755,9 +772,13 @@ function workflowStatusForPolledOrder(existing, polledStatus) {
     'REJECTED_BLOCKED_CUSTOMER',
     'BLOCKED_CUSTOMER_NO_DROPEA_ID',
     'BLOCKED_CUSTOMER_CANCELLATION_FAILED',
-    'MANUAL_REVIEW',
     'PENDING_ADDRESS_CHANGE'
   ].includes(localStatus)) return localStatus;
+  // MANUAL_REVIEW is a decision snapshot, not a terminal Dropea state. When
+  // Dropea still reports the order as pending, put it back through the current
+  // Chatby evidence evaluation so a later explicit confirmation or rejection
+  // can supersede the earlier signal. Address corrections and terminal safety
+  // outcomes remain preserved above.
   return remoteStatus;
 }
 
@@ -1004,7 +1025,194 @@ async function applyBlockedCustomerPolicy(order, store, source = 'blocked_custom
   }
 }
 
+async function loadActiveOrderSnapshot({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && activeOrderSnapshotCache && now - activeOrderSnapshotCache.loadedAt < ACTIVE_ORDER_SNAPSHOT_CACHE_MS) {
+    return activeOrderSnapshotCache.orders;
+  }
+  if (!force && activeOrderSnapshotInFlight) return activeOrderSnapshotInFlight;
+
+  activeOrderSnapshotInFlight = collectActiveOrderSnapshot({
+    listByStatus: listDropeaOrdersByStatus,
+    listPendingIncidents: collectPendingDropeaV2Incidents
+  }).then((orders) => {
+    activeOrderSnapshotCache = { loadedAt: Date.now(), orders };
+    return orders;
+  });
+
+  try {
+    return await activeOrderSnapshotInFlight;
+  } finally {
+    activeOrderSnapshotInFlight = null;
+  }
+}
+
+function duplicateOrderAlreadyHandled(order) {
+  return String(order?.aiIntent || '').toUpperCase() === 'ACTIVE_DUPLICATE_CANCELLED';
+}
+
+function duplicateOrderAudit(finding, checkedAt, source) {
+  const blockingOrder = finding?.order || {};
+  return {
+    checkedAt,
+    source,
+    result: finding?.kind || 'UNKNOWN',
+    reason: finding?.reason || null,
+    blockingOrderId: blockingOrder.orderId || null,
+    blockingOrderStatus: blockingOrder.status || null,
+    blockingOrderCreatedAt: blockingOrder.createdAt || blockingOrder.raw?.created_at || null,
+    matchBasis: finding?.kind === 'ACTIVE_PRIOR_SAME_PRODUCT_ORDER'
+      ? 'same_phone_and_same_product'
+      : 'manual_review_only'
+  };
+}
+
+export async function activeDuplicateOrderPolicy(order, store, source, deps = {}) {
+  if (duplicateOrderAlreadyHandled(order)) {
+    return { skipped: true, action: 'active_duplicate_already_handled', source, order };
+  }
+
+  const checkedAt = new Date().toISOString();
+  let snapshot;
+  let finding;
+  try {
+    snapshot = await (deps.loadSnapshot || loadActiveOrderSnapshot)();
+    finding = findBlockingActivePriorOrder(order, snapshot);
+  } catch (error) {
+    const code = String(error?.code || error?.message || 'ACTIVE_ORDER_CHECK_FAILED');
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'MANUAL_REVIEW_ACTIVE_ORDER_CHECK_UNAVAILABLE',
+      aiIntent: 'ACTIVE_ORDER_CHECK_UNAVAILABLE',
+      operationalNote: 'No se pudo completar la comprobacion de pedidos activos. No se envia plantilla, no se confirma y no se cancela hasta disponer de una lectura completa.',
+      raw: {
+        ...(order.raw || {}),
+        activeDuplicateOrderPolicy: { checkedAt, source, result: 'UNAVAILABLE', code }
+      }
+    });
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+    return { skipped: true, action: 'active_order_check_unavailable', source, reason: code, order: updated };
+  }
+
+  if (!finding) return null;
+  const blockingOrder = finding.order || {};
+  const audit = duplicateOrderAudit(finding, checkedAt, source);
+  const isExactDuplicate = finding.kind === 'ACTIVE_PRIOR_SAME_PRODUCT_ORDER';
+  const currentId = String(order.orderId || '');
+  const currentStatus = String(order.status || '').toUpperCase();
+
+  if (!isExactDuplicate || !/^\d+$/.test(currentId) || currentStatus !== 'PENDING') {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: isExactDuplicate ? 'MANUAL_REVIEW_ACTIVE_DUPLICATE_NOT_PENDING' : 'MANUAL_REVIEW_ACTIVE_DUPLICATE_UNVERIFIABLE',
+      aiIntent: isExactDuplicate ? 'ACTIVE_DUPLICATE_NOT_PENDING' : 'ACTIVE_DUPLICATE_UNVERIFIABLE',
+      chatbyTemplateSendStatus: 'blocked_active_duplicate_review',
+      operationalNote: isExactDuplicate
+        ? `Existe un pedido anterior activo del mismo producto (${blockingOrder.orderId || 'ID no disponible'}), pero el pedido posterior ya no esta pendiente. Se bloquean plantilla y confirmacion para revision manual.`
+        : 'Existe otro pedido activo para el mismo cliente, pero no se pudo demostrar de forma exacta producto u orden temporal. Se bloquean plantilla, confirmacion y cancelacion automatica.',
+      raw: { ...(order.raw || {}), activeDuplicateOrderPolicy: audit }
+    });
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+    return { skipped: true, action: 'active_duplicate_manual_review', source, finding, order: updated };
+  }
+
+  try {
+    const getOrderById = deps.getOrderById || getDropeaOrderById;
+    const cancelOrder = deps.cancelOrder || cancelDropeaOrder;
+    const [freshCurrent, freshBlocking] = await Promise.all([
+      getOrderById(currentId),
+      getOrderById(blockingOrder.orderId)
+    ]);
+    const freshFinding = freshCurrent && freshBlocking
+      ? findBlockingActivePriorOrder(freshCurrent, [freshBlocking])
+      : null;
+    if (!freshCurrent || String(freshCurrent.status || '').toUpperCase() !== 'PENDING' || freshFinding?.kind !== 'ACTIVE_PRIOR_SAME_PRODUCT_ORDER') {
+      const updated = upsertOrder(store.id, {
+        ...order,
+        status: 'MANUAL_REVIEW_ACTIVE_DUPLICATE_CHANGED',
+        aiIntent: 'ACTIVE_DUPLICATE_FRESHNESS_BLOCK',
+        chatbyTemplateSendStatus: 'blocked_active_duplicate_changed',
+        operationalNote: 'La situacion del pedido duplicado cambio durante la comprobacion final. No se ha cancelado ni confirmado; requiere una nueva lectura.',
+        raw: {
+          ...(order.raw || {}),
+          activeDuplicateOrderPolicy: { ...audit, result: 'FRESHNESS_BLOCKED' }
+        }
+      });
+      await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+      return { skipped: true, action: 'active_duplicate_freshness_blocked', source, order: updated };
+    }
+
+    const cancellation = await cancelOrder(currentId);
+    const after = await getOrderById(currentId).catch(() => null);
+    const verifiedCancelled = ['CANCELLED', 'REJECTED'].includes(String(after?.status || '').toUpperCase());
+    const cancelledAt = new Date().toISOString();
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: verifiedCancelled ? 'CANCELLED_ACTIVE_DUPLICATE' : 'CANCELLATION_REQUESTED_ACTIVE_DUPLICATE',
+      aiIntent: verifiedCancelled ? 'ACTIVE_DUPLICATE_CANCELLED' : 'ACTIVE_DUPLICATE_CANCELLATION_REQUESTED',
+      aiConfidence: 100,
+      cancelledAt,
+      chatbyTemplateSendStatus: 'blocked_active_duplicate_cancelled',
+      chatbyTemplateLastError: null,
+      operationalNote: `Pedido posterior cancelado por duplicidad: el cliente mantiene activo el pedido ${blockingOrder.orderId} del mismo producto. No se envia una segunda plantilla ni se confirma este pedido.`,
+      raw: {
+        ...(order.raw || {}),
+        activeDuplicateOrderPolicy: {
+          ...audit,
+          result: verifiedCancelled ? 'CANCELLED_AND_VERIFIED' : 'CANCELLATION_ACCEPTED_PENDING_VERIFICATION',
+          cancelledAt,
+          cancellation,
+          statusAfter: after?.status || null
+        }
+      }
+    });
+    activeOrderSnapshotCache = null;
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+
+    const state = { ...loadState() };
+    const history = Array.isArray(state.automaticActiveDuplicateCancellations)
+      ? state.automaticActiveDuplicateCancellations
+      : [];
+    state.automaticActiveDuplicateCancellations = [
+      ...history,
+      {
+        orderId: currentId,
+        blockingOrderId: String(blockingOrder.orderId || ''),
+        cancelledAt,
+        verified: verifiedCancelled,
+        source
+      }
+    ].slice(-200);
+    saveState(state);
+    return {
+      dryRun: false,
+      action: verifiedCancelled ? 'cancelled_active_duplicate' : 'active_duplicate_cancellation_requested',
+      source,
+      blockingOrderId: String(blockingOrder.orderId || ''),
+      cancellation,
+      order: updated
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const updated = upsertOrder(store.id, {
+      ...order,
+      status: 'ACTIVE_DUPLICATE_CANCELLATION_FAILED',
+      aiIntent: 'ACTIVE_DUPLICATE_CANCELLATION_FAILED',
+      chatbyTemplateSendStatus: 'blocked_active_duplicate_cancellation_failed',
+      operationalNote: 'Se detecto un pedido posterior duplicado, pero Dropea no confirmo la cancelacion. Se bloquean plantilla y confirmacion y se reintentara de forma idempotente.',
+      raw: {
+        ...(order.raw || {}),
+        activeDuplicateOrderPolicy: { ...audit, result: 'CANCELLATION_FAILED', error: message }
+      }
+    });
+    await safeUpsertSheetRow(updated, 'active_duplicate_order_policy');
+    return { skipped: true, action: 'active_duplicate_cancellation_failed', source, error: message, order: updated };
+  }
+}
+
 async function storedConfirmationResult(order, store) {
+  const duplicate = await activeDuplicateOrderPolicy(order, store, 'stored_confirmation_guard');
+  if (duplicate) return duplicate;
   const analysis = {
     intent: 'CONFIRM',
     confidence: Number(order.aiConfidence ?? 100),
@@ -1027,7 +1235,7 @@ async function storedConfirmationResult(order, store) {
 }
 
 async function unansweredTimeoutCancellationResult(order, store, validFrom) {
-  // La cancelacion por 36h se ejecuta solo desde runUnansweredCancellationSweep,
+  // La cancelacion por falta de respuesta se ejecuta solo desde runUnansweredCancellationSweep,
   // que verifica Chatby en modo fail-safe antes de tocar Dropea.
   return null;
 }
@@ -1168,6 +1376,9 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
       dueAt: order.confirmationDueAt
     };
   }
+
+  const duplicate = await activeDuplicateOrderPolicy(order, store, 'delayed_confirmation_guard');
+  if (duplicate) return duplicate;
 
   const delayedConfirmRealEnabled = Boolean(store.delayedConfirmRealEnabled ?? config.defaultStore.delayedConfirmRealEnabled);
   if (!delayedConfirmRealEnabled) {
@@ -1326,7 +1537,7 @@ export function subscriberConfirmationIsCurrent(subscriber, order, inboundConfir
   return Boolean(subscriberAt && subscriberAt >= validFrom);
 }
 
-function customerConversationIntentForOrder(messages, order) {
+export function customerConversationIntentForOrder(messages, order) {
   const orderedMessages = [...messages].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
   const customerOnly = orderedMessages.filter((message) => isCustomerMessage(message));
 
@@ -1341,6 +1552,7 @@ function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'ADDRESS_CHANGE') {
       return {
         ...intent,
+        occurred_at: messageDate(message)?.toISOString() || null,
         customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_change_address_button'
@@ -1351,6 +1563,7 @@ function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'CANCEL') {
       return {
         ...intent,
+        occurred_at: messageDate(message)?.toISOString() || null,
         customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_change_address_button'
@@ -1361,6 +1574,7 @@ function customerConversationIntentForOrder(messages, order) {
     if (intent.intent === 'CONFIRM') {
       return {
         ...intent,
+        occurred_at: messageDate(message)?.toISOString() || null,
         customer_message: message.content || '',
         source: normalizeText(message.raw?.msg_type || message.raw?.message_type).includes('postback')
           ? 'chatby_button'
@@ -1370,6 +1584,21 @@ function customerConversationIntentForOrder(messages, order) {
   }
 
   return null;
+}
+
+export function currentConfirmationSupersedesIntent({
+  subscriber,
+  order,
+  intent,
+  inboundConfirmationAt = null
+} = {}) {
+  if (String(intent?.intent || '').toUpperCase() !== 'CANCEL') return false;
+  if (!sameOrderId(currentSubscriberOrderId(subscriber), order?.orderId)) return false;
+  if (!subscriberConfirmationIsCurrent(subscriber, order, inboundConfirmationAt)) return false;
+
+  const intentAt = parseDate(intent?.occurred_at);
+  const confirmationAt = parseDate(inboundConfirmationAt) || subscriberConfirmationTimestamp(subscriber);
+  return Boolean(intentAt && confirmationAt && confirmationAt > intentAt);
 }
 
 function firstName(name) {
@@ -1393,15 +1622,16 @@ function subscriberContainsOrderId(subscriber, orderId) {
   return text.replace(/\D/g, ' ').split(/\s+/).includes(target);
 }
 
-async function resolveSubscriberForOrder(order) {
+async function resolveSubscriberForOrder(order, { maxPages = 10 } = {}) {
   const exact = await findSubscriberForOrder({
     phone: order.customerPhone,
-    orderId: order.orderId
+    orderId: order.orderId,
+    maxPages
   });
   if (exact) return exact;
 
   if (!order.customerPhone) return null;
-  const byPhone = await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  const byPhone = await findSubscriberByPhone({ phone: order.customerPhone, maxPages });
   if (!byPhone) return null;
 
   const sameThread = order.chatbyUserNs && String(byPhone.user_ns || byPhone.userNs || '') === String(order.chatbyUserNs);
@@ -1486,6 +1716,76 @@ function configuredPreparedWhatsappTemplate() {
   return config.preparedWhatsappTemplateName || 'es_ES dropea_pedido_preparado_v1';
 }
 
+function acceptedPersistentDelivery(delivery) {
+  if (!delivery || typeof delivery !== 'object') return null;
+  const status = normalizeText(delivery.status);
+  const sentAt = parseDate(delivery.sent_at);
+  if (!['sent', 'already_seen'].includes(status) || !sentAt) return null;
+  return {
+    status,
+    sentAt: sentAt.toISOString(),
+    attemptedAt: parseDate(delivery.attempted_at)?.toISOString() || sentAt.toISOString(),
+    chatbyUserNs: String(delivery.chatby_user_ns || '').trim() || null
+  };
+}
+
+export function mergeLifecycleTemplateStateFromLedger(order, {
+  initialDelivery = null,
+  preparedDelivery = null,
+  initialTemplateName = null,
+  preparedTemplateName = null
+} = {}) {
+  const initial = acceptedPersistentDelivery(initialDelivery);
+  const prepared = acceptedPersistentDelivery(preparedDelivery);
+  if (!initial && !prepared) return order;
+
+  const restored = { ...order };
+  if (initial) {
+    restored.chatbyTemplateName = initialTemplateName || initialDelivery.template_name || restored.chatbyTemplateName || null;
+    restored.chatbyTemplateSentAt = initial.sentAt;
+    restored.chatbyTemplateAttemptedAt = initial.attemptedAt;
+    restored.chatbyTemplateSendStatus = initial.status;
+    restored.chatbyTemplateLastError = null;
+    restored.chatbyUserNs = restored.chatbyUserNs || initial.chatbyUserNs;
+  }
+  if (prepared) {
+    restored.preparedTemplateName = preparedTemplateName || preparedDelivery.template_name || restored.preparedTemplateName || null;
+    restored.preparedTemplateSentAt = prepared.sentAt;
+    restored.preparedTemplateAttemptedAt = prepared.attemptedAt;
+    restored.preparedTemplateSendStatus = prepared.status;
+    restored.preparedTemplateLastError = null;
+    restored.chatbyUserNs = restored.chatbyUserNs || prepared.chatbyUserNs;
+  }
+  return restored;
+}
+
+async function restoreLifecycleTemplateState(order, store, {
+  initial = false,
+  prepared = false
+} = {}) {
+  const initialTemplateName = initial ? configuredWhatsappTemplate(store) : null;
+  const preparedTemplateName = prepared ? configuredPreparedWhatsappTemplate() : null;
+  const needsInitial = Boolean(initialTemplateName) && !initialTemplateIsTerminal(order, initialTemplateName);
+  const needsPrepared = Boolean(preparedTemplateName) && !preparedTemplateIsTerminal(order, preparedTemplateName);
+  if (!needsInitial && !needsPrepared) return order;
+
+  const [initialDelivery, preparedDelivery] = await Promise.all([
+    needsInitial
+      ? getTemplateDelivery({ storeId: store.id, orderId: order.orderId, templateName: initialTemplateName })
+      : null,
+    needsPrepared
+      ? getTemplateDelivery({ storeId: store.id, orderId: order.orderId, templateName: preparedTemplateName })
+      : null
+  ]);
+  const restored = mergeLifecycleTemplateStateFromLedger(order, {
+    initialDelivery,
+    preparedDelivery,
+    initialTemplateName,
+    preparedTemplateName
+  });
+  return restored === order ? order : upsertOrder(store.id, restored);
+}
+
 function initialTemplateProvider() {
   return config.chatbyToken ? 'chatby' : String(config.whatsappProvider || 'meta').toLowerCase();
 }
@@ -1556,18 +1856,20 @@ function orderAfterRejectedInitialTemplateClaim(order, store, templateName, clai
   const existing = claim?.existing || {};
   if (claim?.reason === 'already_claimed') {
     const attemptedAt = existing.attempted_at || order.chatbyTemplateAttemptedAt || new Date().toISOString();
+    const persistentError = existing.last_error || null;
     const updated = upsertOrder(store.id, {
       ...order,
       chatbyTemplateAttemptedAt: attemptedAt,
       chatbyTemplateSentAt: existing.sent_at || order.chatbyTemplateSentAt || null,
       chatbyTemplateName: templateName,
       chatbyTemplateSendStatus: `persistent_${existing.status || 'claimed'}`,
-      chatbyTemplateLastError: null
+      chatbyTemplateLastError: persistentError
     });
     rememberInitialTemplateAttempt(updated, templateName, {
       status: existing.status || 'attempted',
       attemptedAt,
       sentAt: existing.sent_at || null,
+      lastError: persistentError,
       provider: existing.provider || null
     });
     return updated;
@@ -1675,6 +1977,85 @@ function productNameForOrder(order) {
   );
 }
 
+export function chatbyNativeSubscriberPayload(order, store = config.defaultStore) {
+  const raw = order?.raw || {};
+  const address = raw.shipping_address || raw.shippingAddress || raw.customer || raw.address || {};
+  const lineItems = Array.isArray(raw.line_items)
+    ? raw.line_items
+    : Array.isArray(raw.items)
+      ? raw.items
+      : [];
+  const productNames = lineItems
+    .map((item) => firstExisting(item?.product_name, item?.external_name, item?.title, item?.name))
+    .filter(Boolean);
+  const primaryProduct = productNames[0] || productNameForOrder(order);
+  const additionalProducts = productNames.slice(1).join(', ');
+  const orderId = String(order?.orderId || '').replace(/\D/g, '');
+  const amount = Number(order?.orderAmount);
+  const registeredAt = parseDate(dropeaCreatedAt(order))?.toISOString() || new Date().toISOString();
+  const street = firstExisting(
+    address.address_line_1,
+    address.address1,
+    address.address,
+    rawValueByKeys(raw, ['address_line_1', 'shipping_address_1', 'street', 'street_address', 'address'])
+  ) || '';
+  const addressExtra = firstExisting(
+    address.address_line_2,
+    address.address2,
+    address.alternative_address,
+    rawValueByKeys(raw, ['address_line_2', 'address2', 'alternative_address', 'shipping_address_2'])
+  ) || '';
+  const city = firstExisting(address.city, rawValueByKeys(raw, ['city', 'locality', 'town'])) || '';
+  const postcode = firstExisting(
+    address.postal_code,
+    address.zip,
+    address.postalCode,
+    rawValueByKeys(raw, ['postal_code', 'zip', 'postalCode', 'postcode'])
+  ) || '';
+  const region = firstExisting(address.state, address.province, rawValueByKeys(raw, ['state', 'province', 'region'])) || '';
+  const country = firstExisting(address.country, rawValueByKeys(raw, ['country', 'country_code'])) || 'ES';
+  const topStatus = String(raw.status || order?.status || 'PENDING').toUpperCase();
+  const subStatus = String(raw.sub_status || '').toUpperCase();
+  const eventStatus = subStatus ? `${topStatus}:${subStatus}` : topStatus;
+  const fullName = String(order?.customerName || '').trim();
+  const nameParts = fullName.split(/\s+/).filter(Boolean);
+
+  return {
+    phone: order?.customerPhone,
+    name: fullName || order?.customerPhone,
+    first_name: nameParts[0] || '',
+    last_name: nameParts.slice(1).join(' '),
+    email: order?.customerEmail || undefined,
+    address: [street, addressExtra].filter(Boolean).join(' '),
+    city,
+    region,
+    postcode,
+    country,
+    metadata: {
+      orderId: order?.orderId,
+      source: 'dropea',
+      createdBy: 'suleia-autoconfirm'
+    },
+    user_fields: [
+      { name: '#Pedido', value: orderId },
+      { name: 'Precio Total', value: Number.isFinite(amount) ? amount.toFixed(2) : '' },
+      { name: 'Productos', value: productNames.join(', ') || primaryProduct },
+      { name: 'Dirección', value: street },
+      { name: 'Referencia/Barrio', value: addressExtra },
+      { name: 'Localidad/Ciudad', value: city },
+      { name: 'Código Postal', value: postcode },
+      { name: 'Provincia/Departamento', value: region },
+      { name: 'CON-Registrado', value: registeredAt },
+      { name: 'Tienda', value: store?.name || 'Suleia' },
+      { name: 'event_status', value: eventStatus },
+      { name: 'Producto Principal', value: primaryProduct },
+      { name: 'Productos Adicionales', value: additionalProducts },
+      { name: 'Método Pago', value: String(raw.payment_method || raw.paymentMethod || 'COD').toUpperCase() },
+      { name: 'Moneda', value: order?.currencyCode || raw.currency || 'EUR' }
+    ]
+  };
+}
+
 function preparedTemplateParamsForOrder(order) {
   const raw = order.raw || {};
   const carrier = firstExisting(
@@ -1709,6 +2090,19 @@ function templateAlreadyAttempted(order, templateName) {
     && ['sent', 'failed', 'already_seen', 'attempted'].includes(normalizeText(order.chatbyTemplateSendStatus));
 }
 
+export function initialTemplateIsTerminal(order, templateName) {
+  if (!order?.chatbyTemplateSentAt || !templateName) return false;
+  return normalizeText(order.chatbyTemplateName) === normalizeText(templateName)
+    && ['sent', 'already_seen'].includes(normalizeText(order.chatbyTemplateSendStatus));
+}
+
+export function initialTemplateBlockedByLegacyOwnership(order) {
+  const status = normalizeText(order?.chatbyTemplateSendStatus);
+  const error = String(order?.chatbyTemplateLastError || '');
+  return ['failed', 'persistent_failed'].includes(status)
+    && /Lifecycle template blocked:\s*Chatby native automation is the configured single sender\.?/i.test(error);
+}
+
 function retryableTemplateFailure(order) {
   const status = normalizeText(order?.chatbyTemplateSendStatus);
   return status === 'failed';
@@ -1721,6 +2115,27 @@ function staleTemplateAttempt(order) {
   const attemptedAt = parseDate(order?.chatbyTemplateAttemptedAt);
   if (!attemptedAt) return true;
   return (Date.now() - attemptedAt.getTime()) / 60000 >= Number(process.env.INITIAL_TEMPLATE_RETRY_AFTER_MINUTES || 10);
+}
+
+function nativeLifecycleGraceMinutes() {
+  const configured = Number(process.env.CHATBY_NATIVE_TEMPLATE_GRACE_MINUTES || 10);
+  return Number.isFinite(configured) && configured >= 1 ? configured : 10;
+}
+
+export function nativeLifecycleAudit({ order, templateName, referenceAt, nowMs = Date.now() }) {
+  const reference = parseDate(referenceAt) || parseDate(dropeaCreatedAt(order));
+  const ageMinutes = reference ? Math.max(0, (Number(nowMs) - reference.getTime()) / 60000) : null;
+  const graceMinutes = nativeLifecycleGraceMinutes();
+  const overdue = ageMinutes === null || ageMinutes >= graceMinutes;
+  return {
+    status: overdue ? 'native_overdue' : 'native_pending',
+    overdue,
+    ageMinutes,
+    graceMinutes,
+    error: overdue
+      ? `Chatby nativo no ha generado ${templateName} con WAMID dentro de ${graceMinutes} minutos.`
+      : null
+  };
 }
 
 function messageLooksLikeTemplate(message, templateName) {
@@ -1808,7 +2223,8 @@ async function markTemplateAlreadySeen(order, userNs, store, templateName) {
       chatbyTemplateSentAt: order.chatbyTemplateSentAt || markedAt,
       chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || markedAt,
       chatbyTemplateName: templateName,
-      chatbyTemplateSendStatus: 'already_seen'
+      chatbyTemplateSendStatus: 'already_seen',
+      chatbyTemplateLastError: null
     });
     rememberInitialTemplateAttempt(updated, templateName, {
       status: 'already_seen',
@@ -1833,7 +2249,8 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
       chatbyTemplateSentAt: order.chatbyTemplateSentAt || markedAt,
       chatbyTemplateAttemptedAt: order.chatbyTemplateAttemptedAt || markedAt,
       chatbyTemplateName: templateName,
-      chatbyTemplateSendStatus: 'already_seen'
+      chatbyTemplateSendStatus: 'already_seen',
+      chatbyTemplateLastError: null
     });
     rememberInitialTemplateAttempt(updated, templateName, {
       status: 'already_seen',
@@ -1847,6 +2264,28 @@ async function markTemplateAlreadySeenForOrder(order, userNs, store, templateNam
   }
 }
 
+async function markTemplateSeenAcrossCustomerThreads(order, store, templateName) {
+  if (!config.chatbyToken || !order.customerPhone) return null;
+  const subscribers = await findSubscribersByPhone({ phone: order.customerPhone, maxPages: 20, limit: 100 });
+  const checked = new Set();
+  for (const subscriber of subscribers) {
+    const userNs = String(subscriber?.user_ns || '');
+    if (!userNs || checked.has(userNs)) continue;
+    checked.add(userNs);
+    const exactOrderThread = sameOrderId(currentSubscriberOrderId(subscriber), order.orderId)
+      || subscriberContainsOrderId(subscriber, order.orderId);
+    if (!exactOrderThread) continue;
+    const messages = normalizeChatMessages(await getChatMessages(userNs));
+    const alreadyDelivered = messages.some((message) => (
+      messageLooksLikeTemplateForOrder(message, templateName, order)
+      && messageAcceptedByWhatsapp(message)
+    ));
+    if (!alreadyDelivered) continue;
+    return markTemplateAlreadySeenForOrder(order, userNs, store, templateName);
+  }
+  return null;
+}
+
 function createdChatbyUserNs(created) {
   return created?.data?.user_ns || created?.user_ns || created?.userNs || created?.id || null;
 }
@@ -1856,24 +2295,22 @@ function shouldFallbackToChatby(error) {
   return /authorization error|oauth|meta whatsapp respondio 400|meta whatsapp respondio 401|meta whatsapp respondio 403/i.test(message);
 }
 
-async function resolveOrCreateChatbyUserNsForTemplate(order, userNs) {
+export const CHATBY_NATIVE_CONTACT_LOOKUP_PAGES = 1;
+
+async function resolveOrCreateChatbyUserNsForTemplate(order, userNs, { maxPages = 10 } = {}) {
   if (userNs) return userNs;
   if (!config.chatbyToken || !order.customerPhone) return null;
 
-  const subscriber = await resolveSubscriberForOrder(order)
-    || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
-  if (subscriber?.user_ns) return subscriber.user_ns;
+  const exactSubscriber = maxPages === 10
+    ? await resolveSubscriberForOrder(order)
+    : await findSubscriberForOrder({
+        phone: order.customerPhone,
+        orderId: order.orderId,
+        maxPages
+      });
+  if (exactSubscriber?.user_ns) return exactSubscriber.user_ns;
 
-  const created = await createSubscriber({
-    phone: order.customerPhone,
-    name: order.customerName || order.customerPhone,
-    email: order.customerEmail || undefined,
-    metadata: {
-      orderId: order.orderId,
-      source: 'dropea',
-      createdBy: 'suleia-autoconfirm'
-    }
-  });
+  const created = await createSubscriber(chatbyNativeSubscriberPayload(order));
 
   return createdChatbyUserNs(created);
 }
@@ -1918,7 +2355,13 @@ async function clearStaleChatbyConfirmationBeforeInitialTemplate(order, userNs, 
   }
 }
 
-async function sendInitialTemplateWithFallback({ order, templateName, params, userNs }) {
+async function sendInitialTemplateWithFallback({
+  order,
+  templateName,
+  params,
+  userNs,
+  nativeRecoveryVerifiedMissingAt = null
+}) {
   // Chatby is the source of truth for this flow. Sending directly through Meta
   // creates a second conversation event that Chatby can attempt to deliver again.
   const preferredProvider = config.chatbyToken
@@ -1929,12 +2372,17 @@ async function sendInitialTemplateWithFallback({ order, templateName, params, us
     if (!chatbyUserNs) {
       throw new Error('No se pudo resolver o crear contacto en Chatby para enviar plantilla.');
     }
-    const response = await sendWhatsappTemplate({
+    const payload = {
       user_ns: chatbyUserNs,
       user_id: order.customerPhone,
       template_name: templateName,
       params
-    });
+    };
+    const response = nativeRecoveryVerifiedMissingAt
+      ? await sendInitialTemplateRecovery(payload, {
+          verifiedMissingAt: nativeRecoveryVerifiedMissingAt
+        })
+      : await sendWhatsappTemplate(payload);
     return { provider: 'chatby', response, userNs: chatbyUserNs };
   }
 
@@ -1968,11 +2416,72 @@ async function sendInitialTemplateWithFallback({ order, templateName, params, us
 }
 
 async function sendChatbyTemplateForOrder(order, userNs, store) {
+  order = await restoreLifecycleTemplateState(order, store, { initial: true });
   const blocked = await applyBlockedCustomerPolicy(order, store, 'chatby_template_send_guard');
   if (blocked) return blocked.order || order;
 
+  const duplicateOrder = await activeDuplicateOrderPolicy(order, store, 'chatby_template_send_guard');
+  if (duplicateOrder) return duplicateOrder.order || order;
+
   const templateName = configuredWhatsappTemplate(store);
   if (!templateName) return order;
+  let nativeRecoveryVerifiedMissingAt = null;
+  let nativeRecoveryUserNs = null;
+  if (chatbyNativeOwnsLifecycleTemplate(templateName)) {
+    if (initialTemplateIsTerminal(order, templateName)) {
+      return Object.hasOwn(order, 'chatbyTemplateLastError') && order.chatbyTemplateLastError === null
+        ? order
+        : upsertOrder(store.id, { ...order, chatbyTemplateLastError: null });
+    }
+
+    let nativeUserNs = order?.chatbyUserNs || null;
+    let nativeContactProvisionedAt = order?.chatbyNativeContactProvisionedAt || null;
+    if (!nativeUserNs) {
+      nativeUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, null, {
+        maxPages: CHATBY_NATIVE_CONTACT_LOOKUP_PAGES
+      });
+      if (nativeUserNs) nativeContactProvisionedAt = new Date().toISOString();
+    }
+
+    const audit = nativeLifecycleAudit({
+      order,
+      templateName,
+      referenceAt: nativeContactProvisionedAt || dropeaCreatedAt(order)
+    });
+    const auditedOrder = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: nativeUserNs || order.chatbyUserNs || null,
+      chatbyNativeContactProvisionedAt: nativeContactProvisionedAt,
+      chatbyTemplateName: templateName,
+      chatbyTemplateSendStatus: audit.status,
+      chatbyTemplateLastError: audit.error,
+      chatbyNativeAuditAt: new Date().toISOString(),
+      chatbyNativeAuditAgeMinutes: audit.ageMinutes,
+      chatbyNativeAuditGraceMinutes: audit.graceMinutes
+    });
+    if (!audit.overdue || !nativeUserNs) {
+      return auditedOrder;
+    }
+
+    const alreadySeen = await markTemplateAlreadySeenForOrder(
+      auditedOrder,
+      nativeUserNs,
+      store,
+      templateName
+    );
+    if (alreadySeen) return alreadySeen;
+    nativeRecoveryVerifiedMissingAt = new Date().toISOString();
+    order = auditedOrder;
+    nativeRecoveryUserNs = nativeUserNs;
+  }
+  if (initialTemplateBlockedByLegacyOwnership(order)) {
+    const legacyUserNs = await resolveExistingChatbyUserNs(order);
+    if (legacyUserNs) {
+      const alreadySeen = await markTemplateAlreadySeenForOrder(order, legacyUserNs, store, templateName);
+      if (alreadySeen) return alreadySeen;
+    }
+    return order;
+  }
   if (templateAlreadyAttempted(order, templateName)) {
     const status = normalizeText(order.chatbyTemplateSendStatus);
     if (!order.chatbyTemplateSentAt && ['attempted', 'delivery_unverified'].includes(status)) {
@@ -1984,8 +2493,13 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
     }
     return order;
   }
+  if (!nativeRecoveryVerifiedMissingAt) {
+    const deliveredInAnyThread = await markTemplateSeenAcrossCustomerThreads(order, store, templateName);
+    if (deliveredInAnyThread) return deliveredInAnyThread;
+  }
 
-  const resolvedUserNs = await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
+  const resolvedUserNs = nativeRecoveryUserNs
+    || await resolveOrCreateChatbyUserNsForTemplate(order, userNs);
   const staleConfirmationReset = await clearStaleChatbyConfirmationBeforeInitialTemplate(
     order,
     resolvedUserNs,
@@ -2064,7 +2578,8 @@ async function sendChatbyTemplateForOrder(order, userNs, store) {
       order,
       templateName,
       params,
-      userNs: resolvedUserNs
+      userNs: resolvedUserNs,
+      nativeRecoveryVerifiedMissingAt
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -2233,8 +2748,18 @@ async function finishPreparedTemplateClaim(order, store, templateName, claim, pa
   }
 }
 
-function orderNeedsPreparedTemplate(order) {
-  return ['CONFIRMED', 'IN_PREPARATION', 'PREPARED', 'IN_TRANSIT', 'DELIVERED']
+export function orderNeedsPreparedTemplate(order) {
+  return [
+    'CONFIRMED',
+    'PROCESSING',
+    'PREPARING',
+    'IN_PREPARATION',
+    'PREPARED',
+    'SHIPPING',
+    'TRANSIT',
+    'IN_TRANSIT',
+    'DELIVERED'
+  ]
     .includes(String(order?.status || '').toUpperCase());
 }
 
@@ -2262,12 +2787,22 @@ async function resolveExistingChatbyUserNs(order) {
   if (order.chatbyUserNs) return order.chatbyUserNs;
   if (!config.chatbyToken || !order.customerPhone) return null;
 
-  const subscriber = await resolveSubscriberForOrder(order)
-    || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
+  const subscriber = await resolveSubscriberForOrder(order, {
+    maxPages: CHATBY_NATIVE_CONTACT_LOOKUP_PAGES
+  })
+    || await findSubscriberByPhone({
+      phone: order.customerPhone,
+      maxPages: CHATBY_NATIVE_CONTACT_LOOKUP_PAGES
+    });
   return subscriber?.user_ns || null;
 }
 
+export function nativeLifecycleVerificationRequired(audit = {}) {
+  return audit?.overdue === true;
+}
+
 export async function sendPreparedTemplateForOrder(order, store = config.defaultStore) {
+  order = await restoreLifecycleTemplateState(order, store, { prepared: true });
   const templateName = configuredPreparedWhatsappTemplate();
   if (!templateName) return { order, skipped: true, reason: 'missing_prepared_template_name' };
   if (!orderNeedsPreparedTemplate(order)) return { order, skipped: true, reason: 'order_not_prepared' };
@@ -2276,7 +2811,15 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   if (blocked) return { order: blocked.order || order, skipped: true, reason: 'blocked_customer' };
 
   if (preparedTemplateIsTerminal(order, templateName)) {
-    return { order, skipped: true, reason: 'already_sent', status: order.preparedTemplateSendStatus };
+    const terminalOrder = order.preparedTemplateLastError
+      ? upsertOrder(store.id, { ...order, preparedTemplateLastError: null })
+      : order;
+    return {
+      order: terminalOrder,
+      skipped: true,
+      reason: 'already_sent',
+      status: terminalOrder.preparedTemplateSendStatus
+    };
   }
 
   if (preparedTemplateAttemptIsFresh(order)) {
@@ -2295,7 +2838,57 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
     };
   }
 
+  const nativeOwner = chatbyNativeOwnsLifecycleTemplate(templateName);
+  const nativeAudit = nativeOwner
+    ? nativeLifecycleAudit({
+        order,
+        templateName,
+        referenceAt: order?.raw?.updated_at
+          || order?.raw?.updatedAt
+          || order?.statusUpdatedAt
+          || order?.updatedAt
+          || dropeaCreatedAt(order)
+      })
+    : null;
+  if (nativeOwner && !nativeLifecycleVerificationRequired(nativeAudit)) {
+    const updated = upsertOrder(store.id, {
+      ...order,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: nativeAudit.status,
+      preparedTemplateLastError: nativeAudit.error,
+      preparedTemplateNativeAuditAt: new Date().toISOString(),
+      preparedTemplateNativeAuditAgeMinutes: nativeAudit.ageMinutes,
+      preparedTemplateNativeAuditGraceMinutes: nativeAudit.graceMinutes
+    });
+    return { order: updated, skipped: true, reason: nativeAudit.status };
+  }
+
   const userNs = await resolveExistingChatbyUserNs(order);
+  if (nativeOwner) {
+    if (userNs) {
+      const alreadySeen = await markPreparedTemplateAlreadySeen(order, userNs, store, templateName);
+      if (alreadySeen) return { order: alreadySeen, skipped: true, reason: 'already_seen' };
+    }
+
+    const updated = upsertOrder(store.id, {
+      ...order,
+      chatbyUserNs: userNs || order.chatbyUserNs || null,
+      preparedTemplateName: templateName,
+      preparedTemplateSendStatus: nativeAudit.status,
+      preparedTemplateLastError: nativeAudit.error,
+      preparedTemplateNativeAuditAt: new Date().toISOString(),
+      preparedTemplateNativeAuditAgeMinutes: nativeAudit.ageMinutes,
+      preparedTemplateNativeAuditGraceMinutes: nativeAudit.graceMinutes
+    });
+    return {
+      order: updated,
+      skipped: true,
+      reason: userNs
+        ? 'native_owner_no_repository_recovery'
+        : 'native_overdue_missing_chatby_contact',
+      error: nativeAudit.error
+    };
+  }
   if (!userNs) {
     const updated = upsertOrder(store.id, {
       ...order,
@@ -2359,12 +2952,13 @@ export async function sendPreparedTemplateForOrder(order, store = config.default
   });
 
   try {
-    const response = await sendWhatsappTemplate({
+    const templatePayload = {
       user_ns: userNs,
       user_id: order.customerPhone,
       template_name: templateName,
       params: preparedTemplateParamsForOrder(order)
-    });
+    };
+    const response = await sendWhatsappTemplate(templatePayload);
     const verification = await waitForWhatsappTemplateAcceptance({
       userNs,
       templateName,
@@ -2433,9 +3027,13 @@ export async function backfillMissingPreparedTemplates({
   store = config.defaultStore,
   limit = 100,
   pages = 2,
-  targetDate = null
+  targetDate = null,
+  orderIds = []
 } = {}) {
   const targetKey = targetDate || todayKey(config.timezone);
+  const requestedOrderIds = new Set((Array.isArray(orderIds) ? orderIds : [orderIds])
+    .map((value) => String(value || '').replace(/\D/g, ''))
+    .filter(Boolean));
   const orders = await listRecentDropeaOrders({
     limit,
     pages,
@@ -2444,6 +3042,7 @@ export async function backfillMissingPreparedTemplates({
   const results = [];
 
   for (const order of orders) {
+    if (requestedOrderIds.size && !requestedOrderIds.has(String(order.orderId || '').replace(/\D/g, ''))) continue;
     const createdKey = dateKeyInTimezone(dropeaCreatedAt(order), config.timezone);
     if (targetDate && createdKey !== targetKey) continue;
 
@@ -2481,6 +3080,7 @@ export async function backfillMissingPreparedTemplates({
     failed: results.filter((item) => item.action === 'failed').length,
     skipped: results.filter((item) => !['sent', 'failed'].includes(item.action)).length,
     date: targetDate ? targetKey : null,
+    targeted: requestedOrderIds.size > 0,
     results
   };
 }
@@ -2489,8 +3089,12 @@ export async function reconcileCriticalOrderTemplates({
   store = config.defaultStore,
   limit = 100,
   pages = 1,
-  lookbackHours = 48
+  lookbackHours = 48,
+  orderIds = []
 } = {}) {
+  const requestedOrderIds = new Set((Array.isArray(orderIds) ? orderIds : [orderIds])
+    .map((value) => String(value || '').replace(/\D/g, ''))
+    .filter(Boolean));
   const orders = await listRecentDropeaOrders({
     limit,
     pages,
@@ -2501,6 +3105,7 @@ export async function reconcileCriticalOrderTemplates({
   const results = [];
 
   for (const order of orders) {
+    if (requestedOrderIds.size && !requestedOrderIds.has(String(order.orderId || '').replace(/\D/g, ''))) continue;
     const createdAt = parseDate(dropeaCreatedAt(order));
     if (createdAt && createdAt.getTime() < cutoffMs) continue;
 
@@ -2538,6 +3143,10 @@ export async function reconcileCriticalOrderTemplates({
           initialAction = 'sent';
         } else if (afterStatus === 'already_seen') {
           initialAction = 'already_seen';
+        } else if (['native_pending', 'native_overdue'].includes(normalizeText(afterStatus))) {
+          initialAction = normalizeText(afterStatus);
+        } else if (initialTemplateBlockedByLegacyOwnership(current)) {
+          initialAction = 'owner_policy_blocked';
         } else if (beforeStatus || beforeAttemptedAt) {
           initialAction = 'already_recorded';
         } else {
@@ -2573,14 +3182,33 @@ export async function reconcileCriticalOrderTemplates({
   const state = { ...loadState() };
   state.lastCriticalTemplateDeliveryAt = new Date().toISOString();
   state.lastCriticalTemplateDeliveryCount = results.length;
+  state.lastLifecycleTemplateAudit = {
+    checkedAt: state.lastCriticalTemplateDeliveryAt,
+    owner: String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository').trim().toLowerCase(),
+    processed: results.length,
+    verified: results.filter((item) => ['sent', 'already_seen'].includes(item.initial)
+      || ['sent', 'already_seen'].includes(item.prepared)).length,
+    pending: results.filter((item) => item.initial === 'native_pending'
+      || item.prepared === 'native_pending').length,
+    overdue: results.filter((item) => item.initial === 'native_overdue'
+      || item.initial === 'owner_policy_blocked'
+      || item.prepared === 'native_overdue').length,
+    sampleOrderIds: results
+      .filter((item) => item.initial === 'native_overdue'
+        || item.initial === 'owner_policy_blocked'
+        || item.prepared === 'native_overdue')
+      .slice(0, 10)
+      .map((item) => String(item.orderId))
+  };
   saveState(state);
 
   return {
     processed: results.length,
+    targeted: requestedOrderIds.size > 0,
     initialSent: results.filter((item) => item.initial === 'sent').length,
     preparedSent: results.filter((item) => item.prepared === 'sent').length,
-    failed: results.filter((item) => ['failed', 'verification_failed_closed'].includes(item.initial)
-      || ['failed', 'verification_failed_closed'].includes(item.prepared)).length,
+    failed: results.filter((item) => ['failed', 'verification_failed_closed', 'native_overdue'].includes(item.initial)
+      || ['failed', 'verification_failed_closed', 'native_overdue'].includes(item.prepared)).length,
     results
   };
 }
@@ -2633,6 +3261,12 @@ export async function ingestPendingOrders({ store = config.defaultStore, limit =
     const blocked = await applyBlockedCustomerPolicy(merged, store, 'dropea_pending_ingest');
     if (blocked) {
       processed.push(blocked.order || merged);
+      continue;
+    }
+
+    const duplicate = await activeDuplicateOrderPolicy(merged, store, 'dropea_pending_ingest');
+    if (duplicate) {
+      processed.push(duplicate.order || merged);
       continue;
     }
 
@@ -2701,6 +3335,12 @@ export async function backfillTodayMissingInitialTemplates({
     const blocked = await applyBlockedCustomerPolicy(merged, store, 'initial_template_backfill_guard');
     if (blocked) {
       results.push({ orderId: order.orderId, action: blocked.action || 'blocked_customer', skipped: Boolean(blocked.skipped) });
+      continue;
+    }
+
+    const duplicate = await activeDuplicateOrderPolicy(merged, store, 'initial_template_backfill_guard');
+    if (duplicate) {
+      results.push({ orderId: order.orderId, action: duplicate.action, skipped: Boolean(duplicate.skipped) });
       continue;
     }
 
@@ -2831,9 +3471,17 @@ export async function ensureChatbyThread(order, store = config.defaultStore) {
   if (blocked) return blocked.order || order;
 
   const templateName = configuredWhatsappTemplate(store);
-  if (templateName && !templateAlreadyAttempted(order, templateName)) {
+  const nativeLifecycleOwner = templateName && chatbyNativeOwnsLifecycleTemplate(templateName);
+  if (templateName && (
+    nativeLifecycleOwner
+    || initialTemplateBlockedByLegacyOwnership(order)
+    || !templateAlreadyAttempted(order, templateName)
+  )) {
+    if (nativeLifecycleOwner && initialTemplateIsTerminal(order, templateName)) {
+      return order;
+    }
     let userNs = order.chatbyUserNs || null;
-    if (config.chatbyToken && order.customerPhone) {
+    if (!nativeLifecycleOwner && config.chatbyToken && order.customerPhone) {
       const existingSubscriber = await resolveSubscriberForOrder(order)
         || await findSubscriberByPhone({ phone: order.customerPhone, maxPages: 10 });
       if (existingSubscriber?.user_ns) {
@@ -2921,7 +3569,16 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
 
   const immediateCustomerIntent = customerConversationIntentForOrder(inboundCustomerMessages, order)
     || deterministicCustomerIntent(inboundCustomerMessages);
-  if (['CANCEL', 'ADDRESS_CHANGE'].includes(immediateCustomerIntent?.intent)) {
+  const laterCurrentConfirmation = currentConfirmationSupersedesIntent({
+    subscriber,
+    order,
+    intent: immediateCustomerIntent,
+    inboundConfirmationAt: latestConfirmationAt
+  });
+  if (
+    immediateCustomerIntent?.intent === 'ADDRESS_CHANGE'
+    || (immediateCustomerIntent?.intent === 'CANCEL' && !laterCurrentConfirmation)
+  ) {
     const isAddressChange = immediateCustomerIntent.intent === 'ADDRESS_CHANGE';
     const patch = {
       ...order,
@@ -2948,6 +3605,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   }
 
   if (immediateCustomerIntent?.intent === 'CONFIRM') {
+    const duplicate = await activeDuplicateOrderPolicy(order, store, 'customer_message_confirmation_guard');
+    if (duplicate) return duplicate;
     const analysis = {
       ...immediateCustomerIntent,
       reason: immediateCustomerIntent.reason || 'El cliente confirma claramente el pedido.'
@@ -2996,6 +3655,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     sameOrderId(subscriberOrderId, order.orderId)
     && subscriberConfirmationIsCurrent(subscriber, order, latestConfirmationAt)
   ) {
+    const duplicate = await activeDuplicateOrderPolicy(order, store, 'chatby_button_confirmation_guard');
+    if (duplicate) return duplicate;
     const analysis = {
       intent: 'CONFIRM',
       confidence: 100,
@@ -3120,6 +3781,8 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
   };
 
   if (intent === 'CONFIRM' && confidence >= threshold) {
+    const duplicate = await activeDuplicateOrderPolicy(order, store, 'classified_confirmation_guard');
+    if (duplicate) return duplicate;
     if (store.agentDryRun ?? config.defaultStore.agentDryRun) {
       patch.status = 'MANUAL_REVIEW';
       const updated = upsertOrder(store.id, patch);

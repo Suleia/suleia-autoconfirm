@@ -8,16 +8,41 @@ import {
   listDropeaOrdersByStatusBasic,
   listDropeaOrderStateValues,
   pickupDropeaIssueAtDepot,
-  resolveDropeaIssue,
-  returnDropeaIssueToOrigin
+  resolveDropeaIssue
 } from '../clients/dropea.mjs';
-import { collectPendingDropeaV2Incidents } from '../clients/dropea-v2-incidents.mjs';
-import { findSubscriberInIndexByPhone, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
+import { collectPendingDropeaV2Incidents, readDropeaV2ReturnIssueState } from '../clients/dropea-v2-incidents.mjs';
+import {
+  getDropeaV2IssueActionReadiness,
+  returnDropeaV2IssueToOrigin
+} from '../clients/dropea-v2-issue-actions.mjs';
+import { chatbyRepositoryOwnsIncidentTemplate, findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
-import { syncAgentMemoryRuleToSupabase, syncIncidentsCacheToSupabase } from '../db/supabase-store.mjs';
+import {
+  claimIncidentDiscountReturn,
+  claimIncidentAddressResolution,
+  finishIncidentDiscountReturn,
+  finishIncidentAddressResolution,
+  getTemplateDelivery,
+  listIncidentDiscountReturnsForReconciliation,
+  reclaimIncidentDiscountReturn,
+  syncAgentMemoryRuleToSupabase,
+  syncIncidentsCacheToSupabase
+} from '../db/supabase-store.mjs';
 import { evaluateIncidentResponseWait, messagesAfterCurrentIncident } from './incident-response-wait.mjs';
 import { carrierIncidentDisplay } from './incident-carrier-history.mjs';
+import { incidentChatbyReadBlockCount } from '../incident-automation-retry.mjs';
+import {
+  processIncidentDiscountRecovery,
+  warmIncidentDiscountTemplateCache
+} from './incident-discount-service.mjs';
+import { INCIDENT_DISCOUNT_TEMPLATE_NAME } from './incident-discount-template.mjs';
+import {
+  classifyIncidentDiscountResponse,
+  INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
+} from './incident-discount-policy.mjs';
+import { incidentTemplateNameForType, processIncidentNotification } from './incident-notifications.mjs';
+import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -32,6 +57,22 @@ function normalize(value) {
 
 function digits(value) {
   return String(value || '').replace(/\D/g, '');
+}
+
+export function incidentNotificationLaneEnabled({
+  incidentType,
+  returnOnly = false,
+  repositoryOwnsIncidentTemplates = false,
+  incidentNotificationsEnabled = false,
+  incidentDiscountTemplateEnabled = false,
+  incidentDiscountRealEnabled = false
+} = {}) {
+  if (returnOnly || !repositoryOwnsIncidentTemplates) return false;
+  if (incidentType === 'absent') return incidentNotificationsEnabled === true;
+  if (incidentType === 'rejected_goods') {
+    return incidentDiscountTemplateEnabled === true && incidentDiscountRealEnabled === true;
+  }
+  return false;
 }
 
 function asArray(value) {
@@ -921,7 +962,9 @@ async function verifyIncidentLeftPending(incident, attempts = 3) {
     const order = await getDropeaOrderById(incident.orderId).catch(() => null);
     if (!order) continue;
     const issue = issueList(order?.raw?.issues).find((item) => String(item?.id || '') === String(incident.incidenceId));
-    if (!issue || !isPendingIssue(issue)) {
+    const currentStatus = issueStatus(issue);
+    const stillOpen = isPendingIssue(issue) || currentStatus === 'MANAGING_WITH_CLIENT';
+    if (!issue || !stillOpen) {
       return { verified: true, issueStatus: issue ? issueStatus(issue) : 'NOT_PENDING' };
     }
   }
@@ -973,7 +1016,7 @@ async function executeIncidentOperationalDecision(incident, decision) {
     let response;
     if (decision.action === 'accept_solution') response = await resolveDropeaIssue(incident.incidenceId, decision.text);
     else if (decision.action === 'pickup_at_depot') response = await pickupDropeaIssueAtDepot(incident.incidenceId);
-    else if (decision.action === 'return_to_origin') response = await returnDropeaIssueToOrigin(incident.incidenceId);
+    else if (decision.action === 'return_to_origin') response = await returnDropeaV2IssueToOrigin(incident.incidenceId);
     else throw new Error(`Accion de incidencia no soportada: ${decision.action}`);
 
     const completedAt = new Date().toISOString();
@@ -996,6 +1039,472 @@ async function executeIncidentOperationalDecision(incident, decision) {
     });
     await auditIncidentAction(incident, decision, result);
     return { ...result, verified: false };
+  }
+}
+
+async function currentPendingIncident(incidenceId, orderId) {
+  const rows = await collectPendingDropeaV2Incidents({ limit: 100, pages: 3 });
+  return rows.find(({ issue, order }) => (
+    String(issue?.id || issue?.incidenceId || '') === String(incidenceId || '')
+    && String(order?.orderId || issue?.orderId || '') === String(orderId || '')
+  )) || null;
+}
+
+const INCIDENT_DISCOUNT_RETURN_AFTER_HOURS = 24;
+const INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES = 30;
+const activeIncidentDiscountReturns = new Set();
+
+export function automaticIncidentReturnReconciliationDue(existing, { now = Date.now(), delayMinutes = INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES } = {}) {
+  const status = String(existing?.status || '').toLowerCase();
+  const staleClaim = status === 'claimed' || status === 'reconciliation_claimed';
+  const transientFailure = status === 'manual_reconciliation_required'
+    && /^DROPEA_V2_ISSUE_ACTION_HTTP_(429|5\d\d)$/.test(String(existing?.last_error || ''));
+  const nonceAt = Date.parse(String(existing?.raw?.requestNonce || ''));
+  const ambiguousFailure = status === 'manual_reconciliation_required'
+    && ['DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN', 'DROPEA_V2_ISSUE_ACTION_RESPONSE_SCHEMA_INVALID'].includes(existing?.last_error)
+    && Number.isFinite(nonceAt) && Number(now) >= nonceAt && Number(now) - nonceAt < 24 * 3_600_000;
+  if (!staleClaim && !transientFailure && !ambiguousFailure) return false;
+  const attemptedAt = Date.parse(String(existing?.attempted_at || existing?.updated_at || ''));
+  const nowMs = Number(now);
+  if (!Number.isFinite(attemptedAt) || !Number.isFinite(nowMs)) return false;
+  return nowMs - attemptedAt >= Math.max(1, Number(delayMinutes) || INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES) * 60_000;
+}
+
+export async function verifyExactIncidentReturn(incident, {
+  readCurrent = readDropeaV2ReturnIssueState, attempts = 3,
+  wait = ms => new Promise(resolve => setTimeout(resolve, ms))
+} = {}) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (attempt) await wait(750 * attempt);
+    const current = await readCurrent(incident).catch(() => null);
+    const issue = current?.issue?.raw || current?.issue;
+    if (String(issue?.id || '') === String(incident.incidenceId)
+        && String(issue?.order_id || '') === String(incident.orderId)
+        && issue.status === 'RESOLVED' && issue.resolution_status === 'RETURN_REQUESTED') {
+      return { verified: true, issueStatus: issue.status, resolutionStatus: issue.resolution_status,
+        resolutionChangedAt: issue.resolution_changed_at || null };
+    }
+  }
+  return { verified: false, issueStatus: 'NOT_VERIFIED' };
+}
+
+export async function reconcileIncidentDiscountReturnLedger({
+  list = listIncidentDiscountReturnsForReconciliation,
+  readCurrent = readDropeaV2ReturnIssueState,
+  finish = finishIncidentDiscountReturn, now = Date.now()
+} = {}) {
+  const summary = { checked: 0, verified: 0, closedWithoutReturn: 0, finalWorkflowBlocked: 0, retryable: 0, readFailed: 0 };
+  const rows = await list().catch(() => null);
+  if (!Array.isArray(rows)) return { ...summary, ledgerReadFailed: true };
+  for (const row of rows) {
+    const incidenceId = String(row.template_name || '').match(/^dropea_issue_discount_no_response_return_v1:(\d+)$/)?.[1];
+    if (!incidenceId || !/^\d+$/.test(String(row.order_id || ''))) continue;
+    // A concurrent in-flight writer must finish before its claim is inspected.
+    if (['claimed', 'reconciliation_claimed'].includes(row.status)
+        && !automaticIncidentReturnReconciliationDue(row, { now })) continue;
+    summary.checked += 1;
+    const current = await readCurrent({ incidenceId, orderId: row.order_id }).catch(() => null);
+    const issue = current?.issue?.raw || current?.issue;
+    if (String(issue?.id || '') !== incidenceId || String(issue?.order_id || '') !== String(row.order_id)) { summary.readFailed += 1; continue; }
+    const applied = issue.status === 'RESOLVED' && issue.resolution_status === 'RETURN_REQUESTED';
+    const closed = issue.is_active === false;
+    const final = ['MANAGING_WITH_CLIENT', 'RESOLVED', 'INFO'].includes(issue.status);
+    if (!applied && !closed && !final) { summary.retryable += 1; continue; }
+    const status = applied ? 'verified' : closed ? 'closed_without_return_request' : 'blocked_final_workflow_state';
+    try {
+      await finish({ storeId: row.store_id, orderId: row.order_id, incidenceId, status,
+        attemptedAt: row.attempted_at,
+        completedAt: applied ? (issue.resolution_changed_at || row.sent_at || new Date(now).toISOString()) : row.sent_at,
+        lastError: applied ? null : closed ? 'DROPEA_ISSUE_INACTIVE_NOT_RETURN_VERIFIED' : 'DROPEA_ISSUE_WORKFLOW_FINAL',
+        evidence: { ...(row.raw || {}), reconciliationAt: new Date(now).toISOString(),
+          verified: applied, dropeaStatus: issue.status, dropeaResolution: issue.resolution_status,
+          dropeaActive: issue.is_active } });
+      if (applied) summary.verified += 1; else if (closed) summary.closedWithoutReturn += 1; else summary.finalWorkflowBlocked += 1;
+    } catch { summary.readFailed += 1; }
+  }
+  return summary;
+}
+
+export function incidentDiscountNoResponseReturnDecision({ incident, discountRecovery, now = Date.now() } = {}) {
+  if (incident?.incidentType !== 'rejected_goods') {
+    return { eligible: false, status: 'NOT_APPLICABLE', reason: 'incident_not_rejected_goods' };
+  }
+  if (!incident?.incidenceId || !incident?.orderId) {
+    return { eligible: false, status: 'BLOCKED', reason: 'missing_incident_identifiers' };
+  }
+  if (incident?.chatbyReadVerified !== true) {
+    return { eligible: false, status: 'BLOCKED', reason: 'chatby_context_unverified' };
+  }
+  if (discountRecovery?.verified !== true) {
+    return { eligible: false, status: 'WAITING', reason: 'discount_delivery_not_verified' };
+  }
+  const sentAtMs = Date.parse(String(discountRecovery?.sentAt || ''));
+  if (!Number.isFinite(sentAtMs)) {
+    return { eligible: false, status: 'BLOCKED', reason: 'discount_delivery_time_invalid' };
+  }
+  const dueAt = new Date(sentAtMs + INCIDENT_DISCOUNT_RETURN_AFTER_HOURS * 3_600_000).toISOString();
+  if (discountRecovery?.responseStatus === 'DISCOUNT_REJECTED') {
+    return {
+      eligible: true,
+      status: 'READY_FOR_RETURN',
+      action: 'return_to_origin',
+      ruleId: 'core_incident_discount_rejected_return',
+      confidence: 100,
+      reason: 'El cliente rechazo expresamente la oferta autorizada de 5 EUR.',
+      responseStatus: 'DISCOUNT_REJECTED',
+      dueAt
+    };
+  }
+  if (discountRecovery?.responseStatus !== 'NO_RESPONSE') {
+    return {
+      eligible: false,
+      status: 'BLOCKED_CUSTOMER_ACTIVITY',
+      reason: 'customer_interaction_after_discount',
+      dueAt
+    };
+  }
+  const nowMs = Number(now);
+  if (!Number.isFinite(nowMs)) {
+    return { eligible: false, status: 'BLOCKED', reason: 'evaluation_time_invalid', dueAt };
+  }
+  if (nowMs < Date.parse(dueAt)) {
+    return { eligible: false, status: 'WAITING_24_HOURS', reason: 'waiting_return_window', dueAt };
+  }
+  return {
+    eligible: true,
+    status: 'READY_FOR_RETURN',
+    action: 'return_to_origin',
+    ruleId: 'core_incident_discount_no_response_return_24h',
+    confidence: 100,
+    reason: 'Han transcurrido 24 horas desde la entrega verificada del descuento sin mensajes, botones ni acciones del cliente.',
+    responseStatus: 'NO_RESPONSE',
+    dueAt
+  };
+}
+
+export async function executeIncidentDiscountNoResponseReturn(incident, discountRecovery, dependencies = {}) {
+  const decision = incidentDiscountNoResponseReturnDecision({
+    incident,
+    discountRecovery,
+    now: dependencies.now ?? Date.now()
+  });
+  if (!decision.eligible) return { ...decision, verified: false };
+
+  const allowedIncidentIds = new Set((dependencies.allowedIncidentIds ?? config.defaultStore.incidentReturnAllowedIds ?? [])
+    .map((value) => String(value).trim())
+    .filter(Boolean));
+  const automaticEnabled = dependencies.automaticEnabled
+    ?? config.defaultStore.incidentDiscountReturnAutomaticEnabled;
+  if (automaticEnabled !== true && !allowedIncidentIds.has(String(incident.incidenceId || ''))) {
+    return { ...decision, status: 'BLOCKED_NOT_AUTHORIZED', verified: false, reason: 'La incidencia no esta en la lista exacta autorizada.' };
+  }
+
+  const realEnabled = dependencies.realEnabled ?? config.defaultStore.incidentDiscountReturnRealEnabled;
+  if (realEnabled !== true) {
+    return { ...decision, status: 'WOULD_RETURN', verified: false, reason: 'Devolucion automatica desactivada por configuracion.' };
+  }
+  const credentialAvailable = dependencies.credentialAvailable ?? getDropeaV2IssueActionReadiness().ready;
+  if (!credentialAvailable) {
+    return { ...decision, status: 'BLOCKED_MISSING_CREDENTIAL', verified: false, reason: 'No hay credencial Dropea disponible.' };
+  }
+
+  const readCurrent = dependencies.readCurrent || ((incidenceId, orderId) => readDropeaV2ReturnIssueState({ incidenceId, orderId }));
+  const current = await readCurrent(incident.incidenceId, incident.orderId).catch(() => null);
+  if (!current) {
+    return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o no coincide exactamente con el pedido.' };
+  }
+  const currentRawIssue = current.issue?.raw || current.issue || {};
+  const currentStatus = String(current.issue?.status || currentRawIssue.status || '').toUpperCase();
+  if (
+    currentStatus !== 'PENDING'
+    || currentRawIssue.is_active !== true
+  ) {
+    return { ...decision, status: currentStatus === 'MANAGING_WITH_CLIENT' ? 'BLOCKED_FINAL_WORKFLOW_STATE' : 'BLOCKED_NOT_PENDING', verified: false, reason: 'La API solo permite resolver incidencias PENDING y activas. Gestion con cliente es un estado final, no una devolucion verificada.' };
+  }
+  if (!Array.isArray(currentRawIssue.allowed_resolution_options)
+    || !currentRawIssue.allowed_resolution_options.includes('RETURN_REQUESTED')) {
+    return { ...decision, status: 'BLOCKED_RETURN_NOT_ALLOWED', verified: false, reason: 'Dropea no permite RETURN_REQUESTED para esta incidencia.' };
+  }
+
+  const readMessages = dependencies.readMessages || getChatMessages;
+  const finalMessages = await readMessages(incident.chatbyUserNs).catch(() => null);
+  if (!Array.isArray(finalMessages)) {
+    return { ...decision, status: 'BLOCKED_CHATBY_READ_FAILED', verified: false, reason: 'No se pudo verificar Chatby inmediatamente antes de solicitar la devolucion.' };
+  }
+  const finalResponse = classifyIncidentDiscountResponse(
+    finalMessages,
+    discountRecovery.templateName,
+    { status: 'sent', sent_at: discountRecovery.sentAt }
+  );
+  const expectedResponseStatus = decision.responseStatus || 'NO_RESPONSE';
+  if (finalResponse.status !== expectedResponseStatus) {
+    return {
+      ...decision,
+      status: 'BLOCKED_CUSTOMER_ACTIVITY',
+      verified: false,
+      reason: 'El cliente ha contestado o realizado una accion despues del descuento.',
+      responseStatus: finalResponse.status,
+      respondedAt: finalResponse.respondedAt
+    };
+  }
+
+  const activeKey = `${incident.orderId}|${incident.incidenceId}`;
+  if (activeIncidentDiscountReturns.has(activeKey)) {
+    return { ...decision, status: 'ALREADY_IN_FLIGHT', verified: false, reason: 'La devolucion ya se esta procesando.' };
+  }
+  activeIncidentDiscountReturns.add(activeKey);
+  const claimReturn = dependencies.claimReturn || claimIncidentDiscountReturn;
+  const finishReturn = dependencies.finishReturn || finishIncidentDiscountReturn;
+  const reclaimReturn = dependencies.reclaimReturn || reclaimIncidentDiscountReturn;
+  const returnIssue = dependencies.returnIssue || returnDropeaV2IssueToOrigin;
+  const verifyReturn = dependencies.verifyReturn || verifyExactIncidentReturn;
+  const auditReturn = dependencies.auditReturn || auditIncidentAction;
+  const attemptedAt = new Date(dependencies.now ?? Date.now()).toISOString();
+  let replayNonce = null;
+  try {
+    let claim = await claimReturn({
+      storeId: config.defaultStore.id,
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId
+    });
+    if (
+      claim?.reason === 'already_claimed'
+      && (
+        (
+          dependencies.allowManualReconciliationRetry === true
+          && claim?.existing?.status === 'manual_reconciliation_required'
+        )
+        || (automaticEnabled === true && automaticIncidentReturnReconciliationDue(claim.existing, { now: dependencies.now ?? Date.now() }))
+      )
+    ) {
+      const existing = claim.existing;
+      if (['claimed', 'reconciliation_claimed'].includes(existing?.status)
+          || ['DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN', 'DROPEA_V2_ISSUE_ACTION_RESPONSE_SCHEMA_INVALID'].includes(existing?.last_error)) {
+        replayNonce = existing.raw?.requestNonce || existing.attempted_at;
+      }
+      claim = await reclaimReturn({
+        storeId: config.defaultStore.id,
+        orderId: incident.orderId,
+        incidenceId: incident.incidenceId,
+        expectedStatus: claim.existing?.status
+      });
+    }
+    if (!claim?.acquired || claim?.persistent !== true) {
+      const existingStatus = String(claim?.existing?.status || '').toLowerCase();
+      const previouslyVerified = existingStatus === 'verified';
+      const previouslyApplied = previouslyVerified || existingStatus === 'applied_unverified';
+      return {
+        ...decision,
+        status: previouslyVerified
+          ? 'RETURN_REQUESTED_VERIFIED'
+          : previouslyApplied
+            ? 'RETURN_REQUESTED_UNVERIFIED'
+            : claim?.reason === 'already_claimed'
+              ? 'ALREADY_CLAIMED'
+              : 'BLOCKED_PERSISTENT_LEDGER',
+        verified: previouslyVerified,
+        reason: previouslyApplied
+          ? 'La solicitud de devolucion ya consta en el registro persistente.'
+          : claim?.reason === 'already_claimed'
+            ? 'La devolucion ya fue solicitada o reclamada anteriormente.'
+          : 'No esta disponible el registro persistente; no se actua para evitar duplicados.'
+      };
+    }
+
+    const requestNonce = replayNonce || claim.row?.attempted_at || attemptedAt;
+    let response;
+    try {
+      response = await returnIssue(incident.incidenceId, { idempotencyNonce: requestNonce });
+    } catch (error) {
+      const errorCode = safeIncidentActionError(error);
+      await finishReturn({
+        storeId: config.defaultStore.id,
+        orderId: incident.orderId,
+        incidenceId: incident.incidenceId,
+        status: 'manual_reconciliation_required',
+        attemptedAt,
+        lastError: errorCode,
+        evidence: { ruleId: decision.ruleId, responseStatus: expectedResponseStatus, requestNonce }
+      }).catch(() => null);
+      const result = { ...decision, status: 'MANUAL_RECONCILIATION_REQUIRED', attemptedAt, verified: false, error: errorCode };
+      await auditReturn(incident, decision, result).catch(() => null);
+      return result;
+    }
+
+    const completedAt = new Date().toISOString();
+    const verification = await verifyReturn(incident);
+    const verified = verification?.verified === true || verification === true;
+    const status = verified ? 'RETURN_REQUESTED_VERIFIED' : 'RETURN_REQUESTED_UNVERIFIED';
+    await finishReturn({
+      storeId: config.defaultStore.id,
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId,
+      status: verified ? 'verified' : 'applied_unverified',
+      attemptedAt,
+      completedAt,
+      lastError: verified ? null : 'INCIDENT_STILL_PENDING_AFTER_RETURN_REQUEST',
+      evidence: { ruleId: decision.ruleId, verified, responseStatus: expectedResponseStatus, requestNonce }
+    });
+    const result = { ...decision, status, attemptedAt, completedAt, verified, response };
+    await auditReturn(incident, decision, result).catch(() => null);
+    return result;
+  } finally {
+    activeIncidentDiscountReturns.delete(activeKey);
+  }
+}
+
+function safeIncidentActionError(error) {
+  const code = String(error?.code || '').trim();
+  if (code) return code.slice(0, 120);
+  const message = error instanceof Error ? error.message : String(error || 'unknown_error');
+  const match = message.match(/\b(?:DROPEA|CHATBY|SUPABASE)_[A-Z0-9_]+\b/);
+  return match?.[0] || 'INCIDENT_ADDRESS_RESOLUTION_FAILED';
+}
+
+async function verifyAddressIncidentLeftPending(incidenceId, orderId) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 750 * attempt));
+    const current = await currentPendingIncident(incidenceId, orderId);
+    if (!current) return true;
+  }
+  return false;
+}
+
+async function auditAddressIncidentAction(incident, decision, result) {
+  const timestamp = result.verifiedAt || result.completedAt || result.attemptedAt || new Date().toISOString();
+  await syncAgentMemoryRuleToSupabase({
+    id: `incident_address_action_${incident.incidenceId}`,
+    type: 'incident_address_action_audit',
+    source: 'suleia_incident_agent',
+    incidenceId: incident.incidenceId,
+    orderId: incident.orderId,
+    text: `${decision.ruleId}: ${result.status}`,
+    createdAt: timestamp,
+    raw: {
+      incidenceId: incident.incidenceId,
+      orderId: incident.orderId,
+      ruleId: decision.ruleId,
+      status: result.status,
+      attemptedAt: result.attemptedAt || null,
+      completedAt: result.completedAt || null,
+      verifiedAt: result.verifiedAt || null
+    }
+  }).catch(() => null);
+}
+
+export async function executeIncorrectAddressResolution(incident, analyzedDecision, dependencies = {}) {
+  const readCurrent = dependencies.readCurrent || currentPendingIncident;
+  const readMessages = dependencies.readMessages || getChatMessages;
+  const claimResolution = dependencies.claimResolution || claimIncidentAddressResolution;
+  const resolveIssue = dependencies.resolveIssue || resolveDropeaIssue;
+  const verifyResolution = dependencies.verifyResolution || verifyAddressIncidentLeftPending;
+  const finishResolution = dependencies.finishResolution || finishIncidentAddressResolution;
+  const auditResolution = dependencies.auditResolution || auditAddressIncidentAction;
+  const realEnabled = dependencies.realEnabled ?? config.defaultStore.incidentAddressResolutionRealEnabled;
+  const manualStatus = analyzedDecision?.status || 'MANUAL_REVIEW';
+  if (!analyzedDecision?.eligible || analyzedDecision.ruleId !== 'core_incident_incorrect_address_customer_solution') {
+    return { status: manualStatus, verified: false, reason: analyzedDecision?.reason || 'Revision manual.' };
+  }
+  if (realEnabled !== true) {
+    return { status: 'WOULD_RESOLVE_ADDRESS', verified: false, reason: 'Resolucion real de direccion desactivada.' };
+  }
+  if (!incident.incidenceId || !incident.orderId || !incident.chatbyUserNs) {
+    return { status: 'MANUAL_REVIEW_MISSING_IDENTIFIERS', verified: false, reason: 'Faltan identificadores verificables.' };
+  }
+
+  let current;
+  try {
+    current = await readCurrent(incident.incidenceId, incident.orderId);
+  } catch (error) {
+    return { status: 'MANUAL_REVIEW_DROPEA_UNVERIFIED', verified: false, reason: safeIncidentActionError(error) };
+  }
+  if (!current) {
+    return { status: 'ALREADY_RESOLVED', verified: true, reason: 'La incidencia ya no esta pendiente en Dropea.' };
+  }
+  const currentClassification = classifyIncident(current.issue, current.order);
+  if (currentClassification.type !== 'address' || !isPendingIssue(current.issue)) {
+    return { status: 'MANUAL_REVIEW_DROPEA_CHANGED', verified: false, reason: 'La incidencia vigente ya no es una direccion pendiente.' };
+  }
+
+  let refreshedChatby;
+  try {
+    const messages = await readMessages(incident.chatbyUserNs);
+    refreshedChatby = scopeChatbyToCurrentIncident({
+      ...summarizeConversation(messages),
+      messagesForNotification: messages,
+      chatbyReadVerified: true,
+      chatbyReadAttempts: 1,
+      orderAssociation: 'EXACT_ORDER',
+      userNs: incident.chatbyUserNs
+    }, incident.incidenceDate);
+  } catch (error) {
+    return { status: 'MANUAL_REVIEW_CHATBY_UNVERIFIED', verified: false, reason: safeIncidentActionError(error) };
+  }
+  const freshDecision = incorrectAddressOperationalDecision({
+    classification: currentClassification,
+    chatby: refreshedChatby,
+    phone: current.order?.customerPhone || incident.phone
+  });
+  if (!freshDecision.eligible) {
+    return { status: freshDecision.status || 'MANUAL_REVIEW', verified: false, reason: freshDecision.reason };
+  }
+
+  const attemptedAt = new Date().toISOString();
+  let claim;
+  try {
+    claim = await claimResolution({
+      storeId: config.defaultStore.id || 'suleia',
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId
+    });
+  } catch (error) {
+    return { status: 'MANUAL_REVIEW_IDEMPOTENCY_UNAVAILABLE', verified: false, reason: safeIncidentActionError(error) };
+  }
+  if (!claim?.acquired || claim?.persistent !== true) {
+    const priorStatus = String(claim?.existing?.status || '').toLowerCase();
+    return {
+      status: ['verified', 'applied_unverified', 'already_resolved'].includes(priorStatus)
+        ? 'ALREADY_RESOLVED'
+        : 'MANUAL_REVIEW_ALREADY_CLAIMED',
+      verified: priorStatus === 'verified' || priorStatus === 'already_resolved',
+      reason: claim?.reason || 'La incidencia ya tiene una reclamacion persistente.'
+    };
+  }
+
+  try {
+    await resolveIssue(incident.incidenceId, freshDecision.text);
+    const completedAt = new Date().toISOString();
+    const verified = await verifyResolution(incident.incidenceId, incident.orderId);
+    const status = verified ? 'AUTO_RESOLVED' : 'AUTO_APPLIED_PENDING_VERIFICATION';
+    const verifiedAt = verified ? new Date().toISOString() : null;
+    await finishResolution({
+      storeId: config.defaultStore.id || 'suleia',
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId,
+      status: verified ? 'verified' : 'applied_unverified',
+      attemptedAt,
+      completedAt,
+      evidence: { ruleId: freshDecision.ruleId, verified }
+    });
+    const result = { status, verified, attemptedAt, completedAt, verifiedAt, reason: freshDecision.reason };
+    await auditResolution(incident, freshDecision, result);
+    console.log(`Incident address action ${incident.incidenceId} ${incident.orderId}: ${status}`);
+    return result;
+  } catch (error) {
+    const safeError = safeIncidentActionError(error);
+    await finishResolution({
+      storeId: config.defaultStore.id || 'suleia',
+      orderId: incident.orderId,
+      incidenceId: incident.incidenceId,
+      status: 'failed_manual_review',
+      attemptedAt,
+      lastError: safeError,
+      evidence: { ruleId: freshDecision.ruleId, verified: false }
+    }).catch(() => null);
+    const result = { status: 'MANUAL_REVIEW_ACTION_FAILED', verified: false, attemptedAt, error: safeError, reason: safeError };
+    await auditResolution(incident, freshDecision, result);
+    console.error(`Incident address action ${incident.incidenceId} ${incident.orderId}: ${result.status} (${safeError})`);
+    return result;
   }
 }
 
@@ -1055,6 +1564,81 @@ function customerSignalForIncident(chatby) {
     label: 'Respuesta ambigua',
     tone: 'warning',
     detail: 'El cliente ha contestado, pero necesito criterio o feedback para decidir mejor.'
+  };
+}
+
+function customerMessageUsesInteractiveAction(message) {
+  const raw = message?.raw || message || {};
+  const kind = normalize([
+    message?.type,
+    message?.message_type,
+    message?.content_type,
+    raw?.type,
+    raw?.message_type,
+    raw?.content_type,
+    raw?.interactive?.type
+  ].filter(Boolean).join(' '));
+  return Boolean(
+    message?.button_text
+    || raw?.button_text
+    || raw?.button?.text
+    || raw?.interactive?.button_reply
+    || raw?.interactive?.list_reply
+    || kind.includes('button')
+    || kind.includes('interactive')
+  );
+}
+
+function customerActivityActionLabel(intent, usedInteractiveAction) {
+  const labels = {
+    reject_or_cancel: 'Rechaza o cancela el pedido',
+    address_data: 'Aporta o corrige la dirección',
+    delivery_instruction: 'Da instrucciones de entrega',
+    reprogram_delivery: 'Solicita reprogramar la entrega',
+    positive_confirmation: 'Muestra conformidad',
+    customer_unclear: 'Responde sin una acción clara'
+  };
+  const base = labels[intent] || (usedInteractiveAction ? 'Pulsa una opción en Chatby' : 'Responde en Chatby');
+  return usedInteractiveAction && labels[intent] ? `${base} mediante botón` : base;
+}
+
+export function customerActivityForIncident(chatby = {}) {
+  const scopedMessages = Array.isArray(chatby.messagesAfterCurrentIncident)
+    ? chatby.messagesAfterCurrentIncident
+    : [];
+  const inbound = orderedMessagesChronologically(scopedMessages).filter(isCustomerMessage);
+  const firstAt = inbound.length ? messageDate(inbound[0]) : null;
+  const lastAt = inbound.length ? messageDate(inbound[inbound.length - 1]) : null;
+  const usedInteractiveAction = inbound.some(customerMessageUsesInteractiveAction);
+  const detected = inbound.length > 0;
+  const referenceType = chatby.activityReferenceType || 'INCIDENT_OPENED';
+  const referenceLabel = referenceType === 'REJECTED_TEMPLATE'
+    ? 'plantilla de incidencia de rechazo'
+    : referenceType === 'DISCOUNT_TEMPLATE'
+      ? 'plantilla de descuento de 5 €'
+      : referenceType === 'EXACT_TEMPLATE'
+        ? 'plantilla verificada'
+        : 'apertura de la incidencia';
+  const actionLabel = detected
+    ? customerActivityActionLabel(chatby.intent || '', usedInteractiveAction)
+    : 'Sin respuesta ni acción posterior';
+  return {
+    applies: Boolean(chatby.activityReferenceAt),
+    detected,
+    verified: chatby.chatbyReadVerified === true,
+    source: 'Chatby',
+    referenceType,
+    referenceLabel,
+    referenceAt: chatby.activityReferenceAt || null,
+    actionCode: detected ? (chatby.intent || 'customer_response') : 'no_customer_activity',
+    actionLabel,
+    interactionType: usedInteractiveAction ? 'BUTTON' : detected ? 'MESSAGE' : 'NONE',
+    messageCount: inbound.length,
+    firstAt,
+    lastAt,
+    detail: detected
+      ? `${inbound.length} interacción(es) del cliente después de la ${referenceLabel}.`
+      : `No hay interacción del cliente después de la ${referenceLabel}.`
   };
 }
 
@@ -1550,7 +2134,85 @@ function summarizeConversation(messages = []) {
   };
 }
 
-async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = new Map(), { since = null, orderId = null } = {}) {
+export async function chatbyContextFromExactTemplateDelivery({
+  orderId,
+  incidentAt,
+  delivery,
+  orderAssociation = 'EXACT_ORDER_TEMPLATE_LEDGER',
+  messagesByUserNs = new Map(),
+  readMessages = getChatMessages
+} = {}) {
+  const normalizedOrderId = String(orderId || '').trim();
+  const deliveryOrderId = String(delivery?.order_id || '').trim();
+  const userNs = String(delivery?.chatby_user_ns || '').trim();
+  const deliveryStatus = String(delivery?.status || '').trim().toLowerCase();
+  const sentAtMs = Date.parse(String(delivery?.sent_at || ''));
+  const incidentAtMs = Date.parse(String(incidentAt || ''));
+  if (!normalizedOrderId || deliveryOrderId !== normalizedOrderId) return null;
+  if (!['sent', 'already_seen'].includes(deliveryStatus) || !userNs) return null;
+  if (!Number.isFinite(sentAtMs) || !Number.isFinite(incidentAtMs) || sentAtMs < incidentAtMs) return null;
+
+  if (!messagesByUserNs.has(userNs)) {
+    messagesByUserNs.set(userNs, (async () => {
+      let lastError = null;
+      for (let attempt = 1; attempt <= 3; attempt += 1) {
+        try {
+          const loaded = await readMessages(userNs);
+          if (Array.isArray(loaded)) {
+            return {
+              messages: loaded,
+              verified: true,
+              attempts: attempt,
+              readAt: new Date().toISOString()
+            };
+          }
+        } catch (error) {
+          lastError = error;
+          if (error?.code === 'CHATBY_RATE_LIMITED') throw error;
+        }
+        if (attempt < 3) {
+          await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+        }
+      }
+      throw lastError || new Error('Chatby no devolvio mensajes verificables tras tres lecturas.');
+    })());
+  }
+
+  const chatRead = await messagesByUserNs.get(userNs);
+  const activityReferenceAt = new Date(sentAtMs).toISOString();
+  const messagesAfterDelivery = messagesAfterCurrentIncident(chatRead.messages, activityReferenceAt)
+    .map((entry) => entry.message);
+  return {
+    ok: true,
+    userNs,
+    orderAssociation,
+    activityReferenceAt,
+    activityReferenceType: orderAssociation === 'EXACT_ORDER_MERCHANDISE_LEDGER'
+      ? 'REJECTED_TEMPLATE'
+      : orderAssociation === 'EXACT_ORDER_DISCOUNT_LEDGER'
+        ? 'DISCOUNT_TEMPLATE'
+        : 'EXACT_TEMPLATE',
+    chatbyReadVerified: chatRead.verified === true,
+    chatbyReadAttempts: chatRead.attempts,
+    chatbyReadAt: chatRead.readAt || null,
+    messagesForNotification: chatRead.messages,
+    messagesAfterCurrentIncident: messagesAfterDelivery,
+    ...summarizeConversation(messagesAfterDelivery)
+  };
+}
+
+export async function chatbyContextFromExactDiscountDelivery(options = {}) {
+  return chatbyContextFromExactTemplateDelivery({
+    ...options,
+    orderAssociation: 'EXACT_ORDER_DISCOUNT_LEDGER'
+  });
+}
+
+async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = new Map(), {
+  since = null,
+  orderId = null,
+  requireExactOrder = false
+} = {}) {
   if (!digits(phone)) {
     return {
       ok: false,
@@ -1563,11 +2225,14 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
     };
   }
 
-  const subscriber = findSubscriberInIndexForOrder(subscriberIndex, {
-    phone,
-    orderId,
-    allowConfirmedPhoneFallback: true
-  }) || findSubscriberInIndexByPhone(subscriberIndex, { phone });
+  const exactSubscriber = findSubscriberInIndexForExactOrder(subscriberIndex, { phone, orderId });
+  const subscriber = exactSubscriber || (requireExactOrder ? null : (
+    findSubscriberInIndexForOrder(subscriberIndex, {
+      phone,
+      orderId,
+      allowConfirmedPhoneFallback: true
+    }) || findSubscriberInIndexByPhone(subscriberIndex, { phone })
+  ));
   if (!subscriber) {
     return {
       ok: false,
@@ -1588,10 +2253,16 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
         try {
           const loaded = await getChatMessages(userNs);
           if (loaded.length || attempt === 3) {
-            return { messages: loaded, verified: true, attempts: attempt };
+            return {
+              messages: loaded,
+              verified: true,
+              attempts: attempt,
+              readAt: new Date().toISOString()
+            };
           }
         } catch (error) {
           lastError = error;
+          if (error?.code === 'CHATBY_RATE_LIMITED') throw error;
         }
         await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
       }
@@ -1612,9 +2283,11 @@ async function chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs = 
   return {
     ok: true,
     userNs,
+    orderAssociation: exactSubscriber ? 'EXACT_ORDER' : 'PHONE_FALLBACK',
     subscriberName: subscriber.name || subscriber.full_name || null,
     chatbyReadVerified: chatRead.verified,
     chatbyReadAttempts: chatRead.attempts,
+    chatbyReadAt: chatRead.readAt || null,
     messagesForNotification: Array.isArray(allMessages) ? allMessages : [],
     ...summarizeConversation(Array.isArray(messages) ? messages : [])
   };
@@ -1624,13 +2297,17 @@ function scopeChatbyToCurrentIncident(chatby, incidentAt) {
   const allMessages = Array.isArray(chatby?.messagesForNotification)
     ? chatby.messagesForNotification
     : [];
-  const scopedMessages = messagesAfterCurrentIncident(allMessages, incidentAt)
+  const activityReferenceAt = chatby?.activityReferenceAt || incidentAt;
+  const scopedMessages = messagesAfterCurrentIncident(allMessages, activityReferenceAt)
     .map((entry) => entry.message);
   return {
     ...chatby,
     messagesForNotification: allMessages,
     messagesAfterCurrentIncident: scopedMessages,
-    incidentConversationStartAt: incidentAt || null,
+    customerTextsAfterIncident: scopedMessages.filter(isCustomerMessage).map(messageText).filter(Boolean),
+    incidentConversationStartAt: activityReferenceAt || null,
+    activityReferenceAt: activityReferenceAt || null,
+    activityReferenceType: chatby?.activityReferenceType || 'INCIDENT_OPENED',
     ...summarizeConversation(scopedMessages)
   };
 }
@@ -1690,16 +2367,40 @@ export async function preparePendingIncidentsForAnalysis({
   }
 }
 
-export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
+export async function syncPendingIncidents({
+  limit = 100,
+  pages = 3,
+  authorizedImmediateDiscounts = false,
+  authorizedReturnIncidentIds = [],
+  reconcileAmbiguousReturnIncidentIds = [],
+  returnOnly = false,
+  persist = true
+} = {}) {
   const updatedAt = new Date().toISOString();
   const incidents = [];
+  const requestedIncidentIds = [...new Set((Array.isArray(authorizedReturnIncidentIds) ? authorizedReturnIncidentIds : [authorizedReturnIncidentIds])
+    .map((value) => String(value || '').trim())
+    .filter((value) => /^\d+$/.test(value)))];
+  const requestedIncidentIdSet = new Set(requestedIncidentIds);
+  const reconciliationIncidentIdSet = new Set((Array.isArray(reconcileAmbiguousReturnIncidentIds)
+    ? reconcileAmbiguousReturnIncidentIds
+    : [reconcileAmbiguousReturnIncidentIds])
+    .map((value) => String(value || '').trim())
+    .filter((value) => /^\d+$/.test(value)));
 
   try {
     const previousCache = loadIncidentsCache();
     const previousByOrderId = new Map((previousCache.incidents || []).map((incident) => [String(incident.orderId), incident]));
     const chatbyByPhone = new Map();
     const messagesByUserNs = new Map();
-    const pending = await collectPendingIncidents({ limit, pages });
+    let discountTemplatePromise = null;
+    const returnReconciliationSummary = config.defaultStore.incidentDiscountReturnAutomaticEnabled === true
+      ? await reconcileIncidentDiscountReturnLedger()
+      : null;
+    const allPending = await collectPendingIncidents({ limit, pages });
+    const pending = requestedIncidentIdSet.size
+      ? allPending.filter(({ issue }) => requestedIncidentIdSet.has(String(issue?.id || issue?.incidenceId || '')))
+      : allPending;
     const prepared = await preparePendingIncidentsForAnalysis({ pending });
     const subscriberIndex = prepared.subscriberIndex;
     const analyzed = await mapWithConcurrency(prepared.pending, 4, async ({ order, issue }) => {
@@ -1716,7 +2417,8 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         if (!chatbyByPhone.has(phoneKey)) {
           chatbyByPhone.set(phoneKey, chatbyContextForPhone(phone, subscriberIndex, messagesByUserNs, {
             since: incidentStartedAt,
-            orderId
+            orderId,
+            requireExactOrder: true
           }));
         }
         chatby = await chatbyByPhone.get(phoneKey);
@@ -1766,7 +2468,59 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       const latestTransportEvent = transportHistory[transportHistory.length - 1] || null;
       const carrierIncident = carrierIncidentDisplay(dropeaCarrierCurrent);
       const currentIncidenceDate = carrierIncident?.annotatedAt || mergedTransport.incidenceEvent?.eventAt || issueDate(order, issue);
+      if (chatby.chatbyReadVerified !== true) {
+        try {
+          const deliveryCandidates = await Promise.all([
+            getTemplateDelivery({
+              storeId: config.defaultStore.id,
+              orderId,
+              templateName: INCIDENT_DISCOUNT_TEMPLATE_NAME
+            }).then((delivery) => ({ delivery, orderAssociation: 'EXACT_ORDER_DISCOUNT_LEDGER' })),
+            getTemplateDelivery({
+              storeId: config.defaultStore.id,
+              orderId,
+              templateName: INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
+            }).then((delivery) => ({ delivery, orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER' }))
+          ]);
+          for (const candidate of deliveryCandidates) {
+            const recovered = await chatbyContextFromExactTemplateDelivery({
+              orderId,
+              incidentAt: currentIncidenceDate,
+              delivery: candidate.delivery,
+              orderAssociation: candidate.orderAssociation,
+              messagesByUserNs
+            });
+            if (recovered) {
+              chatby = recovered;
+              break;
+            }
+          }
+        } catch {
+          // Keep the original unverified context. Returns remain fail-closed.
+        }
+      }
+      if (classification.type === 'rejected_goods') {
+        try {
+          const merchandiseDelivery = await getTemplateDelivery({
+            storeId: config.defaultStore.id,
+            orderId,
+            templateName: INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME
+          });
+          const exactRejectedTemplateContext = await chatbyContextFromExactTemplateDelivery({
+            orderId,
+            incidentAt: currentIncidenceDate,
+            delivery: merchandiseDelivery,
+            orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+            messagesByUserNs
+          });
+          if (exactRejectedTemplateContext) chatby = exactRejectedTemplateContext;
+        } catch {
+          // Keep the current-incident Chatby scope. The activity badge will
+          // remain unverified instead of attributing an old conversation.
+        }
+      }
       chatby = scopeChatbyToCurrentIncident(chatby, currentIncidenceDate);
+      const customerActivity = customerActivityForIncident(chatby);
       const previous = previousByOrderId.get(orderId);
       const sameIncidentAsPrevious = previous
         && String(previous.incidenceId || '') === String(issue?.id || issue?.incidenceId || '');
@@ -1792,13 +2546,16 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         timeoutHours: config.defaultStore.incidentResponseTimeoutHours
       });
       const baseRecommendation = typeAwareIncidentSolution(classification, chatby, issue, responseWait);
-      const operationalDecision = incidentOperationalDecision({
+      const genericOperationalDecision = incidentOperationalDecision({
         classification,
         chatby,
         transportHistory,
         phone,
         incidentDate: currentIncidenceDate
       });
+      const operationalDecision = classification.type === 'address'
+        ? incorrectAddressOperationalDecision({ classification, chatby, phone })
+        : genericOperationalDecision;
       const recommendation = recommendationWithOperationalDecision(baseRecommendation, operationalDecision);
       const customerSignal = customerSignalForIncident(chatby);
       const confidence = confidenceForIncident({ classification, chatby, recommendation });
@@ -1882,9 +2639,25 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         customerMessages: chatby.customerMessages || 0,
         customerResponded: Number(chatby.customerMessages || 0) > 0,
         alertLevel: Number(chatby.customerMessages || 0) > 0 ? 'customer_response' : 'no_response',
+        customerActivityApplies: customerActivity.applies,
+        customerActivityDetected: customerActivity.detected,
+        customerActivityVerified: customerActivity.verified,
+        customerActivitySource: customerActivity.source,
+        customerActivityReferenceType: customerActivity.referenceType,
+        customerActivityReferenceLabel: customerActivity.referenceLabel,
+        customerActivityReferenceAt: customerActivity.referenceAt,
+        customerActivityActionCode: customerActivity.actionCode,
+        customerActivityActionLabel: customerActivity.actionLabel,
+        customerActivityInteractionType: customerActivity.interactionType,
+        customerActivityMessageCount: customerActivity.messageCount,
+        customerActivityFirstAt: customerActivity.firstAt,
+        customerActivityLastAt: customerActivity.lastAt,
+        customerActivityDetail: customerActivity.detail,
         chatbyUserNs: chatby.userNs || null,
+        chatbyOrderAssociation: chatby.orderAssociation || 'NONE',
         chatbyReadVerified: chatby.chatbyReadVerified === true,
         chatbyReadAttempts: Number(chatby.chatbyReadAttempts || 0),
+        chatbyReadAt: chatby.chatbyReadAt || null,
         operationalDecisionAction: operationalDecision.action,
         operationalDecisionEligible: operationalDecision.eligible,
         operationalDecisionConfidence: operationalDecision.confidence,
@@ -1905,7 +2678,11 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
             customerMessages: Number(chatby.customerMessages || 0),
             lastCustomerMessage: chatby.lastCustomerMessage || '',
             lastCustomerAt: chatby.lastCustomerAt || null,
-            intent: chatby.intent || 'unknown'
+            intent: chatby.intent || 'unknown',
+            activityReferenceType: customerActivity.referenceType,
+            activityReferenceAt: customerActivity.referenceAt,
+            activityDetected: customerActivity.detected,
+            activityAction: customerActivity.actionLabel
           },
           incidentResponseWait: {
             state: responseWait.state,
@@ -1936,9 +2713,7 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       };
     });
     for (const item of analyzed) {
-      // This V2 dashboard path is a hard read-only boundary. It never invokes
-      // notification delivery or any Dropea resolution/action function.
-      const notification = {
+      let notification = {
         status: 'disabled',
         reason: 'dropea_v2_dashboard_read_only',
         templateName: null,
@@ -1947,13 +2722,113 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         verified: false,
         error: null
       };
-      const actionResult = {
-        status: 'blocked_read_only',
+      const incidentCommunicationEnabled = incidentNotificationLaneEnabled({
+        incidentType: item.incident.incidentType,
+        returnOnly,
+        repositoryOwnsIncidentTemplates: chatbyRepositoryOwnsIncidentTemplate(
+          incidentTemplateNameForType(item.incident.incidentType)
+        ),
+        incidentNotificationsEnabled: config.defaultStore.incidentNotificationsEnabled === true,
+        incidentDiscountTemplateEnabled: config.enableIncidentDiscountTemplate === true,
+        incidentDiscountRealEnabled: config.incidentDiscountRealEnabled === true
+      });
+      if (incidentCommunicationEnabled) {
+        try {
+          notification = await processIncidentNotification({
+            incident: item.incident,
+            order: item.order,
+            messages: item.messages,
+            dryRun: false
+          });
+        } catch (error) {
+          notification = {
+            ...notification,
+            status: 'failed',
+            reason: 'incident_merchandise_template_failed',
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
+      let discountRecovery = {
+        status: 'disabled',
+        reason: 'incident_discount_recovery_disabled',
+        templateName: null,
         verified: false,
-        reason: 'Dropea V2 dashboard sync is GET-only.'
+        responseStatus: 'NOT_SENT',
+        discountAmountEur: 5
       };
+      if (config.enableIncidentDiscountTemplate) {
+        try {
+          discountRecovery = await processIncidentDiscountRecovery({
+            incident: item.incident,
+            order: item.order,
+            messages: item.messages,
+            realEnabled: returnOnly === true ? false : config.incidentDiscountRealEnabled === true,
+            authorizedImmediate: authorizedImmediateDiscounts === true,
+            dependencies: {
+              getTemplate: async () => {
+                if (!discountTemplatePromise) {
+                  discountTemplatePromise = warmIncidentDiscountTemplateCache();
+                }
+                return discountTemplatePromise;
+              }
+            }
+          });
+        } catch (error) {
+          discountRecovery = {
+            ...discountRecovery,
+            status: 'failed',
+            reason: 'incident_discount_recovery_failed',
+            error: error instanceof Error ? error.message : String(error)
+          };
+        }
+      }
+      let discountReturn = {
+        status: 'NOT_APPLICABLE',
+        verified: false,
+        reason: 'La regla de devolucion solo aplica a incidencias de rechazo con descuento verificado.'
+      };
+      if (item.incident.incidentType === 'rejected_goods') {
+        discountReturn = await executeIncidentDiscountNoResponseReturn(item.incident, discountRecovery, {
+          realEnabled: returnOnly === true && requestedIncidentIdSet.has(String(item.incident.incidenceId || ''))
+            ? true
+            : undefined,
+          automaticEnabled: returnOnly === true
+            ? false
+            : config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
+          allowedIncidentIds: returnOnly === true
+            ? requestedIncidentIds
+            : config.defaultStore.incidentReturnAllowedIds,
+          allowManualReconciliationRetry: reconciliationIncidentIdSet.has(String(item.incident.incidenceId || ''))
+        });
+      }
+      const actionResult = returnOnly === true
+        ? discountReturn
+        : item.incident.incidentType === 'address'
+        ? await executeIncorrectAddressResolution(item.incident, item.operationalDecision)
+        : discountReturn;
       const enrichedIncident = {
         ...item.incident,
+        incidentDiscountRecovery: discountRecovery,
+        incidentDiscountRecoveryStatus: discountRecovery.status,
+        incidentDiscountRecoveryReason: discountRecovery.reason,
+        incidentDiscountTemplate: discountRecovery.templateName,
+        incidentDiscountInitialTemplateSentAt: discountRecovery.initialTemplateSentAt || null,
+        incidentDiscountDueAt: discountRecovery.dueAt || null,
+        incidentDiscountSentAt: discountRecovery.sentAt || null,
+        incidentDiscountVerified: discountRecovery.verified === true,
+        incidentDiscountResponseStatus: discountRecovery.responseStatus || 'NOT_SENT',
+        incidentDiscountRespondedAt: discountRecovery.respondedAt || null,
+        incidentDiscountOriginalPrice: discountRecovery.originalPrice || null,
+        incidentDiscountFinalPrice: discountRecovery.finalPrice || null,
+        incidentDiscountAmountEur: 5,
+        incidentDiscountCrossSourceVerified: discountRecovery.crossSourceVerified === true,
+        incidentDiscountReturnStatus: discountReturn.status,
+        incidentDiscountReturnReason: discountReturn.reason,
+        incidentDiscountReturnDueAt: discountReturn.dueAt || null,
+        incidentDiscountReturnAttemptedAt: discountReturn.attemptedAt || null,
+        incidentDiscountReturnCompletedAt: discountReturn.completedAt || null,
+        incidentDiscountReturnVerified: discountReturn.verified === true,
         incidentNotification: notification,
         incidentNotificationStatus: notification.status,
         incidentNotificationTemplate: notification.templateName,
@@ -1968,33 +2843,94 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
         operationalActionCompletedAt: actionResult.completedAt || null,
         operationalActionVerifiedAt: actionResult.verifiedAt || null
       };
-      if (!['verified', 'already_verified'].includes(actionResult.status)) incidents.push(enrichedIncident);
+      incidents.push(enrichedIncident);
     }
 
     const sortedIncidents = sortIncidentsByIncidenceDesc(incidents);
+    const discountRecoverySummary = {
+      enabled: config.enableIncidentDiscountTemplate === true,
+      realEnabled: config.incidentDiscountRealEnabled === true,
+      checked: sortedIncidents.filter((incident) => incident.incidentType === 'rejected_goods').length,
+      sent: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'sent').length,
+      wouldSend: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'would_send').length,
+      alreadySent: sortedIncidents.filter((incident) => ['already_sent', 'persistent_sent'].includes(incident.incidentDiscountRecoveryStatus)).length,
+      accepted: sortedIncidents.filter((incident) => incident.incidentDiscountResponseStatus === 'DISCOUNT_ACCEPTED').length,
+      blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'customer_interaction_after_merchandise_template').length,
+      failed: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'failed').length,
+      blockedChatbyRead: incidentChatbyReadBlockCount(sortedIncidents),
+      waiting24Hours: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'waiting_discount_window').length,
+      missingVerifiedInitialTemplate: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'merchandise_template_not_verified').length,
+      crossSourceMismatch: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'cross_source_order_mismatch').length,
+      discountAmountEur: 5,
+      delayHours: 24
+    };
+    discountRecoverySummary.authorizedImmediate = authorizedImmediateDiscounts === true;
+    const discountReturnSummary = {
+      realEnabled: returnOnly === true || config.defaultStore.incidentDiscountReturnRealEnabled === true,
+      automaticEnabled: returnOnly !== true && config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
+      delayHoursAfterDiscount: INCIDENT_DISCOUNT_RETURN_AFTER_HOURS,
+      authorizedIncidentIds: requestedIncidentIds,
+      waiting: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'WAITING_24_HOURS').length,
+      blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'BLOCKED_CUSTOMER_ACTIVITY').length,
+      requestedVerified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_VERIFIED').length,
+      requestedUnverified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_UNVERIFIED').length,
+      manualReconciliation: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'MANUAL_RECONCILIATION_REQUIRED').length,
+      alreadyClaimed: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'ALREADY_CLAIMED').length
+    };
+    const customerActivitySummary = {
+      checked: sortedIncidents.length,
+      detected: sortedIncidents.filter((incident) => incident.customerActivityDetected === true).length,
+      verified: sortedIncidents.filter((incident) => incident.customerActivityVerified === true).length,
+      afterRejectedTemplate: sortedIncidents.filter((incident) => (
+        incident.customerActivityDetected === true
+        && incident.customerActivityReferenceType === 'REJECTED_TEMPLATE'
+      )).length,
+      actionable: sortedIncidents.filter((incident) => (
+        incident.customerActivityDetected === true
+        && !['customer_unclear', 'customer_response', 'no_customer_activity'].includes(incident.customerActivityActionCode)
+      )).length,
+      viaButton: sortedIncidents.filter((incident) => incident.customerActivityInteractionType === 'BUTTON').length
+    };
     const payload = {
       ok: true,
       updatedAt,
       intervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
       agentName: 'Agente de incidencias',
-      agentMode: 'training_read_only',
-      agentModeLabel: 'Lectura V2 y analisis; sin mensajes ni acciones automaticas',
-      notificationMode: 'disabled',
-      notificationModeLabel: 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
+      agentMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'training_read_only',
+      agentModeLabel: config.incidentDiscountRealEnabled
+        ? 'Recuperacion comercial de 5 EUR y devolucion gobernada tras otras 24 h sin respuesta'
+        : 'Lectura V2 y analisis; sin mensajes ni acciones automaticas',
+      notificationMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'disabled',
+      notificationModeLabel: config.incidentDiscountRealEnabled
+        ? 'Plantilla de descuento real, una sola vez, tras 24 h sin respuesta'
+        : 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
+      discountRecoverySummary,
+      discountReturnSummary,
+      returnReconciliationSummary,
+      customerActivitySummary,
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
       count: sortedIncidents.length,
       incidents: sortedIncidents,
+      targeted: requestedIncidentIdSet.size > 0,
+      requestedIncidentIds,
+      missingIncidentIds: requestedIncidentIds.filter((id) => !sortedIncidents.some((incident) => String(incident.incidenceId || '') === id)),
       error: null
     };
-    writeJson(cachePath, payload);
-    await syncIncidentsCacheToSupabase(payload).catch((error) => {
-      console.error('Supabase incidents mirror error:', error instanceof Error ? error.message : String(error));
-    });
-    const state = { ...loadState() };
-    state.lastIncidentsSyncAt = updatedAt;
-    state.lastIncidentsSyncError = null;
-    state.lastIncidentsSyncCount = sortedIncidents.length;
-    saveState(state);
+    if (persist !== false) {
+      writeJson(cachePath, payload);
+      await syncIncidentsCacheToSupabase(payload).catch((error) => {
+        console.error('Supabase incidents mirror error:', error instanceof Error ? error.message : String(error));
+      });
+      const state = { ...loadState() };
+      state.lastIncidentsSyncAt = updatedAt;
+      state.lastIncidentsSyncError = null;
+      state.lastIncidentsSyncCount = sortedIncidents.length;
+      state.lastIncidentDiscountRecoveryAt = updatedAt;
+      state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
+      state.lastIncidentDiscountReturnSummary = discountReturnSummary;
+      state.lastIncidentReturnReconciliationSummary = returnReconciliationSummary;
+      saveState(state);
+    }
     return payload;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -2005,14 +2941,17 @@ export async function syncPendingIncidents({ limit = 100, pages = 3 } = {}) {
       updatedAt: previous.updatedAt || updatedAt,
       error: message
     };
-    writeJson(cachePath, payload);
-    await syncIncidentsCacheToSupabase(payload).catch((mirrorError) => {
-      console.error('Supabase incidents error mirror failed:', mirrorError instanceof Error ? mirrorError.message : String(mirrorError));
-    });
-    const state = { ...loadState() };
-    state.lastIncidentsSyncAt = updatedAt;
-    state.lastIncidentsSyncError = message;
-    saveState(state);
+    if (persist !== false) {
+      writeJson(cachePath, payload);
+      await syncIncidentsCacheToSupabase(payload).catch((mirrorError) => {
+        console.error('Supabase incidents error mirror failed:', mirrorError instanceof Error ? mirrorError.message : String(mirrorError));
+      });
+      const state = { ...loadState() };
+      state.lastIncidentsSyncAt = updatedAt;
+      state.lastIncidentsSyncError = message;
+      saveState(state);
+    }
     throw error;
   }
 }
+

@@ -1,4 +1,14 @@
 import { getAppConfig } from '../config.mjs';
+import {
+  getDropeaV2OrderById,
+  listDropeaV2Orders,
+  listDropeaV2OrdersByStatus,
+  listPendingDropeaV2Orders
+} from './dropea-v2-orders.mjs';
+import {
+  cancelDropeaV2Order,
+  confirmDropeaV2Order
+} from './dropea-v2-order-actions.mjs';
 
 const config = getAppConfig();
 const BASE_URL = 'https://api.dropea.com/graphql/dropshippers';
@@ -152,193 +162,41 @@ function extractConnectionItems(result) {
 }
 
 export async function listPendingDropeaOrders({ limit = 50, page = 1 } = {}) {
-  const query = `
-    query PendingOrders($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
-      orders(status: $status, limit: $limit, page: $page) {
-        data {
-          id
-          status
-          customer { full_name phone email address alternative_address city state zip }
-          items { sku title shopify_name_item unit_price quantity total_value }
-          total_amount
-          created_at
-        }
-      }
-    }
-  `;
-
-  const result = await requestGraphQL(query, { status: 'PENDING', limit, page });
-  const items = result?.orders?.data ?? [];
-  return items.map((order) => ({
-    ...normalizeOrder(order),
-    ...normalizeCustomer(order.customer),
-    raw: order
-  }));
+  return listPendingDropeaV2Orders({ limit, page });
 }
 
 export async function listDropeaOrdersByStatus({ status = 'PENDING', limit = 100, page = 1 } = {}) {
-  const query = `
-    query OrdersByStatus($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
-      orders(status: $status, limit: $limit, page: $page) {
-        data {
-          id
-          status
-          customer { full_name phone email address alternative_address city state zip }
-          items { sku title shopify_name_item unit_price quantity total_value }
-          total_amount
-          created_at
-          updated_at
-          tracking_code
-          tracking_url
-          carrier_company
-          carrier_service
-          issues { id incidence_code status }
-        }
-      }
-    }
-  `;
-
-  const result = await requestGraphQL(query, { status, limit, page });
-  const items = result?.orders?.data ?? [];
-  return items.map((order) => ({
-    ...normalizeOrder(order),
-    ...normalizeCustomer(order.customer),
-    raw: order
-  }));
+  return listDropeaV2OrdersByStatus({ status, limit, page });
 }
 
 export async function listDropeaOrdersByStatusBasic({ status = 'PENDING', limit = 100, page = 1 } = {}) {
-  const query = `
-    query OrdersByStatusBasic($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
-      orders(status: $status, limit: $limit, page: $page) {
-        data {
-          id
-          status
-          customer { full_name phone email }
-          total_amount
-          created_at
-        }
-      }
-    }
-  `;
-
-  const result = await requestGraphQL(query, { status, limit, page });
-  const items = result?.orders?.data ?? [];
-  return items.map((order) => ({
-    ...normalizeOrder(order),
-    ...normalizeCustomer(order.customer),
-    raw: order
-  }));
+  return listDropeaV2OrdersByStatus({ status, limit, page });
 }
 
 export async function listDropeaOrdersByStatusWithPagination({ status = 'PENDING', limit = 100, page = 1 } = {}) {
-  const query = `
-    query OrdersByStatusWithPagination($status: OrderStateEnum!, $limit: Int!, $page: Int!) {
-      orders(status: $status, limit: $limit, page: $page) {
-        total
-        per_page
-        current_page
-        last_page
-        has_more_pages
-        data {
-          id
-          status
-          customer { full_name phone email }
-          total_amount
-          created_at
-        }
-      }
-    }
-  `;
-
-  const result = await requestGraphQL(query, { status, limit, page });
-  const payload = result?.orders || {};
-  const items = payload?.data ?? [];
+  const items = await listDropeaV2OrdersByStatus({ status, limit, page });
   return {
-    orders: items.map((order) => ({
-      ...normalizeOrder(order),
-      ...normalizeCustomer(order.customer),
-      raw: order
-    })),
+    orders: items,
     pagination: {
-      total: payload.total ?? items.length,
-      perPage: payload.per_page ?? limit,
-      currentPage: payload.current_page ?? page,
-      lastPage: payload.last_page ?? page,
-      hasMorePages: Boolean(payload.has_more_pages)
+      total: items.length,
+      perPage: limit,
+      currentPage: page,
+      lastPage: items.length < limit ? page : page + 1,
+      hasMorePages: items.length >= limit
     }
   };
 }
 
 export async function listDropeaOrders({ limit = 100, page = 1 } = {}) {
-  const query = `
-    query Orders($limit: Int!, $page: Int!) {
-      orders(limit: $limit, page: $page) {
-        data {
-          id
-          status
-          customer { full_name phone email address alternative_address city state zip }
-          items { sku title shopify_name_item unit_price quantity total_value }
-          total_amount
-          created_at
-          updated_at
-          tracking_code
-          tracking_url
-          carrier_company
-          carrier_service
-          issues { id incidence_code status }
-        }
-      }
-    }
-  `;
-
-  const result = await requestGraphQL(query, { limit, page });
-  const items = result?.orders?.data ?? [];
-  return items.map((order) => ({
-    ...normalizeOrder(order),
-    ...normalizeCustomer(order.customer),
-    raw: order
-  }));
+  return listDropeaV2Orders({ limit, page });
 }
 
 export async function listDropeaOrdersBasic({ limit = 100, page = 1 } = {}) {
-  const query = `
-    query Orders($limit: Int!, $page: Int!) {
-      orders(limit: $limit, page: $page) {
-        data {
-          id
-          status
-          customer { full_name phone email }
-          total_amount
-          created_at
-        }
-      }
-    }
-  `;
-
-  const result = await requestGraphQL(query, { limit, page });
-  const items = result?.orders?.data ?? [];
-  return items.map((order) => ({
-    ...normalizeOrder(order),
-    ...normalizeCustomer(order.customer),
-    raw: order
-  }));
+  return listDropeaV2Orders({ limit, page });
 }
 
 export async function listDropeaOrderStateValues() {
-  const query = `
-    query OrderStateEnumValues {
-      __type(name: "OrderStateEnum") {
-        enumValues {
-          name
-        }
-      }
-    }
-  `;
-  const result = await requestGraphQL(query);
-  return (result?.__type?.enumValues || [])
-    .map((item) => item?.name)
-    .filter(Boolean);
+  return ['DRAFT', 'PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPING', 'FINISH', 'ERROR', 'DELIVERED'];
 }
 
 export async function listRecentDropeaOrders({ limit = 100, pages = 2, statuses = null } = {}) {
@@ -608,60 +466,15 @@ export async function getDropeaIncidenceHistory(orderId) {
 }
 
 export async function getDropeaOrderById(orderId) {
-  const query = `
-    query OrderById($ids: [Int]) {
-      orders(id: $ids) {
-        data {
-          id
-          status
-          customer { full_name phone email address alternative_address city state zip }
-          items { sku title shopify_name_item unit_price quantity total_value }
-          total_amount
-          created_at
-          updated_at
-          tracking_code
-          tracking_url
-          carrier_company
-          carrier_service
-          issues { id incidence_code status }
-        }
-      }
-    }
-  `;
-
-  const numericOrderId = Number(orderId);
-  const result = await requestGraphQL(query, { ids: [Number.isFinite(numericOrderId) ? numericOrderId : orderId] });
-  const order = result?.orders?.data?.[0];
-  if (!order) return null;
-  return {
-    ...normalizeOrder(order),
-    ...normalizeCustomer(order.customer),
-    raw: order
-  };
+  return getDropeaV2OrderById(orderId);
 }
 
 export async function confirmDropeaOrder(orderId) {
-  const mutation = `
-    mutation ConfirmOrder($id: ID!) {
-      orderConfirm(id: $id) {
-        status
-        message
-      }
-    }
-  `;
-  return requestGraphQL(mutation, { id: orderId });
+  return confirmDropeaV2Order(orderId);
 }
 
 export async function cancelDropeaOrder(orderId) {
-  const mutation = `
-    mutation CancelOrder($id: ID!) {
-      orderCancel(id: $id) {
-        status
-        message
-      }
-    }
-  `;
-  return requestGraphQL(mutation, { id: orderId });
+  return cancelDropeaV2Order(orderId);
 }
 
 export async function repairDropeaErrorReviewOrders(orderIds = []) {

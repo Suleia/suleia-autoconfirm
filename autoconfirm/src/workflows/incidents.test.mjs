@@ -1,12 +1,527 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  chatbyContextFromExactDiscountDelivery,
+  chatbyContextFromExactTemplateDelivery,
   classifyIncident,
+  customerActivityForIncident,
+  executeIncidentDiscountNoResponseReturn,
+  executeIncorrectAddressResolution,
+  incidentDiscountNoResponseReturnDecision,
+  incidentNotificationLaneEnabled,
   incidentOperationalDecision,
   sortIncidentsByIncidenceDesc
 } from './incidents.mjs';
 
 const now = Date.parse('2026-07-16T16:00:00.000Z');
+
+const rejectedDiscountIncident = {
+  incidenceId: 'fixture-discount-issue',
+  orderId: 'fixture-discount-order',
+  incidentType: 'rejected_goods',
+  chatbyUserNs: 'fixture-chat',
+  chatbyReadVerified: true
+};
+
+const verifiedDiscount = {
+  templateName: 'es_ES dropea_incidencia_descuento_5',
+  sentAt: '2026-07-15T16:00:00.000Z',
+  verified: true,
+  responseStatus: 'NO_RESPONSE'
+};
+
+const currentReturnableIncident = {
+  issue: {
+    id: 'fixture-discount-issue',
+    status: 'PENDING',
+    raw: { status: 'PENDING', is_active: true, allowed_resolution_options: ['RETURN_REQUESTED'] }
+  },
+  order: { orderId: 'fixture-discount-order' }
+};
+
+test('enables only the isolated absent notification lane without changing other template lanes', () => {
+  const base = {
+    returnOnly: false,
+    repositoryOwnsIncidentTemplates: true,
+    incidentNotificationsEnabled: true,
+    incidentDiscountTemplateEnabled: true,
+    incidentDiscountRealEnabled: true
+  };
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent' }), true);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'rejected_goods' }), true);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'address' }), false);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent', returnOnly: true }), false);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent', repositoryOwnsIncidentTemplates: false }), false);
+  assert.equal(incidentNotificationLaneEnabled({ ...base, incidentType: 'absent', incidentNotificationsEnabled: false }), false);
+});
+
+test('recovers an exact Chatby conversation only from the current incident discount delivery', async () => {
+  let reads = 0;
+  const recovered = await chatbyContextFromExactDiscountDelivery({
+    orderId: 'fixture-discount-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    delivery: {
+      order_id: 'fixture-discount-order',
+      status: 'sent',
+      sent_at: '2026-07-15T16:00:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async (userNs) => {
+      reads += 1;
+      assert.equal(userNs, 'fixture-chat');
+      return [];
+    }
+  });
+
+  assert.equal(reads, 1);
+  assert.equal(recovered.chatbyReadVerified, true);
+  assert.equal(recovered.orderAssociation, 'EXACT_ORDER_DISCOUNT_LEDGER');
+  assert.equal(recovered.userNs, 'fixture-chat');
+});
+
+test('never recovers Chatby from a different order, failed delivery or older incident', async () => {
+  let reads = 0;
+  const readMessages = async () => { reads += 1; return []; };
+  const base = {
+    order_id: 'fixture-discount-order',
+    status: 'sent',
+    sent_at: '2026-07-15T16:00:00.000Z',
+    chatby_user_ns: 'fixture-chat'
+  };
+
+  assert.equal(await chatbyContextFromExactDiscountDelivery({
+    orderId: 'another-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    delivery: base,
+    readMessages
+  }), null);
+  assert.equal(await chatbyContextFromExactDiscountDelivery({
+    orderId: 'fixture-discount-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    delivery: { ...base, status: 'failed' },
+    readMessages
+  }), null);
+  assert.equal(await chatbyContextFromExactDiscountDelivery({
+    orderId: 'fixture-discount-order',
+    incidentAt: '2026-07-15T17:00:00.000Z',
+    delivery: base,
+    readMessages
+  }), null);
+  assert.equal(reads, 0);
+});
+
+test('requests a return only after 24 hours from a verified discount with no customer activity', () => {
+  const before = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: verifiedDiscount,
+    now: Date.parse('2026-07-16T15:59:59.999Z')
+  });
+  assert.equal(before.eligible, false);
+  assert.equal(before.status, 'WAITING_24_HOURS');
+
+  const due = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: verifiedDiscount,
+    now: Date.parse('2026-07-16T16:00:00.000Z')
+  });
+  assert.equal(due.eligible, true);
+  assert.equal(due.action, 'return_to_origin');
+  assert.equal(due.ruleId, 'core_incident_discount_no_response_return_24h');
+});
+
+test('any response or unverified Chatby read blocks the discount return rule', () => {
+  const customerActed = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: { ...verifiedDiscount, responseStatus: 'OTHER_RESPONSE' },
+    now: Date.parse('2026-07-16T17:00:00.000Z')
+  });
+  assert.equal(customerActed.eligible, false);
+  assert.equal(customerActed.status, 'BLOCKED_CUSTOMER_ACTIVITY');
+
+  const unverified = incidentDiscountNoResponseReturnDecision({
+    incident: { ...rejectedDiscountIncident, chatbyReadVerified: false },
+    discountRecovery: verifiedDiscount,
+    now: Date.parse('2026-07-16T17:00:00.000Z')
+  });
+  assert.equal(unverified.eligible, false);
+  assert.equal(unverified.reason, 'chatby_context_unverified');
+});
+
+test('re-reads Chatby and requests one persistently claimed Dropea return', async () => {
+  const calls = { claimed: 0, returned: 0, finished: null };
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [],
+    claimReturn: async () => { calls.claimed += 1; return { acquired: true, persistent: true }; },
+    returnIssue: async () => { calls.returned += 1; return { ok: true }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async (value) => { calls.finished = value; },
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(result.verified, true);
+  assert.equal(calls.claimed, 1);
+  assert.equal(calls.returned, 1);
+  assert.equal(calls.finished.status, 'verified');
+});
+
+test('does not POST an illegal final-state transition even when carrier options still include return', async () => {
+  let returned = 0;
+  const managingIncident = {
+    issue: {
+      id: 'fixture-discount-issue',
+      status: 'MANAGING_WITH_CLIENT',
+      raw: {
+        status: 'MANAGING_WITH_CLIENT',
+        is_active: true,
+        allowed_resolution_options: ['RETURN_REQUESTED']
+      }
+    },
+    order: { orderId: 'fixture-discount-order' }
+  };
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    automaticEnabled: true,
+    credentialAvailable: true,
+    readCurrent: async () => managingIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({ acquired: true, persistent: true }),
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'BLOCKED_FINAL_WORKFLOW_STATE');
+  assert.equal(returned, 0);
+});
+
+test('a last-second Chatby action blocks the return before the persistent claim', async () => {
+  const calls = { claimed: 0, returned: 0 };
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [{ type: 'in', created_at: '2026-07-16T16:30:00.000Z', content: 'Necesito ayuda' }],
+    claimReturn: async () => { calls.claimed += 1; return { acquired: true, persistent: true }; },
+    returnIssue: async () => { calls.returned += 1; }
+  });
+  assert.equal(result.status, 'BLOCKED_CUSTOMER_ACTIVITY');
+  assert.equal(result.responseStatus, 'OTHER_RESPONSE');
+  assert.equal(calls.claimed, 0);
+  assert.equal(calls.returned, 0);
+});
+
+test('does not call Dropea when the durable return claim is unavailable or already exists', async () => {
+  for (const claim of [
+    { acquired: false, persistent: false, reason: 'persistent_dedupe_unavailable' },
+    { acquired: false, persistent: true, reason: 'already_claimed' }
+  ]) {
+    let returned = 0;
+    const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+      now: Date.parse('2026-07-16T17:00:00.000Z'),
+      realEnabled: true,
+      credentialAvailable: true,
+      allowedIncidentIds: ['fixture-discount-issue'],
+      readCurrent: async () => currentReturnableIncident,
+      readMessages: async () => [],
+      claimReturn: async () => claim,
+      returnIssue: async () => { returned += 1; }
+    });
+    assert.equal(returned, 0);
+    assert.match(result.status, /ALREADY_CLAIMED|BLOCKED_PERSISTENT_LEDGER/);
+  }
+});
+
+test('reports an existing completed return claim without calling Dropea twice', async () => {
+  for (const [existingStatus, expectedStatus, verified] of [
+    ['verified', 'RETURN_REQUESTED_VERIFIED', true],
+    ['applied_unverified', 'RETURN_REQUESTED_UNVERIFIED', false]
+  ]) {
+    let returned = 0;
+    const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+      now: Date.parse('2026-07-16T17:00:00.000Z'),
+      realEnabled: true,
+      credentialAvailable: true,
+      allowedIncidentIds: ['fixture-discount-issue'],
+      readCurrent: async () => currentReturnableIncident,
+      readMessages: async () => [],
+      claimReturn: async () => ({ acquired: false, persistent: true, reason: 'already_claimed', existing: { status: existingStatus } }),
+      returnIssue: async () => { returned += 1; }
+    });
+    assert.equal(result.status, expectedStatus);
+    assert.equal(result.verified, verified);
+    assert.equal(returned, 0);
+  }
+});
+
+test('recovers the exact order conversation from a verified current-incident merchandise delivery', async () => {
+  const recovered = await chatbyContextFromExactTemplateDelivery({
+    orderId: 'fixture-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+    delivery: {
+      order_id: 'fixture-order',
+      status: 'sent',
+      sent_at: '2026-07-15T15:05:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async () => []
+  });
+
+  assert.equal(recovered.chatbyReadVerified, true);
+  assert.equal(recovered.orderAssociation, 'EXACT_ORDER_MERCHANDISE_LEDGER');
+  assert.equal(recovered.userNs, 'fixture-chat');
+});
+
+test('shows only customer activity after the verified rejected-goods template', async () => {
+  const recovered = await chatbyContextFromExactTemplateDelivery({
+    orderId: 'fixture-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+    delivery: {
+      order_id: 'fixture-order',
+      status: 'sent',
+      sent_at: '2026-07-15T15:05:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async () => [
+      { type: 'in', created_at: '2026-07-15T15:04:00.000Z', content: 'Mensaje anterior' },
+      { type: 'out', created_at: '2026-07-15T15:05:00.000Z', content: 'Plantilla' },
+      { type: 'in', created_at: '2026-07-15T15:06:00.000Z', button_text: 'Entregar mañana' }
+    ]
+  });
+  const activity = customerActivityForIncident(recovered);
+
+  assert.equal(recovered.customerMessages, 1);
+  assert.equal(recovered.intent, 'delivery_instruction');
+  assert.equal(activity.detected, true);
+  assert.equal(activity.verified, true);
+  assert.equal(activity.referenceType, 'REJECTED_TEMPLATE');
+  assert.equal(activity.messageCount, 1);
+  assert.equal(activity.interactionType, 'BUTTON');
+  assert.match(activity.actionLabel, /instrucciones de entrega mediante botón/);
+  assert.equal(activity.firstAt, '2026-07-15T15:06:00.000Z');
+  assert.equal(activity.lastAt, '2026-07-15T15:06:00.000Z');
+});
+
+test('reports no customer action when the exact rejected template has no later inbound message', async () => {
+  const recovered = await chatbyContextFromExactTemplateDelivery({
+    orderId: 'fixture-order',
+    incidentAt: '2026-07-15T15:00:00.000Z',
+    orderAssociation: 'EXACT_ORDER_MERCHANDISE_LEDGER',
+    delivery: {
+      order_id: 'fixture-order',
+      status: 'sent',
+      sent_at: '2026-07-15T15:05:00.000Z',
+      chatby_user_ns: 'fixture-chat'
+    },
+    readMessages: async () => [
+      { type: 'out', created_at: '2026-07-15T15:05:00.000Z', content: 'Plantilla' }
+    ]
+  });
+  const activity = customerActivityForIncident(recovered);
+
+  assert.equal(activity.detected, false);
+  assert.equal(activity.messageCount, 0);
+  assert.equal(activity.actionCode, 'no_customer_activity');
+  assert.equal(activity.referenceLabel, 'plantilla de incidencia de rechazo');
+});
+
+test('reconciles one ambiguous return only through an explicit atomic reclaim', async () => {
+  let reclaimed = 0;
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    allowManualReconciliationRetry: true,
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({
+      acquired: false,
+      persistent: true,
+      reason: 'already_claimed',
+      existing: { status: 'manual_reconciliation_required' }
+    }),
+    reclaimReturn: async () => {
+      reclaimed += 1;
+      return { acquired: true, persistent: true, reconciled: true };
+    },
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(reclaimed, 1);
+  assert.equal(returned, 1);
+});
+
+test('never reconciles an ambiguous return without explicit retry authorization', async () => {
+  let reclaimed = 0;
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({
+      acquired: false,
+      persistent: true,
+      reason: 'already_claimed',
+      existing: { status: 'manual_reconciliation_required' }
+    }),
+    reclaimReturn: async () => { reclaimed += 1; return { acquired: true, persistent: true }; },
+    returnIssue: async () => { returned += 1; }
+  });
+  assert.equal(result.status, 'ALREADY_CLAIMED');
+  assert.equal(reclaimed, 0);
+  assert.equal(returned, 0);
+});
+
+test('autonomous mode safely retries an old transient Dropea 503 with the same persistent claim', async () => {
+  let reclaimed = 0;
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now: Date.parse('2026-07-16T17:00:00.000Z'),
+    realEnabled: true,
+    automaticEnabled: true,
+    credentialAvailable: true,
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [],
+    claimReturn: async () => ({
+      acquired: false,
+      persistent: true,
+      reason: 'already_claimed',
+      existing: {
+        status: 'manual_reconciliation_required',
+        attempted_at: '2026-07-16T16:29:00.000Z',
+        last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_503'
+      }
+    }),
+    reclaimReturn: async () => { reclaimed += 1; return { acquired: true, persistent: true, reconciled: true }; },
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(reclaimed, 1);
+  assert.equal(returned, 1);
+});
+
+test('autonomous reconciliation waits out the ambiguity window and rejects non-transient errors', async () => {
+  let reclaimed = 0;
+  const base = {
+    now: Date.parse('2026-07-16T17:00:00.000Z'), realEnabled: true, automaticEnabled: true, credentialAvailable: true,
+    readCurrent: async () => currentReturnableIncident, readMessages: async () => [],
+    reclaimReturn: async () => { reclaimed += 1; return { acquired: true, persistent: true }; }, returnIssue: async () => null
+  };
+  const recent = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    ...base,
+    claimReturn: async () => ({ acquired: false, persistent: true, reason: 'already_claimed', existing: { status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:45:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_503' } })
+  });
+  const permanent = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    ...base,
+    claimReturn: async () => ({ acquired: false, persistent: true, reason: 'already_claimed', existing: { status: 'manual_reconciliation_required', attempted_at: '2026-07-16T15:00:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_400' } })
+  });
+  assert.equal(recent.status, 'ALREADY_CLAIMED');
+  assert.equal(permanent.status, 'ALREADY_CLAIMED');
+  assert.equal(reclaimed, 0);
+});
+
+test('routes an explicit verified discount rejection to one guarded return', async () => {
+  const rejectedDiscount = { ...verifiedDiscount, responseStatus: 'DISCOUNT_REJECTED' };
+  const decision = incidentDiscountNoResponseReturnDecision({
+    incident: rejectedDiscountIncident,
+    discountRecovery: rejectedDiscount,
+    now
+  });
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.ruleId, 'core_incident_discount_rejected_return');
+
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, rejectedDiscount, {
+    now,
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [{
+      direction: 'inbound',
+      created_at: '2026-07-15T16:01:00.000Z',
+      button_text: 'No quiero el pedido'
+    }],
+    claimReturn: async () => ({ acquired: true, persistent: true }),
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(returned, 1);
+});
+
+test('automatic discount returns accept eligible incidents without a manual allowlist only when explicitly enabled', async () => {
+  const rejectedDiscount = { ...verifiedDiscount, responseStatus: 'DISCOUNT_REJECTED' };
+  let returned = 0;
+  const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, rejectedDiscount, {
+    now,
+    realEnabled: true,
+    automaticEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: [],
+    readCurrent: async () => currentReturnableIncident,
+    readMessages: async () => [{
+      direction: 'inbound',
+      created_at: '2026-07-15T16:01:00.000Z',
+      button_text: 'No quiero el pedido'
+    }],
+    claimReturn: async () => ({ acquired: true, persistent: true }),
+    returnIssue: async () => { returned += 1; return { status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }; },
+    verifyReturn: async () => ({ verified: true }),
+    finishReturn: async () => null,
+    auditReturn: async () => null
+  });
+  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
+  assert.equal(returned, 1);
+});
+
+test('blocks a return outside the exact allowlist or when Dropea does not allow it', async () => {
+  let returned = 0;
+  const notAuthorized = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now,
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: [],
+    returnIssue: async () => { returned += 1; }
+  });
+  assert.equal(notAuthorized.status, 'BLOCKED_NOT_AUTHORIZED');
+
+  const notAllowed = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
+    now,
+    realEnabled: true,
+    credentialAvailable: true,
+    allowedIncidentIds: ['fixture-discount-issue'],
+    readCurrent: async () => ({
+      issue: { id: 'fixture-discount-issue', status: 'PENDING', raw: { status: 'PENDING', is_active: true, allowed_resolution_options: ['RETRY'] } },
+      order: { orderId: 'fixture-discount-order' }
+    }),
+    returnIssue: async () => { returned += 1; }
+  });
+  assert.equal(notAllowed.status, 'BLOCKED_RETURN_NOT_ALLOWED');
+  assert.equal(returned, 0);
+});
 
 function chatby(lastCustomerMessage, operationalDetails = {}) {
   return {
@@ -42,6 +557,74 @@ test('orders the incident panel by incidence id descending', () => {
 test('classifies Dropea NAM as rejected goods and FD as address data', () => {
   assert.equal(classifyIncident({ incidence_code: 'NAM' }, {}).type, 'rejected_goods');
   assert.equal(classifyIncident({ incidence_code: 'FD' }, {}).type, 'address');
+});
+
+test('executes only a freshly re-read exact address decision and records a persistent result', async () => {
+  const calls = { resolved: 0, finished: null, audited: null };
+  const incident = {
+    incidenceId: 'fixture-issue',
+    orderId: 'fixture-order',
+    incidenceDate: '2026-07-16T10:00:00.000Z',
+    chatbyUserNs: 'fixture-chat',
+    phone: '+34600111222'
+  };
+  const decision = {
+    eligible: true,
+    action: 'accept_solution',
+    ruleId: 'core_incident_incorrect_address_customer_solution',
+    status: 'READY_FOR_DROPEA'
+  };
+  const result = await executeIncorrectAddressResolution(incident, decision, {
+    realEnabled: true,
+    readCurrent: async () => ({
+      issue: { id: 'fixture-issue', incidence_code: 'FD', status: 'PENDING', description: 'Direccion incorrecta' },
+      order: { orderId: 'fixture-order', customerPhone: '+34600111222' }
+    }),
+    readMessages: async () => [{
+      type: 'in',
+      created_at: '2026-07-16T10:15:00.000Z',
+      content: 'Calle Prueba portal 4 piso 2 B'
+    }],
+    claimResolution: async () => ({ acquired: true, persistent: true }),
+    resolveIssue: async (_issueId, text) => {
+      calls.resolved += 1;
+      assert.match(text, /Calle Prueba portal 4 piso 2 B/);
+      assert.match(text, /600111222/);
+    },
+    verifyResolution: async () => true,
+    finishResolution: async (value) => { calls.finished = value; },
+    auditResolution: async (_incident, _decision, value) => { calls.audited = value; }
+  });
+  assert.equal(result.status, 'AUTO_RESOLVED');
+  assert.equal(result.verified, true);
+  assert.equal(calls.resolved, 1);
+  assert.equal(calls.finished.status, 'verified');
+  assert.deepEqual(calls.finished.evidence, {
+    ruleId: 'core_incident_incorrect_address_customer_solution',
+    verified: true
+  });
+  assert.equal(calls.audited.status, 'AUTO_RESOLVED');
+});
+
+test('does not retry an address incident after a persistent claim already exists', async () => {
+  let resolved = 0;
+  const result = await executeIncorrectAddressResolution({
+    incidenceId: 'fixture-issue', orderId: 'fixture-order', incidenceDate: '2026-07-16T10:00:00.000Z',
+    chatbyUserNs: 'fixture-chat', phone: '+34600111222'
+  }, {
+    eligible: true, action: 'accept_solution', ruleId: 'core_incident_incorrect_address_customer_solution', status: 'READY_FOR_DROPEA'
+  }, {
+    realEnabled: true,
+    readCurrent: async () => ({
+      issue: { id: 'fixture-issue', incidence_code: 'FD', status: 'PENDING', description: 'Direccion incorrecta' },
+      order: { orderId: 'fixture-order', customerPhone: '+34600111222' }
+    }),
+    readMessages: async () => [{ type: 'in', created_at: '2026-07-16T10:15:00.000Z', content: 'Calle Prueba portal 4 piso 2 B' }],
+    claimResolution: async () => ({ acquired: false, persistent: true, existing: { status: 'claimed' }, reason: 'already_claimed' }),
+    resolveIssue: async () => { resolved += 1; }
+  });
+  assert.equal(result.status, 'MANUAL_REVIEW_ALREADY_CLAIMED');
+  assert.equal(resolved, 0);
 });
 
 test('turns an exact before-time reply into an accepted delivery solution', () => {
@@ -195,3 +778,4 @@ test('keeps the order active when the customer accepts the verified discount', (
   assert.equal(decision.ruleId, 'core_incident_discount_accepted_requires_price_update');
   assert.equal(decision.confidence, 96);
 });
+

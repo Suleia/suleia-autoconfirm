@@ -4,8 +4,349 @@ import test from 'node:test';
 process.env.CHATBY_TOKEN = 'test-token';
 process.env.CHATBY_BASE_URL = 'https://chatby.test/api';
 process.env.CHATBY_REQUEST_MIN_INTERVAL_MS = '0';
+process.env.CHATBY_ADAPTIVE_MAX_INTERVAL_MS = '0';
+process.env.CHATBY_READ_RETRY_BASE_MS = '1';
 
-const { getChatMessages, sendWhatsappTemplate } = await import('./chatby.mjs');
+const {
+  CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS,
+  CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS,
+  chatbyRateLimitBackoffMs,
+  chatbyResponseBackoffMs,
+  chatbyLifecycleTemplateOwner,
+  chatbyNativeOwnsLifecycleTemplate,
+  chatbyRepositoryOwnsIncidentTemplate,
+  checkChatbyConnection,
+  findSubscribersByPhone,
+  findSubscriberInIndexForExactOrder,
+  findSubscriberInIndexForOrder,
+  getChatMessages,
+  invalidateSubscriberIndexCache,
+  sendInitialTemplateRecovery,
+  sendPreparedTemplateRecovery,
+  sendWhatsappTemplate
+} = await import('./chatby.mjs');
+
+test('uses a conservative production request interval to stay below the Chatby burst limit', () => {
+  assert.equal(CHATBY_DEFAULT_REQUEST_MIN_INTERVAL_MS, 3500);
+});
+
+test('honors an HTTP-date Retry-After and the full exhausted-quota reset without clipping it', () => {
+  const now=Date.parse('2026-09-17T17:00:00Z');
+  assert.equal(chatbyResponseBackoffMs(new Headers({'retry-after':'Thu, 17 Sep 2026 17:08:00 GMT'}),now),480000);
+  assert.equal(chatbyResponseBackoffMs(new Headers({'retry-after':'60','x-ratelimit-remaining':'0','x-ratelimit-reset':String((now+900000)/1000)}),now),900000);
+  assert.equal(chatbyResponseBackoffMs(new Headers({'ratelimit-remaining':'0','ratelimit-reset':'540'}),now),540000);
+  assert.equal(chatbyResponseBackoffMs(new Headers(),now),60000);
+});
+
+test('uses a fail-fast one-minute cooldown when Chatby omits Retry-After', () => {
+  assert.equal(CHATBY_DEFAULT_RATE_LIMIT_COOLDOWN_MS, 60_000);
+  assert.equal(chatbyRateLimitBackoffMs(null), 60_000);
+  assert.equal(chatbyRateLimitBackoffMs('0.001'), 1);
+});
+
+test('blocks prepared recovery for the Chatby-native owner and preserves repository-owned recovery', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  let calls = 0;
+  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true, mid: 'wamid.prepared-recovery' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    await assert.rejects(
+      sendPreparedTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+      }, { verifiedMissingAt: new Date().toISOString() }),
+      (error) => error?.code === 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER'
+    );
+    assert.equal(calls, 0);
+
+    process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'repository';
+    await sendPreparedTemplateRecovery({
+      user_ns: 'fixture-user',
+      user_id: 'fixture-recipient',
+      content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+    }, { verifiedMissingAt: new Date().toISOString() });
+    assert.equal(calls, 1);
+
+    await assert.rejects(
+      sendPreparedTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_incidencia_mercancia_v1', lang: 'es_ES', params: {} }
+      }, { verifiedMissingAt: new Date().toISOString() }),
+      (error) => error?.code === 'CHATBY_PREPARED_RECOVERY_TEMPLATE_BLOCKED'
+    );
+    await assert.rejects(
+      sendPreparedTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+      }),
+      (error) => error?.code === 'CHATBY_PREPARED_RECOVERY_VERIFICATION_REQUIRED'
+    );
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
+
+test('allows one narrowly-scoped initial recovery only after a current verification', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true, mid: 'wamid.initial-recovery' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    await sendInitialTemplateRecovery({
+      user_ns: 'fixture-user',
+      user_id: 'fixture-recipient',
+      content: { name: 'dropea_pedido_nuevo_v1', lang: 'es_ES', params: {} }
+    }, { verifiedMissingAt: new Date().toISOString() });
+    assert.equal(calls, 1);
+
+    await assert.rejects(
+      sendInitialTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_preparado_v1', lang: 'es_ES', params: {} }
+      }, { verifiedMissingAt: new Date().toISOString() }),
+      (error) => error?.code === 'CHATBY_INITIAL_RECOVERY_TEMPLATE_BLOCKED'
+    );
+    await assert.rejects(
+      sendInitialTemplateRecovery({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_pedido_nuevo_v1', lang: 'es_ES', params: {} }
+      }),
+      (error) => error?.code === 'CHATBY_INITIAL_RECOVERY_VERIFICATION_REQUIRED'
+    );
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('reports the single lifecycle owner without exposing credentials', () => {
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+  try {
+    process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = ' chatby_native ';
+    delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    assert.equal(chatbyLifecycleTemplateOwner(), 'chatby_native');
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_nuevo_v1'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_ausente_v2'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('dropea_incidencia_descuento_5_v1'), false);
+  } finally {
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+    if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
+  }
+});
+
+test('legacy incident ownership cannot override Chatby-native incident templates', () => {
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+  try {
+    process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+    process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = 'repository';
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate(), true);
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_ausente_v2'), false);
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_mercancia_v1'), false);
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_direccion_v1'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_ausente_v2'), true);
+    assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), true);
+  } finally {
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+    if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
+  }
+});
+
+test('blocks repository sends for native incident templates without changing other incident sends', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+  let calls = 0;
+  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'repository';
+  process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = 'repository';
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true, mid: 'wamid.fixture' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    await assert.rejects(
+      sendWhatsappTemplate({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_incidencia_ausente_v2', lang: 'es_ES', params: {} }
+      }),
+      (error) => error?.code === 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER'
+    );
+    assert.equal(calls, 0);
+
+    await assert.rejects(
+      sendWhatsappTemplate({
+        user_ns: 'fixture-user',
+        user_id: 'fixture-recipient',
+        content: { name: 'dropea_incidencia_mercancia_v1', lang: 'es_ES', params: {} }
+      }),
+      (error) => error?.code === 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER'
+    );
+    assert.equal(calls, 0);
+
+    await sendWhatsappTemplate({
+      user_ns: 'fixture-user',
+      user_id: 'fixture-recipient',
+      content: { name: 'dropea_incidencia_direccion_v1', lang: 'es_ES', params: {} }
+    });
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+    if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
+  }
+});
+
+test('incident repository ownership is fail-closed unless explicitly configured', () => {
+  const previousIncidentOwner = process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+  try {
+    delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate(), false);
+    process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = 'chatby_native';
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate(), false);
+  } finally {
+    if (previousIncidentOwner === undefined) delete process.env.CHATBY_INCIDENT_TEMPLATE_OWNER;
+    else process.env.CHATBY_INCIDENT_TEMPLATE_OWNER = previousIncidentOwner;
+  }
+});
+
+test('exact incident lookup accepts only the explicit Dropea order field', () => {
+  const explicit = {
+    phone: '+34600000000',
+    user_fields: [{ name: 'Dropea: Numero', value: 'current-order' }]
+  };
+  const incidental = {
+    phone: '+34600000000',
+    notes: 'current-order',
+    user_fields: [{ name: 'Dropea: Numero', value: 'older-order' }]
+  };
+  const index = { byPhone: new Map([['600000000', [incidental, explicit]]]) };
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: 'current-order'
+  }), explicit);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: 'missing-order'
+  }), null);
+});
+
+test('exact incident lookup treats the Chatby ES prefix as the same Dropea order', () => {
+  const current = {
+    phone: '+34600000000',
+    user_fields: [{ name: 'Dropea: Número', value: 'ES1381873' }]
+  };
+  const other = {
+    phone: '+34600000000',
+    user_fields: [{ name: 'Dropea: Número', value: 'ES1381874' }]
+  };
+  const index = { byPhone: new Map([['600000000', [other, current]]]) };
+
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '1381873'
+  }), current);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '138187'
+  }), null);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000001', orderId: '1381873'
+  }), null);
+});
+
+test('exact incident lookup accepts the live Chatby #Pedido field without falling back to phone only', () => {
+  const current = {
+    phone: '+34600000000',
+    user_fields: [
+      { name: '#Pedido', value: '1381873' },
+      { name: 'Incidencia: Motivo', value: 'fixture' }
+    ]
+  };
+  const older = {
+    phone: '+34600000000',
+    user_fields: [{ name: '#Pedido', value: '1370000' }]
+  };
+  const index = { byPhone: new Map([['600000000', [older, current]]]) };
+
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '1381873'
+  }), current);
+  assert.equal(findSubscriberInIndexForExactOrder(index, {
+    phone: '+34600000000', orderId: '1381874'
+  }), null);
+});
+
+test('strict order lookup never reuses a confirmed subscriber from another order', () => {
+  const subscriber = {
+    phone: '+34600000000',
+    lead_status: 'CONFIRMADO',
+    user_fields: [{ name: 'Dropea: Numero', value: 'older-order' }]
+  };
+  const index = { byPhone: new Map([['600000000', [subscriber]]]) };
+
+  assert.equal(findSubscriberInIndexForOrder(index, {
+    phone: '+34600000000',
+    orderId: 'current-order',
+    allowConfirmedPhoneFallback: false
+  }), null);
+  assert.equal(findSubscriberInIndexForOrder(index, {
+    phone: '+34600000000',
+    orderId: 'current-order'
+  })?.lead_status, 'CONFIRMADO');
+});
+
+test('returns every Chatby conversation for a phone so delivery checks cannot miss an older thread', async () => {
+  const originalFetch = globalThis.fetch;
+  invalidateSubscriberIndexCache();
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    data: [
+      { user_ns: 'thread-current', phone: '+34 600 000 000' },
+      { user_ns: 'thread-older', user_id: '0034600000000' },
+      { user_ns: 'other-phone', phone: '+34 600 000 001' }
+    ]
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+
+  try {
+    const subscribers = await findSubscribersByPhone({ phone: '600 000 000', maxPages: 1 });
+    assert.deepEqual(subscribers.map((item) => item.user_ns), ['thread-current', 'thread-older']);
+  } finally {
+    globalThis.fetch = originalFetch;
+    invalidateSubscriberIndexCache();
+  }
+});
 
 test('never retries a template delivery after a rate-limit response', async () => {
   const originalFetch = globalThis.fetch;
@@ -39,6 +380,7 @@ test('never retries a template delivery after a rate-limit response', async () =
 });
 
 test('keeps bounded retries for read-only Chatby requests', async () => {
+  await new Promise((resolve) => setTimeout(resolve, 5));
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
@@ -57,6 +399,139 @@ test('keeps bounded retries for read-only Chatby requests', async () => {
   try {
     assert.deepEqual(await getChatMessages('test-user'), []);
     assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('retries a read-only Chatby timeout but never exceeds the attempt bound', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    if (calls === 1) {
+      const error = new Error('fixture timeout');
+      error.name = 'AbortError';
+      throw error;
+    }
+    return new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    assert.deepEqual(await getChatMessages('test-user'), []);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('retries a transient Chatby 503 only for read-only requests', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return calls === 1
+      ? new Response(JSON.stringify({ error: 'temporarily_unavailable' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' }
+        })
+      : new Response(JSON.stringify({ data: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+  };
+
+  try {
+    assert.deepEqual(await getChatMessages('test-user'), []);
+    assert.equal(calls, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('blocks every repository path for Chatby-owned lifecycle templates', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  let calls = 0;
+  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+
+  try {
+    for (const name of [
+      'dropea_pedido_nuevo_v1',
+      'dropea_pedido_preparado_v1',
+      'dropea_incidencia_mercancia_v1'
+    ]) {
+      await assert.rejects(
+        sendWhatsappTemplate({
+          user_ns: 'test-user',
+          user_id: 'test-recipient',
+          content: { name, lang: 'es_ES', params: {} }
+        }),
+        (error) => error?.code === 'CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER'
+      );
+    }
+    assert.equal(calls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
+
+test('does not block unrelated templates when Chatby owns lifecycle sends', async () => {
+  const originalFetch = globalThis.fetch;
+  const previousOwner = process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+  let calls = 0;
+  process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = 'chatby_native';
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true, mid: 'wamid.allowed' }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' }
+    });
+  };
+
+  try {
+    await sendWhatsappTemplate({
+      user_ns: 'test-user',
+      user_id: 'test-recipient',
+      content: { name: 'suleia_otro_aviso_v1', lang: 'es_ES', params: {} }
+    });
+    assert.equal(calls, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousOwner === undefined) delete process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER;
+    else process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER = previousOwner;
+  }
+});
+
+test('a long Chatby Retry-After fails fast and does not block the automation queue', async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ error: 'rate_limited' }), {
+      status: 429,
+      headers: { 'content-type': 'application/json', 'retry-after': '6' }
+    });
+  };
+
+  try {
+    const startedAt = Date.now();
+    await assert.rejects(checkChatbyConnection(), /429/);
+    await assert.rejects(
+      getChatMessages('test-user'),
+      (error) => error?.code === 'CHATBY_RATE_LIMITED'
+    );
+    assert.equal(calls, 1);
+    assert.ok(Date.now() - startedAt < 1000);
   } finally {
     globalThis.fetch = originalFetch;
   }

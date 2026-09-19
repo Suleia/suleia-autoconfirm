@@ -1,5 +1,10 @@
 # Suleia Supabase setup
 
+Finance analytics migrations live in `supabase/migrations/`. Apply them with
+the service-role deployment workflow before enabling database-backed finance
+snapshots. The dashboard keeps the versioned JSON cost ledger as its
+deterministic fallback when Supabase is not configured.
+
 Supabase is used as the central memory for Suleia Command Center.
 
 The current app keeps JSON files as a local safety backup, and mirrors the important data to Supabase when these Render variables are configured:

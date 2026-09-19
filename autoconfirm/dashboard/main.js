@@ -5,18 +5,24 @@ const state = {
   incidentFilter: 'all',
   loading: true,
   error: null,
-  dashboard: null
+  dashboard: null,
+  financeReport: null,
+  financeLoading: false,
+  financeError: null,
+  financeSort: { key: 'day', direction: 'asc' },
+  financeVisibleColumns: null
 };
 
 const titles = {
   overview: 'Vista general',
   orders: 'Pedidos',
   incidents: 'Incidencias',
+  discounts: 'Descuentos',
   agent: 'Control del agente',
   meta: 'Meta Ads',
   products: 'Productos',
   research: 'Competencia y oportunidades',
-  settings: 'Costes y reglas'
+  settings: 'Panel de resultados'
 };
 
 const pageTitle = document.querySelector('#page-title');
@@ -32,7 +38,12 @@ const feedbackClose = document.querySelector('#feedback-close');
 const incidentFeedbackDialog = document.querySelector('#incident-feedback-dialog');
 const incidentFeedbackForm = document.querySelector('#incident-feedback-form');
 const incidentFeedbackClose = document.querySelector('#incident-feedback-close');
-const financeSettingsForm = document.querySelector('#finance-settings-form');
+const financeMonthInput = document.querySelector('#finance-month');
+const financeRefreshButton = document.querySelector('#finance-refresh');
+const financePrevButton = document.querySelector('#finance-prev');
+const financeNextButton = document.querySelector('#finance-next');
+const financeCompareInput = document.querySelector('#finance-compare');
+const financeExpenseForm = document.querySelector('#finance-expense-form');
 const agentChatForm = document.querySelector('#agent-chat-form');
 const businessManagerButton = document.querySelector('#business-manager-button');
 let feedbackOrderId = null;
@@ -41,9 +52,20 @@ let refreshCountdownTimer = null;
 
 const META_REFRESH_HOURS = 12;
 
+function currentMadridMonth() {
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: 'Europe/Madrid',
+    year: 'numeric',
+    month: '2-digit'
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}`;
+}
+
 function money(value) {
+  if (value === null || value === undefined || value === '') return '—';
   const number = Number(value);
-  if (!Number.isFinite(number)) return '€0,00';
+  if (!Number.isFinite(number)) return '—';
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR' }).format(number);
 }
 
@@ -51,6 +73,12 @@ function percent(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return '0%';
   return new Intl.NumberFormat('es-ES', { style: 'percent', maximumFractionDigits: 0 }).format(number);
+}
+
+function percentValue(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return '—';
+  return `${new Intl.NumberFormat('es-ES', { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(number)}%`;
 }
 
 function numberCompact(value) {
@@ -160,8 +188,8 @@ function friendlyOrderState(order) {
 
   if (status.includes('would_cancel_unanswered') || status.includes('would_reject_unanswered') || status.includes('rejected_unanswered') || intent.includes('cancel_unanswered_timeout') || intent.includes('reject_unanswered_timeout') || action.includes('cancel_unanswered_timeout') || action.includes('reject_unanswered_timeout')) {
     return {
-      label: status.includes('rejected_unanswered') ? 'Rechazado por 36h sin respuesta' : 'Rechazar por 36h sin respuesta',
-      detail: 'Sin confirmacion ni cambio de direccion tras 36h. Accion en Dropea: cancelar/rechazar pedido.',
+      label: status.includes('rejected_unanswered') ? 'Rechazado por 48h sin respuesta' : 'Rechazar por 48h sin respuesta',
+      detail: 'Sin confirmacion ni cambio de direccion tras 48h. Accion en Dropea: cancelar/rechazar pedido.',
       tone: 'danger'
     };
   }
@@ -485,13 +513,18 @@ function inferredIncidentTone(incident) {
 
 function incidentMatchesFilter(incident) {
   if (state.incidentFilter === 'all') return true;
-  if (state.incidentFilter === 'responded') return incident.customerResponded || Number(incident.customerMessages) > 0;
+  if (state.incidentFilter === 'responded') return incidentHasCustomerActivity(incident);
   return inferredIncidentType(incident) === state.incidentFilter;
+}
+
+function incidentHasCustomerActivity(incident) {
+  if (typeof incident.customerActivityDetected === 'boolean') return incident.customerActivityDetected;
+  return incident.customerResponded || Number(incident.customerMessages) > 0;
 }
 
 function incidentTone(incident) {
   if (incident.actionTone) return incident.actionTone;
-  if (incident.customerResponded || Number(incident.customerMessages) > 0) return 'positive';
+  if (incidentHasCustomerActivity(incident)) return 'positive';
   if (incident.incidentTypeTone) return incident.incidentTypeTone;
   return 'neutral';
 }
@@ -536,6 +569,9 @@ function renderIncidents() {
     incident.chatbySummary,
     incident.lastCustomerMessage,
     incident.customerIntentDetail,
+    incident.customerActivityActionLabel,
+    incident.customerActivityDetail,
+    incident.customerActivityReferenceLabel,
     incident.resolutionStage,
     incident.operationalInstruction,
     incident.templateRecommendation,
@@ -560,16 +596,21 @@ function renderIncidents() {
   });
 
   const noChatby = incidents.filter((incident) => !incident.chatbyUserNs).length;
-  const customerResponded = incidents.filter((incident) => incident.customerResponded || Number(incident.customerMessages) > 0).length;
+  const customerResponded = incidents.filter(incidentHasCustomerActivity).length;
+  const actionableActivity = incidents.filter((incident) => (
+    incidentHasCustomerActivity(incident)
+    && !['customer_unclear', 'customer_response', 'no_customer_activity'].includes(incident.customerActivityActionCode)
+  )).length;
   const learned = incidents.filter((incident) => incident.memoryApplied || incident.feedbackVerdict).length;
-  const highPriority = incidents.filter((incident) => incident.priority === 'high' || incident.customerResponded || Number(incident.customerMessages) > 0).length;
+  const highPriority = incidents.filter((incident) => incident.priority === 'high' || incidentHasCustomerActivity(incident)).length;
   const needsAddress = incidents.filter((incident) => inferredIncidentType(incident) === 'address').length;
   const absent = incidents.filter((incident) => inferredIncidentType(incident) === 'absent').length;
   const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
     { label: 'Con aprendizaje', value: learned, detail: 'Feedback aplicado al agente', tone: learned ? 'positive' : 'neutral' },
     { label: 'Alta prioridad', value: highPriority, detail: 'Respuesta o señal accionable', tone: highPriority ? 'positive' : 'neutral' },
-    { label: 'Con respuesta', value: customerResponded, detail: 'Alertas para resolver primero', tone: 'positive' },
+    { label: 'Actividad del cliente', value: customerResponded, detail: 'Respuesta o botón posterior verificado', tone: customerResponded ? 'positive' : 'neutral' },
+    { label: 'Acción identificada', value: actionableActivity, detail: 'Intención operativa clara', tone: actionableActivity ? 'positive' : 'neutral' },
     { label: 'Pendientes', value: incidents.length, detail: `Actualizado ${formatDateTime(data.updatedAt)}`, tone: 'neutral' },
     { label: 'Ausente', value: absent, detail: 'Coordinar nueva entrega', tone: 'warning' },
     { label: 'Dirección/datos', value: needsAddress, detail: 'Corregir datos de entrega', tone: 'warning' },
@@ -591,7 +632,7 @@ function renderIncidents() {
   }
 
   table.innerHTML = visible.map((incident) => {
-    const hasCustomerResponse = incident.customerResponded || Number(incident.customerMessages) > 0;
+    const hasCustomerResponse = incidentHasCustomerActivity(incident);
     const statusTone = incidentTone(incident);
     const type = inferredIncidentType(incident);
     const typeTone = incident.incidentTypeTone || inferredIncidentTone(incident);
@@ -602,6 +643,23 @@ function renderIncidents() {
     const customerSignalTone = incident.customerSignalTone || statusTone;
     const customerSignalLabel = incident.customerSignalLabel || (hasCustomerResponse ? 'Cliente respondio' : 'Sin respuesta del cliente');
     const customerSignalDetail = incident.customerSignalDetail || (hasCustomerResponse ? 'Hay respuesta entrante en Chatby.' : 'No veo respuesta entrante en Chatby.');
+    const activityActionLabel = incident.customerActivityActionLabel || (hasCustomerResponse ? customerSignalLabel : 'Sin respuesta ni acción posterior');
+    const activityReferenceLabel = incident.customerActivityReferenceLabel || 'apertura de la incidencia';
+    const activityMessageCount = Number(incident.customerActivityMessageCount ?? incident.customerMessages ?? 0);
+    const activityVerified = incident.customerActivityVerified === true || (
+      incident.customerActivityVerified === undefined && incident.chatbyReadVerified === true
+    );
+    const activityCard = `
+      <div class="incident-customer-activity ${hasCustomerResponse ? 'has-activity' : 'is-waiting'}">
+        <div class="incident-customer-activity__header">
+          <b>${escapeHtml(activityActionLabel)}</b>
+          <span class="${activityVerified ? 'is-verified' : 'is-unverified'}">${activityVerified ? 'Verificado' : 'Pendiente de verificar'}</span>
+        </div>
+        <small>${escapeHtml(activityMessageCount)} interacción(es) posterior(es) a la ${escapeHtml(activityReferenceLabel)}.</small>
+        ${incident.customerActivityReferenceAt ? `<small>Referencia: ${escapeHtml(formatDateTime(incident.customerActivityReferenceAt))}</small>` : ''}
+        ${incident.customerActivityLastAt ? `<time>Última actividad: ${escapeHtml(formatDateTime(incident.customerActivityLastAt))}</time>` : ''}
+        ${incident.customerActivityInteractionType === 'BUTTON' ? '<small class="incident-activity-channel">Incluye una acción mediante botón de Chatby</small>' : ''}
+      </div>`;
     const memory = incident.memoryApplied
       ? `<small class="incident-memory-applied">Aprendizaje aplicado: ${escapeHtml(incident.memoryText || 'Regla guardada')}</small>`
       : '';
@@ -633,7 +691,7 @@ function renderIncidents() {
           <small>Incidencia ${escapeHtml(incident.incidenceId || '-')}</small>
           <small>${escapeHtml(formatDateTime(incident.incidenceDate))}</small>
           ${Number.isFinite(Number(incident.incidentAgeHours)) ? `<small>${Math.round(Number(incident.incidentAgeHours))}h abierta</small>` : ''}
-          ${hasCustomerResponse ? '<span class="customer-response-badge">Cliente respondió</span>' : ''}
+          ${hasCustomerResponse ? '<span class="customer-response-badge">Actividad detectada</span>' : ''}
         </td>
         <td>
           <span class="pill ${typeTone}">${escapeHtml(incident.incidentTypeLabel || incidentTypeLabel(type))}</span>
@@ -647,8 +705,9 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${customerSignalTone}">${escapeHtml(customerSignalLabel)}</span>
           <small>${escapeHtml(customerSignalDetail)}</small>
+          ${activityCard}
           ${incident.resolutionStage ? `<small class="incident-stage">Etapa: ${escapeHtml(incident.resolutionStage)}</small>` : ''}
-          <small>${escapeHtml(incident.customerMessages || 0)} mensajes entrantes del cliente</small>
+          <small>${escapeHtml(activityMessageCount)} mensajes/acciones posteriores del cliente</small>
           ${incident.lastCustomerMessage
             ? `<div class="incident-customer-last"><b>Ultimo mensaje del cliente</b><time>${escapeHtml(formatDateTime(incident.lastCustomerAt))}</time><blockquote>${escapeHtml(incident.lastCustomerMessage)}</blockquote></div>`
             : '<div class="incident-customer-last is-waiting"><b>Sin respuesta del cliente</b><small>Pendiente de que el cliente conteste en Chatby.</small></div>'}
@@ -712,6 +771,53 @@ function renderIncidents() {
       </tr>
     `;
   }).join('') || '<tr><td colspan="8">No hay incidencias pendientes para mostrar.</td></tr>';
+}
+
+function discountStatusLabel(status) {
+  const value = String(status || '').toUpperCase();
+  if (value === 'DISCOUNT_ACCEPTED') return ['Quiere el descuento', 'positive'];
+  if (value === 'DISCOUNT_REJECTED') return ['No quiere el pedido', 'danger'];
+  if (value === 'NO_RESPONSE') return ['Sin respuesta', 'warning'];
+  if (value === 'OTHER_RESPONSE') return ['Otra respuesta', 'warning'];
+  if (value === 'STATUS_UNAVAILABLE') return ['Pendiente de verificar', 'neutral'];
+  return [value || 'Pendiente', 'neutral'];
+}
+
+function renderDiscounts() {
+  const rows = (state.dashboard?.discounts || []).filter((item) => matchesQuery([
+    item.orderId,
+    item.customer,
+    item.product,
+    item.responseStatus
+  ]));
+  const accepted = rows.filter((item) => item.responseStatus === 'DISCOUNT_ACCEPTED').length;
+  const rejected = rows.filter((item) => item.responseStatus === 'DISCOUNT_REJECTED').length;
+  const unanswered = rows.filter((item) => item.responseStatus === 'NO_RESPONSE').length;
+  const summary = document.querySelector('#discounts-summary');
+  const table = document.querySelector('#discounts-table');
+  if (summary) {
+    summary.innerHTML = `
+      <article class="order-summary-card neutral"><span>Enviadas</span><strong>${rows.length}</strong><small>Plantillas verificadas</small></article>
+      <article class="order-summary-card positive"><span>Quieren descuento</span><strong>${accepted}</strong><small>BotÃ³n afirmativo</small></article>
+      <article class="order-summary-card danger"><span>No quieren pedido</span><strong>${rejected}</strong><small>BotÃ³n de rechazo</small></article>
+      <article class="order-summary-card warning"><span>Sin respuesta</span><strong>${unanswered}</strong><small>Sin mensaje ni acciÃ³n</small></article>
+    `;
+  }
+  if (!table) return;
+  table.innerHTML = rows.length ? rows.map((item) => {
+    const [label, tone] = discountStatusLabel(item.responseStatus);
+    return `
+      <tr>
+        <td><strong>#${escapeHtml(item.orderId)}</strong><small>${escapeHtml(item.mode === 'AUTHORIZED_SINGLE_TEST' ? 'Prueba autorizada' : 'AutomÃ¡tico')}</small></td>
+        <td>${escapeHtml(item.customer)}</td>
+        <td>${escapeHtml(item.product)}</td>
+        <td>${money(item.originalAmount)}</td>
+        <td><strong>${money(item.finalAmount)}</strong><small>Descuento: 5 â‚¬</small></td>
+        <td>${formatDateTime(item.sentAt)}</td>
+        <td><span class="pill ${tone}">${escapeHtml(label)}</span>${item.respondedAt ? `<small>${formatDateTime(item.respondedAt)}</small>` : ''}</td>
+      </tr>
+    `;
+  }).join('') : '<tr><td colspan="7"><div class="empty-state">TodavÃ­a no hay descuentos enviados.</div></td></tr>';
 }
 
 function renderCampaigns() {
@@ -1273,7 +1379,7 @@ function renderSources() {
       <span></span>
       <div>
         <strong>${escapeHtml(source.name)}</strong>
-        <small>${source.ok ? 'Conectado' : escapeHtml(source.error || 'No disponible')}</small>
+        <small>${source.ok ? 'Conectado' : escapeHtml(source.error || 'Fuente pendiente de sincronización')}</small>
       </div>
     </div>
   `).join('');
@@ -1312,43 +1418,503 @@ function renderSystem() {
 
 function renderKpis() {
   const kpis = state.dashboard?.kpis || {};
-  const finance = state.dashboard?.finance || {};
+  const report = state.financeReport;
+  const exactProfit = report?.totals?.exactNetProfit ?? null;
   setText('#kpi-orders', String(kpis.orders ?? 0));
   setText('#kpi-confirm-rate', percent(kpis.confirmRate));
-  setText('#kpi-revenue', money(kpis.revenue));
-  setText('#kpi-profit', money(kpis.estimatedProfit));
-  setText('#kpi-spend', money(kpis.spend));
+  setText('#kpi-revenue', report ? money(report.totals?.revenue) : '—');
+  setText('#kpi-profit', money(exactProfit));
+  setText('#kpi-spend', report?.coverage?.meta ? money(report.totals?.metaSpend) : '—');
   setText('#kpi-review', String(kpis.manualReview ?? 0));
-  setText('#kpi-profit-note', Number(finance.businessProfit) >= 0 ? 'Operacion en positivo' : 'Operacion en negativo');
+  setText('#kpi-profit-note', exactProfit === null
+    ? 'Pendiente de fuentes o costes completos'
+    : `${report?.statusLabel || 'Periodo calculado'} · ${exactProfit >= 0 ? 'operación en positivo' : 'operación en negativo'}`);
   setText('#hero-orders', String(kpis.orders ?? 0));
   setText('#hero-confirm-rate', percent(kpis.confirmRate));
-  setText('#hero-profit', money(kpis.estimatedProfit));
+  setText('#hero-profit', money(exactProfit));
 
   const profitCard = document.querySelector('#profit-card');
   if (profitCard) {
-    profitCard.classList.toggle('positive', Number(finance.businessProfit) >= 0);
-    profitCard.classList.toggle('danger', Number(finance.businessProfit) < 0);
+    profitCard.classList.toggle('positive', exactProfit !== null && exactProfit >= 0);
+    profitCard.classList.toggle('danger', exactProfit !== null && exactProfit < 0);
   }
 }
 
-function renderFinance() {
-  const finance = state.dashboard?.finance || {};
-  setText('#finance-dropea-profit', money(finance.dropeaProfit));
-  setText('#finance-revenue', money(finance.revenue));
-  setText('#finance-orders', `${finance.recognizedOrders || 0} pedidos reconocidos`);
-  setText('#finance-alt-costs', money((Number(finance.productCost) || 0) + (Number(finance.paymentFees) || 0)));
-  setText('#finance-meta', money(finance.metaSpend));
-  setText('#finance-profit', money(finance.businessProfit));
-  setText('#finance-formula', finance.formula || 'Beneficio = ingresos - costes');
-  const input = document.querySelector('#finance-dropea-input');
-  if (input && !input.matches(':focus')) input.value = Number.isFinite(Number(finance.dropeaProfit)) ? String(finance.dropeaProfit).replace('.', ',') : '';
+function renderFinanceCharts(finance) {
+  const trend = document.querySelector('#finance-trend-chart');
+  const costs = document.querySelector('#finance-cost-chart');
+  const volume = document.querySelector('#finance-volume-chart');
+  const totals = finance?.totals || {};
+  const days = [...(finance?.days || [])].sort((a, b) => a.day.localeCompare(b.day));
 
+  if (trend) {
+    if (!days.length) {
+      trend.innerHTML = '<div class="empty-state">No hay datos diarios para representar.</div>';
+    } else {
+      const width = 760;
+      const height = 228;
+      const pad = { left: 45, right: 14, top: 16, bottom: 30 };
+      const values = days.flatMap((day) => [day.realRevenue, day.totalCosts, day.netProfit]).filter((value) => Number.isFinite(Number(value)));
+      const min = Math.min(0, ...values.map(Number));
+      const max = Math.max(1, ...values.map(Number));
+      const range = max - min || 1;
+      const x = (index) => pad.left + (index * (width - pad.left - pad.right)) / Math.max(1, days.length - 1);
+      const y = (value) => pad.top + ((max - Number(value || 0)) * (height - pad.top - pad.bottom)) / range;
+      const points = (field) => days.map((day, index) => `${x(index).toFixed(1)},${y(day[field]).toFixed(1)}`).join(' ');
+      const zeroY = y(0).toFixed(1);
+      const ticks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
+      const grid = ticks.map((value) => {
+        const tickY = y(value).toFixed(1);
+        return `<line x1="${pad.left}" y1="${tickY}" x2="${width - pad.right}" y2="${tickY}" stroke="rgba(38,57,75,.09)" />
+          <text x="${pad.left - 7}" y="${Number(tickY) + 4}" text-anchor="end">${escapeHtml(new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 }).format(value))} €</text>`;
+      }).join('');
+      const labels = days.map((day, index) => index % 5 === 0 || index === days.length - 1
+        ? `<text x="${x(index).toFixed(1)}" y="218" text-anchor="middle">${escapeHtml(day.day.slice(8))}</text>`
+        : '').join('');
+      trend.innerHTML = `
+        <div class="finance-chart-legend">
+          <span><i style="background:#0d8b8f"></i>Facturación real</span>
+          <span><i style="background:#e86d57"></i>Gastos totales</span>
+          <span><i style="background:#26394b"></i>Beneficio neto</span>
+        </div>
+        <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Evolución diaria de facturación, gastos y beneficio">
+          <g fill="#65727f" font-family="Trebuchet MS, sans-serif" font-size="10">${grid}</g>
+          <line x1="${pad.left}" y1="${zeroY}" x2="${width - pad.right}" y2="${zeroY}" stroke="rgba(38,57,75,.2)" stroke-width="1" />
+          <polyline points="${points('realRevenue')}" fill="none" stroke="#0d8b8f" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+          <polyline points="${points('totalCosts')}" fill="none" stroke="#e86d57" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+          <polyline points="${points('netProfit')}" fill="none" stroke="#26394b" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" />
+          <g fill="#65727f" font-family="Trebuchet MS, sans-serif" font-size="11">${labels}</g>
+        </svg>`;
+    }
+  }
+
+  if (volume) {
+    const max = Math.max(1, ...days.flatMap((day) => [Number(day.delivered || 0), Number(day.returned || 0)]));
+    volume.innerHTML = days.length
+      ? `<div class="finance-chart-legend"><span><i style="background:#0d8b8f"></i>Entregados</span><span><i style="background:#e86d57"></i>Devueltos</span></div>
+        <div class="finance-volume-bars">${days.map((day) => `
+          <div class="finance-volume-day" title="${escapeHtml(day.day)} · ${day.delivered || 0} entregados · ${day.returned || 0} devueltos">
+            <div class="finance-volume-columns">
+              <span class="is-delivered" style="height:${Math.max(2, (Number(day.delivered || 0) / max) * 100).toFixed(1)}%"></span>
+              <span class="is-returned" style="height:${Math.max(2, (Number(day.returned || 0) / max) * 100).toFixed(1)}%"></span>
+            </div>
+            <small>${escapeHtml(day.day.slice(8))}</small>
+          </div>`).join('')}</div>`
+      : '<div class="empty-state">No hay actividad diaria para representar.</div>';
+  }
+
+  if (costs) {
+    const rows = [
+      ['Producto', totals.productCost],
+      ['Envío (ida)', totals.outboundShippingCost],
+      ['Tarifa COD', totals.codCost],
+      ['Fulfillment', totals.outboundFulfillmentCost],
+      ['Devoluciones', totals.returnCost],
+      ['Publicidad', totals.metaSpend],
+      ['Gastos fijos', totals.fixedCosts]
+    ];
+    const max = Math.max(1, ...rows.map(([, value]) => Number(value) || 0));
+    const totalCosts = Number(totals.totalCosts || 0);
+    costs.innerHTML = rows.map(([label, value]) => `
+      <div class="finance-cost-row">
+        <span>${escapeHtml(label)}<small>${totalCosts ? percentValue((Number(value || 0) / totalCosts) * 100) : '—'}</small></span>
+        <div class="finance-cost-bar"><span style="width:${Math.max(0, Math.min(100, (Number(value || 0) / max) * 100)).toFixed(1)}%"></span></div>
+        <b>${money(value)}</b>
+      </div>`).join('');
+  }
+}
+
+const FINANCE_COLUMNS = [
+  ['day', 'Fecha', 'date'], ['created', 'Pedidos creados', 'number'], ['confirmed', 'Confirmados', 'number'],
+  ['rejected', 'Rechazados', 'number'], ['sent', 'Enviados', 'number'], ['inTransit', 'En tránsito', 'number'],
+  ['delivered', 'Pedidos entregados', 'number'], ['deliveredUnits', 'Unidades entregadas', 'number'],
+  ['returned', 'Pedidos devueltos', 'number'], ['returnedUnits', 'Unidades devueltas', 'number'], ['incidentOrders', 'Pedidos con incidencia', 'number'],
+  ['estimatedRevenue', 'Facturación prevista', 'money'], ['realRevenue', 'Facturación real', 'money'], ['productCost', 'Coste producto', 'money'], ['outboundShippingCost', 'Coste envío', 'money'],
+  ['outboundFulfillmentCost', 'Coste fulfillment', 'money'], ['codCost', 'Coste COD', 'money'],
+  ['returnCost', 'Coste devoluciones', 'money'], ['dropeaAdjustmentsCost', 'IVA / ajustes Dropea', 'money'], ['metaSpend', 'Publicidad', 'money'], ['fixedCosts', 'Gastos fijos', 'money'],
+  ['oneOffCosts', 'Gastos puntuales', 'money'], ['otherCosts', 'Otros costes', 'money'], ['totalCosts', 'Costes totales', 'money'],
+  ['contributionMargin', 'Margen contribución', 'money'], ['netProfit', 'Beneficio neto', 'money'],
+  ['marginPercent', 'Margen %', 'percent'], ['roiPercent', 'ROI', 'percent'], ['roas', 'ROAS', 'ratio']
+];
+
+const FINANCE_DEFAULT_COLUMNS = new Set([
+  'day', 'created', 'sent', 'estimatedRevenue', 'delivered', 'realRevenue', 'productCost',
+  'outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returned', 'returnCost',
+  'dropeaAdjustmentsCost', 'metaSpend', 'fixedCosts', 'oneOffCosts', 'totalCosts', 'netProfit',
+  'marginPercent', 'roiPercent'
+]);
+
+function financeValue(value, type) {
+  if (type === 'money') return money(value);
+  if (type === 'percent') return percentValue(value);
+  if (type === 'ratio') return Number.isFinite(Number(value)) ? `${Number(value).toFixed(2)}x` : '—';
+  if (type === 'date') {
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    return match ? `${match[3]}/${match[2]}/${match[1]}` : (value ?? '—');
+  }
+  return value ?? '—';
+}
+
+function deltaText(delta, { invert = false, percentOnly = false } = {}) {
+  if (!financeCompareInput?.checked || !delta || delta.absolute === null) return 'Comparación desactivada';
+  const sign = Number(delta.absolute) > 0 ? '+' : '';
+  const trend = Number(delta.absolute) === 0 ? 'Sin cambio' : `${invert ? (Number(delta.absolute) > 0 ? '▲ más coste' : '▼ menos coste') : (Number(delta.absolute) > 0 ? '▲' : '▼')}`;
+  if (percentOnly) return `${trend} ${delta.percent === null ? '—' : percentValue(Math.abs(delta.percent))}`;
+  return `${trend} ${sign}${money(delta.absolute)} · ${delta.percent === null ? 'base 0' : percentValue(Math.abs(delta.percent))}`;
+}
+
+const financeChartInstances = new Map();
+
+function financeChart(node, option) {
+  if (!node) return null;
+  if (!window.echarts) {
+    node.innerHTML = '<div class="empty-state">El motor gráfico no se ha podido cargar.</div>';
+    return null;
+  }
+  const existing = financeChartInstances.get(node.id);
+  const chart = existing && !existing.isDisposed() ? existing : window.echarts.init(node, null, { renderer: 'canvas' });
+  financeChartInstances.set(node.id, chart);
+  chart.setOption(option, { notMerge: true, lazyUpdate: false });
+  return chart;
+}
+
+function euroAxis(value) {
+  return new Intl.NumberFormat('es-ES', { notation: 'compact', maximumFractionDigits: 1 }).format(value) + ' €';
+}
+
+function sparkline(node, values, color = '#1677ff') {
+  const clean = values.map((value) => Number.isFinite(Number(value)) ? Number(value) : null);
+  if (clean.filter((value) => value !== null).length < 2) { node.replaceChildren(); return; }
+  financeChart(node, {
+    animation: false, grid: { left: 0, right: 0, top: 3, bottom: 0 }, xAxis: { type: 'category', show: false, data: clean.map((_, index) => index) },
+    yAxis: { type: 'value', show: false, scale: true }, tooltip: { show: false },
+    series: [{ type: 'line', data: clean, symbol: 'none', smooth: .25, lineStyle: { color, width: 2 }, areaStyle: { color: window.echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: `${color}33` }, { offset: 1, color: `${color}00` }]) } }]
+  });
+}
+
+function renderExecutiveCharts(finance) {
+  const days = finance.days || [];
+  document.querySelectorAll('[data-finance-spark]').forEach((node) => {
+    const field = node.dataset.financeSpark;
+    sparkline(node, days.map((day) => day[field]), node.closest('.is-primary') ? '#8be3d3' : '#1677ff');
+  });
+  const trend = document.querySelector('#finance-trend-chart');
+  if (trend) {
+    const active = new Set([...document.querySelectorAll('[data-finance-series]:checked')].map((item) => item.dataset.financeSeries));
+    if (!days.length || !active.size) trend.innerHTML = '<div class="empty-state">No hay datos completos para representar.</div>';
+    else financeChart(trend, {
+      animationDuration: 350, color: ['#1677ff', '#f97316', '#0f766e'], grid: { left: 64, right: 24, top: 38, bottom: 42 },
+      legend: { top: 0, textStyle: { color: '#52606d', fontWeight: 700 } },
+      tooltip: { trigger: 'axis', backgroundColor: '#102a43', borderWidth: 0, textStyle: { color: '#fff' }, formatter(params) {
+        const day = days[params[0]?.dataIndex] || {};
+        return `<b>${escapeHtml(day.day || '')}</b><br>Facturación&nbsp;&nbsp;${money(day.realRevenue)}<br>Producto&nbsp;&nbsp;${money(day.productCost)}<br>Envío&nbsp;&nbsp;${money(day.outboundShippingCost)}<br>Fulfillment&nbsp;&nbsp;${money(day.outboundFulfillmentCost)}<br>COD&nbsp;&nbsp;${money(day.codCost)}<br>Devoluciones&nbsp;&nbsp;${money(day.returnCost)}<br>Publicidad&nbsp;&nbsp;${money(day.metaSpend)}<br>Gastos fijos&nbsp;&nbsp;${money(day.fixedCosts)}<br>Puntuales&nbsp;&nbsp;${money(day.oneOffCosts)}<br>Otros&nbsp;&nbsp;${money(day.otherCosts)}<br><b>Coste total&nbsp;&nbsp;${money(day.totalCosts)}</b><br><b>Beneficio&nbsp;&nbsp;${money(day.netProfit)}</b><br>ROI&nbsp;&nbsp;${percentValue(day.roiPercent)}<br>ROAS&nbsp;&nbsp;${Number.isFinite(Number(day.roas)) ? Number(day.roas).toFixed(2) + 'x' : 'Dato pendiente de fuente'}`;
+      } },
+      xAxis: { type: 'category', data: days.map((day) => day.day.slice(8)), axisLine: { lineStyle: { color: '#d9e2ec' } }, axisLabel: { color: '#627d98' } },
+      yAxis: { type: 'value', axisLabel: { formatter: euroAxis, color: '#627d98' }, splitLine: { lineStyle: { color: '#edf2f7' } } },
+      series: [
+        active.has('realRevenue') ? { name: 'Facturación', type: 'bar', data: days.map((day) => day.realRevenue), itemStyle: { color: '#1677ff', borderRadius: [4, 4, 0, 0] }, barMaxWidth: 18 } : null,
+        active.has('totalCosts') ? { name: 'Costes', type: 'bar', data: days.map((day) => day.totalCosts), itemStyle: { color: '#f97316', borderRadius: [4, 4, 0, 0] }, barMaxWidth: 18 } : null,
+        active.has('netProfit') ? { name: 'Beneficio', type: 'line', data: days.map((day) => day.netProfit), smooth: .2, symbolSize: 5, lineStyle: { width: 3, color: '#0f766e' }, itemStyle: { color: '#0f766e' } } : null
+      ].filter(Boolean)
+    });
+  }
+  const funnel = document.querySelector('#finance-funnel');
+  if (funnel) {
+    const count = finance.counts || {}; const stages = [['Creados', count.created], ['Confirmados', count.confirmed], ['Enviados', count.sent], ['Entregados', count.delivered]];
+    financeChart(funnel, { animationDuration: 350, title: { subtext: `Rechazados ${count.rejected || 0} · Devueltos ${count.returned || 0}`, left: 'center', bottom: 0, subtextStyle: { color: '#b45309', fontWeight: 700 } }, tooltip: { trigger: 'item', formatter: ({ name, value }) => `${escapeHtml(name)}: <b>${value}</b><br>${percentValue(Number(value || 0) * 100 / Math.max(1, count.created || 0))} de la cohorte` }, series: [{ type: 'funnel', top: 4, bottom: 34, left: '12%', width: '76%', minSize: '38%', maxSize: '100%', sort: 'descending', gap: 3, label: { show: true, position: 'inside', color: '#fff', fontWeight: 800, formatter: '{b}  {c}' }, itemStyle: { borderColor: '#fff', borderWidth: 2 }, data: stages.map(([name, value], index) => ({ name, value: value || 0, itemStyle: { color: ['#0b4f6c', '#1677ff', '#0891b2', '#0f766e'][index] } })) }] });
+  }
+  const cost = document.querySelector('#finance-cost-chart');
+  if (cost) {
+    const totals = finance.totals || {}; const entries = [['Producto', totals.productCost], ['Publicidad', totals.metaSpend], ['Envío', totals.outboundShippingCost], ['Fulfillment', totals.outboundFulfillmentCost], ['COD', totals.codCost], ['Devoluciones', totals.returnCost], ['IVA / ajustes Dropea', totals.dropeaAdjustmentsCost], ['Fijos', totals.fixedCosts], ['Puntuales', totals.oneOffCosts], ['Otros', totals.otherCosts]].filter(([, value]) => value !== null && value !== undefined);
+    financeChart(cost, { animationDuration: 350, grid: { left: 100, right: 70, top: 8, bottom: 24 }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: money }, xAxis: { type: 'value', axisLabel: { formatter: euroAxis }, splitLine: { lineStyle: { color: '#edf2f7' } } }, yAxis: { type: 'category', inverse: true, data: entries.map(([name]) => name), axisLine: { show: false }, axisTick: { show: false } }, series: [{ type: 'bar', data: entries.map(([, value]) => value), barMaxWidth: 18, label: { show: true, position: 'right', formatter: ({ value }) => money(value), color: '#334e68', fontWeight: 700 }, itemStyle: { color: '#1677ff', borderRadius: [0, 5, 5, 0] } }] });
+  }
+  const cumulative = document.querySelector('#finance-cumulative-chart');
+  if (cumulative) {
+    let running = 0; const values = days.map((day) => Number.isFinite(Number(day.netProfit)) ? (running += Number(day.netProfit)) : null);
+    financeChart(cumulative, { animationDuration: 350, grid: { left: 64, right: 24, top: 24, bottom: 38 }, tooltip: { trigger: 'axis', valueFormatter: money }, xAxis: { type: 'category', data: days.map((day) => day.day.slice(8)), axisLabel: { color: '#627d98' } }, yAxis: { type: 'value', axisLabel: { formatter: euroAxis }, splitLine: { lineStyle: { color: '#edf2f7' } } }, series: [{ name: 'Beneficio acumulado', type: 'line', smooth: .18, symbolSize: 5, data: values, lineStyle: { width: 3, color: '#0f766e' }, itemStyle: { color: '#0f766e' }, areaStyle: { color: window.echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: '#0f766e44' }, { offset: 1, color: '#0f766e00' }]) }, markLine: { symbol: 'none', lineStyle: { color: '#94a3b8', type: 'dashed' }, data: [{ yAxis: 0 }] } }] });
+  }
+  const status = document.querySelector('#finance-status-chart');
+  if (status) {
+    const breakdown = finance.counts?.statusBreakdown || {};
+    const data = [
+      ['Entregados', breakdown.delivered, '#10b981'],
+      ['Devueltos', breakdown.returned, '#ef4444'],
+      ['En el aire', breakdown.inAir, '#f59e0b'],
+      ['Pendientes', breakdown.pending, '#3b82f6'],
+      ['Cancelados antes de envío', breakdown.cancelled, '#94a3b8']
+    ].filter(([, value]) => Number(value) > 0);
+    financeChart(status, { animationDuration: 350, tooltip: { trigger: 'item', formatter: ({ name, value, percent }) => `${escapeHtml(name)}: <b>${value}</b> · ${percent}%` }, legend: { type: 'scroll', bottom: 0, textStyle: { color: '#52606d', fontWeight: 700 } }, series: [{ type: 'pie', radius: ['47%', '72%'], center: ['50%', '43%'], avoidLabelOverlap: true, label: { formatter: '{b}\n{c} · {d}%', color: '#334e68', fontWeight: 700 }, data: data.map(([name, value, color]) => ({ name, value, itemStyle: { color } })) }] });
+  }
+  const volume = document.querySelector('#finance-volume-chart');
+  if (volume) financeChart(volume, { animationDuration: 350, color: ['#3b82f6', '#10b981', '#ef4444'], grid: { left: 54, right: 20, top: 42, bottom: 38 }, legend: { top: 0, textStyle: { color: '#52606d', fontWeight: 700 } }, tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } }, xAxis: { type: 'category', data: days.map((day) => day.day.slice(8)), axisLabel: { color: '#627d98' } }, yAxis: { type: 'value', minInterval: 1, axisLabel: { color: '#627d98' }, splitLine: { lineStyle: { color: '#edf2f7' } } }, series: [{ name: 'Creados', type: 'bar', data: days.map((day) => day.created), barMaxWidth: 14 }, { name: 'Entregados', type: 'bar', data: days.map((day) => day.delivered), barMaxWidth: 14 }, { name: 'Devueltos', type: 'bar', data: days.map((day) => day.returned), barMaxWidth: 14 }] });
+  const dailyProfit = document.querySelector('#finance-daily-profit-chart');
+  if (dailyProfit) financeChart(dailyProfit, { animationDuration: 350, grid: { left: 64, right: 24, top: 26, bottom: 38 }, tooltip: { trigger: 'axis', valueFormatter: money }, xAxis: { type: 'category', data: days.map((day) => day.day.slice(8)), axisLabel: { color: '#627d98' } }, yAxis: { type: 'value', axisLabel: { formatter: euroAxis }, splitLine: { lineStyle: { color: '#edf2f7' } } }, series: [{ name: 'Beneficio / pérdida', type: 'bar', barMaxWidth: 22, data: days.map((day) => ({ value: day.netProfit, itemStyle: { color: Number(day.netProfit) < 0 ? '#ef4444' : '#10b981', borderRadius: Number(day.netProfit) < 0 ? [0, 0, 5, 5] : [5, 5, 0, 0] } })), markLine: { symbol: 'none', lineStyle: { color: '#64748b', type: 'dashed' }, data: [{ yAxis: 0 }] } }] });
+  renderFinanceHistory(finance);
+}
+
+function renderFinanceHistory(finance) {
+  const node = document.querySelector('#finance-history-chart'); if (!node) return;
+  const field = document.querySelector('#finance-history-metric')?.value || 'exactNetProfit';
+  const windowSize = Number(document.querySelector('#finance-history-window')?.value || 6);
+  const rows = (finance.history || []).slice(-windowSize);
+  const operational = ['delivered', 'returned'].includes(field);
+  const values = rows.map((row) => Number((operational ? row.counts?.[field] : row.totals?.[field]) ?? 0));
+  if (!rows.length) { node.innerHTML = '<div class="empty-state">Aún no hay histórico suficiente.</div>'; return; }
+  financeChart(node, { animationDuration: 350, grid: { left: 64, right: 24, top: 24, bottom: 38 }, tooltip: { trigger: 'axis', valueFormatter: operational ? (value) => `${value} pedidos` : money }, xAxis: { type: 'category', data: rows.map((row) => row.month.slice(5) + '/' + row.month.slice(2, 4)) }, yAxis: { type: 'value', axisLabel: { formatter: operational ? '{value}' : euroAxis }, splitLine: { lineStyle: { color: '#edf2f7' } } }, series: [{ name: document.querySelector('#finance-history-metric')?.selectedOptions?.[0]?.textContent || field, type: 'bar', data: values, barMaxWidth: 44, itemStyle: { color: ({ value }) => value < 0 ? '#dc2626' : '#1677ff', borderRadius: [6, 6, 0, 0] }, label: { show: true, position: 'top', formatter: ({ value }) => operational ? value : money(value), color: '#334e68', fontWeight: 700 } }] });
+}
+
+function renderFinanceTable(finance) {
+  if (!state.financeVisibleColumns) state.financeVisibleColumns = new Set(FINANCE_DEFAULT_COLUMNS);
+  const columns = FINANCE_COLUMNS.filter(([key]) => state.financeVisibleColumns.has(key));
+  const head = document.querySelector('#finance-days-head'); const body = document.querySelector('#finance-days-table'); const foot = document.querySelector('#finance-days-total');
+  if (head) head.innerHTML = `<tr>${columns.map(([key, label]) => `<th><button type="button" data-finance-sort="${key}">${escapeHtml(label)} ${state.financeSort.key === key ? (state.financeSort.direction === 'asc' ? '↑' : '↓') : ''}</button></th>`).join('')}</tr>`;
+  const sorted = [...(finance.days || [])].sort((a, b) => { const av = a[state.financeSort.key]; const bv = b[state.financeSort.key]; const result = state.financeSort.key === 'day' ? String(av).localeCompare(String(bv)) : Number(av || 0) - Number(bv || 0); return state.financeSort.direction === 'asc' ? result : -result; });
+  const drilldownType = { delivered: 'delivered', returned: 'returned', rejected: 'rejected', incidentOrders: 'incidentOrders' };
+  if (body) body.innerHTML = sorted.length ? sorted.map((day) => `<tr class="${day.returned ? 'has-return' : ''}">${columns.map(([key, , type]) => {
+    const value = financeValue(day[key], type);
+    const canOpen = drilldownType[key] && Number(day[key]) > 0;
+    return `<td class="${key === 'netProfit' ? (Number(day[key]) < 0 ? 'finance-negative' : 'finance-positive') : ''}">${canOpen ? `<button class="finance-drilldown-button" type="button" data-finance-day="${escapeHtml(day.day)}" data-finance-drilldown="${drilldownType[key]}">${value}</button>` : value}</td>`;
+  }).join('')}</tr>`).join('') : `<tr><td colspan="${columns.length}"><div class="empty-state">No hay actividad en el periodo.</div></td></tr>`;
+  const eventTotal = (key) => (finance.days || []).reduce((sum, day) => sum + (Number(day[key]) || 0), 0);
+  const total = { day: 'TOTAL', created: eventTotal('created'), confirmed: eventTotal('confirmed'), rejected: eventTotal('rejected'), sent: eventTotal('sent'), inTransit: eventTotal('inTransit'), delivered: eventTotal('delivered'), deliveredUnits: eventTotal('deliveredUnits'), returned: eventTotal('returned'), returnedUnits: eventTotal('returnedUnits'), incidentOrders: eventTotal('incidentOrders'), estimatedRevenue: finance.totals.estimatedRevenue, realRevenue: finance.totals.realRevenue, productCost: finance.totals.productCost, outboundShippingCost: finance.totals.outboundShippingCost, outboundFulfillmentCost: finance.totals.outboundFulfillmentCost, codCost: finance.totals.codCost, returnCost: finance.totals.returnCost, dropeaAdjustmentsCost: finance.totals.dropeaAdjustmentsCost, metaSpend: finance.totals.metaSpend, fixedCosts: finance.totals.fixedCosts, oneOffCosts: finance.totals.oneOffCosts, otherCosts: finance.totals.otherCosts, totalCosts: finance.totals.totalCosts, contributionMargin: finance.totals.contributionMargin, netProfit: finance.totals.exactNetProfit, marginPercent: finance.totals.marginPercent, roiPercent: finance.totals.roiPercent, roas: finance.totals.roas };
+  if (foot) foot.innerHTML = `<tr>${columns.map(([key, , type]) => `<td>${financeValue(total[key], type)}</td>`).join('')}</tr>`;
+  document.querySelectorAll('[data-finance-sort]').forEach((button) => button.addEventListener('click', () => { const key = button.dataset.financeSort; state.financeSort = { key, direction: state.financeSort.key === key && state.financeSort.direction === 'asc' ? 'desc' : 'asc' }; renderFinanceTable(finance); }));
+  const menu = document.querySelector('#finance-column-menu');
+  if (menu) menu.innerHTML = FINANCE_COLUMNS.map(([key, label]) => `<label><input type="checkbox" data-finance-column="${key}" ${state.financeVisibleColumns.has(key) ? 'checked' : ''} ${key === 'day' ? 'disabled' : ''}> ${escapeHtml(label)}</label>`).join('');
+  document.querySelectorAll('[data-finance-drilldown]').forEach((button) => button.addEventListener('click', () => {
+    const day = button.dataset.financeDay; const type = button.dataset.financeDrilldown; const ids = finance.drilldowns?.[day]?.[type] || [];
+    const dialog = document.querySelector('#finance-drilldown-dialog');
+    setText('#finance-drilldown-title', `${button.closest('table')?.querySelector(`[data-finance-sort="${type}"]`)?.textContent?.replace(/[↑↓]/g, '').trim() || 'Pedidos'} · ${day}`);
+    setText('#finance-drilldown-note', `${ids.length} pedidos componen este indicador. Solo se muestran identificadores operativos; no se incluyen datos personales.`);
+    const target = document.querySelector('#finance-drilldown-orders'); if (target) target.innerHTML = ids.length ? ids.map((id) => `<span>#${escapeHtml(id)}</span>`).join('') : '<div class="empty-state">Detalle pendiente de sincronización para este día.</div>';
+    dialog?.showModal();
+  }));
+}
+
+function renderFinanceExecutive() {
+  const finance = state.financeReport; const coverage = document.querySelector('#finance-coverage');
+  if (state.financeLoading) {
+    setText('#finance-result-profit', 'Calculando…');
+    setText('#finance-result-formula', 'Conciliando pedidos, costes, Meta y gastos del periodo');
+    if (coverage) { coverage.className = 'finance-coverage finance-skeleton'; coverage.textContent = 'Conciliando eventos, costes y publicidad…'; }
+    return;
+  }
+  if (state.financeError || !finance) {
+    setText('#finance-result-profit', 'Error de carga');
+    setText('#finance-result-formula', state.financeError || 'Selecciona un periodo para calcular el resultado');
+    if (coverage) { coverage.className = 'finance-coverage is-error'; coverage.textContent = state.financeError ? `No se pudo cargar: ${state.financeError}` : 'Selecciona un periodo.'; }
+    return;
+  }
+  const c = finance.counts || {}; const t = finance.totals || {}; const d = finance.comparison?.deltas || {};
+  const statusBreakdown = c.statusBreakdown || {};
+  const periodLabel = (() => {
+    const [year, month] = String(finance.period?.month || '').split('-').map(Number);
+    if (!year || !month) return finance.period?.month || 'Periodo seleccionado';
+    return new Intl.DateTimeFormat('es-ES', { month: 'long', year: 'numeric', timeZone: 'Europe/Madrid' }).format(new Date(Date.UTC(year, month - 1, 1)));
+  })();
+  setText('#finance-result-profit', money(t.exactNetProfit));
+  setText('#finance-result-month', periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1));
+  setText('#finance-result-formula', `${money(t.realRevenue)} de facturación − ${money(t.totalCosts)} de costes conciliados`);
+  setText('#finance-result-revenue', money(t.realRevenue));
+  setText('#finance-result-costs', money(t.totalCosts));
+  setText('#finance-result-meta', money(t.metaSpend));
+  setText('#finance-result-fixed', money(Number(t.fixedCosts || 0) + Number(t.oneOffCosts || 0)));
+  setText('#finance-result-delivered', statusBreakdown.delivered ?? c.delivered ?? 0);
+  setText('#finance-result-returned', statusBreakdown.returned ?? c.returned ?? 0);
+  setText('#finance-result-inair', statusBreakdown.inAir ?? c.inAir ?? 0);
+  setText('#finance-result-margin', percentValue(t.marginPercent));
+  setText('#finance-profit', money(t.exactNetProfit)); setText('#finance-revenue', money(t.realRevenue)); setText('#finance-total-costs', money(t.totalCosts));
+  setText('#finance-roi', percentValue(t.roiPercent)); setText('#finance-roas', Number.isFinite(Number(t.roas)) ? `${Number(t.roas).toFixed(2)}x` : '—'); setText('#finance-margin', percentValue(t.marginPercent));
+  setText('#finance-delta-profit', deltaText(d.exactNetProfit)); setText('#finance-delta-revenue', deltaText(d.realRevenue)); setText('#finance-delta-costs', deltaText(d.totalCosts, { invert: true }));
+  setText('#finance-delta-roi', deltaText(d.roiPercent, { percentOnly: true })); setText('#finance-delta-roas', deltaText(d.roas, { percentOnly: true })); setText('#finance-delta-margin', deltaText(d.marginPercent, { percentOnly: true }));
+  setText('#finance-orders', c.created ?? 0); setText('#finance-confirmed', c.confirmed ?? 0); setText('#finance-rejected', c.rejected ?? 0); setText('#finance-sent', c.sent ?? 0); setText('#finance-transit', c.inTransit ?? 0); setText('#finance-delivered', c.delivered ?? 0); setText('#finance-delivered-units', c.deliveredUnits ?? 0); setText('#finance-returned', c.returned ?? 0); setText('#finance-returned-units', c.returnedUnits ?? 0); setText('#finance-incidents', c.incidentOrders ?? 0);
+  setText('#finance-confirm-rate', `${percentValue(c.confirmationRatePercent)} · ${c.confirmed || 0}/${c.created || 0}`); setText('#finance-reject-rate', `${percentValue(c.rejectionRatePercent)} · ${c.rejected || 0}/${c.created || 0}`); setText('#finance-delivery-rate', `${percentValue(c.deliveryRatePercent)} · ${c.delivered || 0}/${c.sent || 0} envíos`); setText('#finance-return-rate', `${percentValue(c.returnRatePercent)} · ${c.returned || 0}/${c.sent || 0} envíos`); setText('#finance-incident-rate', `${percentValue(c.incidentRatePercent)} · ${c.incidentOrders || 0}/${c.sent || 0} envíos`);
+  setText('#finance-status-badge', finance.statusLabel); if (coverage) { coverage.className = `finance-coverage ${finance.quality?.status === 'OK' ? 'is-ok' : 'is-warning'}`; coverage.textContent = `${finance.period.since} → ${finance.period.until} · Calidad ${finance.quality?.score ?? 0}% · desglose Dropea publicado ${finance.coverage?.dropeaBreakdownPublishedPercent ?? 0}% (definitivo ${finance.coverage?.dropeaBreakdownPercent ?? 0}%)`; }
+  const fresh = document.querySelector('#finance-freshness'); if (fresh) fresh.innerHTML = Object.entries(finance.freshness?.sources || {}).map(([name, value]) => `<span class="${value.status === 'OK' ? 'is-ok' : 'is-warning'}"><b>${escapeHtml(name)}</b> ${escapeHtml(value.status)} · ${value.lastSyncAt ? formatDateTime(value.lastSyncAt) : 'sin sincronización'}</span>`).join('');
+  const projection = document.querySelector('#finance-projection'); if (projection) { projection.hidden = !finance.projection; projection.innerHTML = finance.projection ? `<div><span>Realizado MTD</span><strong>${money(t.exactNetProfit)}</strong></div><div><span>Proyección de cierre</span><strong>${money(finance.projection.netProfit)}</strong><small>${escapeHtml(finance.projection.note)} · confianza ${escapeHtml(finance.projection.confidence)}</small></div>` : ''; }
+  const warnings = document.querySelector('#finance-warnings'); if (warnings) warnings.innerHTML = finance.quality?.issues?.length ? finance.quality.issues.map((item) => `<div><strong>${escapeHtml(item.code)}</strong> · ${escapeHtml(item.message)}</div>`).join('') : '<div class="ok">Fuentes y cálculos reconciliados.</div>';
+  const controls = document.querySelector('#finance-controls'); if (controls) controls.innerHTML = `<strong>Conciliación</strong>${Object.entries(finance.controls || {}).map(([name, ok]) => `<span class="${ok ? 'is-ok' : 'is-pending'}">${ok ? '✓' : '!'} ${escapeHtml(name)}</span>`).join('')}`;
+  const audit = document.querySelector('#finance-audit'); if (audit) { audit.hidden = !finance.audit; audit.textContent = finance.audit ? `Control cruzado de julio: el libro validado marca ${money(finance.audit.benchmarkNetProfit)} y el cálculo pedido a pedido marca ${money(finance.audit.computedNetProfit)}. Diferencia: ${money(finance.audit.variance)}. El libro se mantiene como referencia, no sustituye los movimientos reales de Dropea.` : ''; }
+  const expenses = finance.expenseLedger || [];
+  const recurringExpenses = expenses.filter((item) => item.type === 'recurring_monthly' || item.type === 'recurring_daily').reduce((sum, item) => sum + Number(item.appliedAmount || 0), 0);
+  const oneOffExpenses = expenses.filter((item) => item.type === 'one_off').reduce((sum, item) => sum + Number(item.appliedAmount || 0), 0);
+  const expenseTotals = document.querySelector('#finance-expense-totals'); if (expenseTotals) expenseTotals.innerHTML = `<div><span>Total del mes</span><strong>${money(recurringExpenses + oneOffExpenses)}</strong></div><div><span>Recurrentes</span><strong>${money(recurringExpenses)}</strong></div><div><span>Puntuales</span><strong>${money(oneOffExpenses)}</strong></div>`;
+  const expenseTable = document.querySelector('#finance-expenses-table'); if (expenseTable) expenseTable.innerHTML = expenses.length ? expenses.map((item) => `<tr><td><strong>${escapeHtml(item.name)}</strong></td><td>${item.type === 'one_off' ? 'Puntual' : 'Recurrente'}</td><td>${escapeHtml(item.category || 'Otros')}</td><td>${money(item.amount)}</td><td>${money(item.appliedAmount)}</td><td>${escapeHtml(item.startDate || item.date || '—')}</td><td>${escapeHtml(item.endDate || 'Sin fecha fin')}</td><td><small>${escapeHtml(item.source || 'ledger')}</small></td></tr>`).join('') : '<tr><td colspan="8"><div class="empty-state">No hay gastos configurados en este mes.</div></td></tr>';
+  const statusNames = { delivered: 'Entregado', returned: 'Devuelto', inTransit: 'En el aire', incident: 'Incidencia', pending: 'Pendiente', rejected: 'Cancelado' };
+  const ordersTable = document.querySelector('#finance-orders-cost-table'); if (ordersTable) ordersTable.innerHTML = finance.orders?.length ? finance.orders.map((order) => `<tr><td><strong>#${escapeHtml(order.orderId)}</strong><small>${escapeHtml(order.externalOrderId || '')}</small></td><td><span class="finance-status-pill is-${escapeHtml(order.status)}">${escapeHtml(statusNames[order.status] || order.status)}</span></td><td>${escapeHtml(order.createdDay || '—')}</td><td>${escapeHtml(order.settlementDay || '—')}</td><td>${order.units}</td><td>${money(order.orderAmount)}</td><td>${money(order.dropeaExpenses)}</td><td>${money(order.productCost)}</td><td>${money(order.outboundShippingCost)}</td><td>${money(order.outboundFulfillmentCost)}</td><td>${money(order.codCost)}</td><td>${money(order.returnCost)}</td><td>${money(order.dropeaAdjustmentsCost)}</td><td class="${Number(order.dropeaOrderProfit) < 0 ? 'finance-negative' : 'finance-positive'}">${money(order.dropeaOrderProfit)}</td><td class="${Number(order.contributionAfterProduct) < 0 ? 'finance-negative' : 'finance-positive'}">${money(order.contributionAfterProduct)}</td><td><span class="finance-source-pill">${order.breakdownStatus === 'DROPEA_FINAL' ? 'Dropea real' : order.breakdownStatus === 'DROPEA_ESTIMATE' ? 'Dropea estimado' : order.breakdownStatus === 'NOT_SETTLED' ? 'No liquidado' : 'Respaldo'}</span></td></tr>`).join('') : '<tr><td colspan="16"><div class="empty-state">No hay pedidos con actividad en este periodo.</div></td></tr>';
+  const summary = document.querySelector('#finance-summary'); if (summary) summary.innerHTML = `<p class="eyebrow">Resumen de ${escapeHtml(finance.period.month)}</p><h4>${money(t.realRevenue)} facturados · ${money(t.exactNetProfit)} de beneficio · ROI ${percentValue(t.roiPercent)}</h4><p>${c.delivered || 0} pedidos y ${c.deliveredUnits || 0} unidades entregadas. ${c.returned || 0} devoluciones con ${money(t.returnCost)} de retorno real. Costes Dropea adicionales/IVA: ${money(t.dropeaAdjustmentsCost)}. Publicidad: ${money(t.metaSpend)} · gastos fijos y puntuales: ${money(Number(t.fixedCosts || 0) + Number(t.oneOffCosts || 0))}.</p>`;
+  renderExecutiveCharts(finance); renderFinanceTable(finance);
+}
+
+function renderFinance() {
+  return renderFinanceExecutive();
+  const finance = state.financeReport;
+  const coverage = document.querySelector('#finance-coverage');
+  const audit = document.querySelector('#finance-audit');
   const warnings = document.querySelector('#finance-warnings');
+  const controls = document.querySelector('#finance-controls');
+  const daysTable = document.querySelector('#finance-days-table');
+  const daysTotal = document.querySelector('#finance-days-total');
+  const productsTable = document.querySelector('#finance-products-table');
+
+  if (state.financeLoading) {
+    if (audit) audit.hidden = true;
+    if (coverage) {
+      coverage.className = 'finance-coverage';
+      coverage.textContent = 'Conciliando pedidos de Dropea y gasto de Meta Ads...';
+    }
+    return;
+  }
+  if (state.financeError || !finance) {
+    if (audit) audit.hidden = true;
+    if (coverage) {
+      coverage.className = 'finance-coverage is-error';
+      coverage.textContent = state.financeError
+        ? `No se pudo conciliar el periodo: ${state.financeError}`
+        : 'Selecciona un mes para cargar la conciliación.';
+    }
+    return;
+  }
+
+  const counts = finance.counts || {};
+  const totals = finance.totals || {};
+  const reportCoverage = finance.coverage || {};
+  const orderCount = counts.dropeaOrders ?? counts.total ?? 0;
+  setText('#finance-orders-label', 'Pedidos creados');
+  setText('#finance-orders-source', 'Cohorte mensual de Dropea');
+  setText('#finance-orders-column', 'Creados');
+  setText('#finance-orders', String(orderCount));
+  setText('#finance-sent', String(counts.sent ?? 0));
+  setText('#finance-delivered', String(counts.delivered ?? 0));
+  setText('#finance-delivered-units', String(counts.deliveredUnits ?? counts.delivered ?? 0));
+  setText('#finance-delivery-events', String(counts.deliveryEvents ?? 0));
+  setText('#finance-returned', String(counts.returned ?? 0));
+  setText('#finance-returned-units', `${counts.returnedUnits ?? counts.returned ?? 0} unidades afectadas`);
+  setText('#finance-cancelled', String(counts.cancelled ?? 0));
+  setText('#finance-open', String(Number(counts.active || 0) + Number(counts.incidents || 0)));
+  setText('#finance-not-sent', String(counts.notSent ?? 0));
+  setText('#finance-confirm-rate', reportCoverage.orders ? `Confirmación ${percentValue(counts.confirmationRatePercent)}` : 'Confirmación pendiente');
+  setText('#finance-delivery-rate', `Entrega ${percentValue(counts.deliveryRatePercent)}`);
+  setText('#finance-revenue', money(totals.realRevenue ?? totals.revenue));
+  setText('#finance-total-costs', money(totals.totalCosts));
+  setText('#finance-meta', reportCoverage.meta ? money(totals.metaSpend) : '—');
+  setText('#finance-real-cpa', `CPA real ${money(totals.realCpa)}`);
+  setText('#finance-return-cost', money(totals.returnCost));
+  setText('#finance-return-unit-cost', `Coste Dropea por pedido devuelto · ${money(finance.policy?.returnPerReturnedOrder)} solo como respaldo si falta el desglose`);
+  setText('#finance-roi', percentValue(totals.roiPercent));
+  setText('#finance-profit', money(totals.exactNetProfit));
+  setText('#finance-product-cost', money(totals.productCost));
+  setText('#finance-outbound-cost', money(totals.outboundShippingCost));
+  setText('#finance-cod-cost', money(totals.codCost));
+  setText('#finance-fulfillment-cost', money(totals.outboundFulfillmentCost));
+  setText('#finance-fixed-cost', money(totals.fixedCosts));
+  setText('#finance-formula', reportCoverage.exactProfitAvailable
+    ? 'Facturación real − producto − logística − publicidad − fijos'
+    : 'Cálculo pendiente: falta una fuente económica obligatoria');
+  setText('#finance-status-badge', finance.statusLabel || finance.status || 'Periodo calculado');
+
+  if (audit) {
+    audit.hidden = !finance.audit;
+    audit.innerHTML = finance.audit
+      ? `Corrección de julio: el saldo parcial anterior era <strong>${money(finance.audit.previousPanelAmount)}</strong>. El beneficio neto correcto es <strong>${money(finance.audit.correctedNetProfit)}</strong>, una corrección de <strong>−${money(finance.audit.overstatement)}</strong>. La diferencia procedía de costes de producto, logística, devoluciones y gastos fijos que no se estaban restando.`
+      : '';
+  }
+
+  if (coverage) {
+    coverage.className = `finance-coverage ${reportCoverage.closedActual ? 'is-ok' : 'is-warning'}`;
+    coverage.textContent = `${finance.period?.since || ''} a ${finance.period?.until || ''}. ${reportCoverage.explanation || ''}`;
+  }
   if (warnings) {
-    const items = finance.warnings || [];
+    const items = [
+      ...(finance.warnings || []),
+      !reportCoverage.closedActual && finance.status === 'provisional' ? 'Mes abierto: las entregas, devoluciones y atribución de Meta todavía pueden cambiar.' : null,
+      !reportCoverage.closedActual && finance.status === 'reconstructed' ? 'Periodo reconstruido con el estado actual de las APIs; no sustituye un cierre contable importado.' : null
+    ].filter(Boolean);
     warnings.innerHTML = items.length
       ? items.map((item) => `<div>${escapeHtml(item)}</div>`).join('')
-      : '<div class="ok">Calculo sin avisos relevantes.</div>';
+      : '<div class="ok">Todas las partidas del periodo están conciliadas.</div>';
+  }
+  if (controls) {
+    const checks = [
+      ['Periodo completo', finance.controls?.fullPeriodBoundary],
+      ['Estados Dropea', finance.controls?.ordersPartitionReconciled],
+      ['Ingresos por producto', finance.controls?.productRevenueReconciled],
+      ['Suma de costes', finance.controls?.costsReconciled],
+      ['Beneficio neto', finance.controls?.profitReconciled],
+      ['Meta Ads', reportCoverage.meta]
+    ];
+    controls.innerHTML = `<strong>Controles de conciliación</strong>${checks.map(([label, passed]) => `
+      <span class="${passed ? 'is-ok' : 'is-pending'}"><i>${passed ? '✓' : '!'}</i>${escapeHtml(label)}</span>`).join('')}`;
+  }
+  if (daysTable) {
+    daysTable.innerHTML = finance.days?.length
+      ? finance.days.map((day) => `<tr>
+          <td><strong>${escapeHtml(day.day)}</strong></td>
+          <td>${day.dropeaOrders ?? '—'}</td><td>${day.sent ?? 0}</td><td>${day.delivered ?? 0}</td>
+          <td>${day.deliveredUnits ?? day.delivered ?? 0}</td><td>${day.deliveryEvents ?? 0}</td><td>${day.returned ?? 0}</td>
+          <td>${money(day.estimatedRevenue)}</td><td>${money(day.realRevenue)}</td><td>${money(day.productCost)}</td>
+          <td>${money(day.outboundShippingCost)}</td><td>${money(day.codCost)}</td><td>${money(day.outboundFulfillmentCost)}</td>
+          <td>${money(day.returnCost)}</td><td>${money(day.metaSpend)}</td><td>${money(day.fixedCosts)}</td>
+          <td>${money(day.totalCosts)}</td><td class="${Number(day.netProfit) < 0 ? 'finance-negative' : 'finance-positive'}">${money(day.netProfit)}</td>
+          <td>${percentValue(day.roiPercent)}</td><td>${money(day.estimatedCpa)}</td><td>${money(day.realCpa)}</td>
+          <td>${percentValue(day.confirmationRatePercent)}</td><td>${percentValue(day.deliveryRatePercent)}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="23"><div class="empty-state">No hay pedidos en este periodo.</div></td></tr>';
+  }
+  if (daysTotal) {
+    daysTotal.innerHTML = `<tr>
+      <td><strong>TOTAL</strong></td><td>${orderCount}</td><td>${counts.sent ?? 0}</td><td>${counts.delivered ?? 0}</td>
+      <td>${counts.deliveredUnits ?? counts.delivered ?? 0}</td><td>${counts.deliveryEvents ?? 0}</td><td>${counts.returned ?? 0}</td>
+      <td>${money(totals.estimatedRevenue)}</td><td>${money(totals.realRevenue)}</td>
+      <td>${money(totals.productCost)}</td><td>${money(totals.outboundShippingCost)}</td><td>${money(totals.codCost)}</td>
+      <td>${money(totals.outboundFulfillmentCost)}</td><td>${money(totals.returnCost)}</td><td>${money(totals.metaSpend)}</td>
+      <td>${money(totals.fixedCosts)}</td><td>${money(totals.totalCosts)}</td>
+      <td class="${Number(totals.exactNetProfit) < 0 ? 'finance-negative' : 'finance-positive'}">${money(totals.exactNetProfit)}</td>
+      <td>${percentValue(totals.roiPercent)}</td><td>${money(totals.estimatedCpa)}</td><td>${money(totals.realCpa)}</td>
+      <td>${percentValue(counts.confirmationRatePercent)}</td><td>${percentValue(counts.deliveryRatePercent)}</td>
+    </tr>`;
+  }
+  if (productsTable) {
+    productsTable.innerHTML = finance.products?.length
+      ? finance.products.map((product) => `<tr>
+          <td><strong>${escapeHtml(product.name)}</strong>${product.unknownCostUnits ? `<small>${product.unknownCostUnits} uds. sin coste publicado</small>` : ''}</td>
+          <td>${product.units}</td><td>${money(product.revenue)}</td><td>${money(product.productCost ?? product.knownProductCost)}</td>
+          <td>${money(product.marginBeforeLogisticsAndAds)}</td>
+        </tr>`).join('')
+      : '<tr><td colspan="5"><div class="empty-state">No hay productos entregados en este periodo.</div></td></tr>';
+  }
+  renderFinanceCharts(finance);
+}
+
+async function loadFinanceReport({ force = false } = {}) {
+  const month = financeMonthInput?.value || currentMadridMonth();
+  state.financeLoading = true;
+  state.financeError = null;
+  renderFinance();
+  let pending = false;
+  try {
+    const params = new URLSearchParams({ month });
+    if (force) params.set('refresh', '1');
+    const response = await fetch(`/api/finance?${params}`);
+    const payload = await readJsonResponse(response);
+    if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    if (payload.pending && !payload.finance) {
+      pending = true;
+      window.clearTimeout(state.financePollTimer);
+      state.financePollTimer = window.setTimeout(() => loadFinanceReport(), 5000);
+      return;
+    }
+    state.financeReport = payload.finance;
+    if (payload.refreshing) {
+      window.clearTimeout(state.financePollTimer);
+      state.financePollTimer = window.setTimeout(() => loadFinanceReport(), 5000);
+    }
+  } catch (error) {
+    state.financeError = error instanceof Error ? error.message : String(error);
+  } finally {
+    state.financeLoading = pending;
+    renderFinance();
+    renderKpis();
   }
 }
 
@@ -1460,6 +2026,11 @@ function render() {
 
   if (state.section === 'incidents') {
     renderIncidents();
+    return;
+  }
+
+  if (state.section === 'discounts') {
+    renderDiscounts();
     return;
   }
 
@@ -1734,28 +2305,89 @@ incidentFeedbackForm?.addEventListener('submit', async (event) => {
   }
 });
 
-financeSettingsForm?.addEventListener('submit', async (event) => {
+financeMonthInput?.addEventListener('change', () => loadFinanceReport());
+function moveFinanceMonth(offset) {
+  const value = financeMonthInput?.value || currentMadridMonth();
+  const [year, month] = value.split('-').map(Number);
+  const next = new Date(Date.UTC(year, month - 1 + offset, 1)).toISOString().slice(0, 7);
+  const from = state.financeReport?.availableRange?.from || '2026-05';
+  const to = state.financeReport?.availableRange?.to || currentMadridMonth();
+  if (next < from || next > to || !financeMonthInput) return;
+  financeMonthInput.value = next;
+  loadFinanceReport();
+}
+financePrevButton?.addEventListener('click', () => moveFinanceMonth(-1));
+financeNextButton?.addEventListener('click', () => moveFinanceMonth(1));
+financeCompareInput?.addEventListener('change', renderFinance);
+document.querySelector('#finance-history-metric')?.addEventListener('change', () => renderFinanceHistory(state.financeReport || {}));
+document.querySelector('#finance-history-window')?.addEventListener('change', () => renderFinanceHistory(state.financeReport || {}));
+document.querySelectorAll('[data-finance-series]').forEach((input) => input.addEventListener('change', () => renderExecutiveCharts(state.financeReport || {})));
+document.querySelector('#finance-drilldown-close')?.addEventListener('click', () => document.querySelector('#finance-drilldown-dialog')?.close());
+window.addEventListener('resize', () => financeChartInstances.forEach((chart) => { if (!chart.isDisposed()) chart.resize(); }));
+document.querySelector('#finance-columns')?.addEventListener('click', () => {
+  const menu = document.querySelector('#finance-column-menu');
+  if (menu) menu.hidden = !menu.hidden;
+});
+document.querySelector('#finance-column-menu')?.addEventListener('change', (event) => {
+  const key = event.target?.dataset?.financeColumn;
+  if (!key || !state.financeVisibleColumns) return;
+  if (event.target.checked) state.financeVisibleColumns.add(key); else state.financeVisibleColumns.delete(key);
+  renderFinanceTable(state.financeReport || {});
+});
+document.querySelector('#finance-csv')?.addEventListener('click', () => {
+  const report = state.financeReport;
+  if (!report?.days?.length) return;
+  const separator = ';';
+  const quote = (value) => `"${String(value ?? '').replaceAll('"', '""')}"`;
+  const rows = [FINANCE_COLUMNS.map(([, label]) => quote(label)).join(separator), ...report.days.map((day) => FINANCE_COLUMNS.map(([key]) => quote(day[key])).join(separator))];
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([`\uFEFF${rows.join('\n')}`], { type: 'text/csv;charset=utf-8' }));
+  link.download = `suleia-rentabilidad-${report.period.month}.csv`;
+  link.click(); URL.revokeObjectURL(link.href);
+});
+document.querySelector('#finance-expense-toggle')?.addEventListener('click', () => {
+  if (!financeExpenseForm) return;
+  financeExpenseForm.hidden = !financeExpenseForm.hidden;
+  const start = document.querySelector('#finance-expense-start');
+  if (!financeExpenseForm.hidden && start && !start.value) start.value = `${financeMonthInput?.value || currentMadridMonth()}-01`;
+});
+financeExpenseForm?.addEventListener('submit', async (event) => {
   event.preventDefault();
-  const input = document.querySelector('#finance-dropea-input');
-  const value = input.value.trim();
-  const button = financeSettingsForm.querySelector('button');
-  button.disabled = true;
-  button.textContent = 'Guardando...';
+  const submit = financeExpenseForm.querySelector('button[type="submit"]');
+  const message = document.querySelector('#finance-expense-message');
+  submit.disabled = true;
+  if (message) message.textContent = 'Guardando y recalculando el mes…';
   try {
-    const response = await fetch('/api/finance-settings', {
+    const response = await fetch('/api/finance-expenses', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dropeaProfit: value })
+      body: JSON.stringify({
+        name: document.querySelector('#finance-expense-name')?.value,
+        type: document.querySelector('#finance-expense-type')?.value,
+        amount: document.querySelector('#finance-expense-amount')?.value,
+        startDate: document.querySelector('#finance-expense-start')?.value,
+        endDate: document.querySelector('#finance-expense-end')?.value,
+        category: document.querySelector('#finance-expense-category')?.value
+      })
     });
     const payload = await readJsonResponse(response);
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
-    await loadDashboard();
+    financeExpenseForm.reset();
+    financeExpenseForm.hidden = true;
+    if (message) message.textContent = '';
+    await loadFinanceReport();
   } catch (error) {
-    alert(`No se pudo guardar el beneficio Dropea: ${error instanceof Error ? error.message : String(error)}`);
+    if (message) message.textContent = `No se pudo guardar: ${error instanceof Error ? error.message : String(error)}`;
   } finally {
-    button.disabled = false;
-    button.textContent = 'Guardar beneficio Dropea';
+    submit.disabled = false;
   }
+});
+financeRefreshButton?.addEventListener('click', async () => {
+  financeRefreshButton.disabled = true;
+  financeRefreshButton.textContent = 'Conciliando...';
+  await loadFinanceReport({ force: true });
+  financeRefreshButton.disabled = false;
+  financeRefreshButton.textContent = 'Actualizar periodo';
 });
 
 agentChatForm?.addEventListener('submit', async (event) => {
@@ -1787,10 +2419,12 @@ businessManagerButton?.addEventListener('click', requestBusinessManagerReport);
 syncButton.addEventListener('click', async () => {
   syncButton.textContent = 'Actualizando...';
   syncButton.disabled = true;
-  await refreshDashboardNow();
+  await Promise.all([refreshDashboardNow(), loadFinanceReport({ force: true })]);
   syncButton.textContent = 'Actualizar datos';
   syncButton.disabled = false;
 });
 
+if (financeMonthInput) financeMonthInput.value = currentMadridMonth();
 scheduleAutoRefresh();
-loadDashboard();
+Promise.all([loadDashboard(), loadFinanceReport()]).catch(() => {});
+
