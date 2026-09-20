@@ -330,6 +330,7 @@ function sourceFixedAccrual(source) {
 function sourceDays(source, currentDay) {
   const fixed = sourceFixedAccrual(source); let cumulative = 0;
   return (source.days || []).map((row) => {
+    const dailyRates = sourceCounts({counts:row});
     const fixedCosts = fixed ? round(fixed.get(row.day) || 0, 6) : row.fixedCosts;
     const componentValues = [row.productCost, row.outboundShippingCost, row.codCost, row.outboundFulfillmentCost,
       row.returnCost, row.dropeaAdjustmentsCost, row.metaSpend, fixedCosts, row.oneOffCosts, row.otherCosts];
@@ -340,6 +341,8 @@ function sourceDays(source, currentDay) {
     if (netProfit !== null) cumulative += netProfit;
     return {
       ...row,
+      confirmationRatePercent: row.created == null || (row.confirmed ?? row.sent) == null ? null : dailyRates.confirmationRatePercent,
+      deliveryRatePercent: row.sent == null || row.delivered == null ? null : dailyRates.deliveryRatePercent,
       fixedCosts,
       totalCosts,
       netProfit,

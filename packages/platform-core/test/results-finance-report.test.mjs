@@ -40,6 +40,21 @@ const orders = [
   order('1393453', '2026-09-05T07:14:17Z', '2026-09-05T08:00:00Z', { lifecycle_status: 'REJECTED', returned_at_utc: '2026-09-11T10:34:18Z', product_summary: products('31666', 3), total_amount: 44.99, final_amount: 44.99 })
 ];
 
+test('daily chart rates reuse canonical cohort denominators and preserve unavailable inputs', () => {
+  const report = source('2026-09', 1, { totals:{exactNetProfit:20,realRevenue:100,totalCosts:80},
+    days:[{day:'2026-09-01',created:10,confirmed:8,sent:5,delivered:2},
+      {day:'2026-09-02',created:0,confirmed:0,sent:0,delivered:0},
+      {day:'2026-09-03',created:null,confirmed:null,sent:null,delivered:null}] });
+  const result = buildResultsFinanceReport({month:'2026-09',supplementalReports:[report],now:new Date('2026-09-20T12:00:00Z')});
+  assert.equal(result.days[0].confirmationRatePercent,80);
+  assert.equal(result.days[0].deliveryRatePercent,40);
+  assert.equal(result.days[1].confirmationRatePercent,0);
+  assert.equal(result.days[1].deliveryRatePercent,0);
+  assert.equal(result.days[2].confirmationRatePercent,null);
+  assert.equal(result.days[2].deliveryRatePercent,null);
+  assert.equal(result.totals.exactNetProfit,20);
+});
+
 test('results finance separates creation cohorts from realised delivery and return events', () => {
   const supplementalReports = ['2026-05', '2026-06', '2026-07', '2026-08'].map((month) => source(month));
   supplementalReports.push(source('2026-09', 12, { dataAvailability: { status: 'MTD', label: 'MTD · día 12' } }));

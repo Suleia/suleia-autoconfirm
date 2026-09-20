@@ -1078,6 +1078,7 @@ function renderResultsFinance() {
   );
   $('finance-audit').replaceChildren(...Object.entries(data.controls || {}).map(([key, value]) => { const row = node('div', `audit-check ${value ? 'pass' : 'fail'}`); row.append(badge(value ? 'OK' : 'REVISAR'), node('span', '', key.replaceAll('_', ' ').replace(/([A-Z])/g, ' $1').toLowerCase())); return row; }));
   renderResultExpenses(data, currency);
+  if(typeof renderResultsDashboard==='function')renderResultsDashboard(data);
 }
 function applyResultsFinance(data, selected, loadedAt = Date.now()) {
   state.finance = data; state.financeLoadedAt = loadedAt; const select = $('finance-month'); const months = data.availableMonths?.length ? data.availableMonths : [data.period?.month || selected]; state.financeMonths = months;

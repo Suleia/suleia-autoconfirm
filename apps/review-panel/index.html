@@ -7,6 +7,7 @@
   <title>Suleia Operations Center</title>
   <link rel="stylesheet" href="styles.css?v=20260920-incident-dashboard-v2">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
+  <link rel="stylesheet" href="results-dashboard.css?v=20260920-results-v2">
 </head>
 <body>
   <div id="login" class="login-shell" hidden>
@@ -64,7 +65,7 @@
           <div>
             <p class="eyebrow">RENDIMIENTO DEL NEGOCIO</p>
             <h2>Panel de resultados</h2>
-            <p>Ingresos, costes y beneficio conciliados por pedido de Dropea, publicidad Meta y gastos mensuales.</p>
+            <p>Ingresos, costes, beneficio, pedidos y publicidad del negocio.</p>
           </div>
           <div class="finance-month-control">
             <span>Periodo del informe</span>
@@ -78,6 +79,7 @@
         </div>
         <div id="finance-freshness" class="source-freshness" aria-label="Actualización de fuentes"></div>
         <section id="finance-hero" class="finance-hero"></section>
+        <section id="results-v2-charts" class="results-v2-charts" aria-label="Gráficos financieros y operativos"></section>
         <section class="results-chart-grid" aria-label="Gráficos de resultados">
           <article class="finance-panel daily-chart-panel">
             <div class="panel-heading"><div><p class="eyebrow">RENTABILIDAD DIARIA · FECHA DE COMPRA</p><h3 id="finance-daily-title">Ganancia o pérdida por día</h3></div><div class="chart-heading-actions"><div class="chart-segmented" role="group" aria-label="Vista del gráfico diario"><button id="finance-chart-profit" class="is-active" type="button">Resultado</button><button id="finance-chart-pnl" type="button">Ingresos y costes</button></div><span id="finance-exactness" class="data-quality"></span></div></div>
@@ -164,6 +166,7 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260920-incident-dashboard-v2" defer></script>
+  <script src="results-dashboard.js?v=20260920-results-v2" defer></script>
+  <script src="app.js?v=20260920-results-v2" defer></script>
 </body>
 </html>
