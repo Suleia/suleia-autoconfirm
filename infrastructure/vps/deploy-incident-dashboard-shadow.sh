@@ -83,7 +83,7 @@ rollback(){
 }
 trap rollback ERR
 migration_applied=false
-if ! "${compose[@]}" exec -T postgres psql -X -At -U suleia_admin -d suleia_staging -c \
+if ! "${compose[@]}" exec -T --interactive=false postgres psql -X -At -U suleia_admin -d suleia_staging -c \
   "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='read_models' AND table_name='operations_incident_records' AND column_name='dashboard_source_context')" | grep -qx t;then
   "${compose[@]}" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
     --username suleia_admin --dbname suleia_staging < migrations/041_incident_dashboard_context.sql
