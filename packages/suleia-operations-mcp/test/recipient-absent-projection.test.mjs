@@ -32,7 +32,7 @@ test('new absent filters use the same derived universe and leave generic types i
   await r.listIncidents(new URLSearchParams({scope:'ALL',absent:'AUSENTE'}));
   assert.match(calls[0].sql,/read_models\.recipient_absent_shadow/);
   await r.listIncidents(new URLSearchParams({scope:'ALL',type:'REFUSED_BY_RECIPIENT'}));
-  assert.match(calls[3].sql,/read_models\.recipient_absent_shadow/);
+  assert.match(calls[4].sql,/read_models\.recipient_absent_shadow/);
   assert.ok(calls.every(c=>!/^\s*(INSERT|UPDATE|DELETE)/.test(c.sql)));
   const source=readFileSync(new URL('../../platform-core/src/incident/recovery-center.mjs',import.meta.url),'utf8');
   assert.match(source,/item\.normalized_type!=='RECIPIENT_ABSENT'/);

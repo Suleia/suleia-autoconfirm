@@ -82,9 +82,13 @@ rollback(){
   fi
 }
 trap rollback ERR
-"${compose[@]}" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
-  --username suleia_admin --dbname suleia_staging < migrations/041_incident_dashboard_context.sql
-migration_applied=true
+migration_applied=false
+if ! "${compose[@]}" exec -T postgres psql -X -At -U suleia_admin -d suleia_staging -c \
+  "SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='read_models' AND table_name='operations_incident_records' AND column_name='dashboard_source_context')" | grep -qx t;then
+  "${compose[@]}" exec -T postgres psql --no-psqlrc --set ON_ERROR_STOP=1 \
+    --username suleia_admin --dbname suleia_staging < migrations/041_incident_dashboard_context.sql
+  migration_applied=true
+fi
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server review-panel ingestion-worker
 for service in "${services[@]}";do
   docker inspect "suleia-operations-staging-$service-1" > "$backup/$service-after.json"

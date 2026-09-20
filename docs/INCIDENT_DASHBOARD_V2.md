@@ -66,6 +66,12 @@ renderer financiero, conserva entorno y siete servicios ajenos, respalda el
 esquema y ofrece rollback de los cuatro servicios SHADOW y migración 041.
 La API registra versión, duración, recuentos y nombres de filtros, sin sus valores.
 
+La primera verificación desplegada confirmó los seis IDs de la captura, nueve
+en seguimiento y 721 históricos. Detectó una consulta de 5,5 s que cargaba 736
+expedientes: la revisión posterior empuja el alcance abierto/histórico al SQL
+y obtiene los contadores globales mediante una lectura ligera de metadata.
+La cola actual solo necesita enriquecer las 15 abiertas, no todo el histórico.
+
 No se han generado capturas de navegador: AGENTS.md prohíbe abrir o controlar
 navegadores. La validación visual disponible es de estructura DOM, CSS aislado
 y referencia aportada, no una certificación de píxeles o captura del despliegue.

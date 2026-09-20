@@ -1,4 +1,4 @@
-import { buildRecoveryOverview, recoveryProjection } from './recovery-center.mjs';
+import { buildRecoveryOverview, recoveryProjection, recoveryBaseSelector } from './recovery-center.mjs';
 
 export const DASHBOARD_VERSION = 'INCIDENT_DASHBOARD_V2';
 export const DASHBOARD_METRICS = [
@@ -8,6 +8,14 @@ export const DASHBOARD_METRICS = [
 ];
 const validTemplate = value => /^[a-z][a-z0-9_]{2,159}$/.test(value || '') ? value : null;
 const time = value => value ? new Date(value).getTime() : NaN;
+export function dashboardScope(item) {
+  if(item.status!=='PENDING' || item.is_active!==true)return 'HISTORICAL';
+  const type=item.interpreted_type || (item.type && item.type!=='UNKNOWN'?item.type:item.raw_type);
+  return type==='PICKUP_AT_AGENCY' || type==='RECIPIENT_ABSENT' && item.dashboard_source_context?.is_first_absent===true?'FOLLOWUP':'ACTIVE';
+}
+export function dashboardScopeCounts(items) {
+  const counts={ACTIVE:0,FOLLOWUP:0,HISTORICAL:0};for(const item of items)counts[dashboardScope(item)]++;return counts;
+}
 
 // Presentation only: never changes provider state, policies or executable decisions.
 export function dashboardProjection(raw, { now = new Date() } = {}) {
@@ -18,8 +26,7 @@ export function dashboardProjection(raw, { now = new Date() } = {}) {
   const r = item.recovery, e = r.evidence, s = item.absent_shadow || {};
   const pending = item.status === 'PENDING' && item.is_active === true;
   const source = item.dashboard_source_context || {};
-  const followup = pending && (type === 'PICKUP_AT_AGENCY'
-    || type === 'RECIPIENT_ABSENT' && source.is_first_absent === true);
+  const followup = dashboardScope(item)==='FOLLOWUP';
   const stale = item.dropea_sync_current !== true || item.chatby_sync_current !== true
     || ['STALE','UNKNOWN','NOT_VERIFIABLE'].includes(item.effective_freshness_status)
     || item.operational_freshness_status === 'STALE';
@@ -59,6 +66,7 @@ export function dashboardProjection(raw, { now = new Date() } = {}) {
 
 export function dashboardSelector(item, filters = {}) {
   const d=item.dashboard, r=item.recovery;
+  if ((filters.absent || filters.autopilot) && !recoveryBaseSelector(item,{scope:'ALL',absent:filters.absent,autopilot:filters.autopilot})) return false;
   if (filters.active && item.is_active!==(filters.active==='true')) return false;
   if (filters.discount_response && item.discount_recovery_response_status!==filters.discount_response) return false;
   if (filters.recovery && !r.flags[filters.recovery]) return false;
@@ -93,7 +101,7 @@ export function buildIncidentDashboard(items, options = {}) {
   return {...old,items:selected.slice(offset,offset+limit),total:selected.length,limit,offset,
     summary:{...old.summary,scope,universe_count:selected.length,population_count:population.length,filtered_count:selected.length,
       dashboard:{version:DASHBOARD_VERSION,source:'DROPEA_PUBLIC_API_V2',source_definition:'status=PENDING · is_active=true',
-        scope_counts:{ACTIVE:projected.filter(i=>i.dashboard.flags.PENDING).length,FOLLOWUP:projected.filter(i=>i.dashboard.flags.FOLLOWUP).length,HISTORICAL:projected.filter(i=>!i.dashboard.flags.OPEN).length},
+        scope_counts:options.scopeCounts || dashboardScopeCounts(projected),
         queue_definition:'Pendientes de resolver: abiertas excepto recogida en agencia y primera ausencia observada. Estas permanecen abiertas en Seguimiento.',
         kpis:DASHBOARD_METRICS.map(([key,label,icon])=>({key,label,icon,count:selected.filter(i=>i.dashboard.flags[key]).length})),
         chips:{type:group('type',[['RECIPIENT_ABSENT','Ausente'],['REFUSED_BY_RECIPIENT','Rechazo'],['ADDRESS_INCORRECT','Dirección'],['PENDING_DATA','Faltan datos'],['PICKUP_AT_AGENCY','Agencia'],['UNKNOWN','Otros']]),

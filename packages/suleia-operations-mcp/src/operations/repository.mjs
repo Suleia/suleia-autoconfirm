@@ -3,7 +3,7 @@ import { buildResultsFinanceReport } from '../../../platform-core/src/finance/re
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 import { buildRecoveryOverview, recoveryProjection, recoveryTimeline, recoveryMessageValidity } from '../../../platform-core/src/incident/recovery-center.mjs';
-import { buildIncidentDashboard, dashboardProjection } from '../../../platform-core/src/incident/dashboard.mjs';
+import { buildIncidentDashboard, dashboardProjection, dashboardScopeCounts } from '../../../platform-core/src/incident/dashboard.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
@@ -464,20 +464,25 @@ export class OperationsRepository {
     const month = searchParams.get('month');
     if (month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('INVALID_RECOVERY_MONTH');
     const values = month ? [month] : [];
-    const where = month ? "WHERE to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM')=$1" : '';
+    const scope=searchParams.get('scope') || 'ACTIVE';
+    const conditions=month?["to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM')=$1"]:[];
+    if(scope==='HISTORICAL')conditions.push("NOT (status='PENDING' AND is_active=true)");
+    else if(scope!=='ALL')conditions.push("status='PENDING' AND is_active=true");
+    const where=conditions.length?`WHERE ${conditions.join(' AND ')}`:'';
     // One complete universe, no truncation. Pagination follows canonical filtering.
-    const [result,months,health] = await Promise.all([
+    const [result,months,health,scopes] = await Promise.all([
       this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}`,values),
       this.pool.query(`SELECT DISTINCT to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM') AS month
         FROM read_models.operations_incident_records ORDER BY month DESC`),
-      this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector')
+      this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector'),
+      this.pool.query('SELECT status,is_active,type,raw_type,dashboard_source_context FROM read_models.operations_incident_records')
     ]);
     const items=result.rows.map(row=>incidentInsight(privateIncidentDisplay(row,this.privateDataKey)));
     const connectors=health.rows.map(row=>({...row,...evaluateSourceFreshness({source:row.connector,source_observed_at:row.checked_at,
       ingested_at:row.checked_at,last_successful_sync_at:row.last_success_at,last_failure_at:row.last_failure_at,
       sync_complete:row.pagination_complete})}));
     const dashboard=buildIncidentDashboard(items,{filters:Object.fromEntries(searchParams),limit,offset,
-      availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors});
+      availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors,scopeCounts:dashboardScopeCounts(scopes.rows)});
     console.info(JSON.stringify({event:'incident_dashboard_read',version:dashboard.summary.dashboard.version,
       scope:dashboard.summary.scope,filter_keys:[...searchParams.keys()].filter(key=>['type','metric','scope','response','month','risk','template','attempt','flow','q'].includes(key)),
       source_rows:items.length,result_rows:dashboard.total,returned_rows:dashboard.items.length,
