@@ -427,10 +427,11 @@ export class OperationsProjector {
     ]);
     await this.pool.query(`UPDATE read_models.operations_incident_records SET market=$2,store_id=$3,
       secondary_type=$4,capability_status=$5,human_review=$6,automation_allowed=false,
-      payload_hash=$7
+      payload_hash=$7,dashboard_source_context=$8::jsonb
       WHERE canonical_issue_id=$1`, [
       issue.canonical_issue_id, issue.market, String(issue.store_id), issue.secondary_type || 'UNKNOWN',
-      issue.capability_status || 'NOT_DECLARED', issue.human_review === true, issue.payload_hash
+      issue.capability_status || 'NOT_DECLARED', issue.human_review === true, issue.payload_hash,
+      JSON.stringify(issue.dashboard_source_context || {})
     ]);
     await this.pool.query(`INSERT INTO read_models.operations_timeline_records
       (timeline_id,canonical_order_id,canonical_issue_id,event_type,source,occurred_at,summary_masked,freshness)

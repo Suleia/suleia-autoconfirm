@@ -359,6 +359,11 @@ export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, market, store
     resolved_at: nullableIso(issue.resolved_at, 'issue.resolved_at'),
     pickup_point: safePickupPoint(issue.pickup_point, hmacKey),
     delivery_attempt_number: null,
+    dashboard_source_context: {
+      is_first_absent: typeof issue.is_first_absent === 'boolean' ? issue.is_first_absent : null,
+      absence_count: Number.isInteger(issue.absence_count) && issue.absence_count >= 0 ? issue.absence_count : null,
+      observed_at: nullableIso(observedAt, 'observed_at')
+    },
     carrier_retention_deadline: null,
     customer_response_status: 'UNKNOWN',
     customer_intent: 'UNKNOWN',

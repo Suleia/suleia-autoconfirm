@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260919-incident-autopilot-v1">
+  <link rel="stylesheet" href="styles.css?v=20260920-incident-dashboard-v2">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
 </head>
 <body>
@@ -125,7 +125,7 @@
       </section>
 
       <section id="recovery-center" class="recovery-center" hidden aria-label="Suleia Incident Autopilot">
-        <header class="recovery-heading"><div><p class="eyebrow">CENTRO DE SUPERVISIÓN</p><h2>SULEIA INCIDENT AUTOPILOT</h2><p id="recovery-caption"></p></div><span class="badge purple">SIMULATION / SHADOW</span></header>
+        <header class="recovery-heading"><div><h2>Recuperación, evidencia y tiempo restante</h2><p id="recovery-caption"></p></div><span class="badge purple">SIMULATION / SHADOW</span></header>
         <div class="autopilot-overview-grid"><section><h3>Necesitan atención</h3><div id="autopilot-attention" class="autopilot-attention"></div></section><section><h3>Salud del Autopilot</h3><div id="autopilot-health" class="autopilot-health"></div></section></div>
         <details class="recovery-performance"><summary>Embudo y métricas de negocio</summary><div id="recovery-funnel" class="recovery-funnel" aria-label="Flujo de recuperación observado"></div><div id="recovery-business-metrics" class="recovery-business-metrics"></div></details>
         <details class="recovery-performance"><summary>Rendimiento por tipología y plantilla</summary><div id="recovery-by-type"></div><div id="recovery-by-template"></div></details>
@@ -149,7 +149,7 @@
         <footer class="queue-footer">
           <span id="result-count">0 registros</span>
           <div class="pagination-controls">
-            <label>Filas <select id="page-size" class="page-size" aria-label="Filas por página"><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
+            <label>Filas <select id="page-size" class="page-size" aria-label="Filas por página"><option value="10">10</option><option value="25" selected>25</option><option value="50">50</option><option value="100">100</option></select></label>
             <span id="page-status">0 de 0</span>
             <button id="prev-page" class="page-button" aria-label="Página anterior">←</button><button id="next-page" class="page-button" aria-label="Página siguiente">→</button>
           </div>
@@ -163,6 +163,6 @@
       <div id="detail-content" class="detail-content"></div>
     </aside>
   </div>
-  <script src="app.js?v=20260919-incident-autopilot-v1" defer></script>
+  <script src="app.js?v=20260920-incident-dashboard-v2" defer></script>
 </body>
 </html>

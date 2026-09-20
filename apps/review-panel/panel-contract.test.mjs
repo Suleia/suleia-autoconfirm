@@ -61,9 +61,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<a id="login-button" class="primary-button" href="#" aria-disabled="true"/);
   assert.match(html, /id="login-notice"[^>]*role="alert"/);
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
-  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260919-incident-autopilot-v1">/);
+  assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260920-incident-dashboard-v2">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260919-incident-autopilot-v1" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260920-incident-dashboard-v2" defer><\/script>/);
   assert.doesNotMatch(html,/id="finance-daily-basis"/);
   assert.match(script,/monthlyReturnRateChart\(data\)/);
   assert.match(script,/daily-result-calendar/);
@@ -157,7 +157,7 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /Sin conversación asociada/);
   assert.match(script, /Sin respuesta válida/);
   assert.match(script, /Estado de acción externa/i);
-  assert.match(script, /'Cliente','Siguiente acción','Timer','Resultado','Prioridad'/);
+  assert.match(script, /'Cliente','Evidencia cliente','Siguiente acción','Timer','Resultado','Prioridad'/);
   assert.match(script, /customer_phone/);
   assert.match(script, /e\.message/);
   assert.match(script, /Opción Dropea/);
@@ -167,7 +167,7 @@ test('incidents use current connector polls and distinguish a missing associatio
   assert.match(script, /item\.direction === 'OUTBOUND' \? 'Suleia' : 'Cliente'/);
   assert.match(script, /data\?\.autopilot\?\.kpis/);
   assert.match(script, /state\.filters\.autopilot/);
-  assert.match(html, /SULEIA INCIDENT AUTOPILOT/);
+  assert.match(html, /Recuperación, evidencia y tiempo restante/);
   assert.match(html, /SIMULATION \/ SHADOW/);
   assert.match(html, /id="autopilot-attention"/);
   assert.match(html, /id="autopilot-health"/);

@@ -3,6 +3,7 @@ import { buildResultsFinanceReport } from '../../../platform-core/src/finance/re
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 import { buildRecoveryOverview, recoveryProjection, recoveryTimeline, recoveryMessageValidity } from '../../../platform-core/src/incident/recovery-center.mjs';
+import { buildIncidentDashboard, dashboardProjection } from '../../../platform-core/src/incident/dashboard.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
@@ -27,7 +28,7 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_order_records r USING(canonical_order_id)
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
-const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
+const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboard_record.dashboard_source_context,
   autopilot.state AS autopilot_state,autopilot.mode AS autopilot_mode,
   autopilot.policy_name AS autopilot_policy_name,autopilot.policy_version AS autopilot_policy_version,
   autopilot.next_action AS autopilot_next_action,autopilot.reason AS autopilot_reason,
@@ -105,6 +106,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow,
     ELSE 'REVIEW_INCIDENT'
   END AS operational_recommendation
  FROM read_models.operations_incident_evidence_context p
+ LEFT JOIN read_models.operations_incident_records dashboard_record ON dashboard_record.canonical_issue_id=p.canonical_issue_id
  LEFT JOIN read_models.operations_order_context outcome ON outcome.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_autopilot_current autopilot ON autopilot.canonical_issue_id=p.canonical_issue_id
  LEFT JOIN read_models.recipient_absent_shadow absent ON absent.canonical_issue_id=p.canonical_issue_id
@@ -456,6 +458,7 @@ export class OperationsRepository {
   }
 
   async incidentOverview(searchParams) {
+    const started=performance.now();
     const limit = integer(searchParams.get('limit'), 25, 1, 100);
     const offset = integer(searchParams.get('offset'), 0, 0, 100_000);
     const month = searchParams.get('month');
@@ -473,8 +476,13 @@ export class OperationsRepository {
     const connectors=health.rows.map(row=>({...row,...evaluateSourceFreshness({source:row.connector,source_observed_at:row.checked_at,
       ingested_at:row.checked_at,last_successful_sync_at:row.last_success_at,last_failure_at:row.last_failure_at,
       sync_complete:row.pagination_complete})}));
-    return buildRecoveryOverview(items,{filters:Object.fromEntries(searchParams),limit,offset,
+    const dashboard=buildIncidentDashboard(items,{filters:Object.fromEntries(searchParams),limit,offset,
       availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors});
+    console.info(JSON.stringify({event:'incident_dashboard_read',version:dashboard.summary.dashboard.version,
+      scope:dashboard.summary.scope,filter_keys:[...searchParams.keys()].filter(key=>['type','metric','scope','response','month','risk','template','attempt','flow','q'].includes(key)),
+      source_rows:items.length,result_rows:dashboard.total,returned_rows:dashboard.items.length,
+      stale_rows:dashboard.summary.dashboard.stale,duration_ms:Math.round(performance.now()-started)}));
+    return dashboard;
   }
 
   async incidentDetail(id) {
@@ -503,7 +511,7 @@ export class OperationsRepository {
         ORDER BY m.occurred_at ASC`, [id])
     ]);
     if (!detail.rows[0]) return null;
-    const incident=recoveryProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
+    const incident=dashboardProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
     const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey)
       .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message)}));
     return {incident,customer_messages:messages,timeline:timeline.rows,feedback:feedback.rows,

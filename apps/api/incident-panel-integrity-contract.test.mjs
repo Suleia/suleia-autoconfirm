@@ -39,7 +39,7 @@ test('API table and cards share the same incident selection builder', () => {
   assert.match(repository, /customer_replied_after_issue=true[\s\S]{0,100}messages_used,0\)>0 THEN 'VALID_RESPONSE'/);
   assert.equal((repository.match(/chatby_last_successful_sync_at < now\(\)-interval '900 seconds'/g) || []).length, 3);
   assert.match(repository, /return this\.incidentOverview\(searchParams\)/);
-  assert.match(repository, /return buildRecoveryOverview\(items/);
+  assert.match(repository, /dashboard=buildIncidentDashboard\(items/);
   const recovery=fs.readFileSync(new URL('../../packages/platform-core/src/incident/recovery-center.mjs',import.meta.url),'utf8');
   assert.match(recovery,/count:base\.filter\(i=>recoverySelector\(i,key\)\)\.length/);
   assert.match(recovery,/selected=base\.filter\(i=>!filters\.recovery \|\| recoverySelector\(i,filters\.recovery\)\)/);

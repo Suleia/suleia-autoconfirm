@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
 import {buildRecoveryOverview} from '../../packages/platform-core/src/incident/recovery-center.mjs';
+import {buildIncidentDashboard} from '../../packages/platform-core/src/incident/dashboard.mjs';
 class Element {
   constructor(tag='div'){this.tagName=tag;this.children=[];this.textContent='';this.events={};this.style={};this.classList={add(){},remove(){},toggle(){}};}
   append(...c){this.children.push(...c);} replaceChildren(...c){this.children=c;} setAttribute(k,v){this[k]=String(v);}
@@ -60,4 +61,17 @@ test('order lane remains seven columns and has no recovery or absent controls',(
   const {context,get}=fixture();context.ui.state.view='orders';context.ui.renderHead();assert.equal(get('table-head').children[0].children.length,7);
   context.ui.renderFilters();assert.equal(content(get('filters')).includes('Recuperable'),false);
   context.ui.renderRecoveryCenter({});assert.equal(get('recovery-center').hidden,true);
+});
+test('dashboard renders six cards, three scopes and the actual customer evidence column',()=>{
+  const {context,get}=fixture(),data=buildIncidentDashboard([{...raw,customer_evidence:{code:"DELIVERY_RETRY",latest_message:"Mañana por la mañana",at:"2026-09-18T13:00:00Z",relation:"AFTER_NOTIFICATION"}}],{now:'2026-09-18T14:00:00Z'});
+  context.ui.state.view='incidents';context.ui.state.filters={scope:'ACTIVE'};context.ui.state.summary={incidents:data.summary};
+  context.ui.renderSummary();context.ui.renderFilters();context.ui.renderHead();
+  assert.equal(get('summary').children.length,6);assert.match(content(get('filters')),/Seguimiento/);
+  assert.doesNotMatch(content(get('filters')),/Todas \(incluye histórico\)/);
+  get('summary').children[1].events.click();assert.equal(context.ui.state.filters.metric,'HUMAN_REVIEW');
+  const row=context.ui.rowIncident(data.items[0]);assert.equal(row.children.length,8);
+  assert.match(content(row.children[3]),/Mañana por la mañana/);
+  assert.match(content(get('table-head')),/Cliente\s+Evidencia cliente\s+Siguiente acción/);
+  const follow=all(get('filters')).find(e=>e.tagName==='button' && e.textContent.startsWith('Seguimiento'));
+  follow.events.click();assert.equal(context.ui.state.filters.scope,'FOLLOWUP');assert.equal(context.ui.state.filters.metric,undefined);
 });
