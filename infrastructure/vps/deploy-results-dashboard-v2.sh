@@ -46,7 +46,7 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges -
   for(const dir of ["packages/platform-core/test","packages/suleia-operations-mcp/test","packages/suleia-operations-mcp/src/operations","apps/api","apps/review-panel","services","infrastructure","autoconfirm","scripts"])
     for(const e of readdirSync(dir,{recursive:true,withFileTypes:true}))if(e.isFile()&&e.name.endsWith(".test.mjs"))files.push(`${e.parentPath}/${e.name}`);
   const {spawnSync}=await import("node:child_process");const r=spawnSync(process.execPath,["--test","--test-reporter=tap",...files],{encoding:"utf8",maxBuffer:20*1024*1024});
-  console.log(r.stdout.split("\n").filter(l=>/^# (tests|pass|fail|duration)|^not ok/.test(l)).join("\n"));if(r.status!==0){console.error(r.stdout.slice(-9000));process.exit(r.status||1);}
+  console.log(r.stdout.split("\n").filter(l=>/^# (tests|pass|fail|duration)|^not ok/.test(l)).join("\n"));if(r.status!==0){console.error(r.stdout.split("\n").flatMap((line,i,lines)=>line.startsWith("not ok")?lines.slice(i,i+45):[]).join("\n"));process.exit(r.status||1);}
   console.log("RESULTS_IMAGE_TESTS|PASS");' | tee "$backup/image-tests.txt"
 compose=(docker compose --env-file .env -f infrastructure/docker/compose.yaml)
 "${compose[@]}" config --format json > "$backup/current-compose.json"
