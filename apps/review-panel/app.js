@@ -477,7 +477,7 @@ async function loadQueue() {
     if (!items.length && view === 'incidents') $('empty-state').textContent = 'No hay incidencias para los filtros seleccionados.';
     $('result-count').textContent = view === 'orders'
       ? `${data.total} pedido(s) pendiente(s) en Dropea`
-      : `${data.total} resultados · ${data.summary?.scope==='ACTIVE'?'pendientes de resolver':data.summary?.scope==='FOLLOWUP'?'seguimiento: siguen abiertas':'histórico'} · ordenados por urgencia`;
+      : `${data.total} resultados · ${data.summary?.scope==='ACTIVE'?'pendientes de resolver':data.summary?.scope==='FOLLOWUP'?'seguimiento: siguen abiertas':'histórico'} · ordenados por ${{order:'pedido',incident:'incidencia',customer:'cliente',timer:'plazo',priority:'prioridad'}[state.filters.sort] || 'urgencia'}`;
     $('queue-source').textContent = view === 'orders'
       ? `Fuente: Dropea · Chatby por pedido · refresco automático cada ${state.config.refresh_interval_seconds} s`
       : `Fuente: Dropea, Chatby y policy vigente · refresco automático cada ${state.config.refresh_interval_seconds} s`;
