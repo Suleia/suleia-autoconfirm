@@ -1,0 +1,51 @@
+/* Incident presentation consumes the same canonical projection as counters. */
+const IncidentPanel=(()=>{
+  const types={RECIPIENT_ABSENT:['No se encontró al destinatario','Ausente','rose','warning'],REFUSED_BY_RECIPIENT:['Rechazado por destinatario','Rechazo','orange','return'],ADDRESS_INCORRECT:['Dirección incompleta','Dirección','blue','task'],PENDING_DATA:['Faltan datos de entrega','Faltan datos','amber','task'],PICKUP_AT_AGENCY:['Paquete en agencia','Agencia','violet','package'],NO_RESPONSE:['Sin respuesta del cliente','No respuesta','gray','message']};
+  const tones={WAITING_CUSTOMER:'amber',CUSTOMER_RESPONDED:'green',HUMAN_REVIEW:'rose',SIMULATION_READY:'green',LOGISTICS_VALIDATION_REQUIRED:'blue',RESCHEDULE_REQUESTED:'blue',PICKUP_REQUESTED:'violet'};
+  const icon=(kind,tone='blue')=>{const n=node('span',`ip-icon ${tone}`);n.append(recoveryIcon(kind));return n;};
+  const badge=(label,tone)=>node('span',`ip-badge ${tone}`,label);
+  const copy=(primary,secondary='')=>{const n=node('div','ip-copy');n.append(node('strong','',primary));if(secondary)n.append(node('small','',secondary));return n;};
+  function row(item){
+    const d=item.dashboard,r=item.recovery||{},e=r.evidence||{},type=types[item.interpreted_type]||['Incidencia por revisar','Otros','gray','warning'];
+    const tr=node('tr','ip-row');tr.tabIndex=0;tr.setAttribute('aria-label',`Abrir incidencia ${item.dropea_issue_id}`);
+    const order=node('div','ip-order');order.append(icon('package','gray'),copy(item.external_order_reference || `#${item.dropea_order_id || '—'}`,'INCIDENCIA'));
+    order.children[1].append(node('small','ip-date',incidentDate(item.created_at)));
+    const issue=copy(type[0]);issue.append(badge(type[1],type[2]),node('small','',`${d.attempt==='FIRST_ABSENCE'?'Intento 1':d.attempt==='SECOND_ABSENCE'?'Intento 2':d.attempt?'Intento no verificable':`#${item.dropea_issue_id}`} · ${d.priority<=2?'Riesgo alto':d.priority===3?'Riesgo medio':'Revisión pendiente'}`));
+    const name=(item.customer_name||'Cliente no disponible').replace(/\s*-\s*$/,'').trim(),customer=node('div','ip-customer');
+    customer.append(node('span','ip-avatar',name==='Cliente no disponible'?'?':name.split(/\s+/).slice(0,2).map(s=>s[0]).join('').toUpperCase()),copy(name));
+    const evidence=node('div',`ip-evidence ${e.valid_response?'green':e.customer_interacted?'blue':'gray'}`);
+    const message=e.message || e.action_label;
+    const evidenceTitle=e.message_type==='IMAGE' && e.customer_interacted?'Imagen recibida':message?message:e.valid_response?'Evidencia verificada':e.no_action_verified?'Sin evidencia':'Chatby no verificable';
+    const evidenceDetail=message?(e.message_type==='BUTTON'?'Botón / acción':e.valid_response?'Respuesta verificada':'Respuesta no concluyente'):e.no_action_verified?'Ninguna acción realizada':e.reason==='INCIDENT_NOTIFICATION_NOT_OBSERVED'?'Aviso de esta incidencia no verificado':'Lectura de conversación no verificable';
+    if(e.message_type==='IMAGE' && e.customer_interacted)evidence.append(icon('package','gray'));
+    const evidenceText=copy(evidenceTitle,evidenceDetail);evidenceText.title=message||evidenceDetail;evidence.append(evidenceText,node('span','ip-chevron','›'));
+    const action=node('div','ip-action'),stale=d.action==='Actualizar evidencia';
+    const title=stale?({REFUSED_BY_RECIPIENT:'Revisar evidencia de rechazo',ADDRESS_INCORRECT:'Revalidar la dirección',RECIPIENT_ABSENT:'Revalidar aviso de ausencia',PICKUP_AT_AGENCY:'Verificar recogida en agencia'}[item.interpreted_type]||d.action):d.action;
+    action.append(icon(d.flags.WAITING_CUSTOMER?'clock':type[3],d.flags.WAITING_CUSTOMER?'amber':type[2]),copy(title,stale?'Fuentes pendientes de validar':d.action_detail));
+    const timer=r.timer||{},timerTone=timer.state==='EXPIRED'?'rose':timer.state==='ACTIVE'?timer.remaining_seconds<=10800?'amber':'green':'gray';
+    const timerBox=node('div',`ip-timer ${timerTone}`);timerBox.append(icon('clock',timerTone),copy(timer.state==='ACTIVE'?recoveryDuration(timer.remaining_seconds):timer.state==='EXPIRED'?'Plazo vencido':'Plazo no verificable',timer.deadline?incidentDate(timer.deadline):'Sin temporizador confirmado'));
+    const result=node('div','ip-result');const label=d.flags.WAITING_CUSTOMER?'Esperando cliente':d.flags.SIMULATION_READY?'Simulación preparada':d.flow==='CUSTOMER_RESPONDED'?'Cliente respondió':d.flags.HUMAN_REVIEW?e.valid_response?'Revisión humana':'Evidencia no concluyente':item.is_active?'Pendiente de revisión':'Histórico';
+    result.append(badge(label,tones[d.flow]||'gray'),node('small','',d.flags.SIMULATION_READY?'Lista para simular':d.blocking_reasons?.length||d.flags.HUMAN_REVIEW?'Acción bloqueada':item.is_active?'No ejecutable todavía':'Sin acción vigente'));
+    const priority=badge(`P${d.priority}`,`priority-${d.priority}`);priority.title=d.priority_reason;
+    tr.append(...[order,issue,customer,evidence,action,timerBox,result,priority].map(n=>cell(n,'ip-cell')));
+    tr.addEventListener('click',()=>openDetail(item.canonical_issue_id));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail(item.canonical_issue_id);}});return tr;
+  }
+  function head(){const tr=node('tr');for(const [label,key] of [['Pedido','order'],['Incidencia','incident'],['Cliente','customer'],['Evidencia cliente',null],['Siguiente acción',null],['Timer','timer'],['Resultado',null],['Prioridad','priority']]){
+    const th=node('th');if(key){const button=node('button','ip-sort',`${label} ↕`);button.type='button';th.setAttribute('aria-sort',state.filters.sort===key?state.filters.direction==='desc'?'descending':'ascending':'none');button.addEventListener('click',()=>{state.filters.direction=state.filters.sort===key&&state.filters.direction!=='desc'?'desc':'asc';state.filters.sort=key;state.offset=0;head();loadQueue();});th.append(button);}else th.textContent=label;tr.append(th);}$('table-head').replaceChildren(tr);}
+  function filters(root){
+    const data=state.summary.incidents,d=data.dashboard,historical=state.filters.scope==='HISTORICAL';
+    $('view-title').textContent='Panel de incidencias';
+    const searchRoot=$('incident-search-bar'),search=node('input','ip-search');search.type='search';search.placeholder='Buscar pedido, incidencia o cliente…';search.setAttribute('aria-label',search.placeholder);search.value=state.filters.q||'';
+    const submit=()=>{state.filters.q=search.value.trim();state.offset=0;loadQueue();};search.addEventListener('change',submit);search.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});searchRoot.replaceChildren(icon('search','gray'),search);
+    const toolbar=node('div','incident-filter-toolbar'),tabs=node('div','incident-scope-tabs');
+    for(const [value,label,active] of [['ACTIVE','Pendientes actuales',!historical],['HISTORICAL','Consultar histórico',historical]]){const b=node('button',`filter-chip ${active?'active':''}`,label);b.type='button';b.setAttribute('aria-pressed',String(active));b.addEventListener('click',()=>{state.filters={scope:value};state.offset=0;loadQueue();});tabs.append(b);}
+    const controls=node('div','incident-filter-actions');for(const [label,cls,run] of [['Limpiar filtros','secondary-button',()=>{state.filters={scope:historical?'HISTORICAL':'ACTIVE'};}],['Aplicar filtros','primary-button',()=>{}]]){const b=node('button',cls,label);b.type='button';b.addEventListener('click',()=>{run();state.offset=0;loadQueue();});controls.append(b);}toolbar.append(tabs,controls);root.append(toolbar);
+    const fields=node('div','incident-filter-grid');
+    const definitions=[['scope','Alcance',historical?[['HISTORICAL','Histórico']]:[['ACTIVE',`Pendientes de resolver (${d.scope_counts.ACTIVE})`],['FOLLOWUP',`Seguimiento (${d.scope_counts.FOLLOWUP})`]]],['type','Tipo de incidencia',d.chips.type.map(c=>[c.value,c.label])],['response','Estado cliente',[['VALID_ACTION','Respuesta válida'],['INCONCLUSIVE_INTERACTION','Respuesta no concluyente'],['NO_ACTION','Sin respuesta verificada'],['NOT_VERIFIABLE','No verificable']]],['automation','Automatización',[['HUMAN_REVIEW','Revisión humana'],['SIMULATION_READY','Simulación preparada'],['WAITING_CUSTOMER','Esperando cliente']]],['month','Tiempo',(data.available_months||[]).map(m=>[m,m])],['risk','Riesgo',[1,2,3,4,5,6].map(n=>[String(n),`P${n}`])],['template','Plantilla',d.templates.map(t=>[t,t])]];
+    for(const [key,label,values] of definitions){const field=node('label','incident-filter-field',label),select=node('select','filter-select');select.setAttribute('aria-label',label);if(key!=='scope')select.append(new Option(key==='month'?'Todos los meses':key==='template'?'Todas las plantillas':'Todos',''));for(const [value,title] of values)select.append(new Option(title,value));select.value=state.filters[key]||(key==='scope'?'ACTIVE':'');select.addEventListener('change',()=>{state.filters[key]=select.value;});field.append(select);fields.append(field);}root.append(fields);
+    const groups=node('div','incident-chip-groups');for(const [key,label] of [['type','Tipo de incidencia'],['attempt','Intentos de entrega'],['flow','Estado del flujo']]){const group=node('div','incident-chip-group');group.append(node('small','',label));const chips=node('div','incident-chips');for(const c of d.chips[key]){const tone=types[c.value]?.[2]||tones[c.value]||(c.value==='FIRST_ABSENCE'?'blue':c.value==='SECOND_ABSENCE'?'violet':'orange');const b=node('button',`filter-chip ip-chip ${tone} ${state.filters[key]===c.value?'active':''}`,`${c.label} · ${c.count}`);b.type='button';b.setAttribute('aria-pressed',String(state.filters[key]===c.value));b.addEventListener('click',()=>{state.filters[key]=state.filters[key]===c.value?'':c.value;state.offset=0;loadQueue();});chips.append(b);}group.append(chips);groups.append(group);}root.append(groups);
+    if(historical){const range=node('div','ip-date-range');for(const [key,label] of [['from','Desde'],['to','Hasta']]){const field=node('label','incident-date-field',label),input=node('input','filter-select');input.type='date';input.value=state.filters[key]||'';input.addEventListener('change',()=>{state.filters[key]=input.value;});field.append(input);range.append(field);}root.append(range);}
+    head();
+  }
+  return {row,head,filters};
+})();

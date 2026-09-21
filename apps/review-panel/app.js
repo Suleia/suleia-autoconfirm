@@ -217,6 +217,7 @@ function renderFilters() {
   }
 }
 function renderIncidentFilters(root) {
+  if(typeof IncidentPanel!=='undefined'){IncidentPanel.filters(root);return;}
   const data=state.summary.incidents, dashboard=data.dashboard;
   const change=(key,value)=>{state.filters[key]=state.filters[key]===value?'':value;state.offset=0;loadQueue();};
   const toolbar=node('div','incident-filter-toolbar'),tabs=node('div','incident-scope-tabs');
@@ -424,6 +425,7 @@ function recoveryTimelinePanel(events) {
   }section.append(list);if(!(events || []).length)section.append(node('p','muted','N/D — faltan eventos observados'));return section;
 }
 function rowIncident(item) {
+  if(typeof IncidentPanel!=='undefined' && item.dashboard)return IncidentPanel.row(item);
   const tr=node('tr');tr.tabIndex=0;
   const r=item.recovery || {},e=r.evidence || {},a=item.autopilot || {};
   const evidence=stacked(recoveryEvidenceLabel(e),(e.customer_acted || e.customer_interacted)?`${e.message_type==='BUTTON'?'Botón / acción':'Mensaje'} · ${date(e.response_at)}`:e.no_action_verified?`Lectura verificada · ${date(e.read_at)}`:'Sin cobertura verificada de aviso a lectura','incident-evidence');
@@ -447,6 +449,7 @@ function rowIncident(item) {
   tr.addEventListener('keydown',event=>{if(event.key==='Enter')openDetail(item.canonical_issue_id);});return tr;
 }
 function renderHead() {
+  if(state.view==='incidents' && typeof IncidentPanel!=='undefined'){IncidentPanel.head();return;}
   const labels=state.view==='orders'?['Pedido / fecha','Producto','Acción recomendada','Acción real','Respuesta del cliente','Cliente / importe','Calidad']
     :['Pedido','Incidencia','Cliente','Evidencia cliente','Siguiente acción','Timer','Resultado','Prioridad'];
   const tr=node('tr');labels.forEach(label=>tr.append(node('th','',label)));$('table-head').replaceChildren(tr);

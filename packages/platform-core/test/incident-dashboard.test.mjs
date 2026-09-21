@@ -44,3 +44,30 @@ test('search covers external order, customer and canonical IDs; template and nam
 test('rejection aliases are display mappings only and actions remain disabled',()=>{
   for(const raw_type of ['REFUSED','REJECTED_BY_RECIPIENT']){const row=dashboardProjection(issue(1,{raw_type,interpreted_type:'UNKNOWN'}),{now});assert.equal(row.interpreted_type,'REFUSED_BY_RECIPIENT');assert.equal(row.dashboard.executable,false);}
 });
+
+test('historical decision cannot become current through a persisted snapshot',()=>{
+  const row=dashboardProjection(issue(1,{notification_decision_current:true,current_decision_id:'old',policy_id:'p',policy_version:'1',policy_snapshot_hash:'p',input_snapshot_hash:'i',decision_record_status:'HISTORICAL',snapshot_status:'PERSISTED',effective_decision_status:'SIMULATION_READY',tailored_recommendation:{title:'Acción antigua'}}),{now});
+  assert.equal(row.dashboard.decision_current,false);assert.equal(row.dashboard.flags.SIMULATION_READY,false);assert.equal(row.dashboard.action,'Reevaluar incidencia');
+});
+test('a due date without a materialized timer cannot produce waiting or urgent priority',()=>{
+  const row=dashboardProjection(issue(1,{interpreted_type:'RECIPIENT_ABSENT',timer_status:'ACTIVE',timer_due_at:'2026-09-20T15:00:00Z',timer_id:null,tailored_recommendation:{code:'WAIT_EXISTING_TIMER'}}),{now});
+  assert.equal(row.recovery.timer.state,'UNAVAILABLE');assert.equal(row.dashboard.flags.WAITING_CUSTOMER,false);assert.notEqual(row.dashboard.priority,1);
+  const real=dashboardProjection({...row,timer_id:'timer-current'},{now});assert.equal(real.recovery.timer.state,'EXPIRED');assert.equal(real.dashboard.priority,1);
+});
+
+test('a newly detected timer blocker prevents ready status and template cannot be a customer name',()=>{
+  const row=dashboardProjection(issue(1,{interpreted_type:'RECIPIENT_ABSENT',customer_name:'persona ejemplo',incident_notification_template:'persona_ejemplo',notification_decision_current:true,current_decision_id:'d',policy_id:'p',policy_version:'1',policy_snapshot_hash:'p',input_snapshot_hash:'i',decision_record_status:'PERSISTED',effective_decision_status:'SIMULATION_READY',tailored_recommendation:{code:'WAIT_EXISTING_TIMER'}}),{now});
+  assert.equal(row.dashboard.flags.SIMULATION_READY,false);assert.equal(row.dashboard.flags.HUMAN_REVIEW,true);assert.equal(row.dashboard.template_name,null);
+});
+test('known raw rejection survives UNKNOWN interpretation; follow-up counters count its own population',()=>{
+  assert.equal(dashboardProjection(issue(1,{interpreted_type:'UNKNOWN',raw_type:'REFUSED_BY_RECIPIENT'}),{now}).interpreted_type,'REFUSED_BY_RECIPIENT');
+  const records=[issue(1,{interpreted_type:'PICKUP_AT_AGENCY'})],result=buildIncidentDashboard(records,{now,filters:{scope:'FOLLOWUP'}});
+  assert.equal(result.summary.dashboard.kpis.find(k=>k.key==='PENDING').count,result.total);
+});
+test('sorting precedes pagination and every chip counter shares the row selector',()=>{
+  const records=[issue(1,{customer_name:'Zeta'}),issue(2,{customer_name:'Alfa'})];
+  const result=buildIncidentDashboard(records,{now,limit:1,filters:{sort:'customer'}});assert.equal(result.items[0].customer_name,'Alfa');
+  assert.equal(buildIncidentDashboard(records,{now,limit:1,offset:1,filters:{sort:'customer'}}).items[0].customer_name,'Zeta');
+  for(const [key,group] of Object.entries(result.summary.dashboard.chips))for(const chip of group)
+    assert.equal(buildIncidentDashboard(records,{now,filters:{[key]:chip.value}}).total,chip.count);
+});

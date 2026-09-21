@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="styles.css?v=20260920-incident-dashboard-v2">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
   <link rel="stylesheet" href="results-dashboard.css?v=20260920-results-v2">
+  <link rel="stylesheet" href="incident-panel.css?v=20260921-reference">
 </head>
 <body>
   <div id="login" class="login-shell" hidden>
@@ -38,9 +39,14 @@
         <div><strong>Proveedores protegidos</strong><small>Acciones externas: 0</small></div>
       </div>
       <button id="logout-button" class="logout-button">Cerrar sesión</button>
+      <div class="ip-sidebar-tools">
+        <details><summary>Configuración</summary><p>Modo simulación. Usa los filtros de alcance y el selector de filas para ajustar esta vista.</p></details>
+        <details><summary>Ayuda</summary><p>Pulsa una fila para consultar evidencia, timeline y bloqueos. Seguimiento conserva abiertas las primeras ausencias y recogidas en agencia.</p></details>
+      </div>
     </aside>
 
     <main class="workspace">
+      <div id="incident-search-bar" class="ip-search-bar"></div>
       <header class="topbar">
         <div>
           <p class="eyebrow">CONTROL OPERATIVO</p>
@@ -156,7 +162,7 @@
             <button id="prev-page" class="page-button" aria-label="Página anterior">←</button><button id="next-page" class="page-button" aria-label="Página siguiente">→</button>
           </div>
         </footer>
-        <div class="incident-priority-legend" aria-label="Leyenda de prioridad"><span>Prioridad:</span><span>P1 · Crítica</span><span>P2 · Alta</span><span>P3 · Media</span><span>P4 · Revisión</span><span>P5 · Espera</span><span>P6 · Sin urgencia verificada</span></div>
+        <div class="incident-priority-legend" aria-label="Leyenda de prioridad"><span>Modo simulación · Acciones externas desactivadas</span><span>Prioridad:</span><span>P1 · Crítica</span><span>P2 · Alta</span><span>P3 · Media</span><span>P4 · Baja</span><span>P5 · Muy baja</span><span>P6 · Mínima</span></div>
       </section>
     </main>
 
@@ -167,6 +173,7 @@
     </aside>
   </div>
   <script src="results-dashboard.js?v=20260920-results-v2" defer></script>
-  <script src="app.js?v=20260920-results-v2" defer></script>
+  <script src="incident-panel.js?v=20260921-reference" defer></script>
+  <script src="app.js?v=20260921-incident-reference" defer></script>
 </body>
 </html>
