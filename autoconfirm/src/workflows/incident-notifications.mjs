@@ -3,6 +3,7 @@ import { getDropeaOrderById } from '../clients/dropea.mjs';
 import { getIncidentChatMessages as getChatMessages, listWhatsappTemplates, sendWhatsappTemplate } from '../clients/chatby.mjs';
 import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
 import { loadState, saveState } from '../storage.mjs';
+import { absentOwnedByNativeChatby } from './absent-owner.mjs';
 
 const config = getAppConfig();
 const activeClaims = new Set();
@@ -404,6 +405,9 @@ function publicNotificationResult(result = {}) {
 }
 
 export async function processIncidentNotification({ incident, order = null, messages = [], dryRun = false } = {}) {
+  if (absentOwnedByNativeChatby(incident)) {
+    return publicNotificationResult({status:'disabled',reason:'absent_native_chatby_owner'});
+  }
   if (!config.defaultStore.incidentNotificationsEnabled) {
     return publicNotificationResult({ status: 'disabled', reason: 'incident_notifications_disabled' });
   }
