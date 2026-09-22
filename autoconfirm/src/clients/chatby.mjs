@@ -529,6 +529,36 @@ export async function getChatMessages(userNs) {
   return messages;
 }
 
+// Chatby's default excludes bot messages, including native incident templates.
+// Keep the confirmation reader unchanged; incident decisions need both sides.
+// The provider documents end_time, not page, for older message history.
+export async function getIncidentChatMessages(userNs) {
+  const collected = new Map();
+  let endTime = null;
+  for (let page = 0; page < 10; page += 1) {
+    const query = new URLSearchParams({ user_ns: userNs, include_bot: '1', limit: '100' });
+    if (endTime !== null) query.set('end_time', String(endTime));
+    const response = await request(`/subscriber/chat-messages?${query}`, { method: 'GET', timeoutMs: 12000 });
+    const messages = response?.data ?? response;
+    if (!Array.isArray(messages)) throw new Error('CHATBY_INCIDENT_MESSAGES_INVALID');
+    for (const message of messages) {
+      const key = message.mid || message.id || JSON.stringify(message);
+      collected.set(String(key), message);
+    }
+    if (messages.length < 100) return [...collected.values()];
+    const timestamps = messages.map(message => Number(message.ts));
+    if (timestamps.some(value => !Number.isInteger(value) || value <= 0)) break;
+    const oldest = Math.min(...timestamps);
+    // Inclusive overlap avoids losing messages sharing the boundary timestamp.
+    // A saturated second that cannot advance is incomplete, never silence.
+    if (endTime !== null && oldest >= endTime) break;
+    endTime = oldest;
+  }
+  const error = new Error('CHATBY_INCIDENT_HISTORY_INCOMPLETE');
+  error.code = 'CHATBY_INCIDENT_HISTORY_INCOMPLETE';
+  throw error;
+}
+
 export async function listSubscribers({ page = 1, limit = 100 } = {}) {
   const response = await request(`/subscribers?limit=${limit}&page=${page}`, {
     method: 'GET',

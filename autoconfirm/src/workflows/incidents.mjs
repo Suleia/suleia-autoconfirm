@@ -15,7 +15,7 @@ import {
   getDropeaV2IssueActionReadiness,
   returnDropeaV2IssueToOrigin
 } from '../clients/dropea-v2-issue-actions.mjs';
-import { chatbyRepositoryOwnsIncidentTemplate, findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
+import { chatbyRepositoryOwnsIncidentTemplate, findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getIncidentChatMessages as getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import {

@@ -4,7 +4,7 @@ import { listDropeaOrders } from '../clients/dropea.mjs';
 import {
   findSubscriberByPhone,
   findSubscriberForOrderRobust,
-  getChatMessages,
+  getIncidentChatMessages as getChatMessages,
   listWhatsappTemplates,
   sendWhatsappTemplate
 } from '../clients/chatby.mjs';
