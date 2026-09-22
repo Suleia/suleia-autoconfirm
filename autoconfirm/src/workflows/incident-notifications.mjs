@@ -1,6 +1,6 @@
 import { getAppConfig } from '../config.mjs';
 import { getDropeaOrderById } from '../clients/dropea.mjs';
-import { getChatMessages, listWhatsappTemplates, sendWhatsappTemplate } from '../clients/chatby.mjs';
+import { getIncidentChatMessages as getChatMessages, listWhatsappTemplates, sendWhatsappTemplate } from '../clients/chatby.mjs';
 import { claimTemplateDelivery, finishTemplateDelivery } from '../db/supabase-store.mjs';
 import { loadState, saveState } from '../storage.mjs';
 
