@@ -1,0 +1,31 @@
+import {ABSENT_TEMPLATE_BUTTONS,ABSENT_TEMPLATE_NAME} from '../../../packages/platform-core/src/incident/absent-template.mjs';
+
+// This is an evidence-controlled binding, not a label/alias detector. An admin
+// installs the contract only after capturing provider callbacks from the canary.
+// Configured destinations alone, synthetic fixtures and old v2 replies cannot
+// establish this evidence. Unknown callbacks remain unverified.
+export function verifyAbsentCallback(message, contextTemplate, contract, now=new Date()) {
+  if(contextTemplate!==ABSENT_TEMPLATE_NAME || contract?.status!=='OBSERVED_REAL'
+    || contract.template_name!==ABSENT_TEMPLATE_NAME || String(contract.template_id)!=='1552419'
+    || !contract.evidence_id || !Number.isFinite(Date.parse(contract.observed_at))
+    || Date.parse(contract.observed_at)>+new Date(now) || contract.buttons?.length!==3)return null;
+  const ids=new Set();
+  for(const [index,entry] of contract.buttons.entries()){
+    if(!entry || entry.canonical_payload!==ABSENT_TEMPLATE_BUTTONS[index].payload
+      || entry.text!==ABSENT_TEMPLATE_BUTTONS[index].text || !entry.observed_message_id
+      || !entry.observed_notification_message_id || !/^f\d+n\d+$/.test(entry.provider_id || '')
+      || ids.has(entry.provider_id))return null;
+    ids.add(entry.provider_id);
+  }
+  const candidates=[message?.interactive?.button_reply?.id,message?.payload?.button_reply?.id,
+    message?.button_payload,message?.postback?.payload,message?.payload?.payload];
+  const present=[...new Set(candidates.filter(x=>typeof x==='string' && x.length))];
+  if(present.length!==1)return null;
+  const entry=contract.buttons.find(x=>x.provider_id===present[0]);
+  if(!entry)return null;
+  const labels=[message?.interactive?.button_reply?.title,message?.payload?.button_reply?.title,
+    message?.button_text,message?.payload?.title].filter(x=>typeof x==='string' && x.length);
+  if(labels.some(x=>x!==entry.text))return null;
+  return {provider_id:entry.provider_id,canonical_payload:entry.canonical_payload,
+    contract_evidence_id:contract.evidence_id};
+}

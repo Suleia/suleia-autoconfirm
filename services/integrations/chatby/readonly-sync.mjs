@@ -3,6 +3,7 @@ import { collectPaginated, createReadOnlyTransport } from '../../../packages/pla
 import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
 import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 import { absentButtonFor } from '../../../packages/platform-core/src/incident/absent-template.mjs';
+import { verifyAbsentCallback } from './absent-callback-contract.mjs';
 import { INCIDENT_NOTIFICATION_TEMPLATES } from '../../../packages/platform-core/src/incident/notification-evidence.mjs';
 import { readAbsentMessageHistory } from './absent-message-history.mjs';
 
@@ -321,7 +322,8 @@ export async function syncChatbyReadOnly({
   onlyRecipientAbsent = false,
   excludeRecipientAbsent = false,
   onlyCanonicalIssueId = null,
-  onAbsentConversation = null
+  onAbsentConversation = null,
+  absentCallbackContract = null
 }) {
   if (!token) return Object.freeze({
     ok: false, enabled: true, consultable: false, error: 'CHATBY_GET_CREDENTIAL_MISSING',
@@ -637,15 +639,16 @@ export async function syncChatbyReadOnly({
       // Keep the complete candidate set for detecting cross-order references.
       const events=[...metrics.customer_messages,...metrics.operator_messages].map(item=>{
         const m=item.message,type=messageType(m);
+        const verified=type==='BUTTON' ? verifyAbsentCallback(m,item.context_template_slug,absentCallbackContract,new Date(now())) : null;
         return {canonical_issue_id:issue.canonical_issue_id,canonical_order_id:issue.canonical_order_id,
           chatby_conversation_id_hash:conversationHash,chatby_contact_id_hash:contactHash,
           chatby_message_id:technicalMessageId(m,issue.canonical_issue_id,hmacKey),created_at:item.at,
           provider_message_id_verified:Boolean(m.mid || m.id),
           direction:direction(m),message_type:type,raw_text:rawMessageText(m),
-          button_payload:type==='BUTTON'?absentButtonFor({...m,raw_text:rawMessageText(m)})?.payload || null:null,
-          // Message type alone does not prove a real v3 callback contract.
-          // Until the observed provider IDs are bound, retain text evidence only.
-          button_verified:false,relevance_status:'CURRENT_ORDER_EXACT_MATCH',
+          button_payload:verified?.canonical_payload || (type==='BUTTON'?absentButtonFor({...m,raw_text:rawMessageText(m)})?.payload || null:null),
+          provider_button_id:verified?.provider_id || null,
+          callback_contract_evidence_id:verified?.contract_evidence_id || null,
+          button_verified:Boolean(verified),relevance_status:'CURRENT_ORDER_EXACT_MATCH',
           incident_relevance:item.incident_relevance,context_template_slug:item.context_template_slug};
       });
       const notice=events.find(e=>e.direction==='OUTBOUND' && e.message_type==='TEMPLATE'

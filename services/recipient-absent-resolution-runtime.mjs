@@ -13,9 +13,11 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
       JOIN read_models.operations_order_records o USING(canonical_order_id) WHERE canonical_issue_id=$1 AND i.type='RECIPIENT_ABSENT'`,[id]);
     const row=result.rows[0];if(!row)throw new Error('EXACT_ORDER_IDENTITY_REQUIRED');
     const client=getClient(row);if(!client)throw new Error('DROPEA_READ_CLIENT_NOT_AVAILABLE');
+    const callbackControl=await pool.query("SELECT evidence FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT'");
     let conversation={events:[],chatby:{}};
     const sync=await syncChatby({pool,projector,token:chatbyToken,hmacKey:privacyKey,
       onlyRecipientAbsent:true,onlyCanonicalIssueId:id,maxConversations:1,minRequestIntervalMs:3500,
+      absentCallbackContract:callbackControl.rows[0]?.evidence?.observed_callback_contract || null,
       // No cached subscriber fields or messages can authorize a real write.
       onAbsentConversation:value=>{conversation=value;}});
     if(!sync.ok || sync.pagination_complete!==true)throw new Error('EXACT_CURRENT_CHATBY_REQUIRED');
