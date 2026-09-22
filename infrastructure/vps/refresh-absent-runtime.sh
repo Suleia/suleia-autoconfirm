@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
+exec 9>/run/lock/suleia-runtime-inventory.lock
+flock -n 9 || exit 0
 install=/opt/suleia-operations
 output="$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/app/private-runtime"}}{{.Source}}{{end}}{{end}}' suleia-operations-staging-mcp-server-1)"
 [[ "$output" =~ ^/opt/suleia-releases/[0-9a-f]{40}/private-runtime$ ]] || exit 2
