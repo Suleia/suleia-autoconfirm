@@ -1,5 +1,6 @@
 import { absentHash, absentButtonFor } from './absent-template.mjs';
 import { addressInstructionFromText } from '../operational-truth/chatby-customer-instruction.mjs';
+import { absentTimeWindow } from './absent-time-window.mjs';
 export { classifyAbsenceAttempt } from './absent-evidence.mjs';
 
 export const RECIPIENT_ABSENT_POLICY_V1 = 'RECIPIENT_ABSENT_POLICY_V1';
@@ -29,7 +30,7 @@ export function interpretAbsentResponse(event = {}) {
   const pickupIntent = button?.payload === 'ABSENT_PICKUP_AGENCY' || /\b(recoger|recogida|recojo)\b.*\b(agencia|oficina)\b/.test(text);
   const receiveIntent = button && ['ABSENT_TOMORROW_MORNING','ABSENT_TOMORROW_AFTERNOON'].includes(button.payload)
     || /\b(manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|esta tarde|recibir|reparto)\b/.test(text);
-  if (/\bno (?:estoy|estare|puedo|podre|hay|habra|quiero recoger|quiero cambiar|cambies|vengas|entregues|quiero recibir)\b/.test(text)) return {...base,reason_code:'NEGATED_OR_CORRECTED_CUSTOMER_REQUEST'};
+  if (/\bno (?:quiero recoger|quiero cambiar|cambies|vengas|entregues|quiero recibir)\b/.test(text)) return {...base,reason_code:'NEGATED_OR_CORRECTED_CUSTOMER_REQUEST'};
   if ([returnIntent, addressIntent, pickupIntent, Boolean(receiveIntent)].filter(Boolean).length > 1) return { ...base, customer_intent: 'CONTRADICTORY', reason_code: 'CONTRADICTORY_CUSTOMER_RESPONSE' };
   if (returnIntent) intent = 'RETURN_REQUEST';
   else if (addressIntent) intent = 'ADDRESS_CHANGE';
@@ -61,18 +62,14 @@ export function interpretAbsentResponse(event = {}) {
     date = addDays(day, (weekdays.indexOf(selected[0]) - weekday + 7) % 7 || 7);
   }
   if (text.includes('esta tarde')) date = day;
-  const clocks = [...text.matchAll(/(?:las?\s+|\b)(\d{1,2}):(\d{2})\b/g)];
-  const bare = !clocks.length ? text.match(/a partir de las?\s+(\d{1,2})\b/) : null;
-  if (clocks.length > 1 || (bare && Number(bare[1]) < 13)) return base;
-  const from = clocks[0] ? `${clocks[0][1].padStart(2,'0')}:${clocks[0][2]}` : bare ? `${bare[1].padStart(2,'0')}:00` : null;
-  if (from && (Number(from.slice(0,2)) > 23 || Number(from.slice(3)) > 59)) return base;
-  const morning = button?.payload === 'ABSENT_TOMORROW_MORNING' || /por la manana/.test(text);
-  const afternoon = button?.payload === 'ABSENT_TOMORROW_AFTERNOON' || /por la tarde|esta tarde/.test(text);
-  if (morning && afternoon) return base;
-  const allDay = text.includes('todo el dia');
-  const window = allDay ? 'ALL_DAY' : morning ? 'MORNING' : afternoon ? 'AFTERNOON' : from ? 'FROM_TIME' : date && event.flow_selection==='ABSENT_OTHER_DAY' ? 'DATE_ONLY' : null;
-  if (!date || !window) return base;
+  if(!date && /^mejor por la (manana|tarde)[.!]?$/.test(text)
+      && /^\d{4}-\d{2}-\d{2}$/.test(event.correlated_requested_date || '') && event.correlated_requested_date>=day)
+    date=event.correlated_requested_date;
+  const slot=absentTimeWindow(text.replace(/\b\d{4}-\d{2}-\d{2}\b/g,''),button?.payload);
+  const window=slot.window || (date && event.flow_selection==='ABSENT_OTHER_DAY' && !/\b(no|imposible)\b/.test(text) && !/\d/.test(text.replace(/\b\d{4}-\d{2}-\d{2}\b/g,'')) ? 'DATE_ONLY':null);
+  if (!window) return {...base,reason_code:slot.reason};
+  if (!date) return {...base,requested_time_window:window,time_from:slot.from,time_to:slot.to,reason_code:'REQUESTED_DATE_MISSING'};
   return { ...base, customer_intent: 'RESCHEDULE_DELIVERY', requested_date: date, requested_time_window: window,
-    time_from: from, all_day: allDay, confidence: 1, reason_code: 'EXACT_CUSTOMER_SLOT' };
+    time_from: slot.from, time_to:slot.to, all_day: window==='ALL_DAY', confidence: 1, reason_code: 'EXACT_CUSTOMER_SLOT' };
 }
 export { validateAbsentLogistics, simulateRecipientAbsent } from './absent-decision.mjs';

@@ -169,7 +169,7 @@ function incidentSelection(searchParams) {
   if (absent) {
     selected.clauses.push("normalized_type='RECIPIENT_ABSENT'");
     const fields = { FIRST_ABSENCE: ['absence_attempt','FIRST_ABSENCE'], SECOND_ABSENCE: ['absence_attempt','SECOND_ABSENCE'],
-      ABSENCE_ATTEMPT_UNKNOWN:['absence_attempt','ABSENCE_ATTEMPT_UNKNOWN'],
+      ABSENCE_ATTEMPT_UNKNOWN:['absence_attempt','ABSENCE_ATTEMPT_UNKNOWN'], ABSENCE_ATTEMPT_CONFLICT:['absence_attempt','ABSENCE_ATTEMPT_CONFLICT'],
       WAITING_CUSTOMER: ['waiting_customer','true'], CUSTOMER_RESPONDED: ['customer_response_status','RESPONDED'],
       RESCHEDULE_REQUESTED: ['customer_intent','RESCHEDULE_DELIVERY'], PICKUP_REQUESTED: ['customer_intent','PICKUP_AT_AGENCY'],
       LOGISTICS_VALIDATION_REQUIRED: ['current_step','LOGISTICS_VALIDATION_REQUIRED'], HUMAN_REVIEW_REQUIRED: ['simulation_status','HUMAN_REVIEW_REQUIRED'], SIMULATION_READY: ['simulation_status','SIMULATION_READY'] };

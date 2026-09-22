@@ -25,8 +25,9 @@ export function classifyAbsentCause(issue = {}) {
 export function classifyAbsenceAttempt({ issue = {}, timeline = [] }) {
   const number = String(issue.delivery_attempt_number || '').toUpperCase();
   const result = (n, source, at) => ({ status: n === 1 ? 'FIRST_ABSENCE' : 'SECOND_ABSENCE', number: n, source, event_at: at || issue.created_at || null });
-  if (['1', 'FIRST', 'FIRST_ATTEMPT'].includes(number)) return result(1, 'DROPEA_EXPLICIT_ATTEMPT');
-  if (['2', 'SECOND', 'SECOND_ATTEMPT'].includes(number)) return result(2, 'DROPEA_EXPLICIT_ATTEMPT');
+  const evidence=[];
+  if (['1', 'FIRST', 'FIRST_ATTEMPT'].includes(number)) evidence.push(result(1, 'DROPEA_EXPLICIT_ATTEMPT'));
+  if (['2', 'SECOND', 'SECOND_ATTEMPT'].includes(number)) evidence.push(result(2, 'DROPEA_EXPLICIT_ATTEMPT'));
   // Observed primary Dropea data: 9/9 GLS ES substatus=15 rows carry the
   // second-absence description. Require BOTH signals; never export a universal
   // GLS code mapping, or classify text alone / another carrier / conflicting text.
@@ -34,14 +35,29 @@ export function classifyAbsenceAttempt({ issue = {}, timeline = [] }) {
       && ['-30', '14'].includes(String(issue.initial_carrier_code))
       && String(issue.initial_carrier_substatus_code) === '15'
       && /\bAUSENTE SEGUNDA VEZ\b/.test(fold(issue.initial_carrier_description_sanitized)))
-    return result(2, 'DROPEA_GLS_ES_SUBSTATUS_15_CORROBORATED');
+    evidence.push(result(2, 'DROPEA_GLS_ES_SUBSTATUS_15_CORROBORATED'));
   const valid = timeline.filter(e => e.verified === true && e.normalized_type === 'RECIPIENT_ABSENT'
     && e.event_id && (!e.canonical_order_id || e.canonical_order_id === issue.canonical_order_id)
     && Number.isFinite(new Date(e.event_at).getTime()) && new Date(e.event_at) <= new Date(issue.created_at || issue.updated_at));
   const events = [...new Map(valid.map(e => [e.event_id, e])).values()].sort((a,b) => new Date(a.event_at) - new Date(b.event_at));
-  if (events.length >= 2) return result(2, 'VERIFIED_SAME_ORDER_ABSENCE_HISTORY', events.at(-1).event_at);
-  if (events.length === 1 && issue.attempt_history_complete === true) return result(1, 'VERIFIED_COMPLETE_ORDER_TIMELINE', events[0].event_at);
+  if (events.length >= 2) evidence.push(result(2, 'VERIFIED_SAME_ORDER_ABSENCE_HISTORY', events.at(-1).event_at));
+  if (events.length === 1 && issue.attempt_history_complete === true) evidence.push(result(1, 'VERIFIED_COMPLETE_ORDER_TIMELINE', events[0].event_at));
+  if(new Set(evidence.map(e=>e.number)).size>1)return {status:'ABSENCE_ATTEMPT_CONFLICT',number:null,source:'CONFLICTING_VERIFIED_EVIDENCE',event_at:null,evidence};
+  if(evidence.length)return {...evidence[0],evidence};
   return { status: 'ABSENCE_ATTEMPT_UNKNOWN', number: null, source: 'INSUFFICIENT_ATTEMPT_EVIDENCE', event_at: null };
+}
+
+// All presentation consumers use the canonical policy output. Provider queue
+// hints (is_first_absent / absence_count) are not delivery-attempt evidence.
+export function absentAttemptForRecord(record) {
+  const computed=classifyAbsenceAttempt({issue:record});
+  const stored=record.absent_shadow?.input_snapshot?.attempt;
+  if(computed.status==='ABSENCE_ATTEMPT_CONFLICT')return computed.status;
+  if(stored && ['FIRST_ABSENCE','SECOND_ABSENCE','ABSENCE_ATTEMPT_UNKNOWN','ABSENCE_ATTEMPT_CONFLICT'].includes(stored.status)) {
+    if(computed.number && stored.number && computed.number!==stored.number)return 'ABSENCE_ATTEMPT_CONFLICT';
+    return stored.status;
+  }
+  return record.absent_shadow?.absence_attempt || computed.status;
 }
 
 export function absentSourceFreshness(at, now, seconds) {

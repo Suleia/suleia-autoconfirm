@@ -6,10 +6,10 @@ const issue=(id,extra={})=>({canonical_issue_id:`issue-${id}`,canonical_order_id
   created_at:'2026-09-18T12:00:00Z',interpreted_type:'REFUSED_BY_RECIPIENT',chatby_sync_current:true,dropea_sync_current:true,...extra});
 test('resolution, follow-up and history partition the population without closing open records',()=>{
   const records=[...Array.from({length:6},(_,i)=>issue(i)),...Array.from({length:6},(_,i)=>issue(i+6,{interpreted_type:'PICKUP_AT_AGENCY'})),
-    ...Array.from({length:3},(_,i)=>issue(i+12,{interpreted_type:'RECIPIENT_ABSENT',dashboard_source_context:{is_first_absent:true,absence_count:1}})),issue(20,{is_active:false})];
+    ...Array.from({length:3},(_,i)=>issue(i+12,{interpreted_type:'RECIPIENT_ABSENT',delivery_attempt_number:'1',dashboard_source_context:{is_first_absent:true,absence_count:1}})),issue(20,{is_active:false})];
   const active=buildIncidentDashboard(records,{now});assert.equal(active.total,6);assert.deepEqual(active.summary.dashboard.scope_counts,{ACTIVE:6,FOLLOWUP:9,HISTORICAL:1});
   const follow=buildIncidentDashboard(records,{now,filters:{scope:'FOLLOWUP'}});assert.equal(follow.total,9);assert.ok(follow.items.every(i=>i.status==='PENDING' && i.is_active));
-  records[12].dashboard_source_context={is_first_absent:false,absence_count:2};
+  records[12].delivery_attempt_number='2';records[12].dashboard_source_context={is_first_absent:false,absence_count:2};
   assert.equal(buildIncidentDashboard(records,{now}).total,7);
   assert.equal(buildIncidentDashboard(records,{now,filters:{scope:'HISTORICAL'}}).total,1);
 });
