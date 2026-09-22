@@ -32,7 +32,12 @@ if docker volume ls --filter name=backup_data --format '{{.Name}}' | grep -q .; 
   backup_status="VOLUME_PRESENT_NOT_REVERIFIED"
 fi
 
-docker run --rm --user "$(id -u):$(id -g)" --network none --read-only --cap-drop ALL \
+# The mounted directory can belong to the application UID while systemd runs
+# this collector as root. With all capabilities dropped, root cannot write a
+# different user's 0755 directory. Run with the directory owner instead.
+output_owner="$(stat -c '%u:%g' "${OUTPUT_DIR}")"
+chown "${output_owner}" "${PS_SNAPSHOT}" "${STATS_SNAPSHOT}" "${PROVENANCE_SNAPSHOT}"
+docker run --rm --user "${output_owner}" --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges --pids-limit 64 --memory 256m --cpus 1.0 \
   --volume "${INSTALL_ROOT}/apps:/workspace/apps:ro" \
   --volume "${INSTALL_ROOT}/docs:/workspace/docs:ro" \
