@@ -3,6 +3,7 @@ import { interpretAbsentResponse } from './recipient-absent-policy.mjs';
 import { classifyAbsenceAttempt, classifyAbsentCause, absentSourceFreshness, validAbsentTimer, ABSENT_POLICY_HASH } from './absent-evidence.mjs';
 import { createIncidentTimer } from './incident-timers.mjs';
 import { evaluateGlsDeliveryDate } from './gls-calendar.mjs';
+import { absentLogisticsExecutionGate } from './absent-live-gates.mjs';
 
 export function validateAbsentLogistics({ issue, order, chatby = {}, gls = {}, response = {}, now, requirement = 'RESCHEDULE' }) {
   const freshness = { dropea: absentSourceFreshness(issue.last_successful_sync_at || issue.observed_at, now, 600),
@@ -75,13 +76,17 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
     && (!chatby.chatby_conversation_id_hash || latest.chatby_conversation_id_hash===chatby.chatby_conversation_id_hash)
     && (!chatby.chatby_contact_id_hash || latest.chatby_contact_id_hash===chatby.chatby_contact_id_hash);
   const followUp = Boolean(latest && !absentButtonFor(latest) && ['ABSENT_OTHER_DAY','ABSENT_CHANGE_DELIVERY_DATA'].includes(flowChoice));
-  const response = latest ? interpretAbsentResponse({...latest,flow_selection:followUp && sameConversation ? flowChoice:null})
+  const priorRequestedDate=sameConversation && ['ABSENT_TOMORROW_MORNING','ABSENT_TOMORROW_AFTERNOON'].includes(flowChoice)
+    ? interpretAbsentResponse(selection).requested_date:null;
+  const response = latest ? interpretAbsentResponse({...latest,flow_selection:followUp && sameConversation ? flowChoice:null,correlated_requested_date:priorRequestedDate})
     : {customer_intent: chatbyCurrent ? 'NO_RESPONSE' : 'UNKNOWN', confidence: chatbyCurrent ? 1 : 0};
   let timer = previousTimer;
   let createdTimer = null;
   const terminalOrder=['DELIVERED','FINISHED','FINISH','PAID','RETURNED','CANCELLED','REJECTED','REFUSED','REFUSED_LOST_DAMAGED','LOST_DAMAGED'].includes(order.canonical_state);
   if (!timer && !terminalOrder && ['EXACT','VERIFIED'].includes(order.identity_status)
+    && !['ABSENCE_ATTEMPT_UNKNOWN','ABSENCE_ATTEMPT_CONFLICT'].includes(attempt.status)
     && absentSourceFreshness(issue.last_successful_sync_at || issue.observed_at,now,600)==='FRESH'
+    && chatby.notification_template_name===ABSENT_TEMPLATE_NAME && chatby.notification_message_id
     && chatby.incident_notified_at && chatbyCurrent && !latest && chatby.template_contact_verified && issue.status === 'PENDING' && issue.is_active === true && cause.interpreted_type === 'RECIPIENT_ABSENT') {
     createdTimer = createIncidentTimer({timerType:'CUSTOMER_INITIAL_RESPONSE_48H',orderId:order.canonical_order_id,issueId:issue.canonical_issue_id,
       issueVersion:issue.created_at || issue.updated_at,relevantEventId:`absent-48h:${issue.canonical_issue_id}:${anchor}`,policyVersion:'RECIPIENT_ABSENT_POLICY_V1',startedAt:anchor,durationHours:48});
@@ -109,7 +114,7 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
   const reasons = [...logistics.reasons];
   if (eventIdConflict) reasons.push('CHATBY_EVENT_ID_CONTENT_CONFLICT');
   if (followUp && !sameConversation) reasons.push('ABSENT_FOLLOWUP_IDENTITY_NOT_VERIFIED');
-  if (attempt.status === 'ABSENCE_ATTEMPT_UNKNOWN') reasons.push('ABSENCE_ATTEMPT_UNKNOWN');
+  if (['ABSENCE_ATTEMPT_UNKNOWN','ABSENCE_ATTEMPT_CONFLICT'].includes(attempt.status)) reasons.push(attempt.status);
   if (!['EXACT','VERIFIED'].includes(order.identity_status)) reasons.push('CURRENT_ORDER_IDENTITY_NOT_VERIFIED');
   if (issue.status !== 'PENDING' || issue.is_active !== true) reasons.push('ISSUE_NOT_ACTIVE_PENDING');
   if (cause.interpreted_type !== 'RECIPIENT_ABSENT') { reasons.push(cause.secondary_reason); action='HUMAN_REVIEW_REQUIRED'; step='HUMAN_REVIEW_REQUIRED'; reason=cause.secondary_reason; }
@@ -117,7 +122,7 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
   if (action === 'WOULD_SEND_ABSENT_TEMPLATE' && chatby.template_status !== 'APPROVED') reasons.push('ABSENT_TEMPLATE_APPROVAL_NOT_VERIFIED');
   if (latest && ['UNCLEAR','CONTRADICTORY'].includes(response.customer_intent)) reasons.push(response.reason_code);
   if (latest && scoped.some(e => e !== latest && new Date(e.created_at).getTime() === new Date(latest.created_at).getTime()
-    && absentHash([interpretAbsentResponse(e).customer_intent,interpretAbsentResponse(e).requested_date,interpretAbsentResponse(e).requested_time_window])!==absentHash([response.customer_intent,response.requested_date,response.requested_time_window]))) reasons.push('CONFLICTING_SIMULTANEOUS_RESPONSES');
+    && absentHash([interpretAbsentResponse(e).customer_intent,interpretAbsentResponse(e).requested_date,interpretAbsentResponse(e).requested_time_window,interpretAbsentResponse(e).time_from,interpretAbsentResponse(e).time_to])!==absentHash([response.customer_intent,response.requested_date,response.requested_time_window,response.time_from,response.time_to]))) reasons.push('CONFLICTING_SIMULTANEOUS_RESPONSES');
   const conditionalAction = action;
   if (latest && logistics.status === 'FEASIBLE' && !reasons.length && requirement !== 'INTERPRET_RESPONSE') { action={RESCHEDULE:'WOULD_REQUEST_NEW_DELIVERY',PICKUP:'WOULD_REQUEST_PICKUP_AT_AGENCY',RETURN:'WOULD_RETURN_TO_ORIGIN',ADDRESS:'WOULD_REQUEST_ADDRESS_CHANGE'}[requirement]; step='WAITING_EXECUTION'; }
   if (reasons.length) {
@@ -126,10 +131,10 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
   }
   const waiting = !reasons.length && validTimer && !expired && !latest && chatbyCurrent && step === 'WAITING_CUSTOMER_RESPONSE';
   const responseHash = latest ? absentHash([latest.chatby_message_id,response.raw_customer_text_hash,latest.created_at]) : null;
-  const snapshot = {issue_id:issue.canonical_issue_id,issue_version:issue.updated_at,order_id:order.canonical_order_id,issue_status:issue.status,is_active:issue.is_active,order_state:order.canonical_state,
+  const snapshot = {implementation_version:'ABSENT_INTERPRETER_20260922',issue_id:issue.canonical_issue_id,issue_version:issue.updated_at,order_id:order.canonical_order_id,issue_status:issue.status,is_active:issue.is_active,order_state:order.canonical_state,
     template:{name:ABSENT_TEMPLATE_NAME,body_hash:absentHash(ABSENT_TEMPLATE_BODY),mapping_hash:absentHash([ABSENT_TEMPLATE_BUTTONS,ABSENT_BUTTONS])},
     flow:followUp ? {selection_event_hash:selection.chatby_message_id || null,option:flowChoice,identity_verified:Boolean(sameConversation)} : null,
-    response_hash:responseHash,response:{intent:response.customer_intent,date:response.requested_date || null,window:response.requested_time_window || null,time_from:response.time_from || null},
+    response_hash:responseHash,response:{intent:response.customer_intent,date:response.requested_date || null,window:response.requested_time_window || null,time_from:response.time_from || null,time_to:response.time_to || null},
     response_anchor:anchor,response_anchor_kind:anchorKind,attempt,cause,history:{verified:history.verified === true,previous_absences:Number(history.previous_absences || 0),orders_total:Number(history.orders_total || 0),delivered:Number(history.delivered || 0),return_to_origin:Number(history.return_to_origin || 0),pickup_at_agency:Number(history.pickup_at_agency || 0),recovery_success:Number(history.recovery_success || 0)},
     freshness:logistics.freshness,logistics,allowed_resolution_options:[...(issue.allowed_resolution_options || [])].sort(),retention_deadline:issue.carrier_retention_deadline || gls.retention_deadline || null,
     timer:timer?{timer_id:timer.timer_id,due_at:timer.due_at,status:timer.status,expired}:null,policy_version:'RECIPIENT_ABSENT_POLICY_V1',policy_snapshot_hash:policy.policy_snapshot_hash || ABSENT_POLICY_HASH,current_step:step,simulation_action:action};
@@ -138,7 +143,7 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
     ? `Proponer nuevo intento ${response.requested_date} ${response.requested_time_window==='MORNING'?'por la mañana':response.requested_time_window==='AFTERNOON'?'por la tarde':'en la disponibilidad indicada'}; pendiente de validación logística.`
     : response.customer_intent==='CUSTOM_TIME_SLOT' ? 'Esperando selección de fecha del cliente.'
       : response.customer_intent==='ADDRESS_DATA_REQUEST' || response.address_complete===false ? 'Esperando nuevos datos de entrega.'
-        : response.customer_intent==='RECOVERY_OPTIONS' ? 'Esperando elección: otro día o cambiar datos de entrega.' : null;
+        : response.customer_intent==='RECOVERY_OPTIONS' ? 'Esperando elección: otro día, datos de entrega o recogida en agencia.' : null;
   const preparedFlow = absentFollowUpPreparation(response.button_pressed || (followUp && (response.customer_intent==='ADDRESS_DATA_REQUEST' || response.address_complete===false) ? flowChoice : null), latest ? {
     order_id:order.canonical_order_id,issue_id:issue.canonical_issue_id,conversation_hash:latest.chatby_conversation_id_hash || null,
     customer_hash:latest.chatby_contact_id_hash || null,selection_event_hash:(followUp?selection:latest).chatby_message_id || null,
@@ -158,6 +163,7 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
     recovery_flow_status:response.customer_intent==='CUSTOM_TIME_SLOT'?'WAITING_DATE':response.customer_intent==='ADDRESS_DATA_REQUEST'||response.address_complete===false?'WAITING_DELIVERY_DATA':response.customer_intent==='RECOVERY_OPTIONS'?'WAITING_RECOVERY_CHOICE':null,
     prepared_response:preparedFlow?.text || null,prepared_response_action:preparedFlow?'WOULD_SEND_RESPONSE':null,template_name:ABSENT_TEMPLATE_NAME,
     notification_event_key:absentHash([issue.canonical_issue_id,ABSENT_TEMPLATE_NAME,issue.created_at]),live_flags:ABSENT_LIVE_FLAGS,executed:false,external_action:false,production_write:false};
+  shadow.logistics_execution=absentLogisticsExecutionGate({shadow,previousExecution:input.previousExecution});
   const previousIntents=latest?scoped.slice(0,-1).map(e=>({intent:interpretAbsentResponse(e).customer_intent,button:absentButtonFor(e)?.payload || null,event_hash:e.chatby_message_id || null,at:e.created_at})):[];
   const interpretation={canonical_issue_id:issue.canonical_issue_id,canonical_order_id:order.canonical_order_id,issue_version:issue.updated_at,has_customer_replied:Boolean(latest),latest_inbound_message_at:latest?.created_at || null,latest_relevant_message_hash:responseHash,customer_intent:response.customer_intent,previous_intents:previousIntents,intent_changed:previousIntents.some(e=>e.intent!==response.customer_intent || e.button && response.button_pressed && e.button!==response.button_pressed),contradiction:response.customer_intent==='CONTRADICTORY',requested_date:shadow.requested_date,requested_time_window:shadow.requested_time_window,requested_detail:null,requested_address_present:response.customer_intent==='ADDRESS_CHANGE',pickup_requested:shadow.pickup_requested,return_requested:response.customer_intent==='RETURN_REQUEST',discount_accepted:false,discount_rejected:false,conversation_quality:chatbyCurrent?'SUPPORTED':'SOURCE_UNAVAILABLE',interpretation_confidence:shadow.decision_confidence,interpretation_summary:shadow.reason_text,messages_used:latest?scoped.length:0,messages_ignored:events.length-(latest?scoped.length:0),missing_information:shadow.blocking_reasons,freshness:logistics.freshness.chatby,interpreted_at:new Date(now).toISOString()};
   const decision={decision_id:decisionId,policy_version:shadow.policy_version,policy_ids:[shadow.policy_version],process_status:shadow.simulation_status,simulated_decision:shadow.simulation_status,simulated_action:{action_type:action,...shadow},proposed_resolution:null,proposed_resolution_allowed:logistics.status==='FEASIBLE',gls_feasibility:{...logistics,feasible:logistics.status==='FEASIBLE'},blocking_reasons:shadow.blocking_reasons,risk:reasons.length?'HIGH':'MEDIUM',qa_result:reasons.length?'BLOCKED':'PASS',requires_human_review:reasons.length>0,timer:createdTimer,discount:null,absent_shadow:shadow,execution_available:false,external_write_attempted:false,mode:'SIMULATION_ONLY',run_mode:'SHADOW_READ_ONLY',actions_executed:0,production_writes:0,messages_sent:0,dropea_write_requests:0,chatby_write_requests:0,gls_write_requests:0,issues_resolved:0};

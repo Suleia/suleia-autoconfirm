@@ -25,7 +25,7 @@ test('carrier substatus mapping is conditional, not text-only or universal',()=>
   for(const change of [x=>x.issue.carrier='OTHER',x=>x.issue.market='PT',x=>x.issue.initial_carrier_code='OTHER',x=>x.issue.initial_carrier_substatus_code='9',x=>x.issue.initial_carrier_description_sanitized='AUSENTE']) {
     const x=fixture();change(x);assert.equal(classifyAbsenceAttempt(x).status,'ABSENCE_ATTEMPT_UNKNOWN');
   }
-  const x=fixture();x.issue.delivery_attempt_number='1';assert.equal(classifyAbsenceAttempt(x).status,'FIRST_ABSENCE');
+  const x=fixture();x.issue.delivery_attempt_number='1';assert.equal(classifyAbsenceAttempt(x).status,'ABSENCE_ATTEMPT_CONFLICT');
 });
 test('same-order distinct primary incidents classify second, duplicate polls never do',()=>{
   const x=fixture();x.issue.initial_carrier_substatus_code='UNKNOWN';const a={event_id:'a',canonical_order_id:'fixture-order',event_at:'2026-09-16T12:00:00Z',verified:true,normalized_type:'RECIPIENT_ABSENT'};
@@ -33,7 +33,7 @@ test('same-order distinct primary incidents classify second, duplicate polls nev
   assert.equal(classifyAbsenceAttempt({...x,timeline:[a,{...a,event_id:'b',event_at:x.issue.created_at}]}).status,'SECOND_ABSENCE');
 });
 test('contact and waiting do not require agency point, retention or direct GLS capabilities',()=>{
-  const x=fixture();x.issue.delivery_attempt_number='1';let s=simulate(x).shadow;assert.equal(s.next_action,'WOULD_SEND_ABSENT_TEMPLATE');assert.equal(s.current_step,'CUSTOMER_CONTACT_REQUIRED');
+  const x=fixture();x.issue.delivery_attempt_number='1';x.issue.initial_carrier_substatus_code='9';let s=simulate(x).shadow;assert.equal(s.next_action,'WOULD_SEND_ABSENT_TEMPLATE');assert.equal(s.current_step,'CUSTOMER_CONTACT_REQUIRED');
   x.previousTimer={timer_id:'fixture-timer',timer_type:'CUSTOMER_INITIAL_RESPONSE_48H',started_at:'2026-09-17T12:00:00Z',due_at:'2026-09-19T12:00:00Z',status:'ACTIVE'};
   s=simulate(x).shadow;assert.equal(s.next_action,'HOLD_WAITING_CUSTOMER');assert.equal(s.current_step,'WAITING_CUSTOMER_RESPONSE');assert.equal(s.waiting_customer,true);assert.equal(s.trace.at(-1),s.current_step);
 });
@@ -49,7 +49,7 @@ test('blocked or inactive cases cannot retain a waiting step/reason from a valid
   }
 });
 test('shadow timer owner creates only stable 48h timer from observed notification',()=>{
-  const x=fixture();x.issue.delivery_attempt_number='1';x.chatby.template_contact_verified=true;x.chatby.incident_notified_at='2026-09-17T12:05:00Z';const d=simulate(x).decision;
+  const x=fixture();x.issue.delivery_attempt_number='1';x.chatby.template_contact_verified=true;x.chatby.incident_notified_at='2026-09-17T12:05:00Z';x.issue.initial_carrier_substatus_code='9';x.chatby.notification_template_name='dropea_ausente_v3';x.chatby.notification_message_id='wamid.synthetic';const d=simulate(x).decision;
   assert.equal(new Date(d.timer.due_at)-new Date(d.timer.started_at),48*3600000);assert.equal(d.timer.policy_version,'RECIPIENT_ABSENT_POLICY_V1');
   x.previousTimer=d.timer;assert.equal(simulate(x).decision.timer,null);assert.equal(simulate(x).decision.decision_id,d.decision_id);
 });

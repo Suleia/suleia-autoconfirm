@@ -4,6 +4,7 @@ import { encryptPrivateJson } from '../../../packages/platform-core/src/operatio
 import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 import { absentButtonFor } from '../../../packages/platform-core/src/incident/absent-template.mjs';
 import { INCIDENT_NOTIFICATION_TEMPLATES } from '../../../packages/platform-core/src/incident/notification-evidence.mjs';
+import { readAbsentMessageHistory } from './absent-message-history.mjs';
 
 const ORDER_FIELD = 'dropea: numero';
 
@@ -263,7 +264,8 @@ function conversationMetrics(messages, issueCreatedAt, now = new Date(), { issue
   });
 }
 
-async function readMessages({ transport, base, token, userNs, maxPages, cached = null }) {
+async function readMessages({ transport, base, token, userNs, maxPages, cached = null, includeBot = false }) {
+  if(includeBot)return readAbsentMessageHistory({transport,base,token,userNs,maxPages});
   let reused=0;
   const pages = await collectPaginated({
     firstCursor: 1,
@@ -530,7 +532,7 @@ export async function syncChatbyReadOnly({
         messagesReused += messages.items.length;
         conversationCacheHits += 1;
       } else {
-        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages, cached:exactConversation?.cached?.messages });
+        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages, cached:exactConversation?.cached?.messages,includeBot:onlyRecipientAbsent });
         messagesRead += messages.items.length-(messages.reused_message_count || 0);
         messagesReused += messages.reused_message_count || 0;
         cycleReads.set(String(subscriber.user_ns),{messages,fetchedAt:now()});

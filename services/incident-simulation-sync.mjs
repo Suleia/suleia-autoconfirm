@@ -93,6 +93,10 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         raw_text: decryptOperationsPrivateJson(e.message_text_ciphertext, privateDataKey)?.text || '',
         message_text_ciphertext: undefined }));
       const context = absentLogisticsRead ? await absentLogisticsRead(issue) : { gls: {} };
+      const notificationEvent=clearEvents.find(e=>e.canonical_issue_id===row.canonical_issue_id
+        && e.canonical_order_id===row.canonical_order_id && e.direction==='OUTBOUND' && e.message_type==='TEMPLATE'
+        && e.context_template_slug==='dropea_ausente_v3' && e.chatby_message_id
+        && new Date(e.created_at).getTime()===new Date(row.incident_notified_at).getTime());
       const policy=await pool.query(`SELECT p.id AS policy_id,v.checksum AS policy_snapshot_hash,a.status
         FROM configuration.policies p JOIN configuration.policy_versions v USING(policy_name)
         JOIN configuration.policy_assignments a ON a.policy_id=p.id AND a.version_id=v.id
@@ -108,6 +112,8 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         events: clearEvents.length ? clearEvents : events.rows, gls: { ...gls, ...context.gls },
         chatby: { verified: row.conversation_status === 'FOUND' && row.conversation_freshness === 'FRESH',
           incident_notified_at: row.incident_notified_at,
+          notification_template_name:notificationEvent?.context_template_slug || null,
+          notification_message_id:notificationEvent?.chatby_message_id || null,
           template_status: absentTemplateStatus,
           chatby_conversation_id_hash:row.chatby_conversation_id_hash,chatby_contact_id_hash:row.chatby_contact_id_hash,
           observed_at: row.conversation_observed_at, template_contact_verified: clearEvents.some(e => e.canonical_issue_id===row.canonical_issue_id

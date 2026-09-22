@@ -46,14 +46,14 @@ export function absentButtonFor(event = {}) {
 export const ABSENT_FUTURE_RESPONSES = Object.freeze({
   ABSENT_TOMORROW_MORNING: 'Preferencia registrada: mañana por la mañana. La nueva entrega queda pendiente de validación logística.',
   ABSENT_TOMORROW_AFTERNOON: 'Preferencia registrada: mañana por la tarde. La nueva entrega queda pendiente de validación logística.',
-  ABSENT_OTHER_DAY: '📅 ¿Qué día puedes recibir tu pedido? Indica la fecha y, si lo necesitas, la franja horaria.',
+  ABSENT_OTHER_DAY: 'Claro. Escríbenos qué día y a partir de qué hora puedes recibir el pedido. Por ejemplo: viernes a partir de las 16:00.',
   ABSENT_CHANGE_DELIVERY_DATA: '🏠 Indica qué datos de entrega necesitas corregir: vía y número, piso o puerta, código postal y localidad.',
-  ABSENT_MORE_OPTIONS: '📅🏠 ¿Quieres elegir otro día o cambiar los datos de entrega?',
+  ABSENT_MORE_OPTIONS: '¿Quieres elegir otro día, cambiar los datos de entrega o recoger en agencia?',
   ABSENT_PICKUP_AGENCY: 'Perfecto. Vamos a comprobar si tu envío puede quedar disponible para recogida en agencia GLS. En cuanto tengamos la información validada, te indicaremos cómo proceder.'
 });
 export function absentFollowUpPreparation(button, binding = {}) {
   if (!ABSENT_FUTURE_RESPONSES[button]) return null;
-  const buttons = button === 'ABSENT_MORE_OPTIONS' ? ABSENT_BUTTONS.slice(2).map(b => ({
+  const buttons = button === 'ABSENT_MORE_OPTIONS' ? [...ABSENT_BUTTONS.slice(2),{payload:'ABSENT_PICKUP_AGENCY',text:'Recoger en agencia'}].map(b => ({
     type: 'reply', reply: { id: b.payload, title: b.text }
   })) : [];
   return { flow: button, binding, text: ABSENT_FUTURE_RESPONSES[button],

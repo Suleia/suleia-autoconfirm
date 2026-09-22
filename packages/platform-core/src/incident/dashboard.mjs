@@ -1,4 +1,5 @@
 import { buildRecoveryOverview, recoveryProjection, recoveryBaseSelector } from './recovery-center.mjs';
+import { absentAttemptForRecord } from './absent-evidence.mjs';
 
 export const DASHBOARD_VERSION = 'INCIDENT_DASHBOARD_V2';
 export const DASHBOARD_METRICS = [
@@ -11,7 +12,7 @@ const time = value => value ? new Date(value).getTime() : NaN;
 export function dashboardScope(item) {
   if(item.status!=='PENDING' || item.is_active!==true)return 'HISTORICAL';
   const type=item.interpreted_type || (item.type && item.type!=='UNKNOWN'?item.type:item.raw_type);
-  return type==='PICKUP_AT_AGENCY' || type==='RECIPIENT_ABSENT' && item.dashboard_source_context?.is_first_absent===true?'FOLLOWUP':'ACTIVE';
+  return type==='PICKUP_AT_AGENCY' || type==='RECIPIENT_ABSENT' && absentAttemptForRecord(item)==='FIRST_ABSENCE'?'FOLLOWUP':'ACTIVE';
 }
 export function dashboardScopeCounts(items) {
   const counts={ACTIVE:0,FOLLOWUP:0,HISTORICAL:0};for(const item of items)counts[dashboardScope(item)]++;return counts;
@@ -67,7 +68,7 @@ export function dashboardProjection(raw, { now = new Date() } = {}) {
   return {...item,customer_name:(item.customer_name || '').replace(/\s+-\s*$/,'').trim(),
     dashboard:{version:DASHBOARD_VERSION,flags,action,action_detail:actionDetail,priority,priority_reason:reasons[priority],
       decision_current:current,blocking_reasons:[...new Set(blocks)],template_name:validTemplate(e.template,item.customer_name),
-      attempt:type==='RECIPIENT_ABSENT' ? source.is_first_absent===true?'FIRST_ABSENCE':source.absence_count>=2?'SECOND_ABSENCE':s.absence_attempt || 'ABSENCE_ATTEMPT_UNKNOWN':null,
+      attempt:type==='RECIPIENT_ABSENT' ? absentAttemptForRecord(item):null,
       flow:waiting?'WAITING_CUSTOMER':!stale && s.current_step==='LOGISTICS_VALIDATION_REQUIRED'?'LOGISTICS_VALIDATION_REQUIRED':!stale && e.valid_response && s.customer_intent==='RESCHEDULE_DELIVERY'?'RESCHEDULE_REQUESTED':!stale && e.valid_response && s.customer_intent==='PICKUP_AT_AGENCY'?'PICKUP_REQUESTED':e.valid_response?'CUSTOMER_RESPONDED':ready?'SIMULATION_READY':human?'HUMAN_REVIEW':'REVIEW',
       freshness:stale?'STALE':'FRESH',executable:false}};
 }

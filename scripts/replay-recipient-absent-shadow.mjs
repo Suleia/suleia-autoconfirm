@@ -5,7 +5,7 @@ import { syncIncidentSimulations } from '../services/incident-simulation-sync.mj
 export async function replayRecipientAbsentShadow({pool,privateDataKey='',now=new Date(),templateStatus='NOT_VERIFIED'}) {
   const population=await pool.query("SELECT count(*)::integer AS total FROM read_models.operations_incident_records WHERE type='RECIPIENT_ABSENT'");
   const total=Number(population.rows[0]?.total || 0);
-  const metrics={total:0,active_pending:0,first_absence:0,second_absence:0,unknown_attempt:0,address_review:0,normal_absent:0,
+  const metrics={total:0,active_pending:0,first_absence:0,second_absence:0,unknown_attempt:0,attempt_conflict:0,address_review:0,normal_absent:0,
     customer_response_available:0,customer_response_not_verifiable:0,no_response:0,reschedule_requested:0,pickup_requested:0,return_requested:0,
     logistics_feasible:0,logistics_unknown:0,logistics_not_feasible:0,logistics_stale:0,human_review_required:0,would_automate:0,would_not_automate:0,
     active_would_automate:0,waiting_customer:0,policy_not_persisted:0,mapping_not_verifiable:0,history_available:0};
@@ -13,7 +13,7 @@ export async function replayRecipientAbsentShadow({pool,privateDataKey='',now=ne
   const projector={upsertIncidentInterpretation:async()=>{},recordIncidentSimulation:async()=>{},applyRecipientAbsentShadow:async({issue,decision})=>{
     const s=decision.absent_shadow;metrics.total++;
     if(issue.status==='PENDING' && issue.is_active)metrics.active_pending++;
-    metrics[s.absence_attempt==='FIRST_ABSENCE'?'first_absence':s.absence_attempt==='SECOND_ABSENCE'?'second_absence':'unknown_attempt']++;
+    metrics[s.absence_attempt==='FIRST_ABSENCE'?'first_absence':s.absence_attempt==='SECOND_ABSENCE'?'second_absence':s.absence_attempt==='ABSENCE_ATTEMPT_CONFLICT'?'attempt_conflict':'unknown_attempt']++;
     metrics[s.interpreted_type==='RECIPIENT_ABSENT'?'normal_absent':'address_review']++;
     if(s.customer_response_status==='RESPONDED')metrics.customer_response_available++;
     if(s.customer_response_status==='NOT_VERIFIABLE')metrics.customer_response_not_verifiable++;

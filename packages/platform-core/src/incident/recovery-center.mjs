@@ -1,3 +1,4 @@
+import { absentAttemptForRecord } from './absent-evidence.mjs';
 // A read-only lens over the existing policies and observed events, not an executor.
 export const RECOVERY_KPIS = Object.freeze([
   ['PENDING', 'Pendientes reales', 'package'], ['CUSTOMER_ACTED', 'Cliente actuó', 'message'],
@@ -226,7 +227,8 @@ export function recoveryBaseSelector(item, filters = {}) {
   if(filters.absent){
     if(item.normalized_type!=='RECIPIENT_ABSENT')return false;
     const s=item.absent_shadow || {};
-    const mapping={FIRST_ABSENCE:s.absence_attempt==='FIRST_ABSENCE',SECOND_ABSENCE:s.absence_attempt==='SECOND_ABSENCE',ABSENCE_ATTEMPT_UNKNOWN:s.absence_attempt==='ABSENCE_ATTEMPT_UNKNOWN',STALE:item.effective_freshness_status==='STALE',WAITING_CUSTOMER:s.waiting_customer===true,CUSTOMER_RESPONDED:recoverySelector(item,'CUSTOMER_ACTED'),RESCHEDULE_REQUESTED:s.customer_intent==='RESCHEDULE_DELIVERY',PICKUP_REQUESTED:s.customer_intent==='PICKUP_AT_AGENCY',LOGISTICS_VALIDATION_REQUIRED:s.current_step==='LOGISTICS_VALIDATION_REQUIRED',HUMAN_REVIEW_REQUIRED:s.simulation_status==='HUMAN_REVIEW_REQUIRED',SIMULATION_READY:s.simulation_status==='SIMULATION_READY',AUSENTE:true};
+    const attempt=absentAttemptForRecord(item);
+    const mapping={FIRST_ABSENCE:attempt==='FIRST_ABSENCE',SECOND_ABSENCE:attempt==='SECOND_ABSENCE',ABSENCE_ATTEMPT_UNKNOWN:attempt==='ABSENCE_ATTEMPT_UNKNOWN',ABSENCE_ATTEMPT_CONFLICT:attempt==='ABSENCE_ATTEMPT_CONFLICT',STALE:item.effective_freshness_status==='STALE',WAITING_CUSTOMER:s.waiting_customer===true,CUSTOMER_RESPONDED:recoverySelector(item,'CUSTOMER_ACTED'),RESCHEDULE_REQUESTED:s.customer_intent==='RESCHEDULE_DELIVERY',PICKUP_REQUESTED:s.customer_intent==='PICKUP_AT_AGENCY',LOGISTICS_VALIDATION_REQUIRED:s.current_step==='LOGISTICS_VALIDATION_REQUIRED',HUMAN_REVIEW_REQUIRED:s.simulation_status==='HUMAN_REVIEW_REQUIRED',SIMULATION_READY:s.simulation_status==='SIMULATION_READY',AUSENTE:true};
     if(!mapping[filters.absent])return false;
   }
   return true;
@@ -279,7 +281,7 @@ export function buildRecoveryOverview(items, {filters={},now=new Date(),limit=25
   const group=(field)=>[...new Set(base.map(field))].filter(Boolean).map(key=>({key,...recoveryMetrics(base.filter(i=>field(i)===key))}));
   return {items:selected.slice(offset,offset+limit),total:selected.length,limit,offset,summary:{scope:filters.scope,universe_count:base.length,
     kpis,autopilot:{mode:'SIMULATION / SHADOW',kpis:autopilotKpis,attention,connectors:connectorHealth,timers,actions},metrics:recoveryMetrics(base),by_type:group(i=>i.interpreted_type),by_template:group(i=>i.incident_notification_template || null),
-    absent_filters:Object.fromEntries(['AUSENTE','FIRST_ABSENCE','SECOND_ABSENCE','ABSENCE_ATTEMPT_UNKNOWN','STALE','WAITING_CUSTOMER','CUSTOMER_RESPONDED','RESCHEDULE_REQUESTED','PICKUP_REQUESTED','LOGISTICS_VALIDATION_REQUIRED','HUMAN_REVIEW_REQUIRED','SIMULATION_READY'].map(key=>[key,base.filter(i=>recoveryBaseSelector(i,{scope:'ALL',absent:key})).length])),
+    absent_filters:Object.fromEntries(['AUSENTE','FIRST_ABSENCE','SECOND_ABSENCE','ABSENCE_ATTEMPT_UNKNOWN','ABSENCE_ATTEMPT_CONFLICT','STALE','WAITING_CUSTOMER','CUSTOMER_RESPONDED','RESCHEDULE_REQUESTED','PICKUP_REQUESTED','LOGISTICS_VALIDATION_REQUIRED','HUMAN_REVIEW_REQUIRED','SIMULATION_READY'].map(key=>[key,base.filter(i=>recoveryBaseSelector(i,{scope:'ALL',absent:key})).length])),
     available_months:availableMonths,selected_recovery:filters.recovery || null,near_threshold_seconds:nearReturnSeconds,
     last_sync_at:base.map(i=>i.panel_updated_at || i.updated_at).filter(Boolean).sort((a,b)=>ms(b)-ms(a))[0] || null,
     denominator_definition:recoveryMetrics(base).denominator_definition},actions_executed:0,production_writes:0,customer_messages_sent:0};

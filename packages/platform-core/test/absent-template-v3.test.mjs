@@ -7,7 +7,7 @@ import { incidentNotificationBoundary } from '../src/incident/notification-evide
 import { incidentInsight } from '../../suleia-operations-mcp/src/operations/incident-insight.mjs';
 
 const now='2026-09-17T14:00:00Z';
-const fixture=()=>({issue:{canonical_issue_id:'safe-issue',canonical_order_id:'safe-order',type:'RECIPIENT_ABSENT',raw_type:'RECIPIENT_ABSENT',status:'PENDING',is_active:true,carrier:'GLS',mapping_status:'MAPPED',delivery_attempt_number:'1',created_at:'2026-09-17T10:00:00Z',updated_at:'2026-09-17T10:00:00Z',observed_at:now,allowed_resolution_options:['RETRY','CHANGE_ADDRESS','RETURN_REQUESTED'],carrier_retention_deadline:'2026-09-25T18:00:00Z'},order:{canonical_order_id:'safe-order',canonical_state:'IN_TRANSIT',identity_status:'EXACT'},chatby:{verified:true,observed_at:now,incident_notified_at:'2026-09-17T11:00:00Z',template_status:'APPROVED',template_contact_verified:true,chatby_conversation_id_hash:'safe-chat',chatby_contact_id_hash:'safe-customer'},gls:{observed_at:now,capability_status:'VERIFIED',package_operable:true,calendar_verified:true},policy:{policy_id:'safe-policy',policy_snapshot_hash:ABSENT_POLICY_HASH,status:'SHADOW',registry_required:true},events:[]});
+const fixture=()=>({issue:{canonical_issue_id:'safe-issue',canonical_order_id:'safe-order',type:'RECIPIENT_ABSENT',raw_type:'RECIPIENT_ABSENT',status:'PENDING',is_active:true,carrier:'GLS',mapping_status:'MAPPED',delivery_attempt_number:'1',created_at:'2026-09-17T10:00:00Z',updated_at:'2026-09-17T10:00:00Z',observed_at:now,allowed_resolution_options:['RETRY','CHANGE_ADDRESS','RETURN_REQUESTED'],carrier_retention_deadline:'2026-09-25T18:00:00Z'},order:{canonical_order_id:'safe-order',canonical_state:'IN_TRANSIT',identity_status:'EXACT'},chatby:{verified:true,observed_at:now,incident_notified_at:'2026-09-17T11:00:00Z',template_status:'APPROVED',template_contact_verified:true,notification_template_name:'dropea_ausente_v3',notification_message_id:'wamid.synthetic',chatby_conversation_id_hash:'safe-chat',chatby_contact_id_hash:'safe-customer'},gls:{observed_at:now,capability_status:'VERIFIED',package_operable:true,calendar_verified:true},policy:{policy_id:'safe-policy',policy_snapshot_hash:ABSENT_POLICY_HASH,status:'SHADOW',registry_required:true},events:[]});
 const event=(button,index=0)=>({canonical_issue_id:'safe-issue',canonical_order_id:'safe-order',chatby_conversation_id_hash:'safe-chat',chatby_contact_id_hash:'safe-customer',direction:'INBOUND',message_type:'BUTTON',relevance_status:'CURRENT_ORDER_EXACT_MATCH',incident_relevance:'INCIDENT_RELEVANT',context_template_slug:ABSENT_TEMPLATE_NAME,created_at:`2026-09-17T1${2+index}:00:00Z`,chatby_message_id:`safe-event-${index}`,button_payload:button?.payload,raw_text:button?.text || ''});
 const run=x=>simulateRecipientAbsent(x,{now});
 const show=(x,result)=>incidentInsight({normalized_type:'RECIPIENT_ABSENT',interpreted_type:'RECIPIENT_ABSENT',status:'PENDING',is_active:true,chatby_sync_current:true,dropea_sync_current:true,conversation_status:'FOUND',incident_notified_at:x.chatby.incident_notified_at,latest_private_customer_message_at:result.shadow.scoped_customer_activity_at,latest_customer_message:x.events.at(-1)?.raw_text,latest_customer_message_relation:'AFTER_INCIDENT',latest_customer_incident_relevance:'INCIDENT_RELEVANT',latest_customer_context_template:ABSENT_TEMPLATE_NAME,notification_decision_current:true,snapshot_status:'PERSISTED',policy_id:result.shadow.policy_id,input_snapshot_hash:result.shadow.input_snapshot_hash,absent_shadow:result.shadow});
@@ -38,6 +38,15 @@ test('scenario 4: change data waits, never submits an empty address',()=>{
 test('scenario 5: silence preserves sole 48h shadow timer',()=>{
  const r=run(fixture());assert.equal(r.shadow.customer_response_status,'NO_RESPONSE');assert.equal(r.shadow.waiting_customer,true);assert.equal(new Date(r.decision.timer.due_at)-new Date(r.decision.timer.started_at),48*3600000);
 });
+
+test('48h starts only at observed v3 with message ID, never legacy notice or issue creation',()=>{
+ const x=fixture();const timer=run(x).decision.timer;
+ assert.equal(new Date(timer.started_at).getTime(),new Date(x.chatby.incident_notified_at).getTime());
+ assert.notEqual(timer.started_at,x.issue.created_at);
+ for(const change of [c=>delete c.notification_message_id,c=>c.notification_template_name='dropea_incidencia_ausente_v2',c=>delete c.incident_notified_at]){
+  const y=fixture();change(y.chatby);assert.equal(run(y).decision.timer,null);
+ }
+});
 test('scenario 6: repeated webhook creates same decision/snapshot and one used event',()=>{
  const x=fixture();x.events=[event(ABSENT_BUTTONS[0])];const a=run(x);x.events.push(structuredClone(x.events[0]));const b=run(x);assert.equal(a.decision.decision_id,b.decision.decision_id);assert.equal(b.interpretation.messages_used,1);
 });
@@ -54,8 +63,8 @@ test('scenario 10: new notification is recognized without altering rejection bou
  const e={...event(null),direction:'OUTBOUND',message_type:'TEMPLATE'};assert.equal(incidentNotificationBoundary([e],{issueId:'safe-issue',orderId:'safe-order',issueType:'RECIPIENT_ABSENT',createdAt:'2026-09-17T10:00:00Z',now}),e.created_at);
  assert.equal(incidentNotificationBoundary([e],{issueId:'safe-issue',orderId:'safe-order',issueType:'REFUSED_BY_RECIPIENT',createdAt:'2026-09-17T10:00:00Z',now}),null);
 });
-test('minimum-click alternative prepares two session buttons, both within 20 characters',()=>{
- const x=fixture();x.events=[event(ABSENT_TEMPLATE_BUTTONS[2])];const r=run(x);assert.equal(r.shadow.next_action,'WOULD_SHOW_RECOVERY_OPTIONS');const buttons=r.shadow.prepared_subflow.interactive.action.buttons;assert.equal(buttons.length,2);for(const b of buttons)assert.ok(b.reply.title.length<=20);
+test('minimum-click alternative prepares date, address and agency session choices within 20 characters',()=>{
+ const x=fixture();x.events=[event(ABSENT_TEMPLATE_BUTTONS[2])];const r=run(x);assert.equal(r.shadow.next_action,'WOULD_SHOW_RECOVERY_OPTIONS');const buttons=r.shadow.prepared_subflow.interactive.action.buttons;assert.equal(buttons.length,3);assert.ok(buttons.some(b=>b.reply.id==='ABSENT_PICKUP_AGENCY'));for(const b of buttons)assert.ok(b.reply.title.length<=20);
 });
 test('follow-up date requires same conversation/customer and only then permits a date without guessed time',()=>{
  const x=fixture();x.events=[event(ABSENT_BUTTONS[2]),{...event(null,1),message_type:'TEXT',raw_text:'2026-09-21'}];let r=run(x);assert.equal(r.shadow.requested_date,'2026-09-21');assert.equal(r.shadow.requested_time_window,'DATE_ONLY');assert.equal(r.shadow.all_day,false);assert.equal(r.shadow.prepared_subflow,null);assert.equal(r.shadow.input_snapshot.flow.identity_verified,true);
