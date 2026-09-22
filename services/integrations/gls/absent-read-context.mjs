@@ -18,7 +18,10 @@ export function createAbsentLogisticsReader(clients, { glsRead = getGlsTrackingH
       const tracking = String(order.tracking_number || '');
       const postal = String(order.shipping_address?.postal_code || '');
       const url = order.tracking_url || (tracking && postal ? `https://m.gls-spain.es/e/${encodeURIComponent(tracking)}/${encodeURIComponent(postal)}/` : '');
-      const result = await glsRead({ trackingUrl: url, tracking });
+      // A tracking outage must not erase separately verified order identity or
+      // phone evidence. Carrier capability remains unknown in either case.
+      let result=null;
+      try { result=await glsRead({ trackingUrl: url, tracking }); } catch { /* tracking unavailable */ }
       // The tracking endpoint does not document retention, slot capability or
       // operational pickup acceptance. Those remain UNKNOWN, never fabricated.
       return { dropea_order_observed_at: observedAt, verified_phone:phone, order_state: mapDropeaOrderState(order.status, order.sub_status).canonical_state,

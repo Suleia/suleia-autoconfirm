@@ -79,7 +79,8 @@ export function buildRecipientAbsentResolution(input={}) {
   if(!phone.verified || phone.canonical_order_id!==canonical_order_id || !/^\+[1-9]\d{7,14}$/.test(phone.value || '') || !phone.phone_hash || !phone.source)reasons.push('ORDER_PHONE_NOT_VERIFIABLE');
   if(!validDate(requested_date) || requested_date<madridDay(now))reasons.push('AMBIGUOUS_DELIVERY_DATE');
   if(cap.verified!==true || cap.canonical_issue_id!==canonical_issue_id || cap.canonical_order_id!==canonical_order_id
-    || cap.action!=='PROVIDE_SOLUTION' || !cap.contract_hash || !cap.supported_windows?.includes(requested_time_window))reasons.push('PROVIDE_SOLUTION_CAPABILITY_NOT_VERIFIED');
+    || cap.action!=='PROVIDE_SOLUTION' || !cap.contract_hash
+    || requested_time_window && !cap.supported_windows?.includes(requested_time_window))reasons.push('PROVIDE_SOLUTION_CAPABILITY_NOT_VERIFIED');
   if(cap.requires_window && ['UNSPECIFIED','DATE_ONLY','ALL_DAY'].includes(requested_time_window))reasons.push('DELIVERY_TIME_WINDOW_REQUIRED');
   if(!['MORNING','AFTERNOON','ALL_DAY','UNSPECIFIED','DATE_ONLY','TIME_RANGE','FROM_TIME','UNTIL_TIME'].includes(requested_time_window))reasons.push('DELIVERY_TIME_WINDOW_REQUIRED');
   if(['TIME_RANGE','FROM_TIME'].includes(requested_time_window) && !validTime(time_from)
@@ -137,7 +138,7 @@ export function recipientAbsentResolutionPanel(resolution, execution=null, runti
   return {status:applied?'SOLUTION_PROVIDED':reasons.length?'HUMAN_REVIEW_REQUIRED':'READY_FOR_RESOLUTION',
     title:applied?'Solución aportada':reasons.length?'Revisión humana':'Solución preparada',
     next_action:applied?`Nueva entrega ${label}`:reasons.length?'Revisar preferencia del cliente':`Aportar solución: nueva entrega ${label}`,
-    detail:applied?`Se solicitó entrega ${label} con llamada previa.`:reasons.map(r=>reasonLabels[r] || 'Requiere comprobación manual.').join(' '),
+    detail:applied?`Se solicitó entrega ${label} con llamada previa.`:[...new Set(reasons.map(r=>reasonLabels[r] || 'Requiere comprobación manual.'))].slice(0,3).join(' '),
     interpretation:s.customer_intent==='RESCHEDULE_DELIVERY'?'Nueva entrega':'Ambigua',requested_date:s.requested_date || null,
     window:slots[s.requested_time_window] || 'No indicada',phone:s.phone_masked || 'Teléfono del pedido no verificable',
     evidence:s.interpretation_source==='VERIFIED_BUTTON'?'Botón Chatby verificado':'Texto del cliente',blocking_reasons:reasons,

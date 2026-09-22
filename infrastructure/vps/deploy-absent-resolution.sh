@@ -74,7 +74,8 @@ rollback(){
   "${compose[@]}" -f "$backup/rollback.json" up -d --no-deps --no-build api mcp-server ingestion-worker review-panel >/dev/null
 }
 trap rollback ERR
-"${compose[@]}" exec -T --interactive=false postgres psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/042_recipient_absent_resolutions.sql > "$backup/migration042.txt"
+docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/042_recipient_absent_resolutions.sql > "$backup/migration042.txt"
+[[ "$(docker exec suleia-operations-staging-postgres-1 psql -X -At -U suleia_admin -d suleia_staging -c "SELECT count(*) FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT' AND status='DISABLED'")" == 1 ]]
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker review-panel
 for service in "${services[@]}"; do
   docker inspect "suleia-operations-staging-$service-1" > "$backup/$service-after.json"
