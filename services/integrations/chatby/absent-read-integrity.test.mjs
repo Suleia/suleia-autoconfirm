@@ -12,7 +12,7 @@ test('resolution callback exposes exact fresh evidence only for target issue, wi
  await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('target'),issue('other')]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),onlyRecipientAbsent:true,onlyCanonicalIssueId:'target',onAbsentConversation:v=>contexts.push(v),minRequestIntervalMs:0,fetchImpl:async()=>response({data:messages})});
  assert.equal(contexts.length,1);assert.equal(contexts[0].chatby.history_complete,true);assert.ok(contexts[0].chatby.notification_message_id);
  assert.equal(contexts[0].events.every(e=>e.canonical_issue_id==='target' && e.provider_message_id_verified),true);
- assert.equal(contexts[0].events.find(e=>e.direction==='INBOUND').button_verified,true);
+ assert.equal(contexts[0].events.find(e=>e.direction==='INBOUND').button_verified,false);
 });
 
 test('concurrent exclusive phases coalesce a complete catalogue traversal without duplicate GETs',async()=>{

@@ -6,6 +6,7 @@ import {createAbsentResolutionLedger,executeRecipientAbsentResolution} from './r
 
 export function createRecipientAbsentResolutionRuntime({pool,projector,clients,writer,chatbyToken,privacyKey,flags,now=()=>new Date(),syncChatby=syncChatbyReadOnly}){
   const ledger=createAbsentResolutionLedger(pool);
+  let circuitOpen=false;
   const getClient=issue=>clients.find(x=>x.store.market===issue.market && String(x.store.store_id)===String(issue.store_id))?.client;
   async function readFresh(id){
     const result=await pool.query(`SELECT i.*,o.identity_status FROM read_models.operations_incident_records i
@@ -27,13 +28,14 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
     const issue={...row,type:rawIssue.type,status:rawIssue.status,is_active:rawIssue.is_active,carrier:rawIssue.carrier,
       created_at:rawIssue.created_at,updated_at:rawIssue.updated_at,resolution_status:rawIssue.resolution_status,
       resolution_changed_at:rawIssue.resolution_changed_at,allowed_resolution_options:rawIssue.allowed_resolution_options,observed_at:issueAt};
-    return {issue,order:{canonical_order_id:row.canonical_order_id,identity_status:row.identity_status,
+    const current=await pool.query('SELECT current FROM read_models.recipient_absent_current_context WHERE canonical_issue_id=$1',[id]);
+    return {issue,decision_currentness:current.rows[0]?.current===true && Date.parse(rawIssue.updated_at)===Date.parse(row.updated_at)?'CURRENT':'HISTORICAL',return_in_progress:/RETURN/.test(String(rawOrder.status)+' '+String(rawOrder.sub_status)),order:{canonical_order_id:row.canonical_order_id,identity_status:row.identity_status,
       canonical_state:mapDropeaOrderState(rawOrder.status,rawOrder.sub_status).canonical_state,observed_at:orderAt},...conversation,
       verified_phone:verifiedAbsentOrderPhone({issue,providerOrder:rawOrder,observedAt:orderAt,privacyKey}),
       logistics_capability:absentSolutionCapability({issue,observedAt:issueAt})};
   }
   return {readFresh,async run(){
-    if(!flags.AUSENTE_AUTOMATION_LIVE || !flags.AUSENTE_LOGISTICS_WRITES_ENABLED || !writer)return {status:'DISABLED',writes:0};
+    if(circuitOpen || !flags.AUSENTE_AUTOMATION_LIVE || !flags.AUSENTE_LOGISTICS_WRITES_ENABLED || !writer)return {status:'DISABLED',writes:0};
     const rows=await pool.query(`SELECT canonical_issue_id FROM read_models.operations_incident_records
       WHERE type='RECIPIENT_ABSENT' AND status='PENDING' AND is_active=true ORDER BY updated_at ASC LIMIT 20`);
     const counts={checked:0,writes:0,applied:0,blocked:0,uncertain:0};
@@ -45,6 +47,7 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
       catch {result={status:'HUMAN_REVIEW_REQUIRED',writes:0};}
       counts.checked++;counts.writes+=result.writes || 0;
       if(result.status==='APPLIED')counts.applied++;else if(result.status==='UNVERIFIED')counts.uncertain++;else counts.blocked++;
+      if(result.status==='UNVERIFIED'){circuitOpen=true;break;}
     }
     return counts;
   }};

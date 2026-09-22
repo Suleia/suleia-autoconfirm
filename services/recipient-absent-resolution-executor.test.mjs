@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {executeRecipientAbsentResolution} from './recipient-absent-resolution-executor.mjs';
 import {fixture,now} from '../packages/platform-core/test/fixtures/absent-resolution.mjs';
 const flags={AUSENTE_AUTOMATION_LIVE:true,AUSENTE_LOGISTICS_WRITES_ENABLED:true};
-const control=()=>({status:'CANARY',activation_at:'2026-09-22T08:00:00Z',evidence:{template_mapping_verified:true,approved_v3_verified:true,single_sender_verified:true,callback_contract_verified:true,notification_timer_verified:true,evidence_id:'synthetic-gates'}});
+const control=()=>({status:'LIVE',activation_at:'2026-09-22T08:00:00Z',evidence:{canary_verified:true,template_mapping_verified:true,approved_v3_verified:true,single_sender_verified:true,callback_contract_verified:true,notification_timer_verified:true,evidence_id:'synthetic-gates'}});
 function memoryLedger(){let record=null,busy=false;return {get record(){return record;},async withIssueLock(id,fn){if(busy)return {status:'IN_PROGRESS',writes:0};busy=true;try{return await fn({control:async()=>control(),get:async()=>record,claim:async a=>{if(record)return false;record={...a,status:'CLAIMED'};return true;},finish:async(_,outcome)=>{record={...record,...outcome};}});}finally{busy=false;}}};}
 function setup(){const ledger=memoryLedger(),sent=[];let reads=0;const input=fixture();const args={issueId:'issue-a',flags,ledger,now:()=>new Date(now),
  readFresh:async()=>{reads++;return structuredClone(input);},readProviderIssue:async()=>({id:123,order_id:321,status:'RESOLVED',resolution_status:'SOLUTION_PROVIDED',resolution_changed_at:now}),
@@ -26,4 +26,16 @@ test('owner activation gates and new-case restriction are never bypassed',async(
 test('persistent kill switch is rechecked after claim, before POST',async()=>{
  const x=setup(),original=x.ledger.withIssueLock;let count=0;x.ledger.withIssueLock=(id,fn)=>original(id,store=>fn({...store,control:async()=>++count>1?{status:'DISABLED'}:control()}));
  assert.equal((await executeRecipientAbsentResolution(x.args)).writes,0);assert.equal(x.sent.length,0);
+});
+
+test('first real canary requires a verified AM/PM callback rather than a matching text',async()=>{
+ const x=setup(),original=x.ledger.withIssueLock;x.ledger.withIssueLock=(id,fn)=>original(id,store=>fn({...store,control:async()=>({...control(),status:'CANARY'})}));
+ assert.equal((await executeRecipientAbsentResolution(x.args)).reason,'CANARY_VERIFIED_AM_PM_REQUIRED');assert.equal(x.sent.length,0);
+ x.input.events[0].message_type='BUTTON';x.input.events[0].button_verified=true;x.input.events[0].button_payload='ABSENT_TOMORROW_PM';
+ assert.equal((await executeRecipientAbsentResolution(x.args)).status,'APPLIED');assert.equal(x.sent.length,1);
+});
+test('uncertain provider outcome trips only the absent resolution circuit',async()=>{
+ const x=setup(),original=x.ledger.withIssueLock;let tripped=null;x.ledger.withIssueLock=(id,fn)=>original(id,store=>fn({...store,trip:async reason=>{tripped=reason;},control:async()=>({...control(),circuit_breaker_reason:tripped})}));
+ x.args.readProviderIssue=async()=>({status:'PENDING'});assert.equal((await executeRecipientAbsentResolution(x.args)).status,'UNVERIFIED');assert.equal(tripped,'PROVIDER_RESULT_UNVERIFIED');
+ assert.equal((await executeRecipientAbsentResolution({...x.args,issueId:'different'})).writes,0);assert.equal(x.sent.length,1);
 });

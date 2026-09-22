@@ -162,6 +162,7 @@ try {
 const inventory = {
   schema_version: 'suleia-runtime-inventory-v1',
   generated_at: new Date().toISOString(),
+  collector_commit: process.env.SULEIA_RUNTIME_GIT_COMMIT || 'UNKNOWN',
   git: {
     commit: fixed('git', ['rev-parse', 'HEAD']) || process.env.SULEIA_RUNTIME_GIT_COMMIT || 'UNKNOWN',
     branch: fixed('git', ['branch', '--show-current']) || process.env.SULEIA_RUNTIME_GIT_BRANCH || 'DETACHED_OR_UNKNOWN'

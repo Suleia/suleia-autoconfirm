@@ -22,7 +22,7 @@ mv "${STATS_SNAPSHOT}.tmp" "${STATS_SNAPSHOT}"
 # Whitelisted provenance only. Never export Config.Env or full inspections.
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" ps -q \
   | xargs -r docker inspect --format '{{json .}}' \
-  | jq -s 'map({service:.Config.Labels["com.docker.compose.service"],container_id:.Id,image_id:.Image,image_revision:.Config.Labels["org.opencontainers.image.revision"],container_revision:(.Config.Env|map(select(startswith("SULEIA_BUILD_REVISION=")))|first|ltrimstr("SULEIA_BUILD_REVISION="))})' > "${PROVENANCE_SNAPSHOT}.tmp"
+  | jq -s 'map({service:.Config.Labels["com.docker.compose.service"],container_id:.Id,image_id:.Image,image_revision:.Config.Labels["org.opencontainers.image.revision"],container_revision:((.Config.Env|map(select(startswith("SULEIA_BUILD_REVISION=")))|first)//""|ltrimstr("SULEIA_BUILD_REVISION="))})' > "${PROVENANCE_SNAPSHOT}.tmp"
 mv "${PROVENANCE_SNAPSHOT}.tmp" "${PROVENANCE_SNAPSHOT}"
 
 git_commit="${SULEIA_RUNTIME_GIT_COMMIT:-$(git -C "${INSTALL_ROOT}" rev-parse HEAD 2>/dev/null || true)}"

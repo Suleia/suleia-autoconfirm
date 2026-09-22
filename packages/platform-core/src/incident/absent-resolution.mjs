@@ -112,12 +112,15 @@ export function absentResolutionPreflight(input, now=new Date()) {
   const {issue={},order={},chatby={},verified_phone={},logistics_capability={}}=input;
   const selected=selectRecipientAbsentIntent({...input,now});
   const reasons=[...selected.blocking_reasons];
+  if(input.decision_currentness && input.decision_currentness!=='CURRENT')reasons.push('DECISION_NOT_CURRENT');
+  if(input.return_in_progress===true)reasons.push('INCOMPATIBLE_RETURN_IN_PROGRESS');
   if(issue.type!=='RECIPIENT_ABSENT' || issue.status!=='PENDING' || issue.is_active!==true || !actionableOrderStates.has(order.canonical_state))reasons.push('INCIDENT_NOT_ACTIONABLE');
   if(issue.resolution_status || issue.resolution_changed_at || input.later_action_exists)reasons.push('LATER_ACTION_ALREADY_EXISTS');
   for(const at of [issue.observed_at,order.observed_at,chatby.observed_at,verified_phone.observed_at,logistics_capability.observed_at])if(!resolutionFresh(at,now))reasons.push('RESOLUTION_DATA_NOT_FRESH');
   const response=selected.response;
-  return buildRecipientAbsentResolution({canonical_issue_id:issue.canonical_issue_id,canonical_order_id:order.canonical_order_id,
+  const result=buildRecipientAbsentResolution({canonical_issue_id:issue.canonical_issue_id,canonical_order_id:order.canonical_order_id,
     ...response,interpretation_confidence:response.confidence,verified_phone,evidence_source:selected.evidence,logistics_capability,blocking_reasons:reasons,now});
+  return {...result,execution_freshness:{status:reasons.includes('RESOLUTION_DATA_NOT_FRESH')?'REVALIDATION_REQUIRED':'FRESH',checked_at:new Date(now).toISOString()},decision_currentness:input.decision_currentness || 'NOT_VERIFIED'};
 }
 
 const reasonLabels={ORDER_PHONE_NOT_VERIFIABLE:'Teléfono del pedido no verificable',AMBIGUOUS_DELIVERY_DATE:'Fecha de entrega no inequívoca.',

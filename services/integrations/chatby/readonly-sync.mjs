@@ -643,7 +643,9 @@ export async function syncChatbyReadOnly({
           provider_message_id_verified:Boolean(m.mid || m.id),
           direction:direction(m),message_type:type,raw_text:rawMessageText(m),
           button_payload:type==='BUTTON'?absentButtonFor({...m,raw_text:rawMessageText(m)})?.payload || null:null,
-          button_verified:type==='BUTTON',relevance_status:'CURRENT_ORDER_EXACT_MATCH',
+          // Message type alone does not prove a real v3 callback contract.
+          // Until the observed provider IDs are bound, retain text evidence only.
+          button_verified:false,relevance_status:'CURRENT_ORDER_EXACT_MATCH',
           incident_relevance:item.incident_relevance,context_template_slug:item.context_template_slug};
       });
       const notice=events.find(e=>e.direction==='OUTBOUND' && e.message_type==='TEMPLATE'

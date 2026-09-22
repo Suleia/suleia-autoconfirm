@@ -75,6 +75,9 @@ rollback(){
 }
 trap rollback ERR
 docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/042_recipient_absent_resolutions.sql > "$backup/migration042.txt"
+for migration in 043_absent_execution_integrity 044_absent_carrier_compound_registry; do
+  docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < "migrations/$migration.sql" > "$backup/$migration.txt"
+done
 [[ "$(docker exec suleia-operations-staging-postgres-1 psql -X -At -U suleia_admin -d suleia_staging -c "SELECT count(*) FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT' AND status='DISABLED'")" == 1 ]]
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server ingestion-worker review-panel
 for service in "${services[@]}"; do
@@ -101,4 +104,9 @@ link="/opt/suleia-operations-absent-resolution-$revision"
 [[ ! -e "$link" && ! -L "$link" ]] || exit 2
 ln -s "$release" "$link";mv -T "$link" "$install"
 trap - ERR
+install -m 0644 infrastructure/vps/suleia-runtime-inventory.service /etc/systemd/system/
+install -m 0644 infrastructure/vps/suleia-runtime-inventory.timer /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now suleia-runtime-inventory.timer
+bash infrastructure/vps/refresh-absent-runtime.sh
 printf 'ABSENT_RESOLUTION_DEPLOY|commit=%s|env_preserved=true|other_services_unchanged=true|migrations=042|services=api,mcp,ingestion,panel|writer=DISABLED|mode=SHADOW\n' "$revision"
