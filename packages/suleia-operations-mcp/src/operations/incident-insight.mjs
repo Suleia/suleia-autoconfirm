@@ -1,6 +1,7 @@
 import { interpretChatbyCustomerReply } from '../../../platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 import { projectRecipientAbsentShadow } from '../../../platform-core/src/incident/absent-panel-projection.mjs';
 import { projectNotificationScopedIncident } from '../../../platform-core/src/incident/notification-evidence.mjs';
+import { recipientAbsentResolutionPanel } from '../../../platform-core/src/incident/absent-resolution.mjs';
 
 const intentLabels = {
   CONFIRM: 'El cliente confirma que quiere recibir el pedido.',
@@ -443,9 +444,20 @@ export function incidentInsight(item) {
     ...proposed, confidence: 'REVIEW', execution_status: 'BLOCKED_CAPABILITY_NOT_DECLARED',
     guardrail: 'Dropea no declara una opción de resolución compatible; validar capacidad y logística antes de actuar.'
   };
+  if(shadow?.resolution)proposed={...proposed,code:shadow.resolution.status,title:shadow.resolution.next_action,
+    summary:shadow.resolution.detail,resolution_option:null,execution_status:'NOT_EXECUTED'};
+  let absentResolution=null;
+  if(item.absent_resolution_structured){
+    const resolution={resolution_structured:item.absent_resolution_structured,blocking_reasons:item.absent_resolution_status==='APPLIED'?[]:['PROVIDER_RESULT_UNVERIFIED'],
+      idempotency_key:item.absent_resolution_key,resolution_hash:item.absent_resolution_hash};
+    absentResolution=recipientAbsentResolutionPanel(resolution,{status:item.absent_resolution_status,idempotency_key:item.absent_resolution_key});
+    proposed={code:absentResolution.status,title:absentResolution.next_action,summary:absentResolution.detail,
+      execution_status:item.absent_resolution_status,policy_version:item.absent_resolution_structured.policy_version};
+    item={...item,external_action_status:item.absent_resolution_status==='APPLIED'?'SOLUTION_PROVIDED':'HUMAN_REVIEW_REQUIRED'};
+  }
   if (!shadow) proposed = { ...proposed, policy_version: proposed.policy_version || item.policy_version || null,
     execution_status: proposed.execution_status || 'NOT_EXECUTED', decision_basis: proposed.decision_basis || 'NOTIFICATION_SCOPED_CURRENT_EVIDENCE' };
-  const existingStatus = String(item.operational_action_status || item.external_action_status || '').toUpperCase();
+  const existingStatus = String(absentResolution ? item.external_action_status : item.operational_action_status || item.external_action_status || '').toUpperCase();
   const handlingStatus = existingStatus && existingStatus !== 'NOT_EXECUTED'
     ? existingStatus
     : item.is_active !== true || item.status !== 'PENDING'
@@ -460,6 +472,7 @@ export function incidentInsight(item) {
     customer_evidence: customer,
     discount_recovery: discount,
     tailored_recommendation: proposed,
+    absent_resolution:absentResolution,
     source_truth: item.is_active && item.status === 'PENDING' ? 'PENDING_IN_DROPEA' : 'NOT_PENDING_IN_DROPEA',
     external_action_status: existingStatus || 'NOT_EXECUTED',
     handling_status: handlingStatus

@@ -39,7 +39,7 @@ const chatbyConversationCache = new Map();
 const absentSubscriberCache = chatbySubscriberCache, absentConversationCache = new Map(), absentLogisticsCache = new Map();
 let absentRunning=false, absentLastResult=null, absentLastError=null, absentTemplate=null;
 let absentRetryNotBefore=0;
-const absentReader=createAbsentLogisticsReader(dropeaClients);
+const absentReader=createAbsentLogisticsReader(dropeaClients,{privacyKey:config.hashKey});
 const webhookRate = new Map();
 
 function boundedMilliseconds(value, fallback, minimum) {

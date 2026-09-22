@@ -6,6 +6,14 @@ const issue=id=>({canonical_order_id:'safe-order',dropea_order_id:'SAFE-ORDER',c
 const subscriberCache=()=>({items:[{user_ns:'safe-conversation',user_fields:[{name:'Dropea: Número',value:'SAFE-ORDER'}]}],fetchedAt:at,pageCount:1});
 const response=data=>new Response(JSON.stringify(data),{status:200});
 const projector=()=>({recordChatbyConversationEvent:async()=>({inserted:false}),upsertChatbyPrivateMessageDisplay:async()=>{},upsertChatbyConversationLink:async()=>{},markChatbyConversationAvailable:async()=>{}});
+test('resolution callback exposes exact fresh evidence only for target issue, with provider IDs',async()=>{
+ const contexts=[];const messages=[{id:'native-notice',type:'out',msg_type:'template',created_at:'2026-09-17T13:00:00Z',template_name:'es_ES dropea_ausente_v3'},
+  {id:'real-response',type:'in',msg_type:'button',created_at:'2026-09-17T14:00:00Z',payload:{payload:'ABSENT_TOMORROW_PM',title:'Mañana por la tarde'}}];
+ await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('target'),issue('other')]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),onlyRecipientAbsent:true,onlyCanonicalIssueId:'target',onAbsentConversation:v=>contexts.push(v),minRequestIntervalMs:0,fetchImpl:async()=>response({data:messages})});
+ assert.equal(contexts.length,1);assert.equal(contexts[0].chatby.history_complete,true);assert.ok(contexts[0].chatby.notification_message_id);
+ assert.equal(contexts[0].events.every(e=>e.canonical_issue_id==='target' && e.provider_message_id_verified),true);
+ assert.equal(contexts[0].events.find(e=>e.direction==='INBOUND').button_verified,true);
+});
 
 test('concurrent exclusive phases coalesce a complete catalogue traversal without duplicate GETs',async()=>{
  let calls=0;const cache={};const input={pool:{query:async()=>({rows:[]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',subscriberCache:cache,minRequestIntervalMs:0,fetchImpl:async()=>{calls++;await new Promise(r=>setTimeout(r,10));return response({data:[],meta:{last_page:1}});}};

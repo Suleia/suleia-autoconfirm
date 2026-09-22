@@ -29,6 +29,8 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboard_record.dashboard_source_context,
+  absent_resolution.structured AS absent_resolution_structured,absent_resolution.status AS absent_resolution_status,
+  absent_resolution.idempotency_key AS absent_resolution_key,absent_resolution.resolution_hash AS absent_resolution_hash,
   autopilot.state AS autopilot_state,autopilot.mode AS autopilot_mode,
   autopilot.policy_name AS autopilot_policy_name,autopilot.policy_version AS autopilot_policy_version,
   autopilot.next_action AS autopilot_next_action,autopilot.reason AS autopilot_reason,
@@ -107,6 +109,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
   END AS operational_recommendation
  FROM read_models.operations_incident_evidence_context p
  LEFT JOIN read_models.operations_incident_records dashboard_record ON dashboard_record.canonical_issue_id=p.canonical_issue_id
+ LEFT JOIN operations.recipient_absent_resolutions absent_resolution ON absent_resolution.canonical_issue_id=p.canonical_issue_id
+   AND absent_resolution.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_order_context outcome ON outcome.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_autopilot_current autopilot ON autopilot.canonical_issue_id=p.canonical_issue_id
  LEFT JOIN read_models.recipient_absent_shadow absent ON absent.canonical_issue_id=p.canonical_issue_id

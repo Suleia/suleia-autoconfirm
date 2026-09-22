@@ -558,7 +558,18 @@ function customerMessageHistory(items = []) {
 function absentShadowCard(item, expanded = false) {
   const s = item.absent_shadow;
   const card = node('div', 'absent-shadow-card');
-  if (!s) return card;
+  if (!s && !item.absent_resolution) return card;
+  const resolution=item.absent_resolution || s?.resolution;
+  if(resolution){
+    card.append(node('small','absent-shadow-label','RESOLUCIÓN DE AUSENTE'),node('strong','',resolution.next_action),
+      node('strong','',resolution.title),node('small','',resolution.detail));
+    card.append(section('Preferencia del cliente',[
+      ['Evidencia cliente',item.latest_customer_message || 'Respuesta no disponible'],['Interpretación',resolution.interpretation],
+      ['Fecha',resolution.requested_date ? resolution.requested_date.split('-').reverse().join('/'):'No inequívoca'],
+      ['Franja',resolution.window],['Teléfono',resolution.phone],['Evidencia',resolution.evidence]
+    ]));
+    return card;
+  }
   const labels = { WOULD_SEND_ABSENT_TEMPLATE: 'Preparar contacto AUSENTE', WOULD_REQUEST_CUSTOM_SLOT: 'Pedir fecha y franja',
     WOULD_VALIDATE_LOGISTICS: 'Validar disponibilidad GLS', WOULD_REQUEST_NEW_DELIVERY: 'Proponer nueva entrega',
     WOULD_REQUEST_PICKUP_AT_AGENCY: 'Proponer recogida en agencia', WOULD_RETURN_TO_ORIGIN: 'Proponer devolución',
