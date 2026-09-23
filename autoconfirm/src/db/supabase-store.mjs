@@ -186,6 +186,18 @@ export async function claimTemplateDelivery({
 const INCIDENT_ADDRESS_RESOLUTION_LEDGER = 'dropea_issue_address_solution_v1';
 const INCIDENT_DISCOUNT_RETURN_LEDGER = 'dropea_issue_discount_no_response_return_v1';
 
+export async function listOrderIncidentReturns({ storeId = 'suleia', orderId } = {}) {
+  if (!isSupabaseEnabled()) throw new Error('RETURN_ORDER_LEDGER_UNAVAILABLE');
+  return selectRows('template_delivery_ledger', {
+    query: {
+      select: 'store_id,order_id,template_name,status,attempted_at,sent_at,raw',
+      store_id: `eq.${storeId}`, order_id: `eq.${orderId}`,
+      template_name: `like.${INCIDENT_DISCOUNT_RETURN_LEDGER}:*`,
+      status: 'in.(verified,applied_unverified)', order: 'attempted_at.desc'
+    }, limit: 100
+  });
+}
+
 export async function listIncidentDiscountReturnsForReconciliation({ limit = 100 } = {}) {
   if (!isSupabaseEnabled()) return [];
   return selectRows('template_delivery_ledger', {

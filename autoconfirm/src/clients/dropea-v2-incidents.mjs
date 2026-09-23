@@ -127,7 +127,7 @@ function operation(name, params = {}) {
 // missing issues field. GET /issues/{id} is the official V2 read contract.
 export async function readDropeaV2ReturnIssueState(incident, {
   env = process.env, configLoader = loadDropeaV2IncidentStoreConfigs,
-  clientFactory = createDropeaV2IncidentClient
+  clientFactory = createDropeaV2IncidentClient, includeOrder = false
 } = {}) {
   const stores = configLoader(env);
   if (stores.length !== 1) fail('DROPEA_V2_RETURN_STORE_AMBIGUOUS');
@@ -137,7 +137,10 @@ export async function readDropeaV2ReturnIssueState(incident, {
   const issue = payload?.data;
   if (String(issue?.id || '') !== String(incident.incidenceId)
       || String(issue?.order_id || '') !== String(incident.orderId)) fail('DROPEA_V2_RETURN_ISSUE_IDENTITY_MISMATCH');
-  return { issue: { ...issue, raw: issue }, order: { orderId: String(issue.order_id) } };
+  if (!includeOrder) return { issue: { ...issue, raw: issue }, order: { orderId: String(issue.order_id) } };
+  const order = (await client.request('getOrder', { id: Number(issue.order_id) }))?.data;
+  if (String(order?.id || '') !== String(incident.orderId)) fail('DROPEA_V2_RETURN_ORDER_IDENTITY_MISMATCH');
+  return normalizeDropeaV2Incident(issue, order, { market: store.market });
 }
 
 export function createDropeaV2IncidentClient({

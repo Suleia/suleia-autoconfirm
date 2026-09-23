@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { getAppConfig } from '../config.mjs';
 import { listDropeaOrders } from '../clients/dropea.mjs';
+import { readDropeaV2ReturnIssueState } from '../clients/dropea-v2-incidents.mjs';
+import { inspectPriorOrderReturn } from './incident-order-return-guard.mjs';
 import {
   findSubscriberByPhone,
   findSubscriberForOrderRobust,
@@ -574,6 +576,28 @@ export async function processIncidentDiscountRecovery({
     respondedAt: response.respondedAt
   };
   if (!realEnabled) return recoveryResult({ ...preview, status: 'would_send', reason: 'real_delivery_disabled' });
+
+  // Batch collection can be minutes old by the time an eligible case reaches
+  // the writer. Check the exact issue, order and prior returns again now.
+  const prior = await (dependencies.inspectPrior || inspectPriorOrderReturn)(incident, { storeId: config.defaultStore.id });
+  if (prior.verified || prior.blocked) return recoveryResult({ ...preview,
+    reason: prior.verified ? 'order_return_already_requested' : prior.reason });
+  let current;
+  try {
+    current = await (dependencies.readCurrent || (value => readDropeaV2ReturnIssueState(value, { includeOrder: true })))(incident);
+  } catch { return recoveryResult({ ...preview, reason: 'dropea_pre_send_read_failed' }); }
+  const currentIssue = current?.issue?.raw || current?.issue;
+  const currentOrder = current?.order;
+  if (String(currentIssue?.id) !== String(incident.incidenceId)
+      || String(currentIssue?.order_id) !== String(incident.orderId)
+      || String(currentOrder?.orderId) !== String(incident.orderId)
+      || currentIssue.is_active !== true || currentIssue.status !== 'PENDING'
+      || currentIssue.type !== 'REFUSED_BY_RECIPIENT'
+      || !['ERROR', 'INCIDENCE'].includes(String(currentOrder.status).toUpperCase())
+      || digits(currentOrder.customerPhone).slice(-9) !== digits(incident.phone || order.customerPhone).slice(-9)
+      || !digits(currentOrder.customerPhone)) {
+    return recoveryResult({ ...preview, reason: 'dropea_pre_send_state_changed' });
+  }
 
   // Re-read immediately before claiming and sending. Any message or button after
   // the initial template closes the lane, including an ambiguous reply.
