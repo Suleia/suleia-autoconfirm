@@ -155,5 +155,8 @@ test('read projection revalidates persisted evidence; no order actions, credenti
   assert.match(sql,/WHEN 'effective_qa_status' THEN 'CASE WHEN b.stale_decision/);
   const repo=fs.readFileSync(new URL('../../suleia-operations-mcp/src/operations/repository.mjs',import.meta.url),'utf8');
   assert.doesNotMatch(repo,/ORDER BY \(m\.relation_to_issue|m\.intent<>'UNKNOWN'/);
-  assert.match(repo,/m\.chatby_message_id_hash=p\.scoped_customer_message_hash/);
+  assert.match(repo,/m\.occurred_at>p\.created_at AND m\.occurred_at<=now\(\)/);
+  assert.match(repo,/m\.canonical_issue_id=p\.canonical_issue_id AND m\.canonical_order_id=p\.canonical_order_id/);
+  const recovery=fs.readFileSync(new URL('../src/incident/recovery-center.mjs',import.meta.url),'utf8');
+  assert.match(recovery,/item\.scoped_customer_message_hash === item\.latest_private_customer_message_hash/);
 });

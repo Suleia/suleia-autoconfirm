@@ -69,7 +69,7 @@ export function dashboardProjection(raw, { now = new Date() } = {}) {
     dashboard:{version:DASHBOARD_VERSION,flags,action,action_detail:actionDetail,priority,priority_reason:reasons[priority],
       decision_current:current,blocking_reasons:[...new Set(blocks)],template_name:validTemplate(e.template,item.customer_name),
       attempt:type==='RECIPIENT_ABSENT' ? absentAttemptForRecord(item):null,
-      flow:waiting?'WAITING_CUSTOMER':!stale && s.current_step==='LOGISTICS_VALIDATION_REQUIRED'?'LOGISTICS_VALIDATION_REQUIRED':!stale && e.valid_response && s.customer_intent==='RESCHEDULE_DELIVERY'?'RESCHEDULE_REQUESTED':!stale && e.valid_response && s.customer_intent==='PICKUP_AT_AGENCY'?'PICKUP_REQUESTED':e.valid_response?'CUSTOMER_RESPONDED':ready?'SIMULATION_READY':human?'HUMAN_REVIEW':'REVIEW',
+      flow:waiting?'WAITING_CUSTOMER':!stale && s.current_step==='LOGISTICS_VALIDATION_REQUIRED'?'LOGISTICS_VALIDATION_REQUIRED':!stale && e.valid_response && s.customer_intent==='RESCHEDULE_DELIVERY'?'RESCHEDULE_REQUESTED':!stale && e.valid_response && s.customer_intent==='PICKUP_AT_AGENCY'?'PICKUP_REQUESTED':e.customer_interacted?'CUSTOMER_RESPONDED':ready?'SIMULATION_READY':human?'HUMAN_REVIEW':'REVIEW',
       freshness:stale?'STALE':'FRESH',executable:false}};
 }
 

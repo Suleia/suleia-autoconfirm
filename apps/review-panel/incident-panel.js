@@ -18,7 +18,9 @@ const IncidentPanel=(()=>{
     const evidenceTitle=e.message_type==='IMAGE' && e.customer_interacted?'Imagen recibida':message?message:e.valid_response?'Evidencia verificada':e.no_action_verified?'Sin evidencia':'Chatby no verificable';
     const evidenceDetail=message?(e.message_type==='BUTTON'?'Botón / acción':e.valid_response?'Respuesta verificada':'Respuesta no concluyente'):e.no_action_verified?'Ninguna acción realizada':e.reason==='INCIDENT_NOTIFICATION_NOT_OBSERVED'?'Aviso de esta incidencia no verificado':'Lectura de conversación no verificable';
     if(e.message_type==='IMAGE' && e.customer_interacted)evidence.append(icon('package','gray'));
-    const evidenceText=copy(evidenceTitle,evidenceDetail);evidenceText.title=message||evidenceDetail;evidence.append(evidenceText,node('span','ip-chevron','›'));
+    const evidenceText=copy(evidenceTitle,evidenceDetail);evidenceText.title=message||evidenceDetail;
+    if(e.customer_interacted && e.response_at)evidenceText.append(node('small','ip-date',`Chatby · ${incidentDate(e.response_at)} · tras la apertura`));
+    evidence.append(evidenceText,node('span','ip-chevron','›'));
     const action=node('div','ip-action'),stale=d.action==='Actualizar evidencia';
     const title=stale?({REFUSED_BY_RECIPIENT:'Revisar evidencia de rechazo',ADDRESS_INCORRECT:'Revalidar la dirección',RECIPIENT_ABSENT:'Revalidar aviso de ausencia',PICKUP_AT_AGENCY:'Verificar recogida en agencia'}[item.interpreted_type]||d.action):d.action;
     action.append(icon(d.flags.WAITING_CUSTOMER?'clock':type[3],d.flags.WAITING_CUSTOMER?'amber':type[2]),copy(title,stale?'Fuentes pendientes de validar':d.action_detail));

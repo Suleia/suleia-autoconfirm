@@ -79,3 +79,9 @@ At the beginning of a coordinated task, read the latest Agent Hub comments.
 At the end, post the implementation or verification result there. Keep detailed
 customer data only in approved production systems and summarize evidence in
 GitHub using anonymized references.
+
+## 2026-09-23 — Incident customer activity display
+
+Incident evidence must distinguish an exact-order inbound event after issue creation from a notification-bound actionable response. The private display query now selects the latest post-opening inbound message for the exact issue and order. Unverified notification anchoring keeps automatic decisions blocked, but no longer hides the observed text/button or its timestamp. The dashboard customer-response flow includes observed interactions. Incident history reads include bot messages and use the provider timestamp cursor for all incident types; order confirmation readers are unchanged.
+
+Regression coverage includes missing notification, text/button observations, prior/future/lifecycle messages, missing identity, stale reads, retained action guards, history pagination and safe DOM rendering. Production verification must check the two reported orders through the same repository projection as the panel without logging customer content.

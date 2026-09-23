@@ -539,7 +539,7 @@ export async function syncChatbyReadOnly({
         messagesReused += messages.items.length;
         conversationCacheHits += 1;
       } else {
-        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages, cached:exactConversation?.cached?.messages,includeBot:onlyRecipientAbsent });
+        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages, cached:exactConversation?.cached?.messages,includeBot:true });
         messagesRead += messages.items.length-(messages.reused_message_count || 0);
         messagesReused += messages.reused_message_count || 0;
         cycleReads.set(String(subscriber.user_ns),{messages,fetchedAt:now()});

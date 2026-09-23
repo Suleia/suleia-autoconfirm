@@ -115,6 +115,19 @@ function customerEvidence(item) {
     relation:'AFTER_NOTIFICATION',notified_at:notifiedAt,button_payload:absent.button_pressed || null,
     evidence_basis:'CURRENT_NOTIFICATION_BOUND_SHADOW_RESPONSE'
   };
+  // Activity after opening is factual evidence even when the notification cannot
+  // be proven. It is deliberately not a notification-bound actionable response.
+  if (!scoped && item.chatby_activity_read_current === true && item.conversation_status === 'FOUND'
+    && item.latest_private_customer_message_hash && item.latest_customer_message
+    && relation === 'AFTER_INCIDENT' && new Date(messageAt) > new Date(item.created_at)
+    && new Date(messageAt).getTime() <= Date.now()
+    && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT'].includes(item.latest_customer_incident_relevance)
+    && !String(item.latest_customer_context_template || '').startsWith('dropea_pedido_')) return {
+    code:'OBSERVED_CUSTOMER_ACTIVITY', title:'Cliente respondió tras la apertura',
+    summary:'Actividad en el chat exacto posterior a la apertura. Su relación con la notificación queda pendiente de validar.',
+    latest_message:item.latest_customer_message, at:messageAt, messages:1, intent:'UNKNOWN',
+    relation:'AFTER_INCIDENT', notified_at:notifiedAt, evidence_basis:'ISSUE_CREATED_ACTIVITY_ONLY'
+  };
   if (!item.chatby_sync_current || !notifiedAt || item.conversation_status !== 'FOUND') return {
     code: 'NOT_VERIFIABLE', title: 'Chatby pendiente de actualizar',
     summary: !notifiedAt
@@ -426,6 +439,9 @@ function recommendation(item, customer) {
 }
 
 export function incidentInsight(item) {
+  // Preserve transport freshness separately: notification projection deliberately
+  // blocks decision freshness when no notification anchor exists.
+  item = {...item, chatby_activity_read_current:item.chatby_sync_current === true};
   item = projectNotificationScopedIncident(projectRecipientAbsentShadow(projectNotificationScopedIncident(item)));
   const discount = discountRecovery(item);
   const customer = customerEvidence(item);

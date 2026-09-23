@@ -135,10 +135,10 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
        ORDER BY o.occurred_at DESC LIMIT 1) AS operator_message_at
    FROM read_models.operations_private_incident_messages m
    WHERE m.canonical_issue_id=p.canonical_issue_id AND m.canonical_order_id=p.canonical_order_id
-     AND m.direction='INBOUND' AND m.chatby_message_id_hash=p.scoped_customer_message_hash
-     AND (m.occurred_at>p.incident_notified_at OR (p.incident_notified_at IS NULL
-       AND p.normalized_type='RECIPIENT_ABSENT' AND p.notification_decision_current
-       AND p.scoped_response_reason='SHADOW_ISSUE_CREATED_ANCHOR_ONLY_NOT_NOTIFICATION' AND m.occurred_at>p.created_at))
+     AND m.direction='INBOUND' AND m.occurred_at>p.created_at AND m.occurred_at<=now()
+     AND m.relation_to_issue='AFTER_INCIDENT'
+     AND m.incident_relevance IS DISTINCT FROM 'ORDER_LIFECYCLE_ONLY'
+     AND coalesce(m.context_template_slug,'') NOT LIKE 'dropea_pedido_%'
    ORDER BY m.occurred_at DESC,m.chatby_message_id_hash DESC LIMIT 1
  ) private_message ON true)`;
 
@@ -522,7 +522,7 @@ export class OperationsRepository {
     if (!detail.rows[0]) return null;
     const incident=dashboardProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
     const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey)
-      .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message)}));
+      .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message,{createdAt:incident.created_at})}));
     return {incident,customer_messages:messages,timeline:timeline.rows,feedback:feedback.rows,
       recovery_timeline:recoveryTimeline(incident,timeline.rows,messages)};
   }
