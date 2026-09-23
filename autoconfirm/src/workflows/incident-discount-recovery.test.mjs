@@ -33,6 +33,8 @@ function fixture() {
     raw: { created_at: '2026-08-27T10:00:00.000Z', external_order_id: '#2007' }
   };
   const dependencies = {
+    inspectPrior: async () => ({ verified: false, blocked: false }),
+    readCurrent: async () => ({ issue: { id: incident.incidenceId, order_id: incident.orderId, status: 'PENDING', is_active: true, type: 'REFUSED_BY_RECIPIENT' }, order: { ...order, status: 'ERROR' } }),
     getTemplate: async () => ({
       name: 'es_es_dropea_incidencia_descuento_5_v1',
       language: 'es_ES',
@@ -259,4 +261,27 @@ test('fails closed when the persistent delivery ledger cannot be read', async ()
 
 test('exposes one shared template warm-up entry point for an incident batch', () => {
   assert.equal(typeof warmIncidentDiscountTemplateCache, 'function');
+});
+
+
+test('fresh Dropea state blocks a discount if delivery, identity or rejection changed', async () => {
+  for (const patch of [
+    { order: { orderId:'1357848',status:'DELIVERED',customerPhone:'600000001' } },
+    { issue: { id:'1252293',order_id:'1357848',status:'RESOLVED',is_active:false,type:'REFUSED_BY_RECIPIENT' } },
+    { issue: { id:'1252293',order_id:'999',status:'PENDING',is_active:true,type:'REFUSED_BY_RECIPIENT' } }
+  ]) {
+    const data=fixture();const current=await data.dependencies.readCurrent();
+    data.dependencies.readCurrent=async()=>({...current,...patch});
+    const result=await processIncidentDiscountRecovery({...data,realEnabled:true,now:Date.parse('2026-08-30T08:00:00Z')});
+    assert.equal(result.reason,'dropea_pre_send_state_changed');assert.equal(data.sent.length,0);
+  }
+});
+test('a verified prior return prevents a new discount, and a failed fresh read fails closed', async () => {
+  for (const reason of ['order_return_already_requested','dropea_pre_send_read_failed']) {
+    const data=fixture();
+    if(reason==='order_return_already_requested')data.dependencies.inspectPrior=async()=>({verified:true,priorIncidenceId:'51'});
+    else data.dependencies.readCurrent=async()=>{throw Error('offline');};
+    const result=await processIncidentDiscountRecovery({...data,realEnabled:true,now:Date.parse('2026-08-30T08:00:00Z')});
+    assert.equal(result.reason,reason);assert.equal(data.sent.length,0);
+  }
 });

@@ -28,7 +28,7 @@ test('verifies only the exact owned issue with the actual RETURN_REQUESTED resol
 test('reconciles ambiguous applied actions without a POST and separates carrier closure from a return', async () => {
   const writes=[];const rows=[1,2,3,4,5].map(id=>({order_id:'61',template_name:`dropea_issue_discount_no_response_return_v1:${id}`,status:'manual_reconciliation_required',attempted_at:'2026-09-16T12:00:00Z',raw:{ruleId:'fixture'}}));
   const states={1:{status:'RESOLVED',resolution_status:'RETURN_REQUESTED',is_active:false},2:{status:'PENDING',is_active:false},3:{status:'MANAGING_WITH_CLIENT',is_active:true},4:{status:'PENDING',is_active:true}};
-  const result=await reconcileIncidentDiscountReturnLedger({list:async()=>rows,
+  const result=await reconcileIncidentDiscountReturnLedger({list:async()=>rows, inspectPrior:async()=>({verified:false,blocked:false}),
     readCurrent:async i=>{if(i.incidenceId==='5')throw Error('read failed');return {issue:{id:Number(i.incidenceId),order_id:61,...states[i.incidenceId]}};},
     finish:async row=>writes.push(row)});
   assert.deepEqual(result,{checked:5,verified:1,closedWithoutReturn:1,finalWorkflowBlocked:1,retryable:1,readFailed:1});
@@ -45,7 +45,7 @@ test('ambiguous network outcomes replay the original persistent nonce only withi
   let nonce;
   const result=await executeIncidentDiscountNoResponseReturn({incidenceId:'51',orderId:'61',incidentType:'rejected_goods',chatbyUserNs:'fixture',chatbyReadVerified:true},
     {templateName:'fixture',sentAt:'2026-09-15T12:00:00Z',verified:true,responseStatus:'NO_RESPONSE'},
-    {now,realEnabled:true,automaticEnabled:true,credentialAvailable:true,
+    {now,realEnabled:true,inspectPrior:async()=>({verified:false,blocked:false}),automaticEnabled:true,credentialAvailable:true,
       readCurrent:async()=>({issue:{status:'PENDING',is_active:true,allowed_resolution_options:['RETURN_REQUESTED']}}),readMessages:async()=>[],
       claimReturn:async()=>({acquired:false,persistent:true,reason:'already_claimed',existing}),reclaimReturn:async()=>({acquired:true,persistent:true,row:{attempted_at:'2026-09-17T17:00:00Z'}}),
       returnIssue:async(_id,opts)=>{nonce=opts.idempotencyNonce;return {};},verifyReturn:async()=>({verified:true}),finishReturn:async()=>null,auditReturn:async()=>null});
@@ -68,7 +68,7 @@ test('an automatic cycle atomically reclaims one stale claim and calls Dropea on
     responseStatus: 'NO_RESPONSE'
   }, {
     now: Date.parse('2026-07-16T17:00:00.000Z'),
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     automaticEnabled: true,
     credentialAvailable: true,
     readCurrent: async () => ({ issue: { status: 'PENDING', raw: { status: 'PENDING', is_active: true, allowed_resolution_options: ['RETURN_REQUESTED'] } } }),
@@ -84,4 +84,3 @@ test('an automatic cycle atomically reclaims one stale claim and calls Dropea on
   assert.equal(reclaimed, 1);
   assert.equal(returned, 1);
 });
-

@@ -151,7 +151,7 @@ test('re-reads Chatby and requests one persistently claimed Dropea return', asyn
   const calls = { claimed: 0, returned: 0, finished: null };
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now: Date.parse('2026-07-16T17:00:00.000Z'),
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     credentialAvailable: true,
     allowedIncidentIds: ['fixture-discount-issue'],
     readCurrent: async () => currentReturnableIncident,
@@ -185,7 +185,7 @@ test('does not POST an illegal final-state transition even when carrier options 
   };
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now: Date.parse('2026-07-16T17:00:00.000Z'),
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     automaticEnabled: true,
     credentialAvailable: true,
     readCurrent: async () => managingIncident,
@@ -204,7 +204,7 @@ test('a last-second Chatby action blocks the return before the persistent claim'
   const calls = { claimed: 0, returned: 0 };
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now: Date.parse('2026-07-16T17:00:00.000Z'),
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     credentialAvailable: true,
     allowedIncidentIds: ['fixture-discount-issue'],
     readCurrent: async () => currentReturnableIncident,
@@ -226,7 +226,7 @@ test('does not call Dropea when the durable return claim is unavailable or alrea
     let returned = 0;
     const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
       now: Date.parse('2026-07-16T17:00:00.000Z'),
-      realEnabled: true,
+      realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
       credentialAvailable: true,
       allowedIncidentIds: ['fixture-discount-issue'],
       readCurrent: async () => currentReturnableIncident,
@@ -247,7 +247,7 @@ test('reports an existing completed return claim without calling Dropea twice', 
     let returned = 0;
     const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
       now: Date.parse('2026-07-16T17:00:00.000Z'),
-      realEnabled: true,
+      realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
       credentialAvailable: true,
       allowedIncidentIds: ['fixture-discount-issue'],
       readCurrent: async () => currentReturnableIncident,
@@ -339,7 +339,7 @@ test('reconciles one ambiguous return only through an explicit atomic reclaim', 
   let returned = 0;
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now: Date.parse('2026-07-16T17:00:00.000Z'),
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     credentialAvailable: true,
     allowedIncidentIds: ['fixture-discount-issue'],
     allowManualReconciliationRetry: true,
@@ -370,7 +370,7 @@ test('never reconciles an ambiguous return without explicit retry authorization'
   let returned = 0;
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now: Date.parse('2026-07-16T17:00:00.000Z'),
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     credentialAvailable: true,
     allowedIncidentIds: ['fixture-discount-issue'],
     readCurrent: async () => currentReturnableIncident,
@@ -394,7 +394,7 @@ test('autonomous mode safely retries an old transient Dropea 503 with the same p
   let returned = 0;
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now: Date.parse('2026-07-16T17:00:00.000Z'),
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     automaticEnabled: true,
     credentialAvailable: true,
     readCurrent: async () => currentReturnableIncident,
@@ -423,7 +423,7 @@ test('autonomous mode safely retries an old transient Dropea 503 with the same p
 test('autonomous reconciliation waits out the ambiguity window and rejects non-transient errors', async () => {
   let reclaimed = 0;
   const base = {
-    now: Date.parse('2026-07-16T17:00:00.000Z'), realEnabled: true, automaticEnabled: true, credentialAvailable: true,
+    now: Date.parse('2026-07-16T17:00:00.000Z'), realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }), automaticEnabled: true, credentialAvailable: true,
     readCurrent: async () => currentReturnableIncident, readMessages: async () => [],
     reclaimReturn: async () => { reclaimed += 1; return { acquired: true, persistent: true }; }, returnIssue: async () => null
   };
@@ -453,7 +453,7 @@ test('routes an explicit verified discount rejection to one guarded return', asy
   let returned = 0;
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, rejectedDiscount, {
     now,
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     credentialAvailable: true,
     allowedIncidentIds: ['fixture-discount-issue'],
     readCurrent: async () => currentReturnableIncident,
@@ -477,7 +477,7 @@ test('automatic discount returns accept eligible incidents without a manual allo
   let returned = 0;
   const result = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, rejectedDiscount, {
     now,
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     automaticEnabled: true,
     credentialAvailable: true,
     allowedIncidentIds: [],
@@ -501,7 +501,7 @@ test('blocks a return outside the exact allowlist or when Dropea does not allow 
   let returned = 0;
   const notAuthorized = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now,
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     credentialAvailable: true,
     allowedIncidentIds: [],
     returnIssue: async () => { returned += 1; }
@@ -510,7 +510,7 @@ test('blocks a return outside the exact allowlist or when Dropea does not allow 
 
   const notAllowed = await executeIncidentDiscountNoResponseReturn(rejectedDiscountIncident, verifiedDiscount, {
     now,
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     credentialAvailable: true,
     allowedIncidentIds: ['fixture-discount-issue'],
     readCurrent: async () => ({
@@ -575,7 +575,7 @@ test('executes only a freshly re-read exact address decision and records a persi
     status: 'READY_FOR_DROPEA'
   };
   const result = await executeIncorrectAddressResolution(incident, decision, {
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     readCurrent: async () => ({
       issue: { id: 'fixture-issue', incidence_code: 'FD', status: 'PENDING', description: 'Direccion incorrecta' },
       order: { orderId: 'fixture-order', customerPhone: '+34600111222' }
@@ -614,7 +614,7 @@ test('does not retry an address incident after a persistent claim already exists
   }, {
     eligible: true, action: 'accept_solution', ruleId: 'core_incident_incorrect_address_customer_solution', status: 'READY_FOR_DROPEA'
   }, {
-    realEnabled: true,
+    realEnabled: true, inspectPrior: async () => ({ verified: false, blocked: false }),
     readCurrent: async () => ({
       issue: { id: 'fixture-issue', incidence_code: 'FD', status: 'PENDING', description: 'Direccion incorrecta' },
       order: { orderId: 'fixture-order', customerPhone: '+34600111222' }
@@ -778,4 +778,3 @@ test('keeps the order active when the customer accepts the verified discount', (
   assert.equal(decision.ruleId, 'core_incident_discount_accepted_requires_price_update');
   assert.equal(decision.confidence, 96);
 });
-

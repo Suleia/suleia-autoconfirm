@@ -43,6 +43,7 @@ import {
 } from './incident-discount-policy.mjs';
 import { incidentTemplateNameForType, processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
+import { inspectPriorOrderReturn } from './incident-order-return-guard.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -234,6 +235,9 @@ const INCIDENT_TYPES = {
 export function classifyIncident(issue, order) {
   const rawReason = issue ? issueReason(issue) : 'Pedido con incidencia';
   const code = String(rawReason || '').trim().toUpperCase();
+  if (String(issue?.type || issue?.raw?.type || '').toUpperCase() === 'REFUSED_BY_RECIPIENT') {
+    return { ...INCIDENT_TYPES.rejectedGoods, code, rawReason };
+  }
   const text = normalize([
     rawReason,
     issue?.title,
@@ -1091,6 +1095,7 @@ export async function verifyExactIncidentReturn(incident, {
 export async function reconcileIncidentDiscountReturnLedger({
   list = listIncidentDiscountReturnsForReconciliation,
   readCurrent = readDropeaV2ReturnIssueState,
+  inspectPrior = inspectPriorOrderReturn,
   finish = finishIncidentDiscountReturn, now = Date.now()
 } = {}) {
   const summary = { checked: 0, verified: 0, closedWithoutReturn: 0, finalWorkflowBlocked: 0, retryable: 0, readFailed: 0 };
@@ -1109,7 +1114,21 @@ export async function reconcileIncidentDiscountReturnLedger({
     const applied = issue.status === 'RESOLVED' && issue.resolution_status === 'RETURN_REQUESTED';
     const closed = issue.is_active === false;
     const final = ['MANAGING_WITH_CLIENT', 'RESOLVED', 'INFO'].includes(issue.status);
-    if (!applied && !closed && !final) { summary.retryable += 1; continue; }
+    if (!applied && !closed && !final) {
+      const prior = await inspectPrior({ incidenceId, orderId: row.order_id }, { storeId: row.store_id });
+      if (prior.verified) {
+        try { await finish({ storeId: row.store_id, orderId: row.order_id, incidenceId,
+          status: 'order_return_already_verified', attemptedAt: row.attempted_at,
+          completedAt: prior.completedAt, lastError: null,
+          evidence: { ...(row.raw || {}), reconciliationAt: new Date(now).toISOString(),
+            priorIncidenceId: prior.priorIncidenceId, orderReturnVerified: true,
+            verified: false, currentIssueStatus: issue.status } });
+          summary.orderAlreadyRequested = (summary.orderAlreadyRequested || 0) + 1;
+        } catch { summary.readFailed += 1; }
+      } else if (prior.blocked) summary.readFailed += 1;
+      else summary.retryable += 1;
+      continue;
+    }
     const status = applied ? 'verified' : closed ? 'closed_without_return_request' : 'blocked_final_workflow_state';
     try {
       await finish({ storeId: row.store_id, orderId: row.order_id, incidenceId, status,
@@ -1208,13 +1227,25 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     return { ...decision, status: 'BLOCKED_MISSING_CREDENTIAL', verified: false, reason: 'No hay credencial Dropea disponible.' };
   }
 
-  const readCurrent = dependencies.readCurrent || ((incidenceId, orderId) => readDropeaV2ReturnIssueState({ incidenceId, orderId }));
+  const prior = await (dependencies.inspectPrior || inspectPriorOrderReturn)(incident, { storeId: config.defaultStore.id });
+  if (prior.verified) return { ...decision, status: 'RETURN_ALREADY_REQUESTED_FOR_ORDER', verified: true,
+    priorIncidenceId: prior.priorIncidenceId, completedAt: prior.completedAt,
+    reason: 'Devolucion ya solicitada y verificada en Dropea para otra incidencia del mismo pedido.' };
+  if (prior.blocked) return { ...decision, status: 'BLOCKED_PRIOR_RETURN_UNVERIFIED', verified: false, reason: prior.reason };
+
+  const readCurrent = dependencies.readCurrent || ((incidenceId, orderId) => readDropeaV2ReturnIssueState({ incidenceId, orderId }, { includeOrder: true }));
   const current = await readCurrent(incident.incidenceId, incident.orderId).catch(() => null);
   if (!current) {
     return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o no coincide exactamente con el pedido.' };
   }
   const currentRawIssue = current.issue?.raw || current.issue || {};
   const currentStatus = String(current.issue?.status || currentRawIssue.status || '').toUpperCase();
+  if ((current.order?.status && !['ERROR', 'INCIDENCE'].includes(String(current.order.status).toUpperCase()))
+      || (currentRawIssue.type && currentRawIssue.type !== 'REFUSED_BY_RECIPIENT')
+      || (current.order?.customerPhone && digits(current.order.customerPhone).slice(-9) !== digits(incident.phone).slice(-9))) {
+    return { ...decision, status: 'BLOCKED_ORDER_CHANGED', verified: false,
+      reason: 'El pedido, el tipo de incidencia o el telefono han cambiado en la lectura previa a la devolucion.' };
+  }
   if (
     currentStatus !== 'PENDING'
     || currentRawIssue.is_active !== true
@@ -2829,6 +2860,7 @@ export async function syncPendingIncidents({
         incidentDiscountReturnAttemptedAt: discountReturn.attemptedAt || null,
         incidentDiscountReturnCompletedAt: discountReturn.completedAt || null,
         incidentDiscountReturnVerified: discountReturn.verified === true,
+        incidentDiscountReturnPriorIncidenceId: discountReturn.priorIncidenceId || null,
         incidentNotification: notification,
         incidentNotificationStatus: notification.status,
         incidentNotificationTemplate: notification.templateName,
@@ -2873,6 +2905,7 @@ export async function syncPendingIncidents({
       waiting: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'WAITING_24_HOURS').length,
       blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'BLOCKED_CUSTOMER_ACTIVITY').length,
       requestedVerified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_VERIFIED').length,
+      alreadyRequestedForOrder: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_ALREADY_REQUESTED_FOR_ORDER').length,
       requestedUnverified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_UNVERIFIED').length,
       manualReconciliation: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'MANUAL_RECONCILIATION_REQUIRED').length,
       alreadyClaimed: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'ALREADY_CLAIMED').length
