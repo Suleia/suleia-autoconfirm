@@ -14,10 +14,14 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
     const row=result.rows[0];if(!row)throw new Error('EXACT_ORDER_IDENTITY_REQUIRED');
     const client=getClient(row);if(!client)throw new Error('DROPEA_READ_CLIENT_NOT_AVAILABLE');
     const callbackControl=await pool.query("SELECT evidence FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT'");
+    const noticeRow=(await pool.query("SELECT * FROM operations.recipient_absent_native_notifications WHERE canonical_issue_id=$1 AND status='VERIFIED'",[id])).rows[0];
     let conversation={events:[],chatby:{}};
     const sync=await syncChatby({pool,projector,token:chatbyToken,hmacKey:privacyKey,
       onlyRecipientAbsent:true,onlyCanonicalIssueId:id,maxConversations:1,minRequestIntervalMs:3500,
       absentCallbackContract:callbackControl.rows[0]?.evidence?.observed_callback_contract || null,
+      absentVerifiedNotice:noticeRow ? {verified:true,template_id:'1552419',message_id:noticeRow.message_id,
+        provider_message_id:noticeRow.outcome?.provider_message_id,conversation_id:noticeRow.conversation_id,
+        notification_at:noticeRow.notification_at} : null,
       // No cached subscriber fields or messages can authorize a real write.
       onAbsentConversation:value=>{conversation=value;}});
     if(!sync.ok || sync.pagination_complete!==true)throw new Error('EXACT_CURRENT_CHATBY_REQUIRED');
@@ -31,7 +35,10 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
       created_at:rawIssue.created_at,updated_at:rawIssue.updated_at,resolution_status:rawIssue.resolution_status,
       resolution_changed_at:rawIssue.resolution_changed_at,allowed_resolution_options:rawIssue.allowed_resolution_options,observed_at:issueAt};
     const current=await pool.query('SELECT current FROM read_models.recipient_absent_current_context WHERE canonical_issue_id=$1',[id]);
-    return {issue,decision_currentness:current.rows[0]?.current===true && Date.parse(rawIssue.updated_at)===Date.parse(row.updated_at)?'CURRENT':'HISTORICAL',return_in_progress:/RETURN/.test(String(rawOrder.status)+' '+String(rawOrder.sub_status)),order:{canonical_order_id:row.canonical_order_id,identity_status:row.identity_status,
+    // The decision below is rebuilt from these direct reads. A newer provider
+    // updated_at does not make the same active issue historical. Supersession
+    // still comes from the explicit current-issue view, never timestamp age.
+    return {issue,decision_currentness:current.rows[0]?.current===true?'CURRENT':'HISTORICAL',return_in_progress:/RETURN/.test(String(rawOrder.status)+' '+String(rawOrder.sub_status)),order:{canonical_order_id:row.canonical_order_id,identity_status:row.identity_status,
       canonical_state:mapDropeaOrderState(rawOrder.status,rawOrder.sub_status).canonical_state,observed_at:orderAt},...conversation,
       verified_phone:verifiedAbsentOrderPhone({issue,providerOrder:rawOrder,observedAt:orderAt,privacyKey}),
       logistics_capability:absentSolutionCapability({issue,observedAt:issueAt})};

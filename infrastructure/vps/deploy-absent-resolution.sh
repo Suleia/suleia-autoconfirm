@@ -75,7 +75,7 @@ rollback(){
 }
 trap rollback ERR
 docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/042_recipient_absent_resolutions.sql > "$backup/migration042.txt"
-for migration in 043_absent_execution_integrity 044_absent_carrier_compound_registry; do
+for migration in 043_absent_execution_integrity 044_absent_carrier_compound_registry 045_absent_native_notification_gate; do
   docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < "migrations/$migration.sql" > "$backup/$migration.txt"
 done
 [[ "$(docker exec suleia-operations-staging-postgres-1 psql -X -At -U suleia_admin -d suleia_staging -c "SELECT count(*) FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT' AND status='DISABLED'")" == 1 ]]

@@ -70,13 +70,13 @@ export function createAbsentResolutionLedger(pool){
       const lock=await client.query('SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS acquired',[`absent-resolution:${issueId}`]);
       if(!lock.rows[0]?.acquired)return {status:'IN_PROGRESS',writes:0};
       const store={
-        async control(){return (await client.query("SELECT status,activation_at,evidence,circuit_breaker_reason FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT'")).rows[0] || null;},
+        async control(){return (await client.query("SELECT status,activation_at,evidence,circuit_breaker_reason FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT' AND EXISTS (SELECT 1 FROM operations.recipient_absent_native_control n WHERE n.workflow='RECIPIENT_ABSENT' AND n.automation_live=true AND n.circuit_breaker_reason IS NULL)")).rows[0] || null;},
         async trip(reason){await client.query("UPDATE operations.recipient_absent_resolution_control SET circuit_breaker_reason=$1,circuit_breaker_at=now() WHERE workflow='RECIPIENT_ABSENT'",[reason]);},
         async get(id){return (await client.query('SELECT status,idempotency_key FROM operations.recipient_absent_resolutions WHERE canonical_issue_id=$1',[id])).rows[0] || null;},
         async claim(a){
           await client.query('BEGIN');
           try {
-          const control=(await client.query("SELECT status,activation_at,evidence,canary_issue_id,circuit_breaker_reason FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT' FOR UPDATE")).rows[0];
+          const control=(await client.query("SELECT status,activation_at,evidence,canary_issue_id,circuit_breaker_reason FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT' AND EXISTS (SELECT 1 FROM operations.recipient_absent_native_control n WHERE n.workflow='RECIPIENT_ABSENT' AND n.automation_live=true AND n.circuit_breaker_reason IS NULL) FOR UPDATE")).rows[0];
           if(!absentResolutionControlVerified(control) || control.status==='CANARY' && control.canary_issue_id && control.canary_issue_id!==a.canonical_issue_id){await client.query('ROLLBACK');return false;}
           if(control.status==='CANARY' && a.canary_quick_reply_verified!==true){await client.query('ROLLBACK');return false;}
           const r=await client.query(`INSERT INTO operations.recipient_absent_resolutions

@@ -323,7 +323,8 @@ export async function syncChatbyReadOnly({
   excludeRecipientAbsent = false,
   onlyCanonicalIssueId = null,
   onAbsentConversation = null,
-  absentCallbackContract = null
+  absentCallbackContract = null,
+  absentVerifiedNotice = null
 }) {
   if (!token) return Object.freeze({
     ok: false, enabled: true, consultable: false, error: 'CHATBY_GET_CREDENTIAL_MISSING',
@@ -639,7 +640,7 @@ export async function syncChatbyReadOnly({
       // Keep the complete candidate set for detecting cross-order references.
       const events=[...metrics.customer_messages,...metrics.operator_messages].map(item=>{
         const m=item.message,type=messageType(m);
-        const verified=type==='BUTTON' ? verifyAbsentCallback(m,item.context_template_slug,absentCallbackContract,new Date(now())) : null;
+        const verified=type==='BUTTON' ? verifyAbsentCallback({...m,user_ns:String(subscriber.user_ns)},item.context_template_slug,absentCallbackContract,new Date(now()),absentVerifiedNotice) : null;
         return {canonical_issue_id:issue.canonical_issue_id,canonical_order_id:issue.canonical_order_id,
           chatby_conversation_id_hash:conversationHash,chatby_contact_id_hash:contactHash,
           chatby_message_id:technicalMessageId(m,issue.canonical_issue_id,hmacKey),created_at:item.at,
@@ -655,6 +656,10 @@ export async function syncChatbyReadOnly({
         && e.provider_message_id_verified && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(e.context_template_slug)
         && Date.parse(e.created_at)===Date.parse(metrics.incident_notified_at));
       await onAbsentConversation({events,chatby:{verified:true,history_complete:messages.complete===true,
+        conversation_id:String(subscriber.user_ns),
+        notification_count:messages.items.filter(m=>direction(m)==='OUTBOUND' && messageType(m)==='TEMPLATE'
+          && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(templateSlug(m))
+          && Date.parse(occurredAt(m))>=Date.parse(issue.issue_created_at)).length,
         chatby_conversation_id_hash:conversationHash,chatby_contact_id_hash:contactHash,
         notification_message_id:notice?.chatby_message_id || null,template_contact_verified:Boolean(notice),
         incident_notified_at:metrics.incident_notified_at,observed_at:new Date(observedAt).toISOString()}});
