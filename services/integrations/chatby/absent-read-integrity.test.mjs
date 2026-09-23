@@ -55,12 +55,12 @@ test('independent absence and general queries are mutually exclusive',async()=>{
  assert.ok(sql.includes(`coalesce(nullif(i.canonical_type,'UNKNOWN'),i.raw_type)${operator}'RECIPIENT_ABSENT'`));
  }
 });
-test('verified descending head overlap reuses older immutable history instead of reading page two',async()=>{
+test('general incident history rereads bot-inclusive pages instead of reusing an incomplete legacy cache',async()=>{
  const messages=Array.from({length:150},(_,i)=>({id:`safe-${i}`,type:'in',msg_type:'text',ts:at-i*1000,content:'synthetic'}));
  const cache=new Map([['safe-conversation',{fetchedAt:at-121000,messages:{complete:true,items:messages}}]]);
  const pages=[];const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:cache,conversationCacheTtlMs:120000,minRequestIntervalMs:0,
- fetchImpl:async url=>{pages.push(new URL(url).searchParams.get('page'));return response({data:messages.slice(0,100),meta:{last_page:2}});}});
- assert.deepEqual(pages,['1']);assert.equal(result.messages_reused_from_cache,50);assert.equal(result.messages_read,100);
+ fetchImpl:async url=>{const query=new URL(url).searchParams;assert.equal(query.get('include_bot'),'1');assert.equal(query.has('page'),false);pages.push(query.get('end_time'));return response({data:query.has('end_time')?messages.slice(99):messages.slice(0,100)});}});
+ assert.equal(pages.length,2);assert.equal(pages[0],null);assert.ok(pages[1]);assert.equal(result.messages_reused_from_cache,0);assert.equal(result.messages_read,150);
 });
 test('an unavailable budget cannot erase an earlier exact read or pretend fresh silence',async()=>{
  let links=0;const cache=new Map([['safe-conversation',{fetchedAt:at-400000,messages:{complete:true,items:[]}}]]);

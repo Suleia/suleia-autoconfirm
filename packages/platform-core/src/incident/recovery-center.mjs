@@ -34,11 +34,16 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
     && ['AFTER_NOTIFICATION','AFTER_INCIDENT'].includes(c.relation)
     && !template.startsWith('dropea_pedido_') && !initialConfirmation(c.latest_message)
     && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT','BEFORE_NOTIFICATION','NOTIFICATION_NOT_OBSERVED'].includes(item.latest_customer_incident_relevance);
-  const nonAction = ['UNKNOWN','UNCLEAR','CONTRADICTORY','NO_RESPONSE','NO_VALID_RESPONSE','NOT_VERIFIABLE','NO_CONVERSATION','SHADOW_RESPONSE','SHADOW_NO_RESPONSE'];
+  const nonAction = ['OBSERVED_CUSTOMER_ACTIVITY','UNKNOWN','UNCLEAR','CONTRADICTORY','NO_RESPONSE','NO_VALID_RESPONSE','NOT_VERIFIABLE','NO_CONVERSATION','SHADOW_RESPONSE','SHADOW_NO_RESPONSE'];
   const customerActed = scoped && !nonAction.includes(String(c.code || 'UNKNOWN'));
   // Observing a reply/button and understanding its business intent are separate.
   // An ambiguous reply must be visible, but must not authorize a recovery action.
-  const interactionObserved = scoped && Boolean(c.latest_message);
+  const observedAfterOpening = exact && item.chatby_activity_read_current === true
+    && Boolean(item.latest_private_customer_message_hash) && c.evidence_basis === 'ISSUE_CREATED_ACTIVITY_ONLY'
+    && c.relation === 'AFTER_INCIDENT' && later(c.at, created) && validTime(c.at, clock)
+    && !template.startsWith('dropea_pedido_') && !initialConfirmation(c.latest_message)
+    && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT'].includes(item.latest_customer_incident_relevance);
+  const interactionObserved = (scoped || observedAfterOpening) && Boolean(c.latest_message);
   const noActionVerified = exact && item.chatby_sync_current === true
     && validTime(notified, clock) && ms(notified) >= ms(created)
     && item.scoped_response_status === 'NO_VALID_RESPONSE'
@@ -183,12 +188,12 @@ export function recoveryProjection(item, { now = new Date(), nearReturnSeconds =
     evidence:{conversation:exact?'EXACT':item.conversation_status || 'UNKNOWN',validity:acted?'VALID':interactionObserved?'INCONCLUSIVE':noActionVerified?'VERIFIED_NO_ACTION':'NOT_VERIFIABLE',
       customer_acted:acted,customer_interacted:interactionObserved || discountActed,valid_response:acted,no_action_verified:noActionVerified && !discountActed,
       display_status:acted?'VALID_ACTION':interactionObserved?'INCONCLUSIVE_INTERACTION':noActionVerified?'NO_ACTION':'NOT_VERIFIABLE',
-      message:scoped?c.latest_message || null:null,response_at:interactionObserved?c.at:discountActed?d.responded_at:null,
+      message:interactionObserved?c.latest_message || null:null,response_at:interactionObserved?c.at:discountActed?d.responded_at:null,
       message_type:interactionObserved?item.latest_private_customer_message_type || item.scoped_customer_message_type || null:null,
       action_label:interactionObserved?c.title || null:discountActed?d.status==='DISCOUNT_ACCEPTED'?'Descuento aceptado':'Descuento rechazado':null,
       read_at:item.incident_conversation_read_at || null,
       template:template || item.incident_notification_template || null,notification_at:notified || null,
-      reason:initialConfirmation(c.latest_message)?'INITIAL_ORDER_CONFIRMATION_NOT_INCIDENT_RESPONSE':interactionObserved || discountActed?'EXACT_POST_NOTIFICATION_RESPONSE':noActionVerified?'NO_CUSTOMER_INPUT_AFTER_OBSERVED_NOTIFICATION':item.scoped_response_reason || 'NO_VERIFIED_INCIDENT_RESPONSE'},
+      reason:initialConfirmation(c.latest_message)?'INITIAL_ORDER_CONFIRMATION_NOT_INCIDENT_RESPONSE':observedAfterOpening?'EXACT_POST_ISSUE_ACTIVITY_NOTIFICATION_UNVERIFIED':interactionObserved || discountActed?'EXACT_POST_NOTIFICATION_RESPONSE':noActionVerified?'NO_CUSTOMER_INPUT_AFTER_OBSERVED_NOTIFICATION':item.scoped_response_reason || 'NO_VERIFIED_INCIDENT_RESPONSE'},
     discount:{status:discountStatus,sent_at:offerVerified?d.sent_at:null,responded_at:discountReplyVerified?d.responded_at:null,amount_eur:offerVerified?item.discount_amount_eur:null,
       next_step:discountAccepted && !recovered?'REDELIVERY_PENDING':null},
     timer:{deadline:deadlineValid?deadline:null,state:deadlineValid?timerLive?remaining===0?'EXPIRED':'ACTIVE':'INACTIVE':'UNAVAILABLE',remaining_seconds:remaining,
