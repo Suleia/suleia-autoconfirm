@@ -438,8 +438,12 @@ export async function syncChatbyReadOnly({
   const cycleNow = now();
   if (conversationCache instanceof Map) {
     for (const [userNs, entry] of conversationCache.entries()) {
-      if (!Number.isFinite(entry?.fetchedAt) || cycleNow - entry.fetchedAt > conversationCacheTtlMs * 4) {
+      if (!Number.isFinite(entry?.fetchedAt)) {
         conversationCache.delete(userNs);
+      } else if (cycleNow - entry.fetchedAt > conversationCacheTtlMs * 4) {
+        // Expire payloads, not fairness metadata. Forgetting the read watermark
+        // repeatedly promotes early conversations and starves the remaining ones.
+        conversationCache.set(userNs,{fetchedAt:entry.fetchedAt,messages:null});
       }
     }
   }
@@ -519,16 +523,9 @@ export async function syncChatbyReadOnly({
     const exactConversation = exactConversationByIssue.get(issue.canonical_issue_id);
     if (!exactConversation?.cacheFresh && !networkIssueIds.has(issue.canonical_issue_id)) {
       budgetExhausted++;
-      // Do not destroy a previously successful exact link because this cycle
-      // deferred a read. Its original timestamp naturally becomes STALE.
-      if (exactConversation?.cached) continue;
+      // No provider read occurred. Preserve persisted evidence even after a
+      // restart (when the in-memory cache is empty); never stamp a new read time.
       statusCounts.UNKNOWN += 1;
-      await projector.upsertChatbyConversationLink?.({
-        canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id,
-        conversation_status: 'UNKNOWN', reason_code: 'CONVERSATION_READ_BUDGET_EXHAUSTED',
-        identity_method: subscribersForIssue[0].evidence.method,
-        conversation_freshness: 'UNKNOWN', message_count: 0
-      });
       continue;
     }
     const { subscriber, evidence } = subscribersForIssue[0];

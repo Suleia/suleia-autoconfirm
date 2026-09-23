@@ -67,3 +67,16 @@ test('an unavailable budget cannot erase an earlier exact read or pretend fresh 
  const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:{...projector(),upsertChatbyConversationLink:async()=>{links++;}},token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:cache,conversationCacheTtlMs:120000,maxConversations:0,fetchImpl:()=>assert.fail('read deferred')});
  assert.equal(links,0);assert.equal(result.budget_exhausted,1);assert.equal(cache.get('safe-conversation').fetchedAt,at-400000);
 });
+
+test('cold-start deferred read never replaces persisted exact conversation evidence',async()=>{
+ let links=0;
+ const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:{...projector(),upsertChatbyConversationLink:async()=>{links++;}},token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:new Map(),maxConversations:0,fetchImpl:()=>assert.fail('read deferred')});
+ assert.equal(links,0);assert.equal(result.budget_exhausted,1);
+});
+
+test('expired message cache retains the read watermark for fair rotation',async()=>{
+ const fetchedAt=at-1000000,cache=new Map([['safe-conversation',{fetchedAt,messages:{complete:true,items:[]}}]]);
+ await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:cache,conversationCacheTtlMs:120000,maxConversations:0,fetchImpl:()=>assert.fail('read deferred')});
+ assert.equal(cache.get('safe-conversation').fetchedAt,fetchedAt);
+ assert.equal(cache.get('safe-conversation').messages,null);
+});
