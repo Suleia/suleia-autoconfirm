@@ -292,9 +292,12 @@ export function buildRecoveryOverview(items, {filters={},now=new Date(),limit=25
     denominator_definition:recoveryMetrics(base).denominator_definition},actions_executed:0,production_writes:0,customer_messages_sent:0};
 }
 
-export function recoveryMessageValidity(message) {
+export function recoveryMessageValidity(message, {createdAt, now = new Date()} = {}) {
   return initialConfirmation(message.text) || String(message.context_template_slug || '').startsWith('dropea_pedido_')
-    ? 'ORDER_LIFECYCLE_ONLY' : message.relation_to_notification || 'NOT_VERIFIABLE';
+    ? 'ORDER_LIFECYCLE_ONLY' : message.relation_to_notification === 'AFTER_NOTIFICATION' ? 'AFTER_NOTIFICATION'
+      : message.direction === 'INBOUND' && message.relation_to_issue === 'AFTER_INCIDENT'
+        && later(message.occurred_at,createdAt) && validTime(message.occurred_at,now)
+        ? 'AFTER_ISSUE_OPENING' : message.relation_to_notification || 'NOT_VERIFIABLE';
 }
 export function recoveryTimeline(item, events=[], messages=[]) {
   const order=item.canonical_order_id,issue=item.canonical_issue_id,now=item.recovery?.derived_at || new Date().toISOString();
@@ -303,7 +306,7 @@ export function recoveryTimeline(item, events=[], messages=[]) {
   if(validTime(item.created_at,now))entries.push({timeline_event_id:`incident:${issue}`,occurred_at:item.created_at,source:'DROPEA',label:'Incidencia detectada',event_type:'INCIDENT_OPENED',observed:true});
   for(const m of messages){if(!validTime(m.occurred_at,now))continue;
     entries.push({timeline_event_id:m.chatby_message_id_hash || `${m.direction}:${m.occurred_at}:${m.message_type}`,occurred_at:m.occurred_at,source:m.direction==='OUTBOUND'?'SULEIA / CHATBY':'CLIENTE',label:m.text,event_type:m.message_type,
-      template:m.context_template_slug || null,validity:recoveryMessageValidity(m),observed:true});
+      template:m.context_template_slug || null,validity:recoveryMessageValidity(m,{createdAt:item.created_at,now}),observed:true});
   }
   if(validTime(item.recovery?.delivered_at,now))entries.push({timeline_event_id:`delivered:${order}`,occurred_at:item.recovery.delivered_at,source:'DROPEA',label:'Entregado después de la incidencia',event_type:'GLS_DELIVERED',observed:true});
   if(validTime(item.recovery?.returned_at,now))entries.push({timeline_event_id:`returned:${order}`,occurred_at:item.recovery.returned_at,source:'DROPEA',label:'Pedido devuelto',event_type:'GLS_RETURNED',observed:true});

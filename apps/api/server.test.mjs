@@ -231,8 +231,8 @@ test('incident active=false is applied and never silently falls back to the acti
   const repository=new OperationsRepository(null,{pool});
   const result=await repository.listIncidents(new URLSearchParams({scope:'ALL',active:'false'}));
   assert.equal(result.total,1);assert.equal(result.items[0].canonical_issue_id,'inactive');
-  assert.match(calls[0].sql,/m\.chatby_message_id_hash=p\.scoped_customer_message_hash/);
-  assert.match(calls[0].sql,/m\.occurred_at>p\.incident_notified_at/);
+  assert.match(calls[0].sql,/m\.canonical_issue_id=p\.canonical_issue_id AND m\.canonical_order_id=p\.canonical_order_id/);
+  assert.match(calls[0].sql,/m\.occurred_at>p\.created_at AND m\.occurred_at<=now\(\)/);
   assert.doesNotMatch(calls[0].sql,/m\.intent<>'UNKNOWN'/);
 });
 test('incident overview returns table and counters from one complete canonical universe',async()=>{

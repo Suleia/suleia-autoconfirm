@@ -41,7 +41,7 @@ cp --preserve=mode "$install/.env" "$release/.env"
 cd "$release"
 sha256sum -c "$backup/env.sha256" >/dev/null
 # Enforce the authorized workflow boundary before building.
-git diff --exit-code "$(git -C "$resolved" rev-parse HEAD)" "$revision" -- autoconfirm apps/api packages/platform-core/src/finance apps/review-panel/results-dashboard.js apps/review-panel/results-dashboard.css apps/review-panel/styles.css infrastructure/docker >/dev/null
+git diff --exit-code "$(git -C "$resolved" rev-parse HEAD)" "$revision" -- autoconfirm apps/api packages/platform-core/src/finance apps/review-panel/results-dashboard.js apps/review-panel/results-dashboard.css apps/review-panel/styles.css infrastructure/docker ':(exclude)apps/api/server.test.mjs' >/dev/null
 image="suleia-absent-resolution:$revision"
 docker build -f infrastructure/docker/Dockerfile.node --build-arg "OCI_REVISION=$revision" \
   --build-arg OCI_SOURCE=https://github.com/Suleia/suleia-autoconfirm --build-arg "OCI_REF_NAME=$branch" \

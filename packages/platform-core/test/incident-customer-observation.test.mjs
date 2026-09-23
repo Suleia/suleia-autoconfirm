@@ -38,3 +38,11 @@ for(const [label,patch] of [
   assert.equal(row.recovery.evidence.message,null);
   assert.equal(row.recovery.evidence.valid_response,false);
 });
+
+test('drawer chronology distinguishes post-opening activity from old context',async()=>{
+  const {recoveryMessageValidity}=await import('../src/incident/recovery-center.mjs');
+  const message={direction:'INBOUND',text:'Respuesta sintética',relation_to_issue:'AFTER_INCIDENT',relation_to_notification:'HISTORICAL_NOT_INCIDENT_RESPONSE',occurred_at:sample.latest_private_customer_message_at};
+  assert.equal(recoveryMessageValidity(message,{createdAt:sample.created_at,now}),'AFTER_ISSUE_OPENING');
+  assert.equal(recoveryMessageValidity({...message,occurred_at:'2026-09-21T11:00:00Z'},{createdAt:sample.created_at,now}),'HISTORICAL_NOT_INCIDENT_RESPONSE');
+  assert.equal(recoveryMessageValidity({...message,context_template_slug:'dropea_pedido_nuevo_v1'},{createdAt:sample.created_at,now}),'ORDER_LIFECYCLE_ONLY');
+});

@@ -522,7 +522,7 @@ export class OperationsRepository {
     if (!detail.rows[0]) return null;
     const incident=dashboardProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
     const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey)
-      .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message)}));
+      .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message,{createdAt:incident.created_at})}));
     return {incident,customer_messages:messages,timeline:timeline.rows,feedback:feedback.rows,
       recovery_timeline:recoveryTimeline(incident,timeline.rows,messages)};
   }

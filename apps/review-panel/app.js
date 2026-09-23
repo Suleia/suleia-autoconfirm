@@ -420,7 +420,7 @@ function recoveryTimelinePanel(events) {
   const section=node('section','detail-section recovery-chronology');section.append(node('h3','','Timeline cronológica del pedido'));
   const list=node('ol','timeline');for(const event of events || []){
     const row=node('li','timeline-item');row.append(node('time','',date(event.occurred_at)),node('strong','',event.source || 'Fuente no informada'),node('span','',event.label || event.event_type));
-    if(event.validity)row.append(node('small','',event.validity==='AFTER_NOTIFICATION'?'Posterior a la notificación · verificar intención':'Histórico / no demuestra respuesta a esta incidencia'));
+    if(event.validity)row.append(node('small','',event.validity==='AFTER_NOTIFICATION'?'Posterior a la notificación · verificar intención':event.validity==='AFTER_ISSUE_OPENING'?'Cliente respondió tras la apertura · aviso pendiente de validar':'Histórico / no demuestra respuesta a esta incidencia'));
     if(String(event.event_type).includes('SIMULAT'))row.append(node('small','','Propuesta en simulación, no acción ejecutada'));list.append(row);
   }section.append(list);if(!(events || []).length)section.append(node('p','muted','N/D — faltan eventos observados'));return section;
 }
@@ -548,9 +548,10 @@ function customerMessageHistory(items = []) {
   const list = node('div', 'customer-message-list');
   for (const item of items) {
     const speaker = item.direction === 'OUTBOUND' ? 'Suleia' : 'Cliente';
-    const current = item.relation_to_notification === 'AFTER_NOTIFICATION';
+    const notified = item.relation_to_notification === 'AFTER_NOTIFICATION';
+    const current = notified || item.relation_to_notification === 'AFTER_ISSUE_OPENING';
     const card = node('article', `customer-message ${item.direction === 'OUTBOUND' ? 'operator-message' : 'customer-reply'} ${current ? 'current' : 'previous'}`);
-    card.append(node('strong', 'message-speaker', speaker), node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${current ? 'respuesta posterior a la notificación' : 'histórico / contexto · no es evidencia de respuesta a esta incidencia'} · ${translated(item.intent)}`));
+    card.append(node('strong', 'message-speaker', speaker), node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${notified ? 'respuesta posterior a la notificación' : current ? 'respuesta posterior a la apertura · aviso pendiente de validar' : 'histórico / contexto · no es evidencia de respuesta a esta incidencia'} · ${translated(item.intent)}`));
     list.append(card);
   }
   box.append(list); return box;
