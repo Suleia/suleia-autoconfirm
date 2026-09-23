@@ -44,6 +44,7 @@ import {
 import { incidentTemplateNameForType, processIncidentNotification } from './incident-notifications.mjs';
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 import { inspectPriorOrderReturn } from './incident-order-return-guard.mjs';
+import { createIncidentSyncQueue } from '../incident-sync-queue.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -2398,7 +2399,9 @@ export async function preparePendingIncidentsForAnalysis({
   }
 }
 
-export async function syncPendingIncidents({
+export const syncPendingIncidents = createIncidentSyncQueue(performPendingIncidentSync);
+
+async function performPendingIncidentSync({
   limit = 100,
   pages = 3,
   authorizedImmediateDiscounts = false,
