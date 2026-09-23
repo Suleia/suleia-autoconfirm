@@ -4,18 +4,25 @@ import {ABSENT_TEMPLATE_BUTTONS,ABSENT_TEMPLATE_NAME} from '../../../packages/pl
 // installs the contract only after capturing provider callbacks from the canary.
 // Configured destinations alone, synthetic fixtures and old v2 replies cannot
 // establish this evidence. Unknown callbacks remain unverified.
-export function verifyAbsentCallback(message, contextTemplate, contract, now=new Date(), currentNotice=null) {
+export function absentCallbackContextMatches(message,currentNotice,now=new Date()) {
   // A preceding template name alone does not bind a button to this incident.
   // Require provider reply context, exact conversation, and a verified notice.
   const replyTo=message?.context?.id || message?.payload?.context?.id || message?.reply_to_message_id;
   const conversation=message?.conversation_id || message?.user_ns;
-  const eventAt=message?.event_at || message?.created_at || (Number.isFinite(Number(message?.ts)) ? new Date(Number(message.ts)*1000).toISOString() : null);
+  const numeric=Number(message?.ts);
+  const timestamp=Number.isFinite(numeric) ? new Date(numeric>1e12?numeric:numeric*1000):null;
+  const eventAt=message?.event_at || message?.created_at || (timestamp && Number.isFinite(+timestamp)?timestamp.toISOString():null);
   if(currentNotice?.verified!==true || String(currentNotice.template_id)!=='1552419'
     || !currentNotice.message_id || !replyTo || !currentNotice.conversation_id
     || String(conversation)!==String(currentNotice.conversation_id)
     || ![currentNotice.message_id,currentNotice.provider_message_id].filter(Boolean).map(String).includes(String(replyTo))
     || !Number.isFinite(Date.parse(eventAt)) || !Number.isFinite(Date.parse(currentNotice.notification_at))
-    || Date.parse(eventAt)<=Date.parse(currentNotice.notification_at) || Date.parse(eventAt)>+new Date(now))return null;
+    || Date.parse(eventAt)<=Date.parse(currentNotice.notification_at) || Date.parse(eventAt)>+new Date(now))return false;
+  return true;
+}
+
+export function verifyAbsentCallback(message, contextTemplate, contract, now=new Date(), currentNotice=null) {
+  if(!absentCallbackContextMatches(message,currentNotice,now))return null;
   if(contextTemplate!==ABSENT_TEMPLATE_NAME || contract?.status!=='OBSERVED_REAL'
     || contract.template_name!==ABSENT_TEMPLATE_NAME || String(contract.template_id)!=='1552419'
     || !contract.evidence_id || !Number.isFinite(Date.parse(contract.observed_at))

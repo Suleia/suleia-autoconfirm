@@ -2,6 +2,7 @@ import {pathToFileURL} from 'node:url';
 import {createAbsentNativeHttpServer} from './recipient-absent-native-http.mjs';
 import {createNativeAbsentFreshReader} from './recipient-absent-native-runtime.mjs';
 import {createNativeAbsentLedger} from './recipient-absent-native-gate.mjs';
+import {createNativeAbsentObserver} from './recipient-absent-native-observer.mjs';
 import {createRecipientAbsentResolutionRuntime} from './recipient-absent-resolution-runtime.mjs';
 import {loadDropeaStoreConfigs} from './integrations/dropea/store-config.mjs';
 import {createDropeaPublicApiClient} from './integrations/dropea/public-api-client.mjs';
@@ -23,7 +24,10 @@ export async function startNativeAbsentGate(env=process.env){
     readFresh:createNativeAbsentFreshReader({pool:db.pool,resolutionRuntime:runtime}),ledger:createNativeAbsentLedger(db.pool)});
   server.requestTimeout=60000;server.headersTimeout=10000;
   await new Promise(resolve=>server.listen(Number(env.PORT || 3310),'0.0.0.0',resolve));
-  const stop=async()=>{await new Promise(resolve=>server.close(resolve));await db.close();};
+  const observer=createNativeAbsentObserver({pool:db.pool,token:env.CHATBY_TOKEN});
+  const observe=()=>observer.run().catch(()=>{});
+  const timer=setInterval(observe,120000);await observe();
+  const stop=async()=>{clearInterval(timer);await new Promise(resolve=>server.close(resolve));await db.close();};
   process.once('SIGTERM',stop);
   return {server,stop};
 }

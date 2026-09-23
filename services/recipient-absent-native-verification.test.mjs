@@ -15,6 +15,9 @@ test('v2 and duplicate v3 trip the scoped breaker',()=>{
  assert.equal(verifyNativeAbsentNotice(claim,history([msg,{...msg,message_id:'other'}]),now).reason,'DUPLICATE_V3_NOTICE');
  assert.equal(verifyNativeAbsentNotice(claim,history([{...msg,template_name:'dropea_incidencia_ausente_v2'}]),now).reason,'V2_AFTER_CUTOVER');
 });
+test('second-resolution provider timestamps retain a notice sent during the claim second',()=>{
+ assert.equal(verifyNativeAbsentNotice({...claim,claimed_at:'2026-09-23T10:01:00.500Z'},history([msg]),now).verified,true);
+});
 test('wrong conversation, incomplete history, future/failed/missing and preclaim notices cannot start timers',()=>{
  for(const h of [{...history([msg]),complete:false},{...history([msg]),conversation_id:'other'},history([]),
  history([{...msg,at:'2026-09-23T14:00:00Z'}]),history([{...msg,delivery_failed:true}]),history([{...msg,at:'2026-09-23T09:00:00Z'}])])
