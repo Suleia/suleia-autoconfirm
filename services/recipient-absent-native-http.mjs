@@ -28,7 +28,8 @@ export function createAbsentNativeHttpServer({token,readFresh,ledger,now,health=
       if(!await enabled())return respond(409,{allow:false,reason:'NATIVE_SEND_DISABLED'});
       for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>4096)return respond(413,{allow:false});}
       const request=JSON.parse(raw);
-      if(!request || !/^\d+$/.test(String(request.issue_id)) || !/^\d+$/.test(String(request.order_id))
+      const issueSupplied=request?.issue_id!==undefined && request?.issue_id!==null && request?.issue_id!=='';
+      if(!request || (issueSupplied && !/^\d+$/.test(String(request.issue_id))) || !/^\d+$/.test(String(request.order_id))
         || typeof request.user_ns!=='string' || request.user_ns.length>100)return respond(400,{allow:false});
       const result=await authorizeNativeAbsent({readFresh,ledger,request,now});
       // Native flow must match EXACT prefix 201. No custom subscriber field is

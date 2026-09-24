@@ -10,6 +10,8 @@ test('native HTTP never grants on bad auth, missing identity, lookup error or di
  assert.equal((await post({})).status,400);assert.equal(reads,0);
  const result=await post({issue_id:'1',order_id:'2',user_ns:'test'});
  assert.equal(result.status,503);assert.equal((await result.json()).allow,false);assert.equal(reads,1);
+ assert.equal((await post({order_id:'2',user_ns:'test',issue_id:''})).status,503);assert.equal(reads,2);
+ assert.equal((await post({order_id:'2',user_ns:'test',issue_id:'malformed'})).status,400);assert.equal(reads,2);
 });
 
 test('rate limit denies before provider access and health fails closed without leaking secrets',async t=>{

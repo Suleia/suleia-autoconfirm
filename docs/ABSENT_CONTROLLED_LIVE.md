@@ -55,3 +55,11 @@ Post-cutover: CANARY status reserves a single new issue. Verify one v3, zero v2,
 one +48h timer and an additional observation cycle before expanding. Only real
 observed button mappings can enter the callback contract; a subset is supported.
 The application must not manufacture callback evidence or auto-enable itself.
+
+Native identity compatibility: the observed `ISSUE-Payload` contains the exact
+order ID and incidence labels, but no issue ID; `Incidencia: Id` can be unset.
+The adapter accepts that missing field only by selecting the single active,
+pending CURRENT AUSENTE of the exact order. It then directly re-reads the provider
+issue/order and exact Chatby conversation. An explicit issue ID narrows the lookup;
+zero/multiple matches or any mismatch deny. This does not classify queue hints as
+verified delivery attempts or bypass FIRST/SECOND, cutover or prior-notice gates.
