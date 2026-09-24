@@ -1,7 +1,7 @@
 import {pathToFileURL} from 'node:url';
 import {createAbsentNativeHttpServer} from './recipient-absent-native-http.mjs';
 import {createNativeAbsentFreshReader} from './recipient-absent-native-runtime.mjs';
-import {createNativeAbsentLedger} from './recipient-absent-native-gate.mjs';
+import {createNativeAbsentLedger,nativeAbsentControlReady} from './recipient-absent-native-gate.mjs';
 import {createNativeAbsentObserver} from './recipient-absent-native-observer.mjs';
 import {createRecipientAbsentResolutionRuntime} from './recipient-absent-resolution-runtime.mjs';
 import {loadDropeaStoreConfigs} from './integrations/dropea/store-config.mjs';
@@ -15,12 +15,17 @@ export async function startNativeAbsentGate(env=process.env){
   const stores=loadDropeaStoreConfigs(env);
   if(stores.length!==1 || stores[0].market!=='ES')throw new Error('ABSENT_SINGLE_STORE_REQUIRED');
   const {ShadowRepository}=await import('../packages/suleia-operations-mcp/src/shadow/repository.mjs');
-  const {OperationsProjector}=await import('../packages/suleia-operations-mcp/src/operations/projector.mjs');
   const db=new ShadowRepository(env.ABSENT_NATIVE_DATABASE_URL);
-  const runtime=createRecipientAbsentResolutionRuntime({pool:db.pool,projector:new OperationsProjector(db.pool),
+  // Fresh reads return ephemeral evidence through onAbsentConversation. The
+  // dedicated role must not mutate shared ingestion or other workflow tables.
+  const projector={recordChatbyConversationEvent:async()=>({inserted:false})};
+  const runtime=createRecipientAbsentResolutionRuntime({pool:db.pool,projector,
     clients:stores.map(store=>({store,client:createDropeaPublicApiClient({token:store.token,market:store.market})})),
     writer:null,chatbyToken:env.CHATBY_TOKEN,privacyKey:env.MIGRATION_HASH_KEY,flags:{}});
   const server=createAbsentNativeHttpServer({token:env.ABSENT_NATIVE_GATE_TOKEN,
+    health:async()=>{await db.pool.query('SELECT 1');return true;},
+    enabled:async()=>nativeAbsentControlReady((await db.pool.query("SELECT * FROM operations.recipient_absent_native_control WHERE workflow='RECIPIENT_ABSENT'")).rows[0]),
+    audit:event=>console.log(JSON.stringify({...event,at:new Date().toISOString()})),
     readFresh:createNativeAbsentFreshReader({pool:db.pool,resolutionRuntime:runtime}),ledger:createNativeAbsentLedger(db.pool)});
   server.requestTimeout=60000;server.headersTimeout=10000;
   await new Promise(resolve=>server.listen(Number(env.PORT || 3310),'0.0.0.0',resolve));
