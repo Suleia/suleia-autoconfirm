@@ -12,7 +12,13 @@ try{
  const {ShadowRepository}=await import('./packages/suleia-operations-mcp/src/shadow/repository.mjs');
  const {absentOrdersPollAlert}=await import('./infrastructure/scripts/absent-orders-alert.mjs');
  const db=new ShadowRepository(process.env.OPERATIONS_DATABASE_URL);
- try{const rows=(await db.pool.query('SELECT connector,last_success_at,last_failure_at,pagination_complete FROM read_models.operations_connector_health')).rows;
+ try{const rows=(await db.pool.query(`SELECT DISTINCT ON (d.market,d.store_id)
+   'DROPEA_PUBLIC_API_'||d.market||':orders' AS connector,d.phase,
+   coalesce(d.last_successful_sync_at,h.last_success_at) AS last_success_at,
+   h.last_failure_at,d.sync_complete AS pagination_complete
+   FROM read_models.operations_data_freshness d
+   LEFT JOIN read_models.operations_connector_health h ON h.connector='DROPEA_PUBLIC_API_'||d.market
+   WHERE d.resource_type='orders' ORDER BY d.market,d.store_id,d.measured_at DESC`)).rows;
    const alert=absentOrdersPollAlert(rows);components.push({service:'dropea-orders-poll',checked_at:new Date().toISOString(),...alert});
  }finally{await db.close();}
 }catch{components.push({service:'dropea-orders-poll',checked_at:new Date().toISOString(),health_status:'UNHEALTHY',reason:'ORDERS_POLL_HEALTH_UNAVAILABLE'});}
