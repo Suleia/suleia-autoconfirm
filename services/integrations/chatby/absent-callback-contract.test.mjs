@@ -18,6 +18,16 @@ test('only the exact ID in an observed contract becomes verified',()=>{
 test('configured, absent and future contracts cannot verify callbacks',()=>{
  for(const c of [null,{...fixture(),status:'CONFIGURED'},{...fixture(),observed_at:'2026-09-23T10:00:00Z'}])assert.equal(verifyAbsentCallback(callback(),ABSENT_TEMPLATE_NAME,c,now,notice),null);
 });
+
+test('observed buttons activate independently; absent mappings remain unverified',()=>{
+ const c=fixture();c.buttons=[c.buttons[1]];
+ const pm={...callback('f1n101'),interactive:{button_reply:{id:'f1n101',title:'Mañana por la tarde'}}};
+ assert.equal(verifyAbsentCallback(pm,ABSENT_TEMPLATE_NAME,c,now,notice)?.canonical_payload,'ABSENT_TOMORROW_AFTERNOON');
+ assert.equal(verifyAbsentCallback(callback(),ABSENT_TEMPLATE_NAME,c,now,notice),null);
+ assert.equal(verifyAbsentCallback(pm,ABSENT_TEMPLATE_NAME,{...c,buttons:[]},now,notice),null);
+ const duplicate={...c,buttons:[c.buttons[0],{...c.buttons[0],provider_id:'f1n999'}]};
+ assert.equal(verifyAbsentCallback(pm,ABSENT_TEMPLATE_NAME,duplicate,now,notice),null);
+});
 test('v2 context and duplicate provider IDs are forbidden',()=>{
  assert.equal(verifyAbsentCallback(callback(),'dropea_incidencia_ausente_v2',fixture(),now,notice),null);
  const c=fixture();c.buttons[1].provider_id=c.buttons[0].provider_id;

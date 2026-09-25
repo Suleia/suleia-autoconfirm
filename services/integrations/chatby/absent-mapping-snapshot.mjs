@@ -29,3 +29,27 @@ export function compareAbsentGraphSnapshots(before,after,authorizedNodeKeys){
   const unrelated=changes.filter(k=>!allowed.has(k));
   return {pass:unrelated.length===0,changes,unrelated,before_hash:hash([...a].sort()),after_hash:hash([...b].sort())};
 }
+
+// Chatby does not expose an official complete graph export. This alternative
+// records the narrower evidence actually available; it never labels it one.
+export function verifyAbsentReproducibleRestore({before,after,authorizedNodeKeys,restore}){
+  const hex=value=>typeof value==='string' && /^[a-f0-9]{64}$/.test(value);
+  const valid=s=>s?.mode==='REPRODUCIBLE_RESTORE' && s.bot==='f295175'
+    && hex(s.api_snapshot_hash) && hex(s.screenshot_hash)
+    && Array.isArray(s.templates) && s.templates.length===23
+    && Array.isArray(s.subflows) && s.subflows.length>0
+    && Array.isArray(s.nodes) && s.nodes.length>0
+    && hex(s.unrelated_visible_configuration_hash);
+  if(!valid(before)||!valid(after))return {pass:false,reason:'RESTORE_EVIDENCE_INCOMPLETE'};
+  if(!restore?.procedure || !restore.previous_template || !restore.previous_destinations
+    || restore.draft_restore_verified!==true || !hex(restore.verification_hash))
+    return {pass:false,reason:'RESTORE_NOT_VERIFIED'};
+  const stable=items=>[...items].sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  if(hash(stable(before.templates))!==hash(stable(after.templates))
+    || hash(stable(before.subflows))!==hash(stable(after.subflows))
+    || before.unrelated_visible_configuration_hash!==after.unrelated_visible_configuration_hash)
+    return {pass:false,reason:'UNRELATED_CONFIGURATION_CHANGED'};
+  const adapt=s=>({complete:true,nodes:s.nodes,relevant_workflows:[...new Set(s.nodes.map(n=>n.workflow))]});
+  const comparison=compareAbsentGraphSnapshots(adapt(before),adapt(after),authorizedNodeKeys);
+  return {...comparison,mode:'REPRODUCIBLE_RESTORE',official_full_graph_export:false};
+}

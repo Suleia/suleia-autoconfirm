@@ -26,14 +26,17 @@ export function verifyAbsentCallback(message, contextTemplate, contract, now=new
   if(contextTemplate!==ABSENT_TEMPLATE_NAME || contract?.status!=='OBSERVED_REAL'
     || contract.template_name!==ABSENT_TEMPLATE_NAME || String(contract.template_id)!=='1552419'
     || !contract.evidence_id || !Number.isFinite(Date.parse(contract.observed_at))
-    || Date.parse(contract.observed_at)>+new Date(now) || contract.buttons?.length!==3)return null;
-  const ids=new Set();
-  for(const [index,entry] of contract.buttons.entries()){
-    if(!entry || entry.canonical_payload!==ABSENT_TEMPLATE_BUTTONS[index].payload
-      || entry.text!==ABSENT_TEMPLATE_BUTTONS[index].text || !entry.observed_message_id
+    || Date.parse(contract.observed_at)>+new Date(now) || !Array.isArray(contract.buttons)
+    || contract.buttons.length<1 || contract.buttons.length>3)return null;
+  const ids=new Set(),payloads=new Set();
+  for(const entry of contract.buttons){
+    const expected=ABSENT_TEMPLATE_BUTTONS.find(button=>button.payload===entry?.canonical_payload);
+    if(!expected || payloads.has(entry.canonical_payload)
+      || entry.text!==expected.text || !entry.observed_message_id
       || !entry.observed_notification_message_id || !/^f\d+n\d+$/.test(entry.provider_id || '')
       || ids.has(entry.provider_id))return null;
     ids.add(entry.provider_id);
+    payloads.add(entry.canonical_payload);
   }
   const candidates=[message?.interactive?.button_reply?.id,message?.payload?.button_reply?.id,
     message?.button_payload,message?.postback?.payload,message?.payload?.payload];
