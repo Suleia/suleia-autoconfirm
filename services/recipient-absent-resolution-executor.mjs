@@ -43,17 +43,20 @@ export async function executeRecipientAbsentResolution({issueId,readFresh,readPr
     let response;
     try {response=await writer.provideSolution({issueId:latest.issue.dropea_issue_id,resolution,idempotencyKey:resolution.idempotency_key});}
     catch {response={confirmed:false,reason:'PROVIDER_RESULT_UNVERIFIED'};}
-    let verified=false;
-    if(response.confirmed && response.order_id===String(latest.issue.dropea_order_id)){
-      try {
+    let verified=false,reconciliation=null;
+    // Even after timeout, reconcile with GET before stopping. The provider does
+    // not echo resolution_note, so an unacknowledged POST cannot be attributed
+    // to this exact instruction merely because the issue is now resolved.
+    try {
         const after=await readProviderIssue(latest.issue);
-        verified=String(after?.id)===String(latest.issue.dropea_issue_id) && String(after?.order_id)===String(latest.issue.dropea_order_id)
+        const exact=String(after?.id)===String(latest.issue.dropea_issue_id) && String(after?.order_id)===String(latest.issue.dropea_order_id);
+        reconciliation={exact_identity:exact,status:exact?after.status:null,resolution_status:exact?after.resolution_status:null};
+        verified=response.confirmed===true && response.order_id===String(latest.issue.dropea_order_id) && exact
           && after.status==='RESOLVED' && after.resolution_status==='SOLUTION_PROVIDED'
           && Date.parse(after.resolution_changed_at)===Date.parse(response.resolution_changed_at);
-      } catch { /* durable claim remains; never automatically repeat */ }
-    }
+    } catch { /* durable claim remains; never automatically repeat */ }
     const outcome={status:verified?'APPLIED':'UNVERIFIED',reason:verified?null:'PROVIDER_RESULT_UNVERIFIED',
-      executed_at:new Date(now()).toISOString(),provider_response:{confirmed:response.confirmed===true,http_status:response.http_status || null,
+      executed_at:new Date(now()).toISOString(),reconciliation,provider_response:{confirmed:response.confirmed===true,http_status:response.http_status || null,
         issue_id:response.issue_id || null,status:response.status || null,resolution_status:response.resolution_status || null,
         resolution_changed_at:response.resolution_changed_at || null}};
     if(!verified){try{await store.trip?.('PROVIDER_RESULT_UNVERIFIED');}catch{/* durable claim and runtime latch remain */}}

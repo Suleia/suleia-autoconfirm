@@ -5,6 +5,7 @@ import {loadDropeaStoreConfigs} from './integrations/dropea/store-config.mjs';
 import {createDropeaPublicApiClient} from './integrations/dropea/public-api-client.mjs';
 import {createDropeaAbsentSolutionWriter} from './integrations/dropea/absent-solution.mjs';
 import {createRecipientAbsentResolutionRuntime} from './recipient-absent-resolution-runtime.mjs';
+import {createAbsentEvidenceProjector} from './recipient-absent-projector.mjs';
 
 export async function startRecipientAbsentResolutionWorker(env=process.env){
   const flags=absentLiveFlags(env);
@@ -15,9 +16,8 @@ export async function startRecipientAbsentResolutionWorker(env=process.env){
   if(stores.length!==1 || stores[0].market!=='ES')throw new Error('ABSENT_SINGLE_STORE_REQUIRED');
   const writer=createDropeaAbsentSolutionWriter({token:env.AUSENTE_DROPEA_WRITE_TOKEN,market:'ES'});
   const {ShadowRepository}=await import('../packages/suleia-operations-mcp/src/shadow/repository.mjs');
-  const {OperationsProjector}=await import('../packages/suleia-operations-mcp/src/operations/projector.mjs');
   const db=new ShadowRepository(env.ABSENT_RESOLUTION_DATABASE_URL);
-  const runtime=createRecipientAbsentResolutionRuntime({pool:db.pool,projector:new OperationsProjector(db.pool),
+  const runtime=createRecipientAbsentResolutionRuntime({pool:db.pool,projector:createAbsentEvidenceProjector(),
     clients:stores.map(store=>({store,client:createDropeaPublicApiClient({token:store.token,market:store.market})})),
     writer,chatbyToken:env.CHATBY_TOKEN,privacyKey:env.MIGRATION_HASH_KEY,flags});
   let running=false;

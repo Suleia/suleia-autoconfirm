@@ -31,7 +31,7 @@ export function createNativeAbsentObserver({pool,token,fetchImpl=fetch,now=()=>n
       const rows=await pool.query(`SELECT claim_id FROM operations.recipient_absent_native_notifications
         WHERE status IN ('CLAIMED','SENT','VERIFIED') AND claimed_at>now()-interval '72 hours'
         ORDER BY (outcome->>'last_observed_at')::timestamptz NULLS FIRST,claimed_at LIMIT 5`);
-      let observed=0;
+      let observed=0,failed=false;
       for(const row of rows.rows){
         try{
           await reconcileNativeAbsentNotice({pool,claimId:row.claim_id,now,readHistory:async claim=>{
@@ -41,10 +41,10 @@ export function createNativeAbsentObserver({pool,token,fetchImpl=fetch,now=()=>n
         }catch(error){
           // Respect provider cooldown globally for this observer. No immediate
           // retries, even if several other claims are waiting.
-          cooldownUntil=Math.max(+new Date(now())+120000,error.retryNotBefore || 0);break;
+          failed=true;cooldownUntil=Math.max(+new Date(now())+120000,error.retryNotBefore || 0);break;
         }
       }
-      return {observed};
+      return {observed,...(failed?{failed:true}:{})};
     }finally{running=false;}
   }};
 }

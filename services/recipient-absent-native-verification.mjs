@@ -51,7 +51,9 @@ export async function reconcileNativeAbsentNotice({pool,claimId,readHistory,now=
     }
     await client.query(`UPDATE operations.recipient_absent_native_notifications
       SET outcome=coalesce(outcome,'{}'::jsonb)||$2::jsonb WHERE claim_id=$1`,
-      [claimId,JSON.stringify({last_observed_at:new Date(now()).toISOString(),...(callbacks.samples.length?{observed_callbacks:callbacks.samples}:{})})]);
+      [claimId,JSON.stringify({last_observed_at:new Date(now()).toISOString(),
+        ...(result.verified?{verified_observation_cycles:Number(current.outcome?.verified_observation_cycles || 0)+1}:{}),
+        ...(callbacks.samples.length?{observed_callbacks:callbacks.samples}:{})})]);
     await client.query('COMMIT');return result;
   }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }

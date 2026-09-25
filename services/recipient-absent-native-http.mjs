@@ -12,10 +12,10 @@ export function createAbsentNativeHttpServer({token,readFresh,ledger,now,health=
     res.setHeader('Cache-Control','no-store');res.setHeader('Content-Type','application/json');
     const respond=(code,data)=>{if(!res.writableEnded){
       // Never log request bodies, credentials, conversation IDs or provider errors.
-      try{audit({event:'absent_native_http',status:code});}catch{}
+      try{audit({event:'absent_native_http',status:code,...(typeof data.reason==='string' && /^[A-Z_]+$/.test(data.reason)?{reason:data.reason}:{})});}catch{}
       res.writeHead(code);res.end(JSON.stringify(data));}};
     if(req.url==='/health' && req.method==='GET'){
-      try{const ok=await health();return respond(ok?200:503,{ok:Boolean(ok),service:'recipient-absent-native-gate'});}
+      try{const result=await health(),ok=typeof result==='object'?result?.ok===true:Boolean(result);return respond(ok?200:503,{...(typeof result==='object'?result:{}),ok,service:'recipient-absent-native-gate'});}
       catch{return respond(503,{ok:false,service:'recipient-absent-native-gate'});}
     }
     if(req.url!=='/absent/native/authorize' || req.method!=='POST')return respond(404,{allow:false});
@@ -35,7 +35,7 @@ export function createAbsentNativeHttpServer({token,readFresh,ledger,now,health=
       // Native flow must match EXACT prefix 201. No custom subscriber field is
       // used: a stale allow=true field cannot leak across concurrent triggers.
       return respond(result.allow?201:409,result);
-    }catch{return respond(503,{allow:false,reason:'AUTHORIZATION_NOT_VERIFIED'});}
+    }catch(error){const known=['EXACT_ISSUE_REQUIRED','EXACT_CONVERSATION_REQUIRED','EXACT_CURRENT_CHATBY_REQUIRED','EXACT_ORDER_IDENTITY_REQUIRED'];return respond(503,{allow:false,reason:known.includes(error.message)?error.message:'AUTHORIZATION_NOT_VERIFIED'});}
     finally{inflight=false;}
   });
 }

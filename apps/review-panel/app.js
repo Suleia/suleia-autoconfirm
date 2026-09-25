@@ -559,6 +559,17 @@ function customerMessageHistory(items = []) {
 function absentShadowCard(item, expanded = false) {
   const s = item.absent_shadow;
   const card = node('div', 'absent-shadow-card');
+  const native=item.absent_native_notice;
+  if(native?.status==='VERIFIED'){
+    card.append(node('small','absent-shadow-label','NOTIFICACIÓN AUSENTE · ENVIADA'),section('Notificación verificada',[
+      ['Plantilla',native.template_name],['Notificación',date(native.notification_at)],
+      ['Timer',native.timer_due_at?(new Date(native.timer_due_at)>new Date()?'Activo':'Plazo cumplido'):'Pendiente de verificar'],
+      ['Fecha límite',date(native.timer_due_at)],
+      ['Respuesta',item.latest_customer_message || 'Esperando cliente'],
+      ['Validación',item.latest_customer_message?'Respuesta recibida · validar evidencia e interpretación':'Sin respuesta observada']
+    ]));
+    if(!item.absent_resolution && !s?.resolution)return card;
+  }
   if (!s && !item.absent_resolution) return card;
   const resolution=item.absent_resolution || s?.resolution;
   if(resolution){

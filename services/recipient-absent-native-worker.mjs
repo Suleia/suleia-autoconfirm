@@ -6,6 +6,8 @@ import {createNativeAbsentObserver} from './recipient-absent-native-observer.mjs
 import {createRecipientAbsentResolutionRuntime} from './recipient-absent-resolution-runtime.mjs';
 import {loadDropeaStoreConfigs} from './integrations/dropea/store-config.mjs';
 import {createDropeaPublicApiClient} from './integrations/dropea/public-api-client.mjs';
+import {createAbsentEvidenceProjector} from './recipient-absent-projector.mjs';
+import {createAbsentObserverHealth,readAbsentControllerHealth} from './recipient-absent-health.mjs';
 
 // Dedicated native authorization process. It owns no template-send API and no
 // Dropea write credential. DISABLED database controls are the startup default.
@@ -18,19 +20,20 @@ export async function startNativeAbsentGate(env=process.env){
   const db=new ShadowRepository(env.ABSENT_NATIVE_DATABASE_URL);
   // Fresh reads return ephemeral evidence through onAbsentConversation. The
   // dedicated role must not mutate shared ingestion or other workflow tables.
-  const projector={recordChatbyConversationEvent:async()=>({inserted:false})};
+  const projector=createAbsentEvidenceProjector();
+  const observerHealth=createAbsentObserverHealth();
   const runtime=createRecipientAbsentResolutionRuntime({pool:db.pool,projector,
     clients:stores.map(store=>({store,client:createDropeaPublicApiClient({token:store.token,market:store.market})})),
     writer:null,chatbyToken:env.CHATBY_TOKEN,privacyKey:env.MIGRATION_HASH_KEY,flags:{}});
   const server=createAbsentNativeHttpServer({token:env.ABSENT_NATIVE_GATE_TOKEN,
-    health:async()=>{await db.pool.query('SELECT 1');return true;},
+    health:async()=>readAbsentControllerHealth(db.pool,observerHealth),
     enabled:async()=>nativeAbsentControlReady((await db.pool.query("SELECT * FROM operations.recipient_absent_native_control WHERE workflow='RECIPIENT_ABSENT'")).rows[0]),
     audit:event=>console.log(JSON.stringify({...event,at:new Date().toISOString()})),
     readFresh:createNativeAbsentFreshReader({pool:db.pool,resolutionRuntime:runtime}),ledger:createNativeAbsentLedger(db.pool)});
   server.requestTimeout=60000;server.headersTimeout=10000;
   await new Promise(resolve=>server.listen(Number(env.PORT || 3310),'0.0.0.0',resolve));
   const observer=createNativeAbsentObserver({pool:db.pool,token:env.CHATBY_TOKEN});
-  const observe=()=>observer.run().catch(()=>{});
+  const observe=async()=>{observerHealth.start();try{observerHealth.finish(await observer.run());}catch{observerHealth.fail();}};
   const timer=setInterval(observe,120000);await observe();
   const stop=async()=>{clearInterval(timer);await new Promise(resolve=>server.close(resolve));await db.close();};
   process.once('SIGTERM',stop);

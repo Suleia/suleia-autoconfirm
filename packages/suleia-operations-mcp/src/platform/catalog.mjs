@@ -37,6 +37,7 @@ const SERVICE_MANIFEST = Object.freeze([
   ['VPS', 'mcp-server', 'suleia-node:22.22.0', ['postgres', 'keycloak']],
   ['VPS', 'decision-engine', 'suleia-node:22.22.0', ['postgres']],
   ['VPS', 'ingestion-worker', 'suleia-node:22.22.0', ['postgres', 'Dropea V2', 'Chatby']],
+  ['VPS', 'recipient-absent-live-controller', 'suleia-absent-resolution', ['postgres', 'Dropea V2', 'Chatby']],
   ['VPS', 'timer-engine', 'not-deployed', ['postgres']],
   ['VPS', 'scheduler', 'suleia-node:22.22.0', ['postgres']],
   ['VPS', 'review-panel', 'nginx:1.29-alpine', ['api']],
@@ -462,6 +463,7 @@ export function createPlatformKnowledge({ repository, config }) {
           && Number.isFinite(healthAge) && healthAge >= 0 && healthAge <= 300_000;
         return {
           ...declared,
+          container:live.name || declared.container,
           version: live.version || null,
           image: live.image || declared.image,
           commit: live.container_revision || live.image_revision || null,
@@ -469,6 +471,12 @@ export function createPlatformKnowledge({ repository, config }) {
             runtime_collector_commit:snapshot?.collector_commit || null,
           image_commit:live.image_revision || null,container_commit:live.container_revision || null,
           image_id:live.image_id || null,
+          digest:live.digest || live.image_id || null,
+          restart_count:live.restart_count ?? null,
+          observer:live.functional_health?.evidence?.observer || null,
+          canary:live.functional_health?.evidence?.notification || null,
+          resolution:live.functional_health?.evidence?.resolution || null,
+          counts:live.functional_health?.evidence?.counts || null,
           status: live.status || declared.declared_status,
           health: functionalCurrent ? functionalHealth?.health_status || 'UNKNOWN'
             : functionalHealth ? 'UNKNOWN' : live.health || 'UNKNOWN',
@@ -507,6 +515,7 @@ export function createPlatformKnowledge({ repository, config }) {
         postgres: database,
         snapshot_generated_at: snapshot?.generated_at || null,
         collector_status: snapshot ? 'AVAILABLE' : 'FALLBACK_PROCESS_ONLY'
+        ,alerts:(snapshot?.functional_health?.components || []).filter(c=>c.service==='dropea-orders-poll' && c.health_status!=='HEALTHY')
       };
     },
 
