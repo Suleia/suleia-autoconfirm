@@ -63,3 +63,26 @@ pending CURRENT AUSENTE of the exact order. It then directly re-reads the provid
 issue/order and exact Chatby conversation. An explicit issue ID narrows the lookup;
 zero/multiple matches or any mismatch deny. This does not classify queue hints as
 verified delivery attempts or bypass FIRST/SECOND, cutover or prior-notice gates.
+
+## Canary closure observability
+
+The existing 120-second observer exposes last completion, lag and failures through
+the DB-backed health endpoint. The existing runtime collector includes the dedicated
+container by exact name (not its stopped backups), its immutable image ID, revision,
+restart count, both independent breakers and durable counts. A resolution breaker
+does not disable native notification; it denies the resolution executor before POST.
+The existing collector also reports an orders-poll alert after more than 20 minutes
+without a successful current poll. Business-event age is not the alert criterion.
+No additional scheduler is installed and ingestion environment is preserved.
+
+The resolution worker uses the same ephemeral AUSENTE evidence projector as the
+controller, not the shared ingestion writer. A POST timeout is followed by a direct
+GET, never another POST. Dropea does not echo the instruction text, so an uncertain
+POST plus a resolved issue is retained for reconciliation with the resolution breaker
+open; it is not falsely attributed to our instruction. Writer credentials remain
+exclusive to the separate writer after real notification/timer/callback gates.
+
+Each successful notice observation records a durable cycle counter. Require the
+initial verification plus at least two later 120-second cycles before expansion.
+The private panel projects verified native notices and their exact-message timers
+independently of shadow proposals; no callback is labelled verified by that fact alone.

@@ -45,3 +45,9 @@ test('resolution result and ambiguity are visible without logs; phone remains ma
  const ambiguous=context.ui.absentShadowCard({absent_resolution:{...ready,title:'Revisión humana',detail:'Fecha de entrega no inequívoca.',next_action:'Revisar preferencia del cliente',interpretation:'Ambigua'}});
  assert.match(content(ambiguous),/Fecha de entrega no inequívoca/);
 });
+
+test('verified native notification renders actual sending and timer without a shadow claim',async()=>{
+ const {context}=await fixture();const card=context.ui.absentShadowCard({absent_native_notice:{status:'VERIFIED',template_name:'dropea_ausente_v3',notification_at:'2026-09-25T12:00:00Z',timer_due_at:'2099-01-01T12:00:00Z',message_id:'internal-debug-only'}});
+ assert.match(content(card),/NOTIFICACIÓN AUSENTE · ENVIADA/);assert.match(content(card),/dropea_ausente_v3/);assert.match(content(card),/Activo/);assert.match(content(card),/Esperando cliente/);
+ assert.doesNotMatch(content(card),/SIMULACIÓN|SHADOW|internal-debug-only/);
+});

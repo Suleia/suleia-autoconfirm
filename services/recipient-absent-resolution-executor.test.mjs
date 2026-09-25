@@ -39,3 +39,11 @@ test('uncertain provider outcome trips only the absent resolution circuit',async
  x.args.readProviderIssue=async()=>({status:'PENDING'});assert.equal((await executeRecipientAbsentResolution(x.args)).status,'UNVERIFIED');assert.equal(tripped,'PROVIDER_RESULT_UNVERIFIED');
  assert.equal((await executeRecipientAbsentResolution({...x.args,issueId:'different'})).writes,0);assert.equal(x.sent.length,1);
 });
+
+test('timeout reconciles with a direct GET but cannot claim the unreturned instruction or retry POST',async()=>{
+ const x=setup();let gets=0;x.args.readProviderIssue=async()=>{gets++;return {id:123,order_id:321,status:'RESOLVED',resolution_status:'SOLUTION_PROVIDED',resolution_changed_at:now};};
+ x.args.writer.provideSolution=async()=>{x.sent.push('attempt');throw Error('timeout');};
+ assert.equal((await executeRecipientAbsentResolution(x.args)).status,'UNVERIFIED');assert.equal(gets,1);
+ assert.equal(x.ledger.record.reconciliation.exact_identity,true);
+ await executeRecipientAbsentResolution(x.args);assert.equal(x.sent.length,1);assert.equal(gets,1);
+});
