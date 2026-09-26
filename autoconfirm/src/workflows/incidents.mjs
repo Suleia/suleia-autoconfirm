@@ -1,5 +1,5 @@
 import {executeObservedAddress} from './address-observed-executor.mjs';
-import {addressResponseDecision,addressStageAllowed,ADDRESS_POLICY} from './address-response-policy.mjs';
+import {addressResponseDecision,addressStageAllowed,ADDRESS_POLICY,ADDRESS_STAGES} from './address-response-policy.mjs';
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
@@ -2763,6 +2763,7 @@ async function performPendingIncidentSync({
       return {
         incident,
         order,
+        issue,
         messages: Array.isArray(chatby.messagesForNotification) ? chatby.messagesForNotification : [],
         operationalDecision
       };
@@ -3037,7 +3038,7 @@ async function performPendingIncidentSync({
 
 async function processObservedAddress(item,previous=null){
  try {
-  const decision=addressResponseDecision({incident:item.incident,messages:item.messages,order:item.order,previous});
+  const decision=addressResponseDecision({incident:item.incident,messages:item.messages,order:item.order,issue:item.issue,previous});
   let execution={status:'SHADOW',verified:false};
   if(decision.eligible && addressStageAllowed(decision.action,item.incident)){
     if(decision.action==='OFFER_5_EURO_DISCOUNT')execution=await processIncidentDiscountRecovery({incident:item.incident,order:item.order,messages:item.messages,realEnabled:true});
@@ -3049,7 +3050,7 @@ async function processObservedAddress(item,previous=null){
     ? [{decision_id:previous.decision_id,input_snapshot_hash:previous.input_snapshot_hash,state:previous.state,action:previous.action,read_at:previous.read_at,decision_status:'SUPERSEDED'}]:[];
   return {...decision,execution,last_execution:execution.status!=='SHADOW'?execution:previous?.last_execution||null,
     last_required_field_request_at:execution.last_required_field_request_at||previous?.last_required_field_request_at||null,
-    history:[...history,...superseded].slice(-100),stages:Object.fromEntries(['SOLUTION','OFFER','RETURN','DETAILS'].map(s=>[s,process.env['ADDRESS_'+s+'_MODE']||'SHADOW']))};
+    history:[...history,...superseded].slice(-100),stages:Object.fromEntries(ADDRESS_STAGES.map(s=>[s,process.env.ADDRESS_AUTOMATION_ENABLED==='true'?(process.env['ADDRESS_'+s+'_MODE']||'SHADOW'):'SHADOW']))};
  } catch {
    // Address failures must not interrupt synchronization of other workflows.
    return {...previous,state:'EVIDENCE_UNVERIFIED',eligible:false,action:'HUMAN_REVIEW',execution:{status:'ADDRESS_CYCLE_FAILED',verified:false},read_at:new Date().toISOString()};
