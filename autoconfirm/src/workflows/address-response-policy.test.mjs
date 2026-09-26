@@ -44,6 +44,7 @@ test('exact correlation, unknown timestamps, contradictory ties and canary limit
 test('discount acceptance stays manual; refusing discount does not reject the order',()=>{
  const offer={type:'out',mid:'wamid.offer',ts:(t+24*3600000)/1000,text:'es_es_dropea_incidencia_descuento_5_v1'};
  assert.equal(d([offer,reply('Quiero el descuento',25),reply('Calle Mayor 25, 48012 Bilbao',26)],27).state,'MANUAL_DISCOUNT_RECOVERY');
+ assert.equal(d([offer,reply('Quiero el descuento',25)],27).state,'MANUAL_DISCOUNT_RECOVERY');
  assert.equal(d([offer,reply('No quiero descuento pero mi dirección es Calle Mayor 25, 48012 Bilbao',26)],27).action,'PROVIDE_ADDRESS_SOLUTION');
 });
 test('never invent city/CP or accept two conflicting addresses',()=>{

@@ -60,7 +60,8 @@ export function addressResponseDecision({incident,messages=[],order=null,now=Dat
  if(replies.some((m,i)=>i&&messageTimestamp(m)===messageTimestamp(replies[i-1])&&addressMessageText(m)!==addressMessageText(replies[i-1])))return done({state:'AMBIGUOUS_MESSAGE_ORDER',action:'HUMAN_REVIEW'});
  let parsed=null;
  const neutral=t=>/^(?:hola[!,. ]*|gracias[!,. ]*|buenos dias[!,. ]*|buenas tardes[!,. ]*|ahora te digo[!,. ]*|[\p{Emoji_Presentation}\s]+)$/u.test(norm(t));
- const offer=findVerifiedTemplateDelivery(messages,'es_es_dropea_incidencia_descuento_5_v1');
+ const offer=findVerifiedTemplateDelivery(valid.filter(m=>messageTimestamp(m)>=messageTimestamp(notice)),'es_es_dropea_incidencia_descuento_5_v1');
+ base.discount_offered_at=offer?.sentAt||null;
  let discountAccepted=false;
  for(const m of replies){
    const t=addressMessageText(m);
@@ -77,8 +78,8 @@ export function addressResponseDecision({incident,messages=[],order=null,now=Dat
  if(parsed){
    base.intent=parsed.kind;base.address=parsed;base.missing_fields=parsed.missing_fields;
    base.initial_milestones='SUPERSEDED_BY_CUSTOMER_RESPONSE';
+   if(discountAccepted&&!['RETURN_REQUEST','AGENCY_REQUEST'].includes(parsed.kind))return done({state:'MANUAL_DISCOUNT_RECOVERY',action:'MANUAL_DISCOUNT_RECOVERY',eligible:false});
    if(parsed.kind==='VALID_ADDRESS'){
-     if(discountAccepted)return done({state:'MANUAL_DISCOUNT_RECOVERY',action:'MANUAL_DISCOUNT_RECOVERY',eligible:false});
      if(String(order?.orderId)!==base.canonical_order_id)return done({state:'PHONE_SOURCE_UNVERIFIED',action:'HUMAN_REVIEW'});
      const phone=String(order.customerPhone||'').replace(/\D/g,'');
      if(!/^(?:34)?[67]\d{8}$/.test(phone))return done({state:'PHONE_SOURCE_UNVERIFIED',action:'HUMAN_REVIEW'});
