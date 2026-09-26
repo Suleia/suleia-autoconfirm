@@ -103,7 +103,7 @@ export function createDropeaV2IssueActionClient({
   if (!host) fail('DROPEA_ISSUE_ACTION_MARKET_NOT_APPROVED');
   assertIssueActionToken(token);
 
-  async function returnToOrigin(issueId) {
+  async function resolve(issueId, resolution='RETURN_REQUESTED', note=null) {
     const id = Number(issueId);
     if (!Number.isInteger(id) || id < 1) fail('DROPEA_V2_ISSUE_ACTION_ID_INVALID');
     const controller = new AbortController();
@@ -123,7 +123,7 @@ export function createDropeaV2IssueActionClient({
           // concurrent or duplicate returns for the same issue.
           'Idempotency-Key': returnIdempotencyKey(id, idempotencyNonceFactory())
         },
-        body: JSON.stringify({ status: 'RESOLVED', resolution_status: 'RETURN_REQUESTED' }),
+        body: JSON.stringify({ status: 'RESOLVED', resolution_status: resolution,...(note?{resolution_note:note}:{}) }),
         redirect: 'error',
         signal: controller.signal
       });
@@ -137,14 +137,17 @@ export function createDropeaV2IssueActionClient({
     if (
       payload?.success !== true
       || String(payload?.data?.status || '').toUpperCase() !== 'RESOLVED'
-      || String(payload?.data?.resolution_status || '').toUpperCase() !== 'RETURN_REQUESTED'
+      || String(payload?.data?.resolution_status || '').toUpperCase() !== resolution
     ) {
       fail('DROPEA_V2_ISSUE_ACTION_RESPONSE_SCHEMA_INVALID');
     }
     return payload.data;
   }
 
-  return Object.freeze({ market: normalizedMarket, returnToOrigin });
+  return Object.freeze({market:normalizedMarket,returnToOrigin:issueId=>resolve(issueId),provideSolution:(issueId,note)=>{
+    if(typeof note!=='string'||!note.trim()||note.length>500)fail('DROPEA_SOLUTION_NOTE_INVALID');
+    return resolve(issueId,'SOLUTION_PROVIDED',note);
+  }});
 }
 
 function issueActionClient({
@@ -176,3 +179,5 @@ export function getDropeaV2IssueActionReadiness(env = process.env) {
     };
   }
 }
+
+export async function provideDropeaV2AddressSolution(issueId,note,options={}){return issueActionClient(options).provideSolution(issueId,note);}

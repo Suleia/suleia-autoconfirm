@@ -1,3 +1,5 @@
+import {executeObservedAddress} from './address-observed-executor.mjs';
+import {addressResponseDecision,addressStageAllowed,ADDRESS_POLICY} from './address-response-policy.mjs';
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { readJson, writeJson } from '../lib/files.mjs';
@@ -1200,9 +1202,12 @@ export function incidentDiscountNoResponseReturnDecision({ incident, discountRec
 }
 
 export async function executeIncidentDiscountNoResponseReturn(incident, discountRecovery, dependencies = {}) {
-  if (process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return {status:'BLOCKED_MASTER',verified:false};
-  if (process.env.RECIPIENT_REJECTED_RETURN_BREAKER === 'OPEN') return {status:'BLOCKED_RETURN_BREAKER',verified:false};
-  const decision = incidentDiscountNoResponseReturnDecision({
+  const addressLane=incident.incidentType==='address';
+  if(addressLane&&!addressStageAllowed('RETURN_TO_ORIGIN',incident))return {status:'WOULD_RETURN',verified:false};
+  if (!addressLane && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return {status:'BLOCKED_MASTER',verified:false};
+  if (!addressLane && process.env.RECIPIENT_REJECTED_RETURN_BREAKER === 'OPEN') return {status:'BLOCKED_RETURN_BREAKER',verified:false};
+  const addressDecision=addressLane?addressResponseDecision({incident,messages:dependencies.addressMessages||[],now:dependencies.now??Date.now()}):null;
+  const decision = addressLane?{eligible:addressDecision.eligible&&addressDecision.action==='RETURN_TO_ORIGIN',status:addressDecision.state,action:'return_to_origin',ruleId:'ADDRESS_INCORRECT_RESPONSE_V1',responseStatus:addressDecision.intent==='RETURN_REQUEST'?'DISCOUNT_REJECTED':'NO_RESPONSE'}:incidentDiscountNoResponseReturnDecision({
     incident,
     discountRecovery,
     now: dependencies.now ?? Date.now()
@@ -1212,13 +1217,13 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   const allowedIncidentIds = new Set((dependencies.allowedIncidentIds ?? config.defaultStore.incidentReturnAllowedIds ?? [])
     .map((value) => String(value).trim())
     .filter(Boolean));
-  const automaticEnabled = dependencies.automaticEnabled
+  const automaticEnabled = addressLane?true:dependencies.automaticEnabled
     ?? config.defaultStore.incidentDiscountReturnAutomaticEnabled;
   if (automaticEnabled !== true && !allowedIncidentIds.has(String(incident.incidenceId || ''))) {
     return { ...decision, status: 'BLOCKED_NOT_AUTHORIZED', verified: false, reason: 'La incidencia no esta en la lista exacta autorizada.' };
   }
 
-  const realEnabled = dependencies.realEnabled ?? config.defaultStore.incidentDiscountReturnRealEnabled;
+  const realEnabled = addressLane?true:dependencies.realEnabled ?? config.defaultStore.incidentDiscountReturnRealEnabled;
   if (realEnabled !== true) {
     return { ...decision, status: 'WOULD_RETURN', verified: false, reason: 'Devolucion automatica desactivada por configuracion.' };
   }
@@ -1239,9 +1244,10 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     return { ...decision, status: 'BLOCKED_NOT_PENDING', verified: false, reason: 'La incidencia ya no esta pendiente o no coincide exactamente con el pedido.' };
   }
   const currentRawIssue = current.issue?.raw || current.issue || {};
+  if(addressLane&&(String(currentRawIssue.id)!==String(incident.incidenceId)||String(currentRawIssue.order_id)!==String(incident.orderId)||String(current.order?.orderId)!==String(incident.orderId)))return {...decision,status:'BLOCKED_EXACT_CORRELATION',verified:false};
   const currentStatus = String(current.issue?.status || currentRawIssue.status || '').toUpperCase();
   if ((current.order?.status && !['ERROR', 'INCIDENCE'].includes(String(current.order.status).toUpperCase()))
-      || (currentRawIssue.type && currentRawIssue.type !== 'REFUSED_BY_RECIPIENT')
+      || (currentRawIssue.type && currentRawIssue.type !== (addressLane?'ADDRESS_INCORRECT':'REFUSED_BY_RECIPIENT'))
       || (current.order?.customerPhone && digits(current.order.customerPhone).slice(-9) !== digits(incident.phone).slice(-9))) {
     return { ...decision, status: 'BLOCKED_ORDER_CHANGED', verified: false,
       reason: 'El pedido, el tipo de incidencia o el telefono han cambiado en la lectura previa a la devolucion.' };
@@ -1262,7 +1268,8 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   if (!Array.isArray(finalMessages)) {
     return { ...decision, status: 'BLOCKED_CHATBY_READ_FAILED', verified: false, reason: 'No se pudo verificar Chatby inmediatamente antes de solicitar la devolucion.' };
   }
-  const finalResponse = classifyIncidentDiscountResponse(
+  const addressFinal=addressLane?addressResponseDecision({incident,messages:finalMessages}):null;
+  const finalResponse = addressLane?{status:addressFinal.eligible&&addressFinal.action==='RETURN_TO_ORIGIN'?(addressFinal.intent==='RETURN_REQUEST'?'DISCOUNT_REJECTED':'NO_RESPONSE'):'OTHER_RESPONSE'}:classifyIncidentDiscountResponse(
     finalMessages,
     discountRecovery.templateName,
     { status: 'sent', sent_at: discountRecovery.sentAt }
@@ -1299,7 +1306,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       incidenceId: incident.incidenceId
     });
     if (
-      claim?.reason === 'already_claimed'
+      !addressLane && claim?.reason === 'already_claimed'
       && (
         (
           dependencies.allowManualReconciliationRetry === true
@@ -1342,6 +1349,14 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       };
     }
 
+    if(addressLane){
+      const latest=await readMessages(incident.chatbyUserNs).catch(()=>null);
+      const live=latest?addressResponseDecision({incident,messages:latest,now:dependencies.now??Date.now(),previous:addressDecision}):null;
+      if(!live?.eligible||live.action!=='RETURN_TO_ORIGIN'||live.input_snapshot_hash!==addressDecision.input_snapshot_hash){
+        await finishReturn({storeId:config.defaultStore.id,orderId:incident.orderId,incidenceId:incident.incidenceId,status:'aborted',attemptedAt,evidence:{reason:'ADDRESS_RESPONSE_SUPERSEDED_RETURN'}});
+        return {...decision,status:'BLOCKED_CUSTOMER_ACTIVITY',verified:false};
+      }
+    }
     const requestNonce = replayNonce || claim.row?.attempted_at || attemptedAt;
     let response;
     try {
@@ -2842,13 +2857,17 @@ async function performPendingIncidentSync({
           allowManualReconciliationRetry: reconciliationIncidentIdSet.has(String(item.incident.incidenceId || ''))
         });
       }
-      const actionResult = returnOnly === true
+      const priorAddress=previousByOrderId.get(String(item.incident.orderId));
+      const addressWorkflow=item.incident.incidentType==='address'?await processObservedAddress(item,
+        String(priorAddress?.incidenceId)===String(item.incident.incidenceId)?priorAddress?.addressWorkflow:null):null;
+      const actionResult = addressWorkflow?.execution || (returnOnly === true
         ? discountReturn
         : item.incident.incidentType === 'address'
         ? await executeIncorrectAddressResolution(item.incident, item.operationalDecision)
-        : discountReturn;
+        : discountReturn);
       const enrichedIncident = {
         ...item.incident,
+        addressWorkflow,
         incidentDiscountRecovery: discountRecovery,
         incidentDiscountRecoveryStatus: discountRecovery.status,
         incidentDiscountRecoveryReason: discountRecovery.reason,
@@ -2981,6 +3000,9 @@ async function performPendingIncidentSync({
       state.lastIncidentsSyncError = null;
       state.lastIncidentsSyncCount = sortedIncidents.length;
       state.lastIncidentDiscountRecoveryAt = updatedAt;
+      state.lastAddressWorkflowAt=updatedAt;
+      const addresses=sortedIncidents.filter(i=>i.addressWorkflow);
+      state.addressWorkflowSummary={checked:addresses.length,observed:addresses.filter(i=>i.addressWorkflow.notification_at).length,states:addresses.reduce((a,i)=>(a[i.addressWorkflow.state]=(a[i.addressWorkflow.state]||0)+1,a),{}),verified:addresses.filter(i=>i.addressWorkflow.execution?.verified).length};
       state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
       state.lastRejectedNativeContactObserved = sortedIncidents.some(i=>i.incidentType==='rejected_goods'
         && i.incidentDiscountInitialTemplateSentAt && Date.now()-Date.parse(i.incidentDiscountInitialTemplateSentAt)<86400000);
@@ -3012,3 +3034,24 @@ async function performPendingIncidentSync({
   }
 }
 
+
+async function processObservedAddress(item,previous=null){
+ try {
+  const decision=addressResponseDecision({incident:item.incident,messages:item.messages,order:item.order,previous});
+  let execution={status:'SHADOW',verified:false};
+  if(decision.eligible && addressStageAllowed(decision.action,item.incident)){
+    if(decision.action==='OFFER_5_EURO_DISCOUNT')execution=await processIncidentDiscountRecovery({incident:item.incident,order:item.order,messages:item.messages,realEnabled:true});
+    else if(decision.action==='RETURN_TO_ORIGIN')execution=await executeIncidentDiscountNoResponseReturn(item.incident,{}, {addressMessages:item.messages});
+    else execution=await executeObservedAddress(item.incident,decision);
+  }
+  const history=previous?.history||[];
+  const superseded=previous?.decision_id&&previous.decision_id!==decision.decision_id
+    ? [{decision_id:previous.decision_id,input_snapshot_hash:previous.input_snapshot_hash,state:previous.state,action:previous.action,read_at:previous.read_at,decision_status:'SUPERSEDED'}]:[];
+  return {...decision,execution,last_execution:execution.status!=='SHADOW'?execution:previous?.last_execution||null,
+    last_required_field_request_at:execution.last_required_field_request_at||previous?.last_required_field_request_at||null,
+    history:[...history,...superseded].slice(-100),stages:Object.fromEntries(['SOLUTION','OFFER','RETURN','DETAILS'].map(s=>[s,process.env['ADDRESS_'+s+'_MODE']||'SHADOW']))};
+ } catch {
+   // Address failures must not interrupt synchronization of other workflows.
+   return {...previous,state:'EVIDENCE_UNVERIFIED',eligible:false,action:'HUMAN_REVIEW',execution:{status:'ADDRESS_CYCLE_FAILED',verified:false},read_at:new Date().toISOString()};
+ }
+}

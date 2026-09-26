@@ -170,7 +170,7 @@ test('legacy incident ownership cannot override Chatby-native incident templates
     assert.equal(chatbyRepositoryOwnsIncidentTemplate(), true);
     assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_ausente_v2'), false);
     assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_mercancia_v1'), false);
-    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_direccion_v1'), true);
+    assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_direccion_v1'), false);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_pedido_preparado_v1'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_ausente_v2'), true);
     assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_mercancia_v1'), true);
@@ -218,11 +218,13 @@ test('blocks repository sends for native incident templates without changing oth
     );
     assert.equal(calls, 0);
 
-    await sendWhatsappTemplate({
+    await assert.rejects(sendWhatsappTemplate({
       user_ns: 'fixture-user',
       user_id: 'fixture-recipient',
       content: { name: 'dropea_incidencia_direccion_v1', lang: 'es_ES', params: {} }
-    });
+    }),error=>error?.code==='CHATBY_NATIVE_LIFECYCLE_TEMPLATE_OWNER');
+    assert.equal(calls,0);
+    await sendWhatsappTemplate({user_ns:'fixture-user',user_id:'fixture-recipient',content:{name:'dropea_incidencia_descuento_5_v1',lang:'es_ES',params:{}}});
     assert.equal(calls, 1);
   } finally {
     globalThis.fetch = originalFetch;

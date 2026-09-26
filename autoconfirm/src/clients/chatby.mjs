@@ -34,6 +34,7 @@ export function getChatbyRetryAfterMs() {
 }
 
 const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
+  'dropea_incidencia_direccion_v1',
   'dropea_pedido_nuevo_v1',
   'dropea_pedido_preparado_v1',
   'dropea_incidencia_ausente_v2',
@@ -44,6 +45,7 @@ const CHATBY_NATIVE_LIFECYCLE_TEMPLATES = new Set([
 // They must never have a second repository sender, even when the legacy global
 // incident owner is still configured as `repository` for merchandise flows.
 const CHATBY_NATIVE_ONLY_INCIDENT_TEMPLATES = new Set([
+  'dropea_incidencia_direccion_v1',
   'dropea_incidencia_ausente_v2',
   'dropea_incidencia_mercancia_v1'
 ]);
