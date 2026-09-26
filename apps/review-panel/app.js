@@ -624,6 +624,8 @@ function addressWorkflowDetail(incident){
   ['Datos pendientes',(d.missing_fields||[]).map(k=>names[k]||k).join(', ')||'Ninguno identificado'],
   ['Última petición de datos',date(d.last_required_field_request_at)],['Aplicación de descuentos','Acción manual; sin email automático'],['Última comprobación',date(d.read_at)],
   ['Etapas',Object.entries(d.stages||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')],['Decisión',d.decision_id||'No verificable']];
+ fields.push(['Decisión canónica',incident.decision_record_status||'No materializada'],['Política registrada',incident.policy_version||'No disponible'],['Estado del plazo',incident.effective_timer_status||'Sin anclaje válido'],['Bloqueos actuales',(incident.current_blockers||[]).join(', ')||'Ninguno'],['Bloqueos históricos',(incident.historical_blockers||[]).join(', ')||'Ninguno']);
+ if(incident.provider_state_conflict)fields.push(['Reconciliación del proveedor','Revisión manual requerida · excluida de canaries'],['Estado Dropea',incident.provider_state_conflict.DROPEA_STATE],['Resultado GLS',incident.provider_state_conflict.GLS_OPERATION_STATE]);
  const address=incident.address_details?.provided;
  if(address)for(const [k,label] of Object.entries(names))fields.push([`Dirección aportada · ${label}`,address[k]||'No aportado']);
  const original=incident.address_details?.original;

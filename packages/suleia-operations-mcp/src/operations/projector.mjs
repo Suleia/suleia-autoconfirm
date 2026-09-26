@@ -370,7 +370,8 @@ export class OperationsProjector {
       issue.source_event_id, issue.source_version, issue.observed_at, issue.payload_hash,
       issue.freshness || 'UNKNOWN', issue.human_review === true
     ]);
-    if (issue.initial_carrier_code) {
+    // The -30/13 address rule is composite, never a global -30 registry entry.
+    if (issue.initial_carrier_code && !(issue.type==='ADDRESS_INCORRECT' && issue.initial_carrier_code==='-30')) {
       await this.pool.query(`INSERT INTO integration.carrier_issue_code_registry
          (carrier,market,code,normalized_type,description_example_sanitized,first_seen_at,last_seen_at,
           occurrences,mapping_status,policy_id,human_review,last_verified_at)

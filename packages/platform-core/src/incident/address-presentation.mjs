@@ -16,7 +16,8 @@ export function addressIncidentPresentation(item){
  const newer=Boolean(item.latest_private_customer_message_at)&&(!Number.isFinite(last)||Date.parse(item.latest_private_customer_message_at)>last);
  const execution=d.execution||{},verified=execution.verified===true;
  const uncertain=['EXECUTION_UNKNOWN','MANUAL_RECONCILIATION_REQUIRED','RETURN_REQUESTED_UNVERIFIED','ALREADY_CLAIMED_RECONCILE'].includes(execution.status);
- const action=fresh&&!newer&&!uncertain?d.action:'HUMAN_REVIEW',manual=['HUMAN_REVIEW','MANUAL_DISCOUNT_RECOVERY'].includes(action);
+ const canonical=item.address_canonical_snapshot;
+ const action=fresh&&!newer&&!uncertain&&(!canonical||item.notification_decision_current===true)?d.action:'HUMAN_REVIEW',manual=['HUMAN_REVIEW','MANUAL_DISCOUNT_RECOVERY'].includes(action);
  const reason=execution.provider_error_code==='GLS_INCIDENCE_ALREADY_SOLVED'?'GLS rechaza la acción: el envío ya no permite resolver la incidencia. Dropea sigue pendiente; revisar discrepancia sin reenviar.':uncertain?'Se intentó la acción sin confirmación de ejecución. Revisión manual; no reenviar automáticamente.':d.state==='WAITING_DETAILS_MANUAL_REVIEW'?'Dirección incompleta: espera de datos y revisión manual; los plazos iniciales de descuento y devolución quedan anulados.':!fresh||newer?'La decisión necesita una lectura actualizada.':d.initial_milestones?'El cliente ha respondido; los plazos iniciales quedan anulados.':'Plazos desde el envío real de la plantilla inicial.';
  return {...item,canonical_workflow:'ADDRESS_INCORRECT',
   autonomy:{status:manual?'HUMAN_REVIEW':'PREPARED',label:manual?'Revisión':'Preparado'},

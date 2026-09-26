@@ -85,3 +85,9 @@ GitHub using anonymized references.
 Incident evidence must distinguish an exact-order inbound event after issue creation from a notification-bound actionable response. The private display query now selects the latest post-opening inbound message for the exact issue and order. Unverified notification anchoring keeps automatic decisions blocked, but no longer hides the observed text/button or its timestamp. The dashboard customer-response flow includes observed interactions. Incident history reads include bot messages and use the provider timestamp cursor for all incident types; order confirmation readers are unchanged.
 
 Regression coverage includes missing notification, text/button observations, prior/future/lifecycle messages, missing identity, stale reads, retained action guards, history pagination and safe DOM rendering. Production verification must check the two reported orders through the same repository projection as the panel without logging customer content.
+
+## 2026-09-26 — ADDRESS canonical integrity
+
+Governed normalization is scoped to GLS ES, code -30, substatus 13, raw ADDRESS_INCORRECT and corroborating description. The generic -30 registry is not an address mapping. Migration 050 registers both address policies, retains invalid legacy timer history and materializes immutable owner-evidence snapshots. The canonical response timer uses issue + notification message hash + response policy; provider updates never renew it. The current-context view verifies issue version, owner evidence, policy and freshness; historical decisions cannot be current.
+
+The provider conflict remains manual and excluded from canaries. RETURN remains SHADOW with breaker OPEN; no new provider actions, messages or emails are authorized by this correction. Accepted discounts remain manual. Backend evidence metadata is deployed independently from the VPS read-side; do not deploy the monorepo's older autoconfirm tree to Render.

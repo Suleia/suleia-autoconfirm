@@ -5,6 +5,7 @@ import { ABSENT_POLICY_HASH } from '../packages/platform-core/src/incident/absen
 import { INCIDENT_NOTIFICATION_TEMPLATES } from '../packages/platform-core/src/incident/notification-evidence.mjs';
 import { buildIncidentAutopilotProjection } from '../packages/platform-core/src/incident/autopilot.mjs';
 import { absentSolutionCapability } from './integrations/dropea/absent-solution.mjs';
+import {projectAddressCanonical} from './address-canonical-projection.mjs';
 
 async function persistAutopilot(projector, { issue, order, interpretation, decision, now }) {
   if (typeof projector.recordIncidentAutopilotProjection !== 'function') return null;
@@ -42,6 +43,11 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
   let simulated = 0;
   let blocked = 0;
   for (const row of candidates.rows) {
+    if(row.type==='ADDRESS_INCORRECT') {
+      const result=await projectAddressCanonical(pool,row.canonical_issue_id,{now:now()});
+      interpreted+=1;simulated+=1;if(result.decision?.blocking_reasons.length)blocked+=1;
+      continue;
+    }
     const events = await pool.query(`SELECT canonical_issue_id,canonical_order_id,direction,message_type,button_payload,
       sanitized_text,occurred_at AS created_at,incident_version,relevance_status,intent,intent_confidence,
       chatby_message_id_hash AS chatby_message_id
