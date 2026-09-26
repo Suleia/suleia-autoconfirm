@@ -184,3 +184,15 @@ export function getDropeaV2IssueActionReadiness(env = process.env) {
 
 export async function provideDropeaV2AddressSolution(issueId,note,options={}){return issueActionClient(options).provideSolution(issueId,note);}
 export async function executeDropeaV2Resolution(issueId,action,data,options={}){return issueActionClient(options).executeResolution(issueId,action,data);}
+
+// Read the outcome of the original mutation; never re-POST to diagnose it.
+export async function readDropeaV2IssueOperation(issueId,nonce,{env=process.env,fetchImpl=globalThis.fetch}={}){
+  if(!nonce) return null;
+  const [store]=loadDropeaV2IssueActionStoreConfigs(env);
+  const response=await fetchImpl(`${store.base_url}/dropshipper/operations/${encodeURIComponent(returnIdempotencyKey(issueId,nonce))}`,{
+    method:'GET',headers:{Accept:'application/json',Authorization:`Bearer ${store.token}`},redirect:'error',signal:AbortSignal.timeout(12000)
+  });
+  if(!response.ok)return null;
+  const payload=await response.json();const code=payload?.data?.error?.code;
+  return {status:payload?.data?.status||null,errorCode:typeof code==='string'&&/^[A-Z0-9_]{1,100}$/.test(code)?code:null};
+}

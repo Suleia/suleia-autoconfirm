@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   createDropeaV2IssueActionClient,
+  readDropeaV2IssueOperation,
   getDropeaV2IssueActionReadiness,
   loadDropeaV2IssueActionStoreConfigs
 } from './dropea-v2-issue-actions.mjs';
@@ -112,4 +113,11 @@ test('missing issue action configuration is explicit and fail closed', () => {
     stores: 0,
     error: 'DROPEA_ISSUE_ACTIONS_STORES_CONFIG_EMPTY'
   });
+});
+test('failed original operation is diagnosed by GET without exposing provider payload or re-POSTing',async()=>{
+ const calls=[];const r=await readDropeaV2IssueOperation('11','original-attempt',{env:envFor(),fetchImpl:async(url,options)=>{
+  calls.push({url,method:options.method});return {ok:true,json:async()=>({data:{status:'failed',error:{code:'GLS_INCIDENCE_ALREADY_SOLVED',message:'Private provider detail'}}})};
+ }});
+ assert.deepEqual(r,{status:'failed',errorCode:'GLS_INCIDENCE_ALREADY_SOLVED'});
+ assert.equal(calls.length,1);assert.equal(calls[0].method,'GET');assert.match(calls[0].url,/operations\/suleia-return-requested-11-original-attempt$/);
 });
