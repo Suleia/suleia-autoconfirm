@@ -52,3 +52,18 @@ test('never invent city/CP or accept two conflicting addresses',()=>{
  assert.equal(parseCustomerAddress('Calle Mayor 25 o Calle Real 14, 48012 Bilbao').kind,'AMBIGUOUS_ADDRESS');
 });
 
+
+test('canonical metadata follows exact issue version and verified read',()=>{
+ const x=decide({incident,order,issue:{raw:{updated_at:'2026-09-20T09:30:00Z'}},messages:[notice],now:t+3600000});
+ assert.equal(x.issue_version,'2026-09-20T09:30:00Z');assert.equal(x.read_verified,true);
+ assert.equal(decide({incident:{...incident,chatbyReadVerified:false},messages:[notice],now:t+3600000}).read_verified,false);
+});
+test('partial response survives a later incomplete conversation read',()=>{
+ const previous=d([reply('Calle Mayor 25')],3);
+ const x=decide({incident,order,previous,messages:[notice,reply('hola',90)],now:t+96*3600000});
+ assert.equal(x.action,'HUMAN_REVIEW');assert.equal(x.initial_milestones,'SUPERSEDED_BY_CUSTOMER_RESPONSE');
+});
+test('irrelevant text does not overwrite latest address evidence',()=>{
+ const x=d([reply('Calle Mayor 25, 48012 Bilbao'),reply('buen finde',3)],4);
+ assert.equal(x.action,'PROVIDE_ADDRESS_SOLUTION');assert.equal(x.address.postal_code,'48012');
+});
