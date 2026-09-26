@@ -7,7 +7,7 @@ import {chatbyRepositoryOwnsIncidentTemplate,chatbyNativeOwnsLifecycleTemplate} 
 const now=Date.now(),t=now-50*3600000;
 const incident={incidentType:'address',incidenceId:'11',orderId:'22',phone:'600000000',incidenceDate:new Date(t-3600000).toISOString(),chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER',chatbyUserNs:'fixture'};
 const order={orderId:'22',status:'ERROR',customerPhone:'600000000'};
-const issue={id:'11',order_id:'22',type:'ADDRESS_INCORRECT',status:'PENDING',is_active:true,allowed_resolution_options:['RETURN_REQUESTED','SOLUTION_PROVIDED']};
+const issue={id:'11',order_id:'22',type:'ADDRESS_INCORRECT',status:'PENDING',is_active:true,allowed_resolution_options:['RETURN_REQUESTED','PROVIDE_SOLUTION']};
 const notice={type:'out',mid:'wamid.fixture',ts:t/1000,payload:{name:'dropea_incidencia_direccion_v1'}};
 const reply=text=>({type:'in',mid:'wamid.reply',ts:(now-3600000)/1000,text});
 const partial=reply('Calle Mayor 25');
