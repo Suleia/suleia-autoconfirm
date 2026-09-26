@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {addressResponseDecision} from './address-response-policy.mjs';
 import {executeObservedAddress} from './address-observed-executor.mjs';
 import {executeIncidentDiscountNoResponseReturn} from './incidents.mjs';
+import {chatbyRepositoryOwnsIncidentTemplate,chatbyNativeOwnsLifecycleTemplate} from '../clients/chatby.mjs';
 const now=Date.now(),t=now-50*3600000;
 const incident={incidentType:'address',incidenceId:'11',orderId:'22',phone:'600000000',incidenceDate:new Date(t-3600000).toISOString(),chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER',chatbyUserNs:'fixture'};
 const order={orderId:'22',status:'ERROR',customerPhone:'600000000'};
@@ -13,6 +14,10 @@ const partial=reply('Calle Mayor 25');
 const full=reply('Calle Mayor 25, 48012 Bilbao');
 const env={ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_SOLUTION_MODE:'CANARY',ADDRESS_SOLUTION_CANARY_ISSUE_ID:'11',ADDRESS_DETAILS_MODE:'CANARY',ADDRESS_DETAILS_CANARY_ISSUE_ID:'11'};
 const expected=messages=>addressResponseDecision({incident,order,messages,now});
+test('initial direction template always belongs to the native sender',()=>{
+ assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_direccion_v1'),false);
+ assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_direccion_v1'),true);
+});
 
 test('I late partial response cancels a reserved return before the provider write',async()=>{
  const saved={...process.env};Object.assign(process.env,{ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_RETURN_MODE:'CANARY',ADDRESS_RETURN_CANARY_ISSUE_ID:'11'});
