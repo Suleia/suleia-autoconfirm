@@ -20,6 +20,8 @@ test('province and country completions resolve missing fields without inventing 
  assert.equal(completed.action,'CHANGE_ADDRESS');assert.equal(completed.eligible,true);
  assert.equal(completed.provider_plan.body.resolution_data.address.state,'Bizkaia');
  assert.equal(parseCustomerAddress('Calle Mayor 25, 48012 Bilbao provincia Bizkaia').city,'Bilbao');
+ assert.equal(parseCustomerAddress('Calle Mayor 25, 48012 Bilbao provincia Bizkaia país ES').province,'Bizkaia');
+ assert.equal(decide(['Calle Mayor 25, 48012 Bilbao, país FR']).action,'HUMAN_REVIEW');
  assert.equal(decide(['48012 Bilbao','Calle Mayor 25']).action,'CHANGE_ADDRESS');
 });
 test('agency requires exact current capability; newer return supersedes it; stages fail closed independently',()=>{

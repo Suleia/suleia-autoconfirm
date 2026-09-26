@@ -22,13 +22,17 @@ export function parseCustomerAddress(text,previous=null){
  if(/\b(?:devolver|ya no lo quiero|no quiero el pedido|no lo quiero|que vuelva)\b/.test(n)&&! /no (?:quiero )?devolver/.test(n))return {...base,kind:'RETURN_REQUEST'};
  if(/recog(?:er|ida).*agencia|prefiero.*agencia/.test(n))return {...base,kind:'AGENCY_REQUEST'};
  if(/quiz[aá]|no se|puede que|o quiza/.test(n))return {...base,kind:'AMBIGUOUS_ADDRESS'};
+ // This parser validates Spanish postal codes only. Never silently retain ES
+ // when the customer explicitly supplies another country.
+ const explicitCountry=literal.match(/\bpa[ií]s\s*:?\s*([^,;.]+)/iu)?.[1]?.trim();
+ if(explicitCountry&&!/^(?:ES|España)$/iu.test(explicitCountry))return {...base,kind:'AMBIGUOUS_ADDRESS'};
  const streets=[...literal.matchAll(/\b(?:calle|avenida|avda\.?|plaza|paseo|camino|carretera|ronda|traves[ií]a|urbanizaci[oó]n)\s+([^,;\n]+?)[ ,]+(\d{1,4}[A-Za-z]?|s\/?n)(?=\s|[,.;]|$)/gi)];
  if(streets.length>1)return {...base,kind:'AMBIGUOUS_ADDRESS'};
  const street=streets[0];
  const postal=[...literal.matchAll(/\b(\d{5})\b/g)];
  if(postal.length>1)return {...base,kind:'AMBIGUOUS_ADDRESS'};
  const cp=postal[0];
- const province=literal.match(/\bprovincia\s*(?:de|:)?\s*([\p{L}][\p{L}\s'-]*)(?=[,;.]|$)/iu)?.[1]?.trim()||null;
+ const province=literal.match(/\bprovincia\s*(?:de|:)?\s*([\p{L}][\p{L}\s'-]*?)(?=\s+pa[ií]s\b|[,;.]|$)/iu)?.[1]?.trim()||null;
  const country=literal.match(/\bpa[ií]s\s*:?\s*(ES|España)\b/iu)?.[1]||(/^(?:ES|España)$/iu.test(literal)?literal:null);
  const city=cp?literal.slice(cp.index+5).replace(/^[\s,;-]+/,'').split(/[,;.]|\b(?:provincia|pa[ií]s|portal|referencia|al lado|llamar)\b/i)[0].trim():null;
  const fields={...base,province,country:country?'ES':null,street:street?street[0].slice(0,-street[2].length).trim().replace(/,$/,''):null,number:street?.[2]||null,
