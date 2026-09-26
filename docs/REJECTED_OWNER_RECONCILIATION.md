@@ -40,6 +40,12 @@ Metrics state coverage and leave recovered profit/delivery attribution unavailab
 
 ## Outstanding boundaries
 
+Owner update: keep accepted discounts pending manual action. Do not send emails
+to Dropea or activate automatic discount application/new delivery. The owner
+reports an existing Gmail connection; lack of a Render mail integration is not
+evidence that no Gmail account exists. Incident panel acceptance visibility and
+manual queue are authorized; enabling the mail path is explicitly deferred.
+
 Actual discount application and subsequent delivery are not yet LIVE. Explicit
 return without a previous verified offer is also not covered by the existing
 return lane. A closed issue alone is not a verified return. Historical acceptance

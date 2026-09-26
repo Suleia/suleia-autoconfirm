@@ -1,3 +1,4 @@
+import {manualDiscountPresentation} from './manual-discount.mjs';
 // Shared read-side vocabulary. This module never authorizes or executes actions.
 import {rejectedWorkflowKey,rejectedWorkflowPresentation,rejectedIncidentPresentation} from './rejected-presentation.mjs';
 export {rejectedWorkflowKey};
@@ -53,7 +54,7 @@ export function incidentAutonomy(item,workflow,{execution=null}={}){
  const result={...item,autonomy:{status:autonomy,label:autonomyLabels[autonomy]},next_best_action:{action,label:actionLabels[action],reason:waiting?'Esperando respuesta dentro del plazo verificado':known?'Decisión preparada con evidencia vigente':'Revisar evidencia antes de decidir',confidence:known?'Alta':'No verificable',execution_mode:target?.mode||null,blocking_reasons:reasons},
  execution:{action_type:real?.action_type||action,action_label:actionLabels[real?.action_type||action]||'Acción registrada',status:executionStatus,label:executionLabels[executionStatus],provider:real?.provider||null,requested_at:real?.requested_at||null,executed_at:real?.executed_at||null,verified_at:real?.verified_at||null,blocking_reasons:reasons},
  autonomous_state:{code:state,label:stateLabels[state]},confidence:{evidence:e.valid_response?'Alta':e.customer_interacted?'Media':'No verificable',intent:known?'Alta':'No verificable',execution:executionStatus==='VERIFIED'?'Alta':'No verificable'}};
- return rejectedWorkflowKey(item.interpreted_type)==='RECIPIENT_REJECTED'?rejectedIncidentPresentation(result,workflow):result;
+ return manualDiscountPresentation(rejectedWorkflowKey(item.interpreted_type)==='RECIPIENT_REJECTED'?rejectedIncidentPresentation(result,workflow):result);
 }
 export function autonomyMatch(item,value){if(!value||value==='ALL')return true;if(value==='WAITING')return item.autonomous_state?.code==='WAITING_CUSTOMER';return item.autonomy?.status===value;}
 export function autonomyMetrics(items){
