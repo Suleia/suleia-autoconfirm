@@ -14,7 +14,7 @@ export function workflowPresentation(row,{health=null}={}){
  const reservations=Number(row.reservations||0),canary=mode(row.notification_mode)==='CANARY';
  const enabled=row.automation_live===true&&row.native_send_enabled===true&&row.template_sends_enabled===true;
  return {id:row.workflow,label:workflowLabels[row.workflow]||'Otro workflow registrado',stages,breakers,
-  controls:{automation_live:row.automation_live??null,notification_enabled:row.notification_mode==null?null:enabled,interpretation_enabled:shadow?false:null,resolution_enabled:row.resolution_mode==null?null:['CANARY','LIVE'].includes(row.resolution_mode),pickup_enabled:null,return_enabled:null},
+  controls:{automation_live:row.automation_live??null,notification_enabled:row.notification_mode==null?null:enabled,interpretation_enabled:null,resolution_enabled:row.resolution_mode==null?null:['CANARY','LIVE'].includes(row.resolution_mode),pickup_enabled:null,return_enabled:null},
   master:row.automation_live==null?null:row.automation_live?'ACTIVE':'DISABLED',
   canary:{active:canary,limit:canary?1:null,used:canary?reservations:null,remaining:canary?Math.max(0,1-reservations):null,candidate:row.canary_issue_id||null,result:reservations?Number(row.notifications)>0?'Aviso verificado':'Reserva pendiente de verificación':'No hay canary ejecutado todavía.'},
   counts:{reservations,notifications:Number(row.notifications||0),timers:Number(row.timers||0),resolutions:Number(row.resolutions||0),callbacks:absent?health?.counts?.callbacks??null:null},
