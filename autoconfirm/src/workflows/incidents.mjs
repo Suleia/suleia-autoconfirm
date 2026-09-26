@@ -15,7 +15,8 @@ import {
 import { collectPendingDropeaV2Incidents, readDropeaV2ReturnIssueState } from '../clients/dropea-v2-incidents.mjs';
 import {
   getDropeaV2IssueActionReadiness,
-  returnDropeaV2IssueToOrigin
+  returnDropeaV2IssueToOrigin,
+  readDropeaV2IssueOperation
 } from '../clients/dropea-v2-issue-actions.mjs';
 import { chatbyRepositoryOwnsIncidentTemplate, findSubscriberInIndexByPhone, findSubscriberInIndexForExactOrder, findSubscriberInIndexForOrder, getIncidentChatMessages as getChatMessages, loadSubscriberIndex } from '../clients/chatby.mjs';
 import { getGlsTrackingHistory } from '../clients/gls.mjs';
@@ -1363,6 +1364,8 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       response = await returnIssue(incident.incidenceId, { idempotencyNonce: requestNonce });
     } catch (error) {
       const errorCode = safeIncidentActionError(error);
+      const operation=addressLane&&errorCode==='DROPEA_V2_ISSUE_ACTION_HTTP_400'
+        ? await (dependencies.readOperation||readDropeaV2IssueOperation)(incident.incidenceId,requestNonce).catch(()=>null):null;
       const reconciled = await verifyReturn(incident).catch(() => null);
       if (reconciled?.verified === true) {
         await finishReturn({storeId:config.defaultStore.id,orderId:incident.orderId,incidenceId:incident.incidenceId,
@@ -1378,9 +1381,9 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
         status: 'manual_reconciliation_required',
         attemptedAt,
         lastError: errorCode,
-        evidence: { ruleId: decision.ruleId, responseStatus: expectedResponseStatus, requestNonce }
+        evidence: { ruleId: decision.ruleId, responseStatus: expectedResponseStatus, requestNonce,provider_error_code:operation?.errorCode||null }
       }).catch(() => null);
-      const result = { ...decision, status: 'MANUAL_RECONCILIATION_REQUIRED', attemptedAt, verified: false, error: errorCode };
+      const result = { ...decision, status: 'MANUAL_RECONCILIATION_REQUIRED', attemptedAt, verified: false, error: errorCode,...(operation?.errorCode?{provider_error_code:operation.errorCode}:{}) };
       await auditReturn(incident, decision, result).catch(() => null);
       return result;
     }
@@ -3040,6 +3043,16 @@ async function processObservedAddress(item,previous=null){
  try {
   const decision=addressResponseDecision({incident:item.incident,messages:item.messages,order:item.order,issue:item.issue,previous});
   let execution={status:'SHADOW',verified:false};
+  const priorExecution=previous?.last_execution||previous?.execution;
+  if(priorExecution?.status==='MANUAL_RECONCILIATION_REQUIRED'){
+    execution={...priorExecution};
+    if(!execution.provider_error_code&&execution.error==='DROPEA_V2_ISSUE_ACTION_HTTP_400'){
+      const ledger=await getTemplateDelivery({storeId:config.defaultStore.id,orderId:item.incident.orderId,templateName:`dropea_issue_discount_no_response_return_v1:${item.incident.incidenceId}`}).catch(()=>null);
+      const operation=await readDropeaV2IssueOperation(item.incident.incidenceId,ledger?.raw?.requestNonce).catch(()=>null);
+      if(operation?.errorCode)execution.provider_error_code=operation.errorCode;
+    }
+    return {...decision,state:'PROVIDER_RECONCILIATION_REQUIRED',action:'HUMAN_REVIEW',eligible:false,execution,last_execution:execution,history:previous?.history||[],stages:Object.fromEntries(ADDRESS_STAGES.map(s=>[s,process.env.ADDRESS_AUTOMATION_ENABLED==='true'?(process.env['ADDRESS_'+s+'_MODE']||'SHADOW'):'SHADOW']))};
+  }
   if(decision.eligible && addressStageAllowed(decision.action,item.incident)){
     if(decision.action==='OFFER_5_EURO_DISCOUNT')execution=await processIncidentDiscountRecovery({incident:item.incident,order:item.order,messages:item.messages,realEnabled:true});
     else if(decision.action==='RETURN_TO_ORIGIN')execution=await executeIncidentDiscountNoResponseReturn(item.incident,{}, {addressMessages:item.messages});
