@@ -1,4 +1,6 @@
 // Shared read-side vocabulary. This module never authorizes or executes actions.
+import {rejectedWorkflowKey,rejectedWorkflowPresentation,rejectedIncidentPresentation} from './rejected-presentation.mjs';
+export {rejectedWorkflowKey};
 export const actionLabels={SEND_CHATBY_TEMPLATE:'Enviar plantilla v3',SEND_CHATBY_MESSAGE:'Contactar al cliente',PROVIDE_SOLUTION:'Aportar solución',REQUEST_REDELIVERY:'Solicitar nueva entrega',UPDATE_DELIVERY_DATA:'Actualizar datos de entrega',APPLY_DISCOUNT:'Aplicar descuento',REQUEST_AGENCY_PICKUP:'Enviar a agencia',REQUEST_RETURN:'Devolver al origen',RESOLVE_INCIDENT:'Resolver incidencia',WAIT_CUSTOMER:'Esperar respuesta',REVIEW_INTENT:'Revisar intención',REVIEW_EVIDENCE:'Validar evidencia'};
 export const executionLabels={NOT_STARTED:'Pendiente',PREPARED:'Preparada',REQUESTED:'Solicitada',EXECUTING:'Ejecutando',VERIFIED:'Verificada',FAILED:'Fallida',UNKNOWN:'No verificable',BLOCKED:'Bloqueada'};
 export const autonomyLabels={AUTOMATIC:'Automático',PREPARED:'Preparado',HUMAN_REVIEW:'Revisión'};
@@ -7,13 +9,13 @@ export const stateLabels={DETECTED:'Incidencia detectada',EVIDENCE_GATHERING:'Re
 const mode=v=>v==='DISABLED'||v==='PAUSED'?'OFF':['LIVE','CANARY','SHADOW'].includes(v)?v:v==='SIMULATION'||v==='SHADOW_READ_ONLY'?'SHADOW':null;
 const stage=(id,label,value)=>({id,label,mode:mode(value),label_mode:mode(value)||'Sin evidencia'});
 const breaker=(id,label,reason,at,known)=>({id,label,status:known?(reason?'OPEN':'CLOSED'):null,label_status:known?(reason?'Abierto':'Cerrado'):'Sin evidencia',opened_at:at||null,reason:reason?'Protección activada; consultar el detalle técnico':null,reason_code:reason||null});
-export function workflowPresentation(row,{health=null}={}){
+export function workflowPresentation(row,{health=null,rejectedHealth=null}={}){
  const absent=row.workflow==='RECIPIENT_ABSENT',shadow=row.has_shadow===true;
  const stages=[stage('detection','Detectar',shadow?'SHADOW':null),stage('notification','Contactar',row.notification_mode),stage('interpretation','Interpretar',shadow?'SHADOW':null),stage('decision','Decidir',shadow?'SHADOW':null),stage('resolution','Ejecutar',row.resolution_mode),stage('verification','Verificar',absent&&health?.observer?.healthy?'LIVE':null)];
  const breakers=[breaker('notification','Avisos',row.notification_breaker_reason,row.notification_breaker_at,row.notification_mode!=null),breaker('resolution','Resoluciones',row.resolution_breaker_reason,row.resolution_breaker_at,row.resolution_mode!=null),breaker('provider','Proveedor',null,null,false)];
  const reservations=Number(row.reservations||0),canary=mode(row.notification_mode)==='CANARY';
  const enabled=row.automation_live===true&&row.native_send_enabled===true&&row.template_sends_enabled===true;
- return {id:row.workflow,label:workflowLabels[row.workflow]||'Otro workflow registrado',stages,breakers,
+ const result={id:row.workflow,label:workflowLabels[row.workflow]||'Otro workflow registrado',stages,breakers,
   controls:{automation_live:row.automation_live??null,notification_enabled:row.notification_mode==null?null:enabled,interpretation_enabled:null,resolution_enabled:row.resolution_mode==null?null:['CANARY','LIVE'].includes(row.resolution_mode),pickup_enabled:null,return_enabled:null},
   master:row.automation_live==null?null:row.automation_live?'ACTIVE':'DISABLED',
   canary:{active:canary,limit:canary?1:null,used:canary?reservations:null,remaining:canary?Math.max(0,1-reservations):null,candidate:row.canary_issue_id||null,result:reservations?Number(row.notifications)>0?'Aviso verificado':'Reserva pendiente de verificación':'No hay canary ejecutado todavía.'},
@@ -23,6 +25,7 @@ export function workflowPresentation(row,{health=null}={}){
   current_activity:breakers.some(b=>b.status==='OPEN')?'Una protección está bloqueando acciones.':canary?reservations?'Canary reservado. Verificación y respuesta pendientes.':row.canary_issue_id?'Candidato seleccionado; todavía no hay aviso verificado.':'Esperando una incidencia elegible para el canary.':shadow?'Decisiones en simulación. Ejecución no acreditada en esta fuente.':'Sin evidencia suficiente del estado operativo.',
   playbook:absent?['Incidencia','Avisar cliente','Esperar respuesta','Interpretar','Aportar solución o revisar']:row.workflow==='REFUSED_BY_RECIPIENT'?['Rechazo','Revisar evidencia','Evaluar recuperación o devolución','Validar ejecución']:['Detectar incidencia','Revisar evidencia','Preparar decisión','Verificar resultado'],
   source:'Controles persistidos y proyección de simulación; no sustituye controles de otros emisores',read_only:true};
+ return rejectedWorkflowKey(row.workflow)==='RECIPIENT_REJECTED'?rejectedWorkflowPresentation(result,rejectedHealth):result;
 }
 export function incidentAutonomy(item,workflow,{execution=null}={}){
  const d=item.dashboard||{},e=item.recovery?.evidence||{},s=item.absent_shadow||{};
@@ -47,9 +50,10 @@ export function incidentAutonomy(item,workflow,{execution=null}={}){
  const real=execution?.evidence_mode==='REAL'?execution:null;
  const executionStatus=real?.execution_status||(known&&!waiting?'BLOCKED':'NOT_STARTED');
  const state=real?.execution_status==='VERIFIED'?'EXECUTION_VERIFIED':real?.execution_status==='UNKNOWN'?'EXECUTION_UNKNOWN':real?.execution_status==='REQUESTED'?'EXECUTION_REQUESTED':waiting?'WAITING_CUSTOMER':d.freshness==='STALE'?'STALE':!known?'HUMAN_REVIEW_REQUIRED':automatic?'READY_TO_EXECUTE':'BLOCKED';
- return {...item,autonomy:{status:autonomy,label:autonomyLabels[autonomy]},next_best_action:{action,label:actionLabels[action],reason:waiting?'Esperando respuesta dentro del plazo verificado':known?'Decisión preparada con evidencia vigente':'Revisar evidencia antes de decidir',confidence:known?'Alta':'No verificable',execution_mode:target?.mode||null,blocking_reasons:reasons},
+ const result={...item,autonomy:{status:autonomy,label:autonomyLabels[autonomy]},next_best_action:{action,label:actionLabels[action],reason:waiting?'Esperando respuesta dentro del plazo verificado':known?'Decisión preparada con evidencia vigente':'Revisar evidencia antes de decidir',confidence:known?'Alta':'No verificable',execution_mode:target?.mode||null,blocking_reasons:reasons},
  execution:{action_type:real?.action_type||action,action_label:actionLabels[real?.action_type||action]||'Acción registrada',status:executionStatus,label:executionLabels[executionStatus],provider:real?.provider||null,requested_at:real?.requested_at||null,executed_at:real?.executed_at||null,verified_at:real?.verified_at||null,blocking_reasons:reasons},
  autonomous_state:{code:state,label:stateLabels[state]},confidence:{evidence:e.valid_response?'Alta':e.customer_interacted?'Media':'No verificable',intent:known?'Alta':'No verificable',execution:executionStatus==='VERIFIED'?'Alta':'No verificable'}};
+ return rejectedWorkflowKey(item.interpreted_type)==='RECIPIENT_REJECTED'?rejectedIncidentPresentation(result,workflow):result;
 }
 export function autonomyMatch(item,value){if(!value||value==='ALL')return true;if(value==='WAITING')return item.autonomous_state?.code==='WAITING_CUSTOMER';return item.autonomy?.status===value;}
 export function autonomyMetrics(items){

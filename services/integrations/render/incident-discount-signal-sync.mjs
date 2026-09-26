@@ -52,6 +52,15 @@ export function normalizeRenderIncidentDiscountSignal(row = {}) {
   const sourceUpdatedAt = iso(row.updated_at);
   if (!sourceUpdatedAt) return null;
   const discountAmount = amount(raw.incidentDiscountAmountEur, { maximum: 5 });
+  const decision=raw.recipientRejectedDecision;
+  const exactDecision=decision&&String(decision.order_id)===dropeaOrderId&&String(decision.issue_id)===dropeaIssueId;
+  const rejected={
+    return_status:String(raw.incidentDiscountReturnStatus||'NOT_AVAILABLE').slice(0,80),
+    return_verified:raw.incidentDiscountReturnVerified===true,
+    return_requested_at:iso(raw.incidentDiscountReturnAttemptedAt),return_completed_at:iso(raw.incidentDiscountReturnCompletedAt),
+    return_due_at:iso(raw.incidentDiscountReturnDueAt),
+    decision:exactDecision?Object.fromEntries(['intent','wants_order','discount_accepted','requests_return','policy_id','policy_version','policy_snapshot_hash','input_snapshot_hash','decision_id','decision_status','next_best_action','read_verified','read_at','responded_at','decided_at'].map(k=>[k,decision[k]??null])):null
+  };
   return Object.freeze({
     dropea_issue_id: dropeaIssueId,
     dropea_order_id: dropeaOrderId,
@@ -69,6 +78,7 @@ export function normalizeRenderIncidentDiscountSignal(row = {}) {
     final_amount: amount(raw.incidentDiscountFinalPrice),
     signal_quality: responseStatus === 'NOT_VERIFIABLE' ? 'NOT_VERIFIABLE' : 'VERIFIED',
     source_updated_at: sourceUpdatedAt,
+    rejected,
     actions_executed: 0,
     production_writes: 0
   });
