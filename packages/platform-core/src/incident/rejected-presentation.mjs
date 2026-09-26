@@ -14,8 +14,8 @@ export function rejectedWorkflowPresentation(base,owner){
   health:fresh?(owner.healthy?'HEALTHY':'UNHEALTHY'):'UNKNOWN',observer:fresh?{last_completed_at:owner.last_cycle_at,lag_seconds:(Date.now()-Date.parse(owner.last_cycle_at))/1000}:null,
   breakers:['notification','discount','delivery','return'].map(id=>{const s=fresh?owner.breakers?.[id]:null;return {id,label:({notification:'Oferta Chatby',discount:'Aplicación descuento',delivery:'Nueva entrega',return:'Devolución'})[id],status:['OPEN','CLOSED'].includes(s)?s:null,label_status:s==='OPEN'?'Abierto':s==='CLOSED'?'Cerrado':'Sin evidencia'};}),
   last_activity:owner?.last_cycle_at||base.last_activity,
-  current_activity:fresh?`Contacto nativo Chatby. Oferta: ${owner.stages?.recovery_offer||'UNKNOWN'}; devolución: ${owner.stages?.return||'UNKNOWN'}. La aplicación de 5 € requiere correo a soporte y solución en Dropea; conexión pendiente.`:'Sin lectura reciente del propietario Render.',
-  playbook:['Rechazo detectado','Contacto nativo Chatby','Leer intención actual','Quiere recibir → recuperación → acepta 5 € → aplicar y nueva entrega si hay capacidad','Quiere devolver → devolución gobernada','Ambiguo → revisión','Sin respuesta a oferta → 48 h → relectura y devolución'],
+  current_activity:fresh?`Contacto nativo Chatby. Oferta: ${owner.stages?.recovery_offer||'UNKNOWN'}; devolución: ${owner.stages?.return||'UNKNOWN'}. Descuentos aceptados: gestión manual por decisión del propietario; sin correo automático a Dropea.`:'Sin lectura reciente del propietario Render.',
+  playbook:['Rechazo detectado','Contacto nativo Chatby','Leer intención actual','Quiere recibir → recuperación → acepta 5 € → acción manual pendiente','Quiere devolver → devolución gobernada','Ambiguo → revisión','Sin respuesta a oferta → 48 h → relectura y devolución'],
   policy:owner?.policy||null,owner:owner?.owner||'render_incident_automation',
   source:'Estado observado del propietario Render + registros Supabase correlacionados; no representa simulación como ejecución',
   counts:{...base.counts,notifications:null,timers:null,resolutions:null},runtime:owner||null};

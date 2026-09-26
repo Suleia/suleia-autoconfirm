@@ -622,8 +622,12 @@ function discountRecoveryDetail(incident) {
   const heading = node('div', 'discount-detail-heading');
   heading.append(node('h3', '', 'Recuperación con descuento de 5 €'), discountStatusCard(incident));
   box.append(heading);
+  const acceptance=incident.manual_discount;
+  if(acceptance)box.append(node('strong','',acceptance.label),node('p','',acceptance.reason));
   const priceVerified = discount.cross_source_verified === true;
   const fields = [
+    ['Gestión', acceptance?.pending?'Pendiente de acción manual':acceptance?.label||'Sin aceptación pendiente'],
+    ['Correo automático a Dropea', 'Desactivado por decisión del propietario'],
     ['Resultado', discount.title || 'NO DISPONIBLE', true],
     ['Plantilla inicial', discount.initial_template_sent_at ? `ENVÍO REGISTRADO · ${date(discount.initial_template_sent_at)}` : 'NO VERIFICADA'],
     ['Plantilla descuento', discount.sent_at ? `ENVÍO VERIFICADO · ${date(discount.sent_at)}` : 'NO VERIFICADA'],

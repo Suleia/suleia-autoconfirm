@@ -1,3 +1,4 @@
+import {manualDiscountPresentation} from './manual-discount.mjs';
 import { buildRecoveryOverview, recoveryProjection, recoveryBaseSelector } from './recovery-center.mjs';
 import { absentAttemptForRecord } from './absent-evidence.mjs';
 import { incidentAutonomy, autonomyMatch } from './automation-presentation.mjs';
@@ -79,6 +80,8 @@ export function dashboardSelector(item, filters = {}) {
   if(!autonomyMatch(item,filters.autonomy))return false;
   if ((filters.absent || filters.autopilot) && !recoveryBaseSelector(item,{scope:'ALL',absent:filters.absent,autopilot:filters.autopilot})) return false;
   if (filters.active && item.is_active!==(filters.active==='true')) return false;
+  if (filters.manual_discount==='pending' && !item.manual_discount?.pending) return false;
+  if (filters.manual_discount==='accepted' && !item.manual_discount) return false;
   if (filters.discount_response && item.discount_recovery_response_status!==filters.discount_response) return false;
   if (filters.recovery && !r.flags[filters.recovery]) return false;
   if (filters.metric && !d.flags[filters.metric]) return false;
@@ -103,7 +106,7 @@ export function buildIncidentDashboard(items, options = {}) {
   const scope=['HISTORICAL','FOLLOWUP','ALL'].includes(filters.scope)?filters.scope:'ACTIVE';
   const workflows=new Map(options.workflows?.flatMap(w=>w.id==='RECIPIENT_REJECTED'?[[w.id,w],['REFUSED_BY_RECIPIENT',w]]:[[w.id,w]])||[]),executions=new Map();
   for(const a of options.actions||[])if(a.evidence_mode==='REAL'&&!executions.has(a.canonical_issue_id))executions.set(a.canonical_issue_id,a);
-  const projected=items.map(item=>{const p=dashboardProjection(item,{now});return options.workflows?incidentAutonomy(p,workflows.get(p.interpreted_type),{execution:executions.get(p.canonical_issue_id)}):p;});
+  const projected=items.map(item=>{const p=dashboardProjection(item,{now});return options.workflows?incidentAutonomy(p,workflows.get(p.interpreted_type),{execution:executions.get(p.canonical_issue_id)}):manualDiscountPresentation(p);});
   const population=projected.filter(item=>scope==='ALL'?true:scope==='ACTIVE'?item.dashboard.flags.PENDING && !item.dashboard.flags.FOLLOWUP:scope==='FOLLOWUP'?item.dashboard.flags.FOLLOWUP:!item.dashboard.flags.OPEN);
   const selected=population.filter(item=>dashboardSelector(item,filters));
   const sorters={order:(a,b)=>String(a.external_order_reference || a.dropea_order_id || '').localeCompare(String(b.external_order_reference || b.dropea_order_id || ''),'es',{numeric:true}),
@@ -115,7 +118,7 @@ export function buildIncidentDashboard(items, options = {}) {
   const old=buildRecoveryOverview(selected,{...options,filters:{scope:'ALL'},limit:1,offset:0});
   const group=(key,values)=>values.map(([value,label])=>({value,label,count:selected.filter(i=>dashboardSelector(i,{[key]:value})).length}));
   return {...old,items:selected.slice(offset,offset+limit),total:selected.length,limit,offset,
-    summary:{...old.summary,autonomy:options.workflows?{prepared:selected.filter(i=>i.autonomy.status==='PREPARED').length,human_review:selected.filter(i=>i.autonomy.status==='HUMAN_REVIEW').length,automatic:selected.filter(i=>i.autonomy.status==='AUTOMATIC').length,verified:selected.filter(i=>i.execution.status==='VERIFIED').length}:null,scope,universe_count:selected.length,population_count:population.length,filtered_count:selected.length,
+    summary:{...old.summary,manual_discounts:{pending:population.filter(i=>i.manual_discount?.pending).length,accepted:population.filter(i=>i.manual_discount).length},autonomy:options.workflows?{prepared:selected.filter(i=>i.autonomy.status==='PREPARED').length,human_review:selected.filter(i=>i.autonomy.status==='HUMAN_REVIEW').length,automatic:selected.filter(i=>i.autonomy.status==='AUTOMATIC').length,verified:selected.filter(i=>i.execution.status==='VERIFIED').length}:null,scope,universe_count:selected.length,population_count:population.length,filtered_count:selected.length,
       dashboard:{version:DASHBOARD_VERSION,source:'DROPEA_PUBLIC_API_V2',source_definition:'status=PENDING · is_active=true',
         scope_counts:options.scopeCounts || dashboardScopeCounts(projected),
         queue_definition:'Pendientes de resolver: abiertas excepto recogida en agencia y primera ausencia observada. Estas permanecen abiertas en Seguimiento.',

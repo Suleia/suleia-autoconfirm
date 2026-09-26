@@ -15,11 +15,13 @@ const IncidentPanel=(()=>{
     customer.append(node('span','ip-avatar',name==='Cliente no disponible'?'?':name.split(/\s+/).slice(0,2).map(s=>s[0]).join('').toUpperCase()),copy(name));
     const evidence=node('div',`ip-evidence ${e.valid_response?'green':e.customer_interacted?'blue':'gray'}`);
     const message=e.message || e.action_label;
+    const acceptance=item.manual_discount;
     const evidenceTitle=e.message_type==='IMAGE' && e.customer_interacted?'Imagen recibida':message?message:e.valid_response?'Evidencia verificada':e.no_action_verified?'Sin evidencia':'Chatby no verificable';
     const evidenceDetail=message?(e.message_type==='BUTTON'?'Botón / acción':e.valid_response?'Respuesta verificada':'Respuesta no concluyente'):e.no_action_verified?'Ninguna acción realizada':e.reason==='INCIDENT_NOTIFICATION_NOT_OBSERVED'?'Aviso de esta incidencia no verificado':'Lectura de conversación no verificable';
     if(e.message_type==='IMAGE' && e.customer_interacted)evidence.append(icon('package','gray'));
     const evidenceText=copy(evidenceTitle,evidenceDetail);evidenceText.title=message||evidenceDetail;
     if(e.customer_interacted && e.response_at)evidenceText.append(node('small','ip-date',`Chatby · ${incidentDate(e.response_at)} · tras la apertura`));
+    if(acceptance){evidenceText.append(badge(acceptance.label,'amber'),node('small','ip-date',`Aceptación · ${incidentDate(acceptance.accepted_at)}`));}
     evidence.append(evidenceText,node('span','ip-chevron','›'));
     const action=node('div','ip-action'),stale=d.action==='Actualizar evidencia';
     const title=stale?({REFUSED_BY_RECIPIENT:'Revisar evidencia de rechazo',ADDRESS_INCORRECT:'Revalidar la dirección',RECIPIENT_ABSENT:'Revalidar aviso de ausencia',PICKUP_AT_AGENCY:'Verificar recogida en agencia'}[item.interpreted_type]||d.action):d.action;
@@ -29,6 +31,7 @@ const IncidentPanel=(()=>{
     const timerBox=node('div',`ip-timer ${timerTone}`);timerBox.append(icon('clock',timerTone),copy(timer.state==='ACTIVE'?recoveryDuration(timer.remaining_seconds):timer.state==='EXPIRED'?'Plazo vencido':'Plazo no verificable',timer.deadline?incidentDate(timer.deadline):'Sin temporizador confirmado'));
     const result=node('div','ip-result');const label=d.flags.WAITING_CUSTOMER?'Esperando cliente':d.flags.SIMULATION_READY?'Simulación preparada':d.flow==='CUSTOMER_RESPONDED'?'Cliente respondió':d.flow==='LOGISTICS_VALIDATION_REQUIRED'?'Validar logística':d.flow==='RESCHEDULE_REQUESTED'?'Nueva entrega':d.flow==='PICKUP_REQUESTED'?'Recogida en agencia recomendada':d.flags.HUMAN_REVIEW?e.valid_response?'Revisión humana':'Evidencia no concluyente':item.is_active?'Pendiente de revisión':'Histórico';
     result.append(badge(label,tones[d.flow]||'gray'),node('small','',d.flags.SIMULATION_READY?'Lista para simular':d.blocking_reasons?.length||d.flags.HUMAN_REVIEW?'Acción bloqueada':item.is_active?'No ejecutable todavía':'Sin acción vigente'));
+    if(acceptance)result.append(badge(acceptance.label,'amber'),node('small','',acceptance.pending?'Pendiente de gestión manual · sin correo automático':'Revisar estado actual antes de actuar'));
     if(item.execution)result.append(node('small','',`Ejecución: ${item.execution.label}`));
     const priority=badge(`P${d.priority}`,`priority-${d.priority}`);priority.title=d.priority_reason;
     tr.append(...[order,issue,customer,evidence,action,timerBox,result,priority].map(n=>cell(n,'ip-cell')));
@@ -44,6 +47,8 @@ const IncidentPanel=(()=>{
     const toolbar=node('div','incident-filter-toolbar'),tabs=node('div','incident-scope-tabs');
     for(const [value,label,active] of [['ACTIVE','Pendientes actuales',!historical],['HISTORICAL','Consultar histórico',historical]]){const b=node('button',`filter-chip ${active?'active':''}`,label);b.type='button';b.setAttribute('aria-pressed',String(active));b.addEventListener('click',()=>{state.filters={scope:value};state.offset=0;loadQueue();});tabs.append(b);}
     const controls=node('div','incident-filter-actions');for(const [label,cls,run] of [['Limpiar filtros','secondary-button',()=>{state.filters={scope:historical?'HISTORICAL':'ACTIVE'};}],['Aplicar filtros','primary-button',()=>{}]]){const b=node('button',cls,label);b.type='button';b.addEventListener('click',()=>{run();state.offset=0;loadQueue();});controls.append(b);}toolbar.append(tabs,controls);root.append(toolbar);
+    const manual=node('div','autonomy-tabs');
+    for(const [value,label] of [['pending',`Descuentos aceptados · acción manual (${data.manual_discounts?.pending??0})`],['accepted','Ver aceptaciones registradas']]){const b=node('button',`filter-chip ${state.filters.manual_discount===value?'active':''}`,label);b.type='button';b.addEventListener('click',()=>{state.filters={scope:historical?'HISTORICAL':'ACTIVE',manual_discount:value};state.offset=0;loadQueue();});manual.append(b);}root.append(manual);
     const fields=node('div','incident-filter-grid');
     if(data.autonomy){const stats=node('div','autonomy-tabs');stats.append(badge(`Preparadas · ${data.autonomy.prepared}`,'amber'),badge(`Acciones verificadas · ${data.autonomy.verified}`,'green'));stats.title='Acciones verificadas no implica resolución autónoma sin intervención humana';root.append(stats);}
     const autonomy=node('div','autonomy-tabs');autonomy.setAttribute('aria-label','Autonomía');for(const [value,label]of [['','Todas'],['AUTOMATIC','Automáticas'],['WAITING','Esperando'],['PREPARED','Preparadas'],['HUMAN_REVIEW','Necesitan mi atención']]){const b=node('button',`filter-chip ${state.filters.autonomy===value?'active':''}`,label);b.type='button';b.setAttribute('aria-pressed',String((state.filters.autonomy||'')===value));b.addEventListener('click',()=>{state.filters.autonomy=value;state.offset=0;loadQueue();});autonomy.append(b);}root.append(autonomy);

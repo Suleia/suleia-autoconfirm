@@ -22,3 +22,11 @@ test('observed customer activity renders the actual text, timestamp and customer
   assert.match(text(row),/Cliente respondió/);
   assert.doesNotMatch(text(row),/Chatby no verificable/);
 });
+test('accepted discount is visible with date and a manual-only queue shortcut',()=>{
+ const {context,get,data}=setup(),item=data.items[0];
+ item.manual_discount={label:'Descuento aceptado · acción manual',pending:true,accepted_at:'2026-09-22T12:00:00Z'};
+ assert.match(text(context.ui.rowIncident(item)),/Descuento aceptado · acción manual/);
+ assert.match(text(context.ui.rowIncident(item)),/sin correo automático/);
+ context.ui.renderFilters();const button=all(get('filters')).find(e=>e.tagName==='button'&&e.textContent.startsWith('Descuentos aceptados'));
+ button.events.click();assert.equal(context.ui.state.filters.manual_discount,'pending');assert.equal(context.ui.state.filters.scope,'ACTIVE');
+});
