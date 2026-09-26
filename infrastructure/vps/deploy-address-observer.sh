@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 revision="${1:?exact revision required}"
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 2
-branch=feat/address-panel-observation
+branch=feat/address-capability-panel
 install=/opt/suleia-operations
 resolved="$(readlink -f "$install")"
 [[ "$resolved" =~ ^/opt/suleia-releases/[0-9a-f]{40}$ ]] || exit 2

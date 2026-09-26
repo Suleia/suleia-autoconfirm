@@ -28,3 +28,9 @@ test('newer customer evidence and stale address decisions prevent prepared displ
   assert.equal(addressIncidentPresentation({interpreted_type:'ADDRESS_INCORRECT',address_observation:d,...patch}).next_best_action.action,'HUMAN_REVIEW');
  }
 });
+test('provider capability is displayed without exposing the private resolution body',()=>{
+ const row=make();Object.assign(row.raw.addressWorkflow,{action:'CHANGE_ADDRESS',provider_plan:{action:'CHANGE_ADDRESS',allowed:true,body:{resolution_data:{address:{street:'Private Fixture Street'}}}}});
+ const s=normalizeAddressSignal(row,{hmacKey:key});assert.equal(JSON.stringify(s).includes('Private Fixture Street'),false);
+ assert.deepEqual(s.observation.provider_plan,{action:'CHANGE_ADDRESS',allowed:true,reason:null});
+ const shown=addressIncidentPresentation({interpreted_type:'ADDRESS_INCORRECT',address_observation:s.observation});assert.match(shown.next_best_action.label,/Cambiar dirección/);
+});
