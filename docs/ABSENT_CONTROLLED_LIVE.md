@@ -86,3 +86,10 @@ Each successful notice observation records a durable cycle counter. Require the
 initial verification plus at least two later 120-second cycles before expansion.
 The private panel projects verified native notices and their exact-message timers
 independently of shadow proposals; no callback is labelled verified by that fact alone.
+
+On 26 September the owner explicitly authorized one verified second-absence
+notification canary. Only CANARY control with a preselected matching issue and
+operator-written `second_absence_canary_authorized=true` plus the same exact
+`second_absence_canary_issue_id` permits it. UNKNOWN, other issues, prior notices,
+stale identity and normal LIVE second absences remain denied. This exception does
+not enable any logistics write, pickup or return.

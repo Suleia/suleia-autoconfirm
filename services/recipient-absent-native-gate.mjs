@@ -19,7 +19,13 @@ export function nativeAbsentEligibility(input,control,now=new Date()){
     || input.exact_identity_verified!==true)return 'EXACT_IDENTITY_REQUIRED';
   if(input.type!=='RECIPIENT_ABSENT' || input.status!=='PENDING' || input.is_active!==true
     || input.decision_currentness!=='CURRENT' || input.return_in_progress!==false)return 'CURRENT_PENDING_ABSENCE_REQUIRED';
-  if(input.absence_classification!=='FIRST_ABSENCE')return 'SECOND_OR_UNKNOWN_REQUIRES_POLICY_REVIEW';
+  // Owner-authorized exception for one exact second-absence canary, never a
+  // blanket policy change or an exception for UNKNOWN/conflicting attempts.
+  const secondCanary=control.status==='CANARY' && input.absence_classification==='SECOND_ABSENCE'
+    && control.canary_issue_id===input.canonical_issue_id
+    && control.evidence?.second_absence_canary_issue_id===input.canonical_issue_id
+    && control.evidence?.second_absence_canary_authorized===true;
+  if(input.absence_classification!=='FIRST_ABSENCE' && !secondCanary)return 'SECOND_OR_UNKNOWN_REQUIRES_POLICY_REVIEW';
   if(!validDate(input.issue_created_at) || Date.parse(input.issue_created_at)<Date.parse(control.recipient_absent_template_cutover_at)
     || Date.parse(input.issue_created_at)>+now)return 'HISTORICAL_OR_INVALID_ISSUE';
   if(input.history_complete!==true || input.previous_notification_count!==0)return 'PRIOR_NOTICE_OR_INCOMPLETE_HISTORY';

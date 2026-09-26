@@ -34,3 +34,16 @@ test('retry/restart cannot release a claimed notice and canary reserves one issu
  assert.equal((await run()).allow,false);
  assert.equal((await run({...input(),canonical_issue_id:'other-issue'})).reason,'CANARY_SLOT_RESERVED');
 });
+
+test('explicit second-absence exception applies only to the exact selected canary and retains every other gate',()=>{
+ const i={...input(),absence_classification:'SECOND_ABSENCE'},c={...control(),canary_issue_id:i.canonical_issue_id,
+   evidence:{...control().evidence,second_absence_canary_authorized:true,second_absence_canary_issue_id:i.canonical_issue_id}};
+ assert.equal(nativeAbsentEligibility(i,c,now),null);
+ for(const change of [{absence_classification:'ABSENCE_ATTEMPT_UNKNOWN'},{absence_classification:'ABSENCE_ATTEMPT_CONFLICT'},
+   {canonical_issue_id:'other'},{previous_notification_count:1},{history_complete:false},{exact_identity_verified:false},
+   {status:'RESOLVED'},{return_in_progress:true},{chatby_read_at:'2026-09-23T11:59:00Z'}])assert.ok(nativeAbsentEligibility({...i,...change},c,now));
+ assert.ok(nativeAbsentEligibility(i,{...c,status:'LIVE',evidence:{...c.evidence,notification_canary_verified:true}},now));
+ assert.ok(nativeAbsentEligibility(i,{...c,canary_issue_id:null},now));
+ assert.ok(nativeAbsentEligibility(i,{...c,evidence:{...c.evidence,second_absence_canary_authorized:false}},now));
+ assert.equal(nativeAbsentEligibility(i,{...c,automation_live:false},now),'NATIVE_SEND_DISABLED');
+});
