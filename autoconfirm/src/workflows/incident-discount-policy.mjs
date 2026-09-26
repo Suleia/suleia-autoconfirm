@@ -1,3 +1,4 @@
+import { rejectedIntent } from './recipient-rejected-policy.mjs';
 export const INCIDENT_DISCOUNT_DELAY_HOURS = 24;
 export const INCIDENT_DISCOUNT_MAX_EUR = 5;
 export const INCIDENT_MERCHANDISE_TEMPLATE = 'dropea_incidencia_mercancia_v1';
@@ -257,17 +258,14 @@ export function incidentDiscountPolicy({
 export function classifyIncidentDiscountResponse(messages = [], discountTemplateName, discountPersistentDelivery = null) {
   const delivery = latestVerifiedDelivery(messages, discountTemplateName, discountPersistentDelivery);
   if (!delivery?.sentAt) return { status: 'NOT_SENT', respondedAt: null };
-  const interaction = customerInteractionAfter(messages, delivery.sentAt);
+  const inbound = messages.filter(isCustomerInteraction).map(message => ({message,timestamp:messageTimestamp(message)}));
+  if (inbound.some(x => !Number.isFinite(x.timestamp) || x.timestamp > Date.now() + 60000)) return {status:'OTHER_RESPONSE',intent:'AMBIGUOUS',respondedAt:null};
+  const interaction = inbound.filter(x => x.timestamp > Date.parse(delivery.sentAt)).sort((a,b)=>a.timestamp-b.timestamp).at(-1);
   if (!interaction) return { status: 'NO_RESPONSE', respondedAt: null };
   const text = normalize(messageText(interaction.message));
   const respondedAt = Number.isFinite(interaction.timestamp)
     ? new Date(interaction.timestamp).toISOString()
     : null;
-  if (/quiero el descuento|accept_discount_5|acepto el descuento/.test(text)) {
-    return { status: 'DISCOUNT_ACCEPTED', respondedAt };
-  }
-  if (/no quiero el pedido|reject_order|rechazo el pedido/.test(text)) {
-    return { status: 'DISCOUNT_REJECTED', respondedAt };
-  }
-  return { status: 'OTHER_RESPONSE', respondedAt };
+  const intent = rejectedIntent(text,{offerVerified:true});
+  return { ...intent, status: intent.discount_accepted ? 'DISCOUNT_ACCEPTED' : intent.requests_return ? 'DISCOUNT_REJECTED' : 'OTHER_RESPONSE', respondedAt };
 }

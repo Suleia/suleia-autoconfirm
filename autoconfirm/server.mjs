@@ -23,6 +23,7 @@ import {
 import { syncMetaDashboard } from './src/workflows/analytics.mjs';
 import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cancellations.mjs';
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
+import { rejectedRuntimeStatus } from './src/workflows/recipient-rejected-policy.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
 import { applyFinanceExpenseLedger, buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot } from './src/finance.mjs';
@@ -363,7 +364,8 @@ function storeSummary({ publicView = false } = {}) {
     incidentDiscountIntervalMinutes: config.incidentDiscountIntervalMinutes,
     incidentDiscountReturnRealEnabled: config.defaultStore.incidentDiscountReturnRealEnabled === true,
     incidentDiscountReturnAutomaticEnabled: config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
-    incidentDiscountReturnDelayHours: 24,
+    incidentDiscountReturnDelayHours: 48,
+    recipientRejected: rejectedRuntimeStatus(config,state),
     incidentDiscountReturnReconciliationDelayMinutes: 30,
     lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
     lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,
