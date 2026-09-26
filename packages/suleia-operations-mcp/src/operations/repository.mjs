@@ -4,6 +4,7 @@ import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } 
 import { incidentInsight } from './incident-insight.mjs';
 import { buildRecoveryOverview, recoveryProjection, recoveryTimeline, recoveryMessageValidity } from '../../../platform-core/src/incident/recovery-center.mjs';
 import { buildIncidentDashboard, dashboardProjection, dashboardScopeCounts } from '../../../platform-core/src/incident/dashboard.mjs';
+import { workflowPresentation,incidentAutonomy,autonomyMetrics,actionLabels,executionLabels } from '../../../platform-core/src/incident/automation-presentation.mjs';
 
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
@@ -468,6 +469,41 @@ export class OperationsRepository {
     return this.incidentOverview(searchParams);
   }
 
+  async automationContext() {
+    const [states,actions]=await Promise.all([
+      this.pool.query('SELECT * FROM read_models.operations_workflow_status ORDER BY workflow'),
+      this.pool.query('SELECT * FROM read_models.operations_workflow_recent_actions ORDER BY occurred_at DESC,id DESC')
+    ]);
+    // One read-only health request for the service, not one request per row/card.
+    let health=null;
+    try {const r=await fetch('http://recipient-absent-live-controller:3310/health',{signal:AbortSignal.timeout(1500)});health=await r.json();}catch{}
+    return {workflows:states.rows.map(r=>workflowPresentation(r,{health})),actions:actions.rows.map(a=>({...a,label:actionLabels[a.action_type]||'Acción registrada',status_label:executionLabels[a.execution_status]||'No verificable'}))};
+  }
+
+  async automationOverview(params=new URLSearchParams()) {
+    const started=performance.now(),period=params.get('period')||'7d';
+    if(!['today','7d','30d'].includes(period)){const e=new Error('INVALID_PERIOD');e.status=400;throw e;}
+    const [context,records]=await Promise.all([this.automationContext(),this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident
+      WHERE created_at >= CASE WHEN $1='today' THEN date_trunc('day',now() AT TIME ZONE 'Europe/Madrid') AT TIME ZONE 'Europe/Madrid'
+      WHEN $1='7d' THEN now()-interval '7 days' ELSE now()-interval '30 days' END`,[period])]);
+    const executionMap=new Map(),workflowMap=new Map(context.workflows.map(w=>[w.id,w]));
+    for(const a of context.actions)if(a.evidence_mode==='REAL'&&!executionMap.has(a.canonical_issue_id))executionMap.set(a.canonical_issue_id,a);
+    const items=records.rows.map(row=>{const i=dashboardProjection(incidentInsight(privateIncidentDisplay(row,this.privateDataKey)));return incidentAutonomy(i,workflowMap.get(i.interpreted_type),{execution:executionMap.get(i.canonical_issue_id)});});
+    const workflows=context.workflows.filter(w=>(params.get('active')!=='true'||w.stages.some(s=>['LIVE','CANARY'].includes(s.mode)))&&(!params.get('workflow')||w.id===params.get('workflow'))&&(!params.get('stage')||w.stages.some(s=>s.id===params.get('stage')&&(!params.get('mode')||s.mode===params.get('mode'))))&&(!params.get('mode')||w.stages.some(s=>s.mode===params.get('mode')))&&(!params.get('breaker')||w.breakers.some(b=>b.status===params.get('breaker')))&&(!params.get('health')||w.health===params.get('health')));
+    const summary={active:context.workflows.filter(w=>w.stages.some(s=>['CANARY','LIVE'].includes(s.mode))).length,live:context.workflows.filter(w=>w.stages.some(s=>s.mode==='LIVE')).length,canary:context.workflows.filter(w=>w.stages.some(s=>s.mode==='CANARY')).length,shadow:context.workflows.filter(w=>w.stages.some(s=>s.mode==='SHADOW')).length,breakers:context.workflows.reduce((n,w)=>n+w.breakers.filter(b=>b.status==='OPEN').length,0),human_today:null};
+    const metrics=autonomyMetrics(items.filter(i=>!params.get('workflow')||i.interpreted_type===params.get('workflow')));
+    const incidentIds=new Set(records.rows.map(i=>i.canonical_issue_id));
+    const actions=context.actions.filter(a=>(!params.get('workflow')||a.workflow===params.get('workflow'))&&incidentIds.has(a.canonical_issue_id)).slice(0,100);
+    return {version:'AUTONOMOUS_OPERATIONS_V1',read_only:true,checked_at:new Date().toISOString(),period,summary,workflows,available_workflows:context.workflows.map(w=>({id:w.id,label:w.label})),metrics,actions,
+      alerts:context.workflows.flatMap(w=>[...w.breakers.filter(b=>b.status==='OPEN').map(b=>({workflow:w.id,label:w.label,reason:`Protección de ${b.label.toLowerCase()} abierta`})),...(w.health==='UNHEALTHY'?[{workflow:w.id,label:w.label,reason:'El observador necesita atención'}]:[])]),
+      definitions:{period:'Incidencias creadas en el periodo; controles y salud reflejan el estado actual',coverage:'Los estados SHADOW describen el motor de simulación, no acreditan ni desactivan otros emisores. Sin evidencia se representa como no disponible.',counts:'Workflows únicos por etapa; un workflow puede estar simultáneamente en CANARY y LIVE.'},duration_ms:Math.round(performance.now()-started)};
+  }
+
+  async automationWorkflow(id,params=new URLSearchParams()) {
+    const p=new URLSearchParams(params);p.set('workflow',id);const data=await this.automationOverview(p);
+    const workflow=data.workflows.find(w=>w.id===id);return workflow?{...data,workflow}:null;
+  }
+
   async incidentOverview(searchParams) {
     const started=performance.now();
     const limit = integer(searchParams.get('limit'), 25, 1, 100);
@@ -481,19 +517,20 @@ export class OperationsRepository {
     else if(scope!=='ALL')conditions.push("status='PENDING' AND is_active=true");
     const where=conditions.length?`WHERE ${conditions.join(' AND ')}`:'';
     // One complete universe, no truncation. Pagination follows canonical filtering.
-    const [result,months,health,scopes] = await Promise.all([
+    const [result,months,health,scopes,automation] = await Promise.all([
       this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}`,values),
       this.pool.query(`SELECT DISTINCT to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM') AS month
         FROM read_models.operations_incident_records ORDER BY month DESC`),
       this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector'),
-      this.pool.query('SELECT status,is_active,type,raw_type,dashboard_source_context FROM read_models.operations_incident_records')
+      this.pool.query('SELECT status,is_active,type,raw_type,dashboard_source_context FROM read_models.operations_incident_records'),
+      this.automationContext()
     ]);
     const items=result.rows.map(row=>incidentInsight(privateIncidentDisplay(row,this.privateDataKey)));
     const connectors=health.rows.map(row=>({...row,...evaluateSourceFreshness({source:row.connector,source_observed_at:row.checked_at,
       ingested_at:row.checked_at,last_successful_sync_at:row.last_success_at,last_failure_at:row.last_failure_at,
       sync_complete:row.pagination_complete})}));
     const dashboard=buildIncidentDashboard(items,{filters:Object.fromEntries(searchParams),limit,offset,
-      availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors,scopeCounts:dashboardScopeCounts(scopes.rows)});
+      availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors,scopeCounts:dashboardScopeCounts(scopes.rows),...automation});
     console.info(JSON.stringify({event:'incident_dashboard_read',version:dashboard.summary.dashboard.version,
       scope:dashboard.summary.scope,filter_keys:[...searchParams.keys()].filter(key=>['type','metric','scope','response','month','risk','template','attempt','flow','q'].includes(key)),
       source_rows:items.length,result_rows:dashboard.total,returned_rows:dashboard.items.length,
@@ -527,7 +564,9 @@ export class OperationsRepository {
         ORDER BY m.occurred_at ASC`, [id])
     ]);
     if (!detail.rows[0]) return null;
-    const incident=dashboardProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
+    const automation=await this.automationContext();
+    const projected=dashboardProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
+    const incident=incidentAutonomy(projected,automation.workflows.find(w=>w.id===projected.interpreted_type),{execution:automation.actions.find(a=>a.evidence_mode==='REAL'&&a.canonical_issue_id===projected.canonical_issue_id)});
     const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey)
       .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message,{createdAt:incident.created_at})}));
     return {incident,customer_messages:messages,timeline:timeline.rows,feedback:feedback.rows,

@@ -100,7 +100,7 @@ const optionLabel = (key, value) => key === 'timer' && value === 'ACTIVE' ? 'Act
 
 function renderSummary() {
   const root = $('summary'); root.replaceChildren();
-  if (state.view === 'finance') return;
+  if (state.view === 'finance' || state.view === 'automation') return;
   const data = state.view === 'orders' ? state.summary?.orders : state.summary?.incidents;
   if (state.view === 'orders') {
     const categoryCard = (label, value, detail, tone, category) => summaryCard(label, value, detail, tone, () => {
@@ -663,6 +663,7 @@ async function openDetail(id) {
       root.append(
         section('Cliente y pedido', [['Cliente', incident.customer_name || 'NO DISPONIBLE'], ['Teléfono', incident.customer_phone || 'NO DISPONIBLE'], ['Pedido', incident.external_order_reference || `Dropea #${incident.dropea_order_id}`], ['Incidencia', `#${incident.dropea_issue_id}`]]),
         section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
+        ...(typeof AutomationPanel!=='undefined'?[AutomationPanel.incidentDetail(incident)]:[]),
         autopilotDetail(incident),
         section('Evaluación actual del panel', [['Siguiente acción',incident.dashboard?.action],['Motivo',incident.dashboard?.action_detail],['Decisión vigente',incident.dashboard?.decision_current?'Sí':'No verificable'],['Prioridad',incident.dashboard?.priority_reason],['Bloqueos',incident.dashboard?.blocking_reasons?.join(' · ') || 'Sin bloqueos registrados'],['Modo','SHADOW_READ_ONLY · acciones externas deshabilitadas']]),
         recoveryDetail(incident),
@@ -1130,6 +1131,7 @@ async function refresh({ force = false, background = false } = {}) {
   if (state.refreshing) return; state.refreshing = true; $('refresh-button').disabled = true; $('refresh-button').textContent = 'Actualizando…';
   try {
     if (state.view === 'finance') await loadResultsFinance({ force, background });
+    else if (state.view === 'automation') await AutomationPanel.load();
     else if (state.view === 'incidents') await loadQueue();
     else {
       const [summary] = await Promise.all([api('/api/operations/summary'), loadQueue()]);
@@ -1143,9 +1145,11 @@ function setView(view) {
   $('app').setAttribute('data-view',view);
   if(view==='incidents'){state.limit=10;$('page-size').value='10';}
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
-  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
-  const finance = view === 'finance'; $('summary').hidden = finance; $('finance-view').hidden = !finance; $('queue-card').hidden = finance;
+  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
+  const finance = view === 'finance',automation=view==='automation'; $('summary').hidden = finance||automation; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation;$('automation-view').hidden=!automation;
   $('recovery-center').hidden=view!=='incidents';
+  if(automation){history.replaceState({},'',location.pathname+'#automation');AutomationPanel.load();return;}
+  if(location.hash==='#automation')history.replaceState({},'',location.pathname);
   if (finance) { loadResultsFinance(); return; }
   $('queue-title').textContent = view === 'orders' ? 'Pedidos pendientes en Dropea · señal Chatby por pedido' : 'Cola de recuperación · acción, evidencia y tiempo restante'; renderHead(); renderFilters(); renderSummary(); loadQueue();
 }
@@ -1156,7 +1160,8 @@ async function init() {
   if (params.has('error')) { history.replaceState({}, document.title, location.pathname); throw new Error('El proveedor de acceso rechazó el inicio de sesión. Inténtalo de nuevo.'); }
   if (params.has('code')) state.token = await exchangeCode(params.get('code'), params.get('state'));
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
-  $('login').hidden = true; $('app').hidden = false; renderHead(); renderFilters(); await refresh();
+  $('login').hidden = true; $('app').hidden = false;
+  if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !activeToken()) return;
     const financeInterval = Number(state.config.finance_refresh_interval_seconds || 120) * 1000;

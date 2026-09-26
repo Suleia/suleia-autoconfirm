@@ -239,7 +239,7 @@ test('incident overview returns table and counters from one complete canonical u
   const calls=[];const pool={query:async(sql,values=[])=>{calls.push({sql,values});return {rows:sql.includes('SELECT DISTINCT')?[{month:'2026-08'}]:[incidentFixture,{...incidentFixture,canonical_issue_id:'other',effective_risk:'LOW'}]};}};
   const repository=new OperationsRepository(null,{pool});
   const result=await repository.incidentOverview(new URLSearchParams({scope:'ACTIVE',to:'2026-08-15',risk:'HIGH',month:'2026-08',recovery:'PENDING'}));
-  assert.equal(calls.length,4);assert.deepEqual(calls[0].values,['2026-08']);
+  assert.equal(calls.length,6);assert.deepEqual(calls[0].values,['2026-08']);
   assert.match(calls[0].sql,/status='PENDING' AND is_active=true/);
   assert.match(calls[3].sql,/SELECT status,is_active,type,raw_type,dashboard_source_context/);
   assert.match(calls[2].sql,/operations_connector_health/);
