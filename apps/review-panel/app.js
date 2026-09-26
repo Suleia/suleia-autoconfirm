@@ -100,7 +100,7 @@ const optionLabel = (key, value) => key === 'timer' && value === 'ACTIVE' ? 'Act
 
 function renderSummary() {
   const root = $('summary'); root.replaceChildren();
-  if (state.view === 'finance') return;
+  if (state.view === 'finance' || state.view === 'automation') return;
   const data = state.view === 'orders' ? state.summary?.orders : state.summary?.incidents;
   if (state.view === 'orders') {
     const categoryCard = (label, value, detail, tone, category) => summaryCard(label, value, detail, tone, () => {
@@ -420,7 +420,7 @@ function recoveryTimelinePanel(events) {
   const section=node('section','detail-section recovery-chronology');section.append(node('h3','','Timeline cronológica del pedido'));
   const list=node('ol','timeline');for(const event of events || []){
     const row=node('li','timeline-item');row.append(node('time','',date(event.occurred_at)),node('strong','',event.source || 'Fuente no informada'),node('span','',event.label || event.event_type));
-    if(event.validity)row.append(node('small','',event.validity==='AFTER_NOTIFICATION'?'Posterior a la notificación · verificar intención':'Histórico / no demuestra respuesta a esta incidencia'));
+    if(event.validity)row.append(node('small','',event.validity==='AFTER_NOTIFICATION'?'Posterior a la notificación · verificar intención':event.validity==='AFTER_ISSUE_OPENING'?'Cliente respondió tras la apertura · aviso pendiente de validar':'Histórico / no demuestra respuesta a esta incidencia'));
     if(String(event.event_type).includes('SIMULAT'))row.append(node('small','','Propuesta en simulación, no acción ejecutada'));list.append(row);
   }section.append(list);if(!(events || []).length)section.append(node('p','muted','N/D — faltan eventos observados'));return section;
 }
@@ -548,9 +548,10 @@ function customerMessageHistory(items = []) {
   const list = node('div', 'customer-message-list');
   for (const item of items) {
     const speaker = item.direction === 'OUTBOUND' ? 'Suleia' : 'Cliente';
-    const current = item.relation_to_notification === 'AFTER_NOTIFICATION';
+    const notified = item.relation_to_notification === 'AFTER_NOTIFICATION';
+    const current = notified || item.relation_to_notification === 'AFTER_ISSUE_OPENING';
     const card = node('article', `customer-message ${item.direction === 'OUTBOUND' ? 'operator-message' : 'customer-reply'} ${current ? 'current' : 'previous'}`);
-    card.append(node('strong', 'message-speaker', speaker), node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${current ? 'respuesta posterior a la notificación' : 'histórico / contexto · no es evidencia de respuesta a esta incidencia'} · ${translated(item.intent)}`));
+    card.append(node('strong', 'message-speaker', speaker), node('q', 'message-quote', item.text), node('small', '', `${date(item.occurred_at)} · ${notified ? 'respuesta posterior a la notificación' : current ? 'respuesta posterior a la apertura · aviso pendiente de validar' : 'histórico / contexto · no es evidencia de respuesta a esta incidencia'} · ${translated(item.intent)}`));
     list.append(card);
   }
   box.append(list); return box;
@@ -558,7 +559,29 @@ function customerMessageHistory(items = []) {
 function absentShadowCard(item, expanded = false) {
   const s = item.absent_shadow;
   const card = node('div', 'absent-shadow-card');
-  if (!s) return card;
+  const native=item.absent_native_notice;
+  if(native?.status==='VERIFIED'){
+    card.append(node('small','absent-shadow-label','NOTIFICACIÓN AUSENTE · ENVIADA'),section('Notificación verificada',[
+      ['Plantilla',native.template_name],['Notificación',date(native.notification_at)],
+      ['Timer',native.timer_due_at?(new Date(native.timer_due_at)>new Date()?'Activo':'Plazo cumplido'):'Pendiente de verificar'],
+      ['Fecha límite',date(native.timer_due_at)],
+      ['Respuesta',item.latest_customer_message || 'Esperando cliente'],
+      ['Validación',item.latest_customer_message?'Respuesta recibida · validar evidencia e interpretación':'Sin respuesta observada']
+    ]));
+    if(!item.absent_resolution && !s?.resolution)return card;
+  }
+  if (!s && !item.absent_resolution) return card;
+  const resolution=item.absent_resolution || s?.resolution;
+  if(resolution){
+    card.append(node('small','absent-shadow-label','RESOLUCIÓN DE AUSENTE'),node('strong','',resolution.next_action),
+      node('strong','',resolution.title),node('small','',resolution.detail));
+    card.append(section('Preferencia del cliente',[
+      ['Evidencia cliente',item.latest_customer_message || 'Respuesta no disponible'],['Interpretación',resolution.interpretation],
+      ['Fecha',resolution.requested_date ? resolution.requested_date.split('-').reverse().join('/'):'No inequívoca'],
+      ['Franja',resolution.window],['Teléfono',resolution.phone],['Evidencia',resolution.evidence]
+    ]));
+    return card;
+  }
   const labels = { WOULD_SEND_ABSENT_TEMPLATE: 'Preparar contacto AUSENTE', WOULD_REQUEST_CUSTOM_SLOT: 'Pedir fecha y franja',
     WOULD_VALIDATE_LOGISTICS: 'Validar disponibilidad GLS', WOULD_REQUEST_NEW_DELIVERY: 'Proponer nueva entrega',
     WOULD_REQUEST_PICKUP_AT_AGENCY: 'Proponer recogida en agencia', WOULD_RETURN_TO_ORIGIN: 'Proponer devolución',
@@ -592,6 +615,25 @@ function absentShadowCard(item, expanded = false) {
   ]));
   card.append(details); return card;
 }
+function addressWorkflowDetail(incident){
+ const d=incident.address_observation;if(!d)return document.createDocumentFragment();
+ const names={street:'Calle',number:'Número',floor:'Piso',door:'Puerta',postal_code:'Código postal',city:'Localidad',province:'Provincia',country:'País',reference_notes:'Referencias'};
+ const fields=[['Plantilla inicial',d.template_name],['Envío real (T0)',date(d.notification_at)],['Última respuesta',date(d.last_customer_at)],
+  ['Estado',d.state],['Intención',d.intent],['Siguiente acción',incident.next_best_action?.label],['Motivo',incident.next_best_action?.reason],
+  ['Oferta a las 24 h',d.initial_milestones?'Anulada por respuesta':date(d.offer_due_at)],['Devolución a las 48 h',d.initial_milestones?'Anulada por respuesta':date(d.return_due_at)],
+  ['Datos pendientes',(d.missing_fields||[]).map(k=>names[k]||k).join(', ')||'Ninguno identificado'],
+  ['Última petición de datos',date(d.last_required_field_request_at)],['Aplicación de descuentos','Acción manual; sin email automático'],['Última comprobación',date(d.read_at)],
+  ['Etapas',Object.entries(d.stages||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')],['Decisión',d.decision_id||'No verificable']];
+ fields.push(['Decisión canónica',incident.decision_record_status||'No materializada'],['Política registrada',incident.policy_version||'No disponible'],['Estado del plazo',incident.effective_timer_status||'Sin anclaje válido'],['Bloqueos actuales',(incident.current_blockers||[]).join(', ')||'Ninguno'],['Bloqueos históricos',(incident.historical_blockers||[]).join(', ')||'Ninguno']);
+ if(incident.provider_state_conflict)fields.push(['Reconciliación del proveedor','Revisión manual requerida · excluida de canaries'],['Estado Dropea',incident.provider_state_conflict.DROPEA_STATE],['Resultado GLS',incident.provider_state_conflict.GLS_OPERATION_STATE]);
+ const address=incident.address_details?.provided;
+ if(address)for(const [k,label] of Object.entries(names))fields.push([`Dirección aportada · ${label}`,address[k]||'No aportado']);
+ const original=incident.address_details?.original;
+ if(original)for(const [k,label] of Object.entries({address_line_1:'Dirección',address_line_2:'Complemento',postal_code:'Código postal',city:'Localidad',state:'Provincia',country:'País'}))fields.push([`Dirección original · ${label}`,original[k]||'No disponible']);
+ if(d.provider_plan)fields.push(['Acción Dropea',d.provider_plan.action],['Permiso comprobado',d.provider_plan.allowed?'Permitida en última lectura':d.provider_plan.reason||'No verificado']);
+ fields.push(['Gestión de datos incompletos','Espera interna en Suleia; no cierra la incidencia en Dropea']);
+ return section('Dirección · evidencia y automatización',fields);
+}
 function discountRecoveryDetail(incident) {
   const discount = incident.discount_recovery || {};
   if (!discount.applies) return document.createDocumentFragment();
@@ -599,8 +641,12 @@ function discountRecoveryDetail(incident) {
   const heading = node('div', 'discount-detail-heading');
   heading.append(node('h3', '', 'Recuperación con descuento de 5 €'), discountStatusCard(incident));
   box.append(heading);
+  const acceptance=incident.manual_discount;
+  if(acceptance)box.append(node('strong','',acceptance.label),node('p','',acceptance.reason));
   const priceVerified = discount.cross_source_verified === true;
   const fields = [
+    ['Gestión', acceptance?.pending?'Pendiente de acción manual':acceptance?.label||'Sin aceptación pendiente'],
+    ['Correo automático a Dropea', 'Desactivado por decisión del propietario'],
     ['Resultado', discount.title || 'NO DISPONIBLE', true],
     ['Plantilla inicial', discount.initial_template_sent_at ? `ENVÍO REGISTRADO · ${date(discount.initial_template_sent_at)}` : 'NO VERIFICADA'],
     ['Plantilla descuento', discount.sent_at ? `ENVÍO VERIFICADO · ${date(discount.sent_at)}` : 'NO VERIFICADA'],
@@ -640,12 +686,14 @@ async function openDetail(id) {
       root.append(
         section('Cliente y pedido', [['Cliente', incident.customer_name || 'NO DISPONIBLE'], ['Teléfono', incident.customer_phone || 'NO DISPONIBLE'], ['Pedido', incident.external_order_reference || `Dropea #${incident.dropea_order_id}`], ['Incidencia', `#${incident.dropea_issue_id}`]]),
         section('Situación real', [['Estado', incident.source_truth === 'PENDING_IN_DROPEA' ? 'PENDIENTE EN DROPEA' : 'FUERA DE LA COLA PENDIENTE', true], ['Problema', translated(incident.interpreted_type)], ['Qué informa Dropea', incident.initial_carrier_description_sanitized || 'NO INFORMADO'], ['Transportista', incident.carrier], ['Creada', date(incident.created_at)], ['Actualizada', date(incident.updated_at)]]),
+        ...(typeof AutomationPanel!=='undefined'?[AutomationPanel.incidentDetail(incident)]:[]),
         autopilotDetail(incident),
         section('Evaluación actual del panel', [['Siguiente acción',incident.dashboard?.action],['Motivo',incident.dashboard?.action_detail],['Decisión vigente',incident.dashboard?.decision_current?'Sí':'No verificable'],['Prioridad',incident.dashboard?.priority_reason],['Bloqueos',incident.dashboard?.blocking_reasons?.join(' · ') || 'Sin bloqueos registrados'],['Modo','SHADOW_READ_ONLY · acciones externas deshabilitadas']]),
         recoveryDetail(incident),
         recoveryEvidenceDetail(incident),
         recoveryTimelinePanel(data.recovery_timeline),
         discountRecoveryDetail(incident),
+        addressWorkflowDetail(incident),
         absentShadowCard(incident, true),
         customerMessageHistory(data.customer_messages),
         recommendationPanel(incident, data.feedback),
@@ -1107,6 +1155,7 @@ async function refresh({ force = false, background = false } = {}) {
   if (state.refreshing) return; state.refreshing = true; $('refresh-button').disabled = true; $('refresh-button').textContent = 'Actualizando…';
   try {
     if (state.view === 'finance') await loadResultsFinance({ force, background });
+    else if (state.view === 'automation') await AutomationPanel.load();
     else if (state.view === 'incidents') await loadQueue();
     else {
       const [summary] = await Promise.all([api('/api/operations/summary'), loadQueue()]);
@@ -1120,9 +1169,11 @@ function setView(view) {
   $('app').setAttribute('data-view',view);
   if(view==='incidents'){state.limit=10;$('page-size').value='10';}
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
-  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
-  const finance = view === 'finance'; $('summary').hidden = finance; $('finance-view').hidden = !finance; $('queue-card').hidden = finance;
+  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
+  const finance = view === 'finance',automation=view==='automation'; $('summary').hidden = finance||automation; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation;$('automation-view').hidden=!automation;
   $('recovery-center').hidden=view!=='incidents';
+  if(automation){history.replaceState({},'',location.pathname+'#automation');AutomationPanel.load();return;}
+  if(location.hash==='#automation')history.replaceState({},'',location.pathname);
   if (finance) { loadResultsFinance(); return; }
   $('queue-title').textContent = view === 'orders' ? 'Pedidos pendientes en Dropea · señal Chatby por pedido' : 'Cola de recuperación · acción, evidencia y tiempo restante'; renderHead(); renderFilters(); renderSummary(); loadQueue();
 }
@@ -1133,7 +1184,8 @@ async function init() {
   if (params.has('error')) { history.replaceState({}, document.title, location.pathname); throw new Error('El proveedor de acceso rechazó el inicio de sesión. Inténtalo de nuevo.'); }
   if (params.has('code')) state.token = await exchangeCode(params.get('code'), params.get('state'));
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
-  $('login').hidden = true; $('app').hidden = false; renderHead(); renderFilters(); await refresh();
+  $('login').hidden = true; $('app').hidden = false;
+  if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !activeToken()) return;
     const financeInterval = Number(state.config.finance_refresh_interval_seconds || 120) * 1000;

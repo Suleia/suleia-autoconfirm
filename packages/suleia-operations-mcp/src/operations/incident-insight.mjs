@@ -1,6 +1,7 @@
 import { interpretChatbyCustomerReply } from '../../../platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 import { projectRecipientAbsentShadow } from '../../../platform-core/src/incident/absent-panel-projection.mjs';
 import { projectNotificationScopedIncident } from '../../../platform-core/src/incident/notification-evidence.mjs';
+import { recipientAbsentResolutionPanel } from '../../../platform-core/src/incident/absent-resolution.mjs';
 
 const intentLabels = {
   CONFIRM: 'El cliente confirma que quiere recibir el pedido.',
@@ -113,6 +114,19 @@ function customerEvidence(item) {
     latest_message:exactMessage,at:messageAt,intent:absent.customer_intent,messages:Math.max(1,Number(item.messages_used || 0)),
     relation:'AFTER_NOTIFICATION',notified_at:notifiedAt,button_payload:absent.button_pressed || null,
     evidence_basis:'CURRENT_NOTIFICATION_BOUND_SHADOW_RESPONSE'
+  };
+  // Activity after opening is factual evidence even when the notification cannot
+  // be proven. It is deliberately not a notification-bound actionable response.
+  if (!scoped && item.chatby_activity_read_current === true && item.conversation_status === 'FOUND'
+    && item.latest_private_customer_message_hash && item.latest_customer_message
+    && relation === 'AFTER_INCIDENT' && new Date(messageAt) > new Date(item.created_at)
+    && new Date(messageAt).getTime() <= Date.now()
+    && !['ORDER_LIFECYCLE_ONLY','BEFORE_INCIDENT'].includes(item.latest_customer_incident_relevance)
+    && !String(item.latest_customer_context_template || '').startsWith('dropea_pedido_')) return {
+    code:'OBSERVED_CUSTOMER_ACTIVITY', title:'Cliente respondió tras la apertura',
+    summary:'Actividad en el chat exacto posterior a la apertura. Su relación con la notificación queda pendiente de validar.',
+    latest_message:item.latest_customer_message, at:messageAt, messages:1, intent:'UNKNOWN',
+    relation:'AFTER_INCIDENT', notified_at:notifiedAt, evidence_basis:'ISSUE_CREATED_ACTIVITY_ONLY'
   };
   if (!item.chatby_sync_current || !notifiedAt || item.conversation_status !== 'FOUND') return {
     code: 'NOT_VERIFIABLE', title: 'Chatby pendiente de actualizar',
@@ -425,6 +439,9 @@ function recommendation(item, customer) {
 }
 
 export function incidentInsight(item) {
+  // Preserve transport freshness separately: notification projection deliberately
+  // blocks decision freshness when no notification anchor exists.
+  item = {...item, chatby_activity_read_current:item.chatby_sync_current === true};
   item = projectNotificationScopedIncident(projectRecipientAbsentShadow(projectNotificationScopedIncident(item)));
   const discount = discountRecovery(item);
   const customer = customerEvidence(item);
@@ -443,9 +460,20 @@ export function incidentInsight(item) {
     ...proposed, confidence: 'REVIEW', execution_status: 'BLOCKED_CAPABILITY_NOT_DECLARED',
     guardrail: 'Dropea no declara una opción de resolución compatible; validar capacidad y logística antes de actuar.'
   };
+  if(shadow?.resolution)proposed={...proposed,code:shadow.resolution.status,title:shadow.resolution.next_action,
+    summary:shadow.resolution.detail,resolution_option:null,execution_status:'NOT_EXECUTED'};
+  let absentResolution=null;
+  if(item.absent_resolution_structured){
+    const resolution={resolution_structured:item.absent_resolution_structured,blocking_reasons:item.absent_resolution_status==='APPLIED'?[]:['PROVIDER_RESULT_UNVERIFIED'],
+      idempotency_key:item.absent_resolution_key,resolution_hash:item.absent_resolution_hash};
+    absentResolution=recipientAbsentResolutionPanel(resolution,{status:item.absent_resolution_status,idempotency_key:item.absent_resolution_key});
+    proposed={code:absentResolution.status,title:absentResolution.next_action,summary:absentResolution.detail,
+      execution_status:item.absent_resolution_status,policy_version:item.absent_resolution_structured.policy_version};
+    item={...item,external_action_status:item.absent_resolution_status==='APPLIED'?'SOLUTION_PROVIDED':'HUMAN_REVIEW_REQUIRED'};
+  }
   if (!shadow) proposed = { ...proposed, policy_version: proposed.policy_version || item.policy_version || null,
     execution_status: proposed.execution_status || 'NOT_EXECUTED', decision_basis: proposed.decision_basis || 'NOTIFICATION_SCOPED_CURRENT_EVIDENCE' };
-  const existingStatus = String(item.operational_action_status || item.external_action_status || '').toUpperCase();
+  const existingStatus = String(absentResolution ? item.external_action_status : item.operational_action_status || item.external_action_status || '').toUpperCase();
   const handlingStatus = existingStatus && existingStatus !== 'NOT_EXECUTED'
     ? existingStatus
     : item.is_active !== true || item.status !== 'PENDING'
@@ -460,6 +488,7 @@ export function incidentInsight(item) {
     customer_evidence: customer,
     discount_recovery: discount,
     tailored_recommendation: proposed,
+    absent_resolution:absentResolution,
     source_truth: item.is_active && item.status === 'PENDING' ? 'PENDING_IN_DROPEA' : 'NOT_PENDING_IN_DROPEA',
     external_action_status: existingStatus || 'NOT_EXECUTED',
     handling_status: handlingStatus

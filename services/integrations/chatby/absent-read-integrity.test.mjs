@@ -6,6 +6,14 @@ const issue=id=>({canonical_order_id:'safe-order',dropea_order_id:'SAFE-ORDER',c
 const subscriberCache=()=>({items:[{user_ns:'safe-conversation',user_fields:[{name:'Dropea: Número',value:'SAFE-ORDER'}]}],fetchedAt:at,pageCount:1});
 const response=data=>new Response(JSON.stringify(data),{status:200});
 const projector=()=>({recordChatbyConversationEvent:async()=>({inserted:false}),upsertChatbyPrivateMessageDisplay:async()=>{},upsertChatbyConversationLink:async()=>{},markChatbyConversationAvailable:async()=>{}});
+test('resolution callback exposes exact fresh evidence only for target issue, with provider IDs',async()=>{
+ const contexts=[];const messages=[{id:'native-notice',type:'out',msg_type:'template',created_at:'2026-09-17T13:00:00Z',template_name:'es_ES dropea_ausente_v3'},
+  {id:'real-response',type:'in',msg_type:'button',created_at:'2026-09-17T14:00:00Z',payload:{payload:'ABSENT_TOMORROW_PM',title:'Mañana por la tarde'}}];
+ await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('target'),issue('other')]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),onlyRecipientAbsent:true,onlyCanonicalIssueId:'target',onAbsentConversation:v=>contexts.push(v),minRequestIntervalMs:0,fetchImpl:async()=>response({data:messages})});
+ assert.equal(contexts.length,1);assert.equal(contexts[0].chatby.history_complete,true);assert.ok(contexts[0].chatby.notification_message_id);
+ assert.equal(contexts[0].events.every(e=>e.canonical_issue_id==='target' && e.provider_message_id_verified),true);
+ assert.equal(contexts[0].events.find(e=>e.direction==='INBOUND').button_verified,false);
+});
 
 test('concurrent exclusive phases coalesce a complete catalogue traversal without duplicate GETs',async()=>{
  let calls=0;const cache={};const input={pool:{query:async()=>({rows:[]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',subscriberCache:cache,minRequestIntervalMs:0,fetchImpl:async()=>{calls++;await new Promise(r=>setTimeout(r,10));return response({data:[],meta:{last_page:1}});}};
@@ -47,15 +55,28 @@ test('independent absence and general queries are mutually exclusive',async()=>{
  assert.ok(sql.includes(`coalesce(nullif(i.canonical_type,'UNKNOWN'),i.raw_type)${operator}'RECIPIENT_ABSENT'`));
  }
 });
-test('verified descending head overlap reuses older immutable history instead of reading page two',async()=>{
+test('general incident history rereads bot-inclusive pages instead of reusing an incomplete legacy cache',async()=>{
  const messages=Array.from({length:150},(_,i)=>({id:`safe-${i}`,type:'in',msg_type:'text',ts:at-i*1000,content:'synthetic'}));
  const cache=new Map([['safe-conversation',{fetchedAt:at-121000,messages:{complete:true,items:messages}}]]);
  const pages=[];const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:cache,conversationCacheTtlMs:120000,minRequestIntervalMs:0,
- fetchImpl:async url=>{pages.push(new URL(url).searchParams.get('page'));return response({data:messages.slice(0,100),meta:{last_page:2}});}});
- assert.deepEqual(pages,['1']);assert.equal(result.messages_reused_from_cache,50);assert.equal(result.messages_read,100);
+ fetchImpl:async url=>{const query=new URL(url).searchParams;assert.equal(query.get('include_bot'),'1');assert.equal(query.has('page'),false);pages.push(query.get('end_time'));return response({data:query.has('end_time')?messages.slice(99):messages.slice(0,100)});}});
+ assert.equal(pages.length,2);assert.equal(pages[0],null);assert.ok(pages[1]);assert.equal(result.messages_reused_from_cache,0);assert.equal(result.messages_read,150);
 });
 test('an unavailable budget cannot erase an earlier exact read or pretend fresh silence',async()=>{
  let links=0;const cache=new Map([['safe-conversation',{fetchedAt:at-400000,messages:{complete:true,items:[]}}]]);
  const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:{...projector(),upsertChatbyConversationLink:async()=>{links++;}},token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:cache,conversationCacheTtlMs:120000,maxConversations:0,fetchImpl:()=>assert.fail('read deferred')});
  assert.equal(links,0);assert.equal(result.budget_exhausted,1);assert.equal(cache.get('safe-conversation').fetchedAt,at-400000);
+});
+
+test('cold-start deferred read never replaces persisted exact conversation evidence',async()=>{
+ let links=0;
+ const result=await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:{...projector(),upsertChatbyConversationLink:async()=>{links++;}},token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:new Map(),maxConversations:0,fetchImpl:()=>assert.fail('read deferred')});
+ assert.equal(links,0);assert.equal(result.budget_exhausted,1);
+});
+
+test('expired message cache retains the read watermark for fair rotation',async()=>{
+ const fetchedAt=at-1000000,cache=new Map([['safe-conversation',{fetchedAt,messages:{complete:true,items:[]}}]]);
+ await syncChatbyReadOnly({pool:{query:async()=>({rows:[issue('safe-a')]})},projector:projector(),token:'mock',hmacKey:'safe-mock-key-long-enough',now:()=>at,subscriberCache:subscriberCache(),conversationCache:cache,conversationCacheTtlMs:120000,maxConversations:0,fetchImpl:()=>assert.fail('read deferred')});
+ assert.equal(cache.get('safe-conversation').fetchedAt,fetchedAt);
+ assert.equal(cache.get('safe-conversation').messages,null);
 });

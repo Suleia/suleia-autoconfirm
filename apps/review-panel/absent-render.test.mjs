@@ -36,3 +36,18 @@ test('twelve absent filters are clickable and are absent from the order lane',as
   assert.equal(chips.every(e=>typeof e.events.click==='function'),true);chips[0].events.click();assert.equal(context.ui.state.filters.absent,'AUSENTE');
   context.ui.state.view='orders';context.ui.renderFilters();assert.equal(content(get('filters')).includes('Primera ausencia'),false);
 });
+test('resolution result and ambiguity are visible without logs; phone remains masked',async()=>{
+ const {context}=await fixture();
+ const ready={title:'Solución aportada',next_action:'Nueva entrega por la tarde',detail:'Se solicitó entrega por la tarde con llamada previa.',interpretation:'Nueva entrega',requested_date:'2026-09-23',window:'Tarde',phone:'••••0001',evidence:'Botón Chatby verificado'};
+ const card=context.ui.absentShadowCard({absent_resolution:ready,latest_customer_message:'Mañana por la tarde'});
+ for(const phrase of ['Solución aportada','Nueva entrega por la tarde','23/09/2026','Botón Chatby verificado','••••0001'])assert.ok(content(card).includes(phrase));
+ assert.ok(!content(card).includes('SIMULACIÓN'));
+ const ambiguous=context.ui.absentShadowCard({absent_resolution:{...ready,title:'Revisión humana',detail:'Fecha de entrega no inequívoca.',next_action:'Revisar preferencia del cliente',interpretation:'Ambigua'}});
+ assert.match(content(ambiguous),/Fecha de entrega no inequívoca/);
+});
+
+test('verified native notification renders actual sending and timer without a shadow claim',async()=>{
+ const {context}=await fixture();const card=context.ui.absentShadowCard({absent_native_notice:{status:'VERIFIED',template_name:'dropea_ausente_v3',notification_at:'2026-09-25T12:00:00Z',timer_due_at:'2099-01-01T12:00:00Z',message_id:'internal-debug-only'}});
+ assert.match(content(card),/NOTIFICACIÓN AUSENTE · ENVIADA/);assert.match(content(card),/dropea_ausente_v3/);assert.match(content(card),/Activo/);assert.match(content(card),/Esperando cliente/);
+ assert.doesNotMatch(content(card),/SIMULACIÓN|SHADOW|internal-debug-only/);
+});

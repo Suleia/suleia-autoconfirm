@@ -73,6 +73,10 @@ export function evaluateSourceFreshness(input = {}, { now = new Date(), threshol
     clock_skew_seconds: invalid ? null : clockSkewSeconds,
     freshness_threshold_seconds: Number.isFinite(threshold) ? threshold : null,
     freshness_status: status,
+    connector_poll_freshness: reason === 'SOURCE_EVENT_STALE' ? 'FRESH' : status,
+    source_event_freshness: !Number.isFinite(sourceEventAt) ? 'UNKNOWN'
+      : futureSkewSeconds > clockSkewToleranceSeconds ? 'CLOCK_SKEW'
+        : !Number.isFinite(threshold) ? 'UNKNOWN' : sourceEventAgeSeconds > threshold + clockSkewToleranceSeconds ? 'STALE' : 'FRESH',
     freshness_reason: reason
   });
 }

@@ -39,7 +39,7 @@ const chatbyConversationCache = new Map();
 const absentSubscriberCache = chatbySubscriberCache, absentConversationCache = new Map(), absentLogisticsCache = new Map();
 let absentRunning=false, absentLastResult=null, absentLastError=null, absentTemplate=null;
 let absentRetryNotBefore=0;
-const absentReader=createAbsentLogisticsReader(dropeaClients);
+const absentReader=createAbsentLogisticsReader(dropeaClients,{privacyKey:config.hashKey});
 const webhookRate = new Map();
 
 function boundedMilliseconds(value, fallback, minimum) {
@@ -153,7 +153,7 @@ async function run() {
       : { ok: true, skipped: true, reason: 'dropea_disabled', actions_executed: 0, production_writes: 0 };
     const incidentDiscountSignals = dropeaStores.length
       ? await syncRenderIncidentDiscountSignals({
-          source, projector: operationsProjector, pageSize: config.pageSize,
+          source, projector: operationsProjector, pageSize: config.pageSize, hmacKey:config.hashKey,
           maxPages: Number(process.env.INCIDENT_DISCOUNT_SIGNAL_MAX_PAGES || 20)
         })
       : { ok: true, skipped: true, reason: 'dropea_disabled', actions_executed: 0, production_writes: 0 };

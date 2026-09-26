@@ -55,6 +55,7 @@ export function privateIncidentDisplay(row = {}, privateDataKey) {
   const {
     latest_customer_message_ciphertext: messageCiphertext,
     latest_operator_message_ciphertext: operatorMessageCiphertext,
+    private_address_ciphertext: addressCiphertext,
     ...orderFields
   } = row;
   const display = privateOrderDisplay(orderFields, privateDataKey);
@@ -62,6 +63,7 @@ export function privateIncidentDisplay(row = {}, privateDataKey) {
   const operatorMessage = decryptOperationsPrivateJson(operatorMessageCiphertext, privateDataKey);
   return {
     ...display,
+    address_details:decryptOperationsPrivateJson(addressCiphertext,privateDataKey),
     latest_customer_message: cleanMessageText(message?.text, 1000),
     latest_operator_message: cleanMessageText(operatorMessage?.text, 1000)
   };

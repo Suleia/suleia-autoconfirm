@@ -3,6 +3,7 @@ import { collectPaginated, createReadOnlyTransport } from '../../../packages/pla
 import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
 import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
 import { absentButtonFor } from '../../../packages/platform-core/src/incident/absent-template.mjs';
+import { verifyAbsentCallback } from './absent-callback-contract.mjs';
 import { INCIDENT_NOTIFICATION_TEMPLATES } from '../../../packages/platform-core/src/incident/notification-evidence.mjs';
 import { readAbsentMessageHistory } from './absent-message-history.mjs';
 
@@ -319,7 +320,11 @@ export async function syncChatbyReadOnly({
   now = Date.now,
   fetchImpl = globalThis.fetch,
   onlyRecipientAbsent = false,
-  excludeRecipientAbsent = false
+  excludeRecipientAbsent = false,
+  onlyCanonicalIssueId = null,
+  onAbsentConversation = null,
+  absentCallbackContract = null,
+  absentVerifiedNotice = null
 }) {
   if (!token) return Object.freeze({
     ok: false, enabled: true, consultable: false, error: 'CHATBY_GET_CREDENTIAL_MISSING',
@@ -433,8 +438,12 @@ export async function syncChatbyReadOnly({
   const cycleNow = now();
   if (conversationCache instanceof Map) {
     for (const [userNs, entry] of conversationCache.entries()) {
-      if (!Number.isFinite(entry?.fetchedAt) || cycleNow - entry.fetchedAt > conversationCacheTtlMs * 4) {
+      if (!Number.isFinite(entry?.fetchedAt)) {
         conversationCache.delete(userNs);
+      } else if (cycleNow - entry.fetchedAt > conversationCacheTtlMs * 4) {
+        // Expire payloads, not fairness metadata. Forgetting the read watermark
+        // repeatedly promotes early conversations and starves the remaining ones.
+        conversationCache.set(userNs,{fetchedAt:entry.fetchedAt,messages:null});
       }
     }
   }
@@ -470,6 +479,7 @@ export async function syncChatbyReadOnly({
     || String(left.issueId).localeCompare(String(right.issueId)));
   // Charge the budget once per EXACT provider conversation, not once per issue.
   const networkUsers = new Set([...new Map(networkCandidates.map(c=>[c.userNs,c])).values()]
+    .filter(c=>!onlyCanonicalIssueId || c.issueId===onlyCanonicalIssueId)
     .slice(0, Math.max(0, Number(maxConversations) || 0)).map(c=>c.userNs));
   const networkIssueIds = new Set(networkCandidates.filter(c=>networkUsers.has(c.userNs)).map(c=>c.issueId));
 
@@ -483,6 +493,7 @@ export async function syncChatbyReadOnly({
   const cycleReads=new Map();
   const statusCounts = { NONE: 0, FOUND: 0, MULTIPLE: 0, STALE: 0, BROKEN: 0, UNKNOWN: 0 };
   for (const issue of candidates.rows) {
+    if(onlyCanonicalIssueId && issue.canonical_issue_id!==onlyCanonicalIssueId)continue;
     const entries = matchesByIssue.get(issue.canonical_issue_id) || [];
     const subscribersByTechnicalId = new Map();
     for (const entry of entries) {
@@ -512,16 +523,9 @@ export async function syncChatbyReadOnly({
     const exactConversation = exactConversationByIssue.get(issue.canonical_issue_id);
     if (!exactConversation?.cacheFresh && !networkIssueIds.has(issue.canonical_issue_id)) {
       budgetExhausted++;
-      // Do not destroy a previously successful exact link because this cycle
-      // deferred a read. Its original timestamp naturally becomes STALE.
-      if (exactConversation?.cached) continue;
+      // No provider read occurred. Preserve persisted evidence even after a
+      // restart (when the in-memory cache is empty); never stamp a new read time.
       statusCounts.UNKNOWN += 1;
-      await projector.upsertChatbyConversationLink?.({
-        canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id,
-        conversation_status: 'UNKNOWN', reason_code: 'CONVERSATION_READ_BUDGET_EXHAUSTED',
-        identity_method: subscribersForIssue[0].evidence.method,
-        conversation_freshness: 'UNKNOWN', message_count: 0
-      });
       continue;
     }
     const { subscriber, evidence } = subscribersForIssue[0];
@@ -532,7 +536,7 @@ export async function syncChatbyReadOnly({
         messagesReused += messages.items.length;
         conversationCacheHits += 1;
       } else {
-        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages, cached:exactConversation?.cached?.messages,includeBot:onlyRecipientAbsent });
+        messages = await readMessages({ transport, base, token, userNs: String(subscriber.user_ns), maxPages, cached:exactConversation?.cached?.messages,includeBot:true });
         messagesRead += messages.items.length-(messages.reused_message_count || 0);
         messagesReused += messages.reused_message_count || 0;
         cycleReads.set(String(subscriber.user_ns),{messages,fetchedAt:now()});
@@ -628,6 +632,35 @@ export async function syncChatbyReadOnly({
       canonical_order_id: issue.canonical_order_id, canonical_issue_id: issue.canonical_issue_id
     });
     statusCounts.FOUND += 1;
+    if(onlyRecipientAbsent && onAbsentConversation){
+      // Ephemeral exact-case context for the separately gated resolution worker.
+      // Keep the complete candidate set for detecting cross-order references.
+      const events=[...metrics.customer_messages,...metrics.operator_messages].map(item=>{
+        const m=item.message,type=messageType(m);
+        const verified=type==='BUTTON' ? verifyAbsentCallback({...m,user_ns:String(subscriber.user_ns)},item.context_template_slug,absentCallbackContract,new Date(now()),absentVerifiedNotice) : null;
+        return {canonical_issue_id:issue.canonical_issue_id,canonical_order_id:issue.canonical_order_id,
+          chatby_conversation_id_hash:conversationHash,chatby_contact_id_hash:contactHash,
+          chatby_message_id:technicalMessageId(m,issue.canonical_issue_id,hmacKey),created_at:item.at,
+          provider_message_id_verified:Boolean(m.mid || m.id),
+          direction:direction(m),message_type:type,raw_text:rawMessageText(m),
+          button_payload:verified?.canonical_payload || (type==='BUTTON'?absentButtonFor({...m,raw_text:rawMessageText(m)})?.payload || null:null),
+          provider_button_id:verified?.provider_id || null,
+          callback_contract_evidence_id:verified?.contract_evidence_id || null,
+          button_verified:Boolean(verified),relevance_status:'CURRENT_ORDER_EXACT_MATCH',
+          incident_relevance:item.incident_relevance,context_template_slug:item.context_template_slug};
+      });
+      const notice=events.find(e=>e.direction==='OUTBOUND' && e.message_type==='TEMPLATE'
+        && e.provider_message_id_verified && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(e.context_template_slug)
+        && Date.parse(e.created_at)===Date.parse(metrics.incident_notified_at));
+      await onAbsentConversation({events,chatby:{verified:true,history_complete:messages.complete===true,
+        conversation_id:String(subscriber.user_ns),
+        notification_count:messages.items.filter(m=>direction(m)==='OUTBOUND' && messageType(m)==='TEMPLATE'
+          && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(templateSlug(m))
+          && Date.parse(occurredAt(m))>=Date.parse(issue.issue_created_at)).length,
+        chatby_conversation_id_hash:conversationHash,chatby_contact_id_hash:contactHash,
+        notification_message_id:notice?.chatby_message_id || null,template_contact_verified:Boolean(notice),
+        incident_notified_at:metrics.incident_notified_at,observed_at:new Date(observedAt).toISOString()}});
+    }
     foundOrders.add(issue.canonical_order_id);
     availableIssues += 1;
   }

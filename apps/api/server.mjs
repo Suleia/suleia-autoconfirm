@@ -189,6 +189,11 @@ export function createOperationsServer({ config, repository, authenticate, finan
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else if (requestUrl.pathname === '/api/operations/incidents') data = await repository.listIncidents(requestUrl.searchParams);
+      else if (/^\/api\/operations\/automation\/(overview|summary|workflows|actions|metrics)$/.test(requestUrl.pathname)) {
+        const all=await repository.automationOverview(requestUrl.searchParams),part=requestUrl.pathname.split('/').at(-1);
+        data=part==='overview'?all:{[part]:all[part],checked_at:all.checked_at,read_only:true,definitions:all.definitions};
+      }
+      else if (/^\/api\/operations\/automation\/workflows\/[^/]+$/.test(requestUrl.pathname)) data=await repository.automationWorkflow(decodeURIComponent(requestUrl.pathname.split('/').at(-1)),requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/incidents/overview') data = await repository.incidentOverview(requestUrl.searchParams);
       else if (/^\/api\/operations\/incidents\/[^/]+$/.test(requestUrl.pathname)) data = await repository.incidentDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else return json(res, 404, { ok: false, error: 'not_found' });

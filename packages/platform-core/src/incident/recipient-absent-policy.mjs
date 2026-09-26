@@ -9,19 +9,21 @@ export const ABSENT_STEPS = Object.freeze(['ABSENT_DETECTED', 'CUSTOMER_CONTACT_
   'LOGISTICS_VALIDATION_REQUIRED', 'RESOLUTION_PROPOSED', 'WAITING_EXECUTION']);
 const fold = text => String(text || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 const DAY = 86_400_000;
-function madridDay(at) {
+export function madridDay(at) {
   if (at instanceof Date) at = at.toISOString();
   if (!at || !/(?:Z|[+-]\d{2}:?\d{2})$/.test(String(at)) || !Number.isFinite(new Date(at).getTime())) return null;
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(at)).map(p => [p.type, p.value]));
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
-function addDays(day, days) { return new Date(new Date(`${day}T12:00:00Z`).getTime() + days * DAY).toISOString().slice(0, 10); }
+export function addDays(day, days) { return new Date(new Date(`${day}T12:00:00Z`).getTime() + days * DAY).toISOString().slice(0, 10); }
 export function interpretAbsentResponse(event = {}) {
   const button = absentButtonFor(event);
   const text = fold(event.raw_text || event.sanitized_text);
   const base = { customer_intent: 'UNCLEAR', requested_date: null, requested_time_window: null,
     time_from: null, time_to: null, all_day: false, pickup_requested: false, button_pressed: button?.payload || null,
-    raw_customer_text_hash: absentHash(event.raw_text || event.sanitized_text || ''), confidence: 0, reason_code: 'AMBIGUOUS_CUSTOMER_RESPONSE' };
+    raw_customer_text_hash: absentHash(event.raw_text || event.sanitized_text || ''), confidence: 0, unambiguous: false,
+    interpretation_source: button && ['BUTTON','QUICK_REPLY'].includes(event.message_type) && event.button_verified === true ? 'VERIFIED_BUTTON' : 'FREE_TEXT',
+    reason_code: 'AMBIGUOUS_CUSTOMER_RESPONSE' };
   if (!button && String(event.button_payload || event.payload?.payload || event.interactive?.button_reply?.id || '').startsWith('ABSENT_')) return {...base,reason_code:'UNKNOWN_ABSENT_BUTTON_PAYLOAD'};
   const day = madridDay(event.created_at);
   let intent = null;
@@ -48,28 +50,45 @@ export function interpretAbsentResponse(event = {}) {
   if (!day) return { ...base, reason_code: 'CUSTOMER_MESSAGE_TIMESTAMP_NOT_VERIFIED' };
   const weekdays = ['domingo','lunes','martes','miercoles','jueves','viernes','sabado'];
   const selected = weekdays.filter(w => new RegExp(`\\b${w}\\b`).test(text));
-  if (selected.length > 1 || /\b(o|quizas|tal vez|puede que)\b/.test(text)) return base;
+  if (selected.length > 1 || /\b(?:manana\s+o\s+pasado|(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo)\s+o)\b/.test(text)) return {...base,reason_code:'AMBIGUOUS_DELIVERY_DATE'};
+  if (/\b(o|quiza|quizas|tal vez|puede que|menos|cuando|no se)\b/.test(text)) return base;
   let date = null;
+  let slotText = text;
   const explicitDate = text.match(/\b(\d{4}-\d{2}-\d{2})\b/)?.[1];
-  if (event.flow_selection === 'ABSENT_OTHER_DAY' && explicitDate) {
+  if (explicitDate) {
     if (!Number.isFinite(Date.parse(`${explicitDate}T12:00:00Z`)) || new Date(`${explicitDate}T12:00:00Z`).toISOString().slice(0,10)!==explicitDate) return base;
     date = explicitDate;
+    slotText = slotText.replace(explicitDate,'');
   }
-  if (button?.payload?.startsWith('ABSENT_TOMORROW') || /\bmanana\b/.test(text.replace(/por la manana/g, ''))) date = addDays(day, 1);
+  const months=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+  const named=text.match(new RegExp(`\\b(\\d{1,2}) de (${months.join('|')})(?: de (\\d{4}))?\\b`));
+  if(named){
+    if(date)return {...base,reason_code:'AMBIGUOUS_DELIVERY_DATE'};
+    // A past day without a year is ambiguous; never silently move it a year.
+    date=`${named[3] || day.slice(0,4)}-${String(months.indexOf(named[2])+1).padStart(2,'0')}-${named[1].padStart(2,'0')}`;
+    if(!Number.isFinite(Date.parse(`${date}T12:00:00Z`)) || new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)!==date)return base;
+    slotText=slotText.replace(named[0],'');
+  }
+  if (button?.payload?.startsWith('ABSENT_TOMORROW') || /\bmanana\b/.test(text.replace(/por la manana/g, ''))) {
+    if(date || /\bpasado\b/.test(text))return {...base,reason_code:'AMBIGUOUS_DELIVERY_DATE'};
+    date = addDays(day, 1);
+  }
   if (selected.length === 1) {
     if (date) return base;
     const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
     date = addDays(day, (weekdays.indexOf(selected[0]) - weekday + 7) % 7 || 7);
   }
-  if (text.includes('esta tarde')) date = day;
-  if(!date && /^mejor por la (manana|tarde)[.!]?$/.test(text)
+  if (text.includes('esta tarde')) {if(date)return {...base,reason_code:'AMBIGUOUS_DELIVERY_DATE'};date = day;}
+  if(!date && /^(?:(?:mejor|entregar) )?por la (manana|tarde)(?: no, por la (?:manana|tarde) si)?[.!]?$/.test(text)
       && /^\d{4}-\d{2}-\d{2}$/.test(event.correlated_requested_date || '') && event.correlated_requested_date>=day)
     date=event.correlated_requested_date;
-  const slot=absentTimeWindow(text.replace(/\b\d{4}-\d{2}-\d{2}\b/g,''),button?.payload);
-  const window=slot.window || (date && event.flow_selection==='ABSENT_OTHER_DAY' && !/\b(no|imposible)\b/.test(text) && !/\d/.test(text.replace(/\b\d{4}-\d{2}-\d{2}\b/g,'')) ? 'DATE_ONLY':null);
+  if(date && date<day)return {...base,reason_code:'REQUESTED_DATE_IN_PAST'};
+  const slot=absentTimeWindow(slotText,button?.payload);
+  const dateOnlyRemainder=slotText.replace(/\b(entregar|entrega|realizar|el|dia|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo|por favor)\b/g,'').replace(/[\s.!¿?]/g,'');
+  const window=slot.window || (date && !dateOnlyRemainder ? event.flow_selection==='ABSENT_OTHER_DAY'?'DATE_ONLY':'UNSPECIFIED':null);
   if (!window) return {...base,reason_code:slot.reason};
   if (!date) return {...base,requested_time_window:window,time_from:slot.from,time_to:slot.to,reason_code:'REQUESTED_DATE_MISSING'};
   return { ...base, customer_intent: 'RESCHEDULE_DELIVERY', requested_date: date, requested_time_window: window,
-    time_from: slot.from, time_to:slot.to, all_day: window==='ALL_DAY', confidence: 1, reason_code: 'EXACT_CUSTOMER_SLOT' };
+    time_from: slot.from, time_to:slot.to, all_day: window==='ALL_DAY', confidence: 1, unambiguous: true, reason_code: 'EXACT_CUSTOMER_SLOT' };
 }
 export { validateAbsentLogistics, simulateRecipientAbsent } from './absent-decision.mjs';

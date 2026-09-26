@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh sanitized Suleia runtime provenance and current health
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/suleia-operations/infrastructure/vps/refresh-absent-runtime.sh
+TimeoutStartSec=90
+UMask=0077

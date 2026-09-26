@@ -11,3 +11,22 @@ test('two main tabs retain follow-up as a separate current filter; search and ch
 test('sorting exposes direction and resets pagination; six cards retain canonical counts',()=>{const {context,get,data}=setup();context.ui.renderHead();context.ui.state.offset=10;const button=all(get('table-head')).find(e=>e.tagName==='button'&&e.textContent.startsWith('Cliente'));button.events.click();assert.equal(context.ui.state.filters.sort,'customer');assert.equal(context.ui.state.offset,0);assert.match(text(get('table-head')),/Prioridad/);context.ui.renderSummary();assert.equal(get('summary').children.length,6);for(const k of data.summary.dashboard.kpis)assert.ok(text(get('summary')).includes(k.label));});
 test('untrusted message remains text and cannot create an image element',()=>{const {context,data}=setup(),item=data.items[0];item.recovery.evidence.message='<img src=x onerror=alert(1)>';const row=context.ui.rowIncident(item);assert.ok(text(row).includes('<img'));assert.equal(all(row).some(e=>e.tagName==='img'),false);});
 test('responsive styles isolate colors and contain horizontal overflow locally',()=>{const css=fs.readFileSync(new URL('./incident-panel.css',import.meta.url),'utf8');assert.match(css,/min-width:1060px/);assert.match(css,/height:84px/);assert.match(css,/max-width:1400px/);assert.doesNotMatch(css,/(?:^|[,}])\.(?:green|blue|rose|gray)\{/m);const base=fs.readFileSync(new URL('./styles.css',import.meta.url),'utf8');assert.match(base,/\.table-wrap\{overflow-x:auto;max-width:100%/);});
+
+test('observed customer activity renders the actual text, timestamp and customer responded label',()=>{
+  const {context,data}=setup(),item=data.items[0];
+  item.recovery.evidence={customer_interacted:true,valid_response:false,message:'Respuesta sintética posterior',message_type:'TEXT',response_at:'2026-09-22T12:35:58Z'};
+  item.dashboard.flow='CUSTOMER_RESPONDED';
+  const row=context.ui.rowIncident(item);
+  assert.match(text(row),/Respuesta sintética posterior/);
+  assert.match(text(row),/Chatby · .*tras la apertura/);
+  assert.match(text(row),/Cliente respondió/);
+  assert.doesNotMatch(text(row),/Chatby no verificable/);
+});
+test('accepted discount is visible with date and a manual-only queue shortcut',()=>{
+ const {context,get,data}=setup(),item=data.items[0];
+ item.manual_discount={label:'Descuento aceptado · acción manual',pending:true,accepted_at:'2026-09-22T12:00:00Z'};
+ assert.match(text(context.ui.rowIncident(item)),/Descuento aceptado · acción manual/);
+ assert.match(text(context.ui.rowIncident(item)),/sin correo automático/);
+ context.ui.renderFilters();const button=all(get('filters')).find(e=>e.tagName==='button'&&e.textContent.startsWith('Descuentos aceptados'));
+ button.events.click();assert.equal(context.ui.state.filters.manual_discount,'pending');assert.equal(context.ui.state.filters.scope,'ACTIVE');
+});

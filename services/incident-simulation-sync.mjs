@@ -4,6 +4,8 @@ import { decryptOperationsPrivateJson } from '../packages/suleia-operations-mcp/
 import { ABSENT_POLICY_HASH } from '../packages/platform-core/src/incident/absent-evidence.mjs';
 import { INCIDENT_NOTIFICATION_TEMPLATES } from '../packages/platform-core/src/incident/notification-evidence.mjs';
 import { buildIncidentAutopilotProjection } from '../packages/platform-core/src/incident/autopilot.mjs';
+import { absentSolutionCapability } from './integrations/dropea/absent-solution.mjs';
+import {projectAddressCanonical} from './address-canonical-projection.mjs';
 
 async function persistAutopilot(projector, { issue, order, interpretation, decision, now }) {
   if (typeof projector.recordIncidentAutopilotProjection !== 'function') return null;
@@ -41,6 +43,11 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
   let simulated = 0;
   let blocked = 0;
   for (const row of candidates.rows) {
+    if(row.type==='ADDRESS_INCORRECT'||row.raw_type==='ADDRESS_INCORRECT') {
+      const result=await projectAddressCanonical(pool,row.canonical_issue_id,{now:now()});
+      interpreted+=1;simulated+=1;if(result.decision?.blocking_reasons.length)blocked+=1;
+      continue;
+    }
     const events = await pool.query(`SELECT canonical_issue_id,canonical_order_id,direction,message_type,button_payload,
       sanitized_text,occurred_at AS created_at,incident_version,relevance_status,intent,intent_confidence,
       chatby_message_id_hash AS chatby_message_id
@@ -90,12 +97,13 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
         WHERE market=$1 AND store_id=$2 AND resource_type='issues' AND pagination_complete=true
         ORDER BY last_successful_sync_at DESC LIMIT 1`, [row.market || 'ES', row.store_id]);
       const clearEvents = evidence.rows.map(e => ({ ...e,
+        button_verified: e.message_type==='BUTTON' && Boolean(e.button_payload),
         raw_text: decryptOperationsPrivateJson(e.message_text_ciphertext, privateDataKey)?.text || '',
         message_text_ciphertext: undefined }));
       const context = absentLogisticsRead ? await absentLogisticsRead(issue) : { gls: {} };
       const notificationEvent=clearEvents.find(e=>e.canonical_issue_id===row.canonical_issue_id
         && e.canonical_order_id===row.canonical_order_id && e.direction==='OUTBOUND' && e.message_type==='TEMPLATE'
-        && e.context_template_slug==='dropea_ausente_v3' && e.chatby_message_id
+        && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(e.context_template_slug) && e.chatby_message_id
         && new Date(e.created_at).getTime()===new Date(row.incident_notified_at).getTime());
       const policy=await pool.query(`SELECT p.id AS policy_id,v.checksum AS policy_snapshot_hash,a.status
         FROM configuration.policies p JOIN configuration.policy_versions v USING(policy_name)
@@ -116,10 +124,14 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
           notification_message_id:notificationEvent?.chatby_message_id || null,
           template_status: absentTemplateStatus,
           chatby_conversation_id_hash:row.chatby_conversation_id_hash,chatby_contact_id_hash:row.chatby_contact_id_hash,
+          history_complete: row.conversation_status==='FOUND' && row.conversation_freshness==='FRESH',
           observed_at: row.conversation_observed_at, template_contact_verified: clearEvents.some(e => e.canonical_issue_id===row.canonical_issue_id
             && e.direction==='OUTBOUND' && e.message_type==='TEMPLATE' && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(e.context_template_slug)
             && new Date(e.created_at)>=new Date(row.created_at)) },
         history: { ...history.rows[0], verified: Boolean(history.rows[0]), previous_absences: previous.rows[0]?.previous_absences || 0 },
+        resolutionContext:{verified_phone:context.verified_phone || {},order_observed_at:context.dropea_order_observed_at,
+          logistics_capability:absentSolutionCapability({issue,observedAt:issue.observed_at}),
+          runtime_blockers:['ABSENT_RESOLUTION_LIVE_DISABLED']},
         previousTimer: timers.rows[0] || null,timeline:timeline.rows,policy:{...policy.rows[0],registry_required:true}, now: now() });
       await projector.upsertIncidentInterpretation(result.interpretation);
       await projector.recordIncidentSimulation(result.simulation_record);

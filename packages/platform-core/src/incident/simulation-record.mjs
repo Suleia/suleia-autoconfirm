@@ -6,9 +6,9 @@ function sourceEvent(issue) {
   return issue.source_event_id || `poll:${issue.canonical_issue_id}:${issue.updated_at}`;
 }
 
-export function buildIncidentSimulation({ issue, order, events = [], gls = {}, chatby = {}, history = {}, previousTimer = null, timeline = [], policy = {}, now = new Date(), holidays = [] }) {
+export function buildIncidentSimulation({ issue, order, events = [], gls = {}, chatby = {}, history = {}, previousTimer = null, timeline = [], policy = {}, resolutionContext = null, now = new Date(), holidays = [] }) {
   if (issue.type === 'RECIPIENT_ABSENT') {
-    const result = simulateRecipientAbsent({ issue, order, events, gls, chatby, history, previousTimer, timeline, policy }, { now });
+    const result = simulateRecipientAbsent({ issue, order, events, gls, chatby, history, previousTimer, timeline, policy, resolutionContext }, { now });
     return { ...result, simulation_record: {
       simulation_id: result.decision.decision_id, canonical_issue_id: issue.canonical_issue_id,
       canonical_order_id: order.canonical_order_id, issue_version: issue.updated_at,
