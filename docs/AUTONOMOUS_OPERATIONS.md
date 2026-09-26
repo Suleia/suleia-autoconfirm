@@ -4,10 +4,13 @@ The incident cockpit and Automation consume `incidentAutonomy` from
 `automation-presentation.mjs`. No operational worker imports this presentation
 module. Existing classifiers, policies, timers and execution gates remain intact.
 
-Migration 047 adds two SELECT-only views: `operations_workflow_status` and
-`operations_workflow_recent_actions`. Summary and metric read models are composed
+Migration 047 adds three SELECT-only views: `operations_workflow_incidents`,
+`operations_workflow_status` and `operations_workflow_recent_actions`. The first
+preserves known original types when the normalized type is UNKNOWN, matching the
+incident cockpit's presentation without altering stored classification.
+Summary and metric read models are composed
 in the backend from these views and the same incident projection as the cockpit.
-No history is rewritten. Roles gain SELECT only. The rollback drops the two views.
+No history is rewritten. Roles gain SELECT only. The rollback drops the three views.
 
 Authenticated GET routes under `/api/operations/automation`: `overview`,
 `summary`, `workflows`, `workflows/:workflow`, `actions`, `metrics`.
@@ -15,6 +18,8 @@ The UI uses one aggregate overview, never one request per card/workflow.
 Periods: today in Europe/Madrid, rolling 7 or 30 days. Incident metrics use
 incidents created in that period; controls show current state. Rates count unique
 canonical incidents. Each metric carries numerator, denominator and definition.
+Prepared/review rates exclude closed historical cases. Response rate requires
+complete response/silence coverage; unknown coverage is not a zero response rate.
 Unavailable attribution or coverage yields null, not zero. In particular a human
 review queue does not establish a human intervention; a verified provider action
 alone does not prove absence of all human intervention.

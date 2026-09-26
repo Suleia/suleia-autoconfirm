@@ -1,15 +1,20 @@
 BEGIN;
 -- Presentation only. No operational rows, flags, timers or policies are changed.
+CREATE OR REPLACE VIEW read_models.operations_workflow_incidents AS
+SELECT canonical_issue_id,canonical_order_id,created_at,updated_at,status,is_active,
+ CASE WHEN raw_type IN ('REFUSED','REJECTED_BY_RECIPIENT') THEN 'REFUSED_BY_RECIPIENT'
+ ELSE coalesce(nullif(type,'UNKNOWN'),raw_type,'UNKNOWN') END AS workflow
+FROM read_models.operations_incident_records;
 CREATE OR REPLACE VIEW read_models.operations_workflow_status AS
 WITH workflows AS (
- SELECT DISTINCT type AS workflow FROM read_models.operations_incident_records
+ SELECT DISTINCT workflow FROM read_models.operations_workflow_incidents
  UNION SELECT workflow FROM operations.recipient_absent_native_control
 ), cases AS (
- SELECT i.type AS workflow,count(*) AS case_count,max(c.updated_at) AS last_activity,
+ SELECT i.workflow,count(*) AS case_count,max(c.updated_at) AS last_activity,
  bool_or(c.mode IN ('SIMULATION','SHADOW_READ_ONLY')) AS has_shadow
  FROM operations.incident_autopilot_cases c
- JOIN read_models.operations_incident_records i USING(canonical_issue_id,canonical_order_id)
- GROUP BY i.type
+ JOIN read_models.operations_workflow_incidents i USING(canonical_issue_id,canonical_order_id)
+ GROUP BY i.workflow
 )
 SELECT w.workflow,coalesce(c.case_count,0) AS case_count,c.last_activity,c.has_shadow,
  n.status AS notification_mode,n.automation_live,n.native_send_enabled,n.template_sends_enabled,
@@ -41,13 +46,13 @@ SELECT 'resolution:'||canonical_issue_id,'RECIPIENT_ABSENT',canonical_issue_id,'
  created_at,CASE WHEN status='APPLIED' THEN updated_at END,CASE WHEN status='APPLIED' THEN updated_at END,
  updated_at,'REAL',NULL FROM operations.recipient_absent_resolutions
 UNION ALL
-SELECT 'shadow:'||a.action_id,i.type,a.canonical_issue_id,a.action_type,a.provider,
+SELECT 'shadow:'||a.action_id,i.workflow,a.canonical_issue_id,a.action_type,a.provider,
  CASE WHEN a.status='BLOCKED' THEN 'BLOCKED' ELSE 'PREPARED' END,
  NULL::timestamptz,NULL::timestamptz,NULL::timestamptz,a.created_at,'SHADOW',NULL
 FROM operations.incident_action_outbox a
-JOIN read_models.operations_incident_records i USING(canonical_issue_id,canonical_order_id);
+JOIN read_models.operations_workflow_incidents i USING(canonical_issue_id,canonical_order_id);
 
-REVOKE ALL ON read_models.operations_workflow_status,read_models.operations_workflow_recent_actions FROM PUBLIC;
-GRANT SELECT ON read_models.operations_workflow_status,read_models.operations_workflow_recent_actions
+REVOKE ALL ON read_models.operations_workflow_incidents,read_models.operations_workflow_status,read_models.operations_workflow_recent_actions FROM PUBLIC;
+GRANT SELECT ON read_models.operations_workflow_incidents,read_models.operations_workflow_status,read_models.operations_workflow_recent_actions
  TO suleia_operations_readonly,suleia_mcp_readonly,suleia_backup;
 COMMIT;
