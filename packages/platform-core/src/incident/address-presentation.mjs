@@ -1,13 +1,13 @@
-const labels={WAIT_FOR_NOTIFICATION:'Esperar envío inicial verificable',WAIT_FOR_CUSTOMER:'Esperar respuesta',OFFER_5_EURO_DISCOUNT:'Ofrecer descuento de 5 €',RETURN_TO_ORIGIN:'Solicitar devolución',PROVIDE_ADDRESS_SOLUTION:'Aportar dirección en Dropea',ASK_MISSING_FIELDS:'Pedir datos de dirección',HUMAN_REVIEW:'Revisar dirección',MANUAL_DISCOUNT_RECOVERY:'Descuento aceptado · acción manual'};
+const labels={WAIT_FOR_NOTIFICATION:'Esperar envío inicial verificable',WAIT_FOR_CUSTOMER:'Esperar respuesta',OFFER_5_EURO_DISCOUNT:'Ofrecer descuento de 5 €',RETURN_TO_ORIGIN:'Solicitar devolución',CHANGE_ADDRESS:'Cambiar dirección en Dropea',PICKUP_AT_AGENCY:'Solicitar recogida en agencia',PROVIDE_ADDRESS_SOLUTION:'Aportar dirección en Dropea',ASK_MISSING_FIELDS:'Pedir datos de dirección',HUMAN_REVIEW:'Revisar dirección',MANUAL_DISCOUNT_RECOVERY:'Descuento aceptado · acción manual'};
 export function addressWorkflowPresentation(base,owner){
  const age=Date.now()-Date.parse(owner?.observed_at),fresh=owner?.workflow==='ADDRESS_INCORRECT'&&age>=0&&age<5*60000;
- const stages={detection:'Detectar',notification:'Aviso nativo',interpretation:'Interpretar',decision:'Decidir',details:'Pedir datos',solution:'Aportar dirección',offer:'Ofrecer 5 €',return:'Devolución'};
+ const stages={detection:'Detectar',notification:'Aviso nativo',interpretation:'Interpretar',decision:'Decidir',details:'Pedir datos',solution:'Aportar dirección',change_address:'Cambiar dirección',pickup:'Recogida en agencia',offer:'Ofrecer 5 €',return:'Devolución'};
  const cycleAge=Date.now()-Date.parse(owner?.last_cycle_at),healthy=fresh&&cycleAge>=0&&cycleAge<45*60000;
  return {...base,owner:'render_incident_automation',health:healthy?'HEALTHY':fresh?'UNHEALTHY':'UNKNOWN',runtime:owner||null,
   stages:Object.entries(stages).map(([id,label])=>({id,label,mode:fresh?owner.stages?.[id]||null:null,label_mode:fresh?owner.stages?.[id]||'Sin evidencia':'Sin evidencia'})),
-  breakers:['details','solution','offer','return'].map(id=>({id,label:stages[id],status:fresh?owner.breakers?.[id]:null,label_status:fresh&&owner.breakers?.[id]==='OPEN'?'Abierto':fresh?'Cerrado':'Sin evidencia'})),
+  breakers:['details','solution','change_address','pickup','offer','return'].map(id=>({id,label:stages[id],status:fresh?owner.breakers?.[id]:null,label_status:fresh&&owner.breakers?.[id]==='OPEN'?'Abierto':fresh&&owner.breakers?.[id]==='CLOSED'?'Cerrado':'Sin evidencia'})),
   current_activity:fresh?'Plazos desde el envío inicial real: 24 h oferta, 48 h devolución. Una dirección parcial pasa a espera y revisión manual.':'Sin lectura reciente del propietario Render.',
-  policy:owner?.policy||null,playbook:['Aviso nativo observado','Leer respuesta actual','Dirección válida → aportar solución','Dirección incompleta → pedir datos → revisión manual','Sin respuesta válida → 24 h oferta → 48 h devolución','Descuento aceptado → gestión manual']};
+  policy:owner?.policy||null,playbook:['Aviso nativo observado','Leer respuesta actual','Dirección nueva → cambio de dirección permitido; alternativa: aportar solución','Dirección incompleta → pedir datos → revisión manual','Recogida en agencia → comprobar permiso y solicitar','Sin respuesta válida → 24 h oferta → 48 h devolución','Descuento aceptado → gestión manual']};
 }
 export function addressIncidentPresentation(item){
  const d=item.address_observation;if(!d||item.interpreted_type!=='ADDRESS_INCORRECT')return item;

@@ -617,7 +617,7 @@ function absentShadowCard(item, expanded = false) {
 }
 function addressWorkflowDetail(incident){
  const d=incident.address_observation;if(!d)return document.createDocumentFragment();
- const names={street:'Calle',number:'Número',floor:'Piso',door:'Puerta',postal_code:'Código postal',city:'Localidad',province:'Provincia',reference_notes:'Referencias'};
+ const names={street:'Calle',number:'Número',floor:'Piso',door:'Puerta',postal_code:'Código postal',city:'Localidad',province:'Provincia',country:'País',reference_notes:'Referencias'};
  const fields=[['Plantilla inicial',d.template_name],['Envío real (T0)',date(d.notification_at)],['Última respuesta',date(d.last_customer_at)],
   ['Estado',d.state],['Intención',d.intent],['Siguiente acción',incident.next_best_action?.label],['Motivo',incident.next_best_action?.reason],
   ['Oferta a las 24 h',d.initial_milestones?'Anulada por respuesta':date(d.offer_due_at)],['Devolución a las 48 h',d.initial_milestones?'Anulada por respuesta':date(d.return_due_at)],
@@ -626,6 +626,10 @@ function addressWorkflowDetail(incident){
   ['Etapas',Object.entries(d.stages||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')],['Decisión',d.decision_id||'No verificable']];
  const address=incident.address_details?.provided;
  if(address)for(const [k,label] of Object.entries(names))fields.push([`Dirección aportada · ${label}`,address[k]||'No aportado']);
+ const original=incident.address_details?.original;
+ if(original)for(const [k,label] of Object.entries({address_line_1:'Dirección',address_line_2:'Complemento',postal_code:'Código postal',city:'Localidad',state:'Provincia',country:'País'}))fields.push([`Dirección original · ${label}`,original[k]||'No disponible']);
+ if(d.provider_plan)fields.push(['Acción Dropea',d.provider_plan.action],['Permiso comprobado',d.provider_plan.allowed?'Permitida en última lectura':d.provider_plan.reason||'No verificado']);
+ fields.push(['Gestión de datos incompletos','Espera interna en Suleia; no cierra la incidencia en Dropea']);
  return section('Dirección · evidencia y automatización',fields);
 }
 function discountRecoveryDetail(incident) {
