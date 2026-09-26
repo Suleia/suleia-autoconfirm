@@ -415,6 +415,8 @@ export async function processIncidentDiscountRecovery({
   now = Date.now(),
   dependencies = {}
 } = {}) {
+  if (process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return recoveryResult({reason:'rejected_master_disabled'});
+  if (process.env.RECIPIENT_REJECTED_OFFER_BREAKER === 'OPEN') return recoveryResult({reason:'rejected_offer_breaker_open'});
   const deps = {
     getMessages: dependencies.getMessages || getChatMessages,
     getTemplate: dependencies.getTemplate || findTemplate,

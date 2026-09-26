@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { automaticIncidentReturnReconciliationDue, executeIncidentDiscountNoResponseReturn, verifyExactIncidentReturn, reconcileIncidentDiscountReturnLedger } from './incidents.mjs';
 
-test('reconciles only stale persistent claims or old transient action failures', () => {
+test('only explicit transient provider failures are eligible for a new automatic write', () => {
   const current = Date.parse('2026-07-16T17:00:00.000Z');
-  assert.equal(automaticIncidentReturnReconciliationDue({ status: 'claimed', attempted_at: '2026-07-16T16:29:00.000Z' }, { now: current }), true);
+  assert.equal(automaticIncidentReturnReconciliationDue({ status: 'claimed', attempted_at: '2026-07-16T16:29:00.000Z' }, { now: current }), false);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'claimed', attempted_at: '2026-07-16T16:45:00.000Z' }, { now: current }), false);
-  assert.equal(automaticIncidentReturnReconciliationDue({ status: 'reconciliation_claimed', attempted_at: '2026-07-16T16:29:00.000Z' }, { now: current }), true);
+  assert.equal(automaticIncidentReturnReconciliationDue({ status: 'reconciliation_claimed', attempted_at: '2026-07-16T16:29:00.000Z' }, { now: current }), false);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:29:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_503' }, { now: current }), true);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:29:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_429' }, { now: current }), true);
   assert.equal(automaticIncidentReturnReconciliationDue({ status: 'manual_reconciliation_required', attempted_at: '2026-07-16T16:29:00.000Z', last_error: 'DROPEA_V2_ISSUE_ACTION_HTTP_400' }, { now: current }), false);
@@ -36,11 +36,11 @@ test('reconciles ambiguous applied actions without a POST and separates carrier 
   assert.equal(writes[1].evidence.verified,false);
 });
 
-test('ambiguous network outcomes replay the original persistent nonce only within its 24h life', async () => {
+test('ambiguous network outcomes never replay automatically', async () => {
   const now=Date.parse('2026-09-17T17:00:00Z');
   const original='2026-09-17T16:00:00Z';
   const existing={status:'manual_reconciliation_required',attempted_at:original,last_error:'DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN',raw:{requestNonce:original}};
-  assert.equal(automaticIncidentReturnReconciliationDue(existing,{now}),true);
+  assert.equal(automaticIncidentReturnReconciliationDue(existing,{now}),false);
   assert.equal(automaticIncidentReturnReconciliationDue(existing,{now:now+24*3600000}),false);
   let nonce;
   const result=await executeIncidentDiscountNoResponseReturn({incidenceId:'51',orderId:'61',incidentType:'rejected_goods',chatbyUserNs:'fixture',chatbyReadVerified:true},
@@ -49,10 +49,10 @@ test('ambiguous network outcomes replay the original persistent nonce only withi
       readCurrent:async()=>({issue:{status:'PENDING',is_active:true,allowed_resolution_options:['RETURN_REQUESTED']}}),readMessages:async()=>[],
       claimReturn:async()=>({acquired:false,persistent:true,reason:'already_claimed',existing}),reclaimReturn:async()=>({acquired:true,persistent:true,row:{attempted_at:'2026-09-17T17:00:00Z'}}),
       returnIssue:async(_id,opts)=>{nonce=opts.idempotencyNonce;return {};},verifyReturn:async()=>({verified:true}),finishReturn:async()=>null,auditReturn:async()=>null});
-  assert.equal(result.verified,true);assert.equal(nonce,original);
+  assert.equal(result.status,'ALREADY_CLAIMED');assert.equal(nonce,undefined);
 });
 
-test('an automatic cycle atomically reclaims one stale claim and calls Dropea once', async () => {
+test('a stale claim requires read reconciliation and never another POST', async () => {
   let reclaimed = 0;
   let returned = 0;
   const result = await executeIncidentDiscountNoResponseReturn({
@@ -63,7 +63,7 @@ test('an automatic cycle atomically reclaims one stale claim and calls Dropea on
     chatbyReadVerified: true
   }, {
     templateName: 'fixture-discount',
-    sentAt: '2026-07-15T16:00:00.000Z',
+    sentAt: '2026-07-14T16:00:00.000Z',
     verified: true,
     responseStatus: 'NO_RESPONSE'
   }, {
@@ -80,7 +80,8 @@ test('an automatic cycle atomically reclaims one stale claim and calls Dropea on
     finishReturn: async () => null,
     auditReturn: async () => null
   });
-  assert.equal(result.status, 'RETURN_REQUESTED_VERIFIED');
-  assert.equal(reclaimed, 1);
-  assert.equal(returned, 1);
+  assert.equal(result.status, 'ALREADY_CLAIMED');
+  assert.equal(reclaimed, 0);
+  assert.equal(returned, 0);
 });
+

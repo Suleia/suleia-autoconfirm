@@ -45,6 +45,7 @@ import { incidentTemplateNameForType, processIncidentNotification } from './inci
 import { incorrectAddressOperationalDecision } from './incident-address-resolution.mjs';
 import { inspectPriorOrderReturn } from './incident-order-return-guard.mjs';
 import { createIncidentSyncQueue } from '../incident-sync-queue.mjs';
+import { REJECTED_POLICY, rejectedIntent, rejectedDecisionSnapshot } from './recipient-rejected-policy.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -1055,20 +1056,16 @@ async function currentPendingIncident(incidenceId, orderId) {
   )) || null;
 }
 
-const INCIDENT_DISCOUNT_RETURN_AFTER_HOURS = 24;
+const INCIDENT_DISCOUNT_RETURN_AFTER_HOURS = REJECTED_POLICY.recovery_timeout_hours;
 const INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES = 30;
 const activeIncidentDiscountReturns = new Set();
 
 export function automaticIncidentReturnReconciliationDue(existing, { now = Date.now(), delayMinutes = INCIDENT_DISCOUNT_RETURN_RECONCILIATION_DELAY_MINUTES } = {}) {
   const status = String(existing?.status || '').toLowerCase();
-  const staleClaim = status === 'claimed' || status === 'reconciliation_claimed';
+  // An uncertain write is reconciled by GET, never replayed by the scheduler.
   const transientFailure = status === 'manual_reconciliation_required'
     && /^DROPEA_V2_ISSUE_ACTION_HTTP_(429|5\d\d)$/.test(String(existing?.last_error || ''));
-  const nonceAt = Date.parse(String(existing?.raw?.requestNonce || ''));
-  const ambiguousFailure = status === 'manual_reconciliation_required'
-    && ['DROPEA_V2_ISSUE_ACTION_NETWORK_UNKNOWN', 'DROPEA_V2_ISSUE_ACTION_RESPONSE_SCHEMA_INVALID'].includes(existing?.last_error)
-    && Number.isFinite(nonceAt) && Number(now) >= nonceAt && Number(now) - nonceAt < 24 * 3_600_000;
-  if (!staleClaim && !transientFailure && !ambiguousFailure) return false;
+  if (!transientFailure) return false;
   const attemptedAt = Date.parse(String(existing?.attempted_at || existing?.updated_at || ''));
   const nowMs = Number(now);
   if (!Number.isFinite(attemptedAt) || !Number.isFinite(nowMs)) return false;
@@ -1188,21 +1185,23 @@ export function incidentDiscountNoResponseReturnDecision({ incident, discountRec
     return { eligible: false, status: 'BLOCKED', reason: 'evaluation_time_invalid', dueAt };
   }
   if (nowMs < Date.parse(dueAt)) {
-    return { eligible: false, status: 'WAITING_24_HOURS', reason: 'waiting_return_window', dueAt };
+    return { eligible: false, status: 'WAITING_48_HOURS', reason: 'waiting_return_window', dueAt };
   }
   return {
     eligible: true,
     status: 'READY_FOR_RETURN',
     action: 'return_to_origin',
-    ruleId: 'core_incident_discount_no_response_return_24h',
+    ruleId: 'core_incident_discount_no_response_return_48h',
     confidence: 100,
-    reason: 'Han transcurrido 24 horas desde la entrega verificada del descuento sin mensajes, botones ni acciones del cliente.',
+    reason: 'Han transcurrido 48 horas desde la entrega verificada del descuento sin mensajes, botones ni acciones del cliente.',
     responseStatus: 'NO_RESPONSE',
     dueAt
   };
 }
 
 export async function executeIncidentDiscountNoResponseReturn(incident, discountRecovery, dependencies = {}) {
+  if (process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return {status:'BLOCKED_MASTER',verified:false};
+  if (process.env.RECIPIENT_REJECTED_RETURN_BREAKER === 'OPEN') return {status:'BLOCKED_RETURN_BREAKER',verified:false};
   const decision = incidentDiscountNoResponseReturnDecision({
     incident,
     discountRecovery,
@@ -1349,6 +1348,14 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       response = await returnIssue(incident.incidenceId, { idempotencyNonce: requestNonce });
     } catch (error) {
       const errorCode = safeIncidentActionError(error);
+      const reconciled = await verifyReturn(incident).catch(() => null);
+      if (reconciled?.verified === true) {
+        await finishReturn({storeId:config.defaultStore.id,orderId:incident.orderId,incidenceId:incident.incidenceId,
+          status:'verified',attemptedAt,completedAt:new Date().toISOString(),
+          evidence:{ruleId:decision.ruleId,verified:true,responseStatus:expectedResponseStatus,requestNonce,reconciled:true}});
+        const result={...decision,status:'RETURN_REQUESTED_VERIFIED',attemptedAt,verified:true,reconciled:true};
+        await auditReturn(incident,decision,result).catch(()=>null);return result;
+      }
       await finishReturn({
         storeId: config.defaultStore.id,
         orderId: incident.orderId,
@@ -1949,8 +1956,7 @@ function isAuthorizedFiveEuroDiscountOffer(text) {
 }
 
 function isExplicitDiscountRejection(text) {
-  const source = normalize(text).replace(/\s+/g, ' ');
-  return /no muchas gracias|no,? gracias|no (?:estoy|estamos) interesad|no me interesa|no nos interesa|no lo quiero|no quiero (?:el|este|ese) pedido|quiero cancelar|cancelar (?:el )?pedido|anular (?:el )?pedido|rechazo (?:el )?pedido/.test(source);
+  return rejectedIntent(text,{offerVerified:true}).requests_return === true;
 }
 
 function isExplicitDiscountAcceptance(text) {
@@ -2864,6 +2870,11 @@ async function performPendingIncidentSync({
         incidentDiscountReturnCompletedAt: discountReturn.completedAt || null,
         incidentDiscountReturnVerified: discountReturn.verified === true,
         incidentDiscountReturnPriorIncidenceId: discountReturn.priorIncidenceId || null,
+        recipientRejectedDecision: item.incident.incidentType === 'rejected_goods' ? rejectedDecisionSnapshot({
+          incident:{...item.incident,incidentDiscountReturnStatus:discountReturn.status},recovery:discountRecovery,
+          response:{...rejectedIntent(item.incident.lastCustomerMessage,{offerVerified:discountRecovery.verified===true}),
+            respondedAt:item.incident.lastCustomerAt||null}
+        }) : undefined,
         incidentNotification: notification,
         incidentNotificationStatus: notification.status,
         incidentNotificationTemplate: notification.templateName,
@@ -2878,6 +2889,14 @@ async function performPendingIncidentSync({
         operationalActionCompletedAt: actionResult.completedAt || null,
         operationalActionVerifiedAt: actionResult.verifiedAt || null
       };
+      if(enrichedIncident.recipientRejectedDecision){
+        const previous=previousByOrderId.get(String(item.incident.orderId));
+        const same=String(previous?.incidenceId)===String(item.incident.incidenceId);
+        const prior=same?previous?.recipientRejectedDecision:null;
+        const history=same?(previous?.recipientRejectedDecisionHistory||[]):[];
+        enrichedIncident.recipientRejectedDecisionHistory=[...history,
+          ...(prior&&prior.decision_id!==enrichedIncident.recipientRejectedDecision.decision_id?[{...prior,decision_status:'SUPERSEDED'}]:[])].slice(-100);
+      }
       incidents.push(enrichedIncident);
     }
 
@@ -2905,7 +2924,7 @@ async function performPendingIncidentSync({
       automaticEnabled: returnOnly !== true && config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
       delayHoursAfterDiscount: INCIDENT_DISCOUNT_RETURN_AFTER_HOURS,
       authorizedIncidentIds: requestedIncidentIds,
-      waiting: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'WAITING_24_HOURS').length,
+      waiting: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'WAITING_48_HOURS').length,
       blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'BLOCKED_CUSTOMER_ACTIVITY').length,
       requestedVerified: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_REQUESTED_VERIFIED').length,
       alreadyRequestedForOrder: sortedIncidents.filter((incident) => incident.incidentDiscountReturnStatus === 'RETURN_ALREADY_REQUESTED_FOR_ORDER').length,
@@ -2934,7 +2953,7 @@ async function performPendingIncidentSync({
       agentName: 'Agente de incidencias',
       agentMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'training_read_only',
       agentModeLabel: config.incidentDiscountRealEnabled
-        ? 'Recuperacion comercial de 5 EUR y devolucion gobernada tras otras 24 h sin respuesta'
+        ? 'Recuperacion comercial de 5 EUR y devolucion gobernada tras otras 48 h sin respuesta'
         : 'Lectura V2 y analisis; sin mensajes ni acciones automaticas',
       notificationMode: config.incidentDiscountRealEnabled ? 'discount_recovery_live' : 'disabled',
       notificationModeLabel: config.incidentDiscountRealEnabled
@@ -2963,6 +2982,8 @@ async function performPendingIncidentSync({
       state.lastIncidentsSyncCount = sortedIncidents.length;
       state.lastIncidentDiscountRecoveryAt = updatedAt;
       state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
+      state.lastRejectedNativeContactObserved = sortedIncidents.some(i=>i.incidentType==='rejected_goods'
+        && i.incidentDiscountInitialTemplateSentAt && Date.now()-Date.parse(i.incidentDiscountInitialTemplateSentAt)<86400000);
       state.lastIncidentDiscountReturnSummary = discountReturnSummary;
       state.lastIncidentReturnReconciliationSummary = returnReconciliationSummary;
       saveState(state);

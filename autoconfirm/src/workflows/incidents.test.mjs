@@ -25,7 +25,7 @@ const rejectedDiscountIncident = {
 
 const verifiedDiscount = {
   templateName: 'es_ES dropea_incidencia_descuento_5',
-  sentAt: '2026-07-15T16:00:00.000Z',
+  sentAt: '2026-07-14T16:00:00.000Z',
   verified: true,
   responseStatus: 'NO_RESPONSE'
 };
@@ -110,14 +110,14 @@ test('never recovers Chatby from a different order, failed delivery or older inc
   assert.equal(reads, 0);
 });
 
-test('requests a return only after 24 hours from a verified discount with no customer activity', () => {
+test('requests a return only after 48 hours from a verified discount with no customer activity', () => {
   const before = incidentDiscountNoResponseReturnDecision({
     incident: rejectedDiscountIncident,
     discountRecovery: verifiedDiscount,
     now: Date.parse('2026-07-16T15:59:59.999Z')
   });
   assert.equal(before.eligible, false);
-  assert.equal(before.status, 'WAITING_24_HOURS');
+  assert.equal(before.status, 'WAITING_48_HOURS');
 
   const due = incidentDiscountNoResponseReturnDecision({
     incident: rejectedDiscountIncident,
@@ -126,7 +126,7 @@ test('requests a return only after 24 hours from a verified discount with no cus
   });
   assert.equal(due.eligible, true);
   assert.equal(due.action, 'return_to_origin');
-  assert.equal(due.ruleId, 'core_incident_discount_no_response_return_24h');
+  assert.equal(due.ruleId, 'core_incident_discount_no_response_return_48h');
 });
 
 test('any response or unverified Chatby read blocks the discount return rule', () => {
@@ -725,7 +725,7 @@ test('does not return a no-money rejection when the customer responded later', (
   assert.notEqual(decision.action, 'return_to_origin');
 });
 
-test('returns a price rejection only after a verified 5 EUR offer and later explicit refusal', () => {
+test('does not confuse declining an offer with rejecting the order', () => {
   const decision = incidentOperationalDecision({
     classification: { type: 'rejected_goods' },
     chatby: {
@@ -739,9 +739,7 @@ test('returns a price rejection only after a verified 5 EUR offer and later expl
     incidentDate: '2026-07-16T14:05:40.000Z',
     now
   });
-  assert.equal(decision.action, 'return_to_origin');
-  assert.equal(decision.ruleId, 'core_incident_discount_rejected_return');
-  assert.equal(decision.confidence, 99);
+  assert.notEqual(decision.action, 'return_to_origin');
 });
 
 test('does not return a price rejection when the discount offer is not verified', () => {
@@ -778,3 +776,4 @@ test('keeps the order active when the customer accepts the verified discount', (
   assert.equal(decision.ruleId, 'core_incident_discount_accepted_requires_price_update');
   assert.equal(decision.confidence, 96);
 });
+
