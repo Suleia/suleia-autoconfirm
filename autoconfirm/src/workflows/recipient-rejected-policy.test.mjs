@@ -29,3 +29,9 @@ test('owner modes expire and never invent applied discount capability',()=>{
  assert.equal(rejectedRuntimeStatus(config,state,Date.parse('2026-09-26T10:00:00Z'),{}).stages.return,'UNKNOWN');
  assert.equal(rejectedRuntimeStatus(config,state,Date.parse('2026-09-26T09:10:00Z'),{RECIPIENT_REJECTED_AUTOMATION_LIVE:'false'}).stages.return,'OFF');
 });
+test('canonical timer waits 48h and prior return blocks a later recovery proposal',()=>{
+ const args={incident:{orderId:'fixture-order',incidenceId:'fixture-issue',chatbyReadVerified:true},response:rejectedIntent(''),recovery:{verified:true,sentAt:'2026-09-20T10:00:00Z'},now:Date.parse('2026-09-22T09:59:59Z')};
+ assert.equal(rejectedDecisionSnapshot(args).next_best_action,'WAIT_FOR_CUSTOMER');
+ assert.equal(rejectedDecisionSnapshot({...args,now:Date.parse('2026-09-22T10:00:00Z')}).next_best_action,'RETURN_TO_ORIGIN');
+ assert.equal(rejectedDecisionSnapshot({...args,incident:{...args.incident,incidentDiscountReturnStatus:'RETURN_ALREADY_REQUESTED_FOR_ORDER'},response:rejectedIntent('Acepto',{offerVerified:true})}).next_best_action,'HUMAN_REVIEW');
+});

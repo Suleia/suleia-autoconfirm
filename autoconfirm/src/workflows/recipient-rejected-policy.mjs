@@ -41,11 +41,12 @@ export function rejectedDecisionSnapshot({ incident, response, recovery, now = D
     intent: response.intent || 'AMBIGUOUS', responded_at: response.respondedAt || null,
     offer_at: recovery.sentAt || null, return_status: incident.incidentDiscountReturnStatus || null };
   let next = 'HUMAN_REVIEW';
-  if (input.read_verified) {
+  const returned = ['RETURN_REQUESTED_VERIFIED','RETURN_ALREADY_REQUESTED_FOR_ORDER','RETURN_REQUESTED_UNVERIFIED','MANUAL_RECONCILIATION_REQUIRED'].includes(input.return_status);
+  if (input.read_verified && !returned) {
     if (response.intent === 'REQUESTS_RETURN') next = 'RETURN_TO_ORIGIN';
     else if (response.discount_accepted) next = 'APPLY_DISCOUNT';
     else if (response.wants_order) next = response.intent === 'REQUESTS_AGENCY' ? 'OFFER_AGENCY' : 'REQUEST_NEW_DELIVERY';
-    else if (response.intent === 'NO_RESPONSE') next = recovery.verified ? 'WAIT_FOR_CUSTOMER' : recovery.reason === 'discount_template_due' ? 'OFFER_RECOVERY_DISCOUNT' : 'WAIT_FOR_CUSTOMER';
+    else if (response.intent === 'NO_RESPONSE') next = recovery.verified && Number.isFinite(Date.parse(recovery.sentAt)) && now-Date.parse(recovery.sentAt)>=48*3600000 ? 'RETURN_TO_ORIGIN' : recovery.verified ? 'WAIT_FOR_CUSTOMER' : recovery.reason === 'discount_template_due' ? 'OFFER_RECOVERY_DISCOUNT' : 'WAIT_FOR_CUSTOMER';
   }
   const policy_snapshot_hash = digest(REJECTED_POLICY), input_snapshot_hash = digest(input);
   return { ...input, ...response, policy_id: REJECTED_POLICY.policy_id, policy_version: REJECTED_POLICY.policy_version,

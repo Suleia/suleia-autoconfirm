@@ -2871,7 +2871,7 @@ async function performPendingIncidentSync({
         incidentDiscountReturnVerified: discountReturn.verified === true,
         incidentDiscountReturnPriorIncidenceId: discountReturn.priorIncidenceId || null,
         recipientRejectedDecision: item.incident.incidentType === 'rejected_goods' ? rejectedDecisionSnapshot({
-          incident:item.incident,recovery:discountRecovery,
+          incident:{...item.incident,incidentDiscountReturnStatus:discountReturn.status},recovery:discountRecovery,
           response:{...rejectedIntent(item.incident.lastCustomerMessage,{offerVerified:discountRecovery.verified===true}),
             respondedAt:item.incident.lastCustomerAt||null}
         }) : undefined,
