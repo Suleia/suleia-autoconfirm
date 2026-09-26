@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
+import {planDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
 import {findVerifiedTemplateDelivery,messageTimestamp,isCustomerInteraction,extractWamid} from './incident-discount-policy.mjs';
 export const ADDRESS_TEMPLATE='dropea_incidencia_direccion_v1';
-export const ADDRESS_POLICY=Object.freeze({id:'ADDRESS_INCORRECT_POLICY_V1',response_policy:'ADDRESS_INCORRECT_RESPONSE_V1',version:'2026-09-26.1',offer_hours:24,return_hours:48,anchor:'REAL_INITIAL_TEMPLATE_SEND',partial_response:'WAIT_DETAILS_THEN_MANUAL_REVIEW',discount_application:'MANUAL_ONLY',owner:'render_incident_automation'});
+export const ADDRESS_POLICY=Object.freeze({id:'ADDRESS_INCORRECT_POLICY_V1',response_policy:'ADDRESS_INCORRECT_RESPONSE_V1',version:'2026-09-26.2',offer_hours:24,return_hours:48,anchor:'REAL_INITIAL_TEMPLATE_SEND',partial_response:'WAIT_DETAILS_THEN_MANUAL_REVIEW',discount_application:'MANUAL_ONLY',owner:'render_incident_automation'});
+export const ADDRESS_STAGES=['SOLUTION','CHANGE_ADDRESS','PICKUP','OFFER','RETURN','DETAILS'];
 const hash=x=>crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const iso=x=>Number.isFinite(x)?new Date(x).toISOString():null;
@@ -14,10 +16,10 @@ function exactAddressNotice(m){
 
 export function parseCustomerAddress(text,previous=null){
  const literal=String(text||'').replace(/[\u0000-\u001f]/g,' ').trim(),n=norm(literal);
- const base={kind:'OTHER_RESPONSE',street:null,number:null,floor:null,door:null,postal_code:null,city:null,province:null,reference_notes:null,missing_fields:[]};
+ const base={kind:'OTHER_RESPONSE',street:null,number:null,floor:null,door:null,postal_code:null,city:null,province:null,country:null,reference_notes:null,missing_fields:[]};
  if(!n)return base;
  if(/https?:|\b(?:password|token|contraseña|ignora las instrucciones)\b/.test(n)||literal.length>500)return {...base,kind:'AMBIGUOUS_ADDRESS'};
- if(/\b(?:devolver|ya no lo quiero|no quiero el pedido|no lo quiero)\b/.test(n)&&! /no (?:quiero )?devolver/.test(n))return {...base,kind:'RETURN_REQUEST'};
+ if(/\b(?:devolver|ya no lo quiero|no quiero el pedido|no lo quiero|que vuelva)\b/.test(n)&&! /no (?:quiero )?devolver/.test(n))return {...base,kind:'RETURN_REQUEST'};
  if(/recog(?:er|ida).*agencia|prefiero.*agencia/.test(n))return {...base,kind:'AGENCY_REQUEST'};
  if(/quiz[aá]|no se|puede que|o quiza/.test(n))return {...base,kind:'AMBIGUOUS_ADDRESS'};
  const streets=[...literal.matchAll(/\b(?:calle|avenida|avda\.?|plaza|paseo|camino|carretera|ronda|traves[ií]a|urbanizaci[oó]n)\s+([^,;\n]+?)[ ,]+(\d{1,4}[A-Za-z]?|s\/?n)(?=\s|[,.;]|$)/gi)];
@@ -26,14 +28,18 @@ export function parseCustomerAddress(text,previous=null){
  const postal=[...literal.matchAll(/\b(\d{5})\b/g)];
  if(postal.length>1)return {...base,kind:'AMBIGUOUS_ADDRESS'};
  const cp=postal[0];
- const city=cp?literal.slice(cp.index+5).replace(/^[\s,;-]+/,'').split(/[,;.]|\b(?:portal|referencia|al lado|llamar)\b/i)[0].trim():null;
- const fields={...base,street:street?street[0].slice(0,-street[2].length).trim().replace(/,$/,''):null,number:street?.[2]||null,
+ const province=literal.match(/\bprovincia\s*(?:de|:)?\s*([\p{L}][\p{L}\s'-]*)(?=[,;.]|$)/iu)?.[1]?.trim()||null;
+ const country=literal.match(/\bpa[ií]s\s*:?\s*(ES|España)\b/iu)?.[1]||(/^(?:ES|España)$/iu.test(literal)?literal:null);
+ const city=cp?literal.slice(cp.index+5).replace(/^[\s,;-]+/,'').split(/[,;.]|\b(?:provincia|pa[ií]s|portal|referencia|al lado|llamar)\b/i)[0].trim():null;
+ const fields={...base,province,country:country?'ES':null,street:street?street[0].slice(0,-street[2].length).trim().replace(/,$/,''):null,number:street?.[2]||null,
    floor:literal.match(/\bpiso\s+(\d+[ºª]?)/i)?.[1]||literal.match(/,\s*(\d{1,2})[ºª]?[A-Za-z]\b/)?.[1]||null,door:literal.match(/\bpuerta\s+([A-Za-z0-9]+)/i)?.[1]||literal.match(/,\s*\d{1,2}[ºª]?([A-Za-z])\b/)?.[1]||null,
    postal_code:cp?.[1]||null,city:city&&/^[\p{L}][\p{L}\s'-]+$/u.test(city)?city:null,
    reference_notes:literal.match(/\b(portal azul|segunda puerta|al lado de[^.;]+)/i)?.[0]||null};
  // Only merge a later completion with a single unambiguous partial address;
  // never import absent fields from an unrelated order or an older full address.
  if(!street&&previous?.kind==='INCOMPLETE_ADDRESS'&&cp){fields.street=previous.street;fields.number=previous.number;fields.floor=previous.floor;fields.door=previous.door;fields.reference_notes=previous.reference_notes;}
+ if((province||country)&&!street&&!cp&&['VALID_ADDRESS','INCOMPLETE_ADDRESS'].includes(previous?.kind))return {...previous,...(province?{province}:{}),...(country?{country:'ES'}:{})};
+ if(street&&!cp&&previous?.kind==='INCOMPLETE_ADDRESS'&&!previous.street){fields.postal_code=previous.postal_code;fields.city=previous.city;fields.province=fields.province||previous.province;fields.country=fields.country||previous.country;}
  if(!fields.street&&!fields.postal_code&&!/\b(calle|avenida|direcci[oó]n|piso|puerta)\b/i.test(literal))return base;
  fields.missing_fields=['street','number','postal_code','city'].filter(k=>!fields[k]);
  if(fields.postal_code&&!/^(?:0[1-9]|[1-4]\d|5[0-2])\d{3}$/.test(fields.postal_code))return {...fields,kind:'AMBIGUOUS_ADDRESS'};
@@ -41,7 +47,7 @@ export function parseCustomerAddress(text,previous=null){
  return fields;
 }
 
-export function addressResponseDecision({incident,messages=[],order=null,now=Date.now(),previous=null}={}){
+export function addressResponseDecision({incident,messages=[],order=null,issue=null,now=Date.now(),previous=null}={}){
  const base={policy:ADDRESS_POLICY,policy_snapshot_hash:hash(ADDRESS_POLICY),canonical_issue_id:String(incident?.incidenceId||''),canonical_order_id:String(incident?.orderId||''),conversation_id:incident?.chatbyUserNs||null,template_name:ADDRESS_TEMPLATE,notification_at:null,message_id:null,state:'ADDRESS_ISSUE_DETECTED',intent:'NO_RESPONSE',action:'WAIT_FOR_NOTIFICATION',eligible:false,read_at:iso(now),missing_fields:[],customer_message_present:false};
  const done=extra=>{const d={...base,...extra};const input_snapshot_hash=hash([d.canonical_issue_id,d.canonical_order_id,d.notification_at,d.message_id,d.last_customer_at,d.intent,d.address]);return {...d,input_snapshot_hash,decision_id:hash([input_snapshot_hash,d.policy_snapshot_hash,d.action,d.state]),decision_status:'CURRENT'};};
  if(incident?.incidentType!=='address'||!incident.incidenceId||!incident.orderId||incident.chatbyReadVerified!==true||incident.chatbyOrderAssociation!=='EXACT_ORDER'||!incident.chatbyUserNs)return done({state:'EVIDENCE_UNVERIFIED'});
@@ -59,7 +65,7 @@ export function addressResponseDecision({incident,messages=[],order=null,now=Dat
  const replies=[...new Map(inbound.filter(m=>messageTimestamp(m)>messageTimestamp(notice)).map(m=>[extractWamid(m)||hash([messageTimestamp(m),addressMessageText(m)]),m])).values()].sort((a,b)=>messageTimestamp(a)-messageTimestamp(b));
  if(replies.some((m,i)=>i&&messageTimestamp(m)===messageTimestamp(replies[i-1])&&addressMessageText(m)!==addressMessageText(replies[i-1])))return done({state:'AMBIGUOUS_MESSAGE_ORDER',action:'HUMAN_REVIEW'});
  let parsed=null;
- const neutral=t=>/^(?:hola[!,. ]*|gracias[!,. ]*|buenos dias[!,. ]*|buenas tardes[!,. ]*|ahora te digo[!,. ]*|[\p{Emoji_Presentation}\s]+)$/u.test(norm(t));
+ const neutral=t=>/^(?:hola[!,. ]*|vale[!,. ]*|gracias[!,. ]*|buenos dias[!,. ]*|buenas tardes[!,. ]*|ahora te digo[!,. ]*|[\p{Emoji_Presentation}\s]+)$/u.test(norm(t));
  const offer=findVerifiedTemplateDelivery(valid.filter(m=>messageTimestamp(m)>=messageTimestamp(notice)),'es_es_dropea_incidencia_descuento_5_v1');
  base.discount_offered_at=offer?.sentAt||null;
  let discountAccepted=false;
@@ -84,26 +90,42 @@ export function addressResponseDecision({incident,messages=[],order=null,now=Dat
      const phone=String(order.customerPhone||'').replace(/\D/g,'');
      if(!/^(?:34)?[67]\d{8}$/.test(phone))return done({state:'PHONE_SOURCE_UNVERIFIED',action:'HUMAN_REVIEW'});
      const raw=order.raw?.shipping_address||order.raw?.customer||{};
-     const original=[raw.address||raw.address1,raw.zip||raw.postal_code,raw.city].filter(Boolean).join(', ');
+     const original=[raw.address_line_1||raw.address||raw.address1,raw.address_line_2,`${raw.zip||raw.postal_code||''} ${raw.city||''}`].filter(Boolean).join(', ');
+     const originalParsed=parseCustomerAddress(original);
+     const same=['street','number','floor','door','postal_code','city'].every(k=>norm(originalParsed[k])===norm(parsed[k]));
      const addr=[`${parsed.street} ${parsed.number}`,parsed.floor&&`piso ${parsed.floor}`,parsed.door&&`puerta ${parsed.door}`,`${parsed.postal_code} ${parsed.city}`,parsed.reference_notes].filter(Boolean).join(', ');
-     return done({state:'SOLUTION_PREPARED',intent:norm(original)===norm(addr)?'ADDRESS_CONFIRMED':'VALID_ADDRESS',action:'PROVIDE_ADDRESS_SOLUTION',eligible:true,original_address:raw,customer_provided_address:parsed,effective_address_candidate:parsed,solution:`Realizar entrega en ${addr}. Llamar al ${phone}.`});
+     const solution=`${same?'Dirección confirmada por el cliente:':'Realizar entrega en'} ${addr}. Llamar al ${phone}.`;
+     const data={state:'SOLUTION_PREPARED',intent:same?'ADDRESS_CONFIRMED':'VALID_ADDRESS',action:'PROVIDE_ADDRESS_SOLUTION',eligible:true,original_address:raw,customer_provided_address:parsed,effective_address_candidate:parsed,solution};
+     if(issue){
+       const current=issue.raw||issue;
+       if(!same&&current.allowed_resolution_options?.includes('CHANGE_ADDRESS')){
+         const sameLocality=norm(raw.city)===norm(parsed.city)&&String(raw.postal_code||raw.zip)===parsed.postal_code;
+         const address={street:`${parsed.street} ${parsed.number}`,address_line_2:[parsed.floor&&`piso ${parsed.floor}`,parsed.door&&`puerta ${parsed.door}`,parsed.reference_notes].filter(Boolean).join(', '),postal_code:parsed.postal_code,city:parsed.city,state:parsed.province||(sameLocality?raw.state:null),country:parsed.country||raw.country};
+         const plan=planDropeaResolution(issue,'CHANGE_ADDRESS',{address});
+         if(!plan.allowed&&plan.reason==='STRUCTURED_ADDRESS_INCOMPLETE')return done({...data,state:'WAITING_CUSTOMER_ADDRESS_DETAILS',action:now-Date.parse(base.last_customer_at)<24*3600000?'ASK_MISSING_FIELDS':'HUMAN_REVIEW',eligible:now-Date.parse(base.last_customer_at)<24*3600000,missing_fields:['state','country'].filter(k=>!address[k]).map(k=>k==='state'?'province':k),provider_plan:plan});
+         return done({...data,action:'CHANGE_ADDRESS',eligible:plan.allowed,provider_plan:plan});
+       }
+       const plan=planDropeaResolution(issue,'PROVIDE_SOLUTION',{note:solution});
+       return done({...data,eligible:plan.allowed,provider_plan:plan,state:plan.allowed?'SOLUTION_PREPARED':'CAPABILITY_NOT_ALLOWED'});
+     }
+     return done(data);
    }
    if(parsed.kind==='INCOMPLETE_ADDRESS')return done(now-Date.parse(base.last_customer_at)>=24*3600000
      ? {state:'WAITING_DETAILS_MANUAL_REVIEW',action:'HUMAN_REVIEW',eligible:false}
      : {state:'WAITING_CUSTOMER_ADDRESS_DETAILS',action:'ASK_MISSING_FIELDS',eligible:true});
    if(parsed.kind==='RETURN_REQUEST')return done({state:'RETURN_PREPARED',action:'RETURN_TO_ORIGIN',eligible:true});
-   if(parsed.kind==='AGENCY_REQUEST')return done({state:'AGENCY_REQUEST',action:'HUMAN_REVIEW'});
+   if(parsed.kind==='AGENCY_REQUEST')return done({state:'AGENCY_REQUEST',action:'PICKUP_AT_AGENCY',eligible:!!issue&&planDropeaResolution(issue,'PICKUP_AT_AGENCY').allowed});
    return done({state:'HUMAN_REVIEW_REQUIRED',action:'HUMAN_REVIEW'});
  }
  if(now>=Date.parse(base.return_due_at))return done({state:'RETURN_PREPARED',action:'RETURN_TO_ORIGIN',eligible:true});
- const discount=findVerifiedTemplateDelivery(messages,'es_es_dropea_incidencia_descuento_5_v1');
+ const discount=offer;
  if(discount)return done({state:'DISCOUNT_OFFERED',discount_offered_at:discount.sentAt,action:'WAIT_FOR_CUSTOMER'});
  if(now>=Date.parse(base.offer_due_at))return done({state:'DISCOUNT_OFFER_PREPARED',action:'OFFER_5_EURO_DISCOUNT',eligible:true});
  return done({state:'WAITING_CUSTOMER',action:'WAIT_FOR_CUSTOMER'});
 }
 
 export function addressStageAllowed(action,incident,env=process.env){
- const stage={PROVIDE_ADDRESS_SOLUTION:'SOLUTION',OFFER_5_EURO_DISCOUNT:'OFFER',RETURN_TO_ORIGIN:'RETURN',ASK_MISSING_FIELDS:'DETAILS'}[action];
+ const stage={CHANGE_ADDRESS:'CHANGE_ADDRESS',PICKUP_AT_AGENCY:'PICKUP',PROVIDE_ADDRESS_SOLUTION:'SOLUTION',OFFER_5_EURO_DISCOUNT:'OFFER',RETURN_TO_ORIGIN:'RETURN',ASK_MISSING_FIELDS:'DETAILS'}[action];
  if(!stage||env.ADDRESS_AUTOMATION_ENABLED!=='true'||env[`ADDRESS_${stage}_BREAKER`]==='OPEN')return false;
  const mode=env[`ADDRESS_${stage}_MODE`]||'SHADOW';
  return mode==='LIVE'||mode==='CANARY'&&String(env[`ADDRESS_${stage}_CANARY_ISSUE_ID`]||'')===String(incident.incidenceId);
@@ -112,6 +134,6 @@ export function addressStageAllowed(action,incident,env=process.env){
 export function addressRuntimeStatus(state,env=process.env){
  const recent=Date.now()-Date.parse(state.lastAddressWorkflowAt)<45*60000;
  return {workflow:'ADDRESS_INCORRECT',owner:'render_incident_automation',observed_at:new Date().toISOString(),last_cycle_at:state.lastAddressWorkflowAt||null,policy:ADDRESS_POLICY,initial_sender:'chatby_native',initial_template:ADDRESS_TEMPLATE,template_id:'1472497',meta_template_id:'3109078812596009',locale:'es_ES',
- stages:{detection:recent?'LIVE':'UNKNOWN',notification:recent&&state.addressWorkflowSummary?.observed>0?'LIVE':'UNKNOWN',interpretation:recent?'SHADOW':'UNKNOWN',decision:recent?'SHADOW':'UNKNOWN',...Object.fromEntries(['SOLUTION','OFFER','RETURN','DETAILS'].map(s=>[s.toLowerCase(),env.ADDRESS_AUTOMATION_ENABLED==='true'?(env[`ADDRESS_${s}_MODE`]||'SHADOW'):'SHADOW']))},
- breakers:Object.fromEntries(['SOLUTION','OFFER','RETURN','DETAILS'].map(s=>[s.toLowerCase(),env[`ADDRESS_${s}_BREAKER`]==='OPEN'?'OPEN':'CLOSED'])),summary:state.addressWorkflowSummary||null,discount_application:'MANUAL_ONLY'};
+ stages:{detection:recent?'LIVE':'UNKNOWN',notification:recent&&state.addressWorkflowSummary?.observed>0?'LIVE':'UNKNOWN',interpretation:recent?'SHADOW':'UNKNOWN',decision:recent?'SHADOW':'UNKNOWN',...Object.fromEntries(ADDRESS_STAGES.map(s=>[s.toLowerCase(),env.ADDRESS_AUTOMATION_ENABLED==='true'?(env[`ADDRESS_${s}_MODE`]||'SHADOW'):'SHADOW']))},
+ breakers:Object.fromEntries(ADDRESS_STAGES.map(s=>[s.toLowerCase(),env[`ADDRESS_${s}_BREAKER`]==='OPEN'?'OPEN':'CLOSED'])),summary:state.addressWorkflowSummary||null,discount_application:'MANUAL_ONLY'};
 }

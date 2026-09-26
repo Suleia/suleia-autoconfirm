@@ -55,3 +55,20 @@ test('N uncertain solution, durable claim failure and late cancellation never pr
  }
 });
 
+test('structured change and pickup share the persistent claim and independently verify the provider state',async()=>{
+ for(const action of ['CHANGE_ADDRESS','PICKUP_AT_AGENCY'])for(const accepted of [true,false]){
+  const currentIssue={...issue,allowed_resolution_options:[action]};
+  const currentOrder={...order,raw:{shipping_address:{city:'Bilbao',postal_code:'48012',state:'Bizkaia',country:'ES'}}};
+  const messages=[notice,action==='CHANGE_ADDRESS'?full:reply('Prefiero recoger en agencia')];
+  const d=addressResponseDecision({incident,order:currentOrder,issue:currentIssue,messages,now});
+  let reads=0,writes=0,body;
+  const result=await executeObservedAddress(incident,d,{
+   env:{ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_CHANGE_ADDRESS_MODE:'LIVE',ADDRESS_PICKUP_MODE:'LIVE'},prior:async()=>({}),
+   readCurrent:async()=>++reads===1?{issue:currentIssue,order:currentOrder}:{issue:{...currentIssue,status:'RESOLVED',resolution_status:action,resolution_data:accepted?body:null}},
+   readMessages:async()=>messages,claim:async()=>({acquired:true,persistent:true}),finish:async()=>{},
+   writeResolution:async(id,a,data)=>{assert.equal(a,action);body=data;writes++;throw Error('timeout');}
+  });
+  assert.equal(writes,1);assert.equal(result.verified,action==='PICKUP_AT_AGENCY'||accepted);
+ }
+});
+
