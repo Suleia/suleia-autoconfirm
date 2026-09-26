@@ -138,8 +138,9 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
    AND absent.canonical_order_id=p.canonical_order_id AND p.notification_decision_current
  LEFT JOIN read_models.operations_private_order_display private_order ON private_order.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount ON discount.canonical_issue_id=p.canonical_issue_id
- LEFT JOIN read_models.operations_address_owner_latest address_owner ON address_owner.canonical_issue_id=p.canonical_issue_id
    AND discount.dropea_order_id=p.dropea_order_id
+ LEFT JOIN read_models.operations_address_owner_latest address_owner ON address_owner.canonical_issue_id=p.canonical_issue_id
+   AND address_owner.canonical_order_id=p.canonical_order_id
  LEFT JOIN LATERAL (
    SELECT m.message_text_ciphertext,m.chatby_message_id_hash,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
      m.incident_relevance,m.context_template_slug,
