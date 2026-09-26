@@ -34,3 +34,8 @@ test('provider capability is displayed without exposing the private resolution b
  assert.deepEqual(s.observation.provider_plan,{action:'CHANGE_ADDRESS',allowed:true,reason:null});
  const shown=addressIncidentPresentation({interpreted_type:'ADDRESS_INCORRECT',address_observation:s.observation});assert.match(shown.next_best_action.label,/Cambiar dirección/);
 });
+test('attempt rejected by GLS becomes review, never not-started or a prepared return',()=>{
+ const row=make();Object.assign(row.raw.addressWorkflow,{action:'RETURN_TO_ORIGIN',execution:{status:'MANUAL_RECONCILIATION_REQUIRED',error:'DROPEA_V2_ISSUE_ACTION_HTTP_400',provider_error_code:'GLS_INCIDENCE_ALREADY_SOLVED',verified:false,attemptedAt:new Date().toISOString()}});
+ const s=normalizeAddressSignal(row,{hmacKey:key});const shown=addressIncidentPresentation({interpreted_type:'ADDRESS_INCORRECT',address_observation:s.observation});
+ assert.equal(shown.execution.status,'UNKNOWN');assert.equal(shown.next_best_action.action,'HUMAN_REVIEW');assert.match(shown.next_best_action.reason,/GLS rechaza/);assert.ok(shown.execution.requested_at);
+});

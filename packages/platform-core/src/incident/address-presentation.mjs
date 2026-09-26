@@ -14,12 +14,13 @@ export function addressIncidentPresentation(item){
  const age=Date.now()-Date.parse(d.read_at),fresh=age>=0&&age<20*60000;
  const last=Date.parse(d.last_customer_at||d.notification_at||'');
  const newer=Boolean(item.latest_private_customer_message_at)&&(!Number.isFinite(last)||Date.parse(item.latest_private_customer_message_at)>last);
- const action=fresh&&!newer?d.action:'HUMAN_REVIEW',manual=['HUMAN_REVIEW','MANUAL_DISCOUNT_RECOVERY'].includes(action);
  const execution=d.execution||{},verified=execution.verified===true;
- const reason=d.state==='WAITING_DETAILS_MANUAL_REVIEW'?'Dirección incompleta: espera de datos y revisión manual; los plazos iniciales de descuento y devolución quedan anulados.':!fresh||newer?'La decisión necesita una lectura actualizada.':d.initial_milestones?'El cliente ha respondido; los plazos iniciales quedan anulados.':'Plazos desde el envío real de la plantilla inicial.';
+ const uncertain=['EXECUTION_UNKNOWN','MANUAL_RECONCILIATION_REQUIRED','RETURN_REQUESTED_UNVERIFIED','ALREADY_CLAIMED_RECONCILE'].includes(execution.status);
+ const action=fresh&&!newer&&!uncertain?d.action:'HUMAN_REVIEW',manual=['HUMAN_REVIEW','MANUAL_DISCOUNT_RECOVERY'].includes(action);
+ const reason=execution.provider_error_code==='GLS_INCIDENCE_ALREADY_SOLVED'?'GLS rechaza la acción: el envío ya no permite resolver la incidencia. Dropea sigue pendiente; revisar discrepancia sin reenviar.':uncertain?'Se intentó la acción sin confirmación de ejecución. Revisión manual; no reenviar automáticamente.':d.state==='WAITING_DETAILS_MANUAL_REVIEW'?'Dirección incompleta: espera de datos y revisión manual; los plazos iniciales de descuento y devolución quedan anulados.':!fresh||newer?'La decisión necesita una lectura actualizada.':d.initial_milestones?'El cliente ha respondido; los plazos iniciales quedan anulados.':'Plazos desde el envío real de la plantilla inicial.';
  return {...item,canonical_workflow:'ADDRESS_INCORRECT',
   autonomy:{status:manual?'HUMAN_REVIEW':'PREPARED',label:manual?'Revisión':'Preparado'},
   next_best_action:{action,label:labels[action]||labels.HUMAN_REVIEW,reason,confidence:fresh&&!newer?'Alta':'No verificable',execution_mode:'Consultar etapa',blocking_reasons:manual?[reason]:['Sujeto a modo, permisos y relectura del ejecutor']},
-  execution:{...item.execution,status:verified?'VERIFIED':execution.status==='EXECUTION_UNKNOWN'?'UNKNOWN':'NOT_STARTED',label:verified?'Verificado':execution.status==='EXECUTION_UNKNOWN'?'No verificable':'Sin ejecución verificada',requested_at:execution.attempted_at||execution.attemptedAt||execution.sentAt,verified_at:execution.verified_at||execution.completedAt||null},
+  execution:{...item.execution,status:verified?'VERIFIED':uncertain?'UNKNOWN':'NOT_STARTED',label:verified?'Verificado':execution.provider_error_code?'Rechazada por el proveedor':uncertain?'Pendiente de conciliación':'Sin ejecución verificada',requested_at:execution.attempted_at||execution.attemptedAt||execution.sentAt,verified_at:execution.verified_at||execution.completedAt||null},
   autonomous_state:{code:verified?'EXECUTION_VERIFIED':manual?'HUMAN_REVIEW_REQUIRED':action.startsWith('WAIT')?'WAITING_CUSTOMER':'ACTION_PLANNED',label:verified?'Ejecución verificada':manual?'Revisión manual':labels[action]||'Pendiente'}};
 }
