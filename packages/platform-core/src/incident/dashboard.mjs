@@ -1,5 +1,6 @@
 import { buildRecoveryOverview, recoveryProjection, recoveryBaseSelector } from './recovery-center.mjs';
 import { absentAttemptForRecord } from './absent-evidence.mjs';
+import { incidentAutonomy, autonomyMatch } from './automation-presentation.mjs';
 
 export const DASHBOARD_VERSION = 'INCIDENT_DASHBOARD_V2';
 export const DASHBOARD_METRICS = [
@@ -75,6 +76,7 @@ export function dashboardProjection(raw, { now = new Date() } = {}) {
 
 export function dashboardSelector(item, filters = {}) {
   const d=item.dashboard, r=item.recovery;
+  if(!autonomyMatch(item,filters.autonomy))return false;
   if ((filters.absent || filters.autopilot) && !recoveryBaseSelector(item,{scope:'ALL',absent:filters.absent,autopilot:filters.autopilot})) return false;
   if (filters.active && item.is_active!==(filters.active==='true')) return false;
   if (filters.discount_response && item.discount_recovery_response_status!==filters.discount_response) return false;
@@ -99,7 +101,9 @@ export function dashboardSelector(item, filters = {}) {
 export function buildIncidentDashboard(items, options = {}) {
   const {filters={}, now=new Date(), limit=10, offset=0}=options;
   const scope=['HISTORICAL','FOLLOWUP','ALL'].includes(filters.scope)?filters.scope:'ACTIVE';
-  const projected=items.map(item=>dashboardProjection(item,{now}));
+  const workflows=new Map(options.workflows?.map(w=>[w.id,w])||[]),executions=new Map();
+  for(const a of options.actions||[])if(a.evidence_mode==='REAL'&&!executions.has(a.canonical_issue_id))executions.set(a.canonical_issue_id,a);
+  const projected=items.map(item=>{const p=dashboardProjection(item,{now});return options.workflows?incidentAutonomy(p,workflows.get(p.interpreted_type),{execution:executions.get(p.canonical_issue_id)}):p;});
   const population=projected.filter(item=>scope==='ALL'?true:scope==='ACTIVE'?item.dashboard.flags.PENDING && !item.dashboard.flags.FOLLOWUP:scope==='FOLLOWUP'?item.dashboard.flags.FOLLOWUP:!item.dashboard.flags.OPEN);
   const selected=population.filter(item=>dashboardSelector(item,filters));
   const sorters={order:(a,b)=>String(a.external_order_reference || a.dropea_order_id || '').localeCompare(String(b.external_order_reference || b.dropea_order_id || ''),'es',{numeric:true}),
@@ -111,7 +115,7 @@ export function buildIncidentDashboard(items, options = {}) {
   const old=buildRecoveryOverview(selected,{...options,filters:{scope:'ALL'},limit:1,offset:0});
   const group=(key,values)=>values.map(([value,label])=>({value,label,count:selected.filter(i=>dashboardSelector(i,{[key]:value})).length}));
   return {...old,items:selected.slice(offset,offset+limit),total:selected.length,limit,offset,
-    summary:{...old.summary,scope,universe_count:selected.length,population_count:population.length,filtered_count:selected.length,
+    summary:{...old.summary,autonomy:options.workflows?{prepared:selected.filter(i=>i.autonomy.status==='PREPARED').length,human_review:selected.filter(i=>i.autonomy.status==='HUMAN_REVIEW').length,automatic:selected.filter(i=>i.autonomy.status==='AUTOMATIC').length,verified:selected.filter(i=>i.execution.status==='VERIFIED').length}:null,scope,universe_count:selected.length,population_count:population.length,filtered_count:selected.length,
       dashboard:{version:DASHBOARD_VERSION,source:'DROPEA_PUBLIC_API_V2',source_definition:'status=PENDING · is_active=true',
         scope_counts:options.scopeCounts || dashboardScopeCounts(projected),
         queue_definition:'Pendientes de resolver: abiertas excepto recogida en agencia y primera ausencia observada. Estas permanecen abiertas en Seguimiento.',
