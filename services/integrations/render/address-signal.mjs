@@ -7,7 +7,7 @@ export function normalizeAddressSignal(row,{hmacKey}={}){
  const observation=Object.fromEntries(keys.map(k=>[k,d[k]??null]));
  observation.provider_plan=d.provider_plan?{action:d.provider_plan.action,allowed:d.provider_plan.allowed===true,reason:d.provider_plan.reason||null}:null;
  const execution=d.last_execution||d.execution;
- observation.execution=execution?Object.fromEntries(['status','action','verified','attempted_at','verified_at','attemptedAt','completedAt','sentAt'].map(k=>[k,execution[k]??null])):null;
+ observation.execution=execution?Object.fromEntries(['status','action','error','provider_error_code','verified','attempted_at','verified_at','attemptedAt','completedAt','sentAt'].map(k=>[k,execution[k]??null])):null;
  return {dropea_issue_id:String(row.incidence_id),dropea_order_id:String(row.order_id),observation,source_updated_at:row.updated_at,
   private_address_ciphertext:hmacKey?encryptPrivateJson({original:d.original_address||null,provided:d.customer_provided_address||d.address||null,candidate:d.effective_address_candidate||null},hmacKey):null};
 }
