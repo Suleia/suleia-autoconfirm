@@ -294,9 +294,9 @@ export class OperationsProjector {
       (canonical_issue_id,dropea_issue_id,dropea_order_id,incident_type,recovery_status,
        response_status,initial_template_sent_at,discount_due_at,discount_sent_at,responded_at,
        delivery_verified,cross_source_verified,original_amount,discount_amount,final_amount,
-       signal_quality,source_updated_at,actions_executed,production_writes,run_mode)
+       signal_quality,source_updated_at,actions_executed,production_writes,run_mode,rejected)
       SELECT canonical_issue_id,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-             0,0,'SHADOW_READ_ONLY'
+             0,0,'SHADOW_READ_ONLY',$17::jsonb
       FROM read_models.operations_incident_records
       WHERE dropea_issue_id=$1 AND dropea_order_id=$2
       ON CONFLICT(canonical_issue_id) DO UPDATE SET
@@ -306,14 +306,14 @@ export class OperationsProjector {
        responded_at=EXCLUDED.responded_at,delivery_verified=EXCLUDED.delivery_verified,
        cross_source_verified=EXCLUDED.cross_source_verified,original_amount=EXCLUDED.original_amount,
        discount_amount=EXCLUDED.discount_amount,final_amount=EXCLUDED.final_amount,
-       signal_quality=EXCLUDED.signal_quality,source_updated_at=EXCLUDED.source_updated_at,
+       signal_quality=EXCLUDED.signal_quality,source_updated_at=EXCLUDED.source_updated_at,rejected=EXCLUDED.rejected,
        ingested_at=now()
       RETURNING canonical_issue_id`, [
       signal.dropea_issue_id, signal.dropea_order_id, signal.incident_type,
       signal.recovery_status, signal.response_status, signal.initial_template_sent_at,
       signal.discount_due_at, signal.discount_sent_at, signal.responded_at,
       signal.delivery_verified, signal.cross_source_verified, signal.original_amount,
-      signal.discount_amount, signal.final_amount, signal.signal_quality, signal.source_updated_at
+      signal.discount_amount, signal.final_amount, signal.signal_quality, signal.source_updated_at,JSON.stringify(signal.rejected||{})
     ]);
     return { matched: result.rowCount === 1, resource: 'incident_discount_recovery_signal',
       actions_executed: 0, production_writes: 0 };

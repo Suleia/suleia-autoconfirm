@@ -101,7 +101,7 @@ export function dashboardSelector(item, filters = {}) {
 export function buildIncidentDashboard(items, options = {}) {
   const {filters={}, now=new Date(), limit=10, offset=0}=options;
   const scope=['HISTORICAL','FOLLOWUP','ALL'].includes(filters.scope)?filters.scope:'ACTIVE';
-  const workflows=new Map(options.workflows?.map(w=>[w.id,w])||[]),executions=new Map();
+  const workflows=new Map(options.workflows?.flatMap(w=>w.id==='RECIPIENT_REJECTED'?[[w.id,w],['REFUSED_BY_RECIPIENT',w]]:[[w.id,w]])||[]),executions=new Map();
   for(const a of options.actions||[])if(a.evidence_mode==='REAL'&&!executions.has(a.canonical_issue_id))executions.set(a.canonical_issue_id,a);
   const projected=items.map(item=>{const p=dashboardProjection(item,{now});return options.workflows?incidentAutonomy(p,workflows.get(p.interpreted_type),{execution:executions.get(p.canonical_issue_id)}):p;});
   const population=projected.filter(item=>scope==='ALL'?true:scope==='ACTIVE'?item.dashboard.flags.PENDING && !item.dashboard.flags.FOLLOWUP:scope==='FOLLOWUP'?item.dashboard.flags.FOLLOWUP:!item.dashboard.flags.OPEN);
