@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 revision="${1:?exact revision required}"
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || exit 2
-branch=feat/address-capability-panel
+branch=fix/address-canonical-integrity
 install=/opt/suleia-operations
 resolved="$(readlink -f "$install")"
 [[ "$resolved" =~ ^/opt/suleia-releases/[0-9a-f]{40}$ ]] || exit 2
@@ -53,6 +53,7 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges -
   console.log(r.stdout.split("\n").filter(l=>/^# (tests|pass|fail|duration)|^not ok/.test(l)).join("\n"));if(r.status!==0){console.error(r.stdout.split("\n").flatMap((line,i,lines)=>line.startsWith("not ok")?lines.slice(i,i+45):[]).join("\n"));process.exit(r.status||1);}
   console.log("INCIDENT_PANEL_IMAGE_TESTS|PASS");' | tee "$backup/image-tests.txt"
 docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/049_address_owner_observations.sql
+docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/050_address_canonical_integrity.sql
 compose=(docker compose --env-file .env -f infrastructure/docker/compose.yaml)
 "${compose[@]}" config --format json > "$backup/current-compose.json"
 override="$backup/runtime-preserving-override.json"
@@ -98,4 +99,4 @@ link="/opt/suleia-operations-results-v2-$revision"
 ln -s "$release" "$link"
 mv -T "$link" "$install"
 trap - ERR
-printf 'INCIDENT_PANEL_DEPLOY|commit=%s|env_preserved=true|eight_other_services_and_absent_controller_unchanged=true|migrations=1_readonly_views|services=api,panel,ingestion|incident_external_writes=0\n' "$revision"
+printf 'INCIDENT_PANEL_DEPLOY|commit=%s|env_preserved=true|eight_other_services_and_absent_controller_unchanged=true|migrations=address_canonical_integrity|services=api,panel,ingestion|incident_external_writes=0\n' "$revision"
