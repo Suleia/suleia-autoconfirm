@@ -53,9 +53,12 @@ export function parseCustomerAddress(text,previous=null){
 
 export function addressResponseDecision({incident,messages=[],order=null,issue=null,now=Date.now(),previous=null}={}){
  const base={policy:ADDRESS_POLICY,policy_snapshot_hash:hash(ADDRESS_POLICY),canonical_issue_id:String(incident?.incidenceId||''),canonical_order_id:String(incident?.orderId||''),conversation_id:incident?.chatbyUserNs||null,template_name:ADDRESS_TEMPLATE,notification_at:null,message_id:null,state:'ADDRESS_ISSUE_DETECTED',intent:'NO_RESPONSE',action:'WAIT_FOR_NOTIFICATION',eligible:false,read_at:iso(now),missing_fields:[],customer_message_present:false};
- const done=extra=>{const d={...base,...extra};const input_snapshot_hash=hash([d.canonical_issue_id,d.canonical_order_id,d.notification_at,d.message_id,d.last_customer_at,d.intent,d.address]);return {...d,input_snapshot_hash,decision_id:hash([input_snapshot_hash,d.policy_snapshot_hash,d.action,d.state]),decision_status:'CURRENT'};};
+ base.issue_version=(issue?.raw||issue)?.updated_at||null;
+ base.read_verified=false;
+ const done=extra=>{const d={...base,...extra};const input_snapshot_hash=hash([d.canonical_issue_id,d.canonical_order_id,d.issue_version,d.notification_at,d.message_id,d.last_customer_at,d.intent,d.address]);return {...d,input_snapshot_hash,decision_id:hash([input_snapshot_hash,d.policy_snapshot_hash,d.action,d.state]),decision_status:'CURRENT'};};
  if(incident?.incidentType!=='address'||!incident.incidenceId||!incident.orderId||incident.chatbyReadVerified!==true||incident.chatbyOrderAssociation!=='EXACT_ORDER'||!incident.chatbyUserNs)return done({state:'EVIDENCE_UNVERIFIED'});
  if(messages.some(m=>m.user_ns&&String(m.user_ns)!==String(incident.chatbyUserNs)))return done({state:'CONVERSATION_MISMATCH'});
+ base.read_verified=true;
  const opened=Date.parse(incident.incidenceDate);
  const valid=messages.filter(m=>messageTimestamp(m)>=opened&&messageTimestamp(m)<=now);
  const notices=valid.filter(exactAddressNotice).sort((a,b)=>messageTimestamp(a)-messageTimestamp(b));
@@ -80,11 +83,15 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
      else if(/quiero el descuento|acepto(?: el descuento)?|ACCEPT_DISCOUNT_5/i.test(t))discountAccepted=true;
    }
    // A greeting does not erase a previously supplied address or return intent.
-   if(!neutral(t))parsed=parseCustomerAddress(t,parsed);
+   if(!neutral(t)){
+     const next=parseCustomerAddress(t,parsed);
+     if(next.kind!=='OTHER_RESPONSE'||!parsed)parsed=next;
+   }
  }
  base.discount_accepted=discountAccepted;
  base.customer_message_present=replies.length>0;base.last_customer_at=replies.length?iso(messageTimestamp(replies.at(-1))):null;
  base.response_count=replies.length;
+ if(!parsed&&previous?.initial_milestones==='SUPERSEDED_BY_CUSTOMER_RESPONSE')return done({initial_milestones:'SUPERSEDED_BY_CUSTOMER_RESPONSE',state:'WAITING_DETAILS_MANUAL_REVIEW',action:'HUMAN_REVIEW',intent:previous.intent,missing_fields:previous.missing_fields||[]});
  if(parsed){
    base.intent=parsed.kind;base.address=parsed;base.missing_fields=parsed.missing_fields;
    base.initial_milestones='SUPERSEDED_BY_CUSTOMER_RESPONSE';
