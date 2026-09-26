@@ -37,7 +37,8 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
    await finishMessage({...args,status:result.verified?'sent':'delivery_unverified',attemptedAt:at,sentAt:result.verified?at:null,raw:{workflow:'ADDRESS_INCORRECT',...result}});
    return result;
  }
- if(d.action!=='PROVIDE_ADDRESS_SOLUTION'||!issue.allowed_resolution_options?.includes('SOLUTION_PROVIDED'))return {status:'BLOCKED_SOLUTION_CAPABILITY',verified:false};
+ // Capability name and resulting resolution status are distinct V2 enums.
+ if(d.action!=='PROVIDE_ADDRESS_SOLUTION'||!issue.allowed_resolution_options?.includes('PROVIDE_SOLUTION'))return {status:'BLOCKED_SOLUTION_CAPABILITY',verified:false};
  const c=await claim(key);if(!c?.acquired||c.persistent!==true)return {status:'ALREADY_CLAIMED_RECONCILE',verified:false};
  const at=new Date().toISOString();
  // Recheck after the durable reservation so a late cancellation wins.
