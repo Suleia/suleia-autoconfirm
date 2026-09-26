@@ -46,7 +46,7 @@ SELECT i.canonical_issue_id,d.snapshot,d.decided_at,d.decision_id,d.policy_id::t
  f.finding,
  coalesce(d.snapshot->>'current'='true' AND d.issue_version=i.updated_at AND d.policy_snapshot_hash=v.checksum
  AND v.status='SHADOW' AND pa.status='SHADOW' AND i.observed_at>=now()-interval '10 minutes' AND d.snapshot->'input'->>'issue_status'=i.status
- AND (d.snapshot->'input'->>'issue_active')::boolean=i.is_active
+ AND (d.snapshot->'input'->>'issue_active')::boolean=i.is_active AND d.snapshot->'input'->>'canonical_type'=i.type
  AND d.snapshot->'input'->>'owner_input_hash'=a.observation->>'input_snapshot_hash'
  AND d.snapshot->'input'->>'read_at'=a.observation->>'read_at'
  AND (a.observation->>'read_at')::timestamptz BETWEEN now()-interval '20 minutes' AND now()
@@ -61,7 +61,7 @@ LEFT JOIN configuration.policy_versions v ON v.policy_name='ADDRESS_INCORRECT_PO
 LEFT JOIN configuration.policy_assignments pa ON pa.version_id=v.id AND pa.policy_id=d.policy_id AND pa.workflow='ADDRESS_INCORRECT'
 LEFT JOIN operations.incident_timers t ON t.canonical_issue_id=i.canonical_issue_id AND t.policy_version='ADDRESS_INCORRECT_RESPONSE_V1'
 LEFT JOIN operations.address_provider_findings f ON f.canonical_issue_id=i.canonical_issue_id
-WHERE i.type='ADDRESS_INCORRECT';
+WHERE i.type='ADDRESS_INCORRECT' OR i.raw_type='ADDRESS_INCORRECT';
 REVOKE ALL ON read_models.address_current_context FROM PUBLIC;
 GRANT SELECT ON read_models.address_current_context TO suleia_ingestion,suleia_operations_readonly,suleia_mcp_readonly,suleia_backup;
 DO $migration$ DECLARE columns_sql text; BEGIN
@@ -113,4 +113,5 @@ END $migration$;
 REVOKE ALL ON read_models.operations_incident_evidence_context FROM PUBLIC;
 GRANT SELECT ON read_models.operations_incident_evidence_context TO suleia_ingestion,suleia_operations_readonly,suleia_mcp_readonly,suleia_backup;
 COMMIT;
+
 

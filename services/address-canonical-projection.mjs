@@ -6,7 +6,7 @@ export async function projectAddressCanonical(pool,canonicalIssueId,{now=new Dat
   await db.query('BEGIN');
   const {rows}=await db.query(`SELECT i.*,a.observation FROM read_models.operations_incident_records i
    LEFT JOIN operations.address_owner_observations a USING(canonical_issue_id)
-   WHERE i.canonical_issue_id=$1 AND i.type='ADDRESS_INCORRECT' FOR UPDATE OF i`,[canonicalIssueId]);
+   WHERE i.canonical_issue_id=$1 AND (i.type='ADDRESS_INCORRECT' OR i.raw_type='ADDRESS_INCORRECT') FOR UPDATE OF i`,[canonicalIssueId]);
   const issue=rows[0];
   if(!issue){await db.query('COMMIT');return {matched:false};}
   const p=await db.query(`SELECT p.id AS policy_id,v.checksum AS policy_snapshot_hash FROM configuration.policies p

@@ -43,7 +43,7 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
   let simulated = 0;
   let blocked = 0;
   for (const row of candidates.rows) {
-    if(row.type==='ADDRESS_INCORRECT') {
+    if(row.type==='ADDRESS_INCORRECT'||row.raw_type==='ADDRESS_INCORRECT') {
       const result=await projectAddressCanonical(pool,row.canonical_issue_id,{now:now()});
       interpreted+=1;simulated+=1;if(result.decision?.blocking_reasons.length)blocked+=1;
       continue;
