@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {addressRuntimeStatus} from './src/workflows/address-response-policy.mjs';
 import dns from 'node:dns';
 import fs from 'node:fs/promises';
 import net from 'node:net';
@@ -366,6 +367,7 @@ function storeSummary({ publicView = false } = {}) {
     incidentDiscountReturnAutomaticEnabled: config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
     incidentDiscountReturnDelayHours: 48,
     recipientRejected: rejectedRuntimeStatus(config,state),
+    addressIncorrect: addressRuntimeStatus(state),
     incidentDiscountReturnReconciliationDelayMinutes: 30,
     lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
     lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,

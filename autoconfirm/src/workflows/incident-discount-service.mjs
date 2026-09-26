@@ -1,3 +1,4 @@
+import {addressResponseDecision,addressStageAllowed} from './address-response-policy.mjs';
 import crypto from 'node:crypto';
 import { getAppConfig } from '../config.mjs';
 import { listDropeaOrders } from '../clients/dropea.mjs';
@@ -388,6 +389,12 @@ function recoveryResult(result = {}) {
 }
 
 function evaluateRecoveryPolicy(input, { authorizedImmediate = false } = {}) {
+  if(input.incident?.incidentType==='address'){
+    const d=addressResponseDecision(input);
+    const prior=input.discountPersistentDelivery;
+    const priorAt=prior?.sent_at;
+    return {eligible:d.action==='OFFER_5_EURO_DISCOUNT'&&d.eligible&&!priorAt,reason:priorAt?'discount_template_already_sent':d.action==='OFFER_5_EURO_DISCOUNT'?'discount_template_due':d.customer_message_present?'customer_interaction_after_address_template':d.state,merchandiseTemplateSentAt:d.notification_at,discountTemplateSentAt:priorAt||d.discount_offered_at,dueAt:d.offer_due_at};
+  }
   const policy = incidentDiscountPolicy(input);
   if (!authorizedImmediate || policy.reason !== 'waiting_discount_window' || !policy.dueAt) return policy;
   const dueAt = Date.parse(policy.dueAt);
@@ -415,8 +422,9 @@ export async function processIncidentDiscountRecovery({
   now = Date.now(),
   dependencies = {}
 } = {}) {
-  if (process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return recoveryResult({reason:'rejected_master_disabled'});
-  if (process.env.RECIPIENT_REJECTED_OFFER_BREAKER === 'OPEN') return recoveryResult({reason:'rejected_offer_breaker_open'});
+  if (incident?.incidentType==='address' && realEnabled && !addressStageAllowed('OFFER_5_EURO_DISCOUNT',incident)) return recoveryResult({reason:'address_offer_not_authorized'});
+  if (incident?.incidentType!=='address' && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return recoveryResult({reason:'rejected_master_disabled'});
+  if (incident?.incidentType!=='address' && process.env.RECIPIENT_REJECTED_OFFER_BREAKER === 'OPEN') return recoveryResult({reason:'rejected_offer_breaker_open'});
   const deps = {
     getMessages: dependencies.getMessages || getChatMessages,
     getTemplate: dependencies.getTemplate || findTemplate,
@@ -594,7 +602,7 @@ export async function processIncidentDiscountRecovery({
       || String(currentIssue?.order_id) !== String(incident.orderId)
       || String(currentOrder?.orderId) !== String(incident.orderId)
       || currentIssue.is_active !== true || currentIssue.status !== 'PENDING'
-      || currentIssue.type !== 'REFUSED_BY_RECIPIENT'
+      || currentIssue.type !== (incident.incidentType==='address'?'ADDRESS_INCORRECT':'REFUSED_BY_RECIPIENT')
       || !['ERROR', 'INCIDENCE'].includes(String(currentOrder.status).toUpperCase())
       || digits(currentOrder.customerPhone).slice(-9) !== digits(incident.phone || order.customerPhone).slice(-9)
       || !digits(currentOrder.customerPhone)) {
@@ -646,7 +654,7 @@ export async function processIncidentDiscountRecovery({
       provider: 'chatby',
       chatbyUserNs: incident.chatbyUserNs
     });
-    if (!claim?.acquired) {
+    if (!claim?.acquired || (incident.incidentType==='address' && claim.persistent!==true)) {
       return recoveryResult({
         ...preview,
         status: `persistent_${claim?.existing?.status || 'blocked'}`,
