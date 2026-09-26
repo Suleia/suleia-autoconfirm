@@ -1,4 +1,5 @@
 import {manualDiscountPresentation} from './manual-discount.mjs';
+import {addressIncidentPresentation,addressWorkflowPresentation} from './address-presentation.mjs';
 // Shared read-side vocabulary. This module never authorizes or executes actions.
 import {rejectedWorkflowKey,rejectedWorkflowPresentation,rejectedIncidentPresentation} from './rejected-presentation.mjs';
 export {rejectedWorkflowKey};
@@ -10,7 +11,7 @@ export const stateLabels={DETECTED:'Incidencia detectada',EVIDENCE_GATHERING:'Re
 const mode=v=>v==='DISABLED'||v==='PAUSED'?'OFF':['LIVE','CANARY','SHADOW'].includes(v)?v:v==='SIMULATION'||v==='SHADOW_READ_ONLY'?'SHADOW':null;
 const stage=(id,label,value)=>({id,label,mode:mode(value),label_mode:mode(value)||'Sin evidencia'});
 const breaker=(id,label,reason,at,known)=>({id,label,status:known?(reason?'OPEN':'CLOSED'):null,label_status:known?(reason?'Abierto':'Cerrado'):'Sin evidencia',opened_at:at||null,reason:reason?'Protección activada; consultar el detalle técnico':null,reason_code:reason||null});
-export function workflowPresentation(row,{health=null,rejectedHealth=null}={}){
+export function workflowPresentation(row,{health=null,rejectedHealth=null,addressHealth=null}={}){
  const absent=row.workflow==='RECIPIENT_ABSENT',shadow=row.has_shadow===true;
  const stages=[stage('detection','Detectar',shadow?'SHADOW':null),stage('notification','Contactar',row.notification_mode),stage('interpretation','Interpretar',shadow?'SHADOW':null),stage('decision','Decidir',shadow?'SHADOW':null),stage('resolution','Ejecutar',row.resolution_mode),stage('verification','Verificar',absent&&health?.observer?.healthy?'LIVE':null)];
  const breakers=[breaker('notification','Avisos',row.notification_breaker_reason,row.notification_breaker_at,row.notification_mode!=null),breaker('resolution','Resoluciones',row.resolution_breaker_reason,row.resolution_breaker_at,row.resolution_mode!=null),breaker('provider','Proveedor',null,null,false)];
@@ -26,7 +27,7 @@ export function workflowPresentation(row,{health=null,rejectedHealth=null}={}){
   current_activity:breakers.some(b=>b.status==='OPEN')?'Una protección está bloqueando acciones.':canary?reservations?'Canary reservado. Verificación y respuesta pendientes.':row.canary_issue_id?'Candidato seleccionado; todavía no hay aviso verificado.':'Esperando una incidencia elegible para el canary.':shadow?'Decisiones en simulación. Ejecución no acreditada en esta fuente.':'Sin evidencia suficiente del estado operativo.',
   playbook:absent?['Incidencia','Avisar cliente','Esperar respuesta','Interpretar','Aportar solución o revisar']:row.workflow==='REFUSED_BY_RECIPIENT'?['Rechazo','Revisar evidencia','Evaluar recuperación o devolución','Validar ejecución']:['Detectar incidencia','Revisar evidencia','Preparar decisión','Verificar resultado'],
   source:'Controles persistidos y proyección de simulación; no sustituye controles de otros emisores',read_only:true};
- return rejectedWorkflowKey(row.workflow)==='RECIPIENT_REJECTED'?rejectedWorkflowPresentation(result,rejectedHealth):result;
+ return rejectedWorkflowKey(row.workflow)==='RECIPIENT_REJECTED'?rejectedWorkflowPresentation(result,rejectedHealth):row.workflow==='ADDRESS_INCORRECT'?addressWorkflowPresentation(result,addressHealth):result;
 }
 export function incidentAutonomy(item,workflow,{execution=null}={}){
  const d=item.dashboard||{},e=item.recovery?.evidence||{},s=item.absent_shadow||{};
@@ -54,7 +55,7 @@ export function incidentAutonomy(item,workflow,{execution=null}={}){
  const result={...item,autonomy:{status:autonomy,label:autonomyLabels[autonomy]},next_best_action:{action,label:actionLabels[action],reason:waiting?'Esperando respuesta dentro del plazo verificado':known?'Decisión preparada con evidencia vigente':'Revisar evidencia antes de decidir',confidence:known?'Alta':'No verificable',execution_mode:target?.mode||null,blocking_reasons:reasons},
  execution:{action_type:real?.action_type||action,action_label:actionLabels[real?.action_type||action]||'Acción registrada',status:executionStatus,label:executionLabels[executionStatus],provider:real?.provider||null,requested_at:real?.requested_at||null,executed_at:real?.executed_at||null,verified_at:real?.verified_at||null,blocking_reasons:reasons},
  autonomous_state:{code:state,label:stateLabels[state]},confidence:{evidence:e.valid_response?'Alta':e.customer_interacted?'Media':'No verificable',intent:known?'Alta':'No verificable',execution:executionStatus==='VERIFIED'?'Alta':'No verificable'}};
- return manualDiscountPresentation(rejectedWorkflowKey(item.interpreted_type)==='RECIPIENT_REJECTED'?rejectedIncidentPresentation(result,workflow):result);
+ return manualDiscountPresentation(rejectedWorkflowKey(item.interpreted_type)==='RECIPIENT_REJECTED'?rejectedIncidentPresentation(result,workflow):addressIncidentPresentation(result));
 }
 export function autonomyMatch(item,value){if(!value||value==='ALL')return true;if(value==='WAITING')return item.autonomous_state?.code==='WAITING_CUSTOMER';return item.autonomy?.status===value;}
 export function autonomyMetrics(items){
@@ -74,3 +75,4 @@ export function autonomyMetrics(items){
  metric('recovery','Recuperación',null,null,'Entregadas o recuperadas / intentos de recuperación; atribución canónica no disponible'),
  {id:'resolution_time',label:'Tiempo de resolución',value:null,definition:'Sin cobertura canónica de inicio y resolución atribuida'}];
 }
+

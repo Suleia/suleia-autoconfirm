@@ -615,6 +615,19 @@ function absentShadowCard(item, expanded = false) {
   ]));
   card.append(details); return card;
 }
+function addressWorkflowDetail(incident){
+ const d=incident.address_observation;if(!d)return document.createDocumentFragment();
+ const names={street:'Calle',number:'Número',floor:'Piso',door:'Puerta',postal_code:'Código postal',city:'Localidad',province:'Provincia',reference_notes:'Referencias'};
+ const fields=[['Plantilla inicial',d.template_name],['Envío real (T0)',date(d.notification_at)],['Última respuesta',date(d.last_customer_at)],
+  ['Estado',d.state],['Intención',d.intent],['Siguiente acción',incident.next_best_action?.label],['Motivo',incident.next_best_action?.reason],
+  ['Oferta a las 24 h',d.initial_milestones?'Anulada por respuesta':date(d.offer_due_at)],['Devolución a las 48 h',d.initial_milestones?'Anulada por respuesta':date(d.return_due_at)],
+  ['Datos pendientes',(d.missing_fields||[]).map(k=>names[k]||k).join(', ')||'Ninguno identificado'],
+  ['Última petición de datos',date(d.last_required_field_request_at)],['Aplicación de descuentos','Acción manual; sin email automático'],['Última comprobación',date(d.read_at)],
+  ['Etapas',Object.entries(d.stages||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')],['Decisión',d.decision_id||'No verificable']];
+ const address=incident.address_details?.provided;
+ if(address)for(const [k,label] of Object.entries(names))fields.push([`Dirección aportada · ${label}`,address[k]||'No aportado']);
+ return section('Dirección · evidencia y automatización',fields);
+}
 function discountRecoveryDetail(incident) {
   const discount = incident.discount_recovery || {};
   if (!discount.applies) return document.createDocumentFragment();
@@ -674,6 +687,7 @@ async function openDetail(id) {
         recoveryEvidenceDetail(incident),
         recoveryTimelinePanel(data.recovery_timeline),
         discountRecoveryDetail(incident),
+        addressWorkflowDetail(incident),
         absentShadowCard(incident, true),
         customerMessageHistory(data.customer_messages),
         recommendationPanel(incident, data.feedback),
