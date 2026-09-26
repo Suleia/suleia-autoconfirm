@@ -7,12 +7,13 @@ import { buildRecoveryOverview, recoveryProjection, recoveryTimeline, recoveryMe
 import { buildIncidentDashboard, dashboardProjection, dashboardScopeCounts } from '../../../platform-core/src/incident/dashboard.mjs';
 import { workflowPresentation,incidentAutonomy,autonomyMetrics,actionLabels,executionLabels,rejectedWorkflowKey } from '../../../platform-core/src/incident/automation-presentation.mjs';
 
+let addressHealthCache=null;
 let rejectedHealthCache=null,rejectedHealthUntil=0,rejectedHealthPending=null;
 async function readRejectedOwnerHealth(){
  if(Date.now()<rejectedHealthUntil)return rejectedHealthCache;
  if(rejectedHealthPending)return rejectedHealthPending;
  rejectedHealthPending=fetch('https://suleia-autoconfirm.onrender.com/health',{signal:AbortSignal.timeout(2500)})
-  .then(r=>r.ok?r.json():null).then(h=>{rejectedHealthCache=h?.recipientRejected||null;rejectedHealthUntil=Date.now()+60000;return rejectedHealthCache;})
+  .then(r=>r.ok?r.json():null).then(h=>{addressHealthCache=h?.addressIncorrect||null;rejectedHealthCache=h?.recipientRejected||null;rejectedHealthUntil=Date.now()+60000;return rejectedHealthCache;})
   .catch(()=>null).finally(()=>{rejectedHealthPending=null;});
  return rejectedHealthPending;
 }
@@ -40,6 +41,7 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboard_record.dashboard_source_context,
+  address_owner.observation AS address_observation,address_owner.private_address_ciphertext,
   CASE WHEN native_notice.status='VERIFIED' THEN jsonb_build_object('status','VERIFIED',
     'template_name',native_notice.template_version,'notification_at',native_notice.notification_at,
     'message_id',native_notice.message_id,'timer_started_at',native_timer.started_at,'timer_due_at',native_timer.due_at) END AS absent_native_notice,
@@ -136,6 +138,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
    AND absent.canonical_order_id=p.canonical_order_id AND p.notification_decision_current
  LEFT JOIN read_models.operations_private_order_display private_order ON private_order.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount ON discount.canonical_issue_id=p.canonical_issue_id
+ LEFT JOIN read_models.operations_address_owner_latest address_owner ON address_owner.canonical_issue_id=p.canonical_issue_id
    AND discount.dropea_order_id=p.dropea_order_id
  LEFT JOIN LATERAL (
    SELECT m.message_text_ciphertext,m.chatby_message_id_hash,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
@@ -490,7 +493,7 @@ export class OperationsRepository {
       fetch('http://recipient-absent-live-controller:3310/health',{signal:AbortSignal.timeout(1500)}).then(r=>r.ok?r.json():null).catch(()=>null),
       readRejectedOwnerHealth()
     ]);
-    return {workflows:states.rows.map(r=>workflowPresentation(r,{health,rejectedHealth})),actions:actions.rows.map(a=>({...a,workflow:rejectedWorkflowKey(a.workflow),label:a.action_type==='OFFER_RECOVERY_DISCOUNT'?'Ofrecer descuento de 5 €':actionLabels[a.action_type]||'Acción registrada',status_label:executionLabels[a.execution_status]||'No verificable'}))};
+    return {workflows:states.rows.map(r=>workflowPresentation(r,{health,rejectedHealth,addressHealth:addressHealthCache})),actions:actions.rows.map(a=>({...a,workflow:rejectedWorkflowKey(a.workflow),label:a.action_type==='OFFER_RECOVERY_DISCOUNT'?'Ofrecer descuento de 5 €':actionLabels[a.action_type]||'Acción registrada',status_label:executionLabels[a.execution_status]||'No verificable'}))};
   }
 
   async automationOverview(params=new URLSearchParams()) {
@@ -671,3 +674,4 @@ export class OperationsRepository {
     } finally { client.release(); }
   }
 }
+

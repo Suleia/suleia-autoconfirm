@@ -1,3 +1,4 @@
+import {normalizeAddressSignal} from './address-signal.mjs';
 const RESPONSE_STATUSES = new Set([
   'DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'OTHER_RESPONSE',
   'NO_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE'
@@ -85,7 +86,7 @@ export function normalizeRenderIncidentDiscountSignal(row = {}) {
 }
 
 export async function syncRenderIncidentDiscountSignals({
-  source, projector, pageSize = 250, maxPages = 20
+  source, projector, pageSize = 250, maxPages = 20, hmacKey
 }) {
   let offset = 0;
   let seen = 0;
@@ -97,6 +98,8 @@ export async function syncRenderIncidentDiscountSignals({
     if (page.missing || !page.rows.length) break;
     for (const row of page.rows) {
       seen += 1;
+      const address=normalizeAddressSignal(row,{hmacKey});
+      if(address){await projector.upsertAddressOwnerObservation(address);continue;}
       const signal = normalizeRenderIncidentDiscountSignal(row);
       if (!signal) continue;
       eligible += 1;
