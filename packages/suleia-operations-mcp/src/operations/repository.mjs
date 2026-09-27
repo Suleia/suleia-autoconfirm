@@ -1,10 +1,22 @@
+import { rejectedMetrics } from '../../../platform-core/src/incident/rejected-presentation.mjs';
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
 import { buildResultsFinanceReport } from '../../../platform-core/src/finance/results-report.mjs';
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 import { buildRecoveryOverview, recoveryProjection, recoveryTimeline, recoveryMessageValidity } from '../../../platform-core/src/incident/recovery-center.mjs';
 import { buildIncidentDashboard, dashboardProjection, dashboardScopeCounts } from '../../../platform-core/src/incident/dashboard.mjs';
+import { workflowPresentation,incidentAutonomy,autonomyMetrics,actionLabels,executionLabels,rejectedWorkflowKey } from '../../../platform-core/src/incident/automation-presentation.mjs';
 
+let addressHealthCache=null;
+let rejectedHealthCache=null,rejectedHealthUntil=0,rejectedHealthPending=null;
+async function readRejectedOwnerHealth(){
+ if(Date.now()<rejectedHealthUntil)return rejectedHealthCache;
+ if(rejectedHealthPending)return rejectedHealthPending;
+ rejectedHealthPending=fetch('https://suleia-autoconfirm.onrender.com/health',{signal:AbortSignal.timeout(2500)})
+  .then(r=>r.ok?r.json():null).then(h=>{addressHealthCache=h?.addressIncorrect||null;rejectedHealthCache=h?.recipientRejected||null;rejectedHealthUntil=Date.now()+60000;return rejectedHealthCache;})
+  .catch(()=>null).finally(()=>{rejectedHealthPending=null;});
+ return rejectedHealthPending;
+}
 const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
   coalesce(s.messages_used,0) AS customer_messages,
   s.confidence AS customer_signal_confidence,
@@ -29,6 +41,12 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboard_record.dashboard_source_context,
+  address_owner.observation AS address_observation,address_owner.private_address_ciphertext,
+  CASE WHEN native_notice.status='VERIFIED' THEN jsonb_build_object('status','VERIFIED',
+    'template_name',native_notice.template_version,'notification_at',native_notice.notification_at,
+    'message_id',native_notice.message_id,'timer_started_at',native_timer.started_at,'timer_due_at',native_timer.due_at) END AS absent_native_notice,
+  absent_resolution.structured AS absent_resolution_structured,absent_resolution.status AS absent_resolution_status,
+  absent_resolution.idempotency_key AS absent_resolution_key,absent_resolution.resolution_hash AS absent_resolution_hash,
   autopilot.state AS autopilot_state,autopilot.mode AS autopilot_mode,
   autopilot.policy_name AS autopilot_policy_name,autopilot.policy_version AS autopilot_policy_version,
   autopilot.next_action AS autopilot_next_action,autopilot.reason AS autopilot_reason,
@@ -51,6 +69,7 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
   discount.final_amount AS discount_final_amount,
   discount.signal_quality AS discount_signal_quality,
   discount.source_updated_at AS discount_source_updated_at,
+  discount.rejected AS rejected_observation,
   private_message.message_text_ciphertext AS latest_customer_message_ciphertext,
   private_message.chatby_message_id_hash AS latest_private_customer_message_hash,
   private_message.occurred_at AS latest_private_customer_message_at,
@@ -107,6 +126,12 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
   END AS operational_recommendation
  FROM read_models.operations_incident_evidence_context p
  LEFT JOIN read_models.operations_incident_records dashboard_record ON dashboard_record.canonical_issue_id=p.canonical_issue_id
+ LEFT JOIN operations.recipient_absent_resolutions absent_resolution ON absent_resolution.canonical_issue_id=p.canonical_issue_id
+   AND absent_resolution.canonical_order_id=p.canonical_order_id
+ LEFT JOIN operations.recipient_absent_native_notifications native_notice ON native_notice.canonical_issue_id=p.canonical_issue_id
+   AND native_notice.canonical_order_id=p.canonical_order_id
+ LEFT JOIN operations.recipient_absent_native_timers native_timer ON native_timer.canonical_issue_id=native_notice.canonical_issue_id
+   AND native_timer.message_id=native_notice.message_id
  LEFT JOIN read_models.operations_order_context outcome ON outcome.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_autopilot_current autopilot ON autopilot.canonical_issue_id=p.canonical_issue_id
  LEFT JOIN read_models.recipient_absent_shadow absent ON absent.canonical_issue_id=p.canonical_issue_id
@@ -114,6 +139,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
  LEFT JOIN read_models.operations_private_order_display private_order ON private_order.canonical_order_id=p.canonical_order_id
  LEFT JOIN read_models.operations_incident_discount_recovery_latest discount ON discount.canonical_issue_id=p.canonical_issue_id
    AND discount.dropea_order_id=p.dropea_order_id
+ LEFT JOIN read_models.operations_address_owner_latest address_owner ON address_owner.canonical_issue_id=p.canonical_issue_id
+   AND address_owner.canonical_order_id=p.canonical_order_id
  LEFT JOIN LATERAL (
    SELECT m.message_text_ciphertext,m.chatby_message_id_hash,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
      m.incident_relevance,m.context_template_slug,
@@ -131,10 +158,10 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
        ORDER BY o.occurred_at DESC LIMIT 1) AS operator_message_at
    FROM read_models.operations_private_incident_messages m
    WHERE m.canonical_issue_id=p.canonical_issue_id AND m.canonical_order_id=p.canonical_order_id
-     AND m.direction='INBOUND' AND m.chatby_message_id_hash=p.scoped_customer_message_hash
-     AND (m.occurred_at>p.incident_notified_at OR (p.incident_notified_at IS NULL
-       AND p.normalized_type='RECIPIENT_ABSENT' AND p.notification_decision_current
-       AND p.scoped_response_reason='SHADOW_ISSUE_CREATED_ANCHOR_ONLY_NOT_NOTIFICATION' AND m.occurred_at>p.created_at))
+     AND m.direction='INBOUND' AND m.occurred_at>p.created_at AND m.occurred_at<=now()
+     AND m.relation_to_issue='AFTER_INCIDENT'
+     AND m.incident_relevance IS DISTINCT FROM 'ORDER_LIFECYCLE_ONLY'
+     AND coalesce(m.context_template_slug,'') NOT LIKE 'dropea_pedido_%'
    ORDER BY m.occurred_at DESC,m.chatby_message_id_hash DESC LIMIT 1
  ) private_message ON true)`;
 
@@ -457,6 +484,45 @@ export class OperationsRepository {
     return this.incidentOverview(searchParams);
   }
 
+  async automationContext() {
+    const [states,actions]=await Promise.all([
+      this.pool.query('SELECT * FROM read_models.operations_workflow_status ORDER BY workflow'),
+      this.pool.query('SELECT * FROM read_models.operations_workflow_recent_actions UNION ALL SELECT * FROM read_models.operations_rejected_actions UNION ALL SELECT * FROM read_models.operations_rejected_returns ORDER BY occurred_at DESC,id DESC')
+    ]);
+    // One read-only health request for the service, not one request per row/card.
+    const [health,rejectedHealth]=await Promise.all([
+      fetch('http://recipient-absent-live-controller:3310/health',{signal:AbortSignal.timeout(1500)}).then(r=>r.ok?r.json():null).catch(()=>null),
+      readRejectedOwnerHealth()
+    ]);
+    return {workflows:states.rows.map(r=>workflowPresentation(r,{health,rejectedHealth,addressHealth:addressHealthCache})),actions:actions.rows.map(a=>({...a,workflow:rejectedWorkflowKey(a.workflow),label:a.action_type==='OFFER_RECOVERY_DISCOUNT'?'Ofrecer descuento de 5 €':actionLabels[a.action_type]||'Acción registrada',status_label:executionLabels[a.execution_status]||'No verificable'}))};
+  }
+
+  async automationOverview(params=new URLSearchParams()) {
+    const started=performance.now(),period=params.get('period')||'7d';
+    if(!['today','7d','30d'].includes(period)){const e=new Error('INVALID_PERIOD');e.status=400;throw e;}
+    const [context,records]=await Promise.all([this.automationContext(),this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident
+      WHERE created_at >= CASE WHEN $1='today' THEN date_trunc('day',now() AT TIME ZONE 'Europe/Madrid') AT TIME ZONE 'Europe/Madrid'
+      WHEN $1='7d' THEN now()-interval '7 days' ELSE now()-interval '30 days' END`,[period])]);
+    const executionMap=new Map(),workflowMap=new Map(context.workflows.map(w=>[w.id,w]));
+    for(const a of context.actions)if(a.evidence_mode==='REAL'&&!executionMap.has(a.canonical_issue_id))executionMap.set(a.canonical_issue_id,a);
+    const items=records.rows.map(row=>{const i=dashboardProjection(incidentInsight(privateIncidentDisplay(row,this.privateDataKey)));return incidentAutonomy(i,workflowMap.get(rejectedWorkflowKey(i.interpreted_type)),{execution:executionMap.get(i.canonical_issue_id)});});
+    const workflows=context.workflows.filter(w=>(params.get('active')!=='true'||w.stages.some(s=>['LIVE','CANARY'].includes(s.mode)))&&(!params.get('workflow')||w.id===params.get('workflow'))&&(!params.get('stage')||w.stages.some(s=>s.id===params.get('stage')&&(!params.get('mode')||s.mode===params.get('mode'))))&&(!params.get('mode')||w.stages.some(s=>s.mode===params.get('mode')))&&(!params.get('breaker')||w.breakers.some(b=>b.status===params.get('breaker')))&&(!params.get('health')||w.health===params.get('health')));
+    const summary={active:context.workflows.filter(w=>w.stages.some(s=>['CANARY','LIVE'].includes(s.mode))).length,live:context.workflows.filter(w=>w.stages.some(s=>s.mode==='LIVE')).length,canary:context.workflows.filter(w=>w.stages.some(s=>s.mode==='CANARY')).length,shadow:context.workflows.filter(w=>w.stages.some(s=>s.mode==='SHADOW')).length,breakers:context.workflows.reduce((n,w)=>n+w.breakers.filter(b=>b.status==='OPEN').length,0),human_today:null};
+    const metrics=autonomyMetrics(items.filter(i=>!params.get('workflow')||rejectedWorkflowKey(i.interpreted_type)===params.get('workflow')));
+    const incidentIds=new Set(records.rows.map(i=>i.canonical_issue_id));
+    const matchingActions=context.actions.filter(a=>(!params.get('workflow')||a.workflow===params.get('workflow'))&&incidentIds.has(a.canonical_issue_id));
+    if(params.get('workflow')==='RECIPIENT_REJECTED')metrics.push(...rejectedMetrics(items,matchingActions));
+    const actions=matchingActions.slice(0,100);
+    return {version:'AUTONOMOUS_OPERATIONS_V1',read_only:true,checked_at:new Date().toISOString(),period,summary,workflows,available_workflows:context.workflows.map(w=>({id:w.id,label:w.label})),metrics,actions,
+      alerts:context.workflows.flatMap(w=>[...w.breakers.filter(b=>b.status==='OPEN').map(b=>({workflow:w.id,label:w.label,reason:`Protección de ${b.label.toLowerCase()} abierta`})),...(w.health==='UNHEALTHY'?[{workflow:w.id,label:w.label,reason:'El observador necesita atención'}]:[])]),
+      definitions:{period:'Incidencias creadas en el periodo; controles y salud reflejan el estado actual',coverage:'Los estados SHADOW describen el motor de simulación, no acreditan ni desactivan otros emisores. Sin evidencia se representa como no disponible.',counts:'Workflows únicos por etapa; un workflow puede estar simultáneamente en CANARY y LIVE.'},duration_ms:Math.round(performance.now()-started)};
+  }
+
+  async automationWorkflow(id,params=new URLSearchParams()) {
+    id=rejectedWorkflowKey(id);const p=new URLSearchParams(params);p.set('workflow',id);const data=await this.automationOverview(p);
+    const workflow=data.workflows.find(w=>w.id===id);return workflow?{...data,workflow}:null;
+  }
+
   async incidentOverview(searchParams) {
     const started=performance.now();
     const limit = integer(searchParams.get('limit'), 25, 1, 100);
@@ -470,19 +536,20 @@ export class OperationsRepository {
     else if(scope!=='ALL')conditions.push("status='PENDING' AND is_active=true");
     const where=conditions.length?`WHERE ${conditions.join(' AND ')}`:'';
     // One complete universe, no truncation. Pagination follows canonical filtering.
-    const [result,months,health,scopes] = await Promise.all([
+    const [result,months,health,scopes,automation] = await Promise.all([
       this.pool.query(`SELECT * FROM ${INCIDENT_OPERATIONAL_SOURCE} incident ${where}`,values),
       this.pool.query(`SELECT DISTINCT to_char(created_at AT TIME ZONE 'Europe/Madrid','YYYY-MM') AS month
         FROM read_models.operations_incident_records ORDER BY month DESC`),
       this.pool.query('SELECT * FROM read_models.operations_connector_health ORDER BY connector'),
-      this.pool.query('SELECT status,is_active,type,raw_type,dashboard_source_context FROM read_models.operations_incident_records')
+      this.pool.query('SELECT status,is_active,type,raw_type,dashboard_source_context FROM read_models.operations_incident_records'),
+      this.automationContext()
     ]);
     const items=result.rows.map(row=>incidentInsight(privateIncidentDisplay(row,this.privateDataKey)));
     const connectors=health.rows.map(row=>({...row,...evaluateSourceFreshness({source:row.connector,source_observed_at:row.checked_at,
       ingested_at:row.checked_at,last_successful_sync_at:row.last_success_at,last_failure_at:row.last_failure_at,
       sync_complete:row.pagination_complete})}));
     const dashboard=buildIncidentDashboard(items,{filters:Object.fromEntries(searchParams),limit,offset,
-      availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors,scopeCounts:dashboardScopeCounts(scopes.rows)});
+      availableMonths:months.rows.map(r=>r.month),connectorHealth:connectors,scopeCounts:dashboardScopeCounts(scopes.rows),...automation});
     console.info(JSON.stringify({event:'incident_dashboard_read',version:dashboard.summary.dashboard.version,
       scope:dashboard.summary.scope,filter_keys:[...searchParams.keys()].filter(key=>['type','metric','scope','response','month','risk','template','attempt','flow','q'].includes(key)),
       source_rows:items.length,result_rows:dashboard.total,returned_rows:dashboard.items.length,
@@ -516,9 +583,11 @@ export class OperationsRepository {
         ORDER BY m.occurred_at ASC`, [id])
     ]);
     if (!detail.rows[0]) return null;
-    const incident=dashboardProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
+    const automation=await this.automationContext();
+    const projected=dashboardProjection(incidentInsight(privateIncidentDisplay(detail.rows[0], this.privateDataKey)));
+    const incident=incidentAutonomy(projected,automation.workflows.find(w=>w.id===rejectedWorkflowKey(projected.interpreted_type)),{execution:automation.actions.find(a=>a.evidence_mode==='REAL'&&a.canonical_issue_id===projected.canonical_issue_id)});
     const messages=privateIncidentMessages(customerMessages.rows,this.privateDataKey)
-      .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message)}));
+      .map(message=>({...message,relation_to_notification:recoveryMessageValidity(message,{createdAt:incident.created_at})}));
     return {incident,customer_messages:messages,timeline:timeline.rows,feedback:feedback.rows,
       recovery_timeline:recoveryTimeline(incident,timeline.rows,messages)};
   }
@@ -606,3 +675,4 @@ export class OperationsRepository {
     } finally { client.release(); }
   }
 }
+

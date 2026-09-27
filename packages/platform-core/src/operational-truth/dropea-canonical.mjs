@@ -5,7 +5,7 @@ import { canonicalProductKey, classifyOrderLifecycle, evaluateTestPhoneGuard, no
 
 export const DROPEA_SOURCE_VERSION = '0.1.0';
 export const DROPEA_ORDER_MAPPER_VERSION = '1.0.0';
-export const DROPEA_ISSUE_MAPPER_VERSION = '1.0.0';
+export const DROPEA_ISSUE_MAPPER_VERSION = '1.1.0';
 
 export const DROPEA_ORDER_STATUSES = Object.freeze([
   'DRAFT', 'PENDING', 'CONFIRMED', 'PROCESSING', 'SHIPPING', 'DELIVERED', 'FINISH', 'ERROR'
@@ -317,7 +317,11 @@ export function mapDropeaIssue(issue, { hmacKey, canonicalOrderId, market, store
   const canonicalByCarrierCode = Object.freeze({ DI: 'ADDRESS_INCORRECT', NAM: 'RECIPIENT_ABSENT', AS: 'RECIPIENT_ABSENT', AUSENTE: 'RECIPIENT_ABSENT' });
   // Only AUSENTE receives the explicit normalized-type override. Other mappings,
   // including the legacy NAM conflict, remain untouched and are gated in policy.
-  const canonicalType = type === 'RECIPIENT_ABSENT' ? type : canonicalByCarrierCode[String(carrierCode || '').toUpperCase()] || 'UNKNOWN';
+  const addressMapped = type === 'ADDRESS_INCORRECT' && String(issue.carrier).toUpperCase() === 'GLS'
+    && normalizedMarket === 'ES' && carrierCode === '-30'
+    && String(issue.initial_carrier_substatus_code) === '13'
+    && String(issue.initial_carrier_description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().includes('DIRECCION INCORRECTA');
+  const canonicalType = addressMapped ? 'ADDRESS_INCORRECT' : type === 'RECIPIENT_ABSENT' ? type : canonicalByCarrierCode[String(carrierCode || '').toUpperCase()] || 'UNKNOWN';
   const carrierCodeMapped = canonicalType !== 'UNKNOWN';
   const typeSupported = DROPEA_ISSUE_TYPES.includes(type);
   const supported = typeSupported

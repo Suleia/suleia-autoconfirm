@@ -4,6 +4,7 @@ import { classifyAbsenceAttempt, classifyAbsentCause, absentSourceFreshness, val
 import { createIncidentTimer } from './incident-timers.mjs';
 import { evaluateGlsDeliveryDate } from './gls-calendar.mjs';
 import { absentLogisticsExecutionGate } from './absent-live-gates.mjs';
+import { absentResolutionPreflight, recipientAbsentResolutionPanel } from './absent-resolution.mjs';
 
 export function validateAbsentLogistics({ issue, order, chatby = {}, gls = {}, response = {}, now, requirement = 'RESCHEDULE' }) {
   const freshness = { dropea: absentSourceFreshness(issue.last_successful_sync_at || issue.observed_at, now, 600),
@@ -131,7 +132,10 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
   }
   const waiting = !reasons.length && validTimer && !expired && !latest && chatbyCurrent && step === 'WAITING_CUSTOMER_RESPONSE';
   const responseHash = latest ? absentHash([latest.chatby_message_id,response.raw_customer_text_hash,latest.created_at]) : null;
-  const snapshot = {implementation_version:'ABSENT_INTERPRETER_20260922',issue_id:issue.canonical_issue_id,issue_version:issue.updated_at,order_id:order.canonical_order_id,issue_status:issue.status,is_active:issue.is_active,order_state:order.canonical_state,
+  const resolution=input.resolutionContext ? absentResolutionPreflight({...input,...input.resolutionContext,
+    order:{...order,observed_at:input.resolutionContext.order_observed_at}},now):null;
+  const resolutionPanel=resolution?recipientAbsentResolutionPanel(resolution,null,input.resolutionContext.runtime_blockers):null;
+  const snapshot = {implementation_version:'ABSENT_RESOLUTION_20260922',resolution:resolutionPanel,issue_id:issue.canonical_issue_id,issue_version:issue.updated_at,order_id:order.canonical_order_id,issue_status:issue.status,is_active:issue.is_active,order_state:order.canonical_state,
     template:{name:ABSENT_TEMPLATE_NAME,body_hash:absentHash(ABSENT_TEMPLATE_BODY),mapping_hash:absentHash([ABSENT_TEMPLATE_BUTTONS,ABSENT_BUTTONS])},
     flow:followUp ? {selection_event_hash:selection.chatby_message_id || null,option:flowChoice,identity_verified:Boolean(sameConversation)} : null,
     response_hash:responseHash,response:{intent:response.customer_intent,date:response.requested_date || null,window:response.requested_time_window || null,time_from:response.time_from || null,time_to:response.time_to || null},
@@ -155,11 +159,15 @@ export function simulateRecipientAbsent(input, { now = new Date() } = {}) {
     reason_code:reason,reason_text:reasons.length?[...new Set(reasons)].join(' · '):reason,blocking_reasons:[...new Set(reasons)],waiting_customer:waiting,
     customer_response_status:chatbyCurrent?latest?'RESPONDED':'NO_RESPONSE':'NOT_VERIFIABLE',customer_intent:response.customer_intent,requested_date:response.requested_date || null,requested_time_window:response.requested_time_window || null,time_from:response.time_from || null,time_to:response.time_to || null,all_day:response.all_day || false,pickup_requested:response.pickup_requested || false,button_pressed:response.button_pressed || null,
     absence_attempt:attempt.status,delivery_attempt_number:attempt.number,...cause,history_relevant:historyRelevant,customer_operational_history:snapshot.history,delivery_failed_after_customer_slot:afterSlot,logistics_preference:attempt.status==='SECOND_ABSENCE'||historyRelevant?'AGENCY_PICKUP_PREFERRED':null,
+    interpretation_feasibility:chatbyCurrent && !eventIdConflict ? 'FEASIBLE' : 'UNKNOWN',
+    resolution_proposal_feasibility:resolution?.can_execute ? 'FEASIBLE' : 'UNKNOWN',
+    execution_feasibility:'UNKNOWN',execution_freshness:{status:'REVALIDATION_REQUIRED',checked_at:null},
+    decision_snapshot_freshness:logistics.freshness,
     logistics_feasibility:logistics.status,logistics_capabilities:logistics,decision_confidence:reasons.length?0:response.confidence,simulation_action:action,conditional_proposal:conditionalAction,simulation_status:action==='HUMAN_REVIEW_REQUIRED'?'HUMAN_REVIEW_REQUIRED':'SIMULATION_READY',
     existing_timer:timer,due_at:timer?.due_at || null,data_freshness:logistics.freshness,effective_freshness_status:requiredFreshness.includes('STALE')?'STALE':requiredFreshness.includes('UNKNOWN')?'UNKNOWN':'FRESH',
     input_snapshot:snapshot,input_snapshot_hash:snapshotHash,scoped_customer_message_hash:latest?.chatby_message_id || null,scoped_customer_activity_at:latest?.created_at || null,response_anchor_kind:anchorKind,
     source_observed_at:{dropea:issue.last_successful_sync_at || issue.observed_at || null,chatby:chatby.observed_at || null,gls:gls.observed_at || null},
-    concrete_solution:solution,prepared_subflow:preparedFlow,
+    concrete_solution:solution,prepared_subflow:preparedFlow,resolution:resolutionPanel,
     recovery_flow_status:response.customer_intent==='CUSTOM_TIME_SLOT'?'WAITING_DATE':response.customer_intent==='ADDRESS_DATA_REQUEST'||response.address_complete===false?'WAITING_DELIVERY_DATA':response.customer_intent==='RECOVERY_OPTIONS'?'WAITING_RECOVERY_CHOICE':null,
     prepared_response:preparedFlow?.text || null,prepared_response_action:preparedFlow?'WOULD_SEND_RESPONSE':null,template_name:ABSENT_TEMPLATE_NAME,
     notification_event_key:absentHash([issue.canonical_issue_id,ABSENT_TEMPLATE_NAME,issue.created_at]),live_flags:ABSENT_LIVE_FLAGS,executed:false,external_action:false,production_write:false};

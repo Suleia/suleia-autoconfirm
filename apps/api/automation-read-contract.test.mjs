@@ -1,0 +1,12 @@
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
+import {once} from 'node:events';import {createOperationsServer,loadOperationsConfig} from './server.mjs';
+test('automation read models never mutate operational records or grant writes',()=>{const sql=fs.readFileSync(new URL('../../migrations/047_operations_automation_read_models.sql',import.meta.url),'utf8');assert.doesNotMatch(sql,/\b(INSERT|UPDATE|DELETE|TRUNCATE)\b/);assert.match(sql,/GRANT SELECT ON/);assert.match(sql,/ELSE 'PREPARED'/);assert.match(sql,/'SHADOW'/);assert.doesNotMatch(sql,/conversation_id|phone|message_text|token/);});
+test('automation endpoints stay behind the existing authentication/read-only path',()=>{const source=fs.readFileSync(new URL('./server.mjs',import.meta.url),'utf8');assert.ok(source.indexOf('await authenticate')<source.indexOf('repository.automationOverview'));assert.match(source,/automationWorkflow/);assert.match(source,/overview\|summary\|workflows\|actions\|metrics/);});
+test('all automation routes are authenticated GET only; detail and unknown workflow have correct status',async t=>{
+ const config=loadOperationsConfig({databaseUrl:'postgres://fixture.invalid/db',privateDataKey:'fixture-key-longer-than-thirty-two-characters'});
+ const repository={automationOverview:async()=>({summary:{canary:1},workflows:[],actions:[],metrics:[],read_only:true}),automationWorkflow:async id=>id==='RECIPIENT_ABSENT'?{workflow:{id},read_only:true}:null};
+ const server=createOperationsServer({config,repository,authenticate:async req=>{if(req.headers.authorization!=='Bearer fixture')throw Object.assign(new Error('unauthorized'),{status:401});return {principal_hash:'fixture'};}});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());const base=`http://127.0.0.1:${server.address().port}/api/operations/automation/`;
+ for(const path of ['overview','summary','workflows','actions','metrics','workflows/RECIPIENT_ABSENT']){assert.equal((await fetch(base+path)).status,401);const r=await fetch(base+path,{headers:{Authorization:'Bearer fixture'}});assert.equal(r.status,200);const b=await r.json();assert.equal(b.production_writes,0);assert.equal(b.external_actions,0);assert.equal((await fetch(base+path,{method:'POST',headers:{Authorization:'Bearer fixture'}})).status,405);}
+ assert.equal((await fetch(base+'workflows/DOES_NOT_EXIST',{headers:{Authorization:'Bearer fixture'}})).status,404);
+});

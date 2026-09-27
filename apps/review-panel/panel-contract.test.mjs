@@ -7,7 +7,8 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
   const loginCss = fs.readFileSync(new URL('./login.css', import.meta.url), 'utf8');
-  assert.equal((html.match(/class="nav-item/g) || []).length, 3);
+  assert.equal((html.match(/class="nav-item/g) || []).length, 4);
+  assert.match(html,/>Automatización</);
   assert.match(html, />Pedidos</);
   assert.match(html, />Incidencias</);
   assert.match(html, />Panel de resultados</);
@@ -63,7 +64,7 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
   assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20260920-incident-dashboard-v2">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=20260921-incident-reference2" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=20260926-autonomy" defer><\/script>/);
   assert.doesNotMatch(html,/id="finance-daily-basis"/);
   assert.match(script,/monthlyReturnRateChart\(data\)/);
   assert.match(script,/daily-result-calendar/);

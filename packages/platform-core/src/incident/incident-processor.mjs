@@ -123,7 +123,7 @@ export function simulateIncidentProcess(input, { now = new Date(), holidays = []
   if (!issue.type || ['UNKNOWN','UNMAPPED'].includes(issue.type)) blockers.push('UNKNOWN_ISSUE_TYPE');
   if (inferred.force_review) blockers.push('RECOVERY_EXCEPTION_REQUIRES_REVIEW');
 
-  const timer = inferred.start_timer ? createIncidentTimer({
+  const timer = inferred.start_timer && ![issue.type,issue.raw_type].includes('ADDRESS_INCORRECT') ? createIncidentTimer({
     orderId: order.canonical_order_id,
     issueId: issue.canonical_issue_id,
     issueVersion: issue.updated_at,

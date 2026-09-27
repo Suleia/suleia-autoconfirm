@@ -60,3 +60,10 @@ test('sync projects only eligible rejected-goods signals and reports unmatched r
   assert.equal(result.unmatched, 1);
   assert.equal(projected[1].response_status, 'NO_RESPONSE');
 });
+
+test('canonical decisions require exact identities and exclude raw customer content',()=>{
+ const d={order_id:'1355049',issue_id:'1252293',intent:'ACCEPTS_DISCOUNT',decision_status:'CURRENT',text:'private body',conversation_id:'private id'};
+ const x=normalizeRenderIncidentDiscountSignal(row({recipientRejectedDecision:d}));
+ assert.equal(x.rejected.decision.intent,'ACCEPTS_DISCOUNT');assert.equal(JSON.stringify(x).includes('private'),false);
+ assert.equal(normalizeRenderIncidentDiscountSignal(row({recipientRejectedDecision:{...d,issue_id:'other'}})).rejected.decision,null);
+});

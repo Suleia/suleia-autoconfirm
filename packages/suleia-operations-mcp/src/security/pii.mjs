@@ -37,6 +37,8 @@ export function maskPii(value, key = '') {
   for (const [childKey, childValue] of Object.entries(value)) {
     if (/^(raw|payload|conversation|messages?)$/i.test(childKey)) continue;
     const descriptorName = childKey === 'name' && (
+      (key === 'template' && /^dropea_ausente_v[0-9]+$/.test(String(childValue)) && Object.hasOwn(value,'body_hash') && Object.hasOwn(value,'mapping_hash'))
+      ||
       (Object.hasOwn(value, 'position') && Object.hasOwn(value, 'type'))
       || Object.hasOwn(value, 'definition')
       || Object.hasOwn(value, 'enabled')

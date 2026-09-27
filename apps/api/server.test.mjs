@@ -231,15 +231,15 @@ test('incident active=false is applied and never silently falls back to the acti
   const repository=new OperationsRepository(null,{pool});
   const result=await repository.listIncidents(new URLSearchParams({scope:'ALL',active:'false'}));
   assert.equal(result.total,1);assert.equal(result.items[0].canonical_issue_id,'inactive');
-  assert.match(calls[0].sql,/m\.chatby_message_id_hash=p\.scoped_customer_message_hash/);
-  assert.match(calls[0].sql,/m\.occurred_at>p\.incident_notified_at/);
+  assert.match(calls[0].sql,/m\.canonical_issue_id=p\.canonical_issue_id AND m\.canonical_order_id=p\.canonical_order_id/);
+  assert.match(calls[0].sql,/m\.occurred_at>p\.created_at AND m\.occurred_at<=now\(\)/);
   assert.doesNotMatch(calls[0].sql,/m\.intent<>'UNKNOWN'/);
 });
 test('incident overview returns table and counters from one complete canonical universe',async()=>{
   const calls=[];const pool={query:async(sql,values=[])=>{calls.push({sql,values});return {rows:sql.includes('SELECT DISTINCT')?[{month:'2026-08'}]:[incidentFixture,{...incidentFixture,canonical_issue_id:'other',effective_risk:'LOW'}]};}};
   const repository=new OperationsRepository(null,{pool});
   const result=await repository.incidentOverview(new URLSearchParams({scope:'ACTIVE',to:'2026-08-15',risk:'HIGH',month:'2026-08',recovery:'PENDING'}));
-  assert.equal(calls.length,4);assert.deepEqual(calls[0].values,['2026-08']);
+  assert.equal(calls.length,6);assert.deepEqual(calls[0].values,['2026-08']);
   assert.match(calls[0].sql,/status='PENDING' AND is_active=true/);
   assert.match(calls[3].sql,/SELECT status,is_active,type,raw_type,dashboard_source_context/);
   assert.match(calls[2].sql,/operations_connector_health/);

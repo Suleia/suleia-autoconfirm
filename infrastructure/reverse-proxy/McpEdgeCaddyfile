@@ -28,6 +28,14 @@
   import edge_security_headers
   header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 
+  @absent_native_authorize {
+    path /absent/native/authorize
+    method POST
+  }
+  handle @absent_native_authorize {
+    reverse_proxy recipient-absent-live-controller:3310
+  }
+
   @dropea_webhooks path /webhooks/dropea/v2/*
   handle @dropea_webhooks {
     request_body {

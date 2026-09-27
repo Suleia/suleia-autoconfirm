@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,writeFile,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
+import {createPlatformKnowledge} from '../src/platform/catalog.mjs';
+test('central inventory registers dedicated controller with its own revision, counters and breakers',async t=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'absent-inventory-'));t.after(()=>rm(dir,{recursive:true,force:true}));const file=path.join(dir,'runtime.json');
+ await writeFile(file,JSON.stringify({generated_at:new Date().toISOString(),git:{commit:'shared-revision'},containers:[{service:'recipient-absent-live-controller',name:'recipient-absent-live-controller',image:'dedicated:revision',image_id:'sha256:fixture',image_revision:'controller-revision',restart_count:0,functional_health_is_current:true,functional_health:{checked_at:new Date().toISOString(),health_status:'HEALTHY',last_completed_cycle_at:new Date().toISOString(),evidence:{observer:{lag_seconds:1},notification:{state:'CANARY',canary_used:false},resolution:{state:'DISABLED',breaker:null},counts:{reservations:0,timers:0}}}}]}));
+ const p=createPlatformKnowledge({repository:{},config:{runtimeInventoryPath:file}});const {items}=await p.getRuntimeInventory({service:'recipient-absent-live-controller'});
+ assert.equal(items.length,1);assert.equal(items[0].commit,'controller-revision');assert.equal(items[0].source_commit,'shared-revision');assert.equal(items[0].health,'HEALTHY');assert.equal(items[0].restart_count,0);assert.equal(items[0].digest,'sha256:fixture');assert.equal(items[0].canary.state,'CANARY');assert.equal(items[0].counts.timers,0);
+});

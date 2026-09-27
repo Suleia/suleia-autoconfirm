@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh Suleia deployment inventory every two minutes
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=120
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

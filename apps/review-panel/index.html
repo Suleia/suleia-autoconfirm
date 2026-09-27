@@ -8,7 +8,8 @@
   <link rel="stylesheet" href="styles.css?v=20260920-incident-dashboard-v2">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
   <link rel="stylesheet" href="results-dashboard.css?v=20260920-results-v2">
-  <link rel="stylesheet" href="incident-panel.css?v=20260921-reference">
+  <link rel="stylesheet" href="incident-panel.css?v=20260926-autonomy">
+  <link rel="stylesheet" href="automation-panel.css?v=20260926-autonomy">
 </head>
 <body>
   <div id="login" class="login-shell" hidden>
@@ -32,6 +33,7 @@
       <nav aria-label="Secciones principales">
         <button class="nav-item active" data-view="orders"><span class="nav-icon">P</span>Pedidos</button>
         <button class="nav-item" data-view="incidents"><span class="nav-icon">I</span>Incidencias</button>
+        <button class="nav-item" data-view="automation"><span class="nav-icon" aria-hidden="true">↯</span>Automatización</button>
         <button class="nav-item" data-view="finance"><span class="nav-icon">€</span>Panel de resultados</button>
       </nav>
       <div class="safety-card">
@@ -65,6 +67,7 @@
       </section>
       <div id="notice" class="notice" role="status" hidden></div>
       <section id="summary" class="summary-grid" aria-label="Resumen operativo"></section>
+      <section id="automation-view" hidden aria-label="Automatización"></section>
 
       <section id="finance-view" class="finance-view results-dashboard" hidden aria-label="Panel de resultados">
         <div class="finance-toolbar">
@@ -173,7 +176,8 @@
     </aside>
   </div>
   <script src="results-dashboard.js?v=20260920-results-v2" defer></script>
-  <script src="incident-panel.js?v=20260921-reference2" defer></script>
-  <script src="app.js?v=20260921-incident-reference2" defer></script>
+  <script src="incident-panel.js?v=20260926-autonomy" defer></script>
+  <script src="automation-panel.js?v=20260926-autonomy" defer></script>
+  <script src="app.js?v=20260926-autonomy" defer></script>
 </body>
 </html>

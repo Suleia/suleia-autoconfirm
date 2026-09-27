@@ -1,4 +1,4 @@
-// Scoped to the absent reader: other workflows retain their existing queries.
+// Bot-inclusive history for incident evidence; order confirmation readers remain separate.
 export async function readAbsentMessageHistory({transport,base,token,userNs,maxPages=10}) {
  const items=new Map();let end=null;
  for(let page=0;page<Math.min(maxPages,10);page++) {

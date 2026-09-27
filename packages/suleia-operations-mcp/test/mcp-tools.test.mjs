@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { loadConfig } from '../src/config.mjs';
@@ -19,7 +20,9 @@ const allScopes = [
 ];
 
 async function createHarness(scopes = allScopes) {
-  const config = loadConfig({ dataMode: 'fixture' });
+  // Fixture tools must not depend on changing host memory/disk measurements.
+  const config = loadConfig({ dataMode: 'fixture', runtimeInventoryPath:
+    fileURLToPath(new URL('../fixtures/runtime.masked.json', import.meta.url)) });
   const repository = createRepository(config, { anchor: new Date('2026-07-26T12:00:00Z') });
   const service = createOperationsService(repository, config);
   const lines = [];

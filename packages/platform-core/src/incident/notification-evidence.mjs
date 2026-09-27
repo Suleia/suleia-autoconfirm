@@ -16,6 +16,12 @@ export function incidentNotificationBoundary(events, { issueId, orderId, issueTy
     .sort((a,b) => new Date(a.created_at)-new Date(b.created_at))[0]?.created_at || null;
 }
 export function projectNotificationScopedIncident(item) {
+  if(item.normalized_type==='ADDRESS_INCORRECT' && item.notification_decision_current===true
+    && item.snapshot_status==='PERSISTED' && item.address_canonical_snapshot?.decision_id===item.current_decision_id
+    && item.address_canonical_snapshot?.input_snapshot_hash===item.input_snapshot_hash) return {
+      ...item,operational_response_status:item.scoped_response_status,chatby_sync_current:true,
+      customer_replied_after_issue:item.scoped_response_status==='VALID_RESPONSE'
+    };
   // SQL has independently bound the persisted SHADOW snapshot to current issue,
   // policy, order state, message watermark and freshness. Historical simulation
   // anchors are labelled explicitly and never used by another incident lane.

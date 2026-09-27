@@ -97,11 +97,12 @@ const containers = ps.map((item) => {
     functional_health_is_current:functionalCurrent,
     image_revision:provenance.image_revision || null,container_revision:provenance.container_revision || null,
     image_id:provenance.image_id || null,container_id:provenance.container_id || null,
+    digest:provenance.image_id || null,restart_count:provenance.restart_count ?? null,
     cpu_percent: Number.parseFloat(String(observedStats.CPUPerc || '').replace('%', '')) || null,
     ram_usage_bytes: ramUsage,
     ram_limit_bytes: ramLimit,
     ports: safePorts(item.Publishers),
-    restart_policy: inspect.Name || null,
+    restart_policy: inspect.Name || provenance.restart_policy || null,
     last_failure: Number(item.ExitCode || 0) === 0 ? null : {
       exit_code: Number(item.ExitCode),
       finished_at: item.FinishedAt || null
@@ -162,6 +163,7 @@ try {
 const inventory = {
   schema_version: 'suleia-runtime-inventory-v1',
   generated_at: new Date().toISOString(),
+  collector_commit: process.env.SULEIA_RUNTIME_GIT_COMMIT || 'UNKNOWN',
   git: {
     commit: fixed('git', ['rev-parse', 'HEAD']) || process.env.SULEIA_RUNTIME_GIT_COMMIT || 'UNKNOWN',
     branch: fixed('git', ['branch', '--show-current']) || process.env.SULEIA_RUNTIME_GIT_BRANCH || 'DETACHED_OR_UNKNOWN'

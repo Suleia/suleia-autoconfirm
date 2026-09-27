@@ -22,8 +22,19 @@ mv "${STATS_SNAPSHOT}.tmp" "${STATS_SNAPSHOT}"
 # Whitelisted provenance only. Never export Config.Env or full inspections.
 docker compose --env-file "${ENV_FILE}" --file "${COMPOSE_FILE}" ps -q \
   | xargs -r docker inspect --format '{{json .}}' \
-  | jq -s 'map({service:.Config.Labels["com.docker.compose.service"],container_id:.Id,image_id:.Image,image_revision:.Config.Labels["org.opencontainers.image.revision"],container_revision:(.Config.Env|map(select(startswith("SULEIA_BUILD_REVISION=")))|first|ltrimstr("SULEIA_BUILD_REVISION="))})' > "${PROVENANCE_SNAPSHOT}.tmp"
+  | jq -s 'map({service:.Config.Labels["com.docker.compose.service"],container_id:.Id,image_id:.Image,image_revision:.Config.Labels["org.opencontainers.image.revision"],container_revision:((.Config.Env|map(select(startswith("SULEIA_BUILD_REVISION=")))|first)//""|ltrimstr("SULEIA_BUILD_REVISION="))})' > "${PROVENANCE_SNAPSHOT}.tmp"
 mv "${PROVENANCE_SNAPSHOT}.tmp" "${PROVENANCE_SNAPSHOT}"
+
+# Dedicated AUSENTE is intentionally outside Compose. Inspect only this exact
+# container, never include stopped backups or export credentials.
+controller=recipient-absent-live-controller
+if docker inspect "$controller" >/dev/null 2>&1; then
+  docker inspect "$controller" --format '{"ID":{{json .Id}},"Name":{{json .Name}},"Service":"recipient-absent-live-controller","Image":{{json .Config.Image}},"State":{{json .State.Status}},"Health":{{json .State.Health.Status}}}' | jq -c '.Name|=ltrimstr("/")' >> "$PS_SNAPSHOT"
+  docker inspect "$controller" --format '{"service":"recipient-absent-live-controller","container_id":{{json .Id}},"image_id":{{json .Image}},"image_revision":{{json (index .Config.Labels "org.opencontainers.image.revision")}},"restart_count":{{json .RestartCount}},"restart_policy":{{json .HostConfig.RestartPolicy.Name}}}' > "$OUTPUT_DIR/absent-provenance.tmp"
+  jq -s '.[0]+[.[1]]' "$PROVENANCE_SNAPSHOT" "$OUTPUT_DIR/absent-provenance.tmp" > "${PROVENANCE_SNAPSHOT}.tmp"
+  mv "${PROVENANCE_SNAPSHOT}.tmp" "$PROVENANCE_SNAPSHOT"
+  rm -f "$OUTPUT_DIR/absent-provenance.tmp"
+fi
 
 git_commit="${SULEIA_RUNTIME_GIT_COMMIT:-$(git -C "${INSTALL_ROOT}" rev-parse HEAD 2>/dev/null || true)}"
 git_branch="${SULEIA_RUNTIME_GIT_BRANCH:-$(git -C "${INSTALL_ROOT}" branch --show-current 2>/dev/null || true)}"
@@ -32,7 +43,12 @@ if docker volume ls --filter name=backup_data --format '{{.Name}}' | grep -q .; 
   backup_status="VOLUME_PRESENT_NOT_REVERIFIED"
 fi
 
-docker run --rm --user "$(id -u):$(id -g)" --network none --read-only --cap-drop ALL \
+# The mounted directory can belong to the application UID while systemd runs
+# this collector as root. With all capabilities dropped, root cannot write a
+# different user's 0755 directory. Run with the directory owner instead.
+output_owner="$(stat -c '%u:%g' "${OUTPUT_DIR}")"
+chown "${output_owner}" "${PS_SNAPSHOT}" "${STATS_SNAPSHOT}" "${PROVENANCE_SNAPSHOT}"
+docker run --rm --user "${output_owner}" --network none --read-only --cap-drop ALL \
   --security-opt no-new-privileges --pids-limit 64 --memory 256m --cpus 1.0 \
   --volume "${INSTALL_ROOT}/apps:/workspace/apps:ro" \
   --volume "${INSTALL_ROOT}/docs:/workspace/docs:ro" \

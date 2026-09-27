@@ -15,3 +15,9 @@ test('NAM ambiguity and other types cannot call any connector',async()=>{
   assert.equal((await read({type:'RECIPIENT_ABSENT',raw_type:'GENERAL_INCIDENCE',initial_carrier_code:'NAM'})).reason,'ABSENT_MAPPING_NOT_VERIFIED');
   assert.equal((await read({type:'REFUSED_BY_RECIPIENT'})).reason,'ABSENT_MAPPING_NOT_VERIFIED');
 });
+test('GLS outage does not discard a separately verified exact-order phone',async()=>{
+ const read=createAbsentLogisticsReader([{store:{market:'ES',store_id:'s'},client:{request:async()=>({data:{id:7,store_id:'s',shipping_address:{phone_number:'+34600000001'}}})}}],
+  {privacyKey:'synthetic-key-'.repeat(4),glsRead:async()=>{throw new Error('tracking unavailable');}});
+ const result=await read({type:'RECIPIENT_ABSENT',canonical_order_id:'order-a',market:'ES',store_id:'s',dropea_order_id:'7'});
+ assert.equal(result.verified_phone.verified,true);assert.equal(result.verified_phone.canonical_order_id,'order-a');assert.deepEqual(result.gls,{});
+});
