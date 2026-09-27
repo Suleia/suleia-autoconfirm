@@ -63,14 +63,14 @@ function fixture() {
 }
 
 test('ADDRESS offer reuses sender and blocks a reply arriving after its persistent claim',async()=>{
- for(const late of [false,true]){
+ for(const late of [false,'Calle Mayor 25','Hola','Ahora te digo']){
   const data=fixture(),now=Date.now();
   Object.assign(data.incident,{incidentType:'address',chatbyOrderAssociation:'EXACT_ORDER',incidenceDate:new Date(now-26*3600000).toISOString()});
   const notification={...initial,created_at:new Date(now-25*3600000).toISOString(),content:{name:'dropea_incidencia_direccion_v1'}};
   let claimed=false,writes=0;
   Object.assign(data.dependencies,{
    addressEnvironment:{ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_DISCOUNT_OFFER_MODE:'CANARY',ADDRESS_OFFER_CANARY_ISSUE_ID:data.incident.incidenceId},
-   getMessages:async()=>[notification,...(late&&claimed?[{type:'in',mid:'wamid.late',ts:now/1000,text:'Calle Mayor 25'}]:[])],
+   getMessages:async()=>[notification,...(late&&claimed?[{type:'in',mid:'wamid.late',ts:now/1000,text:late}]:[])],
    readCurrent:async()=>({issue:{id:data.incident.incidenceId,order_id:data.incident.orderId,type:'ADDRESS_INCORRECT',status:'PENDING',is_active:true},order:{...data.order,status:'ERROR'}}),
    claim:async()=>{claimed=true;return {acquired:true,persistent:true};},onWrite:()=>writes++
   });

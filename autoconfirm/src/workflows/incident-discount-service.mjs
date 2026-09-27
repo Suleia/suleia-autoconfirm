@@ -668,7 +668,7 @@ export async function processIncidentDiscountRecovery({
     if(incident.incidentType==='address'){
       const latest=await deps.getMessages(incident.chatbyUserNs).catch(()=>null);
       const currentDecision=latest?addressResponseDecision({incident,messages:latest,order,now:Date.now()}):null;
-      if(!currentDecision?.eligible||currentDecision.action!=='OFFER_5_EURO_DISCOUNT'){
+      if(!currentDecision?.eligible||currentDecision.action!=='OFFER_5_EURO_DISCOUNT'||currentDecision.customer_message_present){
         await deps.finish({storeId:config.defaultStore.id,orderId:incident.orderId,templateName:template.name,status:'aborted',attemptedAt,raw:{reason:'ADDRESS_LATE_CUSTOMER_RESPONSE'}});
         return recoveryResult({...preview,status:'aborted',reason:'ADDRESS_LATE_CUSTOMER_RESPONSE'});
       }
