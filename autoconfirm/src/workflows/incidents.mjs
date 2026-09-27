@@ -1,4 +1,6 @@
 import {executeObservedAddress} from './address-observed-executor.mjs';
+import {refreshAddressCapabilities,runAddressCapability,addressCapabilitiesSnapshot} from './address-capabilities.mjs';
+import {addressExcluded} from './address-capability-policy.mjs';
 import {addressResponseDecision,addressStageAllowed,ADDRESS_POLICY,ADDRESS_STAGES} from './address-response-policy.mjs';
 import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
@@ -1204,7 +1206,7 @@ export function incidentDiscountNoResponseReturnDecision({ incident, discountRec
 
 export async function executeIncidentDiscountNoResponseReturn(incident, discountRecovery, dependencies = {}) {
   const addressLane=incident.incidentType==='address';
-  if(addressLane&&!addressStageAllowed('RETURN_TO_ORIGIN',incident))return {status:'WOULD_RETURN',verified:false};
+  if(addressLane&&!addressStageAllowed('RETURN_TO_ORIGIN',incident,dependencies.addressEnvironment||process.env))return {status:'WOULD_RETURN',verified:false};
   if (!addressLane && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return {status:'BLOCKED_MASTER',verified:false};
   if (!addressLane && process.env.RECIPIENT_REJECTED_RETURN_BREAKER === 'OPEN') return {status:'BLOCKED_RETURN_BREAKER',verified:false};
   const addressDecision=addressLane?addressResponseDecision({incident,messages:dependencies.addressMessages||[],now:dependencies.now??Date.now()}):null;
@@ -1361,6 +1363,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     const requestNonce = replayNonce || claim.row?.attempted_at || attemptedAt;
     let response;
     try {
+      if(addressLane)dependencies.onWrite?.();
       response = await returnIssue(incident.incidenceId, { idempotencyNonce: requestNonce });
     } catch (error) {
       const errorCode = safeIncidentActionError(error);
@@ -2448,6 +2451,7 @@ async function performPendingIncidentSync({
 
   try {
     const previousCache = loadIncidentsCache();
+    await refreshAddressCapabilities().catch(()=>null);
     const previousByOrderId = new Map((previousCache.incidents || []).map((incident) => [String(incident.orderId), incident]));
     const chatbyByPhone = new Map();
     const messagesByUserNs = new Map();
@@ -2822,7 +2826,7 @@ async function performPendingIncidentSync({
             incident: item.incident,
             order: item.order,
             messages: item.messages,
-            realEnabled: returnOnly === true ? false : config.incidentDiscountRealEnabled === true,
+            realEnabled: returnOnly === true || item.incident.incidentType==='address' ? false : config.incidentDiscountRealEnabled === true,
             authorizedImmediate: authorizedImmediateDiscounts === true,
             dependencies: {
               getTemplate: async () => {
@@ -3005,6 +3009,7 @@ async function performPendingIncidentSync({
       state.lastIncidentsSyncCount = sortedIncidents.length;
       state.lastIncidentDiscountRecoveryAt = updatedAt;
       state.lastAddressWorkflowAt=updatedAt;
+      state.addressCapabilities=addressCapabilitiesSnapshot();
       const addresses=sortedIncidents.filter(i=>i.addressWorkflow);
       state.addressWorkflowSummary={checked:addresses.length,observed:addresses.filter(i=>i.addressWorkflow.notification_at).length,states:addresses.reduce((a,i)=>(a[i.addressWorkflow.state]=(a[i.addressWorkflow.state]||0)+1,a),{}),verified:addresses.filter(i=>i.addressWorkflow.execution?.verified).length};
       state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
@@ -3044,26 +3049,29 @@ async function processObservedAddress(item,previous=null){
   const decision=addressResponseDecision({incident:item.incident,messages:item.messages,order:item.order,issue:item.issue,previous});
   let execution={status:'SHADOW',verified:false};
   const priorExecution=previous?.last_execution||previous?.execution;
-  if(priorExecution?.status==='MANUAL_RECONCILIATION_REQUIRED'){
+  if(addressExcluded(item.incident.incidenceId)||priorExecution?.status==='MANUAL_RECONCILIATION_REQUIRED'||priorExecution?.status==='EXECUTION_UNKNOWN'){
     execution={...priorExecution};
     if(!execution.provider_error_code&&execution.error==='DROPEA_V2_ISSUE_ACTION_HTTP_400'){
       const ledger=await getTemplateDelivery({storeId:config.defaultStore.id,orderId:item.incident.orderId,templateName:`dropea_issue_discount_no_response_return_v1:${item.incident.incidenceId}`}).catch(()=>null);
       const operation=await readDropeaV2IssueOperation(item.incident.incidenceId,ledger?.raw?.requestNonce).catch(()=>null);
       if(operation?.errorCode)execution.provider_error_code=operation.errorCode;
     }
-    return {...decision,state:'PROVIDER_RECONCILIATION_REQUIRED',action:'HUMAN_REVIEW',eligible:false,execution,last_execution:execution,history:previous?.history||[],stages:Object.fromEntries(ADDRESS_STAGES.map(s=>[s,process.env.ADDRESS_AUTOMATION_ENABLED==='true'?(process.env['ADDRESS_'+s+'_MODE']||'SHADOW'):'SHADOW']))};
+    return {...decision,state:'PROVIDER_RECONCILIATION_REQUIRED',action:'HUMAN_REVIEW',eligible:false,execution,last_execution:execution,history:previous?.history||[],stages:Object.fromEntries(Object.entries(addressCapabilitiesSnapshot()).map(([stage,value])=>[stage,value.effective_mode]))};
   }
-  if(decision.eligible && addressStageAllowed(decision.action,item.incident)){
-    if(decision.action==='OFFER_5_EURO_DISCOUNT')execution=await processIncidentDiscountRecovery({incident:item.incident,order:item.order,messages:item.messages,realEnabled:true});
-    else if(decision.action==='RETURN_TO_ORIGIN')execution=await executeIncidentDiscountNoResponseReturn(item.incident,{}, {addressMessages:item.messages});
-    else execution=await executeObservedAddress(item.incident,decision);
+  const interpretation=await runAddressCapability(item,decision,{stage:'INTERPRETATION'});
+  if(decision.eligible){
+    execution=await runAddressCapability(item,decision,{execute:async fresh=>{
+      if(fresh.decision.action==='OFFER_5_EURO_DISCOUNT')return processIncidentDiscountRecovery({incident:fresh.incident,order:fresh.order,messages:fresh.messages,realEnabled:true,dependencies:{addressEnvironment:fresh.env,onWrite:fresh.onWrite}});
+      if(fresh.decision.action==='RETURN_TO_ORIGIN')return executeIncidentDiscountNoResponseReturn(fresh.incident,{}, {addressMessages:fresh.messages,addressEnvironment:fresh.env,onWrite:fresh.onWrite});
+      return executeObservedAddress(fresh.incident,fresh.decision,{env:fresh.env,onWrite:fresh.onWrite});
+    }});
   }
   const history=previous?.history||[];
   const superseded=previous?.decision_id&&previous.decision_id!==decision.decision_id
     ? [{decision_id:previous.decision_id,input_snapshot_hash:previous.input_snapshot_hash,state:previous.state,action:previous.action,read_at:previous.read_at,decision_status:'SUPERSEDED'}]:[];
-  return {...decision,execution,last_execution:execution.status!=='SHADOW'?execution:previous?.last_execution||null,
+  return {...decision,interpretation_execution:interpretation,capabilities:addressCapabilitiesSnapshot(),execution,last_execution:execution.external_write_attempted?execution:previous?.last_execution||null,
     last_required_field_request_at:execution.last_required_field_request_at||previous?.last_required_field_request_at||null,
-    history:[...history,...superseded].slice(-100),stages:Object.fromEntries(ADDRESS_STAGES.map(s=>[s,process.env.ADDRESS_AUTOMATION_ENABLED==='true'?(process.env['ADDRESS_'+s+'_MODE']||'SHADOW'):'SHADOW']))};
+    history:[...history,...superseded].slice(-100),stages:Object.fromEntries(Object.entries(addressCapabilitiesSnapshot()).map(([stage,value])=>[stage,value.effective_mode]))};
  } catch {
    // Address failures must not interrupt synchronization of other workflows.
    return {...previous,state:'EVIDENCE_UNVERIFIED',eligible:false,action:'HUMAN_REVIEW',execution:{status:'ADDRESS_CYCLE_FAILED',verified:false},read_at:new Date().toISOString()};

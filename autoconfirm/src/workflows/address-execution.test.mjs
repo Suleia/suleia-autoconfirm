@@ -32,16 +32,25 @@ test('I late partial response cancels a reserved return before the provider writ
  }finally{for(const k of ['ADDRESS_AUTOMATION_ENABLED','ADDRESS_RETURN_MODE','ADDRESS_RETURN_CANARY_ISSUE_ID'])saved[k]===undefined?delete process.env[k]:process.env[k]=saved[k];}
 });
 test('partial details send has a persistent once-only claim',async()=>{
- let sent=0,claimed=false;const deps={env,prior:async()=>({}),readCurrent:async()=>({issue,order}),readMessages:async()=>[notice,partial],
+ const currentNotice={...notice,ts:(now-2*3600000)/1000};
+ const decision=addressResponseDecision({incident,order,messages:[currentNotice,partial],now});
+ let sent=0,claimed=false;const deps={env,prior:async()=>({}),readCurrent:async()=>({issue,order}),readMessages:async()=>[currentNotice,partial],
   claimMessage:async()=>claimed?{acquired:false,persistent:true}:(claimed=true,{acquired:true,persistent:true}),
   send:async()=>{sent++;return {message_id:'wamid.details'};},finishMessage:async()=>{}};
- const first=await executeObservedAddress(incident,expected([notice,partial]),deps);
+ const first=await executeObservedAddress(incident,decision,deps);
  const second=await executeObservedAddress(incident,expected([notice,partial]),deps);
  assert.equal(first.verified,true);assert.equal(second.verified,false);assert.equal(sent,1);
 });
+
+test('a recent partial reply after T0 plus 24h requires manual review and never a new request',async()=>{
+ const d=expected([notice,partial]);assert.equal(d.action,'HUMAN_REVIEW');
+ assert.equal(d.initial_milestones,'SUPERSEDED_BY_CUSTOMER_RESPONSE');
+ let writes=0;const r=await executeObservedAddress(incident,d,{env,send:async()=>{writes++;}});
+ assert.equal(r.verified,false);assert.equal(writes,0);
+});
 test('N timeout after accepted solution is reconciled without another provider write',async()=>{
  let reads=0,writes=0;const finished=[];
- const deps={env,prior:async()=>({}),readCurrent:async()=>++reads===1?{issue,order}:{issue:{...issue,status:'RESOLVED',resolution_status:'SOLUTION_PROVIDED'}},readMessages:async()=>[notice,full],claim:async()=>({acquired:true,persistent:true}),finish:async row=>finished.push(row),write:async()=>{writes++;throw Error('timeout');}};
+ const deps={env,prior:async()=>({}),readCurrent:async()=>++reads===1?{issue,order}:{issue:{...issue,status:'RESOLVED',resolution_status:'SOLUTION_PROVIDED'},order},readMessages:async()=>[notice,full],claim:async()=>({acquired:true,persistent:true}),finish:async row=>finished.push(row),write:async()=>{writes++;throw Error('timeout');}};
  const r=await executeObservedAddress(incident,expected([notice,full]),deps);
  assert.equal(writes,1);assert.equal(r.verified,true);assert.equal(finished[0].status,'verified');
 });
@@ -64,7 +73,7 @@ test('structured change and pickup share the persistent claim and independently 
   let reads=0,writes=0,body;
   const result=await executeObservedAddress(incident,d,{
    env:{ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_CHANGE_ADDRESS_MODE:'LIVE',ADDRESS_PICKUP_MODE:'LIVE'},prior:async()=>({}),
-   readCurrent:async()=>++reads===1?{issue:currentIssue,order:currentOrder}:{issue:{...currentIssue,status:'RESOLVED',resolution_status:action,resolution_data:accepted?body:null}},
+   readCurrent:async()=>++reads===1?{issue:currentIssue,order:currentOrder}:{issue:{...currentIssue,status:'RESOLVED',resolution_status:action,resolution_data:accepted?body:null},order:currentOrder},
    readMessages:async()=>messages,claim:async()=>({acquired:true,persistent:true}),finish:async()=>{},
    writeResolution:async(id,a,data)=>{assert.equal(a,action);body=data;writes++;throw Error('timeout');}
   });

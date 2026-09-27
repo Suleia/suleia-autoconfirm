@@ -15,7 +15,10 @@ test('changed address prefers structured change, unchanged address uses solution
 });
 test('province and country completions resolve missing fields without inventing a new locality',()=>{
  const blank={...order,raw:{shipping_address:{}}};
- const d=decide(['Calle Mayor 25, 48012 Bilbao'],{order:blank});assert.deepEqual(d.missing_fields,['province','country']);
+ const d=decide(['Calle Mayor 25, 48012 Bilbao'],{order:blank,issue:{...issue,allowed_resolution_options:['CHANGE_ADDRESS']}});assert.deepEqual(d.missing_fields,['province','country']);
+ const fallback=decide(['Calle Mayor 25, 48012 Bilbao'],{order:blank});
+ assert.equal(fallback.action,'PROVIDE_ADDRESS_SOLUTION');assert.equal(fallback.eligible,true);
+ assert.equal(fallback.provider_plan.body.resolution_data,undefined);
  const completed=decide(['Calle Mayor 25, 48012 Bilbao','Provincia Bizkaia','ES'],{order:blank});
  assert.equal(completed.action,'CHANGE_ADDRESS');assert.equal(completed.eligible,true);
  assert.equal(completed.provider_plan.body.resolution_data.address.state,'Bizkaia');
@@ -31,6 +34,6 @@ test('agency requires exact current capability; newer return supersedes it; stag
  const env={ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_CHANGE_ADDRESS_MODE:'CANARY',ADDRESS_CHANGE_ADDRESS_CANARY_ISSUE_ID:'11'};
  assert.equal(addressStageAllowed('CHANGE_ADDRESS',incident,env),true);
  assert.equal(addressStageAllowed('PICKUP_AT_AGENCY',incident,env),false);
- assert.equal(addressRuntimeStatus({},env).stages.change_address,'CANARY');
- assert.equal(addressRuntimeStatus({},env).stages.pickup,'SHADOW');
+ assert.equal(addressRuntimeStatus({lastAddressWorkflowAt:new Date(now).toISOString()},env).stages.change_address,'CANARY');
+ assert.equal(addressRuntimeStatus({lastAddressWorkflowAt:new Date(now).toISOString()},env).stages.pickup,'SHADOW');
 });
