@@ -422,7 +422,7 @@ export async function processIncidentDiscountRecovery({
   now = Date.now(),
   dependencies = {}
 } = {}) {
-  if (incident?.incidentType==='address' && realEnabled && !addressStageAllowed('OFFER_5_EURO_DISCOUNT',incident)) return recoveryResult({reason:'address_offer_not_authorized'});
+  if (incident?.incidentType==='address' && realEnabled && !addressStageAllowed('OFFER_5_EURO_DISCOUNT',incident,dependencies.addressEnvironment||process.env)) return recoveryResult({reason:'address_offer_not_authorized'});
   if (incident?.incidentType!=='address' && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return recoveryResult({reason:'rejected_master_disabled'});
   if (incident?.incidentType!=='address' && process.env.RECIPIENT_REJECTED_OFFER_BREAKER === 'OPEN') return recoveryResult({reason:'rejected_offer_breaker_open'});
   const deps = {
@@ -665,6 +665,15 @@ export async function processIncidentDiscountRecovery({
       });
     }
 
+    if(incident.incidentType==='address'){
+      const latest=await deps.getMessages(incident.chatbyUserNs).catch(()=>null);
+      const currentDecision=latest?addressResponseDecision({incident,messages:latest,order,now:Date.now()}):null;
+      if(!currentDecision?.eligible||currentDecision.action!=='OFFER_5_EURO_DISCOUNT'){
+        await deps.finish({storeId:config.defaultStore.id,orderId:incident.orderId,templateName:template.name,status:'aborted',attemptedAt,raw:{reason:'ADDRESS_LATE_CUSTOMER_RESPONSE'}});
+        return recoveryResult({...preview,status:'aborted',reason:'ADDRESS_LATE_CUSTOMER_RESPONSE'});
+      }
+      dependencies.onWrite?.();
+    }
     const providerResponse = await deps.send({
       user_ns: incident.chatbyUserNs,
       user_id: incident.phone || order.customerPhone || '',

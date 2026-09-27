@@ -8,7 +8,7 @@ import {inspectPriorOrderReturn} from './incident-order-return-guard.mjs';
 import {extractWamid} from './incident-discount-policy.mjs';
 import {createHash} from 'node:crypto';
 
-export async function executeObservedAddress(incident,expected,{env=process.env,readCurrent=readDropeaV2ReturnIssueState,readMessages=getIncidentChatMessages,claim=claimIncidentAddressResolution,finish=finishIncidentAddressResolution,write=provideDropeaV2AddressSolution,writeResolution=executeDropeaV2Resolution,prior=inspectPriorOrderReturn,claimMessage=claimTemplateDelivery,finishMessage=finishTemplateDelivery,send=sendTextMessage}={}){
+export async function executeObservedAddress(incident,expected,{env=process.env,onWrite=()=>{},readCurrent=readDropeaV2ReturnIssueState,readMessages=getIncidentChatMessages,claim=claimIncidentAddressResolution,finish=finishIncidentAddressResolution,write=provideDropeaV2AddressSolution,writeResolution=executeDropeaV2Resolution,prior=inspectPriorOrderReturn,claimMessage=claimTemplateDelivery,finishMessage=finishTemplateDelivery,send=sendTextMessage}={}){
  if(!addressStageAllowed(expected.action,incident,env))return {status:'SHADOW',verified:false};
  const current=await readCurrent(incident,{includeOrder:true}).catch(()=>null);
  const issue=current?.issue?.raw||current?.issue;
@@ -21,10 +21,10 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
  const key={storeId:'suleia',orderId:incident.orderId,incidenceId:incident.incidenceId};
  if(d.action==='ASK_MISSING_FIELDS'){
    // Reply-window eligibility: only a fresh customer message may trigger text.
-   if(Date.now()-Date.parse(d.last_customer_at)>=24*3600000)return {status:'WAITING_DETAILS_MANUAL_REVIEW',verified:false};
+   if(Date.now()-Date.parse(d.last_customer_at)>=24*3600000||Date.now()-Date.parse(d.notification_at)>=24*3600000)return {status:'WAITING_DETAILS_MANUAL_REVIEW',verified:false};
    const names={street:'calle',number:'número',postal_code:'código postal',city:'localidad',province:'provincia',country:'país (código de dos letras)'};
    const content=`Para completar la dirección de tu pedido, indícanos: ${d.missing_fields.map(k=>names[k]).join(', ')}. Gracias.`;
-   const args={...key,templateName:`address_missing_fields_v1:${incident.incidenceId}:${d.missing_fields.join('_')}`,provider:'chatby',chatbyUserNs:incident.chatbyUserNs,customerPhone:''};
+   const args={...key,templateName:`address_missing_fields_v1:${incident.incidenceId}`,provider:'chatby',chatbyUserNs:incident.chatbyUserNs,customerPhone:''};
    const c=await claimMessage(args);if(!c?.acquired||c.persistent!==true)return {status:'DETAILS_REQUEST_ALREADY_CLAIMED',verified:false,last_required_field_request_at:c?.existing?.sent_at||null};
    const at=new Date().toISOString();let result;
    const fresh=await readMessages(incident.chatbyUserNs).catch(()=>null);
@@ -33,7 +33,7 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
      await finishMessage({...args,status:'aborted',attemptedAt:at,raw:{reason:'LATE_CUSTOMER_RESPONSE'}});
      return {status:'SUPERSEDED_BY_CURRENT_RESPONSE',verified:false};
    }
-   try{const response=await send({user_ns:incident.chatbyUserNs,content});const mid=extractWamid(response);result={status:mid?'DETAILS_REQUEST_SENT':'EXECUTION_UNKNOWN',verified:!!mid,last_required_field_request_at:mid?at:null,message_id:mid};}
+   try{onWrite();const response=await send({user_ns:incident.chatbyUserNs,content});const mid=extractWamid(response);result={status:mid?'DETAILS_REQUEST_SENT':'EXECUTION_UNKNOWN',verified:!!mid,last_required_field_request_at:mid?at:null,message_id:mid};}
    catch{result={status:'EXECUTION_UNKNOWN',verified:false};}
    await finishMessage({...args,status:result.verified?'sent':'delivery_unverified',attemptedAt:at,sentAt:result.verified?at:null,raw:{workflow:'ADDRESS_INCORRECT',...result}});
    return result;
@@ -50,12 +50,13 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
  let receipt=false;
  try{
    const options={idempotencyNonce:`address-${incident.incidenceId}`};
+   onWrite();
    if(action==='PROVIDE_SOLUTION')await write(incident.incidenceId,last.solution,options);
    else await writeResolution(incident.incidenceId,action,action==='CHANGE_ADDRESS'?{address:plan.body.resolution_data.address}:{},options);
    receipt=true;
  }catch{/* Reconcile; never automatically resend an uncertain action. */}
  const after=await readCurrent(incident,{includeOrder:true}).catch(()=>null);
- const verified=verifyDropeaResolution(after,{issueId:incident.incidenceId,orderId:incident.orderId,action,body:plan.body});
+ const verified=String(after?.order?.orderId)===String(incident.orderId)&&verifyDropeaResolution(after,{issueId:incident.incidenceId,orderId:incident.orderId,action,body:plan.body});
  const result={status:verified?'ADDRESS_SOLUTION_VERIFIED':'EXECUTION_UNKNOWN',action,verified,provider_receipt:receipt,attempted_at:at,verified_at:verified?new Date().toISOString():null};
  await finish({...key,status:verified?'verified':'applied_unverified',attemptedAt:at,completedAt:result.verified_at,evidence:{...result,policy_id:d.policy.id,input_snapshot_hash:last.input_snapshot_hash,solution_hash:createHash('sha256').update(JSON.stringify(plan.body)).digest('hex'),decision_id:last.decision_id}});
  return result;
