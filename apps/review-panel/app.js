@@ -631,6 +631,9 @@ function addressWorkflowDetail(incident){
  const original=incident.address_details?.original;
  if(original)for(const [k,label] of Object.entries({address_line_1:'Dirección',address_line_2:'Complemento',postal_code:'Código postal',city:'Localidad',state:'Provincia',country:'País'}))fields.push([`Dirección original · ${label}`,original[k]||'No disponible']);
  if(d.provider_plan)fields.push(['Acción Dropea',d.provider_plan.action],['Permiso comprobado',d.provider_plan.allowed?'Permitida en última lectura':d.provider_plan.reason||'No verificado']);
+ if(d.current_gate)fields.push(['Control de ejecución actual',d.current_gate.status],['Modo de la capacidad',d.current_gate.mode||'Ver etapas'],['Breaker de la capacidad',d.current_gate.breaker||'Ver panel de automatización']);
+ if(d.execution)fields.push(['Resultado de ejecución',d.execution.status],['Verificación del proveedor',d.execution.verified?'Verificada':'Sin verificación de éxito'],['Acción registrada',d.execution.action_id||'Ver historial']);
+ fields.push(['Motivo de vigencia',incident.decision_status_reason||'No disponible']);
  fields.push(['Gestión de datos incompletos','Espera interna en Suleia; no cierra la incidencia en Dropea']);
  return section('Dirección · evidencia y automatización',fields);
 }

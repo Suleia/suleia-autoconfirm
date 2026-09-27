@@ -54,6 +54,8 @@ docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges -
   console.log("INCIDENT_PANEL_IMAGE_TESTS|PASS");' | tee "$backup/image-tests.txt"
 docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/049_address_owner_observations.sql
 docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/050_address_canonical_integrity.sql
+docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < migrations/051_address_current_reason.sql
+docker exec -i suleia-operations-staging-postgres-1 psql -X -v ON_ERROR_STOP=1 -U suleia_admin -d suleia_staging < infrastructure/vps/test-address-current-reason.sql
 compose=(docker compose --env-file .env -f infrastructure/docker/compose.yaml)
 "${compose[@]}" config --format json > "$backup/current-compose.json"
 override="$backup/runtime-preserving-override.json"

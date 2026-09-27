@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 import {normalizeAddressSignal} from './address-signal.mjs';
 import {privateIncidentDisplay} from '../../../packages/suleia-operations-mcp/src/operations/private-display.mjs';
 import {addressIncidentPresentation} from '../../../packages/platform-core/src/incident/address-presentation.mjs';
+import {addressWorkflowPresentation} from '../../../packages/platform-core/src/incident/address-presentation.mjs';
 const key='fixture-private-key-at-least-thirty-two-characters';
 test('address observation join is exact and independent of discount presence',()=>{
  const source=readFileSync(new URL('../../../packages/suleia-operations-mcp/src/operations/repository.mjs',import.meta.url),'utf8');
@@ -11,6 +12,15 @@ test('address observation join is exact and independent of discount presence',()
  assert.match(join,/address_owner.canonical_order_id=p.canonical_order_id/);assert.equal(join.includes('discount.'),false);
 });
 const make=()=>({order_id:'22',incidence_id:'11',updated_at:new Date().toISOString(),raw:{orderId:'22',incidenceId:'11',incidentType:'address',addressWorkflow:{canonical_issue_id:'11',canonical_order_id:'22',state:'WAITING_DETAILS_MANUAL_REVIEW',action:'HUMAN_REVIEW',intent:'INCOMPLETE_ADDRESS',missing_fields:['postal_code','city'],initial_milestones:'SUPERSEDED_BY_CUSTOMER_RESPONSE',read_at:new Date().toISOString(),address:{street:'Calle Fixture',number:'25'},solution:'Private fixture',conversation_id:'private-conversation'}}});
+test('capability state and discount acceptance are displayed without claiming economic application',()=>{
+ const now=new Date().toISOString();
+ const shown=addressWorkflowPresentation({}, {workflow:'ADDRESS_INCORRECT',observed_at:now,last_cycle_at:now,stages:{change_address:'CANARY',return:'SHADOW'},breakers:{return:'OPEN'},capabilities:{CHANGE_ADDRESS:{phase:'WAITING_ELIGIBLE_CASE'}}});
+ assert.equal(shown.stages.find(s=>s.id==='change_address').phase,'WAITING_ELIGIBLE_CASE');
+ assert.equal(shown.stages.find(s=>s.id==='return').mode,'SHADOW');
+ const row=make();row.raw.addressWorkflow.action='MANUAL_DISCOUNT_RECOVERY';
+ const incident=addressIncidentPresentation({interpreted_type:'ADDRESS_INCORRECT',address_observation:row.raw.addressWorkflow});
+ assert.equal(incident.next_best_action.label,'Descuento aceptado · gestión manual pendiente.');
+});
 test('address projection correlates exactly and encrypts private fields',()=>{
  const row=make(),s=normalizeAddressSignal(row,{hmacKey:key});
  assert.ok(s);assert.equal(JSON.stringify(s).includes('Calle Fixture'),false);assert.equal(JSON.stringify(s).includes('private-conversation'),false);

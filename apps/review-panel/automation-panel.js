@@ -2,8 +2,8 @@
 const AutomationPanel=(()=>{
  let filters={period:'7d'},request=0;
  const pill=(label,tone='gray')=>node('span',`ip-badge ${tone}`,label??'Sin evidencia');
- const modeBadge=s=>pill(s.label_mode,{LIVE:'green',CANARY:'amber',SHADOW:'violet',OFF:'gray'}[s.mode]||'gray');
- function pipeline(stages){const root=node('div','automation-pipeline');for(const s of stages){const step=node('div','automation-stage');step.append(node('small','',s.label),modeBadge(s));root.append(step);}return root;}
+ const modeBadge=(s={})=>pill(s.label_mode,{LIVE:'green',CANARY:'amber',SHADOW:'violet',OFF:'gray'}[s.mode]||'gray');
+ function pipeline(stages){const root=node('div','automation-pipeline');for(const s of stages){const step=node('div','automation-stage');step.append(node('small','',s.label),modeBadge(s));if(s.phase)step.append(node('small','',({WAITING_ELIGIBLE_CASE:'Esperando incidencia nueva',RESERVED:'Canary reservado',VERIFIED:'Canary verificado',HUMAN_REVIEW:'Revisión requerida'})[s.phase]||s.phase));root.append(step);}return root;}
  function group(title,...children){const g=node('section','automation-card');g.append(node('h3','',title),...children);return g;}
  function actionRow(a){const row=node('div','automation-recent-row');row.append(node('span','automation-time',date(a.occurred_at)),node('strong','',a.label),pill(a.status_label,a.execution_status==='VERIFIED'?'green':a.execution_status==='UNKNOWN'?'rose':'amber'),node('small','',a.evidence_mode==='SHADOW'?'Simulación · sin acción externa':a.provider));return row;}
  function detail(data){const w=data.workflow;closeDetail();$('detail-title').textContent=`Automatización · ${w.label}`;
