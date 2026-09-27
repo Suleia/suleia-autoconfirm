@@ -47,6 +47,7 @@ export async function runAddressCapability(item,expected,{stage=addressCapabilit
  if(stage==='INTERPRETATION'){
   if(!['VALID_ADDRESS','INCOMPLETE_ADDRESS','ADDRESS_CONFIRMED','AMBIGUOUS_ADDRESS','RETURN_REQUEST','AGENCY_REQUEST','OTHER_RESPONSE'].includes(d.intent)||!d.customer_message_present)return blocked('WAITING_REAL_INTERPRETATION_CASE');
  }else if(!d.eligible||addressCapability(d.action)!==stage)return blocked('CAPABILITY_NOT_ELIGIBLE');
+ if(stage==='OFFER'&&d.customer_message_present)return blocked('CUSTOMER_RESPONSE_BLOCKS_OFFER');
  if(stage==='RETURN'&&(d.customer_message_present||d.initial_milestones||now()<Date.parse(d.return_due_at)||!issue.allowed_resolution_options?.includes('RETURN_REQUESTED')))return blocked('RETURN_CANARY_NOT_ELIGIBLE');
  const action_id=hash([stage,id,incident.orderId,d.decision_id]);
  if(mode==='CANARY'){
