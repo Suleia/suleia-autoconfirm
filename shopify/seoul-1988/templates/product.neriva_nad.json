@@ -1,0 +1,1112 @@
+{
+  "sections": {
+    "seoul_design": {
+      "type": "seoul-design",
+      "settings": {}
+    },
+    "main": {
+      "type": "main-product",
+      "settings": {
+        "display_id": false,
+        "enable_sticky_info": true,
+        "display_variant_image_first": false,
+        "disable_prepend": false,
+        "hide_variants": false,
+        "variant_image_filtering": "none",
+        "image_zoom": "lightbox",
+        "thumbnails_ratio": "square",
+        "arrows_color_scheme": "inverse",
+        "transparent_arrows": false,
+        "dots_color_scheme": "inverse",
+        "video_player": "play_btn",
+        "enable_video_looping": false,
+        "autoplay_videos_pause_btn": false,
+        "video_sound_btn": false,
+        "video_timeline": false,
+        "play_btn_color_scheme": "accent-1",
+        "sound_btn_color_scheme": "inverse",
+        "timeline_color": "accent-1",
+        "media_size": "large",
+        "media_position": "left",
+        "gallery_layout": "thumbnail_slider",
+        "desktop_thumbnails_position": "bottom",
+        "desktop_thumbnails_count": 4,
+        "desktop_vertical_thumbnails_width": 16,
+        "desktop_vertical_thumbnails_hide_arrows": false,
+        "constrain_to_viewport": true,
+        "media_fit": "contain",
+        "desktop_arrows_position": "sides",
+        "mobile_media_corner_radius": 8,
+        "mobile_spacing_pixels": 0,
+        "mobile_arrows_position": "pagination",
+        "mobile_pagination": "numeric",
+        "mobile_thumbnails_position": "hidden",
+        "mobile_thumbnails_count": 5,
+        "mobile_vertical_thumbnails_width": 22,
+        "mobile_vertical_thumbnails_hide_arrows": true,
+        "mobile_scroll_padding_percentage": 0,
+        "mobile_scroll_padding_pixels": 0,
+        "enable_mobile_outher_spacing": false,
+        "mobile_slides_container_width": 100,
+        "mobile_slides_inner_width": 100,
+        "trust_badge_position": "top-right",
+        "trust_badge_size": "medium",
+        "mobile_padding_top": 12,
+        "mobile_padding_bottom": 32,
+        "desktop_padding_top": 32,
+        "desktop_padding_bottom": 56
+      },
+      "blocks": {
+        "badge": {
+          "type": "text",
+          "settings": {
+            "mobile_text_size": 11,
+            "desktop_text_size": 12,
+            "alignment": "left",
+            "text_color": "#8C101A",
+            "text_1": "K-BEAUTY · CONTORNO DE OJOS",
+            "icon_scale": 120,
+            "icon_color": "#8C101A",
+            "icon_1": "",
+            "filled_icon_1": false,
+            "icon_2": "",
+            "filled_icon_2": false,
+            "icon_3": "",
+            "filled_icon_3": false,
+            "width": "100%",
+            "direction": "horizontal",
+            "column_gap": 3,
+            "enable_bg": false,
+            "bg_color": "#F3F3F3",
+            "corner_radius": 40,
+            "padding": 3,
+            "border_size": 0,
+            "border_color": "#B7B7B7",
+            "margin_top": 0,
+            "margin_bottom": 9,
+            "text_2": "",
+            "text_3": ""
+          }
+        },
+        "title": {
+          "type": "title",
+          "settings": {
+            "text_size": "h0",
+            "title_alignment": "left",
+            "uppercase_title": false,
+            "margin_top": 0,
+            "margin_bottom": 12
+          }
+        },
+        "subtitle": {
+          "type": "text",
+          "settings": {
+            "mobile_text_size": 16,
+            "desktop_text_size": 16,
+            "alignment": "left",
+            "text_color": "#72645D",
+            "text_1": "Retinal liposomal + soja fermentada para una mirada más lisa, luminosa y cuidada.",
+            "icon_scale": 120,
+            "icon_color": "#8C101A",
+            "icon_1": "",
+            "filled_icon_1": false,
+            "icon_2": "",
+            "filled_icon_2": false,
+            "icon_3": "",
+            "filled_icon_3": false,
+            "width": "100%",
+            "direction": "horizontal",
+            "column_gap": 3,
+            "enable_bg": false,
+            "bg_color": "#F3F3F3",
+            "corner_radius": 40,
+            "padding": 3,
+            "border_size": 0,
+            "border_color": "#B7B7B7",
+            "margin_top": 0,
+            "margin_bottom": 12,
+            "text_2": "",
+            "text_3": ""
+          }
+        },
+        "benefits": {
+          "type": "text",
+          "settings": {
+            "mobile_text_size": 16,
+            "desktop_text_size": 16,
+            "alignment": "left",
+            "text_color": "#291C19",
+            "text_1": "Suaviza visualmente líneas finas",
+            "icon_scale": 100,
+            "icon_color": "#8C101A",
+            "icon_1": "check",
+            "filled_icon_1": false,
+            "icon_2": "check",
+            "filled_icon_2": false,
+            "icon_3": "check",
+            "filled_icon_3": false,
+            "width": "100%",
+            "direction": "vertical",
+            "column_gap": 3,
+            "enable_bg": false,
+            "bg_color": "#F3F3F3",
+            "corner_radius": 40,
+            "padding": 3,
+            "border_size": 0,
+            "border_color": "#B7B7B7",
+            "margin_top": 0,
+            "margin_bottom": 9,
+            "text_2": "Aporta hidratación y confort",
+            "text_3": "Favorece una mirada más luminosa y uniforme"
+          }
+        },
+        "quantity_selector": {
+          "type": "quantity_selector",
+          "settings": {
+            "atc_append": "none",
+            "atc_append_heights": "stretch-quantity",
+            "style": "normal",
+            "headline": "Elige tu ritual",
+            "preselected": "option_2",
+            "display_selected_indicator": true,
+            "border_radius": 8,
+            "border_width": 1,
+            "color_scheme": "accent-1",
+            "enable_variant_selectors": false,
+            "enable_variant_selectors_on_quantity_of_1": false,
+            "update_prices": true,
+            "skip_unavailable": false,
+            "full_width_pickers": false,
+            "hide_pickers_overlay": true,
+            "image_width": 70,
+            "space_images": true,
+            "vertical_images_position": "top",
+            "vertical_prices_layout": "vertical",
+            "option_1_quantity": 1,
+            "option_1_badge_style": "2",
+            "option_1_badge_color": "accent-1",
+            "option_1_label": "1 UNIDAD",
+            "option_1_benefit_position": "top",
+            "option_1_benefit_style": "outlined",
+            "option_1_benefit_color": "accent-1",
+            "option_1_caption": "1 unidad · 30 ml",
+            "option_1_percentage_off_text": "0",
+            "option_1_fixed_amount_off": "0",
+            "option_1_price_text": "[price]",
+            "option_1_compare_price": "price",
+            "option_1_compare_price_text": "",
+            "option_2_quantity": 2,
+            "option_2_badge_style": "2",
+            "option_2_badge_color": "accent-1",
+            "option_2_label": "2X1",
+            "option_2_benefit_position": "top",
+            "option_2_benefit_style": "outlined",
+            "option_2_benefit_color": "accent-1",
+            "option_2_caption": "2 unidades · 60 ml",
+            "option_2_percentage_off_text": "0",
+            "option_2_fixed_amount_off": "22.01",
+            "option_2_price_text": "[price]",
+            "option_2_compare_price": "price",
+            "option_2_compare_price_text": "[compare_price]",
+            "option_3_quantity": 3,
+            "option_3_badge_style": "2",
+            "option_3_badge_color": "accent-1",
+            "option_3_label": "3X1",
+            "option_3_benefit_position": "top",
+            "option_3_benefit_style": "outlined",
+            "option_3_benefit_color": "accent-1",
+            "option_3_caption": "3 unidades · 90 ml",
+            "option_3_percentage_off_text": "0",
+            "option_3_fixed_amount_off": "44.01",
+            "option_3_price_text": "[price]",
+            "option_3_compare_price": "price",
+            "option_3_compare_price_text": "[compare_price]",
+            "option_4_quantity": 0,
+            "option_4_badge_style": "1",
+            "option_4_badge_color": "accent-1",
+            "option_4_label": "Buy [quantity]",
+            "option_4_benefit_position": "top",
+            "option_4_benefit_style": "outlined",
+            "option_4_benefit_color": "accent-1",
+            "option_4_caption": "You save [amount_saved]",
+            "option_4_percentage_off_text": "0",
+            "option_4_fixed_amount_off": "0",
+            "option_4_price_text": "[price]",
+            "option_4_compare_price": "compare_price",
+            "option_4_compare_price_text": "[compare_price]",
+            "margin_top": 18,
+            "margin_bottom": 18,
+            "enable_quantity_discounts": true,
+            "option_1_badge": "",
+            "option_2_badge": "MÁS VENDIDO",
+            "option_3_badge": "MEJOR VALOR"
+          }
+        },
+        "buy_buttons": {
+          "type": "buy_buttons",
+          "settings": {
+            "show_dynamic_checkout": false,
+            "skip_cart": false,
+            "uppercase_text": false,
+            "icon_scale": 120,
+            "icon_spacing": 10,
+            "display_price": false,
+            "enable_custom_color": true,
+            "custom_color": "#8C101A",
+            "enable_secondary_btn": false,
+            "secondary_btn_label": "Buy It Now",
+            "secondary_btn_enable_custom_color": false,
+            "secondary_btn_custom_color": "#dd1d1d",
+            "margin_top": 12,
+            "margin_bottom": 12
+          }
+        },
+        "trust": {
+          "type": "icon_with_text",
+          "settings": {
+            "layout": "horizontal",
+            "icon_color": "accent-1",
+            "desktop_icon_size": 24,
+            "desktop_spacing": 6,
+            "desktop_text_size": 12,
+            "mobile_icon_size": 24,
+            "mobile_spacing": 6,
+            "mobile_text_size": 12,
+            "icon_1": "payments",
+            "icon_1_fill": false,
+            "heading_1": "Pago al recibir",
+            "icon_2": "local_shipping",
+            "icon_2_fill": false,
+            "heading_2": "Envío 24/48 h",
+            "icon_3": "verified_user",
+            "icon_3_fill": false,
+            "heading_3": "Garantía 30 días",
+            "margin_top": 12,
+            "margin_bottom": 12
+          }
+        }
+      },
+      "block_order": [
+        "badge",
+        "title",
+        "subtitle",
+        "benefits",
+        "quantity_selector",
+        "buy_buttons",
+        "trust"
+      ]
+    },
+    "ugc": {
+      "type": "ugc-video-strip",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "title_highlight_color": "#6D388B",
+        "heading_size": "h1",
+        "color_scheme": "custom",
+        "padding_top": 16,
+        "padding_bottom": 16,
+        "custom_colors_background": "#FFFDF9",
+        "custom_colors_text": "#291C19",
+        "title": "El ritual, en primera persona"
+      },
+      "disabled": true
+    },
+    "introduction": {
+      "type": "rich-text",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "desktop_content_position": "center",
+        "content_alignment": "center",
+        "full_width": true,
+        "color_scheme": "custom",
+        "padding_top": 64,
+        "padding_bottom": 64,
+        "custom_colors_background": "#F7F2EA",
+        "custom_colors_text": "#291C19",
+        "custom_colors_solid_button_background": "#dd1d1d",
+        "custom_colors_solid_button_text": "#ffffff",
+        "custom_colors_outline_button": "#dd1d1d"
+      },
+      "blocks": {
+        "caption": {
+          "type": "caption",
+          "settings": {
+            "caption": "K-SECRET · SEOUL 1988",
+            "text_style": "caption-with-letter-spacing",
+            "text_size": "small"
+          }
+        },
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "title": "Una mirada que se siente más cuidada",
+            "title_highlight_color": "#8C101A",
+            "heading_size": "h0"
+          }
+        },
+        "text": {
+          "type": "text",
+          "settings": {
+            "text": "<p>SEOUL 1988 combina retinal liposomal con ingredientes hidratantes, antioxidantes y acondicionadores para mejorar el aspecto del delicado contorno de ojos dentro de una rutina constante.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "caption",
+        "heading",
+        "text"
+      ]
+    },
+    "story": {
+      "type": "image-with-text",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "video_autoplay": true,
+        "video_loop": true,
+        "height": "adapt",
+        "color_scheme": "custom",
+        "section_color_scheme": "custom",
+        "full_desktop_width": false,
+        "content_layout": "no-overlap",
+        "desktop_media_width": 50,
+        "layout": "image_first",
+        "desktop_content_position": "middle",
+        "desktop_content_alignment": "left",
+        "mobile_full_media_width": false,
+        "mobile_direction": "normal",
+        "mobile_image_quanlity": "2",
+        "mobile_content_alignment": "left",
+        "mobile_padding_top": 32,
+        "mobile_padding_bottom": 16,
+        "desktop_padding_top": 64,
+        "desktop_padding_bottom": 48,
+        "custom_colors_background": "#FFFDF9",
+        "custom_colors_text": "#291C19",
+        "custom_colors_solid_button_background": "#dd1d1d",
+        "custom_colors_solid_button_text": "#ffffff",
+        "custom_colors_outline_button": "#dd1d1d",
+        "custom_section_colors_background": "#FFFDF9",
+        "image": "shopify://shop_images/ChatGPTImage24sept2026_20_08_04.png"
+      },
+      "blocks": {
+        "caption": {
+          "type": "caption",
+          "settings": {
+            "caption": "UN PEQUEÑO GESTO. TU MOMENTO.",
+            "text_style": "caption-with-letter-spacing",
+            "text_size": "small"
+          }
+        },
+        "heading": {
+          "type": "heading",
+          "settings": {
+            "title": "Cuidado coreano para una zona delicada",
+            "title_highlight_color": "#8C101A",
+            "heading_size": "h0"
+          }
+        },
+        "text": {
+          "type": "text",
+          "settings": {
+            "text": "<p>Retinal Liposome 4% + Fermented Bean. Una fórmula para acompañar tu ritual de cuidado con hidratación, confort y una apariencia más luminosa.</p><p><strong>30 ml de cuidado para tu mirada.</strong></p>",
+            "text_style": "body"
+          }
+        }
+      },
+      "block_order": [
+        "caption",
+        "heading",
+        "text"
+      ]
+    },
+    "benefits": {
+      "type": "icon-bar",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "title": "Todo lo que buscas en tu contorno",
+        "title_highlight_color": "#8C101A",
+        "heading_size": "h0",
+        "color_scheme": "custom",
+        "icon_layout": "vertical",
+        "icon_size": "medium",
+        "icon_color": "accent-1",
+        "cards_color_scheme": "custom",
+        "type": "slide",
+        "autoplay": false,
+        "autoplay_speed": 5,
+        "arrows_color_scheme": "inverse",
+        "transparent_arrows": true,
+        "dots_color_scheme": "inverse",
+        "desktop_full_page": false,
+        "columns_desktop": 4,
+        "slider_desktop": false,
+        "per_move_desktop": 1,
+        "desktop_spacing": 40,
+        "desktop_side_padding": 0,
+        "desktop_padding_calc": true,
+        "desktop_adaptive_height": false,
+        "desktop_dots_position": "under",
+        "desktop_arrows_position": "sides",
+        "columns_mobile": "2",
+        "slider_mobile": false,
+        "enable_mobile_preview": false,
+        "mobile_adaptive_height": false,
+        "mobile_dots_position": "under",
+        "mobile_arrows_position": "under",
+        "padding_top": 48,
+        "padding_bottom": 64,
+        "custom_colors_background": "#FFFDF9",
+        "custom_colors_text": "#291C19",
+        "custom_cards_colors_background": "#F7F2EA",
+        "custom_cards_colors_text": "#291C19",
+        "text": ""
+      },
+      "blocks": {
+        "lines": {
+          "type": "column",
+          "settings": {
+            "icon": "waves",
+            "filled_icon": false,
+            "title": "Líneas finas",
+            "text": "<p>Ayuda a suavizar visualmente líneas finas y textura irregular.</p>"
+          }
+        },
+        "firmness": {
+          "type": "column",
+          "settings": {
+            "icon": "north",
+            "filled_icon": false,
+            "title": "Firmeza",
+            "text": "<p>Péptidos, retinal y bakuchiol complementan una rutina enfocada en la apariencia de firmeza.</p>"
+          }
+        },
+        "light": {
+          "type": "column",
+          "settings": {
+            "icon": "light_mode",
+            "filled_icon": false,
+            "title": "Luminosidad",
+            "text": "<p>Niacinamida y antioxidantes ayudan a conseguir una apariencia más uniforme y luminosa.</p>"
+          }
+        },
+        "hydrate": {
+          "type": "column",
+          "settings": {
+            "icon": "water_drop",
+            "filled_icon": false,
+            "title": "Hidratación",
+            "text": "<p>Glicerina y ácido hialurónico ayudan a mantener la zona hidratada y confortable.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "lines",
+        "firmness",
+        "light",
+        "hydrate"
+      ]
+    },
+    "why": {
+      "type": "seoul-step-description",
+      "settings": {
+        "title": "¿Por qué SEOUL 1988?",
+        "title_color": "#291C19",
+        "title_highlight_color": "#8C101A",
+        "heading_size_num": 1,
+        "title_alignment": "center",
+        "max_width": 1200,
+        "section_bg": "#F7F2EA",
+        "card_bg": "#FFFDF9",
+        "card_border_color": "#E1D5C8",
+        "card_border_width": 1,
+        "card_border_radius": 8,
+        "card_padding": 20,
+        "card_padding_mobile": 16,
+        "card_gap": 12,
+        "card_gap_inner": 16,
+        "card_gap_inner_mobile": 12,
+        "card_shadow": false,
+        "card_shadow_color": "#f1d5e3",
+        "image_size": 120,
+        "image_size_mobile": 96,
+        "image_radius": 14,
+        "image_bg_fallback": "#FBEEF2",
+        "number_size": 32,
+        "number_font_size": 16,
+        "number_bg": "#ffffff",
+        "number_color": "#8C101A",
+        "number_border_color": "#1A0F0A",
+        "number_border_width": 1,
+        "step_title_color": "#291C19",
+        "step_title_highlight": "#8C101A",
+        "step_title_size": 17,
+        "step_title_size_mobile": 16,
+        "step_title_weight": 700,
+        "step_text_color": "#72645D",
+        "step_text_size": 16,
+        "step_text_size_mobile": 16,
+        "icon_size": 20,
+        "icon_color": "#D5709A",
+        "padding_top": 64,
+        "padding_bottom": 64
+      },
+      "blocks": {
+        "retinal": {
+          "type": "step",
+          "settings": {
+            "show_number": true,
+            "number_text": "01",
+            "show_icon": false,
+            "icon_filled": true,
+            "title": "RETINAL LIPOSOMAL",
+            "text": "<p>Tecnología liposomal diseñada para incorporar retinal en una fórmula para el contorno.</p>"
+          }
+        },
+        "peptides": {
+          "type": "step",
+          "settings": {
+            "show_number": true,
+            "number_text": "02",
+            "show_icon": false,
+            "icon_filled": true,
+            "title": "PÉPTIDOS",
+            "text": "<p>Una combinación de péptidos enfocada en mejorar la apariencia de firmeza y textura.</p>"
+          }
+        },
+        "niacinamide": {
+          "type": "step",
+          "settings": {
+            "show_number": true,
+            "number_text": "03",
+            "show_icon": false,
+            "icon_filled": true,
+            "title": "NIACINAMIDA",
+            "text": "<p>Ayuda a aportar luminosidad y un aspecto más uniforme.</p>"
+          }
+        },
+        "bakuchiol": {
+          "type": "step",
+          "settings": {
+            "show_number": true,
+            "number_text": "04",
+            "show_icon": false,
+            "icon_filled": true,
+            "title": "BAKUCHIOL",
+            "text": "<p>Ingrediente muy utilizado en fórmulas cosméticas enfocadas en los signos visibles de la edad.</p>"
+          }
+        },
+        "ferments": {
+          "type": "step",
+          "settings": {
+            "show_number": true,
+            "number_text": "05",
+            "show_icon": false,
+            "icon_filled": true,
+            "title": "FERMENTOS COREANOS",
+            "text": "<p>Soja, arroz y ginseng fermentados completan una fórmula inspirada en el skincare coreano.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "retinal",
+        "peptides",
+        "niacinamide",
+        "bakuchiol",
+        "ferments"
+      ]
+    },
+    "gallery": {
+      "type": "image-slider",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "title": "SEOUL 1988, de cerca",
+        "title_highlight_color": "#8C101A",
+        "heading_size": "h0",
+        "color_scheme": "custom",
+        "type": "slide",
+        "drag": "enabled",
+        "autoplay": false,
+        "autoplay_speed": 5,
+        "center_mode": false,
+        "arrows_color_scheme": "inverse",
+        "transparent_arrows": false,
+        "dots_color_scheme": "inverse",
+        "desktop_page_width": "normal",
+        "desktop_border_radius": 8,
+        "slides_desktop": 3,
+        "per_move_desktop": 1,
+        "desktop_spacing": 24,
+        "desktop_side_padding": 0,
+        "desktop_padding_calc": true,
+        "desktop_adaptive_height": false,
+        "desktop_dots_position": "under",
+        "desktop_arrows_position": "sides",
+        "mobile_full_page": false,
+        "mobile_border_radius": 8,
+        "slides_mobile": 1,
+        "per_move_mobile": 1,
+        "mobile_spacing": 16,
+        "mobile_side_padding": 24,
+        "mobile_padding_calc": true,
+        "mobile_adaptive_height": false,
+        "mobile_dots_position": "under",
+        "mobile_arrows_position": "under",
+        "padding_top": 64,
+        "padding_bottom": 48,
+        "custom_colors_background": "#FFFDF9",
+        "custom_colors_text": "#291C19"
+      },
+      "blocks": {
+        "image0": {
+          "type": "image_slide",
+          "settings": {
+            "desc_alignment": "center",
+            "desc_color_scheme": "background-2",
+            "image": "shopify://shop_images/ChatGPTImage24sept2026_19_58_51.png",
+            "description": ""
+          }
+        },
+        "image1": {
+          "type": "image_slide",
+          "settings": {
+            "desc_alignment": "center",
+            "desc_color_scheme": "background-2",
+            "image": "shopify://shop_images/ChatGPTImage24sept2026_20_03_15.png",
+            "description": ""
+          }
+        },
+        "image2": {
+          "type": "image_slide",
+          "settings": {
+            "desc_alignment": "center",
+            "desc_color_scheme": "background-2",
+            "image": "shopify://shop_images/ChatGPTImage24sept2026_20_08_04.png",
+            "description": ""
+          }
+        }
+      },
+      "block_order": [
+        "image0",
+        "image1",
+        "image2"
+      ]
+    },
+    "comparison": {
+      "type": "comparison-slider",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "title": "Una diferencia que se aprecia en la mirada",
+        "title_highlight_color": "#8C101A",
+        "heading_size": "h1",
+        "text": "",
+        "button_style_secondary": false,
+        "color_scheme": "custom",
+        "layout": "slider_second",
+        "before_label": "ANTES",
+        "after_label": "DESPUÉS",
+        "labels_color_scheme": "accent-1",
+        "line_color": "background-1",
+        "arrows_style": "circle",
+        "padding_top": 36,
+        "padding_bottom": 36,
+        "custom_colors_background": "#FFFDF9",
+        "custom_colors_text": "#291C19",
+        "custom_colors_solid_button_background": "#dd1d1d",
+        "custom_colors_solid_button_text": "#ffffff",
+        "custom_colors_outline_button": "#dd1d1d"
+      },
+      "disabled": true
+    },
+    "ingredients": {
+      "type": "seoul-ingredients",
+      "settings": {
+        "eyebrow": "LA FÓRMULA · EN DETALLE",
+        "heading": "Una fórmula pensada para tu mirada",
+        "description": "Retinal liposomal, ingredientes hidratantes y fermentos coreanos en un mismo ritual.",
+        "note": "Retinal Liposome 4% es la denominación del complejo liposomal utilizado en la fórmula; no indica una concentración del 4% de retinal puro."
+      },
+      "blocks": {
+        "retinal": {
+          "type": "ingredient",
+          "settings": {
+            "title": "RETINAL LIPOSOME 4%",
+            "description": "El complejo liposomal de retinal al 4% forma parte de una fórmula pensada para cuidar el aspecto del contorno."
+          }
+        },
+        "ingredient0": {
+          "type": "ingredient",
+          "settings": {
+            "title": "NIACINAMIDA"
+          }
+        },
+        "ingredient1": {
+          "type": "ingredient",
+          "settings": {
+            "title": "BAKUCHIOL"
+          }
+        },
+        "ingredient2": {
+          "type": "ingredient",
+          "settings": {
+            "title": "PÉPTIDOS"
+          }
+        },
+        "ingredient3": {
+          "type": "ingredient",
+          "settings": {
+            "title": "ÁCIDO HIALURÓNICO"
+          }
+        },
+        "ingredient4": {
+          "type": "ingredient",
+          "settings": {
+            "title": "VITAMINA E"
+          }
+        },
+        "ingredient5": {
+          "type": "ingredient",
+          "settings": {
+            "title": "DERIVADO DE VITAMINA C"
+          }
+        },
+        "ingredient6": {
+          "type": "ingredient",
+          "settings": {
+            "title": "SOJA FERMENTADA"
+          }
+        },
+        "ingredient7": {
+          "type": "ingredient",
+          "settings": {
+            "title": "ARROZ FERMENTADO"
+          }
+        },
+        "ingredient8": {
+          "type": "ingredient",
+          "settings": {
+            "title": "GINSENG FERMENTADO"
+          }
+        }
+      },
+      "block_order": [
+        "retinal",
+        "ingredient0",
+        "ingredient1",
+        "ingredient2",
+        "ingredient3",
+        "ingredient4",
+        "ingredient5",
+        "ingredient6",
+        "ingredient7",
+        "ingredient8"
+      ]
+    },
+    "routine": {
+      "type": "timeline-results",
+      "settings": {
+        "heading": "Tu ritual SEOUL 1988",
+        "heading_highlight_color": "#8C101A",
+        "heading_size": "h0",
+        "subheading": "Un momento para ti. Un gesto suave para tu mirada.",
+        "subheading_line_height": 1.6,
+        "video_autoplay": true,
+        "video_loop": true,
+        "image_border_radius": 16,
+        "max_width": 1200,
+        "desktop_layout": "1",
+        "desktop_image_order": "2",
+        "background_color": "#F7F2EA",
+        "heading_color": "#291C19",
+        "text_color": "#72645D",
+        "line_color": "#D7C2AF",
+        "badge_background": "#FFFDF9",
+        "badge_border": "#D7C2AF",
+        "badge_text_color": "#8C101A",
+        "padding_top": 64,
+        "padding_bottom": 64,
+        "image": "shopify://shop_images/ChatGPTImage24sept2026_20_03_15.png"
+      },
+      "blocks": {
+        "clean": {
+          "type": "timeline_item",
+          "settings": {
+            "badge_text": "01",
+            "title": "Limpia",
+            "description": "Aplica sobre la piel limpia y seca."
+          }
+        },
+        "amount": {
+          "type": "timeline_item",
+          "settings": {
+            "badge_text": "02",
+            "title": "Una pequeña cantidad",
+            "description": "Utiliza una pequeña cantidad para ambos contornos."
+          }
+        },
+        "apply": {
+          "type": "timeline_item",
+          "settings": {
+            "badge_text": "03",
+            "title": "Aplica con suavidad",
+            "description": "Distribuye mediante pequeños toques sin arrastrar la piel."
+          }
+        },
+        "progress": {
+          "type": "timeline_item",
+          "settings": {
+            "badge_text": "04",
+            "title": "Introduce el retinal progresivamente",
+            "description": "Empieza de forma gradual y aumenta la frecuencia según tolerancia."
+          }
+        },
+        "protect": {
+          "type": "timeline_item",
+          "settings": {
+            "badge_text": "05",
+            "title": "Protección durante el día",
+            "description": "Complementa tu rutina diurna con protección solar."
+          }
+        }
+      },
+      "block_order": [
+        "clean",
+        "amount",
+        "apply",
+        "progress",
+        "protect"
+      ]
+    },
+    "trust": {
+      "type": "icon-bar",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "title": "Cuidamos también de tu experiencia",
+        "title_highlight_color": "#8C101A",
+        "heading_size": "h1",
+        "color_scheme": "custom",
+        "icon_layout": "vertical",
+        "icon_size": "medium",
+        "icon_color": "accent-1",
+        "cards_color_scheme": "custom",
+        "type": "slide",
+        "autoplay": false,
+        "autoplay_speed": 5,
+        "arrows_color_scheme": "inverse",
+        "transparent_arrows": true,
+        "dots_color_scheme": "inverse",
+        "desktop_full_page": false,
+        "columns_desktop": 3,
+        "slider_desktop": false,
+        "per_move_desktop": 1,
+        "desktop_spacing": 40,
+        "desktop_side_padding": 0,
+        "desktop_padding_calc": true,
+        "desktop_adaptive_height": false,
+        "desktop_dots_position": "under",
+        "desktop_arrows_position": "sides",
+        "columns_mobile": "1",
+        "slider_mobile": false,
+        "enable_mobile_preview": false,
+        "mobile_adaptive_height": false,
+        "mobile_dots_position": "under",
+        "mobile_arrows_position": "under",
+        "padding_top": 48,
+        "padding_bottom": 48,
+        "custom_colors_background": "#FFFDF9",
+        "custom_colors_text": "#291C19",
+        "custom_cards_colors_background": "#FFFDF9",
+        "custom_cards_colors_text": "#291C19"
+      },
+      "blocks": {
+        "payment": {
+          "type": "column",
+          "settings": {
+            "icon": "payments",
+            "filled_icon": false,
+            "title": "Pago al recibir",
+            "text": "<p>Pago contra reembolso disponible.</p>"
+          }
+        },
+        "shipping": {
+          "type": "column",
+          "settings": {
+            "icon": "local_shipping",
+            "filled_icon": false,
+            "title": "Envío 24/48 h",
+            "text": "<p>Entrega en Península.</p>"
+          }
+        },
+        "guarantee": {
+          "type": "column",
+          "settings": {
+            "icon": "verified_user",
+            "filled_icon": false,
+            "title": "Garantía 30 días",
+            "text": "<p>Consulta las condiciones en nuestra política de reembolso.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "payment",
+        "shipping",
+        "guarantee"
+      ]
+    },
+    "faq": {
+      "type": "collapsible-content",
+      "settings": {
+        "display_id": false,
+        "visibility": "always-display",
+        "title": "Preguntas frecuentes",
+        "title_highlight_color": "#8C101A",
+        "heading_size": "h0",
+        "heading_alignment": "center",
+        "layout": "none",
+        "color_scheme": "custom",
+        "container_color_scheme": "custom",
+        "open_first_collapsible_row": false,
+        "video_muted_autoplay": true,
+        "image_ratio": "adapt",
+        "desktop_layout": "image_second",
+        "row_heading_size": "medium",
+        "collapse_icon": "plus",
+        "display_top_border": true,
+        "padding_top": 48,
+        "padding_bottom": 64,
+        "custom_colors_background": "#FFFDF9",
+        "custom_colors_text": "#291C19",
+        "custom_contaner_colors_background": "#FFFDF9",
+        "custom_contaner_colors_text": "#291C19",
+        "caption": "CONOCE TU CONTORNO"
+      },
+      "blocks": {
+        "retinal": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Qué es Retinal Liposome 4%?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>El nombre Retinal Liposome 4% hace referencia al complejo liposomal utilizado en la fórmula. No significa que contenga un 4% de retinal puro.</p>"
+          }
+        },
+        "routine": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Para qué tipo de rutina está pensado?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>Para rutinas de cuidado del contorno de ojos enfocadas en hidratación, textura, luminosidad y signos visibles de la edad.</p>"
+          }
+        },
+        "apply": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Cómo se aplica?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>Aplica una pequeña cantidad sobre el contorno limpio y distribuye suavemente hasta su absorción.</p>"
+          }
+        },
+        "daily": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Puedo usarlo todos los días?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>Al incorporar retinal, conviene introducirlo gradualmente y ajustar la frecuencia según tolerancia.</p>"
+          }
+        },
+        "sun": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Debo usar protector solar?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>Sí. La protección solar es especialmente importante dentro de cualquier rutina que incorpore derivados de vitamina A.</p>"
+          }
+        },
+        "size": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Cuánto producto contiene?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>30 ml.</p>"
+          }
+        },
+        "shipping": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Cuánto tarda el envío?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>24/48 horas en Península.</p>"
+          }
+        },
+        "payment": {
+          "type": "collapsible_row",
+          "settings": {
+            "heading": "¿Puedo pagar al recibir?",
+            "icon": "",
+            "filled_icon": false,
+            "row_content": "<p>Sí, pago contra reembolso disponible.</p>"
+          }
+        }
+      },
+      "block_order": [
+        "retinal",
+        "routine",
+        "apply",
+        "daily",
+        "sun",
+        "size",
+        "shipping",
+        "payment"
+      ]
+    },
+    "reviews": {
+      "type": "apps",
+      "settings": {
+        "display_id": false,
+        "include_margins": true
+      },
+      "blocks": {
+        "judgeme": {
+          "type": "shopify://apps/judge-me-reviews/blocks/review_widget/61ccd3b1-a9f2-4160-9fe9-4fec8413e5d8",
+          "settings": {
+            "review_data": "real_data",
+            "max_width": 1200,
+            "show_shop_reviews": false,
+            "empty_state": "hide_widget"
+          }
+        }
+      },
+      "block_order": [
+        "judgeme"
+      ]
+    }
+  },
+  "order": [
+    "seoul_design",
+    "main",
+    "ugc",
+    "introduction",
+    "story",
+    "benefits",
+    "why",
+    "gallery",
+    "comparison",
+    "ingredients",
+    "routine",
+    "trust",
+    "faq",
+    "reviews"
+  ]
+}

@@ -1,0 +1,248 @@
+<style>
+  #StepDesc-{{ section.id }} {
+    background: {{ section.settings.section_bg }};
+    padding-top: {{ section.settings.padding_top }}px;
+    padding-bottom: {{ section.settings.padding_bottom }}px;
+  }
+  #StepDesc-{{ section.id }} .step-desc__title {
+    color: {{ section.settings.title_color }};
+    text-align: {{ section.settings.title_alignment }};
+    margin: 0 0 24px;
+  }
+  #StepDesc-{{ section.id }} .step-desc__title strong,
+  #StepDesc-{{ section.id }} .step-desc__title b,
+  #StepDesc-{{ section.id }} .step-desc__title em,
+  #StepDesc-{{ section.id }} .step-desc__title em strong,
+  #StepDesc-{{ section.id }} .step-desc__title strong em {
+    color: {{ section.settings.title_highlight_color }};
+  }
+  #StepDesc-{{ section.id }} .step-desc__list {
+    max-width: {{ section.settings.max_width }}px;
+    margin: 0 auto;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: {{ section.settings.card_gap }}px;
+  }
+  #StepDesc-{{ section.id }} .step-desc__card {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: {{ section.settings.card_gap_inner }}px;
+    background: {{ section.settings.card_bg }};
+    border: {{ section.settings.card_border_width }}px solid {{ section.settings.card_border_color }};
+    border-radius: {{ section.settings.card_border_radius }}px;
+    padding: {{ section.settings.card_padding }}px;
+    {% if section.settings.card_shadow %}
+      box-shadow: 0 4px 16px {{ section.settings.card_shadow_color }};
+    {% endif %}
+  }
+  #StepDesc-{{ section.id }} .step-desc__image-wrap {
+    flex: 0 0 {{ section.settings.image_size }}px;
+    width: {{ section.settings.image_size }}px;
+    height: {{ section.settings.image_size }}px;
+    border-radius: {{ section.settings.image_radius }}px;
+    overflow: hidden;
+    background: {{ section.settings.image_bg_fallback }};
+  }
+  #StepDesc-{{ section.id }} .step-desc__image-wrap img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+  }
+  #StepDesc-{{ section.id }} .step-desc__content {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #StepDesc-{{ section.id }} .step-desc__head {
+    display: flex; flex-direction: row; align-items: center; gap: 10px;
+  }
+  #StepDesc-{{ section.id }} .step-desc__number {
+    flex: 0 0 {{ section.settings.number_size }}px;
+    width: {{ section.settings.number_size }}px;
+    height: {{ section.settings.number_size }}px;
+    border-radius: 50%;
+    background: {{ section.settings.number_bg }};
+    color: {{ section.settings.number_color }};
+    border: {{ section.settings.number_border_width }}px solid {{ section.settings.number_border_color }};
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700;
+    font-size: {{ section.settings.number_font_size }}px;
+    line-height: 1;
+  }
+  #StepDesc-{{ section.id }} .step-desc__step-title {
+    color: {{ section.settings.step_title_color }};
+    font-size: {{ section.settings.step_title_size }}px;
+    font-weight: {{ section.settings.step_title_weight }};
+    line-height: 1.25;
+    margin: 0;
+  }
+  #StepDesc-{{ section.id }} .step-desc__step-title strong,
+  #StepDesc-{{ section.id }} .step-desc__step-title b,
+  #StepDesc-{{ section.id }} .step-desc__step-title em,
+  #StepDesc-{{ section.id }} .step-desc__step-title em strong,
+  #StepDesc-{{ section.id }} .step-desc__step-title strong em {
+    color: {{ section.settings.step_title_highlight }};
+  }
+  #StepDesc-{{ section.id }} .step-desc__step-text {
+    color: {{ section.settings.step_text_color }};
+    font-size: {{ section.settings.step_text_size }}px;
+    line-height: 1.5;
+    margin: 0;
+  }
+  #StepDesc-{{ section.id }} .step-desc__icon {
+    width: {{ section.settings.icon_size }}px;
+    height: {{ section.settings.icon_size }}px;
+    display: inline-flex;
+    align-items: center; justify-content: center;
+    color: {{ section.settings.icon_color }};
+  }
+  #StepDesc-{{ section.id }} .step-desc__icon svg,
+  #StepDesc-{{ section.id }} .step-desc__icon span {
+    width: 100%; height: 100%;
+  }
+  @media (max-width: 749px) {
+    #StepDesc-{{ section.id }} .step-desc__card {
+      padding: {{ section.settings.card_padding_mobile }}px;
+      gap: {{ section.settings.card_gap_inner_mobile }}px;
+    }
+    #StepDesc-{{ section.id }} .step-desc__image-wrap {
+      flex: 0 0 {{ section.settings.image_size_mobile }}px;
+      width: {{ section.settings.image_size_mobile }}px;
+      height: {{ section.settings.image_size_mobile }}px;
+    }
+    #StepDesc-{{ section.id }} .step-desc__step-title { font-size: {{ section.settings.step_title_size_mobile }}px; }
+    #StepDesc-{{ section.id }} .step-desc__step-text { font-size: {{ section.settings.step_text_size_mobile }}px; }
+  }
+</style>
+
+<section id="StepDesc-{{ section.id }}" class="step-desc">
+  {% if section.settings.title != blank %}
+    <h2 class="step-desc__title h{{ section.settings.heading_size_num }}">{{ section.settings.title }}</h2>
+  {% endif %}
+  <div class="step-desc__list">
+    {% for block in section.blocks %}
+      {% if block.type == 'step' %}
+        <div class="step-desc__card" {{ block.shopify_attributes }}>
+          {% if block.settings.image != blank %}
+            <div class="step-desc__image-wrap">
+              <img src="{{ block.settings.image | image_url: width: 400 }}" alt="{{ block.settings.image.alt | escape }}" loading="lazy" width="200" height="200">
+            </div>
+          {% endif %}
+          <div class="step-desc__content">
+            <div class="step-desc__head">
+              {% if block.settings.show_number and block.settings.number_text != blank %}
+                <span class="step-desc__number">{{ block.settings.number_text }}</span>
+              {% endif %}
+              {% if block.settings.show_icon and block.settings.icon_name != blank %}
+                <span class="step-desc__icon">{% render 'material-icon', icon: block.settings.icon_name, filled: block.settings.icon_filled %}</span>
+              {% endif %}
+              {% if block.settings.title != blank %}
+                <h3 class="step-desc__step-title">{{ block.settings.title }}</h3>
+              {% endif %}
+            </div>
+            {% if block.settings.text != blank %}
+              <div class="step-desc__step-text">{{ block.settings.text }}</div>
+            {% endif %}
+          </div>
+        </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</section>
+
+{% schema %}
+{
+  "name": "SEOUL · Por qué funciona",
+  "tag": "section",
+  "class": "section",
+  "disabled_on": { "groups": ["header", "footer"] },
+  "settings": [
+    { "type": "header", "content": "Heading" },
+    { "type": "inline_richtext", "id": "title", "label": "Heading", "default": "Por qué <em><strong>funciona</strong></em>" },
+    { "type": "color", "id": "title_color", "label": "Heading color", "default": "#1A0F0A" },
+    { "type": "color", "id": "title_highlight_color", "label": "Heading highlight color (em strong)", "default": "#D5709A" },
+    { "type": "range", "id": "heading_size_num", "min": 1, "max": 4, "step": 1, "label": "Heading size (h1..h4)", "default": 1 },
+    { "type": "select", "id": "title_alignment", "label": "Heading alignment", "options": [
+        { "value": "left", "label": "Left" }, { "value": "center", "label": "Center" }, { "value": "right", "label": "Right" }
+      ], "default": "center" },
+    { "type": "range", "id": "max_width", "min": 600, "max": 1400, "step": 50, "unit": "px", "label": "Max width", "default": 900 },
+
+    { "type": "header", "content": "Section background" },
+    { "type": "color", "id": "section_bg", "label": "Section background", "default": "#ffffff" },
+
+    { "type": "header", "content": "Cards" },
+    { "type": "color", "id": "card_bg", "label": "Card background", "default": "#FBEEF2" },
+    { "type": "color", "id": "card_border_color", "label": "Card border color", "default": "#F4C2D9" },
+    { "type": "range", "id": "card_border_width", "min": 0, "max": 6, "step": 1, "unit": "px", "label": "Card border width", "default": 1 },
+    { "type": "range", "id": "card_border_radius", "min": 0, "max": 40, "step": 2, "unit": "px", "label": "Card border radius", "default": 18 },
+    { "type": "range", "id": "card_padding", "min": 8, "max": 40, "step": 2, "unit": "px", "label": "Card padding (desktop)", "default": 16 },
+    { "type": "range", "id": "card_padding_mobile", "min": 8, "max": 40, "step": 2, "unit": "px", "label": "Card padding (mobile)", "default": 12 },
+    { "type": "range", "id": "card_gap", "min": 4, "max": 40, "step": 2, "unit": "px", "label": "Gap between cards", "default": 14 },
+    { "type": "range", "id": "card_gap_inner", "min": 4, "max": 40, "step": 2, "unit": "px", "label": "Image-text gap (desktop)", "default": 16 },
+    { "type": "range", "id": "card_gap_inner_mobile", "min": 4, "max": 40, "step": 2, "unit": "px", "label": "Image-text gap (mobile)", "default": 12 },
+    { "type": "checkbox", "id": "card_shadow", "label": "Card shadow", "default": true },
+    { "type": "color", "id": "card_shadow_color", "label": "Shadow color", "default": "#f1d5e3" },
+
+    { "type": "header", "content": "Image" },
+    { "type": "range", "id": "image_size", "min": 60, "max": 240, "step": 4, "unit": "px", "label": "Image size desktop", "default": 120 },
+    { "type": "range", "id": "image_size_mobile", "min": 60, "max": 200, "step": 4, "unit": "px", "label": "Image size mobile", "default": 96 },
+    { "type": "range", "id": "image_radius", "min": 0, "max": 40, "step": 2, "unit": "px", "label": "Image border radius", "default": 14 },
+    { "type": "color", "id": "image_bg_fallback", "label": "Image fallback background", "default": "#FBEEF2" },
+
+    { "type": "header", "content": "Number badge" },
+    { "type": "range", "id": "number_size", "min": 20, "max": 60, "step": 2, "unit": "px", "label": "Badge size", "default": 32 },
+    { "type": "range", "id": "number_font_size", "min": 10, "max": 32, "step": 1, "unit": "px", "label": "Badge font size", "default": 16 },
+    { "type": "color", "id": "number_bg", "label": "Badge background", "default": "#ffffff" },
+    { "type": "color", "id": "number_color", "label": "Badge text color", "default": "#1A0F0A" },
+    { "type": "color", "id": "number_border_color", "label": "Badge border color", "default": "#1A0F0A" },
+    { "type": "range", "id": "number_border_width", "min": 0, "max": 4, "step": 1, "unit": "px", "label": "Badge border width", "default": 1 },
+
+    { "type": "header", "content": "Step title" },
+    { "type": "color", "id": "step_title_color", "label": "Color", "default": "#1A0F0A" },
+    { "type": "color", "id": "step_title_highlight", "label": "Highlight (em strong)", "default": "#D5709A" },
+    { "type": "range", "id": "step_title_size", "min": 14, "max": 28, "step": 1, "unit": "px", "label": "Size desktop", "default": 17 },
+    { "type": "range", "id": "step_title_size_mobile", "min": 14, "max": 24, "step": 1, "unit": "px", "label": "Size mobile", "default": 16 },
+    { "type": "range", "id": "step_title_weight", "min": 400, "max": 900, "step": 100, "label": "Weight", "default": 700 },
+
+    { "type": "header", "content": "Step text" },
+    { "type": "color", "id": "step_text_color", "label": "Color", "default": "#1A0F0A" },
+    { "type": "range", "id": "step_text_size", "min": 12, "max": 20, "step": 1, "unit": "px", "label": "Size desktop", "default": 14 },
+    { "type": "range", "id": "step_text_size_mobile", "min": 12, "max": 18, "step": 1, "unit": "px", "label": "Size mobile", "default": 13 },
+
+    { "type": "header", "content": "Icon (optional)" },
+    { "type": "range", "id": "icon_size", "min": 14, "max": 40, "step": 2, "unit": "px", "label": "Icon size", "default": 20 },
+    { "type": "color", "id": "icon_color", "label": "Icon color", "default": "#D5709A" },
+
+    { "type": "header", "content": "Section padding" },
+    { "type": "range", "id": "padding_top", "min": 0, "max": 120, "step": 4, "unit": "px", "label": "Padding top", "default": 40 },
+    { "type": "range", "id": "padding_bottom", "min": 0, "max": 120, "step": 4, "unit": "px", "label": "Padding bottom", "default": 40 }
+  ],
+  "blocks": [
+    {
+      "type": "step",
+      "name": "Step",
+      "settings": [
+        { "type": "image_picker", "id": "image", "label": "Image" },
+        { "type": "checkbox", "id": "show_number", "label": "Show number badge", "default": true },
+        { "type": "text", "id": "number_text", "label": "Number text", "default": "1" },
+        { "type": "checkbox", "id": "show_icon", "label": "Show icon (instead of/with number)", "default": false },
+        { "type": "text", "id": "icon_name", "label": "Material icon name", "info": "Ej: water_drop, star, shield, spa (see material-icon snippet)" },
+        { "type": "checkbox", "id": "icon_filled", "label": "Icon filled", "default": true },
+        { "type": "inline_richtext", "id": "title", "label": "Title", "default": "Step title" },
+        { "type": "richtext", "id": "text", "label": "Text", "default": "<p>Step description text.</p>" }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "name": "SEOUL · Por qué funciona",
+      "blocks": [
+        { "type": "step", "settings": { "number_text": "1", "title": "Se adapta sola a tu tono", "text": "<p>No eliges color. No hay error posible.</p>" } },
+        { "type": "step", "settings": { "number_text": "2", "title": "Protege mientras embellece", "text": "<p>SPF 50 integrado. Cada día estás protegiendo tu piel.</p>" } },
+        { "type": "step", "settings": { "number_text": "3", "title": "Hidratación que se nota", "text": "<p>Con ácido hialurónico.</p>" } }
+      ]
+    }
+  ]
+}
+{% endschema %}

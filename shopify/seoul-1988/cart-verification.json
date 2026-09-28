@@ -1,0 +1,48 @@
+{
+  "checkedAt": "2026-09-28T18:09:03.269Z",
+  "isolatedCart": true,
+  "noOrderCreated": true,
+  "cleanupPassed": true,
+  "results": [
+    {
+      "quantity": 1,
+      "actual": 2900,
+      "expected": 2900,
+      "currency": "EUR",
+      "discount": 0,
+      "passed": true
+    },
+    {
+      "quantity": 2,
+      "actual": 3599,
+      "expected": 3599,
+      "currency": "EUR",
+      "discount": 2201,
+      "passed": true
+    },
+    {
+      "quantity": 3,
+      "actual": 4299,
+      "expected": 4299,
+      "currency": "EUR",
+      "discount": 4401,
+      "passed": true
+    },
+    {
+      "quantity": 2,
+      "actual": 3599,
+      "expected": 3599,
+      "currency": "EUR",
+      "discount": 2201,
+      "passed": true
+    },
+    {
+      "quantity": 1,
+      "actual": 2900,
+      "expected": 2900,
+      "currency": "EUR",
+      "discount": 0,
+      "passed": true
+    }
+  ]
+}

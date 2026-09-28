@@ -1,0 +1,32 @@
+{
+  "checkedAt": "2026-09-28T18:21:56.224Z",
+  "mainTheme": 198240600396,
+  "previewRole": "unpublished",
+  "mainChanges": [],
+  "matches": [
+    {
+      "filename": "templates/product.neriva_nad.json",
+      "matches": true
+    },
+    {
+      "filename": "sections/seoul-design.liquid",
+      "matches": true
+    },
+    {
+      "filename": "sections/seoul-ingredients.liquid",
+      "matches": true
+    },
+    {
+      "filename": "sections/seoul-step-description.liquid",
+      "matches": true
+    },
+    {
+      "filename": "assets/seoul-1988.css",
+      "matches": true
+    },
+    {
+      "filename": "assets/seoul-1988.js",
+      "matches": true
+    }
+  ]
+}

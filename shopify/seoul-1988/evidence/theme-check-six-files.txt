@@ -1,0 +1,54 @@
+## Validation Summary
+
+**Overall Status:** ✅ VALID
+**Total Files:** 6
+
+## Detailed Results
+
+### File 1
+**Artifact ID:** 3956f90c-54ea-462c-b290-0b97c292ca5b
+**Revision:** 3
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ✅ SUCCESS
+**Details:** sections/seoul-design.liquid passed all checks.
+
+### File 2
+**Artifact ID:** 3956f90c-54ea-462c-b290-0b97c292ca5b
+**Revision:** 3
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ✅ SUCCESS
+**Details:** sections/seoul-ingredients.liquid passed all checks.
+
+### File 3
+**Artifact ID:** 3956f90c-54ea-462c-b290-0b97c292ca5b
+**Revision:** 3
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ✅ SUCCESS
+**Details:** sections/seoul-step-description.liquid passed all checks.
+
+### File 4
+**Artifact ID:** 3956f90c-54ea-462c-b290-0b97c292ca5b
+**Revision:** 3
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ✅ SUCCESS
+**Details:** assets/seoul-1988.css passed all checks.
+
+### File 5
+**Artifact ID:** 3956f90c-54ea-462c-b290-0b97c292ca5b
+**Revision:** 3
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ✅ SUCCESS
+**Details:** assets/seoul-1988.js passed all checks.
+
+### File 6
+**Artifact ID:** 3956f90c-54ea-462c-b290-0b97c292ca5b
+**Revision:** 3
+*Use same ID & increment revision when retrying on an improvement of this artifact*
+
+**Status:** ✅ SUCCESS
+**Details:** templates/product.neriva_nad.json passed all checks.

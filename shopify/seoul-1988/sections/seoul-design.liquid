@@ -1,0 +1,12 @@
+{%- if template.suffix == 'neriva_nad' -%}
+  {{ 'seoul-1988.css' | asset_url | stylesheet_tag }}
+  <script src="{{ 'seoul-1988.js' | asset_url }}" defer="defer"></script>
+  <div class="seoul-root" data-seoul-product="{{ product.id }}" hidden></div>
+{%- endif -%}
+{% schema %}
+{
+  "name": "SEOUL · Identidad visual",
+  "settings": [],
+  "enabled_on": { "templates": ["product"] }
+}
+{% endschema %}

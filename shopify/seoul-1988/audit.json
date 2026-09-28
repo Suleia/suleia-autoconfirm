@@ -1,0 +1,433 @@
+{
+  "date": "2026-09-28",
+  "themeId": 198240600396,
+  "productId": 16138510991692,
+  "referenceSections": [
+    "main-product",
+    "ugc-video-strip",
+    "rich-text",
+    "image-with-text",
+    "step-description",
+    "image-slider",
+    "image-banner",
+    "timeline-results",
+    "results",
+    "collapsible-content",
+    "reviews_bars_score",
+    "apps",
+    "custom-liquid",
+    "stats-circles",
+    "featured-collection",
+    "related-products"
+  ],
+  "reused": [
+    "main-product",
+    "rich-text",
+    "image-with-text",
+    "icon-bar",
+    "image-slider",
+    "timeline-results",
+    "collapsible-content",
+    "apps"
+  ],
+  "newSections": [
+    "seoul-design",
+    "seoul-ingredients",
+    "seoul-step-description"
+  ],
+  "disabledWithoutEvidence": [
+    "ugc-video-strip",
+    "comparison-slider"
+  ],
+  "quantityFormula": "unitPriceCents * quantity * (1 - percentage/100) - fixed_amount_off * 100; display only; Shopify automatic discount required",
+  "prices": [
+    {
+      "quantity": 1,
+      "base": 2900,
+      "discount": 0,
+      "total": 2900
+    },
+    {
+      "quantity": 2,
+      "base": 5800,
+      "discount": 2201,
+      "total": 3599
+    },
+    {
+      "quantity": 3,
+      "base": 8700,
+      "discount": 4401,
+      "total": 4299
+    }
+  ],
+  "files": [
+    {
+      "file": "templates/product.neriva_nad.json",
+      "sha256": "784d9fb8673ccaeddfe83120400927d431aa0def720c514e6bd419143c13b15c"
+    },
+    {
+      "file": "templates/product.parches_glp.json",
+      "sha256": "769baafebf5f92f71e1ede1a574cb862900d055570030eb2e8cf29fb87b8d247"
+    },
+    {
+      "file": "layout/theme.liquid",
+      "sha256": "dfebd42d17c7a7a752a124d8487e165a269eca1d707d8898a0dabd65df8552ba"
+    },
+    {
+      "file": "config/settings_data.json",
+      "sha256": "87b084908bff8c3b4a0a7b160e82322d1d185df11b0b0dcc8407ef52940ca8e3"
+    },
+    {
+      "file": "snippets/quantity-breaks.liquid",
+      "sha256": "b4bce2c6a90b45025792253732f50a4f74b9cf77188653d9672b51f905b0beeb"
+    },
+    {
+      "file": "snippets/buy-buttons.liquid",
+      "sha256": "5bef1fcbbdc29c7b0f8c43d34f5e253d0d07f40ecdfa394cdfad400af0de4316"
+    },
+    {
+      "file": "snippets/product-media-gallery.liquid",
+      "sha256": "24670203eded4a7a8bf5f01b432cf5c9b1bc80234ec98f62068b69fc6af3dfcc"
+    },
+    {
+      "file": "snippets/product-thumbnail.liquid",
+      "sha256": "cfad7ea8b8d838f6f2bec60f8c21835eed1a4227c5a635cccab87bea0cdcc4c7"
+    },
+    {
+      "file": "assets/main.js",
+      "sha256": "121381995a9e5281b1e7a82bb3c8ea399978fa2fd669ae6281a07660dc3bd7f6"
+    },
+    {
+      "file": "assets/base.css",
+      "sha256": "276733961b9adb254d9273ce116d528000cc9b52185d936f7bf2124ab6b13f61"
+    },
+    {
+      "file": "sections/main-product.liquid",
+      "sha256": "296ff8233689052a43ae0ed18e0d9792b0bf9acf392e32a50ee9dbb3927e290a"
+    },
+    {
+      "file": "sections/ugc-video-strip.liquid",
+      "sha256": "4d9f298e2dca51d0da107af8d68fcee459dedb34ec503052922757e8227bc97d"
+    },
+    {
+      "file": "sections/rich-text.liquid",
+      "sha256": "9463f6c8b5f5dd0961e02d32409a8bfa985917d44d51526336379ea21e76feb4"
+    },
+    {
+      "file": "sections/image-with-text.liquid",
+      "sha256": "ba861b29a51ef4d0c5c0e00587e6c9f3ecffb9cb6c9559f9278d7ef97755d8dd"
+    },
+    {
+      "file": "sections/step-description.liquid",
+      "sha256": "f8a1793165fd80e79995c6dde8ac973cb3950bf3cc88bffd949a6ff109e11b08"
+    },
+    {
+      "file": "sections/image-slider.liquid",
+      "sha256": "85232b49fa26b63e27778ea5e15d6dbd4b14a93d197f9e7a8d46dc775d1aad76"
+    },
+    {
+      "file": "sections/image-banner.liquid",
+      "sha256": "aa040db873dca51d7c33dadfc978d57487ab51c8a86341083d049d23cb229da3"
+    },
+    {
+      "file": "sections/timeline-results.liquid",
+      "sha256": "45ccfffb97f0142cd3906ee9c2e96c0bd59e87fbb35b888e4e6d87243f38296b"
+    },
+    {
+      "file": "sections/results.liquid",
+      "sha256": "6db4267f039b76f911a306f68a08a17f903593970b92de9ae7270ea0413afcf5"
+    },
+    {
+      "file": "sections/collapsible-content.liquid",
+      "sha256": "dde1ef71969e4cbd29a69d4dbcacc38d02ed2f9602ddd948d0aad49073bb8adb"
+    },
+    {
+      "file": "sections/reviews_bars_score.liquid",
+      "sha256": "dd32532bafe425508ad1d7dab49c567507abb9581adf3afba7113bf1f9b386eb"
+    },
+    {
+      "file": "sections/apps.liquid",
+      "sha256": "b63eaee84915fdb61351a15143571dbdc71c4bd03518573f32643070e98c2193"
+    },
+    {
+      "file": "sections/custom-liquid.liquid",
+      "sha256": "ecfd8d17e5ea623b1b936b08f05588bb840837580bc2eea23e058774e17fb5e5"
+    },
+    {
+      "file": "sections/stats-circles.liquid",
+      "sha256": "97360467d619d19ff9f297a7dc05ce6df2e79eb2ec66d43032a44138822b4130"
+    },
+    {
+      "file": "sections/featured-collection.liquid",
+      "sha256": "33a0ee0245b4934ea77117e643b1cb7866da7859e12e149a7ceba5dec28f08f2"
+    },
+    {
+      "file": "sections/related-products.liquid",
+      "sha256": "711b7da635d0abc980cec649ae133eed0a60041cef020ff2b1fefc4848488720"
+    },
+    {
+      "file": "sections/comparison-slider.liquid",
+      "sha256": "5d96ec6f2d83df3ad96f251686002cc341d6e0ee48a1bca25502f50420c0dce1"
+    },
+    {
+      "file": "sections/icons-with-content.liquid",
+      "sha256": "1e6ce966e87bb0581c8e00ac6e87c60ec6097c9006010f5ac3577b983e91ccd0"
+    },
+    {
+      "file": "sections/icon-bar.liquid",
+      "sha256": "e5a8542827a4d7029d48750c20071a8481f2457f5534f62ea70596421d0badeb"
+    },
+    {
+      "file": "snippets/meta-tags.liquid",
+      "sha256": "db6045170e67e75e6dc5b5fc93031015967893f8352c736830baf894273b7695"
+    },
+    {
+      "file": "snippets/enabled-languages-modal.liquid",
+      "sha256": "35d8891462ca35e91ab16ffe841d8e9fe66802d6a31d1bae6ce3adb9255527c7"
+    },
+    {
+      "file": "assets/secondary.js",
+      "sha256": "b2cfd19e9581bbdedc5c89e25fb5f5fba43048a24972d9590a91e8328786bd39"
+    },
+    {
+      "file": "assets/rtl.css",
+      "sha256": "2a420f5c7e60b046eb43cbcc4aeb37894094f1e512c0d20504831a626547072c"
+    },
+    {
+      "file": "assets/component-predictive-search.css",
+      "sha256": "9eeebfd3d0911f32586fb954fb24cb4f6c01ed771995676621bfea0d19b4fdd6"
+    },
+    {
+      "file": "snippets/text-with-price.liquid",
+      "sha256": "7d9099b45de4c4230cceda69365149223052ab9f177102e9257748e2c8cf3b34"
+    },
+    {
+      "file": "snippets/icon-caret.liquid",
+      "sha256": "138635c021170b6099458b5a2a02c1d6b73d5353fea16dcbe41a2c3a991b2c7f"
+    },
+    {
+      "file": "snippets/icon-unavailable.liquid",
+      "sha256": "673c12acce114ace680c0f755edf7177931bca5b153d9b333d94c441bb71378d"
+    },
+    {
+      "file": "assets/component-pickup-availability.css",
+      "sha256": "62160c225f8474e5041a3d9ed0d55d259e1df92efe82bb28ca2ac073ef8bfbbf"
+    },
+    {
+      "file": "assets/pickup-availability.js",
+      "sha256": "33330c91e128487099815551dec740e55e440eb4e58796379089d7b9ce605c78"
+    },
+    {
+      "file": "snippets/icon-3d-model.liquid",
+      "sha256": "52340159ebc4d508f1dcfe2bb9b8eb0453f465c58e6dbac2735f8f9247ebfd4c"
+    },
+    {
+      "file": "snippets/icon-play.liquid",
+      "sha256": "8c5cd43f4c3c2b1aade048a5ef9700a51a8ff23d717d5c0e2cf5359e9488d7d3"
+    },
+    {
+      "file": "snippets/icon-zoom.liquid",
+      "sha256": "136ad1f5a66177c1273c16d637e954e9e2e993ef8ebd397c4c31c15955d58e4a"
+    },
+    {
+      "file": "snippets/social-proof-widget.liquid",
+      "sha256": "794e310648912721a3dec14c74594d1307e17f79efb9ef3d46a4cad05a8e14c0"
+    },
+    {
+      "file": "snippets/text-with-icon-block.liquid",
+      "sha256": "af3f48d50dc264a90b92cefd0df64d534ac5986a6fdc5af0d53b2c78b5483d61"
+    },
+    {
+      "file": "snippets/rating-stars-block.liquid",
+      "sha256": "b1b23bc25efc851f6d76f86aab3554a5d8f05a3e3cb7b2e70ec5042ec824b1c4"
+    },
+    {
+      "file": "snippets/trustpilot-stars-block.liquid",
+      "sha256": "3960ed87622a0d1ce91a90593ced8f9aa3d707830e6b3c6ccd488da28d3939b0"
+    },
+    {
+      "file": "snippets/price.liquid",
+      "sha256": "848a7bf0006cbc844c8c5205a03497a59e58f9ac7858b9f122e7be4e81f40a15"
+    },
+    {
+      "file": "snippets/material-icon.liquid",
+      "sha256": "4e615c2fffd8f840d58e8a7b6d3a9ff3ab90f45a5f885616b7a3268732db0ec2"
+    },
+    {
+      "file": "snippets/icon-plus.liquid",
+      "sha256": "e7d2d84fa16187a4af26ab07e82c4de96561fe0e5cf138ce173508de3f7c3463"
+    },
+    {
+      "file": "snippets/icon-minus.liquid",
+      "sha256": "d6950db63c1d54ff4a4e19d23c546c25aaea122b6de92aed93454d91aae77283"
+    },
+    {
+      "file": "snippets/share-button.liquid",
+      "sha256": "e8af9dfd2fa06d91bd0b96e2a0ac431b223e0e515d5f99c2db655f8edced66c0"
+    },
+    {
+      "file": "snippets/product-variant-picker.liquid",
+      "sha256": "2b10d7ef4d8d27668568a4be3556824d3ce2e939b4f1ab3ed54a022d8e16b1ac"
+    },
+    {
+      "file": "snippets/reviews.liquid",
+      "sha256": "d6a579654879f3bd8088bfebb817056fd84d7985e55d8c9bb5973f32d56fc563"
+    },
+    {
+      "file": "snippets/quantity-gifts.liquid",
+      "sha256": "42f4f0075bd67d2b7f9c6bb2f32b82ce5636434d916119e2f8f82e27fc3c9485"
+    },
+    {
+      "file": "snippets/bundle-offer.liquid",
+      "sha256": "f8e98c907960b08fd166053432b34b999ab1d8741b43d2018ed8222fc84f0747"
+    },
+    {
+      "file": "snippets/estimated-shipping.liquid",
+      "sha256": "ef0207b3abad9e0f1ba5f860300e95232cb30d5efb742a763fb05e0398e07f10"
+    },
+    {
+      "file": "snippets/shipping-checkpoints.liquid",
+      "sha256": "291794a6b69d1a4b00bb968ffd210b02cdf38e68ca1c10380ee64f856f2e8a31"
+    },
+    {
+      "file": "snippets/custom-product-field.liquid",
+      "sha256": "672edb84ef43f826cc503c932856feda80cc2b9ec90512f2e545c71883098dcd"
+    },
+    {
+      "file": "snippets/scroll-buttons.liquid",
+      "sha256": "9480d1199cdb0d52f60bcd75bd512b9eb671cffb64a9475ea772b8c6355015d0"
+    },
+    {
+      "file": "snippets/review-avatars.liquid",
+      "sha256": "72e0dc6eedc298d05c9ea9b6c74ba5f2fdb9897bed893a5a029eb13078644e48"
+    },
+    {
+      "file": "snippets/upsell-block.liquid",
+      "sha256": "856a7ba6e1ecb75a436376ee3e5759df6c7c5b5e3b811dd53fa2fb741937c8b1"
+    },
+    {
+      "file": "snippets/video-player.liquid",
+      "sha256": "6d2e074138d4387e13cdec89d27edb55ef818891e6545cb98b927ea096b80196"
+    },
+    {
+      "file": "snippets/icon-accordion.liquid",
+      "sha256": "175bb1fc8339c4c2322fde571455075d277dbeb962652d8a6656a7c588052378"
+    },
+    {
+      "file": "snippets/card-product.liquid",
+      "sha256": "504d64825c7dea4531b555c076dbe47569e3dd8624c1a75e46eff90c04b2a63d"
+    },
+    {
+      "file": "snippets/icon-with-text.liquid",
+      "sha256": "67332d3c9fe58c09e634956f0783b6b7787b0791a6131d012c4d132dfc8bfb03"
+    },
+    {
+      "file": "snippets/icon-arrow.liquid",
+      "sha256": "3968649e0815890cf09c850e80484477bda763521617be8d80d3b549ce38885d"
+    },
+    {
+      "file": "snippets/product-media-modal.liquid",
+      "sha256": "cd9fae222b25d9eedb8f3663b595056c7a0b7adf0a8b0212f86a65c12452fbf2"
+    },
+    {
+      "file": "snippets/icon-close.liquid",
+      "sha256": "674b4988c83d3d5398259743527f749da488da774632949e15f1a35298f28333"
+    },
+    {
+      "file": "assets/magnify.js",
+      "sha256": "347cd2f08a4dccb132da6c802a5180826de3b308c20da19928689c7054aba32c"
+    },
+    {
+      "file": "assets/theme-editor.js",
+      "sha256": "25a17ce14930b9fe6d73ebb1621f2b997a753344b26f66ae8d476ed64e14dd1e"
+    },
+    {
+      "file": "assets/component-product-model.css",
+      "sha256": "9d87cd90c8dbf46a243e494b93631f6bb4ae990a574cd748209608490a3d09e5"
+    },
+    {
+      "file": "assets/component-model-viewer-ui.css",
+      "sha256": "b8aaae11abf70682ec623cb4c3a5fca50f9cb0db6549103ebb838e28d749e8af"
+    },
+    {
+      "file": "assets/component-complementary-products.css",
+      "sha256": "1447c0712efd4200d7781f0578b6448c6f536022c6db269131c1ce2dd7195ca6"
+    },
+    {
+      "file": "assets/quick-add.css",
+      "sha256": "56547648d244ba6a999798018939bdd59e80df0e20138d5396375a54e8b9f5d2"
+    },
+    {
+      "file": "assets/quick-add.js",
+      "sha256": "04331f2a1727142da7ae9a538cb60ffba969ee8fec9405404ba99356056252e1"
+    },
+    {
+      "file": "assets/product-modal.js",
+      "sha256": "3b1109eafc29c3f6829f37ff5582b6743dff6a5fcd1c974959a62c4902dc19a0"
+    },
+    {
+      "file": "assets/media-gallery.js",
+      "sha256": "b3ed668798c3ade11bceecbe8a7e4ef175b898872d650c7c980065dfaa8072f6"
+    },
+    {
+      "file": "assets/product-model.js",
+      "sha256": "7c31f11efbcd3882fe0ff6b67f890dbe6e07af066345e344ae09b91bfd1fbbd2"
+    },
+    {
+      "file": "snippets/separate-atc-btn.liquid",
+      "sha256": "bd8a483f58764036269b3b6a1f6482876a8a4ce12b8442f0992f6abbbbd0bf1e"
+    },
+    {
+      "file": "assets/template-collection.css",
+      "sha256": "a6b360d27340e1fed0670054cdadd4784def7e9c92bd9fe2e27ff8806ac9b0c5"
+    },
+    {
+      "file": "snippets/icon-discount.liquid",
+      "sha256": "69d14ce090599c3ea66e2a6938fd02a2866590d27401272558d868f32605af2f"
+    },
+    {
+      "file": "snippets/icon-share.liquid",
+      "sha256": "e5bf7ea214cdc82cfceac3fc589284f75759aeab0d4031b3891468c7719ea46f"
+    },
+    {
+      "file": "snippets/icon-clipboard.liquid",
+      "sha256": "11a4d83d6ce208799a1c1c42877fcea412a075fb354d46f895aef661e9cedb12"
+    },
+    {
+      "file": "assets/share.js",
+      "sha256": "ac0f71dc776741e340d120847b5242845f1ef4c0702410a8dc8737a51110db68"
+    },
+    {
+      "file": "snippets/product-variant-options.liquid",
+      "sha256": "73a1853df3bafca4afc4856f3df35cedec3785342f80d30c506fbd8c7b730320"
+    },
+    {
+      "file": "snippets/checkbox-icons.liquid",
+      "sha256": "abed6ce42099c09d33cf055f70cc4c65ed3acf280a9c322cdaf79b6e1ea64370"
+    },
+    {
+      "file": "snippets/product-media.liquid",
+      "sha256": "63fb27958929c9a40993ba6d8e156ee2490f2e61266e2d3a56608a21c64c9390"
+    }
+  ],
+  "removedSections": [
+    "custom_css",
+    "main",
+    "image_slider_8FHepy",
+    "medical_authority",
+    "pain_points",
+    "image_banner_jbbVxX",
+    "comparison_slider_8kbwUM",
+    "science_section",
+    "reveal_product",
+    "stats_circles_eDWWwt",
+    "lifestyle_3",
+    "ingredients",
+    "comparison",
+    "press_logos",
+    "guarantee",
+    "faq",
+    "1776098244cfbe9346",
+    "related_products"
+  ]
+}
