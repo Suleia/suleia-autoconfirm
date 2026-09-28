@@ -1,5 +1,7 @@
 # SEOUL 1988 — reconstrucción de `neriva_nad`
 
+> SUPERADO por instrucción posterior del propietario: el diseño descrito debajo se retiró de la vista previa. El estado vigente se documenta en `EXACT-COPY.md`. No volver a instalar los archivos de diseño de este directorio.
+
 Implementación y comprobaciones del 28 de septiembre de 2026.
 
 ## Estado y alcance
