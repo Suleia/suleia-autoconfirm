@@ -32,6 +32,8 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
     if(String(rawIssue?.id)!==String(row.dropea_issue_id) || String(rawIssue?.order_id)!==String(row.dropea_order_id)
       || String(rawOrder?.id)!==String(row.dropea_order_id) || String(rawOrder?.store_id)!==String(row.store_id))throw new Error('EXACT_ORDER_IDENTITY_REQUIRED');
     const issue={...row,type:rawIssue.type,status:rawIssue.status,is_active:rawIssue.is_active,carrier:rawIssue.carrier,
+      initial_carrier_code:rawIssue.initial_carrier_code,initial_carrier_substatus_code:rawIssue.initial_carrier_substatus_code,
+      initial_carrier_description_sanitized:rawIssue.initial_carrier_description,
       created_at:rawIssue.created_at,updated_at:rawIssue.updated_at,resolution_status:rawIssue.resolution_status,
       resolution_changed_at:rawIssue.resolution_changed_at,allowed_resolution_options:rawIssue.allowed_resolution_options,observed_at:issueAt};
     const current=await pool.query('SELECT current FROM read_models.recipient_absent_current_context WHERE canonical_issue_id=$1',[id]);
