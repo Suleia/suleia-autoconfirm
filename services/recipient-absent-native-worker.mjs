@@ -8,9 +8,10 @@ import {loadDropeaStoreConfigs} from './integrations/dropea/store-config.mjs';
 import {createDropeaPublicApiClient} from './integrations/dropea/public-api-client.mjs';
 import {createAbsentEvidenceProjector} from './recipient-absent-projector.mjs';
 import {createAbsentObserverHealth,readAbsentControllerHealth} from './recipient-absent-health.mjs';
+import {createAbsentTemplateDelivery} from './recipient-absent-template-delivery.mjs';
 
-// Dedicated native authorization process. It owns no template-send API and no
-// Dropea write credential. DISABLED database controls are the startup default.
+// Dedicated notification owner; native and API transport share one durable
+// claim gate. It still has no Dropea write credential or logistics authority.
 export async function startNativeAbsentGate(env=process.env){
   if(!env.ABSENT_NATIVE_DATABASE_URL || !env.CHATBY_TOKEN || (env.MIGRATION_HASH_KEY || '').length<32)
     throw new Error('NATIVE_GATE_CONFIGURATION_REQUIRED');
@@ -33,7 +34,15 @@ export async function startNativeAbsentGate(env=process.env){
   server.requestTimeout=60000;server.headersTimeout=10000;
   await new Promise(resolve=>server.listen(Number(env.PORT || 3310),'0.0.0.0',resolve));
   const observer=createNativeAbsentObserver({pool:db.pool,token:env.CHATBY_TOKEN});
-  const observe=async()=>{observerHealth.start();try{observerHealth.finish(await observer.run());}catch{observerHealth.fail();}};
+  const delivery=createAbsentTemplateDelivery({pool:db.pool,readFresh:runtime.readFresh,
+    ledger:createNativeAbsentLedger(db.pool),token:env.CHATBY_TOKEN});
+  let cycling=false;
+  const observe=async()=>{if(cycling)return;cycling=true;observerHealth.start();try{
+    observerHealth.finish(await observer.run());
+    try{const result=await delivery.run();console.log(JSON.stringify({event:'absent_template_delivery',...result,at:new Date().toISOString()}));}
+    catch(error){console.log(JSON.stringify({event:'absent_template_delivery',status:'READ_OR_CONTRACT_BLOCKED',
+      reason:/^[A-Z_]+$/.test(error.message)?error.message:'PROVIDER_READ_FAILED',at:new Date().toISOString()}));}
+  }catch{observerHealth.fail();}finally{cycling=false;}};
   const timer=setInterval(observe,120000);await observe();
   const stop=async()=>{clearInterval(timer);await new Promise(resolve=>server.close(resolve));await db.close();};
   process.once('SIGTERM',stop);

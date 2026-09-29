@@ -9,9 +9,9 @@ export function normalizeNativeAbsentHistory(history,conversationId){
     const value=m.ts ?? m.created_at ?? m.timestamp,n=Number(value);
     const date=Number.isFinite(n) && n>0 ? new Date(n>1e12?n:n*1000):new Date(value);
     const name=m.template_name || m.template?.name || m.payload?.template_name || m.payload?.template?.name || m.payload?.name;
-    return {direction:['out','outbound','bot','sent'].includes(String(m.type || m.direction).toLowerCase())?'OUTBOUND':'OTHER',
+    return {direction:['out','outbound','bot','sent','agent'].includes(String(m.type || m.direction).toLowerCase())?'OUTBOUND':'OTHER',
       at:Number.isFinite(+date)?date.toISOString():null,message_id:m.id || m.mid || null,
-      provider_message_id:m.wamid || m.payload?.wamid || null,template_name:name,
+      provider_message_id:m.wamid || m.payload?.wamid || (String(m.mid||'').startsWith('wamid.')?m.mid:null),template_name:name,
       // The approved catalog establishes this name's stable Chatby ID. If the
       // provider supplies an explicit contradictory ID, preserve it and fail.
       template_id:m.template_id || m.payload?.template_id || (name==='dropea_ausente_v3'?'1552419':null),
