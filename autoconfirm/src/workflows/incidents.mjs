@@ -2939,6 +2939,7 @@ async function performPendingIncidentSync({
       blockedByCustomerActivity: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'customer_interaction_after_merchandise_template').length,
       failed: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'failed').length,
       blockedChatbyRead: incidentChatbyReadBlockCount(sortedIncidents),
+      blockedShopifyRead: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'shopify_order_read_failed').length,
       waiting24Hours: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'waiting_discount_window').length,
       missingVerifiedInitialTemplate: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'merchandise_template_not_verified').length,
       crossSourceMismatch: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryReason === 'cross_source_order_mismatch').length,

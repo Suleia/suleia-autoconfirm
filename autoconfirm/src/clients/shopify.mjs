@@ -1,49 +1,16 @@
 import { getAppConfig } from '../config.mjs';
-import { fetchWithRetry } from '../fetch-with-retry.mjs';
+import { createShopifyReadAuth } from './shopify-read-auth.mjs';
 
 const config = getAppConfig();
-let cachedAccessToken = null;
-
-async function getAdminAccessToken() {
-  if (config.shopifyAdminAccessToken) return config.shopifyAdminAccessToken;
-  if (cachedAccessToken) return cachedAccessToken;
-
-  if (!config.shopifyDomain || !config.shopifyClientId || !config.shopifyClientSecret) {
-    throw new Error('Faltan credenciales de Shopify para verificar pedidos.');
-  }
-
-  const response = await fetchWithRetry(`https://${config.shopifyDomain}/admin/oauth/access_token`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: config.shopifyClientId,
-      client_secret: config.shopifyClientSecret
-    })
-  });
-
-  const data = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(`Shopify token respondio ${response.status}: ${JSON.stringify(data)}`);
-  }
-
-  if (!data?.access_token) {
-    throw new Error('Shopify no devolvio access_token.');
-  }
-
-  cachedAccessToken = data.access_token;
-  return cachedAccessToken;
-}
+const shopifyRead = createShopifyReadAuth(config);
 
 async function shopifyGraphql(query, variables = {}) {
-  const token = await getAdminAccessToken();
   if (!config.shopifyDomain) throw new Error('Falta SHOPIFY_DOMAIN.');
 
-  const response = await fetchWithRetry(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/graphql.json`, {
+  const response = await shopifyRead(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/graphql.json`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
-      'X-Shopify-Access-Token': token
+      'Content-Type': 'application/json'
     },
     body: JSON.stringify({ query, variables })
   });
@@ -177,13 +144,7 @@ export async function listShopifyOrdersByCreatedPeriod({ since, until, pageSize 
 }
 
 export async function getShopifyOrderFinancialStatus(orderId) {
-  const token = await getAdminAccessToken();
-  const response = await fetchWithRetry(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/orders/${orderId}.json`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'X-Shopify-Access-Token': token
-    }
-  });
+  const response = await shopifyRead(`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/orders/${orderId}.json`);
   const data = await response.json().catch(() => null);
   if (!response.ok) {
     throw new Error(`Shopify order respondio ${response.status}: ${JSON.stringify(data)}`);
