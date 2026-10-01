@@ -79,3 +79,14 @@ At the beginning of a coordinated task, read the latest Agent Hub comments.
 At the end, post the implementation or verification result there. Keep detailed
 customer data only in approved production systems and summarize evidence in
 GitHub using anonymized references.
+
+## Second-absence discount offer
+
+Owner-authorized on 2026-10-01. Render's existing incident recovery scheduler offers the existing 5 EUR template once per order when:
+
+- The current active pending issue is RECIPIENT_ABSENT with a verified second attempt (explicit attempt 2, or corroborated GLS ES code -30/14, substatus 15 and second-absence description). Queue counters alone are insufficient.
+- The exact-order Chatby conversation contains a provider-verified dropea_ausente_v3 sent after order creation, at least 24 hours ago. A superseding absence does not reset this clock.
+- No customer message, button or other inbound interaction occurred at or after v3. Uncertain history blocks sending.
+- Fresh Dropea/order identity, exact Shopify order/amount, prior-return guard and persistent shared discount claim pass. A final conversation read after the claim blocks late replies.
+
+No template/flow is modified. First/unknown absences cannot send. Existing rejection and address policies remain unchanged. The new lane does not authorize absent returns or apply an accepted discount financially. Existing global discount enable/real-send controls also govern this lane; rejection-specific switches only govern rejection offers.

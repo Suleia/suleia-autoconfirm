@@ -2823,7 +2823,7 @@ async function performPendingIncidentSync({
       if (config.enableIncidentDiscountTemplate) {
         try {
           discountRecovery = await processIncidentDiscountRecovery({
-            incident: item.incident,
+            incident: item.incident.incidentType === 'absent' ? { ...item.incident, absentDiscountIssue: item.issue.raw } : item.incident,
             order: item.order,
             messages: item.messages,
             realEnabled: returnOnly === true || item.incident.incidentType==='address' ? false : config.incidentDiscountRealEnabled === true,
@@ -2931,7 +2931,8 @@ async function performPendingIncidentSync({
     const discountRecoverySummary = {
       enabled: config.enableIncidentDiscountTemplate === true,
       realEnabled: config.incidentDiscountRealEnabled === true,
-      checked: sortedIncidents.filter((incident) => incident.incidentType === 'rejected_goods').length,
+      checked: sortedIncidents.filter((incident) => ['rejected_goods', 'absent'].includes(incident.incidentType)).length,
+      absentSent: sortedIncidents.filter(i => i.incidentType === 'absent' && i.incidentDiscountRecoveryStatus === 'sent').length,
       sent: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'sent').length,
       wouldSend: sortedIncidents.filter((incident) => incident.incidentDiscountRecoveryStatus === 'would_send').length,
       alreadySent: sortedIncidents.filter((incident) => ['already_sent', 'persistent_sent'].includes(incident.incidentDiscountRecoveryStatus)).length,

@@ -302,3 +302,21 @@ test('a verified prior return prevents a new discount, and a failed fresh read f
     assert.equal(result.reason,reason);assert.equal(data.sent.length,0);
   }
 });
+
+test('second absence offer uses existing template and blocks changed state, duplicates and late replies', async()=>{
+ for(const scenario of ['send','first','inactive','reply','duplicate','nonpersistent','early']){
+  const data=fixture(),now=Date.now();
+  const issue={id:data.incident.incidenceId,order_id:data.incident.orderId,status:'PENDING',is_active:true,type:'RECIPIENT_ABSENT',carrier:'GLS',market:'ES',initial_carrier_code:'-30',initial_carrier_substatus_code:'15',initial_carrier_description:'AUSENTE SEGUNDA VEZ'};
+  Object.assign(data.incident,{incidentType:'absent',chatbyOrderAssociation:'EXACT_ORDER',absentDiscountIssue:issue});
+  const notice={...initial,created_at:new Date(now-(scenario==='early'?23:25)*3600000).toISOString(),content:{name:'dropea_ausente_v3'}};
+  let claimed=false;
+  Object.assign(data.dependencies,{
+   getMessages:async()=>[notice,...(claimed&&scenario==='reply'?[{type:'in',ts:now/1000,content:'hola'}]:[])],
+   readCurrent:async()=>({issue:{...issue,...(scenario==='first'?{initial_carrier_substatus_code:'9'}:{}),...(scenario==='inactive'?{is_active:false}:{})},order:{...data.order,status:'ERROR'}}),
+   claim:async()=>{claimed=true;return {acquired:scenario!=='duplicate',persistent:scenario!=='nonpersistent'};}
+  });
+  const result=await processIncidentDiscountRecovery({...data,realEnabled:true,authorizedImmediate:true,now});
+  assert.equal(data.sent.length,scenario==='send'?1:0,scenario);
+  if(scenario==='send'){assert.equal(result.status,'sent');assert.equal(data.sent[0].content.name,'es_es_dropea_incidencia_descuento_5_v1');assert.equal(data.finished[0].raw.originalAmount-data.finished[0].raw.finalAmount,5);}
+ }
+});

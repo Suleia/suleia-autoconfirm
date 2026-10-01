@@ -1,3 +1,4 @@
+import { absentDiscountPolicy, verifiedSecondAbsence } from './absent-discount-policy.mjs';
 import {addressResponseDecision,addressStageAllowed} from './address-response-policy.mjs';
 import crypto from 'node:crypto';
 import { getAppConfig } from '../config.mjs';
@@ -389,6 +390,7 @@ function recoveryResult(result = {}) {
 }
 
 function evaluateRecoveryPolicy(input, { authorizedImmediate = false } = {}) {
+  if (input.incident?.incidentType === 'absent') return absentDiscountPolicy(input);
   if(input.incident?.incidentType==='address'){
     const d=addressResponseDecision(input);
     const prior=input.discountPersistentDelivery;
@@ -423,8 +425,8 @@ export async function processIncidentDiscountRecovery({
   dependencies = {}
 } = {}) {
   if (incident?.incidentType==='address' && realEnabled && !addressStageAllowed('OFFER_5_EURO_DISCOUNT',incident,dependencies.addressEnvironment||process.env)) return recoveryResult({reason:'address_offer_not_authorized'});
-  if (incident?.incidentType!=='address' && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return recoveryResult({reason:'rejected_master_disabled'});
-  if (incident?.incidentType!=='address' && process.env.RECIPIENT_REJECTED_OFFER_BREAKER === 'OPEN') return recoveryResult({reason:'rejected_offer_breaker_open'});
+  if (!['address','absent'].includes(incident?.incidentType) && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return recoveryResult({reason:'rejected_master_disabled'});
+  if (!['address','absent'].includes(incident?.incidentType) && process.env.RECIPIENT_REJECTED_OFFER_BREAKER === 'OPEN') return recoveryResult({reason:'rejected_offer_breaker_open'});
   const deps = {
     getMessages: dependencies.getMessages || getChatMessages,
     getTemplate: dependencies.getTemplate || findTemplate,
@@ -441,6 +443,7 @@ export async function processIncidentDiscountRecovery({
   if (!incident?.chatbyUserNs) {
     return recoveryResult({ reason: 'missing_chatby_conversation' });
   }
+  if (incident.incidentType === 'absent') incident = { ...incident, absentDiscountOrderCreatedAt: order.createdAt || order.raw?.created_at };
   const discountTemplateName = INCIDENT_DISCOUNT_TEMPLATE_NAME;
 
   let merchandisePersistentDelivery;
@@ -602,12 +605,14 @@ export async function processIncidentDiscountRecovery({
       || String(currentIssue?.order_id) !== String(incident.orderId)
       || String(currentOrder?.orderId) !== String(incident.orderId)
       || currentIssue.is_active !== true || currentIssue.status !== 'PENDING'
-      || currentIssue.type !== (incident.incidentType==='address'?'ADDRESS_INCORRECT':'REFUSED_BY_RECIPIENT')
+      || currentIssue.type !== (incident.incidentType==='address'?'ADDRESS_INCORRECT':incident.incidentType==='absent'?'RECIPIENT_ABSENT':'REFUSED_BY_RECIPIENT')
       || !['ERROR', 'INCIDENCE'].includes(String(currentOrder.status).toUpperCase())
       || digits(currentOrder.customerPhone).slice(-9) !== digits(incident.phone || order.customerPhone).slice(-9)
       || !digits(currentOrder.customerPhone)) {
     return recoveryResult({ ...preview, reason: 'dropea_pre_send_state_changed' });
   }
+
+  if (incident.incidentType === 'absent' && !verifiedSecondAbsence(currentIssue)) return recoveryResult({ ...preview, reason: 'second_absence_not_verified' });
 
   // Re-read immediately before claiming and sending. Any message or button after
   // the initial template closes the lane, including an ambiguous reply.
@@ -654,7 +659,7 @@ export async function processIncidentDiscountRecovery({
       provider: 'chatby',
       chatbyUserNs: incident.chatbyUserNs
     });
-    if (!claim?.acquired || (incident.incidentType==='address' && claim.persistent!==true)) {
+    if (!claim?.acquired || (['address','absent'].includes(incident.incidentType) && claim.persistent!==true)) {
       return recoveryResult({
         ...preview,
         status: `persistent_${claim?.existing?.status || 'blocked'}`,
@@ -665,6 +670,14 @@ export async function processIncidentDiscountRecovery({
       });
     }
 
+    if (incident.incidentType === 'absent') {
+      const latest = await deps.getMessages(incident.chatbyUserNs).catch(() => null);
+      const decision = latest && absentDiscountPolicy({ incident, messages: latest, now: Date.now(), discountTemplateName: template.name, discountPersistentDelivery });
+      if (!decision?.eligible) {
+        await deps.finish({ storeId: config.defaultStore.id, orderId: incident.orderId, templateName: template.name, status: 'aborted', attemptedAt, raw: { reason: decision?.reason || 'chatby_pre_send_read_failed' } });
+        return recoveryResult({ ...preview, status: 'aborted', reason: decision?.reason || 'chatby_pre_send_read_failed' });
+      }
+    }
     if(incident.incidentType==='address'){
       const latest=await deps.getMessages(incident.chatbyUserNs).catch(()=>null);
       const currentDecision=latest?addressResponseDecision({incident,messages:latest,order,now:Date.now()}):null;
