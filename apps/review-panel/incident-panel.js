@@ -33,6 +33,13 @@ const IncidentPanel=(()=>{
     result.append(badge(label,tones[d.flow]||'gray'),node('small','',d.flags.SIMULATION_READY?'Lista para simular':d.blocking_reasons?.length||d.flags.HUMAN_REVIEW?'Acción bloqueada':item.is_active?'No ejecutable todavía':'Sin acción vigente'));
     if(acceptance)result.append(badge(acceptance.label,'amber'),node('small','',acceptance.pending?'Pendiente de gestión manual · sin correo automático':'Revisar estado actual antes de actuar'));
     if(item.execution)result.append(node('small','',`Ejecución: ${item.execution.label}`));
+    if(item.resolution_observation){
+      const o=item.resolution_observation;
+      const details=node('details','ip-resolution'),heading=node('summary','','Plan de resolución');details.append(heading);
+      const current=Date.now()-Date.parse(o.observed_at)<45*60000&&Date.parse(o.observed_at)<=Date.now()&&!(Date.parse(item.latest_private_customer_message_at)>Date.parse(o.observed_at))&&item.is_active===true;
+      for(const [label,value] of [['Observación',current?'Vigente':'Actualizar evidencia'],['Cliente respondió',o.customer_replied?'Sí':'No verificado'],['Intención',(o.customer_intents||[]).join(' + ')],['Plan',(o.resolution_plan?.steps||[]).map(s=>`${s.action} [${s.status}]`).join(' → ')],['Siguiente acción',o.next_best_action||(o.explicit_wait_until?'WAIT':'HUMAN_REVIEW')],['Responsable',o.current_owner],['Esperando a',o.timer_state?.waiting_for],['Límite',o.timer_state?.deadline?incidentDate(o.timer_state.deadline):'—'],['Ejecución',o.execution_status],['Verificación',o.verification_status],['Resultado logístico',o.logistics_outcome],['Bloqueo',o.human_review_reason||o.capability_blocker||'Ninguno observado']])details.append(node('small','',`${label}: ${value||'—'}`));
+      details.addEventListener('click',event=>event.stopPropagation());details.addEventListener('keydown',event=>event.stopPropagation());result.append(details);
+    }
     const priority=badge(`P${d.priority}`,`priority-${d.priority}`);priority.title=d.priority_reason;
     tr.append(...[order,issue,customer,evidence,action,timerBox,result,priority].map(n=>cell(n,'ip-cell')));
     tr.addEventListener('click',()=>openDetail(item.canonical_issue_id));tr.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openDetail(item.canonical_issue_id);}});return tr;
@@ -41,6 +48,10 @@ const IncidentPanel=(()=>{
     const th=node('th');if(key){const button=node('button','ip-sort',`${label} ↕`);button.type='button';th.setAttribute('aria-sort',state.filters.sort===key?state.filters.direction==='desc'?'descending':'ascending':'none');button.addEventListener('click',()=>{state.filters.direction=state.filters.sort===key&&state.filters.direction!=='desc'?'desc':'asc';state.filters.sort=key;state.offset=0;head();loadQueue();});th.append(button);}else th.textContent=label;tr.append(th);}$('table-head').replaceChildren(tr);}
   function filters(root){
     const data=state.summary.incidents,d=data.dashboard,historical=state.filters.scope==='HISTORICAL';
+    const resolution=node('div','incident-filter-actions');
+    for(const [value,label] of [['replied_unresolved','Cliente respondió sin resolver'],['stuck','Atascadas'],['prepared','Acción preparada']]){
+      const b=node('button',`filter-chip ${state.filters.resolution===value?'active':''}`,label);b.type='button';b.addEventListener('click',()=>{state.filters.resolution=state.filters.resolution===value?'':value;state.offset=0;loadQueue();});resolution.append(b);
+    }root.append(resolution);
     $('view-title').textContent='Panel de incidencias';
     const searchRoot=$('incident-search-bar'),search=node('input','ip-search');search.type='search';search.placeholder='Buscar pedido, incidencia o cliente…';search.setAttribute('aria-label',search.placeholder);search.value=state.filters.q||'';
     const submit=()=>{state.filters.q=search.value.trim();state.offset=0;loadQueue();};search.addEventListener('change',submit);search.addEventListener('keydown',e=>{if(e.key==='Enter')submit();});searchRoot.replaceChildren(icon('search','gray'),search);

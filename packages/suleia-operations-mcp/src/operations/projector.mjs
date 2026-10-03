@@ -301,6 +301,19 @@ export class OperationsProjector {
     return {matched:result.rowCount===1,actions_executed:0,production_writes:0};
   }
 
+  async upsertIncidentResolutionObservation(signal) {
+    assertSafe(signal);
+    const result=await this.pool.query(`INSERT INTO operations.incident_resolution_observations
+      (canonical_issue_id,canonical_order_id,dropea_issue_id,dropea_order_id,observation,source_updated_at)
+      SELECT canonical_issue_id,canonical_order_id,$1,$2,$3::jsonb,$4 FROM read_models.operations_incident_records
+      WHERE dropea_issue_id=$1 AND dropea_order_id=$2
+      ON CONFLICT(canonical_issue_id) DO UPDATE SET observation=EXCLUDED.observation,
+      source_updated_at=EXCLUDED.source_updated_at,ingested_at=now()
+      WHERE EXCLUDED.source_updated_at>=operations.incident_resolution_observations.source_updated_at
+      RETURNING canonical_issue_id`,[signal.dropea_issue_id,signal.dropea_order_id,JSON.stringify(signal.observation),signal.source_updated_at]);
+    return {matched:result.rowCount===1,actions_executed:0,production_writes:0};
+  }
+
   async upsertIncidentDiscountRecoverySignal(signal) {
     assertSafe(signal);
     const result = await this.pool.query(`INSERT INTO operations.incident_discount_recovery_observations

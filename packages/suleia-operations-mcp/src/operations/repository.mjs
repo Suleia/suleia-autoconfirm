@@ -41,6 +41,7 @@ const ORDER_OPERATIONAL_SOURCE = `(SELECT c.*,
  LEFT JOIN read_models.operations_private_order_display p USING(canonical_order_id))`;
 
 const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboard_record.dashboard_source_context,
+  resolution_owner.observation AS resolution_observation,
   address_owner.observation AS address_observation,address_owner.private_address_ciphertext,
   CASE WHEN native_notice.status='VERIFIED' THEN jsonb_build_object('status','VERIFIED',
     'template_name',native_notice.template_version,'notification_at',native_notice.notification_at,
@@ -141,6 +142,8 @@ const INCIDENT_OPERATIONAL_SOURCE = `(SELECT p.*, absent.absent_shadow, dashboar
    AND discount.dropea_order_id=p.dropea_order_id
  LEFT JOIN read_models.operations_address_owner_latest address_owner ON address_owner.canonical_issue_id=p.canonical_issue_id
    AND address_owner.canonical_order_id=p.canonical_order_id
+ LEFT JOIN read_models.operations_incident_resolution_latest resolution_owner ON resolution_owner.canonical_issue_id=p.canonical_issue_id
+   AND resolution_owner.canonical_order_id=p.canonical_order_id
  LEFT JOIN LATERAL (
    SELECT m.message_text_ciphertext,m.chatby_message_id_hash,m.occurred_at,m.relation_to_issue,m.intent,m.message_type,
      m.incident_relevance,m.context_template_slug,
