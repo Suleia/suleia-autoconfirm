@@ -56,7 +56,7 @@ function cleanErrorMessage(message) {
     .replaceAll(baseUrl(), '[supabase]');
 }
 
-export async function supabaseRequest(path, { method = 'GET', query = {}, body, headers: extraHeaders = {} } = {}) {
+export async function supabaseRequest(path, { method = 'GET', query = {}, body, headers: extraHeaders = {}, timeoutMs } = {}) {
   if (!isSupabaseEnabled()) {
     return { skipped: true, reason: 'supabase_not_configured' };
   }
@@ -64,6 +64,7 @@ export async function supabaseRequest(path, { method = 'GET', query = {}, body, 
   const url = `${baseUrl()}${path}${queryString(query)}`;
   const response = await fetch(url, {
     method,
+    ...(timeoutMs ? {signal:AbortSignal.timeout(timeoutMs)} : {}),
     headers: headers(extraHeaders),
     body: body === undefined ? undefined : JSON.stringify(body)
   });
@@ -86,18 +87,19 @@ export async function supabaseRequest(path, { method = 'GET', query = {}, body, 
   return payload;
 }
 
-export async function selectRows(table, { query = {}, limit = 1000 } = {}) {
+export async function selectRows(table, { query = {}, limit = 1000, timeoutMs } = {}) {
   const payload = await supabaseRequest(`/rest/v1/${encodeURIComponent(table)}`, {
-    query: { select: '*', limit, ...query }
+    timeoutMs, query: { select: '*', limit, ...query }
   });
   return Array.isArray(payload) ? payload : [];
 }
 
-export async function upsertRows(table, rows, { onConflict, returning = 'minimal' } = {}) {
+export async function upsertRows(table, rows, { onConflict, returning = 'minimal', timeoutMs } = {}) {
   const cleanRows = Array.isArray(rows) ? rows.filter(Boolean) : [rows].filter(Boolean);
   if (!cleanRows.length) return { skipped: true, reason: 'empty_rows' };
   return supabaseRequest(`/rest/v1/${encodeURIComponent(table)}`, {
     method: 'POST',
+    timeoutMs,
     query: onConflict ? { on_conflict: onConflict } : {},
     body: cleanRows,
     headers: {
@@ -106,11 +108,12 @@ export async function upsertRows(table, rows, { onConflict, returning = 'minimal
   });
 }
 
-export async function insertRows(table, rows, { returning = 'minimal' } = {}) {
+export async function insertRows(table, rows, { returning = 'minimal', timeoutMs } = {}) {
   const cleanRows = Array.isArray(rows) ? rows.filter(Boolean) : [rows].filter(Boolean);
   if (!cleanRows.length) return { skipped: true, reason: 'empty_rows' };
   return supabaseRequest(`/rest/v1/${encodeURIComponent(table)}`, {
     method: 'POST',
+    timeoutMs,
     body: cleanRows,
     headers: {
       Prefer: `return=${returning}`

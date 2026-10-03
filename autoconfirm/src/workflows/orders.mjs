@@ -1,4 +1,5 @@
 ﻿import { getAppConfig } from '../config.mjs';
+import {reconcileLifecycleObservation} from './lifecycle-reconciliation.mjs';
 import {
   findOrder,
   hasRecentWebhookEvent,
@@ -27,6 +28,9 @@ import {
   findSubscriberForOrderRobust as findSubscriberForOrder,
   findSubscribersByPhone,
   getChatMessages,
+  getIncidentChatMessages,
+  loadSubscriberIndex,
+  findSubscriberInIndexForExactOrder,
   sendInitialTemplateRecovery,
   sendTextMessage,
   sendWhatsappTemplate,
@@ -3061,6 +3065,7 @@ export async function reconcileCriticalOrderTemplates({
   const today = todayKey(config.timezone);
   const cutoffMs = Date.now() - (Math.max(1, Number(lookbackHours || 48)) * 60 * 60 * 1000);
   const results = [];
+  let reconciliationIndex=null;
 
   for (const order of orders) {
     if (requestedOrderIds.size && !requestedOrderIds.has(String(order.orderId || '').replace(/\D/g, ''))) continue;
@@ -3119,10 +3124,33 @@ export async function reconcileCriticalOrderTemplates({
         preparedAction = outcome.sent ? 'sent' : outcome.failed ? 'failed' : outcome.reason || 'skipped';
       }
 
+      const lifecycleReconciliation=[];
+      if(['owner_policy_blocked','native_overdue'].includes(initialAction)||preparedAction==='native_overdue'){
+        const ns=current.chatbyUserNs;
+        if(!reconciliationIndex)reconciliationIndex=await loadSubscriberIndex({maxPages:30,force:true}).catch(()=>null);
+        const exact=reconciliationIndex&&findSubscriberInIndexForExactOrder(reconciliationIndex,{phone:current.customerPhone,orderId:current.orderId});
+        const exactConversation=!!exact&&exact.user_ns===ns;
+        const observedMessages=ns?await getIncidentChatMessages(ns).catch(()=>null):null;
+        for(const lane of ['initial','prepared']){
+          const state=lane==='initial'?initialAction:preparedAction;
+          if(!['owner_policy_blocked','native_overdue'].includes(state))continue;
+          const template=lane==='initial'?configuredWhatsappTemplate(store):configuredPreparedWhatsappTemplate();
+          const ledger=await getTemplateDelivery({storeId:store.id,orderId:current.orderId,templateName:template}).catch(()=>null);
+          const observation=reconcileLifecycleObservation({order:current,templateName:template,messages:observedMessages||[],ledger,historyComplete:!!observedMessages,exactConversation});
+          lifecycleReconciliation.push({lane,classification:observation.classification});
+          if(!observation.verified)continue;
+          // Reconcile evidence only. No send function is called by this branch.
+          await finishTemplateDelivery({storeId:store.id,orderId:current.orderId,templateName:template,provider:'chatby',chatbyUserNs:ns||'',status:'already_seen',attemptedAt:ledger?.attempted_at||observation.sent_at,sentAt:observation.sent_at,raw:{...(ledger?.raw||{}),provider_message_id:observation.provider_message_id,reconciliation:observation.classification}});
+          const patch=lane==='initial'?{chatbyTemplateName:template,chatbyTemplateSendStatus:'already_seen',chatbyTemplateSentAt:observation.sent_at,chatbyTemplateLastError:null}:{preparedTemplateName:template,preparedTemplateSendStatus:'already_seen',preparedTemplateSentAt:observation.sent_at,preparedTemplateLastError:null};
+          current=upsertOrder(store.id,{...current,...patch});
+          if(lane==='initial')initialAction='already_seen';else preparedAction='already_seen';
+        }
+      }
       results.push({
         orderId: order.orderId,
         initial: initialAction,
         prepared: preparedAction,
+        lifecycleReconciliation,
         initialError: current.chatbyTemplateLastError || null,
         preparedError: current.preparedTemplateLastError || null
       });
@@ -3144,6 +3172,7 @@ export async function reconcileCriticalOrderTemplates({
     checkedAt: state.lastCriticalTemplateDeliveryAt,
     owner: String(process.env.CHATBY_LIFECYCLE_TEMPLATE_OWNER || 'repository').trim().toLowerCase(),
     processed: results.length,
+    reconciliation:results.flatMap(r=>r.lifecycleReconciliation||[]).reduce((counts,r)=>(counts[r.classification]=(counts[r.classification]||0)+1,counts),{}),
     verified: results.filter((item) => ['sent', 'already_seen'].includes(item.initial)
       || ['sent', 'already_seen'].includes(item.prepared)).length,
     pending: results.filter((item) => item.initial === 'native_pending'

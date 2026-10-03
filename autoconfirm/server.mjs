@@ -371,6 +371,14 @@ function storeSummary({ publicView = false } = {}) {
     incidentDiscountReturnReconciliationDelayMinutes: 30,
     lastIncidentDiscountRecoveryAt: state.lastIncidentDiscountRecoveryAt,
     lastIncidentDiscountRecoverySummary: state.lastIncidentDiscountRecoverySummary || null,
+    incidentResolution: state.incidentResolutionSummary ? {
+      enabled:state.incidentResolutionSummary.enabled,
+      observed_at:state.incidentResolutionSummary.observed_at,
+      new_write_default:state.incidentResolutionSummary.new_write_default,
+      failures:state.incidentResolutionSummary.failures,
+      status:state.incidentResolutionSummary.status||null,
+      metrics:state.incidentResolutionSummary.metrics||null
+    } : null,
     lastIncidentDiscountReturnSummary: state.lastIncidentDiscountReturnSummary || null,
     lastIncidentReturnReconciliationSummary: state.lastIncidentReturnReconciliationSummary || null,
     incidentAutomationRecovery: incidentAutomationRetry.status(),
