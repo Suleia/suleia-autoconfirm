@@ -76,6 +76,9 @@ export function dashboardProjection(raw, { now = new Date() } = {}) {
 }
 
 export function dashboardSelector(item, filters = {}) {
+  if(filters.resolution==='replied_unresolved'&&!item.resolution_observation?.customer_replied_but_unresolved)return false;
+  if(filters.resolution==='stuck'&&!item.resolution_observation?.findings?.some(f=>f.code==='INCIDENT_STUCK'))return false;
+  if(filters.resolution==='prepared'&&!item.resolution_observation?.action_prepared)return false;
   const d=item.dashboard, r=item.recovery;
   if(!autonomyMatch(item,filters.autonomy))return false;
   if ((filters.absent || filters.autopilot) && !recoveryBaseSelector(item,{scope:'ALL',absent:filters.absent,autopilot:filters.autopilot})) return false;
