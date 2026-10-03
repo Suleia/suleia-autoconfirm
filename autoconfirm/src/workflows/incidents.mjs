@@ -1,4 +1,5 @@
 import {executeObservedAddress} from './address-observed-executor.mjs';
+import {runIncidentResolutionCycle} from './incident-resolution-runtime.mjs';
 import {refreshAddressCapabilities,runAddressCapability,addressCapabilitiesSnapshot} from './address-capabilities.mjs';
 import {addressExcluded} from './address-capability-policy.mjs';
 import {addressResponseDecision,addressStageAllowed,ADDRESS_POLICY,ADDRESS_STAGES} from './address-response-policy.mjs';
@@ -2927,6 +2928,12 @@ async function performPendingIncidentSync({
       incidents.push(enrichedIncident);
     }
 
+    let incidentResolutionSummary=null;
+    if(persist!==false){
+      const enrichedById=new Map(incidents.map(i=>[String(i.incidenceId),i]));
+      try{incidentResolutionSummary=await runIncidentResolutionCycle(analyzed.map(item=>({...item,incident:enrichedById.get(String(item.incident.incidenceId))||item.incident})),{execute:returnOnly!==true});}
+      catch{incidentResolutionSummary={enabled:true,failures:1,status:'DURABLE_STORE_UNAVAILABLE',new_write_default:'SHADOW'};}
+    }
     const sortedIncidents = sortIncidentsByIncidenceDesc(incidents);
     const discountRecoverySummary = {
       enabled: config.enableIncidentDiscountTemplate === true,
@@ -2990,6 +2997,7 @@ async function performPendingIncidentSync({
         : 'Avisos de incidencia bloqueados en esta ruta de solo lectura',
       discountRecoverySummary,
       discountReturnSummary,
+      incidentResolutionSummary,
       returnReconciliationSummary,
       customerActivitySummary,
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',
@@ -3015,6 +3023,7 @@ async function performPendingIncidentSync({
       const addresses=sortedIncidents.filter(i=>i.addressWorkflow);
       state.addressWorkflowSummary={checked:addresses.length,observed:addresses.filter(i=>i.addressWorkflow.notification_at).length,states:addresses.reduce((a,i)=>(a[i.addressWorkflow.state]=(a[i.addressWorkflow.state]||0)+1,a),{}),verified:addresses.filter(i=>i.addressWorkflow.execution?.verified).length};
       state.lastIncidentDiscountRecoverySummary = discountRecoverySummary;
+      state.incidentResolutionSummary=incidentResolutionSummary;
       state.lastRejectedNativeContactObserved = sortedIncidents.some(i=>i.incidentType==='rejected_goods'
         && i.incidentDiscountInitialTemplateSentAt && Date.now()-Date.parse(i.incidentDiscountInitialTemplateSentAt)<86400000);
       state.lastIncidentDiscountReturnSummary = discountReturnSummary;

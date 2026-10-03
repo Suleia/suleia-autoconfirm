@@ -514,6 +514,9 @@ function inferredIncidentTone(incident) {
 function incidentMatchesFilter(incident) {
   if (state.incidentFilter === 'all') return true;
   if (state.incidentFilter === 'responded') return incidentHasCustomerActivity(incident);
+  if (state.incidentFilter === 'replied-unresolved') return incident.incidentResolution?.customer_replied_but_unresolved === true;
+  if (state.incidentFilter === 'stuck') return incident.incidentResolution?.findings?.some(f => f.code === 'INCIDENT_STUCK');
+  if (state.incidentFilter === 'prepared') return incident.incidentResolution?.action_prepared === true;
   return inferredIncidentType(incident) === state.incidentFilter;
 }
 
@@ -607,6 +610,8 @@ function renderIncidents() {
   const absent = incidents.filter((incident) => inferredIncidentType(incident) === 'absent').length;
   const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
+    { label: 'Respondió sin resolver', value: data.incidentResolutionSummary?.metrics?.customer_replied_unresolved ?? '—', detail: 'Casos observados con respuesta sin resolución verificada', tone: 'warning' },
+    { label: 'Atascadas', value: data.incidentResolutionSummary?.metrics?.stuck ?? '—', detail: 'Bloqueo, vencimiento o acción sin verificar', tone: 'warning' },
     { label: 'Con aprendizaje', value: learned, detail: 'Feedback aplicado al agente', tone: learned ? 'positive' : 'neutral' },
     { label: 'Alta prioridad', value: highPriority, detail: 'Respuesta o señal accionable', tone: highPriority ? 'positive' : 'neutral' },
     { label: 'Actividad del cliente', value: customerResponded, detail: 'Respuesta o botón posterior verificado', tone: customerResponded ? 'positive' : 'neutral' },
@@ -706,6 +711,18 @@ function renderIncidents() {
           <span class="signal-chip ${customerSignalTone}">${escapeHtml(customerSignalLabel)}</span>
           <small>${escapeHtml(customerSignalDetail)}</small>
           ${activityCard}
+          ${incident.incidentResolution ? `<div class="incident-customer-activity">
+            <b>Seguimiento de resolución</b>
+            <small>Cliente respondió: ${incident.incidentResolution.customer_replied ? 'Sí' : 'Sin evidencia verificada'}</small>
+            <small>Intención: ${escapeHtml((incident.incidentResolution.customer_intents || []).join(' + ') || 'Por determinar')}</small>
+            <small>Plan: ${escapeHtml((incident.incidentResolution.resolution_plan?.steps || []).map(s => s.action + ' [' + s.status + ']').join(' → ') || 'Sin plan ejecutable')}</small>
+            <small>Siguiente acción: ${escapeHtml(incident.incidentResolution.next_best_action || (incident.incidentResolution.explicit_wait_until ? 'WAIT' : 'HUMAN_REVIEW'))}</small>
+            <small>Responsable: ${escapeHtml(incident.incidentResolution.current_owner || 'HUMAN')}</small>
+            <small>Esperando a: ${escapeHtml(incident.incidentResolution.timer_state?.waiting_for || '—')} · Límite: ${escapeHtml(formatDateTime(incident.incidentResolution.timer_state?.deadline))}</small>
+            <small>Ejecución: ${escapeHtml(incident.incidentResolution.execution_status || 'NOT_REQUESTED')} · Verificación: ${escapeHtml(incident.incidentResolution.verification_status || 'NOT_REQUESTED')}</small>
+            <small>Resultado logístico: ${escapeHtml(incident.incidentResolution.logistics_outcome || 'UNKNOWN')}</small>
+            <small>Bloqueo: ${escapeHtml(incident.incidentResolution.human_review_reason || incident.incidentResolution.capability_blocker || 'Ninguno observado')}</small>
+          </div>` : ''}
           ${incident.resolutionStage ? `<small class="incident-stage">Etapa: ${escapeHtml(incident.resolutionStage)}</small>` : ''}
           <small>${escapeHtml(activityMessageCount)} mensajes/acciones posteriores del cliente</small>
           ${incident.lastCustomerMessage
