@@ -1,0 +1,59 @@
+{
+  "baseline_commit": "9569b01cc9af936bcf919dee5fe9f33d7151057d",
+  "files": {
+    "autoconfirm/server.mjs": "7fd9f7a8bb2d05bc593355723029a9c66517ddfa",
+    "autoconfirm/src/workflows/orders.mjs": "1c6737aa89518efd6cde2a5d83fda15bd5168dd3",
+    "autoconfirm/src/workflows/unanswered-cancellations.mjs": "da51b95d4afc39d9e26fabb9959288b0521056a7",
+    "autoconfirm/src/workflows/incidents.mjs": "1dabcdd0fa67e425e910441ab274607f44f72100",
+    "autoconfirm/src/config.mjs": "5bf274ab2b8f22815bb02ff2b7a781f17574f22e",
+    "autoconfirm/src/clients/dropea.mjs": "ab2f5c3dd29e1b5ca9e4aeff7b0f0cedfa2db8a5",
+    "autoconfirm/src/clients/dropea-v2-order-actions.mjs": "0ce0fc8acb3f3822a35afd21679ecab585d84f90",
+    "autoconfirm/src/clients/dropea-v2-orders.mjs": "8b25cb7b39760bf49e609d24f46a6196f93e53c7",
+    "autoconfirm/src/clients/dropea-v2-incidents.mjs": "1cca09d333b3635b54158be0582285a76a0fc7e8",
+    "autoconfirm/src/clients/chatby.mjs": "a6683a40f74b8dc5f11584576ff874a623ffa637",
+    "autoconfirm/src/clients/shopify.mjs": "648716bf4bd0fb737915bdaf9bc3259df7bbc047",
+    "autoconfirm/src/clients/sheets.mjs": "1e0d2e9d1c80d56486cd927d44d26002b97a2ec2",
+    "autoconfirm/src/clients/meta-whatsapp.mjs": "c2ed1659f5a7071491671c4256bbf69e57d63c56",
+    "autoconfirm/src/clients/gls.mjs": "9ed9cd2815c37ef548da57073a6d2add74681813",
+    "autoconfirm/src/clients/meta.mjs": "d2127293af17aecedb851b554b7dd2a05a6482a9",
+    "autoconfirm/src/clients/telegram.mjs": "914aaae90b2343db181faac618c651ab5698697b",
+    "autoconfirm/src/clients/supabase.mjs": "a85a998dba03ea022794dce72f1be2559f9e5509",
+    "autoconfirm/src/clients/openai-assistant.mjs": "e82dbe2bc1629af960af07f4db9bf5a055e0fe5e",
+    "autoconfirm/src/clients/openai.mjs": "b6e281dbb78c78ebf9b80f5d6f4c712a1b1ee6eb",
+    "autoconfirm/src/fetch-with-retry.mjs": "9494921fa335c2245da057c6354f439099c9e32c",
+    "autoconfirm/src/lib/files.mjs": "f8f2cf464760d2860eafa0c38967166aab24aca2",
+    "autoconfirm/src/storage.mjs": "172f080073c810e99f0d23dd0d43040a6f06e522",
+    "autoconfirm/src/dashboard.mjs": "ac436f02945988f21754df31f5159e24471cce61",
+    "autoconfirm/src/db/supabase-store.mjs": "2ac3576d7f2b4e9cb9ff1311d0a147ef12646ce6",
+    "autoconfirm/src/policies/blocked-customers.mjs": "ce230959b3d6a6afac7e0ffb0cd28c0b51451168",
+    "autoconfirm/src/scheduled-job-queue.mjs": "16cbc44c90a2ebcbcce25462734209104382d95a",
+    "autoconfirm/src/workflows/telegram-agent.mjs": "9da86840085a06d93fb824358ea1112f486c9cbb",
+    "autoconfirm/src/workflows/analytics.mjs": "c9445bd595918e5a2ed12aaae030e609697f1ffd",
+    "autoconfirm/src/workflows/incident-carrier-history.mjs": "d9a0ba9cfba172a8726f94af0ccb4439b8f59d50",
+    "autoconfirm/src/workflows/incident-discount-order-match.mjs": "13d363d902427e2dd571c44d50e3a0bb7cf4b875",
+    "autoconfirm/src/workflows/incident-discount-policy.mjs": "86f9cd6729f2a86a8725c9df8a82326e428f6b1c",
+    "autoconfirm/src/workflows/incident-discount-service.mjs": "1ace3c9f8843c0ecde6102d1ab82d2f98f7fe3d8",
+    "autoconfirm/src/workflows/incident-discount-template.mjs": "6613468153dffceee769bb52d7510df7ea9aa5e9",
+    "autoconfirm/src/workflows/incident-response-wait.mjs": "889658d5ca04bf130a73c2b0adebb62885727e50",
+    "autoconfirm/src/workflows/operational-orders.mjs": "cff561119f20b5ea4e980ddee18dd4577aa0f034",
+    "autoconfirm/tools/auto-confirm.mjs": "fa746b3b1f8fb217a4e29cb4a884498c1f09d426",
+    "autoconfirm/tools/unanswered-cancellations.mjs": "0172b643127764f93da55cf0eadef138f30eec0c",
+    "autoconfirm/tools/poll-orders.mjs": "fe7863131dbbd06ed13a9aa32ccd92839489ef56",
+    "autoconfirm/tools/sync-orders-to-sheet.mjs": "fe7863131dbbd06ed13a9aa32ccd92839489ef56",
+    "autoconfirm/tools/send-chatby-template-orders.mjs": "99200e322fd62807159b143747ccc4e1dbc15ce5",
+    "autoconfirm/scripts/render-cron-unanswered-cancellations.mjs": "56ba487b7df8efbd1cb73678bb0866ab4dbd0a93",
+    "autoconfirm/render.yaml": "89907fc53e4621c6bb6f10057fecbdde64e1fccf",
+    "autoconfirm/Dockerfile": "b473dfe0ddc731287511620094454fcf6f06f3be",
+    "infrastructure/vps/run-render-automation-cycle.sh": "6b1d5ad4116760711efcfa32ef11b47253552234",
+    "infrastructure/vps/suleia-render-automation.service": "e6b4dc6fe90c39fc8f2a713f21d5096bb08745c1",
+    "infrastructure/vps/suleia-render-automation.timer": "bbe4fd2ebadbff97aa8182ce2ed9c7677a88d4e1"
+  },
+  "json_files_with_test_only_additions": {
+    "autoconfirm/package.json": {
+      "baseline_oid": "2a9025f77ea2e9fce40876753ebd5f9a0f810b61",
+      "allowed_script_additions": [
+        "test:confirmation-regression"
+      ]
+    }
+  }
+}
