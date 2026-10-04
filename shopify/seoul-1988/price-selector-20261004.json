@@ -1,0 +1,45 @@
+{
+  "basePrice": 29,
+  "totals": [
+    24.99,
+    30.99,
+    42.99
+  ],
+  "diff": [
+    {
+      "key": "option_1_percentage_off_text",
+      "before": "",
+      "after": "0"
+    },
+    {
+      "key": "option_1_fixed_amount_off",
+      "before": "5",
+      "after": "4.01"
+    },
+    {
+      "key": "option_2_percentage_off_text",
+      "before": "",
+      "after": "0"
+    },
+    {
+      "key": "option_2_fixed_amount_off",
+      "before": "34.99",
+      "after": "27.01"
+    },
+    {
+      "key": "option_2_label",
+      "before": "Pack de 2 - Pagas 1",
+      "after": "Pack de 2"
+    },
+    {
+      "key": "option_3_percentage_off_text",
+      "before": "",
+      "after": "0"
+    },
+    {
+      "key": "option_3_fixed_amount_off",
+      "before": "59.98",
+      "after": "44.01"
+    }
+  ]
+}
