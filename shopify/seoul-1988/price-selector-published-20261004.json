@@ -1,12 +1,45 @@
 {
-  "at": "2026-10-04T07:42:50.673Z",
+  "at": "2026-10-04T07:54:53.186Z",
   "themeId": 198240600396,
   "key": "templates/product.seoul_1988.json",
-  "verified": true,
-  "totals": [
+  "productId": 16138510991692,
+  "variantId": 58939591852364,
+  "basePrice": "24.99",
+  "previousBasePrice": "29.00",
+  "changes": [
+    {
+      "key": "option_1_fixed_amount_off",
+      "before": "4.01",
+      "after": "0.00"
+    },
+    {
+      "key": "option_2_fixed_amount_off",
+      "before": "27.01",
+      "after": "18.99"
+    },
+    {
+      "key": "option_3_fixed_amount_off",
+      "before": "44.01",
+      "after": "31.98"
+    }
+  ],
+  "discounts": [
+    {
+      "id": 2285122945356,
+      "minimumQuantity": 2,
+      "amount": "18.99"
+    },
+    {
+      "id": 2285123010892,
+      "minimumQuantity": 3,
+      "amount": "31.98"
+    }
+  ],
+  "expectedTotals": [
     24.99,
     30.99,
     42.99
   ],
-  "checksum": "7890d00c856514186412fa47e5d563eb"
+  "verified": true,
+  "checksum": "bc6fcb65f6922e953c09158052387d06"
 }

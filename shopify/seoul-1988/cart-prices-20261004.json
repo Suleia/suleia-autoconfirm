@@ -1,48 +1,48 @@
 {
-  "checkedAt": "2026-10-04T07:43:32.716Z",
+  "checkedAt": "2026-10-04T07:55:10.196Z",
   "isolatedCart": true,
   "noOrderCreated": true,
   "cleanupPassed": true,
   "results": [
     {
       "quantity": 1,
-      "actual": 2900,
+      "actual": 2499,
       "expected": 2499,
       "currency": "EUR",
       "discount": 0,
-      "passed": false
+      "passed": true
     },
     {
       "quantity": 2,
-      "actual": 3599,
+      "actual": 3099,
       "expected": 3099,
       "currency": "EUR",
-      "discount": 2201,
-      "passed": false
+      "discount": 1899,
+      "passed": true
     },
     {
       "quantity": 3,
       "actual": 4299,
       "expected": 4299,
       "currency": "EUR",
-      "discount": 4401,
+      "discount": 3198,
       "passed": true
     },
     {
       "quantity": 2,
-      "actual": 3599,
+      "actual": 3099,
       "expected": 3099,
       "currency": "EUR",
-      "discount": 2201,
-      "passed": false
+      "discount": 1899,
+      "passed": true
     },
     {
       "quantity": 1,
-      "actual": 2900,
+      "actual": 2499,
       "expected": 2499,
       "currency": "EUR",
       "discount": 0,
-      "passed": false
+      "passed": true
     }
   ]
 }
