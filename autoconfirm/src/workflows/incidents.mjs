@@ -1,3 +1,4 @@
+import { absentDiscountReturnDecision } from './absent-discount-return.mjs';
 import {executeObservedAddress} from './address-observed-executor.mjs';
 import {runIncidentResolutionCycle} from './incident-resolution-runtime.mjs';
 import {refreshAddressCapabilities,runAddressCapability,addressCapabilitiesSnapshot} from './address-capabilities.mjs';
@@ -1149,6 +1150,7 @@ export async function reconcileIncidentDiscountReturnLedger({
 }
 
 export function incidentDiscountNoResponseReturnDecision({ incident, discountRecovery, now = Date.now() } = {}) {
+  if (incident?.incidentType === 'absent') return absentDiscountReturnDecision({ incident, discountRecovery, now });
   if (incident?.incidentType !== 'rejected_goods') {
     return { eligible: false, status: 'NOT_APPLICABLE', reason: 'incident_not_rejected_goods' };
   }
@@ -1207,9 +1209,10 @@ export function incidentDiscountNoResponseReturnDecision({ incident, discountRec
 
 export async function executeIncidentDiscountNoResponseReturn(incident, discountRecovery, dependencies = {}) {
   const addressLane=incident.incidentType==='address';
+  const absentLane=incident.incidentType==='absent';
   if(addressLane&&!addressStageAllowed('RETURN_TO_ORIGIN',incident,dependencies.addressEnvironment||process.env))return {status:'WOULD_RETURN',verified:false};
-  if (!addressLane && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return {status:'BLOCKED_MASTER',verified:false};
-  if (!addressLane && process.env.RECIPIENT_REJECTED_RETURN_BREAKER === 'OPEN') return {status:'BLOCKED_RETURN_BREAKER',verified:false};
+  if (!addressLane && !absentLane && process.env.RECIPIENT_REJECTED_AUTOMATION_LIVE === 'false') return {status:'BLOCKED_MASTER',verified:false};
+  if (!addressLane && !absentLane && process.env.RECIPIENT_REJECTED_RETURN_BREAKER === 'OPEN') return {status:'BLOCKED_RETURN_BREAKER',verified:false};
   const addressDecision=addressLane?addressResponseDecision({incident,messages:dependencies.addressMessages||[],now:dependencies.now??Date.now()}):null;
   const decision = addressLane?{eligible:addressDecision.eligible&&addressDecision.action==='RETURN_TO_ORIGIN',status:addressDecision.state,action:'return_to_origin',ruleId:'ADDRESS_INCORRECT_RESPONSE_V1',responseStatus:addressDecision.intent==='RETURN_REQUEST'?'DISCOUNT_REJECTED':'NO_RESPONSE'}:incidentDiscountNoResponseReturnDecision({
     incident,
@@ -1221,7 +1224,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   const allowedIncidentIds = new Set((dependencies.allowedIncidentIds ?? config.defaultStore.incidentReturnAllowedIds ?? [])
     .map((value) => String(value).trim())
     .filter(Boolean));
-  const automaticEnabled = addressLane?true:dependencies.automaticEnabled
+  const automaticEnabled = addressLane?true:absentLane?process.env.ABSENT_DISCOUNT_RETURN_AUTOMATIC_ENABLED==='true':dependencies.automaticEnabled
     ?? config.defaultStore.incidentDiscountReturnAutomaticEnabled;
   if (automaticEnabled !== true && !allowedIncidentIds.has(String(incident.incidenceId || ''))) {
     return { ...decision, status: 'BLOCKED_NOT_AUTHORIZED', verified: false, reason: 'La incidencia no esta en la lista exacta autorizada.' };
@@ -1251,7 +1254,7 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
   if(addressLane&&(String(currentRawIssue.id)!==String(incident.incidenceId)||String(currentRawIssue.order_id)!==String(incident.orderId)||String(current.order?.orderId)!==String(incident.orderId)))return {...decision,status:'BLOCKED_EXACT_CORRELATION',verified:false};
   const currentStatus = String(current.issue?.status || currentRawIssue.status || '').toUpperCase();
   if ((current.order?.status && !['ERROR', 'INCIDENCE'].includes(String(current.order.status).toUpperCase()))
-      || (currentRawIssue.type && currentRawIssue.type !== (addressLane?'ADDRESS_INCORRECT':'REFUSED_BY_RECIPIENT'))
+      || (currentRawIssue.type && currentRawIssue.type !== (addressLane?'ADDRESS_INCORRECT':absentLane?'RECIPIENT_ABSENT':'REFUSED_BY_RECIPIENT'))
       || (current.order?.customerPhone && digits(current.order.customerPhone).slice(-9) !== digits(incident.phone).slice(-9))) {
     return { ...decision, status: 'BLOCKED_ORDER_CHANGED', verified: false,
       reason: 'El pedido, el tipo de incidencia o el telefono han cambiado en la lectura previa a la devolucion.' };
@@ -1267,10 +1270,18 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
     return { ...decision, status: 'BLOCKED_RETURN_NOT_ALLOWED', verified: false, reason: 'Dropea no permite RETURN_REQUESTED para esta incidencia.' };
   }
 
+  if (absentLane) {
+    const fresh = absentDiscountReturnDecision({ incident: { ...incident, absentDiscountIssue: currentRawIssue }, discountRecovery, now: dependencies.now ?? Date.now() });
+    if (!fresh.eligible) return { ...fresh, verified: false };
+  }
   const readMessages = dependencies.readMessages || getChatMessages;
   const finalMessages = await readMessages(incident.chatbyUserNs).catch(() => null);
   if (!Array.isArray(finalMessages)) {
     return { ...decision, status: 'BLOCKED_CHATBY_READ_FAILED', verified: false, reason: 'No se pudo verificar Chatby inmediatamente antes de solicitar la devolucion.' };
+  }
+  if (absentLane) {
+    const fresh = absentDiscountReturnDecision({ incident, discountRecovery, messages: finalMessages, now: dependencies.now ?? Date.now() });
+    if (!fresh.eligible) return { ...fresh, verified: false };
   }
   const addressFinal=addressLane?addressResponseDecision({incident,messages:finalMessages}):null;
   const finalResponse = addressLane?{status:addressFinal.eligible&&addressFinal.action==='RETURN_TO_ORIGIN'?(addressFinal.intent==='RETURN_REQUEST'?'DISCOUNT_REJECTED':'NO_RESPONSE'):'OTHER_RESPONSE'}:classifyIncidentDiscountResponse(
@@ -1353,6 +1364,18 @@ export async function executeIncidentDiscountNoResponseReturn(incident, discount
       };
     }
 
+    if (absentLane) {
+      const latestIssue = await readCurrent(incident.incidenceId, incident.orderId).catch(() => null);
+      const latestMessages = await readMessages(incident.chatbyUserNs).catch(() => null);
+      const latestRaw = latestIssue?.issue?.raw || latestIssue?.issue;
+      const fresh = absentDiscountReturnDecision({ incident: { ...incident, absentDiscountIssue: latestRaw }, discountRecovery, messages: latestMessages, now: dependencies.now ?? Date.now() });
+      if (!fresh.eligible || !['ERROR','INCIDENCE'].includes(latestIssue?.order?.status) || !latestRaw?.allowed_resolution_options?.includes('RETURN_REQUESTED')
+          || String(latestIssue?.order?.orderId) !== String(incident.orderId)
+          || digits(latestIssue?.order?.customerPhone).slice(-9) !== digits(incident.phone).slice(-9)) {
+        await finishReturn({storeId:config.defaultStore.id,orderId:incident.orderId,incidenceId:incident.incidenceId,status:'aborted',attemptedAt,evidence:{reason:'ABSENT_RETURN_CONTEXT_CHANGED'}});
+        return {...decision,status:'BLOCKED_ABSENT_RETURN_CONTEXT_CHANGED',verified:false};
+      }
+    }
     if(addressLane){
       const latest=await readMessages(incident.chatbyUserNs).catch(()=>null);
       const live=latest?addressResponseDecision({incident,messages:latest,now:dependencies.now??Date.now(),previous:addressDecision}):null;
@@ -2852,8 +2875,8 @@ async function performPendingIncidentSync({
         verified: false,
         reason: 'La regla de devolucion solo aplica a incidencias de rechazo con descuento verificado.'
       };
-      if (item.incident.incidentType === 'rejected_goods') {
-        discountReturn = await executeIncidentDiscountNoResponseReturn(item.incident, discountRecovery, {
+      if (['rejected_goods', 'absent'].includes(item.incident.incidentType)) {
+        discountReturn = await executeIncidentDiscountNoResponseReturn(item.incident.incidentType === 'absent' ? { ...item.incident, absentDiscountIssue: item.issue.raw, absentDiscountOrderCreatedAt: item.order.createdAt || item.order.raw?.created_at } : item.incident, discountRecovery, {
           realEnabled: returnOnly === true && requestedIncidentIdSet.has(String(item.incident.incidenceId || ''))
             ? true
             : undefined,
