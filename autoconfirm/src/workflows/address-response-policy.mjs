@@ -46,6 +46,8 @@ export function parseCustomerAddress(text,previous=null){
  if((province||country)&&!street&&!cp&&['VALID_ADDRESS','INCOMPLETE_ADDRESS'].includes(previous?.kind))return {...previous,...(province?{province}:{}),...(country?{country:'ES'}:{})};
  if(street&&!cp&&previous?.kind==='INCOMPLETE_ADDRESS'&&!previous.street){fields.postal_code=previous.postal_code;fields.city=previous.city;fields.province=fields.province||previous.province;fields.country=fields.country||previous.country;}
  if(!fields.street&&!fields.postal_code&&!/\b(calle|avenida|direcci[oó]n|piso|puerta)\b/i.test(literal))return base;
+ // The requested policy requires a real street number, not "sin número".
+ if(fields.number&&!/^\d{1,4}[A-Za-z]?$/.test(fields.number))fields.number=null;
  fields.missing_fields=['street','number','postal_code','city'].filter(k=>!fields[k]);
  if(fields.postal_code&&!/^(?:0[1-9]|[1-4]\d|5[0-2])\d{3}$/.test(fields.postal_code))return {...fields,kind:'AMBIGUOUS_ADDRESS'};
  fields.kind=fields.missing_fields.length?'INCOMPLETE_ADDRESS':'VALID_ADDRESS';
@@ -105,11 +107,17 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
      const original=[raw.address_line_1||raw.address||raw.address1,raw.address_line_2,`${raw.zip||raw.postal_code||''} ${raw.city||''}`].filter(Boolean).join(', ');
      const originalParsed=parseCustomerAddress(original);
      const same=['street','number','floor','door','postal_code','city'].every(k=>norm(originalParsed[k])===norm(parsed[k]));
-     const addr=[`${parsed.street} ${parsed.number}`,parsed.floor&&`piso ${parsed.floor}`,parsed.door&&`puerta ${parsed.door}`,`${parsed.postal_code} ${parsed.city}`,parsed.reference_notes].filter(Boolean).join(', ');
-     const solution=same?`Dirección confirmada por el cliente: ${addr}. Por favor, llamar al número de teléfono ${phone} antes de la entrega.`:`Realizar entrega en ${addr} y por favor, llamar al número de teléfono ${phone}`;
+     const addr=[`${parsed.street} ${parsed.number}`,parsed.floor&&`piso ${parsed.floor}`,parsed.door&&`puerta ${parsed.door}`,`${parsed.postal_code} ${parsed.city}`,parsed.province,parsed.country,parsed.reference_notes].filter(Boolean).join(', ');
+     const solution=`${same?'Dirección confirmada por el cliente':'Dirección indicada por el cliente'}: ${addr}. Por favor, llamar al número de teléfono ${phone} antes de la entrega.`;
      const data={state:'SOLUTION_PREPARED',intent:same?'ADDRESS_CONFIRMED':'VALID_ADDRESS',action:'PROVIDE_ADDRESS_SOLUTION',eligible:true,original_address:raw,customer_provided_address:parsed,effective_address_candidate:parsed,solution};
      if(issue){
        const current=issue.raw||issue;
+       // A solution note carries both the customer's complete address and the
+       // mandatory call instruction. A structured address alone loses the note.
+       if(current.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
+         const plan=planDropeaResolution(issue,'PROVIDE_SOLUTION',{note:solution});
+         return done({...data,provider_plan:plan,eligible:plan.allowed,state:plan.allowed?'SOLUTION_PREPARED':'CAPABILITY_NOT_ALLOWED'});
+       }
        if(!same&&current.allowed_resolution_options?.includes('CHANGE_ADDRESS')){
          const sameLocality=norm(raw.city)===norm(parsed.city)&&String(raw.postal_code||raw.zip)===parsed.postal_code;
          const address={street:`${parsed.street} ${parsed.number}`,address_line_2:[parsed.floor&&`piso ${parsed.floor}`,parsed.door&&`puerta ${parsed.door}`,parsed.reference_notes].filter(Boolean).join(', '),postal_code:parsed.postal_code,city:parsed.city,state:parsed.province||(sameLocality?raw.state:null),country:parsed.country||raw.country};
