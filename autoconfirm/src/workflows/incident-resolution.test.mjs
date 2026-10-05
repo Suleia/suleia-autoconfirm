@@ -46,9 +46,9 @@ test('absent return and accepted discount do not inherit rejected authorization'
  assert.equal(resolutionCandidate(input('absent','acepto el descuento')).twin.human_review_reason,'ABSENT_DISCOUNT_APPLICATION_POLICY_REQUIRED');
  const c=resolutionCandidate({...input('absent',''),now:now+3*86400000});assert.notEqual(c.action,'REQUEST_RETURN');
 });
-test('address complete uses existing structured address policy',()=>{
+test('address complete uses solution note with call-before-delivery',()=>{
  const c=resolutionCandidate(input('address','Calle Nueva 25, 28001 Madrid, provincia Madrid, país ES'));
- assert.equal(c.action,'CHANGE_ADDRESS');assert.equal(c.providerPlan.allowed,true);
+ assert.equal(c.action,'PROVIDE_SOLUTION');assert.equal(c.providerPlan.allowed,true);assert.match(c.providerPlan.body.resolution_note,/antes de la entrega/);
 });
 test('address partial suppresses initial silence actions after reply',()=>{
  const c=resolutionCandidate(input('address','Calle Nueva 25'));

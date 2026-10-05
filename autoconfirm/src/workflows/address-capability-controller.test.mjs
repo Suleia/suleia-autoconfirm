@@ -4,7 +4,7 @@ import {addressResponseDecision,ADDRESS_POLICY,addressRuntimeStatus} from './add
 import {addressPromotionAllowed,addressEffectiveMode} from './address-capability-policy.mjs';
 const now=Date.now(),at=x=>new Date(x).toISOString();
 const incident={incidenceId:'11',orderId:'22',incidentType:'address',phone:'600000000',chatbyUserNs:'fixture',chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER',incidenceDate:at(now-4*3600000)};
-const issue={id:11,order_id:22,market:'ES',carrier:'GLS',type:'ADDRESS_INCORRECT',initial_carrier_code:'-30',initial_carrier_substatus_code:'13',initial_carrier_description:'DIRECCION INCORRECTA',status:'PENDING',is_active:true,created_at:incident.incidenceDate,updated_at:at(now-3*3600000),allowed_resolution_options:['CHANGE_ADDRESS','PROVIDE_SOLUTION']};
+const issue={id:11,order_id:22,market:'ES',carrier:'GLS',type:'ADDRESS_INCORRECT',initial_carrier_code:'-30',initial_carrier_substatus_code:'13',initial_carrier_description:'DIRECCION INCORRECTA',status:'PENDING',is_active:true,created_at:incident.incidenceDate,updated_at:at(now-3*3600000),allowed_resolution_options:['CHANGE_ADDRESS']};
 const order={orderId:'22',status:'ERROR',customerPhone:'600000000',raw:{shipping_address:{city:'Bilbao',postal_code:'48012',state:'Bizkaia',country:'ES'}}};
 const notice={type:'out',mid:'wamid.initial',ts:(now-2*3600000)/1000,payload:{name:'dropea_incidencia_direccion_v1'}};
 const reply={type:'in',mid:'wamid.reply',ts:(now-3600000)/1000,text:'Calle Mayor 25, 48012 Bilbao'};
@@ -75,3 +75,9 @@ test('health panel distinguishes armed canary from verified live capability',()=
  assert.equal(h.stages.change_address,'LIVE');assert.equal(h.stages.details,'CANARY');assert.equal(h.stages.return,'SHADOW');assert.equal(h.breakers.return,'OPEN');
 });
 
+
+test('per-stage release gate repairs one tested stage without opening unrelated actions',async()=>{
+ const {deps}=await setup();const stageEnv={...env,ADDRESS_REGRESSION_GATE_REVISION:'b'.repeat(40),ADDRESS_INTERPRETATION_REGRESSION_GATE_REVISION:env.RENDER_GIT_COMMIT};
+ assert.equal((await runAddressCapability(item,expected,{...deps,env:stageEnv,stage:'INTERPRETATION'})).verified,true);
+ assert.equal((await runAddressCapability(item,expected,{...deps,env:stageEnv})).status,'CAPABILITY_RELEASE_GATE');
+});

@@ -26,7 +26,9 @@ export async function runAddressCapability(item,expected,{stage=addressCapabilit
  let row=await store.get(stage);if(!row)return blocked('CAPABILITY_STATE_UNAVAILABLE');
  const mode=addressEffectiveMode(stage,row.value,env);
  if(!['CANARY','LIVE'].includes(mode)||configuredAddressBreaker(stage,env)==='OPEN'||row.value.breaker==='OPEN')return blocked('CAPABILITY_BLOCKED');
- const regressionPassed=/^[a-f0-9]{40}$/.test(env.ADDRESS_REGRESSION_GATE_REVISION||'')&&env.ADDRESS_REGRESSION_GATE_REVISION===env.RENDER_GIT_COMMIT;
+ // Revalidate one capability without promoting unrelated offer/return stages.
+ const regressionRevision=env[`ADDRESS_${stage}_REGRESSION_GATE_REVISION`]||env.ADDRESS_REGRESSION_GATE_REVISION;
+ const regressionPassed=/^[a-f0-9]{40}$/.test(regressionRevision||'')&&regressionRevision===env.RENDER_GIT_COMMIT;
  if(!regressionPassed||env.ADDRESS_POLICY_REGISTRY_HASH!==hash(ADDRESS_POLICY))return blocked('CAPABILITY_RELEASE_GATE');
  if(mode==='CANARY'&&row.value.phase!=='WAITING_ELIGIBLE_CASE')return blocked('CANARY_ALREADY_RESERVED');
  if(stage==='RETURN'){

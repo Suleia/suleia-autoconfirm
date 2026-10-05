@@ -67,3 +67,14 @@ test('irrelevant text does not overwrite latest address evidence',()=>{
  const x=d([reply('Calle Mayor 25, 48012 Bilbao'),reply('buen finde',3)],4);
  assert.equal(x.action,'PROVIDE_ADDRESS_SOLUTION');assert.equal(x.address.postal_code,'48012');
 });
+
+test('address solution preserves the complete address and call-before-delivery even when CHANGE_ADDRESS is available',()=>{
+ const current={status:'PENDING',is_active:true,allowed_resolution_options:['CHANGE_ADDRESS','PROVIDE_SOLUTION']};
+ const x=decide({incident,order,issue:current,messages:[notice,reply('Calle Mayor 25, piso 3, puerta B, 48012 Bilbao')],now:t+3*3600000});
+ assert.equal(x.action,'PROVIDE_ADDRESS_SOLUTION');assert.equal(x.eligible,true);
+ assert.match(x.provider_plan.body.resolution_note,/Calle Mayor 25, piso 3, puerta B, 48012 Bilbao/);
+ assert.match(x.provider_plan.body.resolution_note,/llamar al número de teléfono 600000000 antes de la entrega/);
+});
+test('missing number and sin numero cannot produce an automatic address solution',()=>{
+ for(const text of ['Calle Mayor, 48012 Bilbao','Calle Mayor s/n, 48012 Bilbao'])assert.notEqual(parseCustomerAddress(text).kind,'VALID_ADDRESS');
+});

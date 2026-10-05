@@ -7,8 +7,8 @@ const notice={type:'out',mid:'wamid.initial',ts:t/1000,payload:{name:'dropea_inc
 const issue={id:'11',order_id:'22',status:'PENDING',is_active:true,allowed_resolution_options:['CHANGE_ADDRESS','PROVIDE_SOLUTION','PICKUP_AT_AGENCY']};
 const order={orderId:'22',customerPhone:'600000000',raw:{shipping_address:{address_line_1:'Calle Mayor 10',postal_code:'48012',city:'Bilbao',state:'Bizkaia',country:'ES'}}};
 const decide=(texts,extra={})=>addressResponseDecision({incident,issue,order,now,messages:[notice,...texts.map((text,i)=>({type:'in',mid:`wamid.reply${i}`,ts:(now-60000+i*1000)/1000,text}))],...extra});
-test('changed address prefers structured change, unchanged address uses solution, capability fallback is explicit',()=>{
- assert.equal(decide(['Calle Mayor 25, 48012 Bilbao']).action,'CHANGE_ADDRESS');
+test('address solutions retain call instruction; structured-only capability remains explicit',()=>{
+ assert.equal(decide(['Calle Mayor 25, 48012 Bilbao']).action,'PROVIDE_ADDRESS_SOLUTION');
  assert.equal(decide(['Calle Mayor 10, 48012 Bilbao']).action,'PROVIDE_ADDRESS_SOLUTION');
  assert.equal(decide(['Calle Mayor 25, 48012 Bilbao'],{issue:{...issue,allowed_resolution_options:['PROVIDE_SOLUTION']}}).action,'PROVIDE_ADDRESS_SOLUTION');
  assert.equal(decide(['Calle Mayor 25, 48012 Bilbao'],{issue:{...issue,allowed_resolution_options:[]}}).eligible,false);
@@ -19,13 +19,13 @@ test('province and country completions resolve missing fields without inventing 
  const fallback=decide(['Calle Mayor 25, 48012 Bilbao'],{order:blank});
  assert.equal(fallback.action,'PROVIDE_ADDRESS_SOLUTION');assert.equal(fallback.eligible,true);
  assert.equal(fallback.provider_plan.body.resolution_data,undefined);
- const completed=decide(['Calle Mayor 25, 48012 Bilbao','Provincia Bizkaia','ES'],{order:blank});
+ const completed=decide(['Calle Mayor 25, 48012 Bilbao','Provincia Bizkaia','ES'],{order:blank,issue:{...issue,allowed_resolution_options:['CHANGE_ADDRESS']}});
  assert.equal(completed.action,'CHANGE_ADDRESS');assert.equal(completed.eligible,true);
  assert.equal(completed.provider_plan.body.resolution_data.address.state,'Bizkaia');
  assert.equal(parseCustomerAddress('Calle Mayor 25, 48012 Bilbao provincia Bizkaia').city,'Bilbao');
  assert.equal(parseCustomerAddress('Calle Mayor 25, 48012 Bilbao provincia Bizkaia país ES').province,'Bizkaia');
  assert.equal(decide(['Calle Mayor 25, 48012 Bilbao, país FR']).action,'HUMAN_REVIEW');
- assert.equal(decide(['48012 Bilbao','Calle Mayor 25']).action,'CHANGE_ADDRESS');
+ assert.equal(decide(['48012 Bilbao','Calle Mayor 25']).action,'PROVIDE_ADDRESS_SOLUTION');
 });
 test('agency requires exact current capability; newer return supersedes it; stages fail closed independently',()=>{
  assert.equal(decide(['Prefiero recoger en agencia']).eligible,true);
