@@ -27,6 +27,10 @@ Before proposing or changing anything, read:
   Browser plugin, browser automation or interactive browser sessions. Use
   non-browser alternatives such as approved connectors, APIs or CLI tools; if
   a task has no safe non-browser path, stop and ask the user for direction.
+  Owner-authorized exception (2026-10-07): the accepted-discount support
+  workflow may use an automated browser solely to capture the exact customer's
+  offer and acceptance in Chatby, including visible phone, date and time. This
+  exception does not authorize unrelated browser actions or template changes.
 - Never commit, print or request plaintext credentials.
 - Secrets belong only in trusted local secret storage, Render environment
   variables or another approved secret manager.
