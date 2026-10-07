@@ -9,7 +9,7 @@ function evidence(p){return {...p,source:'CHATBY_BROWSER_SCREENSHOT',capturedAt:
 test('computes exact customer-specific totals and support instruction',()=>{
  for(const [total,final] of [[29.99,24.99],[34.99,29.99],[42.99,37.99]]){
   const p=acceptedDiscountPlan({...input,originalAmount:total,currentAmount:total,offeredAmount:final},options);
-  assert.equal(p.eligible,true);assert.equal(p.finalCents,Math.round(final*100));assert.equal(p.email.to,'soportesoporte@dropea.com');
+  assert.equal(p.eligible,true);assert.equal(p.finalCents,Math.round(final*100));assert.equal(p.email.to,'soporte@dropea.com');
   assert.equal(p.email.subject,'Aplicar descuento en pedido ES123456');assert.match(p.email.text,/234567/);assert.match(p.solution,/600000000 antes de entregar/);assert.equal(p.discountApplied,false);
  }
 });

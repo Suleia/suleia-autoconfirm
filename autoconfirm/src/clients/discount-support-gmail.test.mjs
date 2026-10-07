@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createSupportGmail,supportMime} from './discount-support-gmail.mjs';
 const env={DISCOUNT_GMAIL_CLIENT_ID:'test',DISCOUNT_GMAIL_CLIENT_SECRET:'test',DISCOUNT_GMAIL_REFRESH_TOKEN:'test',DISCOUNT_GMAIL_FROM:'test@example.gmail.com'};
 env.DISCOUNT_GMAIL_FROM='example@gmail.com';
-const plan={key:'abc123',email:{to:'soportesoporte@dropea.com',subject:'Aplicar descuento en pedido ES123',text:'Importe 24,99€. Prueba.'}};
+const plan={key:'abc123',email:{to:'soporte@dropea.com',subject:'Aplicar descuento en pedido ES123',text:'Importe 24,99€. Prueba.'}};
 const files=[{filename:'proof.png',mimeType:'image/png',bytes:Buffer.from('fixture-image')}];
 test('MIME includes exact subject and byte-preserving attachment',()=>{
  const raw=Buffer.from(supportMime(plan,files,env.DISCOUNT_GMAIL_FROM),'base64url').toString();assert.match(raw,/Message-ID: <abc123@suleia.invalid>/);assert.ok(raw.includes(files[0].bytes.toString('base64')));assert.ok(raw.includes(Buffer.from(plan.email.text).toString('base64')));
