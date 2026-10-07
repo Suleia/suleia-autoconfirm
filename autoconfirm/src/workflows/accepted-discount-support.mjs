@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 export const SUPPORT_WORKFLOW = 'accepted_discount_support_v1';
-export const SUPPORT_TO = 'soportesoporte@dropea.com';
+export const SUPPORT_TO = 'soporte@dropea.com';
 const hash = x => crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const id = x => /^[1-9]\d*$/.test(String(x));
 export function moneyCents(value) {
