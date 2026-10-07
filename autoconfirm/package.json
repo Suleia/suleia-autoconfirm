@@ -14,5 +14,8 @@
     "health": "node tools/healthcheck.mjs",
     "supabase:backfill": "node tools/supabase-backfill.mjs",
     "supabase:setup-project": "node tools/setup-supabase-project.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.63.0"
   }
 }

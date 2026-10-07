@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {acceptedSupportStatus,startAcceptedSupportScheduler} from './src/workflows/accepted-discount-runtime.mjs';
 import {addressRuntimeStatus} from './src/workflows/address-response-policy.mjs';
 import dns from 'node:dns';
 import fs from 'node:fs/promises';
@@ -412,6 +413,7 @@ function storeSummary({ publicView = false } = {}) {
       }
     },
     incidentsSyncIntervalMinutes: config.defaultStore.incidentsSyncIntervalMinutes,
+    acceptedDiscountSupport: acceptedSupportStatus(),
     operationalDashboardIntervalMinutes: config.defaultStore.operationalDashboardIntervalMinutes,
     metaDashboardEnabled: config.metaDashboardEnabled,
     metaDashboardIntervalMinutes: config.metaDashboardIntervalMinutes,
@@ -1500,6 +1502,7 @@ server.listen(config.port, async () => {
   startIncidentsScheduler();
   startIncidentNotificationsScheduler();
   startIncidentDiscountRecoveryScheduler();
+  startAcceptedSupportScheduler();
   startMetaDashboardSync();
   startFinanceReportRefreshScheduler();
 });
