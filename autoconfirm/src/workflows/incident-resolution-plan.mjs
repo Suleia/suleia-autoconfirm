@@ -1,11 +1,11 @@
 import {currentCustomerIntent,resolutionHash,madridDate} from './incident-intent-v2.mjs';
-import {addressResponseDecision} from './address-response-policy.mjs';
+import {addressResponseDecision,parseCustomerAddress} from './address-response-policy.mjs';
 import {planDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
 
-export const RESOLUTION_POLICY_VERSION='2026-10-03.1';
+export const RESOLUTION_POLICY_VERSION='2026-10-08.1';
 export const WORKFLOW_POLICY=Object.freeze({
   rejected_goods:{workflow:'REJECTED',discount:'PREPARED_CONTRACT_REQUIRED',silent_return:'EXISTING_LIVE',explicit_return:'CANARY_REQUIRED'},
-  absent:{workflow:'ABSENT',discount:'POLICY_NOT_AUTHORIZED',silent_return:'DISABLED',explicit_return:'POLICY_NOT_AUTHORIZED'},
+  absent:{workflow:'ABSENT',discount:'PREPARED_CONTRACT_REQUIRED',silent_return:'EXISTING_POLICY',explicit_return:'CANARY_REQUIRED'},
   address:{workflow:'ADDRESS',discount:'MANUAL_DISCOUNT_RECOVERY',silent_return:'EXISTING_POLICY',explicit_return:'EXISTING_POLICY'}
 });
 const iso=now=>new Date(now).toISOString();
@@ -43,7 +43,6 @@ export function resolutionCandidate({incident,order,issue,messages=[],previous=n
     if(intents.includes('AMBIGUOUS')||intents.includes('ASKS_QUESTION')||!intents.length)review('CUSTOMER_RESPONSE_REQUIRES_REVIEW');
     else if(intents.includes('WANTS_RETURN')){
       action='REQUEST_RETURN';steps=[step(action)];
-      if(incident.incidentType!=='rejected_goods')review('EXPLICIT_RETURN_POLICY_NOT_AUTHORIZED');
     }else if(intents.includes('ACCEPTS_DISCOUNT')){
       steps=[step('APPLY_DISCOUNT'),step('VERIFY_DISCOUNT','APPLY_DISCOUNT'),step('RETRY_DELIVERY','VERIFY_DISCOUNT'),step('VERIFY_RETRY','RETRY_DELIVERY'),step('WAIT_LOGISTICS_OUTCOME','VERIFY_RETRY')];
       action='APPLY_DISCOUNT';data={discount_cents:500};
@@ -56,8 +55,9 @@ export function resolutionCandidate({incident,order,issue,messages=[],previous=n
         const original=order.raw?.shipping_address||{},phone=String(order.customerPhone||'').replace(/\D/g,'');
         const street=original.address_line_1||original.address||original.address1;
         const postal=original.postal_code||original.zip;
-        if(street&&postal&&original.city&&/^(?:34)?[67]\d{8}$/.test(phone)){
-          d.action='PROVIDE_ADDRESS_SOLUTION';d.solution=`Cliente confirma la dirección original: ${street}, ${postal} ${original.city}. Llamar antes al ${phone}.`;
+        const parsed=parseCustomerAddress(`${street||''}, ${postal||''} ${original.city||''}`,null,{originalStreet:street});
+        if(parsed.kind==='VALID_ADDRESS'&&/^(?:34)?[67]\d{8}$/.test(phone)){
+          d.action='PROVIDE_ADDRESS_SOLUTION';d.solution=`Cliente confirma la dirección original: ${[street,original.address_line_2,`${postal} ${original.city}`].filter(Boolean).join(', ')}. Llamar al ${phone} antes de la entrega.`;
           d.provider_plan=planDropeaResolution(issue,'PROVIDE_SOLUTION',{note:d.solution});
         }
       }
@@ -70,6 +70,10 @@ export function resolutionCandidate({incident,order,issue,messages=[],previous=n
       action='RETRY_DELIVERY';data=response.slot||{};steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];
       if(!data.date||!data.time_window)review('DELIVERY_DATE_AND_WINDOW_REQUIRED');
       else if(data.date<madridDate(now))review('REQUESTED_DELIVERY_DATE_EXPIRED');
+      else if(data.date===madridDate(now)){
+        const hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Madrid',hour:'2-digit',hourCycle:'h23'}).format(new Date(now)));
+        if(hour>=({morning:12,afternoon:18,evening:21}[data.time_window]||0))review('REQUESTED_DELIVERY_WINDOW_EXPIRED');
+      }
     }else review('CUSTOMER_RESPONSE_REQUIRES_REVIEW');
   }else if(!response.notice_at){review('INITIAL_NOTIFICATION_NOT_VERIFIED');
   }else{

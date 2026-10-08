@@ -15,7 +15,7 @@ function exactAddressNotice(m){
  return slug===ADDRESS_TEMPLATE && extractWamid(m) && !isCustomerInteraction(m);
 }
 
-export function parseCustomerAddress(text,previous=null){
+export function parseCustomerAddress(text,previous=null,{originalStreet=null}={}){
  const literal=String(text||'').replace(/[\u0000-\u001f]/g,' ').trim(),n=norm(literal);
  const base={kind:'OTHER_RESPONSE',street:null,number:null,floor:null,door:null,postal_code:null,city:null,province:null,country:null,reference_notes:null,missing_fields:[]};
  if(!n)return base;
@@ -29,15 +29,23 @@ export function parseCustomerAddress(text,previous=null){
  if(explicitCountry&&!/^(?:ES|España)$/iu.test(explicitCountry))return {...base,kind:'AMBIGUOUS_ADDRESS'};
  const streets=[...literal.matchAll(/\b(?:calle|avenida|avda\.?|plaza|paseo|camino|carretera|ronda|traves[ií]a|urbanizaci[oó]n)\s+([^,;\n]+?)[ ,]+(\d{1,4}[A-Za-z]?|s\/?n)(?=\s|[,.;]|$)/gi)];
  if(streets.length>1)return {...base,kind:'AMBIGUOUS_ADDRESS'};
- const street=streets[0];
+ let street=streets[0];
+ // A missing street-type prefix is accepted only for the exact original street.
+ // The customer's literal name and number are preserved, never guessed.
+ if(!street&&originalStreet){
+   const bare=literal.match(/^([\p{L}][\p{L}\s'’.-]{2,90}?)\s+(\d{1,4}[A-Za-z]?)(?=\s|[,.;]|$)/u);
+   const original=String(originalStreet).replace(/\s+\d{1,4}[A-Za-z]?\s*$/,'').trim();
+   if(bare&&norm(bare[1])===norm(original))street=bare;
+ }
  const postal=[...literal.matchAll(/\b(\d{5})\b/g)];
  if(postal.length>1)return {...base,kind:'AMBIGUOUS_ADDRESS'};
  const cp=postal[0];
  const province=literal.match(/\bprovincia\s*(?:de|:)?\s*([\p{L}][\p{L}\s'-]*?)(?=\s+pa[ií]s\b|[,;.]|$)/iu)?.[1]?.trim()||null;
  const country=literal.match(/\bpa[ií]s\s*:?\s*(ES|España)\b/iu)?.[1]||(/^(?:ES|España)$/iu.test(literal)?literal:null);
- const city=cp?literal.slice(cp.index+5).replace(/^[\s,;-]+/,'').split(/[,;.]|\b(?:provincia|pa[ií]s|portal|referencia|al lado|llamar)\b/i)[0].trim():null;
+ const city=cp?literal.slice(cp.index+5).replace(/^[\s,;-]+/,'').split(/[,;.]|\b(?:provincia|pa[ií]s|portal|referencia|al lado|llamar)\b/i)[0].trim().replace(/\s+España$/iu,''):null;
+ const unit=street?literal.slice(street.index+street[0].length,cp?.index).match(/^\s*[,;]?\s*(\d{1,2})\s*-\s*([A-Za-z0-9]{1,3})(?=[\s,.;]|$)/):null;
  const fields={...base,province,country:country?'ES':null,street:street?street[0].slice(0,-street[2].length).trim().replace(/,$/,''):null,number:street?.[2]||null,
-   floor:literal.match(/\bpiso\s+(\d+[ºª]?)/i)?.[1]||literal.match(/,\s*(\d{1,2})[ºª]?[A-Za-z]\b/)?.[1]||null,door:literal.match(/\bpuerta\s+([A-Za-z0-9]+)/i)?.[1]||literal.match(/,\s*\d{1,2}[ºª]?([A-Za-z])\b/)?.[1]||null,
+   floor:literal.match(/\bpiso\s+(\d+[ºª]?)/i)?.[1]||literal.match(/,\s*(\d{1,2})[ºª]?[A-Za-z]\b/)?.[1]||unit?.[1]||null,door:literal.match(/\bpuerta\s+([A-Za-z0-9]+)/i)?.[1]||literal.match(/,\s*\d{1,2}[ºª]?([A-Za-z])\b/)?.[1]||unit?.[2]||null,
    postal_code:cp?.[1]||null,city:city&&/^[\p{L}][\p{L}\s'-]+$/u.test(city)?city:null,
    reference_notes:literal.match(/\b(portal azul|segunda puerta|al lado de[^.;]+)/i)?.[0]||null};
  // Only merge a later completion with a single unambiguous partial address;
@@ -75,7 +83,7 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
  const replies=[...new Map(inbound.filter(m=>messageTimestamp(m)>messageTimestamp(notice)).map(m=>[extractWamid(m)||hash([messageTimestamp(m),addressMessageText(m)]),m])).values()].sort((a,b)=>messageTimestamp(a)-messageTimestamp(b));
  if(replies.some((m,i)=>i&&messageTimestamp(m)===messageTimestamp(replies[i-1])&&addressMessageText(m)!==addressMessageText(replies[i-1])))return done({state:'AMBIGUOUS_MESSAGE_ORDER',action:'HUMAN_REVIEW'});
  let parsed=null;
- const neutral=t=>/^(?:hola[!,. ]*|vale[!,. ]*|gracias[!,. ]*|buenos dias[!,. ]*|buenas tardes[!,. ]*|ahora te digo[!,. ]*|[\p{Emoji_Presentation}\s]+)$/u.test(norm(t));
+ const neutral=t=>/^(?:hola[!,. ]*|vale[!,. ]*|gracias[!,. ]*|buenos dias[!,. ]*|buenas tardes[!,. ]*|buen finde[!,. ]*|ahora te digo[!,. ]*|[\p{Emoji_Presentation}\s]+)$/u.test(norm(t));
  const offer=findVerifiedTemplateDelivery(valid.filter(m=>messageTimestamp(m)>=messageTimestamp(notice)),'es_es_dropea_incidencia_descuento_5_v1');
  base.discount_offered_at=offer?.sentAt||null;
  let discountAccepted=false;
@@ -87,8 +95,9 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
    }
    // A greeting does not erase a previously supplied address or return intent.
    if(!neutral(t)){
-     const next=parseCustomerAddress(t,parsed);
-     if(next.kind!=='OTHER_RESPONSE'||!parsed)parsed=next;
+     const raw=order?.raw?.shipping_address||{};
+     const next=parseCustomerAddress(t,parsed,{originalStreet:raw.address_line_1||raw.address||raw.address1});
+     parsed=next;
    }
  }
  base.discount_accepted=discountAccepted;
