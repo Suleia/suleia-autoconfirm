@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {probeAuthorized,validCaptureProbe,probeSupportConnections} from './discount-support-probe.mjs';
+import {probeAuthorized,validCaptureProbe,probeSupportConnections,probeErrorCode} from './discount-support-probe.mjs';
+test('diagnostics never expose provider text or sensitive URLs',()=>{
+ assert.equal(probeErrorCode(Error('CHATBY_CONTACT_FAILED')),'CHATBY_CONTACT_FAILED');
+ for(const message of ['token=secret','https://example.org/private','Timeout 20000ms: customer text'])assert.equal(probeErrorCode(Error(message)),'CONNECTION_VERIFICATION_FAILED');
+});
 const plan={orderId:'1',issueId:'2',offerMessageId:'3',acceptanceMessageId:'4',phone:'+34600000000',conversationId:'f1u2',customerName:'Test',snapshot:'test',finalCents:2499,offerAt:'2026-10-01T10:00:00Z',acceptedAt:'2026-10-01T11:00:00Z'};
 test('probe never permits missing or incorrect credentials',()=>{
  assert.equal(probeAuthorized(undefined,undefined),false);
