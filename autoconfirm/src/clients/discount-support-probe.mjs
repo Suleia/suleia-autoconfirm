@@ -9,6 +9,9 @@ export function probeAuthorized(header, secret) {
  const actual=Buffer.from(String(header||'')),expected=Buffer.from(`Bearer ${secret}`);
  return actual.length===expected.length&&timingSafeEqual(actual,expected);
 }
+export function probeErrorCode(error) {
+ return /^(?:PROBE|CHATBY|SCREENSHOT|GMAIL)_[A-Z_]{3,70}$/.test(error?.message||'')?error.message:'CONNECTION_VERIFICATION_FAILED';
+}
 export function validCaptureProbe(p) {
  return p&&['orderId','issueId','offerMessageId','acceptanceMessageId'].every(k=>/^[1-9]\d{0,19}$/.test(p[k]))
   && /^\+34[6789]\d{8}$/.test(p.phone||'')&&/^f\d+u\d+$/.test(p.conversationId||'')

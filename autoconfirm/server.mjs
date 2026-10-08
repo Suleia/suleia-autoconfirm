@@ -1,6 +1,6 @@
 import http from 'node:http';
 import {acceptedSupportStatus,startAcceptedSupportScheduler} from './src/workflows/accepted-discount-runtime.mjs';
-import {probeAuthorized,probeSupportConnections} from './src/clients/discount-support-probe.mjs';
+import {probeAuthorized,probeSupportConnections,probeErrorCode} from './src/clients/discount-support-probe.mjs';
 import {addressRuntimeStatus} from './src/workflows/address-response-policy.mjs';
 import dns from 'node:dns';
 import fs from 'node:fs/promises';
@@ -576,7 +576,7 @@ const server = http.createServer(async (req, res) => {
         for await (const chunk of req) { size+=chunk.length;if(size>8192)return sendJson(res,413,{ok:false,error:'request_too_large'});chunks.push(chunk); }
         const result=await probeSupportConnections(JSON.parse(Buffer.concat(chunks).toString('utf8')));
         return sendJson(res,200,result);
-      } catch { return sendJson(res,422,{ok:false,error:'connection_verification_failed'}); }
+      } catch(error) { return sendJson(res,422,{ok:false,error:probeErrorCode(error)}); }
     }
     if (req.method === 'GET' && url.pathname === '/health') {
       const state = loadState();
