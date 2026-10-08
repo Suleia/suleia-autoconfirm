@@ -12,10 +12,12 @@ export async function captureSupportEvidence(plan,{env=process.env}={}) {
  let context,stage='CONTEXT';
  try{
   context=await browser.newContext({storageState,viewport:{width:1600,height:1400},locale:'es-ES',timezoneId:'Europe/Madrid',acceptDownloads:false});
-  const page=await context.newPage();page.setDefaultTimeout(20000);
+  const page=await context.newPage();page.setDefaultTimeout(60000);
   // Capture code must never send a message or resolve an incident.
   await page.route('**/*',route=>/\/send(?:-|\/)|\/resolve(?:\?|$)|\/set-user-field/.test(route.request().url())?route.abort():route.continue());
-  stage='NAVIGATION';await page.goto(url.href,{waitUntil:'domcontentloaded'});
+  // The cloud worker has substantially less CPU than the operator's machine.
+  // Wait for the actual search UI, not every initial document dependency.
+  stage='NAVIGATION';await page.goto(url.href,{waitUntil:'commit',timeout:60000});
   stage='SEARCH';
   const search=page.getByPlaceholder('Buscar',{exact:true});
   await search.waitFor({state:'visible'});
@@ -58,6 +60,7 @@ export async function captureSupportEvidence(plan,{env=process.env}={}) {
    visiblePhone:true,visibleDateTime:true,visibleAcceptance:true,visibleOffer:true,attachments};
  } catch(error) {
   // Never return provider text, URLs, session data or customer content.
-  throw Error(/^[A-Z_]{3,80}$/.test(error.message)?error.message:`CHATBY_${stage}_FAILED`);
+  const networkCode=String(error.message||'').match(/net::(ERR_[A-Z_]+)/)?.[1];
+  throw Error(/^[A-Z_]{3,80}$/.test(error.message)?error.message:`CHATBY_${stage}_${networkCode||(error.name==='TimeoutError'?'TIMEOUT':'FAILED')}`);
  } finally {await context?.close();await browser.close();}
 }
