@@ -81,3 +81,8 @@ test('per-stage release gate repairs one tested stage without opening unrelated 
  assert.equal((await runAddressCapability(item,expected,{...deps,env:stageEnv,stage:'INTERPRETATION'})).verified,true);
  assert.equal((await runAddressCapability(item,expected,{...deps,env:stageEnv})).status,'CAPABILITY_RELEASE_GATE');
 });
+
+test('a proven already-solved conflict releases capability for unrelated cases without promotion',async()=>{
+ const {store,deps,audit}=await setup();const r=await runAddressCapability(item,expected,{...deps,execute:async({onWrite})=>{onWrite();return {status:'PROVIDER_ALREADY_SOLVED',verified:false,operation_status:'failed',provider_error_code:'GLS_INCIDENCE_ALREADY_SOLVED'};}});
+ assert.equal(r.promoted,false);assert.equal((await store.get('CHANGE_ADDRESS')).value.breaker,'CLOSED');assert.equal((await store.get('CHANGE_ADDRESS')).value.phase,'WAITING_ELIGIBLE_CASE');assert.equal(audit.at(-1).status,'provider_already_solved');
+});

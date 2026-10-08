@@ -1,6 +1,7 @@
 import {randomUUID} from 'node:crypto';
 import {selectRows,insertRows,updateRows} from '../clients/supabase.mjs';
 import {executeResolutionCandidate} from './incident-resolution-executor.mjs';
+import {verifiedProviderConflict} from './incident-provider-conflict.mjs';
 
 const actions={ABSENT:['RETRY_DELIVERY','PICKUP_AT_AGENCY','REQUEST_RETURN'],ADDRESS:['RETRY_DELIVERY','PICKUP_AT_AGENCY','REQUEST_RETURN','PROVIDE_SOLUTION']};
 export function automaticReplyCapability(candidate,env=process.env){
@@ -33,7 +34,7 @@ export async function executeAutomaticReply(input,candidate,deps,{state=store,ex
   let result;
   try{result=await execute(input,candidate,{...deps,env:runEnv});}catch{result={status:'UNKNOWN',verified:false,reason:'EXECUTION_OR_PERSISTENCE_UNKNOWN'};}
   const verified=result.status==='VERIFIED'&&result.verified===true;
-  const next={...row.value,revision:randomUUID(),phase:verified?'VERIFIED':result.status==='PREPARED'?'WAITING_ELIGIBLE_CASE':'HUMAN_REVIEW',mode:verified?'LIVE':mode,
+  const next={...row.value,revision:randomUUID(),phase:verified?'VERIFIED':result.status==='PREPARED'||verifiedProviderConflict(result)?'WAITING_ELIGIBLE_CASE':'HUMAN_REVIEW',mode:verified?'LIVE':mode,
     last_result:{status:result.status,reason:result.reason||null,at:new Date().toISOString()},
     ...(verified?{promotion:{verified:true,issue_id:twin.incident_id,order_id:twin.order_id,release:env.RENDER_GIT_COMMIT,at:result.verifiedAt}}:{})};
   if(!await state.cas(row,next))throw Error('REPLY_CAPABILITY_PERSISTENCE_CONFLICT');

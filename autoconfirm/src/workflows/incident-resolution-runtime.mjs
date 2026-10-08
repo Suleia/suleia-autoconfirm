@@ -2,7 +2,7 @@ import {createResolutionStore} from './incident-resolution-store.mjs';
 import {resolutionCandidate,resolutionMetrics,logisticsFollowUp,stuckFindings} from './incident-resolution-plan.mjs';
 import {executeResolutionCandidate,recordResolutionExecution,resolutionCapabilityMode} from './incident-resolution-executor.mjs';
 import {readDropeaV2ReturnIssueState} from '../clients/dropea-v2-incidents.mjs';
-import {executeDropeaV2Resolution} from '../clients/dropea-v2-issue-actions.mjs';
+import {executeDropeaV2Resolution,readDropeaV2IssueOperation} from '../clients/dropea-v2-issue-actions.mjs';
 import {getIncidentChatMessages,loadSubscriberIndex,findSubscriberInIndexForExactOrder} from '../clients/chatby.mjs';
 import {inspectPriorOrderReturn} from './incident-order-return-guard.mjs';
 import {claimIncidentDiscountReturn,finishIncidentDiscountReturn,claimIncidentAddressResolution,finishIncidentAddressResolution,claimTemplateDelivery,finishTemplateDelivery} from '../db/supabase-store.mjs';
@@ -16,7 +16,7 @@ const adapters={
   // Reuse legacy claims for overlapping return/address writers.
   claim:a=>a.action==='REQUEST_RETURN'?claimIncidentDiscountReturn(ledgerArgs(a)):['CHANGE_ADDRESS','PROVIDE_SOLUTION'].includes(a.action)?claimIncidentAddressResolution(ledgerArgs(a)):claimTemplateDelivery(ledgerArgs(a)),
   finish:(a,r)=>{const args={...ledgerArgs(a),status:r.verified?'verified':r.status==='aborted'?'aborted':'applied_unverified',attemptedAt:r.attemptedAt,completedAt:r.verifiedAt,sentAt:r.verifiedAt,raw:r,evidence:r};return a.action==='REQUEST_RETURN'?finishIncidentDiscountReturn(args):['CHANGE_ADDRESS','PROVIDE_SOLUTION'].includes(a.action)?finishIncidentAddressResolution(args):finishTemplateDelivery(args);},
-  write:executeDropeaV2Resolution
+  write:executeDropeaV2Resolution,readOperation:readDropeaV2IssueOperation
 };
 
 // Additive observer; legacy lanes run first. All new write modes default SHADOW.

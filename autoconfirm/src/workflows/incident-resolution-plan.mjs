@@ -37,6 +37,7 @@ export function resolutionCandidate({incident,order,issue,messages=[],previous=n
   if(!policy)review('WORKFLOW_POLICY_NOT_AVAILABLE');
   else if(String(raw.id)!==t.incident_id||String(raw.order_id)!==t.order_id||String(order?.orderId)!==t.order_id)review('CURRENT_IDENTITY_CONFLICT');
   else if(!t.is_active)review('CURRENT_ISSUE_NOT_PENDING');
+  else if(incident.addressWorkflow?.last_execution?.status==='PROVIDER_ALREADY_SOLVED'||incident.addressWorkflow?.execution?.status==='PROVIDER_ALREADY_SOLVED'||previous?.incident_id===t.incident_id&&previous?.human_review_reason==='PROVIDER_ALREADY_SOLVED')review('PROVIDER_ALREADY_SOLVED');
   else if(response.status==='NOT_VERIFIABLE')review(response.reason);
   else if(response.has_reply){
     const intents=response.intents||[];

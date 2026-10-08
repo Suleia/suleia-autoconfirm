@@ -3083,7 +3083,7 @@ async function processObservedAddress(item,previous=null){
   const decision=addressResponseDecision({incident:item.incident,messages:item.messages,order:item.order,issue:item.issue,previous});
   let execution={status:'SHADOW',verified:false};
   const priorExecution=previous?.last_execution||previous?.execution;
-  if(addressExcluded(item.incident.incidenceId)||priorExecution?.status==='MANUAL_RECONCILIATION_REQUIRED'||priorExecution?.status==='EXECUTION_UNKNOWN'){
+  if(addressExcluded(item.incident.incidenceId)||['MANUAL_RECONCILIATION_REQUIRED','EXECUTION_UNKNOWN','PROVIDER_ALREADY_SOLVED'].includes(priorExecution?.status)){
     execution={...priorExecution};
     if(!execution.provider_error_code&&execution.error==='DROPEA_V2_ISSUE_ACTION_HTTP_400'){
       const ledger=await getTemplateDelivery({storeId:config.defaultStore.id,orderId:item.incident.orderId,templateName:`dropea_issue_discount_no_response_return_v1:${item.incident.incidenceId}`}).catch(()=>null);

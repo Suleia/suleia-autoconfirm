@@ -81,3 +81,10 @@ test('structured change and pickup share the persistent claim and independently 
  }
 });
 
+
+test('verified already-solved operation is a non-retryable conflict, never success',async()=>{
+ let writes=0;const finished=[];
+ const deps={env,prior:async()=>({}),readCurrent:async()=>({issue,order}),readMessages:async()=>[notice,full],claim:async()=>({acquired:true,persistent:true}),finish:async row=>finished.push(row),write:async()=>{writes++;throw Error('provider conflict');},readOperation:async(id,nonce)=>{assert.equal(nonce,'address-11');return {status:'failed',errorCode:'GLS_INCIDENCE_ALREADY_SOLVED'};}};
+ const r=await executeObservedAddress(incident,expected([notice,full]),deps);
+ assert.equal(writes,1);assert.equal(r.status,'PROVIDER_ALREADY_SOLVED');assert.equal(r.verified,false);assert.equal(finished[0].status,'applied_unverified');
+});

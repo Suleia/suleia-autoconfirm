@@ -1,6 +1,7 @@
 import {resolutionCandidate} from './incident-resolution-plan.mjs';
 import {verifyDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
 import {addressExcluded,governedAddressIssue} from './address-capability-policy.mjs';
+import {providerConflictResult,verifiedProviderConflict} from './incident-provider-conflict.mjs';
 
 export function resolutionCapabilityMode(workflow,action,issueId,env=process.env){
   const prefix=`INCIDENT_E2E_${workflow}_${action}`;
@@ -57,13 +58,16 @@ export async function executeResolutionCandidate(input,candidate,deps){
   let after=null;
   try{after=await deps.readCurrent(input.incident);}catch{/* Unknown is not failure or success. */}
   const verified=String(after?.order?.orderId)===twin.order_id&&verifyDropeaResolution(after,{issueId:twin.incident_id,orderId:twin.order_id,action,body:providerPlan.body});
-  const result={status:verified?'VERIFIED':'UNKNOWN',verified,provider_receipt:receipt,action,attemptedAt,verifiedAt:verified?new Date(deps.now?.()||Date.now()).toISOString():null,reason:verified?null:'PROVIDER_STATE_REQUIRES_RECONCILIATION'};
+  const operation=!verified&&deps.readOperation?await deps.readOperation(twin.incident_id,plan.plan_id).catch(()=>null):null;
+  const conflict=providerConflictResult(operation);
+  const result={status:verified?'VERIFIED':'UNKNOWN',verified,provider_receipt:receipt,action,attemptedAt,verifiedAt:verified?new Date(deps.now?.()||Date.now()).toISOString():null,reason:verified?null:'PROVIDER_STATE_REQUIRES_RECONCILIATION',...conflict};
   await deps.finish(args,result);
   return result;
 }
 
 export function recordResolutionExecution(twin,result){
   const t=structuredClone(twin);
+  if(verifiedProviderConflict(result))return {...t,execution_status:'PROVIDER_ALREADY_SOLVED',verification_status:'NOT_APPLIED',human_review_reason:'PROVIDER_ALREADY_SOLVED',next_best_action:null,explicit_wait_until:null,current_owner:'HUMAN'};
   if(result.status==='PREPARED')return {...t,capability_blocker:result.reason,human_review_reason:result.reason,next_best_action:null,explicit_wait_until:null,current_owner:'HUMAN'};
   t.execution_status=result.status;t.verification_status=result.verified?'VERIFIED':'UNKNOWN';
   if(t.resolution_plan){t.resolution_plan.status=result.verified?'VERIFIED':'UNKNOWN';

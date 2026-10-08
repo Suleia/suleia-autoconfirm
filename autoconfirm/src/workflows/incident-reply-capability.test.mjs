@@ -61,3 +61,14 @@ test('confirmed original address without number cannot produce a solution',()=>{
 test('same-day morning request cannot be executed in the evening',()=>{
  const i=input('2026-10-08 por la mañana','absent');assert.equal(resolutionCandidate(i).twin.human_review_reason,'REQUESTED_DELIVERY_WINDOW_EXPIRED');
 });
+
+test('known carrier conflict requires original failed-operation proof to release the capability',async()=>{
+ for(const proven of [false,true]){
+ const state=memory();await executeAutomaticReply({},candidate,{env},{state,execute:async()=>({status:'PROVIDER_ALREADY_SOLVED',verified:false,...(proven?{operation_status:'failed',provider_error_code:'GLS_INCIDENCE_ALREADY_SOLVED'}:{})})});
+ assert.equal((await state.get()).value.phase,proven?'WAITING_ELIGIBLE_CASE':'HUMAN_REVIEW');assert.equal((await state.get()).value.promotion,undefined);
+ }
+});
+test('a known provider conflict is never replanned as a new solution',()=>{
+ const i=input('Prueba del Parque 104 3-2. 28001 Madrid España.');i.incident.addressWorkflow={last_execution:{status:'PROVIDER_ALREADY_SOLVED'}};
+ const c=resolutionCandidate(i);assert.equal(c.action,null);assert.equal(c.twin.human_review_reason,'PROVIDER_ALREADY_SOLVED');
+});
