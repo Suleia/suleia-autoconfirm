@@ -41,8 +41,9 @@ test('ambiguous dates, multiple windows and exact hours cannot become an invente
 test('absent agency checks current provider capability',()=>{
  const i=input('absent','quiero recoger en agencia');assert.equal(resolutionCandidate(i).action,'PICKUP_AT_AGENCY');i.issue.allowed_resolution_options=[];assert.equal(resolutionCandidate(i).twin.human_review_reason,'CAPABILITY_NOT_ALLOWED');
 });
-test('absent return and accepted discount do not inherit rejected authorization',()=>{
- assert.equal(resolutionCandidate(input('absent','devolver')).twin.human_review_reason,'EXPLICIT_RETURN_POLICY_NOT_AUTHORIZED');
+test('explicit absent return is prepared under its own capability; discount and silence remain separate',()=>{
+ assert.equal(resolutionCandidate(input('absent','devolver')).action,'REQUEST_RETURN');
+ assert.equal(resolutionCandidate(input('absent','devolver')).twin.human_review_reason,null);
  assert.equal(resolutionCandidate(input('absent','acepto el descuento')).twin.human_review_reason,'ABSENT_DISCOUNT_APPLICATION_POLICY_REQUIRED');
  const c=resolutionCandidate({...input('absent',''),now:now+3*86400000});assert.notEqual(c.action,'REQUEST_RETURN');
 });

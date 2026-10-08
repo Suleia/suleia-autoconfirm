@@ -47,6 +47,7 @@ export function parseCustomerIntentV2(text, {at, offerVerified=false, button=nul
   if(returns && /no (?:quiero )?devolver|no lo devuelv/.test(t))return ambiguous('NEGATED_RETURN');
   if(returns&&(accepts||wants||slot.date))return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
   if(accepts&&rejectDiscount)return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
+  if(/\bno\b/.test(t)&&!returns&&!rejectDiscount)return ambiguous('NEGATED_OR_QUALIFIED_REQUEST');
   if(returns)intents.push('WANTS_RETURN');
   if(rejectDiscount)intents.push('REJECTS_DISCOUNT');
   if(accepts){if(!offerVerified)return ambiguous('VERIFIED_OFFER_REQUIRED');intents.push('ACCEPTS_DISCOUNT','WANTS_ORDER');}

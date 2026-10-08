@@ -7,12 +7,13 @@ import {claimIncidentAddressResolution,finishIncidentAddressResolution,claimTemp
 import {inspectPriorOrderReturn} from './incident-order-return-guard.mjs';
 import {extractWamid} from './incident-discount-policy.mjs';
 import {createHash} from 'node:crypto';
+import {governedAddressIssue} from './address-capability-policy.mjs';
 
 export async function executeObservedAddress(incident,expected,{env=process.env,onWrite=()=>{},readCurrent=readDropeaV2ReturnIssueState,readMessages=getIncidentChatMessages,claim=claimIncidentAddressResolution,finish=finishIncidentAddressResolution,write=provideDropeaV2AddressSolution,writeResolution=executeDropeaV2Resolution,prior=inspectPriorOrderReturn,claimMessage=claimTemplateDelivery,finishMessage=finishTemplateDelivery,send=sendTextMessage}={}){
  if(!addressStageAllowed(expected.action,incident,env))return {status:'SHADOW',verified:false};
  const current=await readCurrent(incident,{includeOrder:true}).catch(()=>null);
  const issue=current?.issue?.raw||current?.issue;
- if(!issue||String(issue.id)!==String(incident.incidenceId)||String(issue.order_id)!==String(incident.orderId)||issue.type!=='ADDRESS_INCORRECT'||issue.status!=='PENDING'||issue.is_active!==true||String(current.order?.orderId)!==String(incident.orderId)||!['ERROR','INCIDENCE'].includes(current.order?.status))return {status:'BLOCKED_CURRENT_ISSUE',verified:false};
+ if(!issue||String(issue.id)!==String(incident.incidenceId)||String(issue.order_id)!==String(incident.orderId)||!(issue.type==='ADDRESS_INCORRECT'||governedAddressIssue(issue))||issue.status!=='PENDING'||issue.is_active!==true||String(current.order?.orderId)!==String(incident.orderId)||!['ERROR','INCIDENCE'].includes(current.order?.status))return {status:'BLOCKED_CURRENT_ISSUE',verified:false};
  if(!incident.phone||String(current.order.customerPhone||'').replace(/\D/g,'').slice(-9)!==String(incident.phone).replace(/\D/g,'').slice(-9))return {status:'BLOCKED_ORDER_PHONE_CHANGED',verified:false};
  const old=await prior(incident).catch(()=>({blocked:true}));if(old.verified||old.blocked)return {status:'BLOCKED_PRIOR_RETURN',verified:false};
  const messages=await readMessages(incident.chatbyUserNs).catch(()=>null);if(!messages)return {status:'BLOCKED_CHATBY_READ',verified:false};

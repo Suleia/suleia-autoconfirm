@@ -1,5 +1,6 @@
 import {resolutionCandidate} from './incident-resolution-plan.mjs';
 import {verifyDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
+import {addressExcluded,governedAddressIssue} from './address-capability-policy.mjs';
 
 export function resolutionCapabilityMode(workflow,action,issueId,env=process.env){
   const prefix=`INCIDENT_E2E_${workflow}_${action}`;
@@ -27,6 +28,9 @@ export async function executeResolutionCandidate(input,candidate,deps){
     const current=await deps.readCurrent(input.incident);
     const issue=current.issue?.raw||current.issue;
     if(String(issue?.id)!==twin.incident_id||String(issue?.order_id)!==twin.order_id||String(current.order?.orderId)!==twin.order_id||issue.status!=='PENDING'||issue.is_active!==true)return null;
+    if(issue.resolution_status)return null;
+    if(twin.workflow==='ABSENT'&&issue.type!=='RECIPIENT_ABSENT')return null;
+    if(twin.workflow==='ADDRESS'&&(addressExcluded(twin.incident_id,deps.env)||!(issue.type==='ADDRESS_INCORRECT'||governedAddressIssue(issue))))return null;
     if(!['ERROR','INCIDENCE'].includes(current.order.status))return null;
     if(await deps.priorConflict(input.incident))return null;
     if(!await deps.verifyConversation(input.incident,current.order))return null;

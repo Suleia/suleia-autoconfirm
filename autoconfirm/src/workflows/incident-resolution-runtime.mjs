@@ -6,6 +6,7 @@ import {executeDropeaV2Resolution} from '../clients/dropea-v2-issue-actions.mjs'
 import {getIncidentChatMessages,loadSubscriberIndex,findSubscriberInIndexForExactOrder} from '../clients/chatby.mjs';
 import {inspectPriorOrderReturn} from './incident-order-return-guard.mjs';
 import {claimIncidentDiscountReturn,finishIncidentDiscountReturn,claimIncidentAddressResolution,finishIncidentAddressResolution,claimTemplateDelivery,finishTemplateDelivery} from '../db/supabase-store.mjs';
+import {automaticReplyCapability,executeAutomaticReply} from './incident-reply-capability.mjs';
 
 function ledgerArgs(a){return {storeId:'suleia',orderId:a.orderId,incidenceId:a.issueId,templateName:`incident_resolution_v1:${a.issueId}`,provider:'dropea'};}
 const adapters={
@@ -31,14 +32,15 @@ export async function runIncidentResolutionCycle(items,{store=createResolutionSt
       const id=`${item.incident.orderId}:${item.incident.incidenceId}`,prior=byIssue.get(id)||byOrder.get(String(item.incident.orderId));
       const input={...item,previous:prior,now};
       const candidate=resolutionCandidate(input);let twin=candidate.twin;
-      if(execute&&resolutionCapabilityMode(twin.workflow,candidate.action,twin.incident_id,env)!=='SHADOW'){
+      const existingVerified=item.incident.incidentDiscountReturnVerified===true||item.incident.operationalActionVerified===true;
+      if(execute&&!existingVerified&&(automaticReplyCapability(candidate,env)||resolutionCapabilityMode(twin.workflow,candidate.action,twin.incident_id,env)!=='SHADOW')){
         // Persist prepared intent before reserving or executing any provider write.
         await store.save(twin);
-        const result=await executeResolutionCandidate(input,candidate,{...executorAdapters,env});
+        const result=await (automaticReplyCapability(candidate,env)?executeAutomaticReply:executeResolutionCandidate)(input,candidate,{...executorAdapters,env});
         twin=recordResolutionExecution(twin,result);
       }else if(twin.action_prepared&&!twin.human_review_reason){twin.capability_blocker='CAPABILITY_SHADOW';twin.human_review_reason='CAPABILITY_SHADOW';twin.next_best_action=null;twin.explicit_wait_until=null;twin.current_owner='HUMAN';}
       // Mirror existing verified writes, without claiming this new observer did them.
-      if(item.incident.incidentDiscountReturnVerified===true||item.incident.operationalActionVerified===true){
+      if(existingVerified){
         twin.next_best_action='VERIFY_PROVIDER';twin.explicit_wait_until=null;twin.human_review_reason=null;twin.current_owner='PROVIDER';
         twin.execution_status='VERIFIED';twin.verification_status='VERIFIED';twin.resolution_actor='EXISTING_AUTOMATION';twin.customer_replied_but_unresolved=false;
       }

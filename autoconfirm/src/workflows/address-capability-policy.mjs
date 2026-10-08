@@ -6,6 +6,7 @@ export function configuredAddressBreaker(stage,env=process.env){return env[`ADDR
 export function addressExcluded(id,env=process.env){return new Set(['1309433',...(env.ADDRESS_EXCLUDED_ISSUE_IDS||'').split(',')]).has(String(id));}
 export function governedAddressIssue(issue){
  const r=issue?.raw||issue,n=String(r?.initial_carrier_description||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+ if(r?.type==='PENDING_DATA')return r.carrier==='GLS'&&r.market==='ES'&&String(r.initial_carrier_code)==='-30'&&String(r.initial_carrier_substatus_code)==='12'&&n.includes('FALTAN DATOS');
  return r?.type==='ADDRESS_INCORRECT'&&r.carrier==='GLS'&&r.market==='ES'
   &&(r.initial_carrier_code==='DI'||String(r.initial_carrier_code)==='-30'&&String(r.initial_carrier_substatus_code)==='13'&&n.includes('DIRECCION INCORRECTA'));
 }
