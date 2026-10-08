@@ -16,8 +16,15 @@ export async function captureSupportEvidence(plan,{env=process.env}={}) {
   // Capture code must never send a message or resolve an incident.
   await page.route('**/*',route=>/\/send(?:-|\/)|\/resolve(?:\?|$)|\/set-user-field/.test(route.request().url())?route.abort():route.continue());
   await page.goto(url.href,{waitUntil:'domcontentloaded'});
-  const search=page.getByRole('textbox',{name:/Buscar|Search/}).filter({visible:true});
+  const search=page.getByPlaceholder('Buscar',{exact:true});
+  await search.waitFor({state:'visible'});
   if(await search.count()!==1)throw Error('CHATBY_SEARCH_NOT_UNIQUE');
+  // The saved session can retain Open/Pending filters. Use the status All row,
+  // identified by its tickets icon; the assignment All row is a different filter.
+  const allStatuses=page.locator('.el-dropdown-menu__item').filter({has:page.locator('.el-icon-tickets')});
+  await allStatuses.waitFor({state:'visible'});
+  if(await allStatuses.count()!==1)throw Error('CHATBY_STATUS_FILTER_NOT_UNIQUE');
+  await allStatuses.click();
   await search.fill(plan.phone.slice(3));
   const contact=page.getByText(plan.customerName,{exact:true});await contact.waitFor({state:'visible'});
   if(await contact.count()!==1)throw Error('CHATBY_CONTACT_NOT_UNIQUE');await contact.click();
