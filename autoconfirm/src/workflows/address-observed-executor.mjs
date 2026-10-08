@@ -1,6 +1,7 @@
 import {addressResponseDecision,addressStageAllowed} from './address-response-policy.mjs';
 import {readDropeaV2ReturnIssueState} from '../clients/dropea-v2-incidents.mjs';
-import {provideDropeaV2AddressSolution,executeDropeaV2Resolution} from '../clients/dropea-v2-issue-actions.mjs';
+import {provideDropeaV2AddressSolution,executeDropeaV2Resolution,readDropeaV2IssueOperation} from '../clients/dropea-v2-issue-actions.mjs';
+import {providerConflictResult} from './incident-provider-conflict.mjs';
 import {planDropeaResolution,verifyDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
 import {getIncidentChatMessages,sendTextMessage} from '../clients/chatby.mjs';
 import {claimIncidentAddressResolution,finishIncidentAddressResolution,claimTemplateDelivery,finishTemplateDelivery} from '../db/supabase-store.mjs';
@@ -9,7 +10,7 @@ import {extractWamid} from './incident-discount-policy.mjs';
 import {createHash} from 'node:crypto';
 import {governedAddressIssue} from './address-capability-policy.mjs';
 
-export async function executeObservedAddress(incident,expected,{env=process.env,onWrite=()=>{},readCurrent=readDropeaV2ReturnIssueState,readMessages=getIncidentChatMessages,claim=claimIncidentAddressResolution,finish=finishIncidentAddressResolution,write=provideDropeaV2AddressSolution,writeResolution=executeDropeaV2Resolution,prior=inspectPriorOrderReturn,claimMessage=claimTemplateDelivery,finishMessage=finishTemplateDelivery,send=sendTextMessage}={}){
+export async function executeObservedAddress(incident,expected,{env=process.env,onWrite=()=>{},readCurrent=readDropeaV2ReturnIssueState,readMessages=getIncidentChatMessages,readOperation=readDropeaV2IssueOperation,claim=claimIncidentAddressResolution,finish=finishIncidentAddressResolution,write=provideDropeaV2AddressSolution,writeResolution=executeDropeaV2Resolution,prior=inspectPriorOrderReturn,claimMessage=claimTemplateDelivery,finishMessage=finishTemplateDelivery,send=sendTextMessage}={}){
  if(!addressStageAllowed(expected.action,incident,env))return {status:'SHADOW',verified:false};
  const current=await readCurrent(incident,{includeOrder:true}).catch(()=>null);
  const issue=current?.issue?.raw||current?.issue;
@@ -58,7 +59,9 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
  }catch{/* Reconcile; never automatically resend an uncertain action. */}
  const after=await readCurrent(incident,{includeOrder:true}).catch(()=>null);
  const verified=String(after?.order?.orderId)===String(incident.orderId)&&verifyDropeaResolution(after,{issueId:incident.incidenceId,orderId:incident.orderId,action,body:plan.body});
- const result={status:verified?'ADDRESS_SOLUTION_VERIFIED':'EXECUTION_UNKNOWN',action,verified,provider_receipt:receipt,attempted_at:at,verified_at:verified?new Date().toISOString():null};
+ const operation=!verified?await readOperation(incident.incidenceId,`address-${incident.incidenceId}`).catch(()=>null):null;
+ const conflict=providerConflictResult(operation);
+ const result={status:verified?'ADDRESS_SOLUTION_VERIFIED':'EXECUTION_UNKNOWN',action,verified,provider_receipt:receipt,attempted_at:at,verified_at:verified?new Date().toISOString():null,...conflict};
  await finish({...key,status:verified?'verified':'applied_unverified',attemptedAt:at,completedAt:result.verified_at,evidence:{...result,policy_id:d.policy.id,input_snapshot_hash:last.input_snapshot_hash,solution_hash:createHash('sha256').update(JSON.stringify(plan.body)).digest('hex'),decision_id:last.decision_id}});
  return result;
 }

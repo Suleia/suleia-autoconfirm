@@ -5,6 +5,7 @@ import {addressCapabilityStore} from './address-capability-store.mjs';
 import {claimTemplateDelivery,finishTemplateDelivery} from '../db/supabase-store.mjs';
 import {readDropeaV2ReturnIssueState} from '../clients/dropea-v2-incidents.mjs';
 import {getIncidentChatMessages} from '../clients/chatby.mjs';
+import {verifiedProviderConflict} from './incident-provider-conflict.mjs';
 const hash=x=>crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 let cache={};
 export const addressCapabilitiesSnapshot=()=>structuredClone(cache);
@@ -59,9 +60,9 @@ export async function runAddressCapability(item,expected,{stage=addressCapabilit
  const args={storeId:'suleia',orderId:incident.orderId,templateName:`address_capability_action_v1:${stage}:${id}`,provider:'address_owner'};
  const acquired=await claim(args);
  if(!acquired?.acquired||acquired.persistent!==true){
-  if(acquired?.persistent===true&&['verified','aborted'].includes(acquired.existing?.status)){
+  if(acquired?.persistent===true&&['verified','aborted','provider_already_solved'].includes(acquired.existing?.status)){
     if(mode==='CANARY')await store.cas(stage,row,{...row.value,revision:crypto.randomUUID(),phase:'WAITING_ELIGIBLE_CASE'});
-    return blocked(acquired.existing.status==='verified'?'ALREADY_VERIFIED':'ALREADY_ABORTED');
+    return blocked(acquired.existing.status==='verified'?'ALREADY_VERIFIED':acquired.existing.status==='provider_already_solved'?'PROVIDER_ALREADY_SOLVED':'ALREADY_ABORTED');
   }
   await store.cas(stage,row,{...row.value,revision:crypto.randomUUID(),breaker:'OPEN',phase:'HUMAN_REVIEW',reason:'ACTION_CLAIM_UNAVAILABLE'});
   return blocked('ACTION_CLAIM_UNAVAILABLE');
@@ -78,9 +79,10 @@ export async function runAddressCapability(item,expected,{stage=addressCapabilit
  catch{result={status:'EXECUTION_UNKNOWN',verified:false};}
  const proof={...result,identity_verified:true,post_write_verified:result.verified===true&&writes===1};
  const promote=addressPromotionAllowed(stage,proof,{writes,regressionPassed,breaker:row.value.breaker});
- const uncertain=writes>0&&!promote||/UNKNOWN|ALREADY_CLAIMED_RECONCILE|UNVERIFIED/.test(result.status||'');
+ const conflict=verifiedProviderConflict(result);
+ const uncertain=!conflict&&(writes>0&&!promote||/UNKNOWN|ALREADY_CLAIMED_RECONCILE|UNVERIFIED/.test(result.status||''));
  const breaker=uncertain?'OPEN':row.value.breaker;
- const status=promote?'VERIFIED':uncertain?'UNKNOWN':'ABORTED';
+ const status=promote?'VERIFIED':conflict?'PROVIDER_ALREADY_SOLVED':uncertain?'UNKNOWN':'ABORTED';
  const completed_at=new Date(now()).toISOString();
  await finish({...args,status:status.toLowerCase(),attemptedAt:at,sentAt:promote?completed_at:null,raw:{...audit,status,executed_at:writes?completed_at:null,verified_at:promote?completed_at:null,intended_writes:writes,provider_result:{status:result.status,verified:result.verified===true,provider_receipt:result.provider_receipt===true},breaker_effect:breaker}});
  const next={...row.value,revision:crypto.randomUUID(),breaker,phase:promote?'VERIFIED':uncertain?'HUMAN_REVIEW':'WAITING_ELIGIBLE_CASE',mode:promote?'LIVE':row.value.mode,
