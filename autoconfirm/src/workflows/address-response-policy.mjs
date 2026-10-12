@@ -3,7 +3,7 @@ import {addressCapability,configuredAddressMode,configuredAddressBreaker,address
 import {planDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
 import {findVerifiedTemplateDelivery,messageTimestamp,isCustomerInteraction,extractWamid} from './incident-discount-policy.mjs';
 export const ADDRESS_TEMPLATE='dropea_incidencia_direccion_v1';
-export const ADDRESS_POLICY=Object.freeze({id:'ADDRESS_INCORRECT_POLICY_V1',response_policy:'ADDRESS_INCORRECT_RESPONSE_V1',version:'2026-09-26.2',offer_hours:24,return_hours:48,anchor:'REAL_INITIAL_TEMPLATE_SEND',partial_response:'WAIT_DETAILS_THEN_MANUAL_REVIEW',discount_application:'MANUAL_ONLY',owner:'render_incident_automation'});
+export const ADDRESS_POLICY=Object.freeze({id:'ADDRESS_INCORRECT_POLICY_V1',response_policy:'ADDRESS_INCORRECT_RESPONSE_V1',version:'2026-10-12.1',offer_hours:24,return_hours:48,anchor:'REAL_INITIAL_TEMPLATE_SEND',partial_response:'ASK_DETAILS_WITHIN_CUSTOMER_WINDOW',discount_application:'MANUAL_ONLY',owner:'render_incident_automation'});
 export const ADDRESS_STAGES=['SOLUTION','CHANGE_ADDRESS','PICKUP','OFFER','RETURN','DETAILS'];
 const hash=x=>crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
@@ -71,7 +71,12 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
  if(messages.some(m=>m.user_ns&&String(m.user_ns)!==String(incident.chatbyUserNs)))return done({state:'CONVERSATION_MISMATCH'});
  base.read_verified=true;
  const opened=Date.parse(incident.incidenceDate);
- const valid=messages.filter(m=>messageTimestamp(m)>=opened&&messageTimestamp(m)<=now);
+ // Templates are once per order: a replacement issue must retain its real notice.
+ const created=Date.parse(order?.createdAt);
+ const anchor=Number.isFinite(created)?created:opened;
+ if(!Number.isFinite(anchor)||String(order?.orderId||incident.orderId)!==String(incident.orderId))return done({state:'EVIDENCE_UNVERIFIED'});
+ if(messages.some(m=>m.order_id&&String(m.order_id)!==String(incident.orderId)))return done({state:'CONVERSATION_MISMATCH'});
+ const valid=messages.filter(m=>messageTimestamp(m)>=anchor&&messageTimestamp(m)<=now);
  const notices=valid.filter(exactAddressNotice).sort((a,b)=>messageTimestamp(a)-messageTimestamp(b));
  const notice=notices[0];if(!notice)return done({state:'INITIAL_TEMPLATE_NOT_OBSERVED'});
  base.notification_at=iso(messageTimestamp(notice));base.message_id=extractWamid(notice);
@@ -134,7 +139,7 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
          if(!plan.allowed&&plan.reason==='STRUCTURED_ADDRESS_INCOMPLETE'){
            const fallback=planDropeaResolution(issue,'PROVIDE_SOLUTION',{note:solution});
            if(fallback.allowed)return done({...data,provider_plan:fallback});
-           const within=now-Date.parse(base.notification_at)<24*3600000;
+           const within=now-Date.parse(base.last_customer_at)<24*3600000;
            return done({...data,state:within?'WAITING_CUSTOMER_ADDRESS_DETAILS':'WAITING_DETAILS_MANUAL_REVIEW',action:within?'ASK_MISSING_FIELDS':'HUMAN_REVIEW',eligible:within,missing_fields:['state','country'].filter(k=>!address[k]).map(k=>k==='state'?'province':k),provider_plan:plan});
          }
          return done({...data,action:'CHANGE_ADDRESS',eligible:plan.allowed,provider_plan:plan});
@@ -144,7 +149,7 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
      }
      return done(data);
    }
-   if(parsed.kind==='INCOMPLETE_ADDRESS')return done(now-Date.parse(base.notification_at)>=24*3600000
+   if(parsed.kind==='INCOMPLETE_ADDRESS')return done(now-Date.parse(base.last_customer_at)>=24*3600000
      ? {state:'WAITING_DETAILS_MANUAL_REVIEW',action:'HUMAN_REVIEW',eligible:false}
      : {state:'WAITING_CUSTOMER_ADDRESS_DETAILS',action:'ASK_MISSING_FIELDS',eligible:true});
    if(parsed.kind==='RETURN_REQUEST')return done({state:'RETURN_PREPARED',action:'RETURN_TO_ORIGIN',eligible:true});

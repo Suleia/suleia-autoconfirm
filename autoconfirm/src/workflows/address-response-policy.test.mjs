@@ -78,3 +78,15 @@ test('address solution preserves the complete address and call-before-delivery e
 test('missing number and sin numero cannot produce an automatic address solution',()=>{
  for(const text of ['Calle Mayor, 48012 Bilbao','Calle Mayor s/n, 48012 Bilbao'])assert.notEqual(parseCustomerAddress(text).kind,'VALID_ADDRESS');
 });
+
+ test('replacement issue retains same-order notice but rejects prior-order notice',()=>{
+  const i={...incident,incidenceDate:new Date(t+86400000).toISOString()};
+  const o={...order,createdAt:new Date(t-86400000).toISOString()};
+  const x=decide({incident:i,order:o,messages:[notice,reply('Calle Mayor 25, 48012 Bilbao',30)],now:t+31*3600000});
+  assert.equal(x.action,'PROVIDE_ADDRESS_SOLUTION');assert.equal(x.notification_at,new Date(t).toISOString());
+  assert.equal(decide({incident:i,order:{...o,createdAt:new Date(t+1).toISOString()},messages:[notice],now:t+31*3600000}).notification_at,null);
+ });
+ test('late partial reply opens customer window; stale partial cannot send',()=>{
+  assert.equal(d([reply('Calle Mayor 25',49)],50).action,'ASK_MISSING_FIELDS');
+  assert.equal(d([reply('Calle Mayor 25',49)],73).action,'HUMAN_REVIEW');
+ });
