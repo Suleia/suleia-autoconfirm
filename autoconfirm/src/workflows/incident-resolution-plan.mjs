@@ -16,6 +16,14 @@ const executed=p=>p?.steps?.some(s=>['REQUESTED','UNKNOWN','VERIFIED'].includes(
 export function resolutionCandidate({incident,order,issue,messages=[],previous=null,now=Date.now()}) {
   const raw=rawIssue(issue), policy=WORKFLOW_POLICY[incident.incidentType];
   const response=currentCustomerIntent({incident,order,messages,now});
+  // Reuse the address owner's ordered, exact-order parser for split replies.
+  // Never restore an older address after a later question or cancellation.
+  if(incident.incidentType==='address'&&response.status==='RESPONDED'){
+    const d=addressResponseDecision({incident,order,issue,messages,now,previous:incident.addressWorkflow});
+    if(d.action==='PROVIDE_ADDRESS_SOLUTION'&&d.eligible&&d.last_customer_at===response.at&&!response.intents.includes('ASKS_QUESTION')){
+      response.intents=['PROVIDES_ADDRESS'];response.confidence='HIGH';
+    }
+  }
   const t={incident_id:String(incident.incidenceId),order_id:String(incident.orderId),workflow:policy?.workflow||'UNKNOWN',
     issue_state:raw.status||incident.issueStatus||'UNKNOWN',current_policy:policy||null,policy_version:RESOLUTION_POLICY_VERSION,
     customer_contact_status:response.notice_at?'VERIFIED':'NOT_VERIFIED',customer_response_status:response.status,

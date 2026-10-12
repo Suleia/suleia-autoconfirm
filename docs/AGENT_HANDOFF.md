@@ -98,3 +98,19 @@ Absence and address replies can use independently enabled `INCIDENT_E2E_<WORKFLO
 The existing incident scheduler selects a current, unambiguous reply. A durable per-capability reservation permits one real canary, then promotes only after Dropea state verification. An uncertain result or interrupted reservation blocks that capability for reconciliation; it cannot resend. Existing address solutions retain their own verified canary controller and shared action ledger. Explicit client returns use the new response capability; silent returns retain their existing owners and deadlines.
 
 PENDING_DATA is admitted only for the verified GLS Spain missing-data mapping. A street without a type prefix is accepted only when it matches the current order's original street; number, postal code and city remain required. Solutions preserve floor/door and instruct a telephone call before delivery. Later unresolved replies and expired delivery windows block execution. Template ownership and accepted-discount financial processing are unchanged.
+
+## Incident autonomy audit fixes (2026-10-12)
+
+Address notification evidence is scoped to the current order creation date, so
+replacement incidents retain the original once-per-order template. A partial
+address can request missing fields while the latest customer message is within
+24 hours, even if the initial notification is older. The existing persistent
+claim still limits the request to once per incident. Short Chatby acknowledgements
+require an exact outgoing message with a WhatsApp receipt before success is
+recorded. The reply planner reuses the address parser for multi-message address
+completion and preserves later-question/cancellation guards.
+
+These changes do not replace native initial-template ownership or enable the
+paused accepted-discount email workflow. Missing native notifications, expired
+customer delivery dates, unavailable provider options and unresolved provider
+conflicts must be reported rather than presented as successful resolutions.

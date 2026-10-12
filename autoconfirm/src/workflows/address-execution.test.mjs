@@ -42,8 +42,8 @@ test('partial details send has a persistent once-only claim',async()=>{
  assert.equal(first.verified,true);assert.equal(second.verified,false);assert.equal(sent,1);
 });
 
-test('a recent partial reply after T0 plus 24h requires manual review and never a new request',async()=>{
- const d=expected([notice,partial]);assert.equal(d.action,'HUMAN_REVIEW');
+test('a recent partial reply after T0 plus 24h can request missing fields once',async()=>{
+ const d=expected([notice,partial]);assert.equal(d.action,'ASK_MISSING_FIELDS');
  assert.equal(d.initial_milestones,'SUPERSEDED_BY_CUSTOMER_RESPONSE');
  let writes=0;const r=await executeObservedAddress(incident,d,{env,send:async()=>{writes++;}});
  assert.equal(r.verified,false);assert.equal(writes,0);
@@ -88,3 +88,15 @@ test('verified already-solved operation is a non-retryable conflict, never succe
  const r=await executeObservedAddress(incident,expected([notice,full]),deps);
  assert.equal(writes,1);assert.equal(r.status,'PROVIDER_ALREADY_SOLVED');assert.equal(r.verified,false);assert.equal(finished[0].status,'applied_unverified');
 });
+
+ test('short Chatby acknowledgement requires an exact outgoing WhatsApp receipt',async()=>{
+  for(const delivered of [true,false]){
+   const currentNotice={...notice,ts:(now-2*3600000)/1000};const messages=[currentNotice,partial];
+   const d=expected(messages);let content='',sends=0;
+   const r=await executeObservedAddress(incident,d,{env,prior:async()=>({}),readCurrent:async()=>({issue,order}),
+    readMessages:async()=>[...messages,...(sends&&delivered?[{type:'agent',mid:'wamid.receipt',ts:Date.now()/1000,text:content}]:[])],
+    claimMessage:async()=>({acquired:true,persistent:true}),finishMessage:async()=>{},
+    send:async args=>{sends++;content=args.content;return {status:'ok',mid:'short-id'};}});
+   assert.equal(r.verified,delivered);assert.equal(sends,1);
+  }
+ });

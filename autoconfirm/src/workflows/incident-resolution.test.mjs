@@ -131,3 +131,10 @@ test('unknown write stays unknown until exact independent action evidence',()=>{
  const current={order:{orderId:'101',status:'IN_TRANSIT'},issue:{id:'201',order_id:'101',status:'RESOLVED',resolution_status:'RETRY',resolution_data:{date:'2026-10-04',time_window:'morning'}}};
  assert.equal(logisticsFollowUp(t,current,{now}).execution_status,'VERIFIED');current.issue.order_id='102';assert.equal(logisticsFollowUp(t,current,{now}).execution_status,'UNKNOWN');
 });
+
+ test('split address completion prepares solution and later question still blocks',()=>{
+  const i=input('address','Calle Nueva 25');i.messages.push(message('28001 Madrid',4,at+1000));
+  const c=resolutionCandidate(i);assert.equal(c.action,'PROVIDE_SOLUTION');assert.equal(c.twin.human_review_reason,null);
+  assert.match(c.data.note,/Calle Nueva 25/);assert.match(c.data.note,/28001 Madrid/);
+  i.messages.push(message('pero cuando vienen?',5,at+2000));assert.ok(resolutionCandidate(i).twin.human_review_reason);
+ });

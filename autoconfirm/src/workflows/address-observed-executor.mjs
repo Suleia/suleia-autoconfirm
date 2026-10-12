@@ -6,7 +6,8 @@ import {planDropeaResolution,verifyDropeaResolution} from '../clients/dropea-v2-
 import {getIncidentChatMessages,sendTextMessage} from '../clients/chatby.mjs';
 import {claimIncidentAddressResolution,finishIncidentAddressResolution,claimTemplateDelivery,finishTemplateDelivery} from '../db/supabase-store.mjs';
 import {inspectPriorOrderReturn} from './incident-order-return-guard.mjs';
-import {extractWamid} from './incident-discount-policy.mjs';
+import {extractWamid,isCustomerInteraction,messageTimestamp} from './incident-discount-policy.mjs';
+import {addressMessageText} from './address-response-policy.mjs';
 import {createHash} from 'node:crypto';
 import {governedAddressIssue} from './address-capability-policy.mjs';
 
@@ -23,7 +24,7 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
  const key={storeId:'suleia',orderId:incident.orderId,incidenceId:incident.incidenceId};
  if(d.action==='ASK_MISSING_FIELDS'){
    // Reply-window eligibility: only a fresh customer message may trigger text.
-   if(Date.now()-Date.parse(d.last_customer_at)>=24*3600000||Date.now()-Date.parse(d.notification_at)>=24*3600000)return {status:'WAITING_DETAILS_MANUAL_REVIEW',verified:false};
+   if(Date.now()-Date.parse(d.last_customer_at)>=24*3600000)return {status:'WAITING_DETAILS_MANUAL_REVIEW',verified:false};
    const names={street:'calle',number:'número',postal_code:'código postal',city:'localidad',province:'provincia',country:'país (código de dos letras)'};
    const content=`Para completar la dirección de tu pedido, indícanos: ${d.missing_fields.map(k=>names[k]).join(', ')}. Gracias.`;
    const args={...key,templateName:`address_missing_fields_v1:${incident.incidenceId}`,provider:'chatby',chatbyUserNs:incident.chatbyUserNs,customerPhone:''};
@@ -35,7 +36,19 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
      await finishMessage({...args,status:'aborted',attemptedAt:at,raw:{reason:'LATE_CUSTOMER_RESPONSE'}});
      return {status:'SUPERSEDED_BY_CURRENT_RESPONSE',verified:false};
    }
-   try{onWrite();const response=await send({user_ns:incident.chatbyUserNs,content});const mid=extractWamid(response);result={status:mid?'DETAILS_REQUEST_SENT':'EXECUTION_UNKNOWN',verified:!!mid,last_required_field_request_at:mid?at:null,message_id:mid};}
+   try{
+     onWrite();const response=await send({user_ns:incident.chatbyUserNs,content});let mid=extractWamid(response);
+     // Chatby may return a short internal id. Independently verify delivery,
+     // rather than treating that acknowledgement as a WhatsApp receipt.
+     if(!mid){
+       const after=await readMessages(incident.chatbyUserNs).catch(()=>[]);
+       const delivered=after.find(m=>!isCustomerInteraction(m)&&extractWamid(m)&&
+         (!m.user_ns||String(m.user_ns)===String(incident.chatbyUserNs))&&
+         messageTimestamp(m)>=Math.floor(Date.parse(at)/1000)*1000&&addressMessageText(m)===content);
+       mid=extractWamid(delivered);
+     }
+     result={status:mid?'DETAILS_REQUEST_SENT':'EXECUTION_UNKNOWN',verified:!!mid,last_required_field_request_at:mid?at:null,message_id:mid};
+   }
    catch{result={status:'EXECUTION_UNKNOWN',verified:false};}
    await finishMessage({...args,status:result.verified?'sent':'delivery_unverified',attemptedAt:at,sentAt:result.verified?at:null,raw:{workflow:'ADDRESS_INCORRECT',...result}});
    return result;
