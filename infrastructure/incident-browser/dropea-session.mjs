@@ -3,8 +3,8 @@ import fs from 'node:fs/promises';
 // form. Never extract, log, copy or store the password value.
 export async function ensureDropeaSession(page){
  await Promise.any([
-  page.getByText('ID 17431',{exact:true}).waitFor({timeout:15000}),
-  page.getByPlaceholder('example@gmail.com',{exact:true}).waitFor({timeout:15000})
+  page.getByText('ID 17431',{exact:true}).waitFor({timeout:60000}),
+  page.getByPlaceholder('example@gmail.com',{exact:true}).waitFor({timeout:60000})
  ]);
  const url=new URL(page.url());
  if(url.origin!=='https://v2.app.dropea.com')throw Error('DROPEA_ORIGIN_MISMATCH');
