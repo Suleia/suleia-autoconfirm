@@ -86,9 +86,9 @@ if(process.env.INCIDENT_SESSION_PROBE==='true'){
 }
 setInterval(()=>status().catch(()=>{}),30000);
 setInterval(()=>persistSession().catch(()=>{}),15000);
-let observing=false;
+let observing=false,probing=false;
 async function observe(){
- if(observing||closing)return;
+ if(observing||probing||closing)return;
  observing=true;
  try{
   await fs.access('/state/provider-env.json');
@@ -100,7 +100,6 @@ async function observe(){
 }
 void observe();setInterval(observe,15*60*1000);
 // Private, typed, read-only probe queue; no evaluation or arbitrary URLs.
-let probing=false;
 setInterval(async()=>{
  if(probing||observing||closing)return;
  probing=true;
