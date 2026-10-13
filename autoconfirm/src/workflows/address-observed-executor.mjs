@@ -1,4 +1,4 @@
-import {addressResponseDecision,addressStageAllowed} from './address-response-policy.mjs';
+import {addressResponseDecision,addressStageAllowed,addressMessageText} from './address-response-policy.mjs';
 import {readDropeaV2ReturnIssueState} from '../clients/dropea-v2-incidents.mjs';
 import {provideDropeaV2AddressSolution,executeDropeaV2Resolution,readDropeaV2IssueOperation} from '../clients/dropea-v2-issue-actions.mjs';
 import {providerConflictResult} from './incident-provider-conflict.mjs';
@@ -6,9 +6,16 @@ import {planDropeaResolution,verifyDropeaResolution} from '../clients/dropea-v2-
 import {getIncidentChatMessages,sendTextMessage} from '../clients/chatby.mjs';
 import {claimIncidentAddressResolution,finishIncidentAddressResolution,claimTemplateDelivery,finishTemplateDelivery} from '../db/supabase-store.mjs';
 import {inspectPriorOrderReturn} from './incident-order-return-guard.mjs';
-import {extractWamid} from './incident-discount-policy.mjs';
+import {extractWamid,isCustomerInteraction,messageTimestamp} from './incident-discount-policy.mjs';
 import {createHash} from 'node:crypto';
 import {governedAddressIssue} from './address-capability-policy.mjs';
+
+export function findAddressDetailsReadback(messages,{content,userNs,attemptedAt}){
+ const start=Date.parse(attemptedAt),normalize=t=>String(t||'').replace(/\s+/g,' ').trim();
+ const matches=messages.filter(m=>!isCustomerInteraction(m)&&String(m.user_ns)===userNs&&extractWamid(m)&&messageTimestamp(m)>=start&&messageTimestamp(m)<=start+120000&&normalize(addressMessageText(m))===normalize(content));
+ const unique=[...new Map(matches.map(m=>[extractWamid(m),m])).values()];
+ return unique.length===1?extractWamid(unique[0]):null;
+}
 
 export async function executeObservedAddress(incident,expected,{env=process.env,onWrite=()=>{},readCurrent=readDropeaV2ReturnIssueState,readMessages=getIncidentChatMessages,readOperation=readDropeaV2IssueOperation,claim=claimIncidentAddressResolution,finish=finishIncidentAddressResolution,write=provideDropeaV2AddressSolution,writeResolution=executeDropeaV2Resolution,prior=inspectPriorOrderReturn,claimMessage=claimTemplateDelivery,finishMessage=finishTemplateDelivery,send=sendTextMessage}={}){
  if(!addressStageAllowed(expected.action,incident,env))return {status:'SHADOW',verified:false};
@@ -35,8 +42,11 @@ export async function executeObservedAddress(incident,expected,{env=process.env,
      await finishMessage({...args,status:'aborted',attemptedAt:at,raw:{reason:'LATE_CUSTOMER_RESPONSE'}});
      return {status:'SUPERSEDED_BY_CURRENT_RESPONSE',verified:false};
    }
-   try{onWrite();const response=await send({user_ns:incident.chatbyUserNs,content});const mid=extractWamid(response);result={status:mid?'DETAILS_REQUEST_SENT':'EXECUTION_UNKNOWN',verified:!!mid,last_required_field_request_at:mid?at:null,message_id:mid};}
-   catch{result={status:'EXECUTION_UNKNOWN',verified:false};}
+   let mid=null;
+   try{onWrite();const response=await send({user_ns:incident.chatbyUserNs,content});mid=extractWamid(response);}
+   catch{/* A timeout may still have sent the message. Read it back; never resend. */}
+   if(!mid){const after=await readMessages(incident.chatbyUserNs).catch(()=>null);if(after)mid=findAddressDetailsReadback(after,{content,userNs:incident.chatbyUserNs,attemptedAt:at});}
+   result={status:mid?'DETAILS_REQUEST_SENT':'EXECUTION_UNKNOWN',verified:!!mid,last_required_field_request_at:mid?at:null,message_id:mid};
    await finishMessage({...args,status:result.verified?'sent':'delivery_unverified',attemptedAt:at,sentAt:result.verified?at:null,raw:{workflow:'ADDRESS_INCORRECT',...result}});
    return result;
  }

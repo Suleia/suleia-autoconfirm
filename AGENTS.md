@@ -31,6 +31,13 @@ Before proposing or changing anything, read:
   workflow may use an automated browser solely to capture the exact customer's
   offer and acceptance in Chatby, including visible phone, date and time. This
   exception does not authorize unrelated browser actions or template changes.
+  Owner-authorized exception (2026-10-13): the dedicated VPS incident workflow
+  may authenticate its own Chatby/Dropea browser profile, capture the exact
+  customer's retry request with visible phone/date/time, attach that evidence
+  to the matching Dropea retry and verify the saved result. Fresh exact-order
+  checks, a shared persistent action claim and later-message checks are required.
+  Do not copy the operator's desktop sessions. This exception does not authorize
+  template/flow changes, unrelated browser work or unverified incident writes.
 - Never commit, print or request plaintext credentials.
 - Secrets belong only in trusted local secret storage, Render environment
   variables or another approved secret manager.

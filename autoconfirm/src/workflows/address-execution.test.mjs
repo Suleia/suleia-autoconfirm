@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {addressResponseDecision} from './address-response-policy.mjs';
-import {executeObservedAddress} from './address-observed-executor.mjs';
+import {executeObservedAddress,findAddressDetailsReadback} from './address-observed-executor.mjs';
 import {executeIncidentDiscountNoResponseReturn} from './incidents.mjs';
 import {chatbyRepositoryOwnsIncidentTemplate,chatbyNativeOwnsLifecycleTemplate} from '../clients/chatby.mjs';
 const now=Date.now(),t=now-50*3600000;
@@ -14,6 +14,15 @@ const partial=reply('Calle Mayor 25');
 const full=reply('Calle Mayor 25, 48012 Bilbao');
 const env={ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_SOLUTION_MODE:'CANARY',ADDRESS_SOLUTION_CANARY_ISSUE_ID:'11',ADDRESS_DETAILS_MODE:'CANARY',ADDRESS_DETAILS_CANARY_ISSUE_ID:'11'};
 const expected=messages=>addressResponseDecision({incident,order,messages,now});
+
+test('missing send receipt is verified by exact outgoing history, never customer text',()=>{
+ const attemptedAt=new Date(now).toISOString(),content='Para completar la dirección de tu pedido, indícanos: localidad. Gracias.';
+ const message={type:'out',mid:'wamid.sent',ts:(now+1000)/1000,user_ns:'fixture',text:content};
+ const options={content,userNs:'fixture',attemptedAt};
+ assert.equal(findAddressDetailsReadback([message],options),'wamid.sent');
+ for(const change of [{type:'in'},{user_ns:'wrong'},{ts:(now-1000)/1000},{text:'other text'},{mid:'unverified'}])assert.equal(findAddressDetailsReadback([{...message,...change}],options),null);
+ assert.equal(findAddressDetailsReadback([message,{...message,mid:'wamid.second'}],options),null);
+});
 test('initial direction template always belongs to the native sender',()=>{
  assert.equal(chatbyRepositoryOwnsIncidentTemplate('es_ES dropea_incidencia_direccion_v1'),false);
  assert.equal(chatbyNativeOwnsLifecycleTemplate('es_ES dropea_incidencia_direccion_v1'),true);
