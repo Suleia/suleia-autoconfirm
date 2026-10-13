@@ -25,9 +25,9 @@ export function retryEvidencePlan({incident,order,issue,messages,now=Date.now()}
  const selected=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)===Date.parse(intent.at));
  if(selected.length!==1)return deny('MESSAGE_IDENTITY_UNCERTAIN');
  const message=selected[0],text=addressMessageText(message),slot=preciseRetrySlot(text,Date.parse(intent.at));
- if(now-Date.parse(intent.at)<3600000)return deny('REPLY_SETTLING_WINDOW');
  if(!slot.date||!slot.time_window)return deny('DATE_OR_WINDOW_REQUIRED');
  if(slot.date<=madridDate(now))return deny('DATE_NOT_FUTURE');
+ if(now-Date.parse(intent.at)<3600000)return deny('REPLY_SETTLING_WINDOW');
  const phone=String(order.customerPhone||'').replace(/\D/g,'').replace(/^34(?=\d{9}$)/,'');
  if(!/^[67]\d{8}$/.test(phone)||!/^\d+$/.test(String(message.id||'')))return deny('EVIDENCE_IDENTITY_REQUIRED');
  const plan={orderId:String(order.orderId),issueId:String(raw.id),phone,customerName:order.customerName,conversationId:incident.chatbyUserNs,

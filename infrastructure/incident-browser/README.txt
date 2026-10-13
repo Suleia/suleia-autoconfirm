@@ -1,11 +1,12 @@
 Dedicated VPS browser for incident evidence
 
 This component runs and stores its profile on the existing VPS. It does not
-depend on the operator's desktop. It is a session-setup component, not yet an
-enabled incident executor. Browser running does NOT mean incident automation is
-ready. No real provider writes are implemented or enabled by this component.
+depend on the operator's desktop. It defaults to OBSERVE_ONLY. Execution is
+controlled by private /state/retry-control.json: AUTO_CANARY processes at most
+one eligible retry per 15-minute cycle and promotes to AUTO only after API and
+attachment verification. Browser running alone does not prove execution works.
 
-Build with Docker. Run as pwuser with the vendor Playwright seccomp profile,
+Build with Docker. Run as uid/gid 1000 with the vendor Playwright seccomp profile,
 --init, --cap-drop ALL, --security-opt no-new-privileges, --memory 2g,
 --cpus 1.5, --pids-limit 256 and --shm-size 512m. Bind /state and /evidence to
 private directories owned by uid 1000 with mode 0700. Keep evidence out of Git.
@@ -19,7 +20,7 @@ user namespace, without adding host capabilities. /tmp is disposable on restart.
 Health is private /state/health.json. runtime-selftest.png proves only that the
 server can render and capture; it is NOT customer evidence. Site UI detection is
 not account identity verification. Verify the correct accounts before enabling
-any worker. A missing/expired session must block writes and generate an alert.
+any worker. A missing/expired session blocks writes and records a private error.
 
 The dedicated profile additionally saves only Chatby/Dropea session cookies
 and per-tab session storage in /state/dedicated-session.json (0600), because
@@ -34,15 +35,37 @@ Its input requires order, conversation, numeric message id, exact text, time,
 phone and customer name obtained from fresh authorized provider reads. A
 capture succeeds only when phone, date, time and message are all visible.
 Diagnostics and images stay under private /evidence. This queue cannot submit
-an incident. retry-policy.mjs contains the tested policy/execution boundary;
-production UI write adapters and scheduling are still pending validation.
+an incident. retry-policy.mjs contains the tested policy/execution boundary.
+The scheduler reads pending incidents and replies every 15 minutes using scoped
+credentials in /state/provider-env.json. runtime.mjs connects the shared claim,
+capture, UI attachment/save and API plus persisted evidence verification.
+Inspect /state/observer-health.json and /state/retry-observation.json for actual
+cycle results. A running timer alone does not prove that provider reads succeed.
 
-Remaining execution gates: exact current-order conversation, current pending
+Build preparation: export the deployed autoconfirm/src revision into the ignored
+runtime-src directory before docker build; never copy .env or customer data.
+Runtime uses uid/gid 1000 explicitly, including its private configuration path.
+Private capture requests and provider configuration must be readable only by
+that UID. No real actions are performed by probe or observer queues.
+
+Mandatory execution gates: exact current-order conversation, current pending
 incident, future unambiguous date/window, later-message checks, prior-return
 guard, shared Supabase incident claim, actual phone/date/message screenshot,
 evidence attachment, one save, provider readback and persisted evidence.
 Unknown writes retain the claim and require reconciliation. Existing Render
 automations remain the owners of templates, discounts and silent returns.
+
+A screenshot self-test and local file-input test are not a real provider write.
+The first naturally eligible live retry remains the end-to-end canary. Do not
+invent a customer request, replay a resolved case or claim live success before
+that canary is verified. /state/retry-reconcile.json blocks further writes after
+an uncertain execution. Preserve the shared claim while investigating.
+
+Dropea date input must use its calendar; text fill was observed to clear on blur.
+Evidence visibility checks include scroll-container clipping and occlusion.
+Routine Dropea recovery may submit only the already-filled dedicated login form
+for the owner email in /state/dropea-login-identity.json. Passwords are never
+extracted. Missing autofill or account mismatch requires interactive renewal.
 
 Stop/rollback: docker stop suleia-incident-browser. Preserve private profile
 and evidence; do not touch the existing Operations containers.

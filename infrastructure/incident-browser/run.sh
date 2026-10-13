@@ -8,6 +8,19 @@ if docker container inspect suleia-incident-browser >/dev/null 2>&1; then
   echo 'Existing container: inspect before replacing'; exit 1
 fi
 sudo -n install -d -m 700 -o 1000 -g 1000 state evidence
+# A removed container can leave Chromium symlinks naming its old hostname.
+# Never clear them while any running container mounts this dedicated profile.
+running=$(docker ps -q)
+if test -n "$running"; then
+  if docker inspect $running | jq -e --arg source "$PWD/state" 'any(.[].Mounts[]; .Source == $source)' >/dev/null; then
+    echo 'Dedicated profile is mounted by another running container'; exit 1
+  fi
+fi
+for name in SingletonLock SingletonCookie SingletonSocket; do
+  if sudo -n test -L "$PWD/state/profile/$name"; then
+    sudo -n rm -- "$PWD/state/profile/$name"
+  fi
+done
 # The vendor profile gates chroot on a container capability. Chromium performs
 # chroot inside its own user namespace; allow that syscall without granting any
 # host capability or disabling Chromium's sandbox.

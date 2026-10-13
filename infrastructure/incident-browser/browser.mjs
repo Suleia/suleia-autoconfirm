@@ -31,7 +31,12 @@ async function persistSession(){
 }
 let closing=false;
 context.on('close',()=>{if(!closing){console.error('DEDICATED_BROWSER_CLOSED');process.exit(1);}});
-async function stop(){if(closing)return;closing=true;await persistSession().catch(()=>{});await context.close();process.exit(0);}
+async function stop(){
+ if(closing)return;closing=true;
+ await Promise.race([persistSession().catch(()=>{}),new Promise(r=>setTimeout(r,4000))]);
+ await Promise.race([context.close().catch(()=>{}),new Promise(r=>setTimeout(r,10000))]);
+ process.exit(0);
+}
 process.on('SIGTERM',stop);process.on('SIGINT',stop);
 const fixture=await context.newPage();
 await fixture.setContent('<html lang="es"><body><h1>Suleia: navegador del VPS</h1><p>Prueba técnica de captura. Sin datos de clientes.</p></body></html>');
@@ -53,18 +58,21 @@ for(const [,url] of targets){
  }
 }
 async function status(){
+ let control={mode:'OBSERVE_ONLY'};
+ try{control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));}catch{}
+ let reconcile=false;try{await fs.access('/state/retry-reconcile.json');reconcile=true;}catch{}
  const sites={};
  for(const [name,url] of targets){
   const page=context.pages().find(p=>p.url().startsWith(new URL(url).origin));
   let loggedIn=false;
   try{
-   loggedIn=name==='chatby'?await page?.getByPlaceholder('Buscar',{exact:true}).isVisible():
+   loggedIn=name==='chatby'?await page?.getByPlaceholder('Buscar',{exact:true}).filter({visible:true}).isVisible():
     Boolean(page&&!new URL(page.url()).pathname.includes('login')&&(await page.locator('body').innerText()).replace(/\s/g,'').includes('ID17431'));
   }catch{}
   sites[name]={session:loggedIn?'UI_PRESENT_REQUIRES_IDENTITY_VERIFICATION':'LOGIN_OR_VERIFICATION_REQUIRED'};
  }
  const value={at:new Date().toISOString(),browser:'RUNNING',captureSelfTest,
-  executionEnabled:false,mode:'SESSION_SETUP_ONLY',sites};
+  executionEnabled:['AUTO_CANARY','AUTO'].includes(control.mode)&&!reconcile,mode:reconcile?'RECONCILE':control.mode,sites};
  await fs.writeFile('/state/health.tmp',JSON.stringify(value));
  await fs.rename('/state/health.tmp','/state/health.json');
 }
@@ -78,12 +86,33 @@ if(process.env.INCIDENT_SESSION_PROBE==='true'){
 }
 setInterval(()=>status().catch(()=>{}),30000);
 setInterval(()=>persistSession().catch(()=>{}),15000);
+let observing=false;
+async function observe(){
+ if(observing||closing)return;
+ observing=true;
+ try{
+  await fs.access('/state/provider-env.json');
+  const {runVpsRetryCycle}=await import('./runtime.mjs');
+  const result=await runVpsRetryCycle(context);
+  await fs.writeFile('/state/observer-health.json',JSON.stringify(result));
+ }catch{await fs.writeFile('/state/observer-health.json',JSON.stringify({at:new Date().toISOString(),mode:'OBSERVE_ONLY',writes:0,error:'OBSERVATION_UNAVAILABLE'}));}
+ finally{observing=false;}
+}
+void observe();setInterval(observe,15*60*1000);
 // Private, typed, read-only probe queue; no evaluation or arbitrary URLs.
 let probing=false;
 setInterval(async()=>{
- if(probing)return;
+ if(probing||observing||closing)return;
  probing=true;
  try{
+  try{
+   await fs.access('/state/probe-request.json');
+   await fs.rename('/state/probe-request.json','/state/probe-processing.json');
+   const version=(await fs.stat(new URL('./probe.mjs',import.meta.url))).mtimeMs;
+   const {probeSessions}=await import(`./probe.mjs?v=${version}`);
+   const result=await probeSessions(context);
+   await fs.writeFile('/state/session-probe-status.json',JSON.stringify({at:new Date().toISOString(),result}));
+  }catch{}
   const input=JSON.parse(await fs.readFile('/state/capture-request.json','utf8'));
   await fs.rename('/state/capture-request.json','/state/capture-processing.json');
   try{

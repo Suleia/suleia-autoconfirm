@@ -10,16 +10,19 @@ export async function captureRetryEvidence(context,plan){
  let stage='SEARCH';
  try{
   await page.bringToFront();
-  await page.setViewportSize({width:1600,height:1800});
-  const search=page.getByPlaceholder('Buscar',{exact:true});
+  await page.setViewportSize({width:1900,height:2200});
+  const search=page.getByPlaceholder('Buscar',{exact:true}).filter({visible:true});
   await search.waitFor({timeout:30000});
   const all=page.locator('.el-dropdown-menu__item').filter({has:page.locator('.el-icon-tickets')});
   if(await all.count()===1&&await all.isVisible())await all.click();
   await search.fill(plan.phone);
   stage='CONTACT';
-  const contact=page.getByText(plan.customerName,{exact:true});
-  await contact.waitFor({timeout:30000});
-  await contact.click();
+  const alreadyOpen=await page.locator('#msg-'+plan.messageId).count()===1&&(await page.locator('body').innerText()).includes(plan.conversationId);
+  if(!alreadyOpen){
+   const contact=page.getByText(plan.customerName,{exact:true}).filter({visible:true});
+   await contact.waitFor({timeout:30000});
+   await contact.click();
+  }
   stage='MESSAGE';
   const message=page.locator('#msg-'+plan.messageId);
   await message.waitFor({timeout:30000});
@@ -36,7 +39,18 @@ export async function captureRetryEvidence(context,plan){
   if(await dateHeader.count()===1)await dateHeader.evaluate(e=>e.scrollIntoView({block:'nearest',inline:'nearest'}));
   await fs.writeFile('/evidence/capture-date-diagnostic.json',JSON.stringify({expectedDate,dates:await page.locator('.card-date').evaluateAll(es=>es.map(e=>({text:e.textContent,html:e.outerHTML,rect:e.getBoundingClientRect().toJSON()})))}));
   const visible=await page.evaluate(({id,phone,date})=>{
-   const inView=e=>{if(!e)return false;const r=e.getBoundingClientRect();return r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth;};
+   const inView=e=>{
+    if(!e)return false;
+    const r=e.getBoundingClientRect();
+    if(!(r.width>0&&r.height>0&&r.top>=0&&r.bottom<=innerHeight&&r.left>=0&&r.right<=innerWidth))return false;
+    for(let p=e.parentElement;p;p=p.parentElement){
+     const s=getComputedStyle(p),b=p.getBoundingClientRect();
+     if(/auto|scroll|hidden|clip/.test(s.overflowY)&&(r.top<b.top||r.bottom>b.bottom))return false;
+     if(/auto|scroll|hidden|clip/.test(s.overflowX)&&(r.left<b.left||r.right>b.right))return false;
+    }
+    const hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);
+    return Boolean(hit&&(hit===e||e.contains(hit)));
+   };
    const message=document.getElementById('msg-'+id);
    return {message:inView(message),time:inView(message?.querySelector('.text-timestamp')),
     phone:[...document.querySelectorAll('input')].some(e=>e.value===phone&&inView(e)),
