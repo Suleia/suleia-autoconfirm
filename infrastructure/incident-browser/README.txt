@@ -67,6 +67,19 @@ Routine Dropea recovery may submit only the already-filled dedicated login form
 for the owner email in /state/dropea-login-identity.json. Passwords are never
 extracted. Missing autofill or account mismatch requires interactive renewal.
 
+Owner rule added 2026-10-13: a short unconditional desire for the current order,
+without any customer date/window preference, requests next business morning.
+The plan records OWNER_NEXT_BUSINESS_MORNING so this is never presented as a
+customer-selected date. The one-hour wait and all claim/evidence checks remain.
+Partial dates, time constraints, address changes and earlier preferences block
+the default. Existing explicit-date parsing is unchanged.
+The business calendar covers weekends and BOE national/regional holidays for
+2026/2027, using the destination postcode. Unknown regions/years and island or
+Aran mappings block this default. Municipal holidays are not yet in the table;
+the requested retry is subject to carrier availability, not a delivery promise.
+Sources: https://www.boe.es/buscar/doc.php?id=BOE-A-2025-21667
+https://www.boe.es/buscar/doc.php?id=BOE-A-2026-21254
+
 Stop/rollback: docker stop suleia-incident-browser. Preserve private profile
 and evidence; do not touch the existing Operations containers.
 

@@ -23,7 +23,8 @@ export async function runVpsRetryCycle(context){
  const {inspectPriorOrderReturn}=await import('../../autoconfirm/src/workflows/incident-order-return-guard.mjs');
  const {claimTemplateDelivery,finishTemplateDelivery}=await import('../../autoconfirm/src/db/supabase-store.mjs');
  const report=JSON.parse(await fs.readFile('/state/retry-observation.json','utf8'));
- const candidates=report.cases.filter(c=>c.eligible).slice(0,1);
+ const candidates=report.cases.filter(c=>c.eligible&&
+  (control.mode!=='AUTO_CANARY'||!control.canaryOrderId||String(c.orderId)===String(control.canaryOrderId))).slice(0,1);
  const results=[];
  for(const candidate of candidates){
   let plan=candidate.plan,attemptedAt=new Date().toISOString(),saveAttempted=false;
@@ -45,7 +46,7 @@ export async function runVpsRetryCycle(context){
     revalidate,capture:p=>captureRetryEvidence(context,p),claim:p=>claimTemplateDelivery(claimArgs(p)),
     finish:async(status,p)=>{
      const result=await finishTemplateDelivery({...claimArgs(p),status,attemptedAt,sentAt:status==='verified'?new Date().toISOString():null,
-      raw:{owner:'vps_retry_evidence',reason:'EXACT_ORDER_FUTURE_RETRY_WITH_SCREENSHOT',orderId:p.orderId,issueId:p.issueId,date:p.date,time_window:p.time_window,at:new Date().toISOString(),status}});
+      raw:{owner:'vps_retry_evidence',reason:'EXACT_ORDER_FUTURE_RETRY_WITH_SCREENSHOT',scheduleSource:p.scheduleSource,orderId:p.orderId,issueId:p.issueId,date:p.date,time_window:p.time_window,at:new Date().toISOString(),status}});
      if(result?.skipped)throw Error('PERSISTENT_LEDGER_REQUIRED');
     },
     write:async(p,proof)=>{

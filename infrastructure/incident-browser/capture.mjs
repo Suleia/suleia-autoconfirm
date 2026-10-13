@@ -19,7 +19,10 @@ export async function captureRetryEvidence(context,plan){
   stage='CONTACT';
   const alreadyOpen=await page.locator('#msg-'+plan.messageId).count()===1&&(await page.locator('body').innerText()).includes(plan.conversationId);
   if(!alreadyOpen){
-   const contact=page.getByText(plan.customerName,{exact:true}).filter({visible:true});
+   // Chatby capitalizes accented name fragments differently from Dropea.
+   // Ignore case only; retain exact name and all post-click identity checks.
+   const escaped=plan.customerName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+   const contact=page.getByText(new RegExp('^'+escaped+'$','iu')).filter({visible:true});
    await contact.waitFor({timeout:30000});
    await contact.click();
   }

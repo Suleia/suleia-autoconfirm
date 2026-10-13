@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {preciseRetrySlot,executeEvidenceRetry,retryEvidencePlan} from './retry-policy.mjs';
+import {nextBusinessMorning} from './business-day.mjs';
 const at=Date.parse('2026-10-13T13:02:09Z');
 test('owner example anchors Thursday to the message and preserves morning',()=>{
  assert.deepEqual(preciseRetrySlot('De 11 :30 ha 13:30 jueves si puede ser gracias',at),{date:'2026-10-15',time_window:'morning'});
@@ -47,4 +48,26 @@ test('already resolved cases, unsettled replies and elapsed dates cannot execute
  const i=caseInput();i.issue.status='RESOLVED';assert.equal(retryEvidencePlan(i).eligible,false);
  const j=caseInput();j.now=at+500;assert.equal(retryEvidencePlan(j).reason,'REPLY_SETTLING_WINDOW');
  const k=caseInput();k.now=Date.parse('2026-10-16T10:00:00Z');assert.equal(retryEvidencePlan(k).eligible,false);
+});
+
+function defaultInput(){const i=caseInput();i.messages[0].text='Yo si lo quiero';i.order.raw={shipping_address:{country:'ES',postal_code:'30420'}};return i;}
+test('owner default schedules plain desire for next business morning',()=>{
+ const p=retryEvidencePlan(defaultInput());assert.equal(p.eligible,true);assert.equal(p.date,'2026-10-14');assert.equal(p.time_window,'morning');assert.equal(p.scheduleSource,'OWNER_NEXT_BUSINESS_MORNING');
+ const i=defaultInput();i.now=at+100;assert.equal(retryEvidencePlan(i).reason,'REPLY_SETTLING_WINDOW');
+});
+test('default never replaces partial, precise, conditional or older preferences',()=>{
+ for(const text of ['Lo quiero el jueves','Lo quiero por la tarde','Lo quiero de 17:30 a 20:30','Lo quiero si me llaman','Lo quiero con descuento','Lo quiero en otra dirección']){
+  const i=defaultInput();i.messages[0].text=text;assert.equal(retryEvidencePlan(i).eligible,false,text);
+ }
+ const i=defaultInput();i.messages.unshift({id:699999,direction:'incoming',created_at:new Date(at-1000).toISOString(),text:'El jueves por la tarde'});
+ assert.equal(retryEvidencePlan(i).reason,'PRIOR_CUSTOMER_PREFERENCE_REQUIRES_REVIEW');
+});
+test('business-day default skips weekends and national/regional holidays',()=>{
+ const order=defaultInput().order;
+ assert.equal(nextBusinessMorning(Date.parse('2026-10-09T18:00:00Z'),order).date,'2026-10-13');
+ assert.equal(nextBusinessMorning(Date.parse('2026-12-04T18:00:00Z'),order).date,'2026-12-09');
+ assert.equal(nextBusinessMorning(Date.parse('2026-12-31T18:00:00Z'),order).date,'2027-01-04');
+ assert.equal(nextBusinessMorning(Date.parse('2026-06-08T18:00:00Z'),order).date,'2026-06-10');
+ assert.equal(nextBusinessMorning(Date.parse('2027-12-31T18:00:00Z'),order),null);
+ assert.equal(nextBusinessMorning(at,{}),null);
 });

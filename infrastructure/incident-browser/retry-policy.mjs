@@ -1,6 +1,13 @@
 import {currentCustomerIntent,deliverySlot,madridDate,resolutionHash} from '../../autoconfirm/src/workflows/incident-intent-v2.mjs';
 import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
 import {isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
+import {nextBusinessMorning} from './business-day.mjs';
+
+const fold=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+// Only unconditional short confirmations qualify for the owner's default.
+// A missing parser result is never permission to discard a requested schedule.
+const plainDesire=text=>/^(?:(?:yo|si|pues|claro)[, ]+)*(?:lo quiero|quiero (?:el|mi) pedido|quiero recibirlo)(?:[, ]+(?:por favor|gracias))?[.! ]*$/.test(fold(text));
+const preference=text=>/\d|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|domingo|manana|tarde|noche|hoy|dia|hora|semana|mes|antes|despues|hasta|partir|direccion|calle|avenida|portal|piso|puerta|agencia|recoger|llamar|telefono)\b/.test(fold(text));
 
 export function preciseRetrySlot(text,at){
  const matches=[...text.matchAll(/\bde\s+(\d{1,2})\s*:\s*(\d{2})\s*(?:a|ha|hasta|-)\s*(\d{1,2})\s*:\s*(\d{2})\b/gi)];
@@ -24,14 +31,23 @@ export function retryEvidencePlan({incident,order,issue,messages,now=Date.now()}
  if(intent.status!=='RESPONDED'||intent.confidence!=='HIGH'||intent.intents.some(x=>!['PROVIDES_DATE','REQUESTS_RETRY','WANTS_ORDER','PROVIDES_TIME_WINDOW'].includes(x)))return deny('REPLY_NOT_UNAMBIGUOUS_RETRY');
  const selected=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)===Date.parse(intent.at));
  if(selected.length!==1)return deny('MESSAGE_IDENTITY_UNCERTAIN');
- const message=selected[0],text=addressMessageText(message),slot=preciseRetrySlot(text,Date.parse(intent.at));
+ const message=selected[0],text=addressMessageText(message);
+ let slot=preciseRetrySlot(text,Date.parse(intent.at)),scheduleSource='CUSTOMER_EXPLICIT';
+ if(!slot.date&&!slot.time_window&&intent.intents.length===1&&intent.intents[0]==='WANTS_ORDER'&&plainDesire(text)){
+  const anchor=Date.parse(intent.notice_at||incident.incidenceDate);
+  const relevant=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)>=anchor);
+  if(relevant.some(m=>preference(addressMessageText(m))))return deny('PRIOR_CUSTOMER_PREFERENCE_REQUIRES_REVIEW');
+  slot=nextBusinessMorning(now,order);
+  if(!slot)return deny('BUSINESS_CALENDAR_REQUIRED');
+  scheduleSource='OWNER_NEXT_BUSINESS_MORNING';
+ }
  if(!slot.date||!slot.time_window)return deny('DATE_OR_WINDOW_REQUIRED');
  if(slot.date<=madridDate(now))return deny('DATE_NOT_FUTURE');
  if(now-Date.parse(intent.at)<3600000)return deny('REPLY_SETTLING_WINDOW');
  const phone=String(order.customerPhone||'').replace(/\D/g,'').replace(/^34(?=\d{9}$)/,'');
  if(!/^[67]\d{8}$/.test(phone)||!/^\d+$/.test(String(message.id||'')))return deny('EVIDENCE_IDENTITY_REQUIRED');
  const plan={orderId:String(order.orderId),issueId:String(raw.id),phone,customerName:order.customerName,conversationId:incident.chatbyUserNs,
-  messageId:String(message.id),messageAt:intent.at,text,date:slot.date,time_window:slot.time_window};
+  messageId:String(message.id),messageAt:intent.at,text,date:slot.date,time_window:slot.time_window,scheduleSource};
  return {eligible:true,...plan,hash:resolutionHash(plan)};
 }
 
