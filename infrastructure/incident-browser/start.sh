@@ -10,4 +10,4 @@ openbox >/tmp/openbox.log 2>&1 &
 # port MUST be published on host loopback and accessed through authenticated SSH.
 x11vnc -display :99 -localhost -forever -shared -nopw -rfbport 5900 -o /tmp/vnc.log &
 websockify --web=/usr/share/novnc 6080 localhost:5900 >/tmp/websockify.log 2>&1 &
-node /app/browser.mjs
+exec node /app/browser.mjs

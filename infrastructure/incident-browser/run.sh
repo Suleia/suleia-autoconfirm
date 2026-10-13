@@ -18,6 +18,8 @@ docker run -d --name suleia-incident-browser --restart unless-stopped --init \
  --security-opt no-new-privileges --security-opt seccomp="$PWD/seccomp-runtime.json" \
  --memory 2g --cpus 1.5 --pids-limit 256 --shm-size 512m \
  --tmpfs /tmp:rw,mode=1777,size=256m \
+ -e INCIDENT_SESSION_PROBE=true \
+ -e INCIDENT_PROBE_ORDER_ID \
  -p 127.0.0.1:16080:6080 \
  -v "$PWD/state:/state" -v "$PWD/evidence:/evidence" \
  --log-opt max-size=5m --log-opt max-file=2 \
