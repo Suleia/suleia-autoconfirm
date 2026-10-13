@@ -8,11 +8,16 @@ if docker container inspect suleia-incident-browser >/dev/null 2>&1; then
   echo 'Existing container: inspect before replacing'; exit 1
 fi
 sudo -n install -d -m 700 -o 1000 -g 1000 state evidence
+# The vendor profile gates chroot on a container capability. Chromium performs
+# chroot inside its own user namespace; allow that syscall without granting any
+# host capability or disabling Chromium's sandbox.
+jq '.syscalls += [{names:["chroot"],action:"SCMP_ACT_ALLOW",args:[]}]' seccomp_profile.json > seccomp-runtime.json
 docker network inspect suleia-incident-browser >/dev/null 2>&1 || docker network create suleia-incident-browser >/dev/null
 docker run -d --name suleia-incident-browser --restart unless-stopped --init \
  --network suleia-incident-browser --user 1000:1000 --cap-drop ALL \
- --security-opt no-new-privileges --security-opt seccomp="$PWD/seccomp_profile.json" \
+ --security-opt no-new-privileges --security-opt seccomp="$PWD/seccomp-runtime.json" \
  --memory 2g --cpus 1.5 --pids-limit 256 --shm-size 512m \
+ --tmpfs /tmp:rw,mode=1777,size=256m \
  -p 127.0.0.1:16080:6080 \
  -v "$PWD/state:/state" -v "$PWD/evidence:/evidence" \
  --log-opt max-size=5m --log-opt max-file=2 \

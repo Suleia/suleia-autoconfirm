@@ -13,6 +13,8 @@ Use a dedicated Docker network. Publish only 127.0.0.1:16080:6080; never expose
 VNC, CDP, Playwright or noVNC publicly. Access the desktop via authenticated SSH
 local port forwarding. Close the tunnel after login. Do not copy general browser
 cookies or session files. Authenticate the dedicated profile interactively.
+The launcher adds chroot to the vendor syscall allowlist for Chromium's private
+user namespace, without adding host capabilities. /tmp is disposable on restart.
 
 Health is private /state/health.json. runtime-selftest.png proves only that the
 server can render and capture; it is NOT customer evidence. Site UI detection is
