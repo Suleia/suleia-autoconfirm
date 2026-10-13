@@ -15,7 +15,7 @@ function exactAddressNotice(m){
  return slug===ADDRESS_TEMPLATE && extractWamid(m) && !isCustomerInteraction(m);
 }
 
-export function parseCustomerAddress(text,previous=null,{originalStreet=null}={}){
+export function parseCustomerAddress(text,previous=null,{originalStreet=null,originalCity=null}={}){
  const literal=String(text||'').replace(/[\u0000-\u001f]/g,' ').trim(),n=norm(literal);
  const base={kind:'OTHER_RESPONSE',street:null,number:null,floor:null,door:null,postal_code:null,city:null,province:null,country:null,reference_notes:null,missing_fields:[]};
  if(!n)return base;
@@ -42,15 +42,24 @@ export function parseCustomerAddress(text,previous=null,{originalStreet=null}={}
  const cp=postal[0];
  const province=literal.match(/\bprovincia\s*(?:de|:)?\s*([\p{L}][\p{L}\s'-]*?)(?=\s+pa[ií]s\b|[,;.]|$)/iu)?.[1]?.trim()||null;
  const country=literal.match(/\bpa[ií]s\s*:?\s*(ES|España)\b/iu)?.[1]||(/^(?:ES|España)$/iu.test(literal)?literal:null);
- const city=cp?literal.slice(cp.index+5).replace(/^[\s,;-]+/,'').split(/[,;.]|\b(?:provincia|pa[ií]s|portal|referencia|al lado|llamar)\b/i)[0].trim().replace(/\s+España$/iu,''):null;
+ let city=cp?literal.slice(cp.index+5).replace(/^[\s,;-]+/,'').split(/[,;.]|\b(?:provincia|pa[ií]s|portal|referencia|al lado|llamar)\b/i)[0].trim().replace(/\s+España$/iu,''):null;
+ // Only recover a city before a separately sent postcode if the customer
+ // literally wrote the original locality at the end of an address. Never fill
+ // it from the order alone, and never treat part of a street name as the city.
+ if(!city&&street&&originalCity){
+  const tail=literal.slice(street.index+street[0].length).trim().replace(/[.,;]+$/,'');
+  const escaped=String(originalCity).trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const match=tail.match(new RegExp('(?:^|[ ,;])('+escaped+')$','iu'));
+  if(match)city=match[1];
+ }
  const unit=street?literal.slice(street.index+street[0].length,cp?.index).match(/^\s*[,;]?\s*(\d{1,2})\s*-\s*([A-Za-z0-9]{1,3})(?=[\s,.;]|$)/):null;
  const fields={...base,province,country:country?'ES':null,street:street?street[0].slice(0,-street[2].length).trim().replace(/,$/,''):null,number:street?.[2]||null,
-   floor:literal.match(/\bpiso\s+(\d+[ºª]?)/i)?.[1]||literal.match(/,\s*(\d{1,2})[ºª]?[A-Za-z]\b/)?.[1]||unit?.[1]||null,door:literal.match(/\bpuerta\s+([A-Za-z0-9]+)/i)?.[1]||literal.match(/,\s*\d{1,2}[ºª]?([A-Za-z])\b/)?.[1]||unit?.[2]||null,
+   floor:literal.match(/\bpiso\s+(\d+[ºª]?)/i)?.[1]||({primer:'1',primero:'1',primera:'1',segundo:'2',segunda:'2',tercer:'3',tercero:'3',tercera:'3'}[literal.match(/\b(primer[oa]?|segund[oa]|tercer[oa]?)\s+piso\b/i)?.[1]?.toLowerCase()])||literal.match(/,\s*(\d{1,2})[ºª]?[A-Za-z]\b/)?.[1]||unit?.[1]||null,door:literal.match(/\bpuerta\s+([A-Za-z0-9]+)/i)?.[1]||literal.match(/,\s*\d{1,2}[ºª]?([A-Za-z])\b/)?.[1]||unit?.[2]||null,
    postal_code:cp?.[1]||null,city:city&&/^[\p{L}][\p{L}\s'-]+$/u.test(city)?city:null,
-   reference_notes:literal.match(/\b(portal azul|segunda puerta|al lado de[^.;]+)/i)?.[0]||null};
+   reference_notes:[literal.match(/\bportal\s+\d{1,4}[A-Za-z]?\b/i)?.[0],literal.match(/\b(portal azul|segunda puerta|al lado de[^.;]+)/i)?.[0]].filter(Boolean).join(', ')||null};
  // Only merge a later completion with a single unambiguous partial address;
  // never import absent fields from an unrelated order or an older full address.
- if(!street&&previous?.kind==='INCOMPLETE_ADDRESS'&&cp){fields.street=previous.street;fields.number=previous.number;fields.floor=previous.floor;fields.door=previous.door;fields.reference_notes=previous.reference_notes;}
+ if(!street&&previous?.kind==='INCOMPLETE_ADDRESS'&&cp){fields.street=previous.street;fields.number=previous.number;fields.floor=previous.floor;fields.door=previous.door;fields.reference_notes=previous.reference_notes;fields.city=fields.city||previous.city;fields.province=fields.province||previous.province;fields.country=fields.country||previous.country;}
  if((province||country)&&!street&&!cp&&['VALID_ADDRESS','INCOMPLETE_ADDRESS'].includes(previous?.kind))return {...previous,...(province?{province}:{}),...(country?{country:'ES'}:{})};
  if(street&&!cp&&previous?.kind==='INCOMPLETE_ADDRESS'&&!previous.street){fields.postal_code=previous.postal_code;fields.city=previous.city;fields.province=fields.province||previous.province;fields.country=fields.country||previous.country;}
  if(!fields.street&&!fields.postal_code&&!/\b(calle|avenida|direcci[oó]n|piso|puerta)\b/i.test(literal))return base;
@@ -96,7 +105,7 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
    // A greeting does not erase a previously supplied address or return intent.
    if(!neutral(t)){
      const raw=order?.raw?.shipping_address||{};
-     const next=parseCustomerAddress(t,parsed,{originalStreet:raw.address_line_1||raw.address||raw.address1});
+     const next=parseCustomerAddress(t,parsed,{originalStreet:raw.address_line_1||raw.address||raw.address1,originalCity:raw.city});
      parsed=next;
    }
  }

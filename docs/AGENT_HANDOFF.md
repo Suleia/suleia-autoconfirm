@@ -98,3 +98,21 @@ Absence and address replies can use independently enabled `INCIDENT_E2E_<WORKFLO
 The existing incident scheduler selects a current, unambiguous reply. A durable per-capability reservation permits one real canary, then promotes only after Dropea state verification. An uncertain result or interrupted reservation blocks that capability for reconciliation; it cannot resend. Existing address solutions retain their own verified canary controller and shared action ledger. Explicit client returns use the new response capability; silent returns retain their existing owners and deadlines.
 
 PENDING_DATA is admitted only for the verified GLS Spain missing-data mapping. A street without a type prefix is accepted only when it matches the current order's original street; number, postal code and city remain required. Solutions preserve floor/door and instruct a telephone call before delivery. Later unresolved replies and expired delivery windows block execution. Template ownership and accepted-discount financial processing are unchanged.
+
+## Independent evidence-backed retries (2026-10-13)
+
+The dedicated VPS worker owns screenshot-backed retries for absent/rejected
+incidents. It runs every 15 minutes, shares the persistent incident claim and
+requires exact-order replies, a one-hour settling window and fresh verification.
+The owner authorized next business morning for an unconditional desire for the
+order without any date/window preference. Explicit or earlier preferences take
+precedence. A live retry with attached proof has been verified and the worker is
+AUTO. Readiness, cycle history, durable pre-save journal and read-only outcome
+feedback are private server state; vps_retry_feedback_v1 summarizes outcomes in
+Supabase. Unknown writes are reconciled without resending.
+
+Render retains address, template, discount and silent-return ownership. Address
+details receipts can be reconciled from the exact outgoing Chatby WAMID and
+attempt window without sending another message. A separately supplied postcode
+retains a city only if the customer explicitly supplied it; portal/floor/door
+must be preserved. Feedback does not automatically rewrite business rules.
