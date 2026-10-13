@@ -1,5 +1,6 @@
 import { absentDiscountReturnDecision } from './absent-discount-return.mjs';
 import {executeObservedAddress} from './address-observed-executor.mjs';
+import {recoverReconciledAddressDetails} from './address-reconciled-details.mjs';
 import {runIncidentResolutionCycle} from './incident-resolution-runtime.mjs';
 import {refreshAddressCapabilities,runAddressCapability,addressCapabilitiesSnapshot} from './address-capabilities.mjs';
 import {addressExcluded} from './address-capability-policy.mjs';
@@ -3080,6 +3081,7 @@ async function performPendingIncidentSync({
 
 async function processObservedAddress(item,previous=null){
  try {
+  previous=await recoverReconciledAddressDetails(item.incident,previous,getTemplateDelivery);
   const decision=addressResponseDecision({incident:item.incident,messages:item.messages,order:item.order,issue:item.issue,previous});
   let execution={status:'SHADOW',verified:false};
   const priorExecution=previous?.last_execution||previous?.execution;
