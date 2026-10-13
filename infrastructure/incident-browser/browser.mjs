@@ -1,5 +1,6 @@
 import {chromium} from 'playwright-core';
 import fs from 'node:fs/promises';
+import {runtimeReadiness} from './runtime-state.mjs';
 
 // Dedicated server profile. Never import cookies from the operator's browser.
 const context=await chromium.launchPersistentContext('/state/profile',{
@@ -19,7 +20,7 @@ try{
   if(saved&&sessionStorage.length===0)for(const [k,v] of Object.entries(saved))sessionStorage.setItem(k,v);
  },Object.fromEntries(Object.entries(saved.sessions||{}).filter(([origin])=>sessionOrigins.has(origin))));
 }catch{}
-async function persistSession(){
+async function writeSession(){
  const sessions={};
  for(const page of context.pages()){
   const origin=new URL(page.url()).origin;
@@ -28,6 +29,11 @@ async function persistSession(){
  const cookies=(await context.cookies()).filter(c=>/(^|\.)(chatby\.io|dropea\.com)$/.test(c.domain.replace(/^\./,'')));
  await fs.writeFile('/state/dedicated-session.tmp',JSON.stringify({cookies,sessions}),{mode:0o600});
  await fs.rename('/state/dedicated-session.tmp','/state/dedicated-session.json');
+}
+let persisting;
+function persistSession(){
+ if(!persisting)persisting=writeSession().finally(()=>{persisting=null;});
+ return persisting;
 }
 let closing=false;
 context.on('close',()=>{if(!closing){console.error('DEDICATED_BROWSER_CLOSED');process.exit(1);}});
@@ -71,8 +77,9 @@ async function status(){
   }catch{}
   sites[name]={session:loggedIn?'UI_PRESENT_REQUIRES_IDENTITY_VERIFICATION':'LOGIN_OR_VERIFICATION_REQUIRED'};
  }
+ let cycle=null;try{cycle=JSON.parse(await fs.readFile('/state/observer-health.json','utf8'));}catch{}
  const value={at:new Date().toISOString(),browser:'RUNNING',captureSelfTest,
-  executionEnabled:['AUTO_CANARY','AUTO'].includes(control.mode)&&!reconcile,mode:reconcile?'RECONCILE':control.mode,sites};
+  ...runtimeReadiness({control,sites,cycle,reconcile}),mode:reconcile?'RECONCILE':control.mode,sites};
  await fs.writeFile('/state/health.tmp',JSON.stringify(value));
  await fs.rename('/state/health.tmp','/state/health.json');
 }
@@ -90,13 +97,25 @@ let observing=false,probing=false;
 async function observe(){
  if(observing||probing||closing)return;
  observing=true;
+ const startedAt=new Date().toISOString();
+ // A stuck cycle must not silently disable every later timer tick. The durable
+ // pre-save journal makes a restart reconcile rather than replay a write.
+ const watchdog=setTimeout(()=>{console.error('CYCLE_WATCHDOG_RESTART');void stop();},25*60000);
  try{
+  await fs.writeFile('/state/cycle-progress.json',JSON.stringify({startedAt,state:'RUNNING'}),{mode:0o600});
   await fs.access('/state/provider-env.json');
   const {runVpsRetryCycle}=await import('./runtime.mjs');
   const result=await runVpsRetryCycle(context);
+  try{result.addressDetailsReconciliation=await (await import('./reconcile-details.mjs')).reconcileAddressDetails();}
+  catch{result.addressDetailsReconciliationError='RECEIPT_RECONCILIATION_UNAVAILABLE';}
+  try{result.feedback=await (await import('./feedback.mjs')).followRetryOutcomes();}
+  catch{result.feedbackError='FOLLOWUP_UNAVAILABLE';}
+  result.startedAt=startedAt;result.completedAt=new Date().toISOString();
   await fs.writeFile('/state/observer-health.json',JSON.stringify(result));
- }catch{await fs.writeFile('/state/observer-health.json',JSON.stringify({at:new Date().toISOString(),mode:'OBSERVE_ONLY',writes:0,error:'OBSERVATION_UNAVAILABLE'}));}
- finally{observing=false;}
+  let history=[];try{history=JSON.parse(await fs.readFile('/state/cycle-history.json','utf8'));}catch{}
+  history.push(result);await fs.writeFile('/state/cycle-history.json',JSON.stringify(history.slice(-200)),{mode:0o600});
+ }catch{await fs.writeFile('/state/observer-health.json',JSON.stringify({at:new Date().toISOString(),startedAt,completedAt:new Date().toISOString(),mode:'OBSERVE_ONLY',writes:0,error:'OBSERVATION_UNAVAILABLE'}));}
+ finally{clearTimeout(watchdog);observing=false;await fs.writeFile('/state/cycle-progress.json',JSON.stringify({startedAt,completedAt:new Date().toISOString(),state:'IDLE'}),{mode:0o600});}
 }
 void observe();setInterval(observe,15*60*1000);
 // Private, typed, read-only probe queue; no evaluation or arbitrary URLs.

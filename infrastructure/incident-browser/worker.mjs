@@ -3,6 +3,12 @@ import {retryEvidencePlan} from './retry-policy.mjs';
 
 // This stage observes independently, without a provider write adapter.
 export async function loadProviderEnv(){
+ // Bound otherwise unbounded Supabase reads/writes. Never retry mutations here.
+ if(!globalThis.__suleiaBoundedFetch){
+  const baseFetch=globalThis.fetch;
+  globalThis.fetch=(input,options={})=>baseFetch(input,{...options,signal:options.signal?AbortSignal.any([options.signal,AbortSignal.timeout(45000)]):AbortSignal.timeout(45000)});
+  globalThis.__suleiaBoundedFetch=true;
+ }
  process.env.STORE_CONFIG_PATH='/state/worker-stores.json';
  const credentials=JSON.parse(await fs.readFile('/state/provider-env.json','utf8'));
  const allowed=new Set(['SUPABASE_ENABLED','SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_SCHEMA','CHATBY_TOKEN','CHATBY_BASE_URL','DROPEA_STORES_CONFIG']);
@@ -38,7 +44,7 @@ export async function observeRetryCandidates(){
     else if(prior.verified||prior.blocked)plan={eligible:false,reason:'PRIOR_RETURN_GUARD'};
     else if(await getTemplateDelivery({storeId:'suleia',orderId:plan.orderId,templateName:`incident_resolution_v1:${plan.issueId}`}))plan={eligible:false,reason:'EXISTING_ACTION_CLAIM'};
    }
-   report.cases.push({...item,eligible:plan.eligible,reason:plan.reason||'UI_EXECUTOR_NOT_ENABLED',plan:plan.eligible?plan:undefined});
+   report.cases.push({...item,eligible:plan.eligible,reason:plan.reason||'READY_FOR_EXECUTION',plan:plan.eligible?plan:undefined});
   }catch{report.cases.push({...item,reason:'FRESH_READ_FAILED'});}
  }
  await fs.writeFile('/state/retry-observation.tmp',JSON.stringify(report),{mode:0o600});

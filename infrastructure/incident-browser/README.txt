@@ -83,6 +83,21 @@ https://www.boe.es/buscar/doc.php?id=BOE-A-2026-21254
 Stop/rollback: docker stop suleia-incident-browser. Preserve private profile
 and evidence; do not touch the existing Operations containers.
 
+Operational audit hardening (2026-10-13): readiness now requires fresh successful
+cycles and visible sessions; cycle history distinguishes configuration from
+actual execution. Network calls have bounded timeouts, session persistence is
+serialized and a stuck cycle restarts after 25 minutes. A durable pre-save
+journal survives restart. Recovery only reads Dropea and verifies the saved
+evidence; it never submits an uncertain retry again. Errors before Save retain
+any acquired case claim but do not stop unrelated incidents.
+
+Each cycle follows verified retries through delivery/return/reopening and saves
+private feedback locally and in Supabase vps_retry_feedback_v1. Feedback does not
+train a model or rewrite business rules; improvements require reviewed tests.
+The Render DETAILS capability can be reconciled without resending when its
+exact outgoing text, conversation, attempt window and provider WAMID match.
+The message/action ledgers and capability state use compare-and-swap updates.
+
 Official references:
 https://playwright.dev/docs/docker
 https://playwright.dev/docs/auth
