@@ -2,6 +2,7 @@ import path from 'node:path';
 import { getAppConfig } from '../config.mjs';
 import { ensureDir, readJson, writeJson } from '../lib/files.mjs';
 import { insertRows, isSupabaseEnabled, selectRows, supabaseStatus, updateRows, upsertRows } from '../clients/supabase.mjs';
+import { loadStartupAppState } from './startup-state.mjs';
 
 const config = getAppConfig();
 
@@ -953,7 +954,7 @@ export async function hydrateLocalStateFromSupabase() {
 
   const [orderRows, stateRows, feedbackRows, memoryRows] = await Promise.all([
     selectRows('orders', { query: { order: 'updated_at.asc' }, limit: 5000 }),
-    selectRows('app_state', { limit: 20 }),
+    loadStartupAppState(selectRows),
     selectRows('agent_feedback', { query: { order: 'created_at.asc' }, limit: 5000 }),
     selectRows('agent_memory_events', { query: { order: 'created_at.asc' }, limit: 5000 })
   ]);
