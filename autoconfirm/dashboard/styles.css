@@ -2958,6 +2958,9 @@ th {
   background: rgba(248, 240, 218, .62);
 }
 
+.incident-activity-cell { min-width: 255px; max-width: 340px; }
+.incident-activity-cell blockquote { margin: 6px 0; white-space: normal; overflow-wrap: anywhere; font-weight: 600; }
+
 .incident-customer-activity.has-activity {
   border-color: rgba(31, 171, 117, .28);
   background: linear-gradient(135deg, rgba(205, 248, 236, .9), rgba(255, 255, 255, .82));

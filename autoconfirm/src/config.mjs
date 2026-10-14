@@ -158,6 +158,7 @@ export function getAppConfig() {
     chatbyBaseUrl: process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api',
     whatsappTemplateName: process.env.WHATSAPP_TEMPLATE_NAME || null,
     preparedWhatsappTemplateName: process.env.PREPARED_WHATSAPP_TEMPLATE_NAME || 'es_ES dropea_pedido_preparado_v1',
+    incidentSyncOwner: process.env.INCIDENT_SYNC_OWNER === 'vps' ? 'vps' : 'render',
     enableIncidentDiscountTemplate: bool(process.env.ENABLE_INCIDENT_DISCOUNT_TEMPLATE, false),
     incidentDiscountRealEnabled: bool(process.env.INCIDENT_DISCOUNT_REAL_ENABLED, false),
     incidentDiscountIntervalMinutes: int(process.env.INCIDENT_DISCOUNT_INTERVAL_MINUTES, 15),

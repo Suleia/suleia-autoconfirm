@@ -102,7 +102,7 @@ PENDING_DATA is admitted only for the verified GLS Spain missing-data mapping. A
 ## Independent evidence-backed retries (2026-10-13)
 
 The dedicated VPS worker owns screenshot-backed retries for absent/rejected
-incidents. It runs every 15 minutes, shares the persistent incident claim and
+incidents. It runs every 30 minutes (owner update 2026-10-14), shares the persistent incident claim and
 requires exact-order replies, a one-hour settling window and fresh verification.
 The owner authorized next business morning for an unconditional desire for the
 order without any date/window preference. Explicit or earlier preferences take
@@ -116,3 +116,15 @@ details receipts can be reconciled from the exact outgoing Chatby WAMID and
 attempt window without sending another message. A separately supplied postcode
 retains a city only if the customer explicitly supplied it; portal/floor/door
 must be preserved. Feedback does not automatically rewrite business rules.
+
+Owner update 2026-10-14: the VPS systemd suleia-incidents.timer triggers the
+authenticated all-incident sync endpoint every 30 minutes, with persistent
+calendar scheduling and no HTTP mutation retries. INCIDENT_SYNC_OWNER=vps
+disables Render's duplicate periodic incident timers; Render still executes
+its governed address/data, notification, discount and return rules. Unknown
+types are reviewed and remain blocked without a verified provider contract.
+The independent browser worker processes eligible absent/rejected retries in
+AUTO within a 20-minute admission budget; a canary or uncertain Save stops the
+batch. Shared claims prevent duplicate actions between these execution paths.
+The dashboard places customer activity, exact scoped text/button, timestamp
+and verification state beside each order. An unavailable read is not silence.

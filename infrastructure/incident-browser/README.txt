@@ -3,7 +3,7 @@ Dedicated VPS browser for incident evidence
 This component runs and stores its profile on the existing VPS. It does not
 depend on the operator's desktop. It defaults to OBSERVE_ONLY. Execution is
 controlled by private /state/retry-control.json: AUTO_CANARY processes at most
-one eligible retry per 15-minute cycle and promotes to AUTO only after API and
+one eligible retry per 30-minute cycle and promotes to AUTO only after API and
 attachment verification. Browser running alone does not prove execution works.
 
 Build with Docker. Run as uid/gid 1000 with the vendor Playwright seccomp profile,
@@ -36,11 +36,17 @@ phone and customer name obtained from fresh authorized provider reads. A
 capture succeeds only when phone, date, time and message are all visible.
 Diagnostics and images stay under private /evidence. This queue cannot submit
 an incident. retry-policy.mjs contains the tested policy/execution boundary.
-The scheduler reads pending incidents and replies every 15 minutes using scoped
+The scheduler reads pending incidents and replies every 30 minutes using scoped
 credentials in /state/provider-env.json. runtime.mjs connects the shared claim,
 capture, UI attachment/save and API plus persisted evidence verification.
 Inspect /state/observer-health.json and /state/retry-observation.json for actual
 cycle results. A running timer alone does not prove that provider reads succeed.
+It runs immediately on startup and every 30 minutes, 24/7, without overlapping
+cycles. Private health includes the last trigger and next scheduled run in UTC.
+Docker must be enabled at host boot; run.sh uses restart unless-stopped. No
+desktop session, SSH tunnel or Codex conversation is needed for routine cycles.
+Readiness allows 30 minutes between starts plus the 25-minute cycle watchdog
+and a 5-minute reporting margin; errors and missing sessions still block READY.
 
 Build preparation: export the deployed autoconfirm/src revision into the ignored
 runtime-src directory before docker build; never copy .env or customer data.
@@ -79,6 +85,14 @@ Aran mappings block this default. Municipal holidays are not yet in the table;
 the requested retry is subject to carrier availability, not a delivery promise.
 Sources: https://www.boe.es/buscar/doc.php?id=BOE-A-2025-21667
 https://www.boe.es/buscar/doc.php?id=BOE-A-2026-21254
+
+Owner rule added 2026-10-14: an unconditional request to receive the order in
+the morning/afternoon, missing only the date, keeps that window on the next
+business day. The plan records OWNER_NEXT_BUSINESS_CUSTOMER_WINDOW. Only
+responses younger than 24 hours qualify; other dates, precise times, conditions,
+earlier preferences and discount dependencies remain blocked. A factual past
+absence alone does not negate an explicit request for a new delivery. The
+one-hour wait, exact customer evidence, screenshot and all write gates remain.
 
 Stop/rollback: docker stop suleia-incident-browser. Preserve private profile
 and evidence; do not touch the existing Operations containers.

@@ -1,0 +1,11 @@
+[Unit]
+Description=Review all Suleia incident types every 30 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00
+Persistent=true
+AccuracySec=10s
+Unit=suleia-incidents.service
+
+[Install]
+WantedBy=timers.target

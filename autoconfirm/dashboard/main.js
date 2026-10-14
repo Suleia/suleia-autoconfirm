@@ -559,6 +559,7 @@ function renderIncidents() {
 
   const data = state.dashboard?.incidents || {};
   const incidents = Array.isArray(data.incidents) ? data.incidents : [];
+  setText('#incidents-review-status', `Última revisión: ${formatDateTime(data.updatedAt)} · cada ${data.intervalMinutes || '—'} min`);
   const visible = incidents.filter((incident) => matchesQuery([
     incident.orderId,
     incident.incidenceId,
@@ -632,7 +633,7 @@ function renderIncidents() {
   `).join('');
 
   if (data.error) {
-    table.innerHTML = `<tr><td colspan="8">No se pudo actualizar incidencias: ${escapeHtml(data.error)}</td></tr>`;
+    table.innerHTML = `<tr><td colspan="9">No se pudo actualizar incidencias: ${escapeHtml(data.error)}</td></tr>`;
     return;
   }
 
@@ -657,13 +658,14 @@ function renderIncidents() {
     const activityCard = `
       <div class="incident-customer-activity ${hasCustomerResponse ? 'has-activity' : 'is-waiting'}">
         <div class="incident-customer-activity__header">
-          <b>${escapeHtml(activityActionLabel)}</b>
+          <b>${escapeHtml(activityVerified ? activityActionLabel : 'Lectura pendiente de verificar')}</b>
           <span class="${activityVerified ? 'is-verified' : 'is-unverified'}">${activityVerified ? 'Verificado' : 'Pendiente de verificar'}</span>
         </div>
-        <small>${escapeHtml(activityMessageCount)} interacción(es) posterior(es) a la ${escapeHtml(activityReferenceLabel)}.</small>
+        <small>${activityVerified ? `${escapeHtml(activityMessageCount)} interacción(es) posterior(es) a la ${escapeHtml(activityReferenceLabel)}.` : 'No se puede confirmar si hay actividad nueva. La última lectura disponible se muestra como referencia.'}</small>
         ${incident.customerActivityReferenceAt ? `<small>Referencia: ${escapeHtml(formatDateTime(incident.customerActivityReferenceAt))}</small>` : ''}
         ${incident.customerActivityLastAt ? `<time>Última actividad: ${escapeHtml(formatDateTime(incident.customerActivityLastAt))}</time>` : ''}
         ${incident.customerActivityInteractionType === 'BUTTON' ? '<small class="incident-activity-channel">Incluye una acción mediante botón de Chatby</small>' : ''}
+        ${incident.customerActivityLastText ? `<blockquote>${escapeHtml(incident.customerActivityLastText)}</blockquote>` : ''}
       </div>`;
     const memory = incident.memoryApplied
       ? `<small class="incident-memory-applied">Aprendizaje aplicado: ${escapeHtml(incident.memoryText || 'Regla guardada')}</small>`
@@ -698,6 +700,11 @@ function renderIncidents() {
           ${Number.isFinite(Number(incident.incidentAgeHours)) ? `<small>${Math.round(Number(incident.incidentAgeHours))}h abierta</small>` : ''}
           ${hasCustomerResponse ? '<span class="customer-response-badge">Actividad detectada</span>' : ''}
         </td>
+        <td class="incident-activity-cell">
+          <span class="signal-chip ${activityVerified ? hasCustomerResponse ? 'positive' : 'neutral' : 'warning'}">${activityVerified ? hasCustomerResponse ? 'Cliente ha actuado' : 'Sin actividad posterior' : 'Sin lectura verificada'}</span>
+          ${activityCard}
+          ${!incident.customerActivityLastText && incident.lastCustomerMessage ? `<small>Último mensaje disponible · ${escapeHtml(formatDateTime(incident.lastCustomerAt))}</small><blockquote>${escapeHtml(incident.lastCustomerMessage)}</blockquote>` : ''}
+        </td>
         <td>
           <span class="pill ${typeTone}">${escapeHtml(incident.incidentTypeLabel || incidentTypeLabel(type))}</span>
           ${incident.reasonCode ? `<small>Código Dropea: ${escapeHtml(incident.reasonCode)}</small>` : ''}
@@ -710,7 +717,6 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${customerSignalTone}">${escapeHtml(customerSignalLabel)}</span>
           <small>${escapeHtml(customerSignalDetail)}</small>
-          ${activityCard}
           ${incident.incidentResolution ? `<div class="incident-customer-activity">
             <b>Seguimiento de resolución</b>
             <small>Cliente respondió: ${incident.incidentResolution.customer_replied ? 'Sí' : 'Sin evidencia verificada'}</small>
@@ -787,7 +793,7 @@ function renderIncidents() {
         </td>
       </tr>
     `;
-  }).join('') || '<tr><td colspan="8">No hay incidencias pendientes para mostrar.</td></tr>';
+  }).join('') || '<tr><td colspan="9">No hay incidencias pendientes para mostrar.</td></tr>';
 }
 
 function discountStatusLabel(status) {

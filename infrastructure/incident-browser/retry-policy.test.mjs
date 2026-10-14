@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {preciseRetrySlot,executeEvidenceRetry,retryEvidencePlan} from './retry-policy.mjs';
+import {preciseRetrySlot,executeEvidenceRetry,retryEvidencePlan,requestedWindowWithoutDate} from './retry-policy.mjs';
 import {nextBusinessMorning} from './business-day.mjs';
 const at=Date.parse('2026-10-13T13:02:09Z');
 test('owner example anchors Thursday to the message and preserves morning',()=>{
@@ -56,11 +56,40 @@ test('owner default schedules plain desire for next business morning',()=>{
  const i=defaultInput();i.now=at+100;assert.equal(retryEvidencePlan(i).reason,'REPLY_SETTLING_WINDOW');
 });
 test('default never replaces partial, precise, conditional or older preferences',()=>{
- for(const text of ['Lo quiero el jueves','Lo quiero por la tarde','Lo quiero de 17:30 a 20:30','Lo quiero si me llaman','Lo quiero con descuento','Lo quiero en otra dirección']){
+ for(const text of ['Lo quiero el jueves','Lo quiero de 17:30 a 20:30','Lo quiero si me llaman','Lo quiero con descuento','Lo quiero en otra dirección']){
   const i=defaultInput();i.messages[0].text=text;assert.equal(retryEvidencePlan(i).eligible,false,text);
  }
  const i=defaultInput();i.messages.unshift({id:699999,direction:'incoming',created_at:new Date(at-1000).toISOString(),text:'El jueves por la tarde'});
  assert.equal(retryEvidencePlan(i).reason,'PRIOR_CUSTOMER_PREFERENCE_REQUIRES_REVIEW');
+});
+
+test('missing date preserves the requested window on the next business day',()=>{
+ for(const [text,window] of [['Lo quiero por la tarde','afternoon'],['Quiero recibirlo por la mañana','morning'],['No estaba en casa. Por favor, podrían entregármelo por la tarde.','afternoon'],['No me encontraba en casa, si por favor en la tarde pueden entregármelo','afternoon']]){
+  const i=defaultInput();i.messages[0].text=text;i.now=Date.parse('2026-10-13T16:00:00Z');
+  const p=retryEvidencePlan(i);assert.equal(p.eligible,true,text);assert.equal(p.date,'2026-10-14');assert.equal(p.time_window,window);assert.equal(p.scheduleSource,'OWNER_NEXT_BUSINESS_CUSTOMER_WINDOW');
+ }
+});
+
+test('missing-date rule does not discard any other customer condition',()=>{
+ for(const text of ['No lo quiero por la tarde','Lo quiero por la tarde mañana','Lo quiero por la tarde el jueves','Lo quiero por la tarde a las 17:30','Lo quiero por la mañana o por la tarde','Lo quiero por la tarde si me llaman','Lo quiero por la tarde con descuento','Lo quiero por la tarde en otra dirección','Lo quiero por la tarde pero no mañana','Lo quiero por la tarde?','No estaba en casa pero no lo quiero por la tarde','Por la tarde','Quizás lo quiero por la tarde']){
+  assert.equal(requestedWindowWithoutDate(text),null,text);
+ }
+});
+
+test('missing-date rule retains evidence, settling, expiry and calendar gates',()=>{
+ const make=()=>{const i=defaultInput();i.messages[0].text='Lo quiero por la tarde';return i;};
+ const early=make();early.now=at+100;assert.equal(retryEvidencePlan(early).reason,'REPLY_SETTLING_WINDOW');
+ const old=make();old.now=at+86400000;assert.equal(retryEvidencePlan(old).reason,'MISSING_DATE_RESPONSE_EXPIRED');
+ const geo=make();geo.order.raw={};assert.equal(retryEvidencePlan(geo).reason,'BUSINESS_CALENDAR_REQUIRED');
+ const wrong=make();wrong.incident.chatbyOrderAssociation='PHONE_ONLY';assert.equal(retryEvidencePlan(wrong).eligible,false);
+ for(const text of ['El viernes por la mañana','Acepto el descuento','Cambiar la dirección']){
+  const i=make();i.messages.unshift({id:699999,direction:'incoming',created_at:new Date(at-1000).toISOString(),text});assert.equal(retryEvidencePlan(i).reason,'PRIOR_CUSTOMER_PREFERENCE_REQUIRES_REVIEW');
+ }
+ for(const text of ['Ya no lo quiero','¿Dónde está mi pedido?','Recoger en agencia']){
+  const i=make();i.messages.push({id:700002,direction:'incoming',created_at:new Date(at+1000).toISOString(),text});assert.equal(retryEvidencePlan(i).eligible,false);
+ }
+ const holiday=make();holiday.messages[0].created_at='2026-10-09T16:00:00Z';holiday.incident.incidenceDate='2026-10-09T10:00:00Z';holiday.order.createdAt='2026-10-08T10:00:00Z';holiday.now=Date.parse('2026-10-09T18:00:00Z');
+ const p=retryEvidencePlan(holiday);assert.equal(p.date,'2026-10-13');assert.equal(p.time_window,'afternoon');
 });
 test('business-day default skips weekends and national/regional holidays',()=>{
  const order=defaultInput().order;

@@ -309,6 +309,7 @@ test('shows only customer activity after the verified rejected-goods template', 
   assert.match(activity.actionLabel, /instrucciones de entrega mediante botón/);
   assert.equal(activity.firstAt, '2026-07-15T15:06:00.000Z');
   assert.equal(activity.lastAt, '2026-07-15T15:06:00.000Z');
+  assert.equal(activity.lastText, 'Entregar mañana');
 });
 
 test('reports no customer action when the exact rejected template has no later inbound message', async () => {

@@ -1,6 +1,8 @@
 import {chromium} from 'playwright-core';
 import fs from 'node:fs/promises';
 import {runtimeReadiness} from './runtime-state.mjs';
+import {startSchedule,CYCLE_WATCHDOG_MS} from './schedule.mjs';
+let schedule=null;
 
 // Dedicated server profile. Never import cookies from the operator's browser.
 const context=await chromium.launchPersistentContext('/state/profile',{
@@ -79,7 +81,7 @@ async function status(){
  }
  let cycle=null;try{cycle=JSON.parse(await fs.readFile('/state/observer-health.json','utf8'));}catch{}
  const value={at:new Date().toISOString(),browser:'RUNNING',captureSelfTest,
-  ...runtimeReadiness({control,sites,cycle,reconcile}),mode:reconcile?'RECONCILE':control.mode,sites};
+  ...runtimeReadiness({control,sites,cycle,reconcile}),mode:reconcile?'RECONCILE':control.mode,sites,schedule:schedule?.state||null};
  await fs.writeFile('/state/health.tmp',JSON.stringify(value));
  await fs.rename('/state/health.tmp','/state/health.json');
 }
@@ -100,7 +102,7 @@ async function observe(){
  const startedAt=new Date().toISOString();
  // A stuck cycle must not silently disable every later timer tick. The durable
  // pre-save journal makes a restart reconcile rather than replay a write.
- const watchdog=setTimeout(()=>{console.error('CYCLE_WATCHDOG_RESTART');void stop();},25*60000);
+ const watchdog=setTimeout(()=>{console.error('CYCLE_WATCHDOG_RESTART');void stop();},CYCLE_WATCHDOG_MS);
  try{
   await fs.writeFile('/state/cycle-progress.json',JSON.stringify({startedAt,state:'RUNNING'}),{mode:0o600});
   await fs.access('/state/provider-env.json');
@@ -117,7 +119,7 @@ async function observe(){
  }catch{await fs.writeFile('/state/observer-health.json',JSON.stringify({at:new Date().toISOString(),startedAt,completedAt:new Date().toISOString(),mode:'OBSERVE_ONLY',writes:0,error:'OBSERVATION_UNAVAILABLE'}));}
  finally{clearTimeout(watchdog);observing=false;await fs.writeFile('/state/cycle-progress.json',JSON.stringify({startedAt,completedAt:new Date().toISOString(),state:'IDLE'}),{mode:0o600});}
 }
-void observe();setInterval(observe,15*60*1000);
+schedule=startSchedule(observe,{onError:()=>{console.error('CYCLE_SCHEDULER_FAILED');void stop();}});
 // Private, typed, read-only probe queue; no evaluation or arbitrary URLs.
 setInterval(async()=>{
  if(probing||observing||closing)return;

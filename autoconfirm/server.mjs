@@ -365,6 +365,7 @@ function storeSummary({ publicView = false } = {}) {
     incidentDiscountRealEnabled: config.incidentDiscountRealEnabled === true,
     incidentDiscountDelayHours: 24,
     incidentDiscountIntervalMinutes: config.incidentDiscountIntervalMinutes,
+    incidentSyncOwner: config.incidentSyncOwner,
     incidentDiscountReturnRealEnabled: config.defaultStore.incidentDiscountReturnRealEnabled === true,
     incidentDiscountReturnAutomaticEnabled: config.defaultStore.incidentDiscountReturnAutomaticEnabled === true,
     incidentDiscountReturnDelayHours: 48,
@@ -1382,6 +1383,7 @@ async function runScheduledIncidentsSync() {
 }
 
 function startIncidentsScheduler() {
+  if (config.incidentSyncOwner === 'vps') return;
   // Recovery already synchronizes every incident, not just discounts. Two
   // periodic owners otherwise re-read the same Chatby conversations seconds apart.
   if (discountSchedulerOwnsIncidentSync(config.enableIncidentDiscountTemplate, config.incidentDiscountIntervalMinutes)) return;
@@ -1399,6 +1401,7 @@ function startIncidentsScheduler() {
 }
 
 function startIncidentNotificationsScheduler() {
+  if (config.incidentSyncOwner === 'vps') return;
   if (!config.defaultStore.incidentNotificationsEnabled) return;
   // The discount scheduler already runs the complete incident synchronization,
   // including ordinary incident notifications. Do not duplicate every Chatby
@@ -1418,6 +1421,7 @@ function startIncidentNotificationsScheduler() {
 }
 
 function startIncidentDiscountRecoveryScheduler() {
+  if (config.incidentSyncOwner === 'vps') return;
   if (!config.enableIncidentDiscountTemplate) return;
   const intervalMinutes = config.incidentDiscountIntervalMinutes || 15;
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;

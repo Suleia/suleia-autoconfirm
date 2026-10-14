@@ -1,7 +1,8 @@
+import {CYCLE_FRESHNESS_MS} from './schedule.mjs';
 export function runtimeReadiness({control,sites,cycle,reconcile,now=Date.now()}){
  const configured=['AUTO','AUTO_CANARY'].includes(control?.mode);
  const sessions=Object.values(sites||{}).length===2&&Object.values(sites).every(s=>s.session==='UI_PRESENT_REQUIRES_IDENTITY_VERIFICATION');
- const fresh=Number.isFinite(Date.parse(cycle?.completedAt||cycle?.at))&&now-Date.parse(cycle.completedAt||cycle.at)<35*60000;
+ const fresh=Number.isFinite(Date.parse(cycle?.completedAt||cycle?.at))&&now-Date.parse(cycle.completedAt||cycle.at)<CYCLE_FRESHNESS_MS;
  const reason=!configured?'OBSERVATION_ONLY':reconcile?'RECONCILIATION_REQUIRED':!sessions?'SESSION_REQUIRED':cycle?.error?'CYCLE_FAILED':!fresh?'WAITING_FRESH_CYCLE':'READY';
  return {executionConfigured:configured,executionEnabled:configured&&reason==='READY',readiness:reason};
 }

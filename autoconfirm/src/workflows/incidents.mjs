@@ -1721,6 +1721,7 @@ export function customerActivityForIncident(chatby = {}) {
     messageCount: inbound.length,
     firstAt,
     lastAt,
+    lastText: inbound.length ? clip(messageText(inbound[inbound.length - 1]), 320) : '',
     detail: detected
       ? `${inbound.length} interacción(es) del cliente después de la ${referenceLabel}.`
       : `No hay interacción del cliente después de la ${referenceLabel}.`
@@ -2739,6 +2740,7 @@ async function performPendingIncidentSync({
         customerActivityMessageCount: customerActivity.messageCount,
         customerActivityFirstAt: customerActivity.firstAt,
         customerActivityLastAt: customerActivity.lastAt,
+        customerActivityLastText: customerActivity.lastText,
         customerActivityDetail: customerActivity.detail,
         chatbyUserNs: chatby.userNs || null,
         chatbyOrderAssociation: chatby.orderAssociation || 'NONE',
