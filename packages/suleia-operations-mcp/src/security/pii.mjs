@@ -62,7 +62,13 @@ export function maskPii(value, key = '') {
 }
 
 export function containsObviousPii(value) {
-  const text = typeof value === 'string' ? value : JSON.stringify(value);
+  // Inspect typed leaves, not JSON syntax: byte counts can have the same nine
+  // digits as a telephone. Phone/email fields are masked before this guard.
+  // Free text remains scanned, including text nested inside arrays/objects.
+  if (Array.isArray(value)) return value.some(containsObviousPii);
+  if (value && typeof value === 'object') return Object.values(value).some(containsObviousPii);
+  if (typeof value !== 'string') return false;
+  const text = value;
   EMAIL.lastIndex = 0;
   PHONE.lastIndex = 0;
   return EMAIL.test(text) || PHONE.test(text);

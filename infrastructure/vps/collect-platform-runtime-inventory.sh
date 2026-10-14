@@ -36,6 +36,19 @@ if docker inspect "$controller" >/dev/null 2>&1; then
   rm -f "$OUTPUT_DIR/absent-provenance.tmp"
 fi
 
+# The bounded retry adapter has its own image, durable sessions and claims.
+# Export only container provenance; never sessions, provider env or evidence.
+if docker inspect suleia-incident-browser >/dev/null 2>&1; then
+  docker inspect suleia-incident-browser --format '{{json .}}' | jq -c '{ID:.Id,Name:(.Name|ltrimstr("/")),Service:"incident-browser",Image:.Config.Image,State:.State.Status,Health:(.State.Health.Status // "UNKNOWN")}' >> "$PS_SNAPSHOT"
+  docker inspect suleia-incident-browser --format '{{json .}}' | jq '{service:"incident-browser",container_id:.Id,image_id:.Image,image_revision:.Config.Labels["org.opencontainers.image.revision"],restart_count:.RestartCount,restart_policy:.HostConfig.RestartPolicy.Name}' > "$OUTPUT_DIR/browser-provenance.tmp"
+  jq -s '.[0]+[.[1]]' "$PROVENANCE_SNAPSHOT" "$OUTPUT_DIR/browser-provenance.tmp" > "${PROVENANCE_SNAPSHOT}.tmp"
+  mv "${PROVENANCE_SNAPSHOT}.tmp" "$PROVENANCE_SNAPSHOT"
+  rm -f "$OUTPUT_DIR/browser-provenance.tmp"
+fi
+
+python3 "$INSTALL_ROOT/infrastructure/scripts/collect-bounded-runtime-health.py" "$OUTPUT_DIR/bounded-health.json"
+chown "$(stat -c '%u:%g' "$OUTPUT_DIR")" "$OUTPUT_DIR/bounded-health.json"
+
 git_commit="${SULEIA_RUNTIME_GIT_COMMIT:-$(git -C "${INSTALL_ROOT}" rev-parse HEAD 2>/dev/null || true)}"
 git_branch="${SULEIA_RUNTIME_GIT_BRANCH:-$(git -C "${INSTALL_ROOT}" branch --show-current 2>/dev/null || true)}"
 backup_status="UNKNOWN"
