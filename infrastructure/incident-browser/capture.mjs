@@ -2,6 +2,16 @@ import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 const normalize=s=>String(s||'').replace(/\s+/g,' ').trim();
 
+export function contactNamePattern(value){
+ // Dropea may use a standalone '-' for a missing surname; Chatby omits it.
+ // Normalize presentation only. Phone/order/conversation/message are checked
+ // independently after selecting the uniquely matching visible contact.
+ const name=normalize(value).replace(/(?:^|\s)-$/u,'').trim();
+ if(!name)throw Error('CAPTURE_NAME_REQUIRED');
+ const escaped=name.split(/\s+/).map(part=>part.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('\\s+');
+ return new RegExp('^'+escaped+'(?:\\s+-)?$','iu');
+}
+
 // Read-only UI operations. This never types into the message composer.
 export async function captureRetryEvidence(context,plan){
  if(!/^\d+$/.test(plan.orderId)||!/^\d+$/.test(plan.messageId)||!/^\d{9}$/.test(plan.phone)||!plan.text||!plan.customerName)throw Error('CAPTURE_IDENTITY_REQUIRED');
@@ -19,10 +29,7 @@ export async function captureRetryEvidence(context,plan){
   stage='CONTACT';
   const alreadyOpen=await page.locator('#msg-'+plan.messageId).count()===1&&(await page.locator('body').innerText()).includes(plan.conversationId);
   if(!alreadyOpen){
-   // Chatby capitalizes accented name fragments differently from Dropea.
-   // Ignore case only; retain exact name and all post-click identity checks.
-   const escaped=plan.customerName.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-   const contact=page.getByText(new RegExp('^'+escaped+'$','iu')).filter({visible:true});
+   const contact=page.getByText(contactNamePattern(plan.customerName)).filter({visible:true});
    await contact.waitFor({timeout:30000});
    await contact.click();
   }
