@@ -14,17 +14,24 @@ assert service in files
 name='suleia-operations-staging-'+service+'-1'
 root=pathlib.Path(patch_root).resolve();assert str(root).startswith('/opt/suleia-deploy-checkpoints/stabilization-')
 os.umask(0o077)
-backup=root/('rollback-'+service);backup.mkdir(mode=0o700)
+backup=root/('rollback-'+service);backup.mkdir(mode=0o700,exist_ok=True)
+assert not (backup/'result.json').exists(), 'Already deployed; verify before repeating'
 def run(args):
  p=subprocess.run(args,capture_output=True,text=True)
  if p.returncode:
   (backup/'command-error.txt').write_text(p.stderr);raise RuntimeError('COMMAND_FAILED: '+args[0])
  return p.stdout
 original=json.loads(run(['docker','inspect',name]))[0]
+if (backup/'container.json').exists():
+ assert json.loads((backup/'container.json').read_text())['Id']==original['Id'], 'Live container changed since preparation'
 (backup/'container.json').write_text(json.dumps(original))
 image='suleia-stabilization-'+service+':'+revision
 dockerfile=root/('Dockerfile.'+service)
-dockerfile.write_text('FROM '+original['Image']+'\n'+
+base='suleia-stabilization-base:'+service+'-'+original['Image'].split(':')[-1][:12]
+run(['docker','image','tag',original['Image'],base])
+assert json.loads(run(['docker','image','inspect',base]))[0]['Id']==original['Image']
+(root/'.dockerignore').write_text('rollback-*\n__pycache__\n')
+dockerfile.write_text('FROM '+base+'\n'+
  '\n'.join('COPY '+f+' /app/'+f for f in files[service])+
  '\nLABEL io.suleia.stabilization.patch="'+revision+'"\n')
 run(['docker','build','--network=none','-f',str(dockerfile),'-t',image,str(root)])
