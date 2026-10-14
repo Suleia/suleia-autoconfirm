@@ -78,5 +78,8 @@ docker run --rm --user "${output_owner}" --network none --read-only --cap-drop A
   /workspace /workspace/private-runtime/platform-runtime.json
 
 chmod 0644 "${OUTPUT_FILE}"
+if [[ -f "$INSTALL_ROOT/infrastructure/scripts/persist-stabilization-runtime.py" ]]; then
+  python3 "$INSTALL_ROOT/infrastructure/scripts/persist-stabilization-runtime.py" "$OUTPUT_FILE"
+fi
 rm -f "${PS_SNAPSHOT}" "${STATS_SNAPSHOT}" "${PROVENANCE_SNAPSHOT}"
 echo 'PLATFORM_RUNTIME_INVENTORY|PASS|secret_fields=0|actions=0|production_writes=0'
