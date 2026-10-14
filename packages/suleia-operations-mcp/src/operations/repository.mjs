@@ -283,6 +283,10 @@ function fixedExpenseInput(input = {}) {
 }
 
 export class OperationsRepository {
+  async orderIntelligence(tool, filters) {
+    const { analyticsForPool } = await import('../analytics/read-service.mjs');
+    return analyticsForPool(this.pool)(tool, filters);
+  }
   constructor(databaseUrl, { pool = null, privateDataKey = '' } = {}) {
     if (!pool) throw new Error('Use OperationsRepository.connect for a database connection');
     this.pool = pool;

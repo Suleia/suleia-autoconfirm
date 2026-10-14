@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MCP_TOOL_NAMES } from '../src/mcp/server.mjs';
+import { ANALYTICS_TOOLS } from '../../platform-core/src/analytics/order-intelligence.mjs';
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -53,6 +54,7 @@ test('fixture contains exactly one fictitious masked order', async () => {
 
 test('tool surface is frozen to the approved real-operations read and simulation tools', () => {
   assert.deepEqual(MCP_TOOL_NAMES, [
+    ...ANALYTICS_TOOLS,
     'get_order',
     'get_order_timeline',
     'get_data_freshness',
@@ -70,5 +72,5 @@ test('tool surface is frozen to the approved real-operations read and simulation
     'get_database_catalog',
     'get_component_details'
   ]);
-  assert.equal(MCP_TOOL_NAMES.length, 16);
+  assert.equal(MCP_TOOL_NAMES.length, 28);
 });

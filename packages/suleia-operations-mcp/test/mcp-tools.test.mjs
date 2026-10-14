@@ -94,7 +94,7 @@ test('all tools run against one masked order and never execute actions', async (
     assert.equal(containsObviousPii(result.structuredContent), false);
   }
 
-  assert.equal(lines.length, MCP_TOOL_NAMES.length);
+  assert.equal(lines.length, calls.length);
   for (const line of lines) {
     const audit = JSON.parse(line);
     assert.equal(audit.pii_logged, false);

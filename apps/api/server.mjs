@@ -147,6 +147,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         oauth: { issuer: config.oauthIssuer, client_id: config.oauthClientId, audience: config.oauthAudience, scope: 'openid operations:read' },
         refresh_interval_seconds: 45,
         finance_refresh_interval_seconds: config.financeRefreshIntervalSeconds,
+        analytics_enabled: process.env.ORDER_INTELLIGENCE_ENABLED !== 'false',
         run_mode: 'SHADOW_READ_ONLY'
       });
     }
@@ -186,6 +187,8 @@ export function createOperationsServer({ config, repository, authenticate, finan
       else if (requestUrl.pathname === '/api/operations/meta-budget/history') data = await repository.metaBudgetHistory(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/finance') data = await cachedFinance(requestUrl.searchParams);
+      else if (requestUrl.pathname === '/api/operations/analytics') data = await repository.orderIntelligence('get_order_intelligence_overview', requestUrl.searchParams);
+      else if (/^\/api\/operations\/analytics\/get_[a-z_]+$/.test(requestUrl.pathname)) data = await repository.orderIntelligence(requestUrl.pathname.split('/').at(-1), requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/orders') data = await repository.listOrders(requestUrl.searchParams);
       else if (/^\/api\/operations\/orders\/[^/]+$/.test(requestUrl.pathname)) data = await repository.orderDetail(decodeURIComponent(requestUrl.pathname.split('/').at(-1)));
       else if (requestUrl.pathname === '/api/operations/incidents') data = await repository.listIncidents(requestUrl.searchParams);
