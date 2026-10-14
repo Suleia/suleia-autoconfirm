@@ -12,7 +12,7 @@ export function detectPatterns(cells,filters,now=new Date()) {
   for(const dimension of dimensions){const rows=groupCells(mature,dimension);for(const row of rows){if(row.orders<SAMPLE_THRESHOLDS.minimum||row.key.includes('UNKNOWN')||row.key==='NONE')continue;// incident_type overlaps; skip overlapping comparison.
       if(dimension==='incident_type')continue;
       const base=metrics(Object.fromEntries(Object.keys(emptyCounts()).map(k=>[k,(Number(overall[k])||0)-(Number(row[k])||0)])));if(base.orders<SAMPLE_THRESHOLDS.minimum)continue;
-      for(const [metric,high,low,threshold] of RATE_RULES){const v=row[metric],b=base[metric];if(v===null||b===null)continue;const delta=round(v-b);if(Math.abs(delta)<threshold||delta<0&&!low)continue;
+      for(const [metric,high,low,threshold] of RATE_RULES){if(metric==='confirmation_rate'&&dimension==='confirmation_delay_band'||metric==='incident_rate'&&dimension==='response_delay_band')continue;const v=row[metric],b=base[metric];if(v===null||b===null)continue;const delta=round(v-b);if(Math.abs(delta)<threshold||delta<0&&!low)continue;
         const denom=metric==='contribution_per_settled_order'?'contribution_known':metric==='delivery_rate'||metric==='return_rate'?'sent':'orders';if(row[denom]<SAMPLE_THRESHOLDS.minimum||base[denom]<SAMPLE_THRESHOLDS.minimum)continue;
         const type=delta>=0?high:low,d=Array.isArray(dimension)?dimension.join('+'):dimension;
         const id=hash([type,d,row.key,filters.date_from,filters.date_to]).slice(0,24);

@@ -43,6 +43,7 @@ rm -- "$backup/role-password.sql"
 override="$backup/runtime-override.json"
 rollback(){ trap - ERR;"${compose[@]}" -f "$override" stop analytics-materializer >/dev/null 2>&1 || true;local restore=(api mcp-server review-panel);if [[ -f "$backup/restore-analytics" ]];then restore+=(analytics-materializer);fi;"${compose[@]}" -f "$backup/rollback.json" up -d --no-deps --no-build "${restore[@]}" >/dev/null; }
 trap rollback ERR
+if [[ -f "$backup/restore-analytics" ]];then "${compose[@]}" -f "$override" stop analytics-materializer;fi
 "${compose[@]}" -f "$override" run --rm --no-deps analytics-materializer node packages/suleia-operations-mcp/src/analytics/materialize.mjs --once | tee "$backup/backfill.jsonl"
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server review-panel analytics-materializer
 for service in api mcp-server;do
