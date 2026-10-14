@@ -22,7 +22,7 @@ const resultShape = {
 function response(result, config) {
   const safeResult = maskPii(result);
   const serialized = JSON.stringify(safeResult);
-  if (containsObviousPii(serialized)) {
+  if (containsObviousPii(safeResult)) {
     const error = new Error('Response blocked by PII policy');
     error.code = 'PII_POLICY_BLOCK';
     throw error;

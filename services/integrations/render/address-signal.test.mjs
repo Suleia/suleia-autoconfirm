@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {normalizeAddressSignal} from './address-signal.mjs';
+import {containsDirectPii} from '../../../packages/suleia-operations-mcp/src/shadow/masking.mjs';
+import {materializeAddress} from '../../../packages/platform-core/src/incident/address-canonical.mjs';
 import {privateIncidentDisplay} from '../../../packages/suleia-operations-mcp/src/operations/private-display.mjs';
 import {addressIncidentPresentation} from '../../../packages/platform-core/src/incident/address-presentation.mjs';
 import {addressWorkflowPresentation} from '../../../packages/platform-core/src/incident/address-presentation.mjs';
@@ -12,6 +14,27 @@ test('address observation join is exact and independent of discount presence',()
  assert.match(join,/address_owner.canonical_order_id=p.canonical_order_id/);assert.equal(join.includes('discount.'),false);
 });
 const make=()=>({order_id:'22',incidence_id:'11',updated_at:new Date().toISOString(),raw:{orderId:'22',incidenceId:'11',incidentType:'address',addressWorkflow:{canonical_issue_id:'11',canonical_order_id:'22',state:'WAITING_DETAILS_MANUAL_REVIEW',action:'HUMAN_REVIEW',intent:'INCOMPLETE_ADDRESS',missing_fields:['postal_code','city'],initial_milestones:'SUPERSEDED_BY_CUSTOMER_RESPONSE',read_at:new Date().toISOString(),address:{street:'Calle Fixture',number:'25'},solution:'Private fixture',conversation_id:'private-conversation'}}});
+
+test('hashed notification with phone-like digits passes projection without changing timer identity',()=>{
+ const row=make();let signal;
+ for(let i=0;i<10000;i++){
+  row.raw.addressWorkflow.message_id=`provider-fixture-${i}`;
+  signal=normalizeAddressSignal(row,{hmacKey:key});
+  if(/[6789]\d{8}/.test(signal.observation.notification_message_id_hash))break;
+ }
+ const hash=signal.observation.notification_message_id_hash;
+ assert.match(hash,/[6789]\d{8}/);
+ assert.equal(containsDirectPii(signal),false);
+ assert.equal(containsDirectPii({notification_message_id:hash}),true);
+ assert.equal('notification_message_id' in signal.observation,false);
+ const now=new Date('2026-10-14T12:00:00Z');
+ const issue={canonical_issue_id:'fixture',type:'ADDRESS_INCORRECT',created_at:'2026-10-13T00:00:00Z',updated_at:now.toISOString()};
+ const observation={...signal.observation,notification_at:'2026-10-13T01:00:00Z',template_name:'dropea_incidencia_direccion_v1',read_at:now.toISOString(),issue_version:now.toISOString()};
+ const modern=materializeAddress({issue,observation,now});
+ const legacy={...observation,notification_message_id:hash};delete legacy.notification_message_id_hash;
+ assert.deepEqual(modern,materializeAddress({issue,observation:legacy,now}));
+ assert.equal(containsDirectPii({notification_message_id:'678123456'}),true);
+});
 test('capability state and discount acceptance are displayed without claiming economic application',()=>{
  const now=new Date().toISOString();
  const shown=addressWorkflowPresentation({}, {workflow:'ADDRESS_INCORRECT',observed_at:now,last_cycle_at:now,stages:{change_address:'CANARY',return:'SHADOW'},breakers:{return:'OPEN'},capabilities:{CHANGE_ADDRESS:{phase:'WAITING_ELIGIBLE_CASE'}}});

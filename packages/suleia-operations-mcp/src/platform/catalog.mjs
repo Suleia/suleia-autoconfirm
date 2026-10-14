@@ -40,6 +40,9 @@ const SERVICE_MANIFEST = Object.freeze([
   ['VPS', 'decision-engine', 'suleia-node:22.22.0', ['postgres']],
   ['VPS', 'ingestion-worker', 'suleia-node:22.22.0', ['postgres', 'Dropea V2', 'Chatby']],
   ['VPS', 'recipient-absent-live-controller', 'suleia-absent-resolution', ['postgres', 'Dropea V2', 'Chatby']],
+  ['VPS', 'incident-browser', 'suleia-incident-browser', ['Render', 'Dropea V2', 'Chatby']],
+  ['VPS', 'analytics-materializer', 'suleia-order-intelligence', ['postgres']],
+  ['VPS', 'incidents-scheduler', 'systemd:suleia-incidents.timer', ['Render']],
   ['VPS', 'timer-engine', 'not-deployed', ['postgres']],
   ['VPS', 'scheduler', 'suleia-node:22.22.0', ['postgres']],
   ['VPS', 'review-panel', 'nginx:1.29-alpine', ['api']],
@@ -468,7 +471,7 @@ export function createPlatformKnowledge({ repository, config }) {
         const healthAge = Date.now() - new Date(functionalHealth?.checked_at).getTime();
         // A fresh flag recorded by the collector is not a perpetual lease.
         // Keep the old observation as evidence, never as current health.
-        const functionalCurrent = live.functional_health_is_current === true
+        const functionalCurrent = live.functional_health_is_current !== false
           && Number.isFinite(healthAge) && healthAge >= 0 && healthAge <= 300_000;
         return {
           ...declared,

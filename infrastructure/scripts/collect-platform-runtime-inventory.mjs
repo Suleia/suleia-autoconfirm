@@ -69,10 +69,13 @@ const stats = parseJsonOutput(fixed('docker', ['stats', '--no-stream', '--format
 const statsByName = new Map(stats.map((item) => [String(item.Name || '').toLowerCase(), item]));
 const provenanceByService=new Map(parseJsonOutput(runtimeSnapshot('containers-provenance.json')).map(item=>[item.service,item]));
 const functionalHealth = (() => {
-  try {
-    const value = JSON.parse(runtimeSnapshot('functional-health.json'));
-    return value && Array.isArray(value.components) ? value : null;
-  } catch { return null; }
+  const components=[];
+  for(const file of ['functional-health.json','bounded-health.json']) {
+    try { const value=JSON.parse(runtimeSnapshot(file));
+      if(Array.isArray(value?.components)) components.push(...value.components);
+    } catch {}
+  }
+  return {components};
 })();
 const functionalByService = new Map((functionalHealth?.components || [])
   .map((item) => [String(item.service || '').toLowerCase(), item]));

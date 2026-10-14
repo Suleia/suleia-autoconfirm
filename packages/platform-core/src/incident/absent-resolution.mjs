@@ -62,6 +62,7 @@ export function selectRecipientAbsentIntent({ issue={}, order={}, events=[], cha
   if(response && !response.unambiguous)reasons.push(response.reason_code);
   const evidence={verified:reasons.length===0, canonical_issue_id:issue.canonical_issue_id,canonical_order_id:order.canonical_order_id,
     response_id:latest?.chatby_message_id || null,response_hash:response?.raw_customer_text_hash || null,source_message_id:latest?.chatby_message_id || null,
+    source_message_id_is_hash:latest?.chatby_message_id_is_hash===true,
     button_id:latest?.button_payload || null, source:response?.interpretation_source || null, response_at:latest?.created_at || null,
     notification_at:chatby.incident_notified_at,observed_at:chatby.observed_at,supersedes_response_id:supersedes,
     unambiguous:response?.unambiguous===true, latest:true};
@@ -90,7 +91,9 @@ export function buildRecipientAbsentResolution(input={}) {
     || requested_time_window==='FROM_TIME' && time_to!==null
     || ['MORNING','AFTERNOON','ALL_DAY','UNSPECIFIED','DATE_ONLY'].includes(requested_time_window) && (time_from!==null || time_to!==null))reasons.push('INVALID_DELIVERY_TIME_WINDOW');
   const structured={canonical_issue_id,canonical_order_id,customer_intent,requested_date,requested_time_window,time_from,time_to,
-    timezone:'Europe/Madrid',resolved_at:evidence.response_at || null,source_message_id:evidence.source_message_id || null,button_id:evidence.button_id || null,
+    timezone:'Europe/Madrid',resolved_at:evidence.response_at || null,
+    source_message_id:evidence.source_message_id_is_hash===true?null:evidence.source_message_id || null,
+    ...(evidence.source_message_id_is_hash===true?{source_message_id_hash:evidence.source_message_id || null}:{}),button_id:evidence.button_id || null,
     interpretation_confidence,interpretation_source:evidence.source || null,supersedes_response_id:evidence.supersedes_response_id || null,
     latest_valid_customer_intent:customer_intent,phone_source:phone.source || null,phone_hash:phone.phone_hash || null,phone_masked:phone.masked || null,
     response_hash:evidence.response_hash || null,policy_version:ABSENT_RESOLUTION_POLICY};
