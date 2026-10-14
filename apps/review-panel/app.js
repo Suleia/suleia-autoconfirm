@@ -14,6 +14,7 @@ function redirectUri() { return `${location.origin}${location.pathname}`; }
 
 function showLoginError(message) { const notice = $('login-notice'); notice.textContent = message; notice.hidden = !message; }
 async function prepareLogin() {
+  if ((location.hash || '').startsWith('#analytics')) sessionStorage.setItem('suleia_analytics_return', location.hash);
   if (!state.config?.oauth?.issuer || !state.config.oauth.client_id || !state.config.oauth.scope) throw new Error('La configuración de acceso está incompleta.');
   if (!globalThis.crypto?.getRandomValues || !globalThis.crypto?.subtle) throw new Error('Este navegador no permite iniciar el acceso seguro.');
   const verifier = randomString() + randomString(); const loginState = randomString();
@@ -31,7 +32,9 @@ async function exchangeCode(code, returnedState) {
   const payload = await response.json();
   sessionStorage.removeItem('suleia_pkce_verifier'); sessionStorage.removeItem('suleia_oauth_state');
   sessionStorage.setItem('suleia_access_token', payload.access_token); sessionStorage.setItem('suleia_token_expires_at', String(Date.now() + payload.expires_in * 1000));
-  history.replaceState({}, document.title, location.pathname); return payload.access_token;
+  const analyticsReturn = sessionStorage.getItem('suleia_analytics_return') || '';
+  sessionStorage.removeItem('suleia_analytics_return');
+  history.replaceState({}, document.title, location.pathname + (analyticsReturn.startsWith('#analytics') ? analyticsReturn : '')); return payload.access_token;
 }
 
 function activeToken() { const token = sessionStorage.getItem('suleia_access_token'); const expires = Number(sessionStorage.getItem('suleia_token_expires_at') || 0); return token && expires > Date.now() + 15000 ? token : null; }
@@ -1158,6 +1161,7 @@ async function refresh({ force = false, background = false } = {}) {
   if (state.refreshing) return; state.refreshing = true; $('refresh-button').disabled = true; $('refresh-button').textContent = 'Actualizando…';
   try {
     if (state.view === 'finance') await loadResultsFinance({ force, background });
+    else if (state.view === 'analytics') await OrderIntelligencePanel.load();
     else if (state.view === 'automation') await AutomationPanel.load();
     else if (state.view === 'incidents') await loadQueue();
     else {
@@ -1172,9 +1176,11 @@ function setView(view) {
   $('app').setAttribute('data-view',view);
   if(view==='incidents'){state.limit=10;$('page-size').value='10';}
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
-  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados' }; $('view-title').textContent = titles[view];
-  const finance = view === 'finance',automation=view==='automation'; $('summary').hidden = finance||automation; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation;$('automation-view').hidden=!automation;
+  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados',analytics:'Centro de datos e información' }; $('view-title').textContent = titles[view];
+  const finance = view === 'finance',automation=view==='automation',analytics=view==='analytics'; $('summary').hidden = finance||automation||analytics; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation||analytics;$('automation-view').hidden=!automation;$('analytics-view').hidden=!analytics;
   $('recovery-center').hidden=view!=='incidents';
+  if(analytics){if(!(location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname+'#analytics');OrderIntelligencePanel.load();return;}
+  if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname);
   if(automation){history.replaceState({},'',location.pathname+'#automation');AutomationPanel.load();return;}
   if(location.hash==='#automation')history.replaceState({},'',location.pathname);
   if (finance) { loadResultsFinance(); return; }
@@ -1188,7 +1194,8 @@ async function init() {
   if (params.has('code')) state.token = await exchangeCode(params.get('code'), params.get('state'));
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
   $('login').hidden = true; $('app').hidden = false;
-  if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
+  if (state.config.analytics_enabled === false) { const analyticsNav=document.querySelector('[data-view="analytics"]');if(analyticsNav)analyticsNav.hidden=true;if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname); }
+  if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !activeToken()) return;
     const financeInterval = Number(state.config.finance_refresh_interval_seconds || 120) * 1000;

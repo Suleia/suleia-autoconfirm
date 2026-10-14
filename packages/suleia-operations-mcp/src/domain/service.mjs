@@ -1,4 +1,5 @@
 import { maskPii } from '../security/pii.mjs';
+import { compactAnalyticsReport } from '../../../platform-core/src/analytics/report.mjs';
 import { createPlatformKnowledge } from '../platform/catalog.mjs';
 import { compareDecisions, simulateDecision } from './simulator.mjs';
 
@@ -67,6 +68,10 @@ async function requireOrder(repository, orderId) {
 export function createOperationsService(repository, config = { environment: 'development', runtimeInventoryPath: '' }) {
   const platformKnowledge = createPlatformKnowledge({ repository, config });
   return Object.freeze({
+    async getOrderIntelligence(tool, filters) {
+      const report = compactAnalyticsReport(await repository.orderIntelligence(tool, filters), tool);
+      return safeEnvelope(repository, report, { category: 'DATA_INTELLIGENCE' });
+    },
     async searchOrders(filters) {
       const data = await repository.searchOrders(filters);
       return safeEnvelope(repository, data);

@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="results-dashboard.css?v=20260920-results-v2">
   <link rel="stylesheet" href="incident-panel.css?v=20260926-autonomy">
   <link rel="stylesheet" href="automation-panel.css?v=20260926-autonomy">
+  <link rel="stylesheet" href="order-intelligence.css?v=1">
 </head>
 <body>
   <div id="login" class="login-shell" hidden>
@@ -35,6 +36,7 @@
         <button class="nav-item" data-view="incidents"><span class="nav-icon">I</span>Incidencias</button>
         <button class="nav-item" data-view="automation"><span class="nav-icon" aria-hidden="true">↯</span>Automatización</button>
         <button class="nav-item" data-view="finance"><span class="nav-icon">€</span>Panel de resultados</button>
+        <button class="nav-item" data-view="analytics"><span class="nav-icon">▥</span>Centro de datos e información</button>
       </nav>
       <div class="safety-card">
         <span class="live-dot"></span>
@@ -68,6 +70,7 @@
       <div id="notice" class="notice" role="status" hidden></div>
       <section id="summary" class="summary-grid" aria-label="Resumen operativo"></section>
       <section id="automation-view" hidden aria-label="Automatización"></section>
+      <section id="analytics-view" class="oi-dashboard" hidden aria-label="Centro de datos e información"></section>
 
       <section id="finance-view" class="finance-view results-dashboard" hidden aria-label="Panel de resultados">
         <div class="finance-toolbar">
@@ -178,6 +181,7 @@
   <script src="results-dashboard.js?v=20260920-results-v2" defer></script>
   <script src="incident-panel.js?v=20260926-autonomy" defer></script>
   <script src="automation-panel.js?v=20260926-autonomy" defer></script>
+  <script src="order-intelligence.js?v=1" defer></script>
   <script src="app.js?v=20260926-autonomy" defer></script>
 </body>
 </html>
