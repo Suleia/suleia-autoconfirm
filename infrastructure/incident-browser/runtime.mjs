@@ -42,7 +42,13 @@ async function reconcileInterruptedRetry(context){
  const control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
  if(control.mode==='AUTO_CANARY')await fs.writeFile('/state/retry-control.json',JSON.stringify({...control,mode:'AUTO',promotedAt:new Date().toISOString(),verifiedOrderId:plan.orderId}),{mode:0o600});
 }
+export function retryBatchCanContinue({mode,results,elapsedMs}){
+ return ['AUTO','AUTO_CANARY'].includes(mode)&&elapsedMs<=20*60000
+  &&!(mode==='AUTO_CANARY'&&results.length)
+  &&!results.some(r=>r.saveAttempted&&r.status!=='VERIFIED');
+}
 export async function runVpsRetryCycle(context){
+ const cycleStartedAt=Date.now();
  await loadProviderEnv();
  await reconcileInterruptedRetry(context);
  const observation=await observeRetryCandidates();
@@ -57,9 +63,11 @@ export async function runVpsRetryCycle(context){
  const {claimTemplateDelivery,finishTemplateDelivery}=await import('../../autoconfirm/src/db/supabase-store.mjs');
  const report=JSON.parse(await fs.readFile('/state/retry-observation.json','utf8'));
  const candidates=report.cases.filter(c=>c.eligible&&
-  (control.mode!=='AUTO_CANARY'||!control.canaryOrderId||String(c.orderId)===String(control.canaryOrderId))).slice(0,1);
+  (control.mode!=='AUTO_CANARY'||!control.canaryOrderId||String(c.orderId)===String(control.canaryOrderId)));
  const results=[];
  for(const candidate of candidates){
+  // Leave time for a final candidate before the existing 25-minute watchdog.
+  if(!retryBatchCanContinue({mode:control.mode,results,elapsedMs:Date.now()-cycleStartedAt}))break;
   let plan=candidate.plan,attemptedAt=new Date().toISOString(),saveAttempted=false;
   async function revalidate(){
    const cached=(await selectRows('app_state',{query:{key:'eq.incidents_cache',select:'value'},limit:1}))[0];
@@ -112,6 +120,8 @@ export async function runVpsRetryCycle(context){
    if(saveAttempted)await fs.writeFile('/state/retry-reconcile.json',JSON.stringify(result),{mode:0o600});
    await fs.appendFile('/state/retry-audit.jsonl',JSON.stringify(result)+'\n',{mode:0o600});results.push(result);
   }
+  // Never advance to another write after an uncertain Save.
+  try{await fs.access('/state/retry-reconcile.json');break;}catch{}
  }
  return {...observation,mode:control.mode,executionEnabled:true,writes:results.filter(r=>r.saveAttempted).length,verified:results.filter(r=>r.status==='VERIFIED').length,results};
 }

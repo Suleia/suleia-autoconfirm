@@ -116,3 +116,15 @@ details receipts can be reconciled from the exact outgoing Chatby WAMID and
 attempt window without sending another message. A separately supplied postcode
 retains a city only if the customer explicitly supplied it; portal/floor/door
 must be preserved. Feedback does not automatically rewrite business rules.
+
+Owner update 2026-10-14: the VPS systemd suleia-incidents.timer triggers the
+authenticated all-incident sync endpoint every 30 minutes, with persistent
+calendar scheduling and no HTTP mutation retries. INCIDENT_SYNC_OWNER=vps
+disables Render's duplicate periodic incident timers; Render still executes
+its governed address/data, notification, discount and return rules. Unknown
+types are reviewed and remain blocked without a verified provider contract.
+The independent browser worker processes eligible absent/rejected retries in
+AUTO within a 20-minute admission budget; a canary or uncertain Save stops the
+batch. Shared claims prevent duplicate actions between these execution paths.
+The dashboard places customer activity, exact scoped text/button, timestamp
+and verification state beside each order. An unavailable read is not silence.
