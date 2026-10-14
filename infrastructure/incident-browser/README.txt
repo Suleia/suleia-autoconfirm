@@ -80,6 +80,14 @@ the requested retry is subject to carrier availability, not a delivery promise.
 Sources: https://www.boe.es/buscar/doc.php?id=BOE-A-2025-21667
 https://www.boe.es/buscar/doc.php?id=BOE-A-2026-21254
 
+Owner rule added 2026-10-14: an unconditional request to receive the order in
+the morning/afternoon, missing only the date, keeps that window on the next
+business day. The plan records OWNER_NEXT_BUSINESS_CUSTOMER_WINDOW. Only
+responses younger than 24 hours qualify; other dates, precise times, conditions,
+earlier preferences and discount dependencies remain blocked. A factual past
+absence alone does not negate an explicit request for a new delivery. The
+one-hour wait, exact customer evidence, screenshot and all write gates remain.
+
 Stop/rollback: docker stop suleia-incident-browser. Preserve private profile
 and evidence; do not touch the existing Operations containers.
 
