@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS analytics.finance_months (month text PRIMARY KEY,body
 CREATE TABLE IF NOT EXISTS analytics.detected_patterns (pattern_id text PRIMARY KEY,body jsonb NOT NULL,detected_at timestamptz NOT NULL,valid_until timestamptz NOT NULL);
 CREATE TABLE IF NOT EXISTS analytics.insights (insight_id text PRIMARY KEY,body jsonb NOT NULL,generated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS analytics.runtime_state (state_key text PRIMARY KEY,body jsonb NOT NULL);
+CREATE TABLE IF NOT EXISTS analytics.overview_snapshots (cache_key text PRIMARY KEY,body jsonb NOT NULL,materialized_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS analytics.daily_summaries (business_date date PRIMARY KEY,body jsonb NOT NULL,generated_at timestamptz NOT NULL DEFAULT now());
 CREATE TABLE IF NOT EXISTS analytics.agent_registry (agent_id text PRIMARY KEY,body jsonb NOT NULL);
 INSERT INTO analytics.agent_registry VALUES ('ORDER_INTELLIGENCE_AGENT','{"category":"DATA_INTELLIGENCE","mode":"READ_ONLY","external_actions":false,"experimental_predictions":false,"version":1}') ON CONFLICT DO NOTHING;

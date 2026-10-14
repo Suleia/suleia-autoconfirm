@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import pg from 'pg';
 import { FinanceReportClient } from '../../../../apps/api/finance-report-client.mjs';
 import { decryptOperationsPrivateJson } from '../operations/private-display.mjs';
-import { aggregateFacts, buildFact, refreshFact, hash, iso, localParts, shiftDay } from '../../../platform-core/src/analytics/order-intelligence.mjs';
+import { aggregateFacts, buildFact, refreshFact, hash, iso, localParts, shiftDay, overviewCacheKey, validateFilters } from '../../../platform-core/src/analytics/order-intelligence.mjs';
 import { buildAnalyticsReport, detectPatterns, temporalPatterns } from '../../../platform-core/src/analytics/report.mjs';
 
 export async function materialize({source,writer,finance,privateKey,now=new Date()}){
@@ -39,6 +39,10 @@ export async function materialize({source,writer,finance,privateKey,now=new Date
   await client.query('DELETE FROM analytics.detected_patterns');for(const p of patterns)await client.query('INSERT INTO analytics.detected_patterns VALUES($1,$2,$3,$4)',[p.pattern_id,p,p.detected_at,p.valid_until]);
   await client.query('DELETE FROM analytics.insights');for(const i of report.data.insights)await client.query('INSERT INTO analytics.insights(insight_id,body) VALUES($1,$2)',[i.insight_id,i]);
   runtime.pattern_count=patterns.length;runtime.insight_count=report.data.insights.length;
+  // Common panel ranges are ready before serving the first request, avoiding
+  // a cold statistical calculation on the resource-limited MCP container.
+  await client.query('DELETE FROM analytics.overview_snapshots');
+  for(const span of [1,7,30,90]){const f=validateFilters({date_from:shiftDay(localParts(now).day,1-span),date_to:localParts(now).day},now);const r=buildAnalyticsReport({cells,financeDays:days,runtime,filters:f,now});await client.query('INSERT INTO analytics.overview_snapshots(cache_key,body) VALUES($1,$2)',[overviewCacheKey(f),r]);}
   await client.query('INSERT INTO analytics.daily_summaries(business_date,body) VALUES($1,$2) ON CONFLICT(business_date) DO UPDATE SET body=excluded.body,generated_at=now()',[localParts(now).day,{overview:report.data.overview,insights:report.data.insights,send_automatically:false}]);
   await client.query("INSERT INTO analytics.runtime_state(state_key,body) VALUES('materializer',$1) ON CONFLICT(state_key) DO UPDATE SET body=excluded.body",[runtime]);await client.query('COMMIT');
   return runtime;

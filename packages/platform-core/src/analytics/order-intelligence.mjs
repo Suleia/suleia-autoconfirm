@@ -11,6 +11,7 @@ export const iso = v => v && Number.isFinite(new Date(v).getTime()) ? new Date(v
 export const finite = v => v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v);
 export const round = v => v === null ? null : Math.round((v + Number.EPSILON)*100)/100;
 export const hash = v => createHash('sha256').update(JSON.stringify(v)).digest('hex');
+export const overviewCacheKey = filters => hash(Object.entries(filters).filter(([k,v])=>['date_from','date_to','product','offer','province','outcome','maturity','dimension'].includes(k)&&v).sort(([a],[b])=>a.localeCompare(b)));
 export function localParts(value) { const d=iso(value); if(!d)return null; const p=Object.fromEntries(localFormat.formatToParts(new Date(d)).map(x=>[x.type,x.value]));const day=`${p.year}-${p.month}-${p.day}`;return {day,hour:Number(p.hour),weekday:(new Date(day+'T12:00:00Z').getUTCDay()+6)%7,month:day.slice(0,7)}; }
 export const shiftDay = (day,n) => new Date(Date.parse(day+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
 export const delayMinutes = (a,b) => iso(a)&&iso(b)&&Date.parse(b)>=Date.parse(a) ? round((Date.parse(b)-Date.parse(a))/60000) : null;
