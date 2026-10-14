@@ -13,6 +13,9 @@ API, MCP y panel comparten el mismo motor de métricas y filtros. El cliente
 financiero existente aporta exclusivamente su informe de cohorte de compra;
 el nuevo trabajo desactiva expresamente su función de refresco de origen.
 
+Los pedidos reales marcados como pruebas por el teléfono de origen se conservan
+identificados, igual que en el informe financiero, para no eliminar sus costes
+y resultados. La unicidad se garantiza por ID canónico, no por teléfono.
 No se reconstruye otra contabilidad. `finance_months` conserva los totales y
 la cobertura del informe existente; `finance_days` conserva su desglose por
 fecha de compra. El verificador compara pedidos, ingresos y beneficio diario

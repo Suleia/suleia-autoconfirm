@@ -14,6 +14,7 @@ git -c safe.directory="$resolved" cat-file -e "$revision^{commit}"
 umask 077
 mkdir -p "$backup";chmod 0700 "$backup"
 for service in api mcp-server review-panel; do docker inspect "suleia-operations-staging-$service-1" > "$backup/$service-before.json";done
+if docker inspect suleia-operations-staging-analytics-materializer-1 > "$backup/analytics-before.json" 2>/dev/null;then :;else printf '[]' > "$backup/analytics-before.json";fi
 docker ps --format '{{.Names}} {{.ID}}' | grep -vE 'staging-(api|mcp-server|review-panel)-1$' > "$backup/all-containers-before.txt"
 for service in ingestion-worker scheduler decision-engine postgres keycloak reverse-proxy mcp-edge monitoring; do docker inspect --format '{{.Id}}' "suleia-operations-staging-$service-1" > "$backup/$service-id-before";done
 sha256sum .env > "$backup/env.sha256"
@@ -40,7 +41,7 @@ docker exec -i suleia-operations-staging-postgres-1 psql -X -U suleia_admin -d s
 # in the approved private VPS secret directory for restarts and rollback.
 rm -- "$backup/role-password.sql"
 override="$backup/runtime-override.json"
-rollback(){ trap - ERR;"${compose[@]}" -f "$override" stop analytics-materializer >/dev/null 2>&1 || true;"${compose[@]}" -f "$backup/rollback.json" up -d --no-deps --no-build api mcp-server review-panel >/dev/null; }
+rollback(){ trap - ERR;"${compose[@]}" -f "$override" stop analytics-materializer >/dev/null 2>&1 || true;local restore=(api mcp-server review-panel);if [[ -f "$backup/restore-analytics" ]];then restore+=(analytics-materializer);fi;"${compose[@]}" -f "$backup/rollback.json" up -d --no-deps --no-build "${restore[@]}" >/dev/null; }
 trap rollback ERR
 "${compose[@]}" -f "$override" run --rm --no-deps analytics-materializer node packages/suleia-operations-mcp/src/analytics/materialize.mjs --once | tee "$backup/backfill.jsonl"
 "${compose[@]}" -f "$override" up -d --no-deps --no-build api mcp-server review-panel analytics-materializer

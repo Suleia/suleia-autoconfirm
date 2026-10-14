@@ -30,6 +30,12 @@ api_env=env(old['api'])
 password=secrets.token_urlsafe(48)
 db=urlsplit(api_env['OPERATIONS_DATABASE_URL'])
 writer_url=urlunsplit((db.scheme,'suleia_analytics_materializer:'+quote(password,safe='')+'@'+db.netloc.split('@',1)[1],db.path,db.query,''))
+previous_job=read('analytics-before.json') if (backup/'analytics-before.json').exists() else []
+if previous_job:
+    writer_url=env(previous_job[0])['ANALYTICS_DATABASE_URL']
+    password=urlsplit(writer_url).password
+    assert urlsplit(writer_url).username=='suleia_analytics_materializer'
+    assert password and all(c.isalnum() or c in '-_' for c in password)
 job_env={k:api_env[k] for k in ['OPERATIONS_DATABASE_URL','OPERATIONS_PRIVATE_DATA_KEY','FINANCE_REPORT_BASE_URL','FINANCE_REPORT_PASSWORD']}
 job_env.update(ANALYTICS_DATABASE_URL=writer_url,ANALYTICS_INTERVAL_MS='300000',NODE_OPTIONS='--max-old-space-size=160',NODE_ENV='production')
 assert all('\n' not in v for v in job_env.values())
@@ -40,5 +46,8 @@ override['services']['analytics-materializer']={'image':image,'command':['node',
     'security_opt':['no-new-privileges:true'],'mem_limit':'256m','cpus':0.5,
     'networks':['public_network','database_network'],
     'healthcheck':{'test':['CMD','node','packages/suleia-operations-mcp/src/analytics/health.mjs'],'interval':'60s','timeout':'10s','retries':3,'start_period':'120s'}}
+if previous_job and previous_job[0]['State']['Running']:
+    rollback['services']['analytics-materializer']={**override['services']['analytics-materializer'],**service(previous_job[0]),'env_file':[]}
+    (backup/'restore-analytics').write_text('true')
 save('runtime-override.json',override);save('rollback.json',rollback)
 print('PRIVATE_DEPLOYMENT_CONFIGURATION_READY')
