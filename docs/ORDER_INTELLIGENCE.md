@@ -25,6 +25,12 @@ los gastos generales arbitrariamente por productos, provincias o pedidos.
 Los segmentos muestran contribución conocida; beneficio neto no atribuido =
 `null`. Un coste ausente también es `null`, no cero.
 
+El margen por pedido con resultado (`contribution_per_settled_order`) divide
+solo por pedidos con contribución conocida y muestra su cobertura. No equivale
+al beneficio neto de todos los pedidos ni convierte los pendientes en ceros.
+La media estricta sobre todos los pedidos permanece nula si falta algún resultado.
+Las tipologías de incidencia desconocidas también se cuentan en calidad.
+
 ## Persistencia y permisos
 
 Migración aditiva: `053_order_intelligence.sql`.
@@ -37,6 +43,7 @@ Migración aditiva: `053_order_intelligence.sql`.
 | detected_patterns | Hallazgos deterministas, muestra, referencia, diferencia, intervalo y vigencia |
 | insights | Explicaciones con evidencia y filtros de exploración |
 | runtime_state | Último éxito, fuente, duración, filas cambiadas, watermark, backfill y errores |
+| overview_snapshots | Informes precalculados para 1, 7, 30 y 90 días; frescura reevaluada al leer |
 | daily_summaries | Resumen preparado; `send_automatically=false` |
 | agent_registry | Contrato del agente sin permisos operativos |
 
