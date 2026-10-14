@@ -7,7 +7,7 @@ import sys,re,pathlib,subprocess,json,os,http.client,socket,time
 revision,patch_root,service=sys.argv[1:]
 assert re.fullmatch('[a-f0-9]{40}',revision)
 files={
- 'ingestion-worker':['services/integrations/render/address-signal.mjs','packages/platform-core/src/incident/address-canonical.mjs'],
+ 'ingestion-worker':['services/integrations/render/address-signal.mjs','packages/platform-core/src/incident/address-canonical.mjs','services/incident-simulation-sync.mjs','packages/platform-core/src/incident/absent-resolution.mjs'],
  'api':['packages/suleia-operations-mcp/src/platform/catalog.mjs','packages/suleia-operations-mcp/src/security/pii.mjs'],
  'mcp-server':['packages/suleia-operations-mcp/src/platform/catalog.mjs','packages/suleia-operations-mcp/src/security/pii.mjs','packages/suleia-operations-mcp/src/mcp/server.mjs']}
 assert service in files
@@ -39,7 +39,7 @@ dockerfile.write_text('FROM '+base+'\n'+
 run(['docker','build','--network=none','-f',str(dockerfile),'-t',image,str(root)])
 candidate=json.loads(run(['docker','image','inspect',image]))[0]
 (backup/'image.json').write_text(json.dumps({'old':original['Image'],'new':candidate['Id'],'patch':revision}))
-tests=(['services/integrations/render/address-signal.test.mjs','packages/platform-core/test/address-canonical.test.mjs']
+tests=(['services/integrations/render/address-signal.test.mjs','packages/platform-core/test/address-canonical.test.mjs','packages/platform-core/test/absent-resolution.test.mjs','services/recipient-absent-resolution-executor.test.mjs','services/shadow-worker-health.test.mjs','services/incident-simulation-sync.test.mjs']
  if service=='ingestion-worker' else ['packages/suleia-operations-mcp/test/stabilization-privacy.test.mjs','packages/suleia-operations-mcp/test/mcp-tools.test.mjs','packages/suleia-operations-mcp/test/security-controls.test.mjs'])
 test_args=['docker','run','--rm','--network=none','--cap-drop=ALL','--security-opt=no-new-privileges','--memory=384m','--env','NODE_ENV=test']
 for test in tests:test_args+=['--volume',str(root/test)+':/app/'+test+':ro']
