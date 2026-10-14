@@ -19,7 +19,9 @@ assert not (backup/'result.json').exists(), 'Already deployed; verify before rep
 def run(args):
  p=subprocess.run(args,capture_output=True,text=True)
  if p.returncode:
-  (backup/'command-error.txt').write_text(p.stderr);raise RuntimeError('COMMAND_FAILED: '+args[0])
+  (backup/'command-error.txt').write_text(p.stderr)
+  (backup/'command-output.txt').write_text(p.stdout)
+  raise RuntimeError('COMMAND_FAILED: '+args[0])
  return p.stdout
 original=json.loads(run(['docker','inspect',name]))[0]
 if (backup/'container.json').exists():
@@ -39,7 +41,7 @@ candidate=json.loads(run(['docker','image','inspect',image]))[0]
 (backup/'image.json').write_text(json.dumps({'old':original['Image'],'new':candidate['Id'],'patch':revision}))
 tests=(['services/integrations/render/address-signal.test.mjs','packages/platform-core/test/address-canonical.test.mjs']
  if service=='ingestion-worker' else ['packages/suleia-operations-mcp/test/stabilization-privacy.test.mjs','packages/suleia-operations-mcp/test/mcp-tools.test.mjs','packages/suleia-operations-mcp/test/security-controls.test.mjs'])
-test_args=['docker','run','--rm','--network=none','--cap-drop=ALL','--security-opt=no-new-privileges','--memory=384m']
+test_args=['docker','run','--rm','--network=none','--cap-drop=ALL','--security-opt=no-new-privileges','--memory=384m','--env','NODE_ENV=test']
 for test in tests:test_args+=['--volume',str(root/test)+':/app/'+test+':ro']
 test_args+=['--entrypoint','node',image,'--test','--test-reporter=tap',*tests]
 (backup/'image-tests.tap').write_text(run(test_args))
