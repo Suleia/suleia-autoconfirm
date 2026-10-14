@@ -23,7 +23,7 @@ cp --preserve=mode "$install/.env" "$release/.env"
 cd "$release"
 image="suleia-order-intelligence:$revision"
 docker build -f infrastructure/docker/Dockerfile.node --build-arg "OCI_REVISION=$revision" --build-arg OCI_SOURCE=https://github.com/Suleia/suleia-autoconfirm --build-arg OCI_REF_NAME=feat/order-intelligence --build-arg "OCI_CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t "$image" .
-docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges -e NODE_ENV=test --tmpfs /app/autoconfirm/data:rw,mode=1777 \
+docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges -e NODE_ENV=test \
  -v "$release/infrastructure:/app/infrastructure:ro" -v "$release/migrations:/app/migrations:ro" -v "$release/scripts:/app/scripts:ro" -v "$release/docs:/app/docs:ro" -v "$release/autoconfirm:/app/autoconfirm:ro" \
  --entrypoint node "$image" --input-type=module -e '
  import {readdirSync} from "node:fs";import {spawnSync} from "node:child_process";let files=[];

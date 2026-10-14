@@ -61,9 +61,26 @@ GRANT SELECT ON read_models.order_intelligence_source TO suleia_operations_reado
 
 -- Pre-aggregated input views; the shared deterministic service applies all
 -- filters before calculating rates (never averages percentages).
-DO $$ DECLARE v text; BEGIN FOREACH v IN ARRAY ARRAY['orders_by_hour','orders_by_weekday','orders_by_province','orders_by_city','orders_by_product','orders_by_offer','order_outcomes','return_patterns','confirmation_patterns','delivery_patterns','incident_patterns','profitability_segments','order_funnel','daily_order_intelligence','customer_response_patterns'] LOOP
- EXECUTE format('CREATE OR REPLACE VIEW analytics.%I AS SELECT business_date,cell FROM analytics.order_cells',v);
-END LOOP; END $$;
+DO $$ DECLARE r record; BEGIN FOR r IN SELECT * FROM (VALUES
+ ('orders_by_hour','hour'),('orders_by_weekday','weekday'),('orders_by_province','province'),('orders_by_city','locality'),
+ ('orders_by_product','product'),('orders_by_offer','offer'),('order_outcomes','outcome'),('return_patterns','maturity'),
+ ('confirmation_patterns','confirmation_delay_band'),('delivery_patterns','has_incident'),('incident_patterns','province'),
+ ('profitability_segments','product'),('order_funnel','outcome'),('daily_order_intelligence','day'),('customer_response_patterns','response_delay_band')
+ ) AS dimensions(model,dimension) LOOP
+ EXECUTE format('CREATE OR REPLACE VIEW analytics.%I AS SELECT business_date,cell->>%L AS dimension_value,
+ sum((cell->''counts''->>''orders'')::bigint) AS orders,
+ sum((cell->''counts''->>''confirmed'')::bigint) AS confirmed,
+ sum((cell->''counts''->>''sent'')::bigint) AS sent,
+ sum((cell->''counts''->>''delivered'')::bigint) AS delivered,
+ sum((cell->''counts''->>''returned'')::bigint) AS returned,
+ sum((cell->''counts''->>''incident_orders'')::bigint) AS incident_orders,
+ sum((cell->''counts''->>''revenue'')::numeric) AS known_revenue,
+ sum((cell->''counts''->>''revenue_known'')::bigint) AS revenue_known_orders,
+ sum((cell->''counts''->>''contribution'')::numeric) AS known_contribution,
+ sum((cell->''counts''->>''contribution_known'')::bigint) AS contribution_known_orders,
+ sum((cell->''counts''->>''missing_costs'')::bigint) AS missing_cost_orders
+ FROM analytics.order_cells GROUP BY business_date,cell->>%L',r.model,r.dimension,r.dimension);
+ END LOOP; END $$;
 GRANT USAGE ON SCHEMA analytics TO suleia_operations_readonly,suleia_mcp_readonly,suleia_analytics_materializer,suleia_backup;
 GRANT SELECT ON ALL TABLES IN SCHEMA analytics TO suleia_operations_readonly,suleia_mcp_readonly,suleia_backup;
 REVOKE ALL ON analytics.order_facts FROM suleia_mcp_readonly;
