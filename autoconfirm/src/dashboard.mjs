@@ -17,7 +17,7 @@ import {
   syncAgentFeedbackToSupabase,
   syncAgentMemoryRuleToSupabase
 } from './db/supabase-store.mjs';
-import { classifyIncidentDiscountResponse } from './workflows/incident-discount-policy.mjs';
+import { cachedDiscountResponse } from './dashboard-discount-response.mjs';
 
 const config = getAppConfig();
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -60,7 +60,7 @@ function isDiscountTemplate(value) {
   return normalize(value).replace(/[^a-z0-9]+/g, '_').includes('dropea_incidencia_descuento_5');
 }
 
-async function buildIncidentDiscountRows(orders = []) {
+async function buildIncidentDiscountRows(orders = [], incidents = {}) {
   let ledgerRows = [];
   try {
     ledgerRows = (await listTemplateDeliveries({ limit: 200 }))
@@ -75,17 +75,7 @@ async function buildIncidentDiscountRows(orders = []) {
   for (const ledger of ledgerRows) {
     const order = byOrderId.get(String(ledger.order_id)) || {};
     const raw = safeObject(ledger.raw);
-    let response = { status: String(ledger.status || '').toUpperCase() || 'UNKNOWN', respondedAt: null };
-    if (ledger.chatby_user_ns && ['sent', 'already_seen'].includes(String(ledger.status || '').toLowerCase())) {
-      try {
-        response = classifyIncidentDiscountResponse(
-          await getChatMessages(ledger.chatby_user_ns),
-          ledger.template_name
-        );
-      } catch {
-        response = { status: 'STATUS_UNAVAILABLE', respondedAt: null };
-      }
-    }
+    const response = cachedDiscountResponse(ledger, incidents);
     const phone = String(order.phone || ledger.customer_phone || '').replace(/\D/g, '');
     rows.push({
       orderId: String(ledger.order_id || ''),
@@ -2018,7 +2008,7 @@ export async function buildDashboard({ health = null, forceMeta = false } = {}) 
   };
   const orders = mergedOrders
     .map(enrichOrderForAgent);
-  const discounts = await buildIncidentDiscountRows(orders);
+  const discounts = await buildIncidentDiscountRows(orders, incidents);
   const confirmed = orders.filter(isRecognizedSale);
   const cancelled = orders.filter(isCancelled);
   const manualReview = orders.filter(isManualReview);
