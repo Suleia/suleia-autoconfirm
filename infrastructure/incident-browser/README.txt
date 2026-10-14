@@ -3,7 +3,7 @@ Dedicated VPS browser for incident evidence
 This component runs and stores its profile on the existing VPS. It does not
 depend on the operator's desktop. It defaults to OBSERVE_ONLY. Execution is
 controlled by private /state/retry-control.json: AUTO_CANARY processes at most
-one eligible retry per 15-minute cycle and promotes to AUTO only after API and
+one eligible retry per 30-minute cycle and promotes to AUTO only after API and
 attachment verification. Browser running alone does not prove execution works.
 
 Build with Docker. Run as uid/gid 1000 with the vendor Playwright seccomp profile,
@@ -36,11 +36,17 @@ phone and customer name obtained from fresh authorized provider reads. A
 capture succeeds only when phone, date, time and message are all visible.
 Diagnostics and images stay under private /evidence. This queue cannot submit
 an incident. retry-policy.mjs contains the tested policy/execution boundary.
-The scheduler reads pending incidents and replies every 15 minutes using scoped
+The scheduler reads pending incidents and replies every 30 minutes using scoped
 credentials in /state/provider-env.json. runtime.mjs connects the shared claim,
 capture, UI attachment/save and API plus persisted evidence verification.
 Inspect /state/observer-health.json and /state/retry-observation.json for actual
 cycle results. A running timer alone does not prove that provider reads succeed.
+It runs immediately on startup and every 30 minutes, 24/7, without overlapping
+cycles. Private health includes the last trigger and next scheduled run in UTC.
+Docker must be enabled at host boot; run.sh uses restart unless-stopped. No
+desktop session, SSH tunnel or Codex conversation is needed for routine cycles.
+Readiness allows 30 minutes between starts plus the 25-minute cycle watchdog
+and a 5-minute reporting margin; errors and missing sessions still block READY.
 
 Build preparation: export the deployed autoconfirm/src revision into the ignored
 runtime-src directory before docker build; never copy .env or customer data.

@@ -102,7 +102,7 @@ PENDING_DATA is admitted only for the verified GLS Spain missing-data mapping. A
 ## Independent evidence-backed retries (2026-10-13)
 
 The dedicated VPS worker owns screenshot-backed retries for absent/rejected
-incidents. It runs every 15 minutes, shares the persistent incident claim and
+incidents. It runs every 30 minutes (owner update 2026-10-14), shares the persistent incident claim and
 requires exact-order replies, a one-hour settling window and fresh verification.
 The owner authorized next business morning for an unconditional desire for the
 order without any date/window preference. Explicit or earlier preferences take
