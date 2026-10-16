@@ -11,7 +11,9 @@ test('runner calls only the authenticated complete-cycle endpoint and never logs
   assert.match(runner, /Authorization: Bearer \$\{CRON_SECRET\}/);
   assert.match(runner, /flock --nonblock/);
   assert.match(runner, /--output "\$\{response_file\}"/);
-  assert.match(runner, /secret_disclosed=0/);
+  assert.match(runner, /suleia-render-cycle-response\.py/);
+  assert.doesNotMatch(runner, /--retry/);
+  assert.match(service, /TimeoutStartSec=650/);
   assert.doesNotMatch(runner, /cat "\$\{response_file\}"/);
 });
 

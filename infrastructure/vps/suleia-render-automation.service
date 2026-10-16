@@ -9,6 +9,7 @@ User=suleiaops
 Group=suleiaops
 EnvironmentFile=/etc/suleia/render-automation.env
 ExecStart=/usr/local/sbin/suleia-render-automation-cycle
+TimeoutStartSec=650
 UMask=0077
 NoNewPrivileges=true
 PrivateTmp=true
