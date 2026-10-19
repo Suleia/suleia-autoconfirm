@@ -24,7 +24,7 @@ export function acceptedSupportStatus(env=process.env){
 }
 const args=p=>({storeId:'suleia',orderId:p.orderId,templateName:'accepted_discount_support_v1',provider:'gmail_then_dropea',chatbyUserNs:p.conversationId});
 const phone=x=>'+'+String(x||'').replace(/\D/g,'');
-async function readCandidate(incident,env=process.env){
+export async function readCandidate(incident,env=process.env){
  const current=await readDropeaV2ReturnIssueState(incident,{includeOrder:true});const issue=current.issue?.raw||current.issue,order=current.order;
  if(String(issue?.id)!==String(incident.incidenceId)||String(issue?.order_id)!==String(incident.orderId)||String(order?.orderId)!==String(incident.orderId))throw Error('CURRENT_IDENTITY_MISMATCH');
  if(String(issue.owner_id)!==env.DISCOUNT_SUPPORT_DROPSHIPPER_ID)throw Error('OWNER_MISMATCH');
