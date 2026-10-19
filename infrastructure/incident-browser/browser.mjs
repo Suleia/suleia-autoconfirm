@@ -112,6 +112,8 @@ async function observe(){
   catch{result.addressDetailsReconciliationError='RECEIPT_RECONCILIATION_UNAVAILABLE';}
   try{result.feedback=await (await import('./feedback.mjs')).followRetryOutcomes();}
   catch{result.feedbackError='FOLLOWUP_UNAVAILABLE';}
+  try{result.acceptedDiscountSupport=await (await import('./support-runtime.mjs')).runVpsSupportCycle(context);}
+  catch{result.acceptedDiscountSupport={status:'SUPPORT_CYCLE_FAILED'};}
   result.startedAt=startedAt;result.completedAt=new Date().toISOString();
   await fs.writeFile('/state/observer-health.json',JSON.stringify(result));
   let history=[];try{history=JSON.parse(await fs.readFile('/state/cycle-history.json','utf8'));}catch{}
