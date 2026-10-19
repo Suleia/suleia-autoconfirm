@@ -52,7 +52,10 @@ export async function runVpsSupportCycle(context){
   const cache=(await selectRows('app_state',{query:{key:'eq.incidents_cache',select:'value,updated_at'},limit:1}))[0];
   if(!Number.isFinite(Date.parse(cache?.updated_at))||Date.now()-Date.parse(cache.updated_at)>45*60000)throw Error('INCIDENT_CACHE_STALE');
   return (cache.value.incidents||[]).filter(i=>i.incidentDiscountResponseStatus==='DISCOUNT_ACCEPTED'&&i.chatbyUserNs);
- },execute:async incident=>runAcceptedDiscount(incident,{
+ },execute:async incident=>{
+  const known=await getTemplateDelivery(args({orderId:incident.orderId,conversationId:incident.chatbyUserNs}));
+  if(known)return {status:known.status==='verified'?'ALREADY_VERIFIED':'RECONCILIATION_REQUIRED',discountApplied:false};
+  return runAcceptedDiscount(incident,{
   ready:()=>true,read:async i=>{
    const shared=await getTemplateDelivery({storeId:'suleia',orderId:i.orderId,templateName:`incident_resolution_v1:${i.incidenceId}`,provider:'dropea'});
    if(shared)throw Error('INCIDENT_ALREADY_CLAIMED');
@@ -74,5 +77,5 @@ export async function runVpsSupportCycle(context){
    if(verified)await finishTemplateDelivery({storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea',status:'verified',sentAt:new Date().toISOString(),raw:{owner:'accepted_discount_support_v1',verified:true,orderId:p.orderId,issueId:p.issueId}});
    return verified;
   }
- },{activationAt:env.DISCOUNT_SUPPORT_ACTIVATION_AT})});
+ },{activationAt:env.DISCOUNT_SUPPORT_ACTIVATION_AT});}});
 }
