@@ -9,7 +9,7 @@ import {getIncidentChatMessages} from '../../autoconfirm/src/clients/chatby.mjs'
 import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
 import {selectRows} from '../../autoconfirm/src/clients/supabase.mjs';
 import {getTemplateDelivery,claimTemplateDelivery,finishTemplateDelivery} from '../../autoconfirm/src/db/supabase-store.mjs';
-import {executeDropeaV2Resolution} from '../../autoconfirm/src/clients/dropea-v2-issue-actions.mjs';
+import {executeDropeaV2Resolution,loadDropeaV2IssueActionStoreConfigs} from '../../autoconfirm/src/clients/dropea-v2-issue-actions.mjs';
 import {readDropeaV2ReturnIssueState} from '../../autoconfirm/src/clients/dropea-v2-incidents.mjs';
 import {verifyDropeaResolution,buildDropeaResolutionBody} from '../../autoconfirm/src/clients/dropea-v2-resolution-contract.mjs';
 
@@ -33,6 +33,8 @@ export async function runVpsSupportCycle(context){
  await loadProviderEnv();
  const env={...process.env,...settings};
  if(env.DISCOUNT_GMAIL_FROM!=='smnsuleia@gmail.com')throw Error('SENDER_MISMATCH');
+ // Validate the write credential before sending an email or reserving a claim.
+ loadDropeaV2IssueActionStoreConfigs(env);
  const mail=createSupportGmail({env});
  const args=p=>({storeId:'suleia',orderId:p.orderId,templateName:'accepted_discount_support_v1',provider:'gmail_then_dropea',chatbyUserNs:p.conversationId});
  async function capture(p){
