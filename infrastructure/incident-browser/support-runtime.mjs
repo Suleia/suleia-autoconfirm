@@ -9,7 +9,7 @@ import {getIncidentChatMessages} from '../../autoconfirm/src/clients/chatby.mjs'
 import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
 import {selectRows} from '../../autoconfirm/src/clients/supabase.mjs';
 import {getTemplateDelivery,claimTemplateDelivery,finishTemplateDelivery} from '../../autoconfirm/src/db/supabase-store.mjs';
-import {executeDropeaV2Resolution,loadDropeaV2IssueActionStoreConfigs} from '../../autoconfirm/src/clients/dropea-v2-issue-actions.mjs';
+import {executeDropeaV2Resolution,loadDropeaV2IssueActionStoreConfigs,readDropeaV2IssueOperation} from '../../autoconfirm/src/clients/dropea-v2-issue-actions.mjs';
 import {readDropeaV2ReturnIssueState} from '../../autoconfirm/src/clients/dropea-v2-incidents.mjs';
 import {verifyDropeaResolution,buildDropeaResolutionBody} from '../../autoconfirm/src/clients/dropea-v2-resolution-contract.mjs';
 
@@ -69,7 +69,8 @@ export async function runVpsSupportCycle(context){
   },
   verifySolution:async p=>{
    const current=await readDropeaV2ReturnIssueState({orderId:p.orderId,incidenceId:p.issueId},{includeOrder:true});
-   const verified=(current.issue?.raw||current.issue)?.resolution_note?.trim()===p.solution.trim()&&verifyDropeaResolution(current,{issueId:p.issueId,orderId:p.orderId,action:'PROVIDE_SOLUTION',body:buildDropeaResolutionBody('PROVIDE_SOLUTION',{note:p.solution})});
+   const operation=await readDropeaV2IssueOperation(p.issueId,'accepted-support-'+p.key,{env});
+   const verified=operation?.status==='completed'&&verifyDropeaResolution(current,{issueId:p.issueId,orderId:p.orderId,action:'PROVIDE_SOLUTION',body:buildDropeaResolutionBody('PROVIDE_SOLUTION',{note:p.solution})});
    if(verified)await finishTemplateDelivery({storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea',status:'verified',sentAt:new Date().toISOString(),raw:{owner:'accepted_discount_support_v1',verified:true,orderId:p.orderId,issueId:p.issueId}});
    return verified;
   }
