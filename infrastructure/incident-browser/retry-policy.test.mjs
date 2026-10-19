@@ -7,7 +7,7 @@ test('owner example anchors Thursday to the message and preserves morning',()=>{
  assert.deepEqual(preciseRetrySlot('De 11 :30 ha 13:30 jueves si puede ser gracias',at),{date:'2026-10-15',time_window:'morning'});
 });
 test('ambiguous days and invalid or unmapped ranges do not execute',()=>{
- for(const text of ['De 11:30 a 13:30 jueves o viernes','De 11:90 a 13:30 jueves','De 17:30 a 20:30 jueves','De 13:30 a 11:30 jueves']){
+ for(const text of ['De 11:30 a 13:30 jueves o viernes','De 11:90 a 13:30 jueves','De 13:30 a 16:30 jueves','De 13:30 a 11:30 jueves']){
   const p=preciseRetrySlot(text,at);assert.ok(!p.date||!p.time_window,text);
  }
 });
@@ -56,7 +56,7 @@ test('owner default schedules plain desire for next business morning',()=>{
  const i=defaultInput();i.now=at+100;assert.equal(retryEvidencePlan(i).reason,'REPLY_SETTLING_WINDOW');
 });
 test('default never replaces partial, precise, conditional or older preferences',()=>{
- for(const text of ['Lo quiero el jueves','Lo quiero de 17:30 a 20:30','Lo quiero si me llaman','Lo quiero con descuento','Lo quiero en otra dirección']){
+ for(const text of ['Lo quiero el jueves','Lo quiero de 13:30 a 16:30','Lo quiero si me llaman','Lo quiero con descuento','Lo quiero en otra dirección']){
   const i=defaultInput();i.messages[0].text=text;assert.equal(retryEvidencePlan(i).eligible,false,text);
  }
  const i=defaultInput();i.messages.unshift({id:699999,direction:'incoming',created_at:new Date(at-1000).toISOString(),text:'El jueves por la tarde'});
@@ -71,8 +71,36 @@ test('missing date preserves the requested window on the next business day',()=>
 });
 
 test('missing-date rule does not discard any other customer condition',()=>{
- for(const text of ['No lo quiero por la tarde','Lo quiero por la tarde mañana','Lo quiero por la tarde el jueves','Lo quiero por la tarde a las 17:30','Lo quiero por la mañana o por la tarde','Lo quiero por la tarde si me llaman','Lo quiero por la tarde con descuento','Lo quiero por la tarde en otra dirección','Lo quiero por la tarde pero no mañana','Lo quiero por la tarde?','No estaba en casa pero no lo quiero por la tarde','Por la tarde','Quizás lo quiero por la tarde']){
+ for(const text of ['No lo quiero por la tarde','Lo quiero por la tarde mañana','Lo quiero por la tarde el jueves','Lo quiero por la tarde a las 17:30','Lo quiero por la mañana o por la tarde','Lo quiero por la tarde si me llaman','Lo quiero por la tarde con descuento','Lo quiero por la tarde en otra dirección','Lo quiero por la tarde pero no mañana','Lo quiero por la tarde?','No estaba en casa pero no lo quiero por la tarde','mañana','Quizás lo quiero por la tarde']){
   assert.equal(requestedWindowWithoutDate(text),null,text);
+ }
+});
+
+test('short window replies and numeric ranges preserve screenshot text and next business date',()=>{
+ for(const [text,window] of [['Por la tarde','afternoon'],['Por la mañana','morning'],['Sí por la tarde gracias','afternoon'],['Tarde','afternoon'],['De 17:30 a 20:30','afternoon'],['Entre 16 y 18','afternoon'],['De 11 :30 ha 13:30','morning']]){
+  const i=defaultInput();i.messages[0].text=text;const p=retryEvidencePlan(i);
+  assert.equal(p.eligible,true,text);assert.equal(p.time_window,window);assert.equal(p.date,'2026-10-14');assert.equal(p.text,text);
+ }
+});
+
+test('afternoon range with explicit day is retained without rolling the date',()=>{
+ const i=defaultInput();i.messages[0].text='De 17:30 a 20:30 jueves';
+ const p=retryEvidencePlan(i);assert.equal(p.eligible,true);assert.equal(p.date,'2026-10-15');assert.equal(p.time_window,'afternoon');
+ i.now=Date.parse('2026-10-16T10:00:00Z');assert.equal(retryEvidencePlan(i).eligible,false);
+});
+
+test('verified same-order buttons use their decoded slot, never text-only invented payloads',()=>{
+ for(const window of ['MORNING','AFTERNOON']){
+  const i=defaultInput();i.messages[0]={...i.messages[0],text:'Recibir pedido',button_verified:true,order_id:'900001',button_payload:'ABSENT_TOMORROW_'+window};
+  const p=retryEvidencePlan(i);assert.equal(p.eligible,true);assert.equal(p.date,'2026-10-14');assert.equal(p.time_window,window.toLowerCase());
+  i.messages[0].button_verified=false;assert.equal(retryEvidencePlan(i).eligible,false);
+  i.messages[0].button_verified=true;i.messages[0].order_id='900002';assert.equal(retryEvidencePlan(i).eligible,false);
+ }
+});
+
+test('partial schedules do not erase conditions or contradictory numeric windows',()=>{
+ for(const text of ['De 16 a 18 si me llaman','De 16 a 18 con descuento','De 13 a 16','De 21 a 23','De 18 a 16','De 16:99 a 18:30','Entre 16 y 18 o de 19 a 20','Por la tarde no','Por la tarde a otra dirección']){
+  const i=defaultInput();i.messages[0].text=text;assert.equal(retryEvidencePlan(i).eligible,false,text);
  }
 });
 

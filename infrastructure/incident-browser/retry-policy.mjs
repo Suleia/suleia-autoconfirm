@@ -15,24 +15,34 @@ const preference=text=>/\d|\b(?:lunes|martes|miercoles|jueves|viernes|sabado|dom
 export function requestedWindowWithoutDate(text){
  let t=fold(text);
  if(t.length>280)return null;
+ const range=numericWindow(t);
+ if(range)t=t.replace(range.source,`por la ${range.window==='morning'?'manana':'tarde'}`);
  t=t.replace(/^no (?:me encontraba|estaba) en (?:la )?casa[,. ]+/,'');
  t=t.replace(/^si[, ]+por favor\b/,'por favor');
- const windows=[...t.matchAll(/\b(?:por|en) la (manana|tarde)\b/g)];
+ const windows=[...t.matchAll(/\b(?:(?:por|en) la )?(manana|tarde)\b/g)];
  if(windows.length!==1)return null;
+ // Bare "mañana" is tomorrow, not an unambiguous morning window.
+ if(windows[0][0]==='manana')return null;
  t=t.replace(windows[0][0],' ').replace(/\b(?:por favor|gracias)\b/g,' ').replace(/[,.!]/g,' ').replace(/\s+/g,' ').trim();
- if(!/^(?:(?:yo )?(?:lo quiero|quiero recibirlo|quiero (?:el|mi) pedido)|(?:podrian |pueden )?(?:enviarmelo|entregarmelo)|vuelvan a (?:entregarlo|enviarmelo))$/.test(t))return null;
+ t=t.replace(/^(?:si|hola)[, ]*/, '').trim();
+ if(!/^(?:(?:yo )?(?:lo quiero|quiero recibirlo|quiero (?:el|mi) pedido)|(?:podrian |pueden )?(?:enviarmelo|entregarmelo)|vuelvan a (?:entregarlo|enviarmelo)|(?:puedo recibirlo|pueden entregarlo|entregar|entrega))?$/.test(t))return null;
  return windows[0][1]==='manana'?'morning':'afternoon';
 }
 
+function numericWindow(text){
+ const matches=[...text.matchAll(/\b(?:de|entre)\s+(\d{1,2})(?:\s*:\s*(\d{2}))?\s*(?:a|ha|hasta|y|-)\s*(\d{1,2})(?:\s*:\s*(\d{2}))?(?:\s*(?:h|horas))?\b/gi)];
+ if(matches.length!==1)return null;
+ const m=matches[0],start=+m[1]*60+ +(m[2]||0),end=+m[3]*60+ +(m[4]||0);
+ if(+(m[2]||0)>59||+(m[4]||0)>59||start>=end)return null;
+ const window=start>=480&&end<=840?'morning':start>=840&&end<=1260?'afternoon':null;
+ return window?{source:m[0],window}:null;
+}
+
 export function preciseRetrySlot(text,at){
- const matches=[...text.matchAll(/\bde\s+(\d{1,2})\s*:\s*(\d{2})\s*(?:a|ha|hasta|-)\s*(\d{1,2})\s*:\s*(\d{2})\b/gi)];
- if(matches.length!==1)return deliverySlot(text,at);
- const m=matches[0],start=+m[1]*60 + +m[2],end=+m[3]*60 + +m[4];
- if(+m[2]>59||+m[4]>59||start>=end)return {date:null,time_window:null};
- // Only the owner-approved morning band is generalized here. Other numeric
- // ranges retain the existing conservative parser until carrier mapping exists.
- if(start<8*60||end>14*60)return {date:null,time_window:null};
- return deliverySlot(text.replace(m[0],'por la mañana'),at);
+ const range=numericWindow(text);
+ // Keep the exact requested range in plan.text and in the uploaded screenshot.
+ // Dropea's retry form only offers morning/afternoon, both indicative.
+ return deliverySlot(range?text.replace(range.source,range.window==='morning'?'por la mañana':'por la tarde'):text,at);
 }
 
 export function retryEvidencePlan({incident,order,issue,messages,now=Date.now()}){
@@ -43,13 +53,13 @@ export function retryEvidencePlan({incident,order,issue,messages,now=Date.now()}
  if(raw.status!=='PENDING'||raw.is_active!==true||raw.resolution_status||!raw.allowed_resolution_options?.includes('RETRY'))return deny('CURRENT_RETRY_NOT_ALLOWED');
  if(!['ERROR','INCIDENCE'].includes(order.status))return deny('ORDER_NOT_IN_INCIDENT');
  const intent=currentCustomerIntent({incident,order,messages,now});
- if(intent.status!=='RESPONDED')return deny('REPLY_NOT_UNAMBIGUOUS_RETRY');
+ if(intent.status!=='RESPONDED')return deny(intent.reason||intent.status||'REPLY_NOT_UNAMBIGUOUS_RETRY');
  const selected=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)===Date.parse(intent.at));
  if(selected.length!==1)return deny('MESSAGE_IDENTITY_UNCERTAIN');
  const message=selected[0],text=addressMessageText(message);
  const requestedWindow=requestedWindowWithoutDate(text);
  if(!requestedWindow&&(intent.confidence!=='HIGH'||intent.intents.some(x=>!['PROVIDES_DATE','REQUESTS_RETRY','WANTS_ORDER','PROVIDES_TIME_WINDOW'].includes(x))))return deny('REPLY_NOT_UNAMBIGUOUS_RETRY');
- let slot=preciseRetrySlot(text,Date.parse(intent.at)),scheduleSource='CUSTOMER_EXPLICIT';
+ let slot=intent.evidence==='VERIFIED_STRUCTURED_BUTTON'?intent.slot:preciseRetrySlot(text,Date.parse(intent.at)),scheduleSource='CUSTOMER_EXPLICIT';
  if(requestedWindow){
   if(now-Date.parse(intent.at)>=24*3600000)return deny('MISSING_DATE_RESPONSE_EXPIRED');
   const anchor=Date.parse(intent.notice_at||incident.incidenceDate);
