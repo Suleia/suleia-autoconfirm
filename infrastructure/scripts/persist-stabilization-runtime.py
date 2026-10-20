@@ -10,7 +10,7 @@ for c in snapshot.get('containers',[]):
  rows.append(dict(runtime_id=service,name=c.get('name') or service,platform='VPS',owner=service,
    capabilities=[],mode=e.get('mode') or modes.get(service,'UNVERIFIED'),
    commit=c.get('container_revision') or c.get('image_revision'),image=c.get('image'),digest=c.get('image_id'),
-   health=c.get('health') or 'UNKNOWN',last_cycle=h.get('last_completed_cycle_at'),
+   health=str(h.get('health_status') or c.get('health') or 'UNKNOWN').upper(),last_cycle=h.get('last_completed_cycle_at'),
    enabled=c.get('status')=='running',environment='VPS',observed_at=snapshot['generated_at'],evidence_reference='private-runtime/platform-runtime.json'))
 for service in ['incidents-scheduler']:
  h=health.get(service,{});e=h.get('evidence',{})
@@ -19,6 +19,12 @@ for service in ['incidents-scheduler']:
    enabled=e.get('timer_active'),environment='VPS',observed_at=h.get('checked_at') or now,evidence_reference='systemd:suleia-incidents.timer'))
 data=json.dumps(rows).replace("'","''")
 query="""BEGIN;
+-- These two verified placeholders were explicitly retired. A missing runtime
+-- must not remain enabled forever merely because upsert sees running ones.
+UPDATE platform.runtime_registry SET enabled=false,mode='RETIRED',health='NOT_DEPLOYED',observed_at=now()
+WHERE runtime_id IN ('decision-engine','scheduler') AND platform='VPS'
+ AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements('"""+data+"""'::jsonb) r
+                 WHERE r->>'runtime_id'=platform.runtime_registry.runtime_id);
 INSERT INTO platform.runtime_registry(runtime_id,name,platform,owner,capabilities,mode,commit,image,digest,health,last_cycle,enabled,environment,observed_at,evidence_reference)
 SELECT runtime_id,name,platform,owner,capabilities,mode,commit,image,digest,health,last_cycle,enabled,environment,observed_at,evidence_reference
 FROM jsonb_to_recordset('"""+data+"""'::jsonb) AS r(runtime_id text,name text,platform text,owner text,capabilities jsonb,mode text,commit text,image text,digest text,health text,last_cycle timestamptz,enabled boolean,environment text,observed_at timestamptz,evidence_reference text)
