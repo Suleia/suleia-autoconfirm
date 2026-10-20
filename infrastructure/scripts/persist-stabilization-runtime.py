@@ -12,6 +12,8 @@ for c in snapshot.get('containers',[]):
    commit=c.get('container_revision') or c.get('image_revision'),image=c.get('image'),digest=c.get('image_id'),
    health=str(h.get('health_status') or c.get('health') or 'UNKNOWN').upper(),last_cycle=h.get('last_completed_cycle_at'),
    enabled=c.get('status')=='running',environment='VPS',observed_at=snapshot['generated_at'],evidence_reference='private-runtime/platform-runtime.json'))
+ if service in ('decision-engine','scheduler') and c.get('status')!='running':
+  rows[-1].update(mode='RETIRED',health='NOT_DEPLOYED',enabled=False)
 for service in ['incidents-scheduler']:
  h=health.get(service,{});e=h.get('evidence',{})
  rows.append(dict(runtime_id=service,name='suleia-incidents.timer',platform='VPS',owner='systemd',capabilities=['SCHEDULE_INCIDENT_REVIEW'],
