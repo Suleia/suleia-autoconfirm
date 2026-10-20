@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import {loadProviderEnv,observeRetryCandidates} from './worker.mjs';
+import {loadProviderEnv,observeRetryCandidates,currentRetryPlan} from './worker.mjs';
 import {retryEvidencePlan,executeEvidenceRetry} from './retry-policy.mjs';
 import {captureRetryEvidence} from './capture.mjs';
 import {prepareRetry,readEvidenceDetail} from './dropea-ui.mjs';
@@ -80,7 +80,7 @@ export async function runVpsRetryCycle(context){
    const prior=await inspectPriorOrderReturn(incident);
    if(prior.verified||prior.blocked)return {eligible:false,reason:'PRIOR_RETURN_GUARD'};
    const messages=await getIncidentChatMessages(plan.conversationId);
-   return retryEvidencePlan({incident:{...incident,chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER'},...current,messages});
+   return currentRetryPlan({incident:{...incident,chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER'},...current,messages});
   }
   try{
    let result=await executeEvidenceRetry(plan,{
