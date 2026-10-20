@@ -634,8 +634,8 @@ function renderIncidents() {
   const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
     { label: 'Necesitan tu decisión', value: incidents.filter(needsDecision).length, detail: 'Respuestas bloqueadas: destacadas al principio de la lista', tone: 'danger' },
-    { label: 'Respondió sin resolver', value: data.incidentResolutionSummary?.metrics?.customer_replied_unresolved ?? '—', detail: 'Casos observados con respuesta sin resolución verificada', tone: 'warning' },
-    { label: 'Atascadas', value: data.incidentResolutionSummary?.metrics?.stuck ?? '—', detail: 'Bloqueo, vencimiento o acción sin verificar', tone: 'warning' },
+    { label: 'Respondió sin resolver', value: incidents.filter(i => i.incidentResolution?.customer_replied_but_unresolved === true).length, detail: 'Incidencias pendientes actuales con respuesta sin resolución verificada', tone: 'warning' },
+    { label: 'Atascadas', value: incidents.filter(i => i.incidentResolution?.findings?.some(f => f.code === 'INCIDENT_STUCK')).length, detail: 'Pendientes actuales con bloqueo, vencimiento o acción sin verificar', tone: 'warning' },
     { label: 'Con aprendizaje', value: learned, detail: 'Feedback aplicado al agente', tone: learned ? 'positive' : 'neutral' },
     { label: 'Alta prioridad', value: highPriority, detail: 'Respuesta o señal accionable', tone: highPriority ? 'positive' : 'neutral' },
     { label: 'Actividad del cliente', value: customerResponded, detail: 'Respuesta o botón posterior verificado', tone: customerResponded ? 'positive' : 'neutral' },
