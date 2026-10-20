@@ -7,6 +7,10 @@ export function phone(value) {
 
 export function completed(order) {
   if (order.status === 'FINISH' && ['DELIVERED', 'PAID'].includes(order.sub_status)) return 'delivered';
+  if (order.status === 'FINISH' && order.sub_status === 'CANCELLED') return 'cancelled';
+  // Separately owner-authorized on 2026-10-20. This does NOT assert that a
+  // physical return has completed. Unresolved issues still block deletion.
+  if (order.status === 'ERROR' && order.sub_status === 'REJECTED') return 'rejected_closed';
   // A rejection or return request is not proof that the parcel was returned.
   if (['FINISH', 'ERROR'].includes(order.status)
       && ['RETURNED', 'REJECTED', 'REFUSED'].includes(order.sub_status)
@@ -29,6 +33,12 @@ export function decide(contact, orders, issues) {
       catch { return []; }
     });
     exact = related.filter(o => ids.includes(String(o.id)));
+    // Some old contacts have no order fields. For deletion only, a unique
+    // phone with exclusively completed orders is sufficient; never use this
+    // rule to confirm, message or resolve an order.
+    if (!ids.length && related.length && related.every(completed)) {
+      exact = [...related].sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at)).slice(0,1);
+    }
   }
   if (exact.length !== 1) return { eligible: false, reason: 'unmatched_or_ambiguous_order' };
   const order = exact[0];
@@ -38,7 +48,14 @@ export function decide(contact, orders, issues) {
     return { eligible: false, reason: 'other_nonterminal_order' };
   }
   const ids = new Set(related.map(o => String(o.id)));
-  if (issues.some(i => ids.has(String(i.order_id)) && i.status !== 'RESOLVED')) {
+  if (issues.some(i => {
+    if (!ids.has(String(i.order_id)) || i.status === 'RESOLVED') return false;
+    const linked = related.find(o => String(o.id) === String(i.order_id));
+    // A later completed delivery supersedes an earlier carrier incident.
+    // Never ignore incidents opened/updated after delivery or unknown dates.
+    return !(completed(linked) === 'delivered'
+      && Date.parse(linked.delivered_at) > Date.parse(i.updated_at || i.created_at));
+  })) {
     return { eligible: false, reason: 'unresolved_issue' };
   }
   return { eligible: true, reason, orderId: order.id };
