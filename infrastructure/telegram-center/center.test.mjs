@@ -33,6 +33,27 @@ function fixture(t, options = {}) {
 const code = (f) => Object.keys(f.store.state.proposals).at(-1);
 const message = (text, user = 7, type = 'private') => ({ update_id: 5, message: { text, date: 1792483200, from: { id: user }, chat: { id: user, type } } });
 
+test('a simulation proposal cannot become a live action after enabling writes', async (t) => {
+  const f = fixture(t, { writesEnabled: false });
+  await f.controller.command('/presupuesto 55 35', 7, 7);
+  const c = code(f);
+  f.config.writesEnabled = true;
+  const next = f.restart();
+  assert.match(await next.confirm(c,7,7), /Simulación/);
+  assert.equal(f.store.state.proposals[c].state, 'SIMULATED');
+  assert.equal(f.calls.length,0);
+  await next.confirm(c,7,7);
+  assert.equal(f.calls.length,0);
+});
+test('API itself rejects mutation when writes are disabled or unspecified', async () => {
+  for (const writesEnabled of [false, undefined]) {
+    let calls=0;
+    const api=createApis({writesEnabled},async()=>{calls++;});
+    assert.throws(()=>api.mutate('55',{daily_budget:'3500'}),/META_WRITES_DISABLED/);
+    assert.equal(calls,0);
+  }
+});
+
 test('private numeric identity gates all commands and callbacks', async (t) => {
   const f = fixture(t);
   await f.controller.handle(message('/presupuesto 55 35', 8));
@@ -171,7 +192,7 @@ test('API paginates without trusting next URLs and fails on incomplete paginatio
 });
 test('API does not retry writes or leak upstream body and token', async () => {
   let calls = 0;
-  const api = createApis({ botToken: 'secret', metaToken: 'secret', apiVersion: 'v25.0' }, async () => {
+  const api = createApis({ botToken: 'secret', metaToken: 'secret', apiVersion: 'v25.0', writesEnabled: true }, async () => {
     calls++; return { ok: false, status: 429, headers: { get: () => null }, json: async () => ({ error: { code: 4, message: 'secret' } }) };
   });
   await assert.rejects(api.mutate('55', { status: 'PAUSED' }), (e) => !e.message.includes('secret'));
@@ -188,6 +209,8 @@ test('polling persists offset and replays a confirmed update without duplicate m
   };
   await run(f.config, f.api, f.store, { signal: abort.signal });
   assert.equal(f.store.state.offset, 11); assert.equal(f.calls.length, 1);
+  assert.equal(f.store.state.metrics.processedOwnerMessages, 1);
+  assert.ok(Number.isFinite(Date.parse(f.store.state.metrics.lastOwnerMessageProcessedAt)));
 });
 test('configuration fails closed without numeric IDs, identity and budget cap', () => {
   const env = { TELEGRAM_ALLOWED_USER_IDS: '7', TELEGRAM_BOT_TOKEN: 'test', TELEGRAM_EXPECTED_BOT_USERNAME: 'test_bot', META_ACCESS_TOKEN: 'test', META_AD_ACCOUNT_ID: '123', META_API_VERSION: 'v25.0' };

@@ -34,6 +34,9 @@ other workloads. Keep Render running for its existing responsibilities.
 - EUR daily campaign budgets only. Ad-set budgets, lifetime budgets, creation,
   resuming campaigns and changing creatives are outside this version.
 - Explicit budget cap and per-change percentage ceiling. Writes default off.
+- Proposals created with writes off remain simulations even after a restart or
+  later activation of writes. The API client independently blocks mutations
+  whenever writes are disabled.
 - Five-minute confirmation bound to sender/chat, fresh campaign ownership and
   configuration checks, durable execution claim and provider readback.
 - Ambiguous writes are never retried; `/reconciliar CODE` only reads the provider.
@@ -128,6 +131,9 @@ is stopped. It takes the same state lock, verifies reads, and sends no messages.
   lock. A crash or SIGKILL deliberately leaves `process.lock` behind: stop the
   unit, prove no process owns that state directory, back up state, then remove
   only the lock before restarting. Never delete `state.json` to fix a lock.
+- Health includes a durable count and timestamp of authorized messages successfully
+  answered, without retaining their text or sender identifiers in health output.
+  Check these alongside an owner-confirmed reply to verify the live message path.
 - EXECUTING/UNKNOWN actions survive restarts and block further actions for that
   campaign. Use `/reconciliar` to read back. A persistent mismatch requires a
   private operator investigation; do not rewrite the journal to resend blindly.

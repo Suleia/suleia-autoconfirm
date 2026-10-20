@@ -62,6 +62,7 @@ export function createApis(config, fetchImpl = fetch) {
     }),
     // Never retry a mutation: an interrupted response may already have applied.
     mutate: (id, changes) => {
+      if (config.writesEnabled !== true) throw new Error('META_WRITES_DISABLED');
       if (!/^\d+$/.test(id)) throw new Error('CAMPAIGN_ID_INVALID');
       return graph(id, changes, 'POST');
     },

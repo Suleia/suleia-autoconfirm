@@ -71,7 +71,7 @@ export class Controller {
     const code = randomBytes(8).toString('hex');
     this.supersede(userId, chatId);
     const proposal = { code, userId: String(userId), chatId: String(chatId), campaignId: id, campaignName: row.name,
-      kind, changes, before: this.snapshot(row), state: 'PENDING', createdAt: this.now(), expiresAt: this.now() + this.config.proposalTtlMs };
+      kind, changes, before: this.snapshot(row), state: 'PENDING', simulation: !this.config.writesEnabled, createdAt: this.now(), expiresAt: this.now() + this.config.proposalTtlMs };
     this.store.state.proposals[code] = proposal;
     this.store.state.conversations ||= {};
     this.store.state.conversations[`${userId}:${chatId}`] = { lastCampaignId: id, lastCampaignAt: this.now() };
@@ -144,7 +144,11 @@ export class Controller {
     const p = this.proposal(code, userId, chatId);
     if (p.state !== 'PENDING') return `La propuesta está en estado ${p.state}. No se vuelve a ejecutar.`;
     if (this.now() > p.expiresAt) { p.state = 'EXPIRED'; this.store.save(); return 'La propuesta ha caducado. Solicita una nueva.'; }
-    if (!this.config.writesEnabled) return 'Simulación: no se ha enviado ningún cambio a Meta.';
+    if (!this.config.writesEnabled || p.simulation === true) {
+      p.state = 'SIMULATED';
+      this.store.record({ event: 'SIMULATED', code, campaignId: p.campaignId });
+      return 'Simulación: no se ha enviado ningún cambio a Meta.';
+    }
     if (this.unresolved(p.campaignId)) throw new Error('La campaña tiene una acción sin reconciliar.');
     const current = await this.target(p.campaignId);
     if (JSON.stringify(this.snapshot(current)) !== JSON.stringify(p.before)) {
@@ -238,5 +242,6 @@ export class Controller {
       result = { text: error.service ? `No se pudo consultar ${error.service}. Código ${error.status}; inténtalo más tarde.` : error.message };
     }
     await this.api.send(message.chat.id, result.text, result.markup);
+    return { authorized: true, replied: true };
   }
 }

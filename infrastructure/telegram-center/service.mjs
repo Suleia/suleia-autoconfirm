@@ -35,10 +35,15 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
       for (const update of updates) {
         if (signal?.aborted) break;
         if (!Number.isSafeInteger(update.update_id) || update.update_id < store.state.offset) continue;
-        await controller.handle(update);
+        const outcome = await controller.handle(update);
+        if (outcome?.authorized && outcome.replied) {
+          store.state.metrics ||= { processedOwnerMessages: 0 };
+          store.state.metrics.processedOwnerMessages += 1;
+          store.state.metrics.lastOwnerMessageProcessedAt = new Date().toISOString();
+        }
         store.state.offset = update.update_id + 1; store.save();
       }
-      store.health({ ok: true, mode: config.writesEnabled ? 'CONFIRMED_ACTIONS' : 'READ_ONLY' });
+      store.health({ ok: true, mode: config.writesEnabled ? 'CONFIRMED_ACTIONS' : 'READ_ONLY', ...(store.state.metrics || {}) });
     } catch (error) {
       // No raw exception/URL/body logging: transport URLs contain bot credentials.
       store.health({ ok: false, code: error.service ? `${error.service}_${error.status}` : 'LOCAL_OR_STORAGE_FAILURE' });
