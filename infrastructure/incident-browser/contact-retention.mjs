@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { decide, phone } from './contact-retention-policy.mjs';
-import { contactRequestSpacing } from './contact-retention-rate.mjs';
+import { contactRequestSpacing, contactBudgetYieldUntil } from './contact-retention-rate.mjs';
 
 // Isolated from incident decisions and message delivery. Deploy in the persistent
 // /state mount; provider credentials stay in the existing private secret store.
@@ -28,7 +28,13 @@ if (due && previous && Date.now() < Date.parse(previous.nextRunAt)) process.exit
 
 let lastChat = 0;
 let chatSpacing = 8000;
+let budgetYieldUntil = null;
 async function chat(endpoint, method = 'GET', body) {
+  if (budgetYieldUntil && Date.parse(budgetYieldUntil) > Date.now()) {
+    const error = Error('CHATBY_BUDGET_RESERVED');
+    error.retryAt = budgetYieldUntil;
+    throw error; // No HTTP request was made, including for a queued DELETE.
+  }
   await pause(Math.max(0, chatSpacing - (Date.now() - lastChat)));
   lastChat = Date.now();
   const response = await fetch(`${process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api'}${endpoint}`, {
@@ -36,6 +42,14 @@ async function chat(endpoint, method = 'GET', body) {
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(45000),
   });
   chatSpacing = contactRequestSpacing(response.headers);
+  budgetYieldUntil = contactBudgetYieldUntil(response.headers);
+  write('provider-budget.json', {
+    observedAt: new Date().toISOString(),
+    limit: response.headers.get('x-ratelimit-limit'),
+    remaining: response.headers.get('x-ratelimit-remaining'),
+    nextMaintenanceAt: budgetYieldUntil,
+    status: response.status,
+  });
   if (!response.ok) {
     const error=Error(`CHATBY_HTTP_${response.status}`);
     if(response.status===429){
@@ -160,8 +174,9 @@ async function main() {
     let response;
     try { response = await chat('/subscriber/delete', 'DELETE', { user_ns: current.user_ns }); }
     catch(error){
-      if(error.message==='CHATBY_HTTP_429'){
-        // Explicit throttle rejection means this DELETE was not accepted.
+      if(['CHATBY_HTTP_429','CHATBY_BUDGET_RESERVED'].includes(error.message)){
+        // Explicit throttle rejection or local pre-request yield means this
+        // DELETE was not accepted/sent.
         // Prior accepted mutations still require absence reconciliation.
         unverified.pop();
         if(unverified.length)write('pending.json',unverified);

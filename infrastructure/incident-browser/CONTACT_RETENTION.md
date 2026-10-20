@@ -38,6 +38,12 @@ Verified provider rate-limit headers allow 1.5-second spacing while at least
 100 requests and 10% of the provider budget remain. Below that reserve spacing
 returns to eight seconds, and below 50 remaining requests to twenty seconds.
 Missing or invalid headers retain the conservative eight-second interval.
+Bulk maintenance stops issuing requests once the observed remaining budget is
+below 100 requests or 10% of the provider limit. This reserves capacity for
+messaging and incident workers. The durable next-run time honors reset headers;
+without one it uses a 20-minute maintenance pause, not an asserted provider
+reset. Accepted deletes still require inventory reconciliation on resume.
+`provider-budget.json` records only status, counters and observation times.
 HTTP 429 preserves the provider's retry time in the durable schedule. An
 explicitly throttled DELETE is not marked accepted; ambiguous outcomes still
 require reconciliation before retry. `latest.json`, `failure.json` and
