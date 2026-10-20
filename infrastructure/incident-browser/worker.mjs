@@ -1,6 +1,16 @@
 import fs from 'node:fs/promises';
 import {retryEvidencePlan} from './retry-policy.mjs';
 
+export async function currentRetryPlan(input){
+ let approvals=[];
+ try{approvals=JSON.parse(await fs.readFile('/state/owner-retry-approvals.json','utf8'));}
+ catch(error){if(error.code!=='ENOENT')throw error;}
+ if(!Array.isArray(approvals))throw Error('OWNER_APPROVAL_SCHEMA');
+ const matching=approvals.filter(a=>a.orderId===String(input.order.orderId)&&a.issueId===String(input.incident.incidenceId));
+ if(matching.length>1)throw Error('OWNER_APPROVAL_AMBIGUOUS');
+ return retryEvidencePlan({...input,ownerApproval:matching[0]});
+}
+
 // This stage observes independently, without a provider write adapter.
 export async function loadProviderEnv(){
  // Bound otherwise unbounded Supabase reads/writes. Never retry mutations here.
@@ -35,7 +45,7 @@ export async function observeRetryCandidates(){
    if(raw.status!=='PENDING'||raw.is_active!==true||raw.resolution_status)continue;
    if(!incident.chatbyUserNs){report.cases.push({...item,reason:'NO_EXACT_CONVERSATION'});continue;}
    const messages=await getIncidentChatMessages(incident.chatbyUserNs);
-   let plan=retryEvidencePlan({incident:{...incident,chatbyReadVerified:true},...current,messages});
+   let plan=await currentRetryPlan({incident:{...incident,chatbyReadVerified:true},...current,messages});
    if(plan.eligible){
     index ||=await loadSubscriberIndex({maxPages:30,force:true});
     const subscriber=findSubscriberInIndexForExactOrder(index,{phone:current.order.customerPhone,orderId:incident.orderId});

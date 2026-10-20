@@ -30,6 +30,15 @@ export function requestedWindowWithoutDate(text){
 }
 
 function numericWindow(text){
+ const open=[...text.matchAll(/\b(?:a\s*partir\s+de|desde|despues\s+de)\s*(?:las?\s*)?(\d{1,2})(?:\s*:\s*(\d{2}))?(?:\s*(?:h|horas))?(?:\s+en\s+adelante)?\b/gi)];
+ if(open.length===1){
+  const m=open[0],hour=+m[1],minute=+(m[2]||0);
+  // An open-ended morning start could also mean afternoon. Only afternoon
+  // starts map unambiguously; preserve the exact lower bound in the evidence.
+  if(hour>=14&&hour<21&&minute<60)return {source:m[0],window:'afternoon'};
+  return null;
+ }
+ if(open.length>1)return null;
  const matches=[...text.matchAll(/\b(?:de|entre)\s+(\d{1,2})(?:\s*:\s*(\d{2}))?\s*(?:a|ha|hasta|y|-)\s*(\d{1,2})(?:\s*:\s*(\d{2}))?(?:\s*(?:h|horas))?\b/gi)];
  if(matches.length!==1)return null;
  const m=matches[0],start=+m[1]*60+ +(m[2]||0),end=+m[3]*60+ +(m[4]||0);
@@ -45,7 +54,7 @@ export function preciseRetrySlot(text,at){
  return deliverySlot(range?text.replace(range.source,range.window==='morning'?'por la mañana':'por la tarde'):text,at);
 }
 
-export function retryEvidencePlan({incident,order,issue,messages,now=Date.now()}){
+export function retryEvidencePlan({incident,order,issue,messages,now=Date.now(),ownerApproval}){
  const deny=reason=>({eligible:false,reason});
  const raw=issue?.raw||issue;
  if(!['absent','rejected_goods'].includes(incident.incidentType))return deny('OTHER_WORKFLOW_OWNER');
@@ -57,10 +66,22 @@ export function retryEvidencePlan({incident,order,issue,messages,now=Date.now()}
  const selected=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)===Date.parse(intent.at));
  if(selected.length!==1)return deny('MESSAGE_IDENTITY_UNCERTAIN');
  const message=selected[0],text=addressMessageText(message);
+ const approved=ownerApproval?.orderId===String(order.orderId)
+  &&ownerApproval?.issueId===String(raw.id)
+  &&ownerApproval?.messageId===String(message.id)
+  &&ownerApproval?.evidenceHash===resolutionHash({text,at:intent.at,id:String(message.id)})
+  &&Date.parse(ownerApproval.expiresAt)>now
+  &&Date.parse(ownerApproval.expiresAt)-now<=2*3600000
+  &&ownerApproval.date>madridDate(now)
+  &&/^\d{4}-\d{2}-\d{2}$/.test(ownerApproval.date)
+  &&['morning','afternoon'].includes(ownerApproval.time_window);
  const requestedWindow=requestedWindowWithoutDate(text);
- if(!requestedWindow&&(intent.confidence!=='HIGH'||intent.intents.some(x=>!['PROVIDES_DATE','REQUESTS_RETRY','WANTS_ORDER','PROVIDES_TIME_WINDOW'].includes(x))))return deny('REPLY_NOT_UNAMBIGUOUS_RETRY');
+ if(!approved&&!requestedWindow&&(intent.confidence!=='HIGH'||intent.intents.some(x=>!['PROVIDES_DATE','REQUESTS_RETRY','WANTS_ORDER','PROVIDES_TIME_WINDOW'].includes(x))))return deny('REPLY_NOT_UNAMBIGUOUS_RETRY');
  let slot=intent.evidence==='VERIFIED_STRUCTURED_BUTTON'?intent.slot:preciseRetrySlot(text,Date.parse(intent.at)),scheduleSource='CUSTOMER_EXPLICIT';
- if(requestedWindow){
+ if(approved){
+  slot={date:ownerApproval.date,time_window:ownerApproval.time_window};
+  scheduleSource='OWNER_EXACT_MESSAGE_RENEWAL';
+ }else if(requestedWindow){
   if(now-Date.parse(intent.at)>=24*3600000)return deny('MISSING_DATE_RESPONSE_EXPIRED');
   const anchor=Date.parse(intent.notice_at||incident.incidenceDate);
   const earlier=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)>=anchor&&messageTimestamp(m)<Date.parse(intent.at));

@@ -128,3 +128,26 @@ test('business-day default skips weekends and national/regional holidays',()=>{
  assert.equal(nextBusinessMorning(Date.parse('2027-12-31T18:00:00Z'),order),null);
  assert.equal(nextBusinessMorning(at,{}),null);
 });
+
+import {resolutionHash} from '../../autoconfirm/src/workflows/incident-intent-v2.mjs';
+test('open-ended afternoon hours tolerate missing spaces without losing evidence',()=>{
+ for(const text of ['Si apartir de las17 en adelante','A partir de las 17:30','Desde las 16 en adelante','Después de las 18','Lo quiero a partir de las 17']){
+  const i=defaultInput();i.messages[0].text=text;const p=retryEvidencePlan(i);
+  assert.equal(p.eligible,true,text);assert.equal(p.time_window,'afternoon');assert.equal(p.text,text);
+ }
+ for(const text of ['A partir de las 8','A partir de las 21','A partir de las 17:99','No lo quiero a partir de las 17','A partir de las 17 si me llaman','A partir de las 17 o desde las 18']){
+  const i=defaultInput();i.messages[0].text=text;assert.equal(retryEvidencePlan(i).eligible,false,text);
+ }
+});
+test('owner renewal is exact-message, exact-issue, short-lived and still requires pending retry',()=>{
+ const i=defaultInput();i.messages[0].text='Si apartir de las17 en adelante';i.now=Date.parse('2026-10-20T09:00:00Z');
+ assert.equal(retryEvidencePlan(i).eligible,false);
+ i.ownerApproval={orderId:'900001',issueId:'800001',messageId:'700001',evidenceHash:resolutionHash({text:i.messages[0].text,at:new Date(at).toISOString(),id:'700001'}),expiresAt:new Date(i.now+3600000).toISOString(),date:'2026-10-21',time_window:'afternoon'};
+ assert.equal(retryEvidencePlan(i).eligible,true);
+ for(const override of [{issueId:'800002'},{messageId:'700002'},{evidenceHash:'wrong'},{expiresAt:new Date(i.now-1).toISOString()},{expiresAt:new Date(i.now+86400000).toISOString()}]){
+  assert.equal(retryEvidencePlan({...i,ownerApproval:{...i.ownerApproval,...override}}).eligible,false);
+ }
+ assert.equal(retryEvidencePlan({...i,issue:{...i.issue,status:'RESOLVED'}}).eligible,false);
+ i.messages.push({id:700002,direction:'incoming',created_at:new Date(i.now-1000).toISOString(),text:'No lo quiero'});
+ assert.equal(retryEvidencePlan(i).eligible,false);
+});
