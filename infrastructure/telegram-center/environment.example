@@ -1,0 +1,14 @@
+# Put real values only in /etc/suleia/telegram.env, mode 0600, outside Git.
+TELEGRAM_BOT_TOKEN=
+# Username, not the display name. Pin the existing bot identity.
+TELEGRAM_EXPECTED_BOT_USERNAME=
+# Numeric Telegram user IDs; private chats only. No username authorization.
+TELEGRAM_ALLOWED_USER_IDS=
+META_ACCESS_TOKEN=
+META_AD_ACCOUNT_ID=
+META_API_VERSION=v25.0
+META_WRITES_ENABLED=false
+# Explicitly choose a daily campaign cap before enabling writes.
+META_MAX_DAILY_BUDGET_EUR=
+META_MAX_BUDGET_CHANGE_PERCENT=20
+TZ=Europe/Madrid

@@ -148,6 +148,7 @@ export function getAppConfig() {
     openaiAssistantEnabled: bool(process.env.OPENAI_ASSISTANT_ENABLED, Boolean(process.env.OPENAI_ASSISTANT_ID)),
     publicBaseUrl: process.env.PUBLIC_BASE_URL || process.env.RENDER_EXTERNAL_URL || 'https://suleia-autoconfirm.onrender.com',
     telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || null,
+    telegramOwner: process.env.TELEGRAM_OWNER || 'render',
     telegramWebhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET || process.env.CRON_SECRET || null,
     telegramAllowedUsernames: csv(process.env.TELEGRAM_ALLOWED_USERNAMES || process.env.TELEGRAM_ALLOWED_USERNAME || 'samu_1694')
       .map((item) => item.replace(/^@/, '').toLowerCase()),
