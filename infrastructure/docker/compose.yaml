@@ -223,6 +223,8 @@ services:
 
   decision-engine:
     <<: *node-service
+    profiles: ["legacy-placeholders"]
+    restart: "no"
     command: ["node", "services/process-runner.mjs", "decision-engine"]
     environment:
       <<: *safety-environment
@@ -279,6 +281,8 @@ services:
 
   scheduler:
     <<: *node-service
+    profiles: ["legacy-placeholders"]
+    restart: "no"
     command: ["node", "services/process-runner.mjs", "scheduler"]
     environment:
       <<: *safety-environment
