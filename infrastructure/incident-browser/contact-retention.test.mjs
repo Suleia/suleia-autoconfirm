@@ -34,6 +34,21 @@ test('completed delivery supersedes only older incidents with known timestamps',
 test('another active order protects contact', () => {
   assert.equal(decide(contact, [order, { ...order, id: 2, external_order_id: '13', status: 'PENDING' }], []).reason, 'other_nonterminal_order');
 });
+test('carrier-closed historical issues do not block terminal-order cleanup', () => {
+  for (const status of ['PENDING','INFO','MANAGING_WITH_CLIENT']) {
+    for (const terminal of [order,{...order,sub_status:'CANCELLED'},{...order,status:'ERROR',sub_status:'REJECTED'}]) {
+      assert.equal(decide(contact,[terminal],[{order_id:1,status,is_active:false}]).eligible,true);
+      for (const is_active of [true,undefined,null,'false']) {
+        assert.equal(decide(contact,[terminal],[{order_id:1,status,is_active}]).eligible,false);
+      }
+    }
+  }
+});
+test('one closed historical issue cannot hide another open issue or active order', () => {
+  const closed={order_id:1,status:'PENDING',is_active:false};
+  assert.equal(decide(contact,[order],[closed,{order_id:1,status:'INFO',is_active:true}]).eligible,false);
+  assert.equal(decide(contact,[order,{...order,id:2,status:'SHIPPING',sub_status:'SHIPPED'}],[closed]).eligible,false);
+});
 test('unresolved and unknown issue states protect contact', () => {
   for (const status of ['PENDING', 'INFO', undefined]) assert.equal(decide(contact, [order], [{ order_id: 1, status }]).reason, 'unresolved_issue');
   assert.equal(decide(contact, [order], [{ order_id: 1, status: 'RESOLVED' }]).eligible, true);

@@ -26,6 +26,11 @@ authorized ERROR/REJECTED. A return request alone does not qualify. Returned
 parcels require an explicit return timestamp. Other nonterminal orders or
 unresolved incidents protect the contact. A confirmed delivery supersedes only
 incidents whose last change demonstrably predates that delivery.
+The Dropea Issue contract distinguishes operational closure (`is_active=false`)
+from the preserved user-workflow status. Carrier-closed historical issues may
+still say PENDING or INFO; they do not constitute open cases. Only an explicit
+boolean false qualifies as carrier closure; missing, null or string values
+retain the existing protections. Every related active order still blocks.
 Before each deletion, reload the contact and order and check newly created
 orders. Full inventories refresh at least every minute during execution.
 
