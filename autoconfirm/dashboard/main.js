@@ -553,6 +553,26 @@ function incidentConfidenceLabel(value) {
 }
 
 function renderIncidents() {
+  // Keep the decision visible beside the order; technical details remain below.
+  const needsDecision = i => i.incidentResolution?.customer_replied === true
+    && i.incidentResolution?.verification_status !== 'VERIFIED'
+    && (i.incidentResolution?.current_owner === 'HUMAN' || !!i.incidentResolution?.human_review_reason);
+  const reviewCopy = reason => ({
+    CUSTOMER_RESPONSE_REQUIRES_REVIEW: ['La respuesta no permite identificar una instrucción segura.', 'Revisar el mensaje y decidir la gestión o la aclaración que debe solicitarse.'],
+    DELIVERY_DATE_AND_WINDOW_REQUIRED: ['Falta una fecha o una franja de entrega inequívoca.', 'Obtener del cliente el día y la franja de entrega.'],
+    REQUESTED_DELIVERY_DATE_EXPIRED: ['La fecha solicitada por el cliente ya ha pasado.', 'Solicitar una nueva fecha; no trasladar automáticamente la anterior.'],
+    REQUESTED_DELIVERY_WINDOW_EXPIRED: ['La franja solicitada ya ha terminado.', 'Solicitar un nuevo día y franja.'],
+    CAPABILITY_RELEASE_GATE: ['La versión desplegada necesita validar sus pruebas de resolución.', 'Validar la versión y actualizar su control de activación; no pedir de nuevo datos al cliente.'],
+    CAPABILITY_SHADOW: ['La acción identificada todavía no está habilitada para ejecución automática.', 'Revisar y habilitar la capacidad verificada o tramitar este caso manualmente.'],
+    CAPABILITY_RESERVED_OR_UNCERTAIN: ['Existe una ejecución previa pendiente de comprobar.', 'Comprobar el resultado en Dropea antes de repetir ninguna acción.'],
+    CAPABILITY_NOT_ALLOWED: ['Dropea no permite la acción solicitada en esta incidencia.', 'Revisar las opciones disponibles con el transportista.'],
+    DISCOUNT_ECONOMIC_MUTATION_CONTRACT_UNAVAILABLE: ['El cliente acepta el descuento, pero su aplicación económica no está verificada.', 'Comprobar el importe contra reembolso antes de solicitar una nueva entrega.'],
+    ABSENT_DISCOUNT_APPLICATION_POLICY_REQUIRED: ['El descuento aceptado requiere comprobar su aplicación.', 'Verificar el importe con soporte antes de tramitar la entrega.'],
+    MANUAL_DISCOUNT_RECOVERY: ['El descuento requiere una gestión manual.', 'Verificar con soporte la aplicación del descuento.'],
+    INTENT_CHANGED_AFTER_ACTION_RECONCILE: ['El cliente ha cambiado su respuesta después de una gestión previa.', 'Comprobar qué se ejecutó y atender la nueva instrucción sin duplicar acciones.'],
+    WORKFLOW_POLICY_NOT_AVAILABLE: ['Este tipo de incidencia no tiene una resolución automática validada.', 'Revisar la respuesta y las opciones del transportista.'],
+    EXISTING_ADDRESS_DETAILS_OWNER: ['La dirección necesita datos adicionales.', 'Comprobar la aclaración ya enviada y completar los datos de entrega.']
+  }[reason] || ['No se puede ejecutar una solución con las comprobaciones disponibles.', 'Revisar la respuesta y el bloqueo indicado; no repetir acciones sin verificar su resultado.']);
   const table = document.querySelector('#incidents-table');
   const summary = document.querySelector('#incidents-summary');
   if (!table || !summary) return;
@@ -591,6 +611,8 @@ function renderIncidents() {
     incident.feedbackCorrection,
     incident.feedbackNote
   ])).filter(incidentMatchesFilter).sort((a, b) => {
+    const priority = Number(needsDecision(b)) - Number(needsDecision(a));
+    if (priority) return priority;
     const bIncidenceId = Number(String(b.incidenceId || '').replace(/\D/g, '')) || 0;
     const aIncidenceId = Number(String(a.incidenceId || '').replace(/\D/g, '')) || 0;
     if (bIncidenceId !== aIncidenceId) return bIncidenceId - aIncidenceId;
@@ -611,6 +633,7 @@ function renderIncidents() {
   const absent = incidents.filter((incident) => inferredIncidentType(incident) === 'absent').length;
   const rejected = incidents.filter((incident) => inferredIncidentType(incident) === 'rejected_goods').length;
   const cards = [
+    { label: 'Necesitan tu decisión', value: incidents.filter(needsDecision).length, detail: 'Respuestas bloqueadas: destacadas al principio de la lista', tone: 'danger' },
     { label: 'Respondió sin resolver', value: data.incidentResolutionSummary?.metrics?.customer_replied_unresolved ?? '—', detail: 'Casos observados con respuesta sin resolución verificada', tone: 'warning' },
     { label: 'Atascadas', value: data.incidentResolutionSummary?.metrics?.stuck ?? '—', detail: 'Bloqueo, vencimiento o acción sin verificar', tone: 'warning' },
     { label: 'Con aprendizaje', value: learned, detail: 'Feedback aplicado al agente', tone: learned ? 'positive' : 'neutral' },
@@ -656,6 +679,13 @@ function renderIncidents() {
       incident.customerActivityVerified === undefined && incident.chatbyReadVerified === true
     );
     const activityCard = `
+      ${needsDecision(incident) ? `<div class="incident-human-review" role="note">
+        <strong>Necesita tu decisión · el cliente ha respondido</strong>
+        <p><b>Motivo:</b> ${escapeHtml(reviewCopy(incident.incidentResolution.human_review_reason || incident.incidentResolution.capability_blocker)[0])}</p>
+        <p><b>Qué falta:</b> ${escapeHtml(reviewCopy(incident.incidentResolution.human_review_reason || incident.incidentResolution.capability_blocker)[1])}</p>
+        <small>Respuesta: ${escapeHtml(formatDateTime(incident.incidentResolution.customer_event_at || incident.customerActivityLastAt))} · Revisión: ${escapeHtml(formatDateTime(incident.incidentResolution.observed_at))}</small>
+        <small>Referencia: ${escapeHtml(incident.incidentResolution.human_review_reason || incident.incidentResolution.capability_blocker || 'REVIEW_REQUIRED')}</small>
+      </div>` : ''}
       <div class="incident-customer-activity ${hasCustomerResponse ? 'has-activity' : 'is-waiting'}">
         <div class="incident-customer-activity__header">
           <b>${escapeHtml(activityVerified ? activityActionLabel : 'Lectura pendiente de verificar')}</b>

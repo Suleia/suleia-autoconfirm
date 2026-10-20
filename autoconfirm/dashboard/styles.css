@@ -3226,3 +3226,7 @@ th {
   margin: 4px 0;
   padding-left: 8px;
 }
+/* Human decisions stay expanded, with text labels as well as color. */
+.incident-human-review { border: 2px solid #b45309; border-left-width: 6px; background: #fff7ed; color: #7c2d12; border-radius: 8px; padding: 12px; margin-bottom: 10px; min-width: 240px; }
+.incident-human-review strong, .incident-human-review small { display: block; }
+.incident-human-review p { margin: 8px 0; line-height: 1.45; }
