@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { Controller } from './controller.mjs';
 import { Store } from './store.mjs';
 import { createApis } from './api.mjs';
@@ -10,6 +12,19 @@ import { loadConfig } from './config.mjs';
 import { dateRange, previousRange, reportText } from './reports.mjs';
 import { preflight, run } from './service.mjs';
 import { parseSpanish } from './spanish.mjs';
+
+test('service entrypoint runs healthcheck through the installed release symlink', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-link-test-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const link = path.join(dir, 'service.mjs');
+  fs.symlinkSync(fileURLToPath(new URL('./service.mjs', import.meta.url)), link);
+  fs.writeFileSync(path.join(dir, 'health.json'), JSON.stringify({ ok: false, at: new Date().toISOString() }));
+  const failed = spawnSync(process.execPath, [link, '--healthcheck'], { env: { ...process.env, STATE_DIRECTORY: dir } });
+  assert.equal(failed.status, 1);
+  fs.writeFileSync(path.join(dir, 'health.json'), JSON.stringify({ ok: true, mode: 'READ_ONLY', at: new Date().toISOString() }));
+  const healthy = spawnSync(process.execPath, [link, '--healthcheck'], { env: { ...process.env, STATE_DIRECTORY: dir } });
+  assert.equal(healthy.status, 0);
+});
 
 function fixture(t, options = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'telegram-test-'));
