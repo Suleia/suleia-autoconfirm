@@ -594,6 +594,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (req.method === 'POST' && url.pathname === '/api/telegram/webhook') {
+      if (config.telegramOwner !== 'render') return sendJson(res, 409, { ok: false, error: 'telegram_owned_elsewhere' });
       if (!isAuthorizedTelegramWebhook(req)) return sendJson(res, 401, { ok: false, error: 'telegram_unauthorized' });
       const update = await readBody(req);
       const result = await handleTelegramUpdate(update, { health: storeSummary() });
@@ -602,6 +603,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/telegram/setup-webhook') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+      if (config.telegramOwner !== 'render') return sendJson(res, 409, { ok: false, error: 'telegram_owned_elsewhere' });
       if (!config.telegramBotToken) return sendJson(res, 400, { ok: false, error: 'missing_telegram_bot_token' });
       const body = await readBody(req).catch(() => ({}));
       const baseUrl = String(body.publicBaseUrl || config.publicBaseUrl || '').replace(/\/+$/, '');
