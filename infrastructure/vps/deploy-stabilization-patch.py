@@ -1,17 +1,19 @@
 """Bounded image patch. Preserve exact live config; keep old containers for rollback.
 
 Usage: sudo python3 deploy-stabilization-patch.py REVISION PATCH_ROOT SERVICE
-Only the three named read/projection services are accepted. No provider action.
+Only the named services are accepted. Absence patch changes observation only;
+the existing notification configuration is preserved exactly.
 """
 import sys,re,pathlib,subprocess,json,os,http.client,socket,time
 revision,patch_root,service=sys.argv[1:]
 assert re.fullmatch('[a-f0-9]{40}',revision)
 files={
+ 'recipient-absent-live-controller':['services/recipient-absent-native-observer.mjs','services/recipient-absent-health.mjs'],
  'ingestion-worker':['services/integrations/render/address-signal.mjs','packages/platform-core/src/incident/address-canonical.mjs','services/incident-simulation-sync.mjs','packages/platform-core/src/incident/absent-resolution.mjs'],
  'api':['packages/suleia-operations-mcp/src/platform/catalog.mjs','packages/suleia-operations-mcp/src/security/pii.mjs'],
  'mcp-server':['packages/suleia-operations-mcp/src/platform/catalog.mjs','packages/suleia-operations-mcp/src/security/pii.mjs','packages/suleia-operations-mcp/src/mcp/server.mjs']}
 assert service in files
-name='suleia-operations-staging-'+service+'-1'
+name=service if service=='recipient-absent-live-controller' else 'suleia-operations-staging-'+service+'-1'
 root=pathlib.Path(patch_root).resolve();assert str(root).startswith('/opt/suleia-deploy-checkpoints/stabilization-')
 os.umask(0o077)
 backup=root/('rollback-'+service);backup.mkdir(mode=0o700,exist_ok=True)
@@ -41,6 +43,8 @@ candidate=json.loads(run(['docker','image','inspect',image]))[0]
 (backup/'image.json').write_text(json.dumps({'old':original['Image'],'new':candidate['Id'],'patch':revision}))
 tests=(['services/integrations/render/address-signal.test.mjs','packages/platform-core/test/address-canonical.test.mjs','packages/platform-core/test/absent-resolution.test.mjs','services/recipient-absent-resolution-executor.test.mjs','services/shadow-worker-health.test.mjs','services/incident-simulation-sync.test.mjs']
  if service=='ingestion-worker' else ['packages/suleia-operations-mcp/test/stabilization-privacy.test.mjs','packages/suleia-operations-mcp/test/mcp-tools.test.mjs','packages/suleia-operations-mcp/test/security-controls.test.mjs'])
+if service=='recipient-absent-live-controller':
+ tests=['services/recipient-absent-native-observer.test.mjs','services/recipient-absent-health.test.mjs','services/recipient-absent-native-verification.test.mjs']
 test_args=['docker','run','--rm','--network=none','--cap-drop=ALL','--security-opt=no-new-privileges','--memory=384m','--env','NODE_ENV=test']
 for test in tests:test_args+=['--volume',str(root/test)+':/app/'+test+':ro']
 test_args+=['--entrypoint','node',image,'--test','--test-reporter=tap',*tests]
