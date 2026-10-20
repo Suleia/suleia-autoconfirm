@@ -25,6 +25,10 @@ async function persistAutopilot(projector, { issue, order, interpretation, decis
 }
 
 export async function syncIncidentSimulations({ pool, projector, now = () => new Date(), maxRecords = 500, privateDataKey = '', absentLogisticsRead = null, onlyRecipientAbsent = false, excludeRecipientAbsent = false, replayAllAbsent = false, absentTemplateStatus = 'NOT_VERIFIED' }) {
+  // The existing projection loop owns maintenance, not a new timer process.
+  // The DB trigger records expiry and cannot execute provider actions.
+  await pool.query(`UPDATE operations.incident_timers SET updated_at=statement_timestamp()
+    WHERE status='ACTIVE' AND due_at<=statement_timestamp()`);
   const candidates = await pool.query(`SELECT i.*, o.identity_status, o.total_amount,
     o.lifecycle_classification, o.canonical_state,l.conversation_status,
     l.reason_code AS conversation_reason,l.conversation_freshness,
