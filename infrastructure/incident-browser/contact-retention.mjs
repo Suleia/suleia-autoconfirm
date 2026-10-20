@@ -27,13 +27,20 @@ if (due && previous && Date.now() < Date.parse(previous.nextRunAt)) process.exit
 
 let lastChat = 0;
 async function chat(endpoint, method = 'GET', body) {
-  await pause(Math.max(0, 1800 - (Date.now() - lastChat)));
+  await pause(Math.max(0, 8000 - (Date.now() - lastChat)));
   lastChat = Date.now();
   const response = await fetch(`${process.env.CHATBY_BASE_URL || 'https://app.chatby.io/api'}${endpoint}`, {
     method, headers: { Authorization: `Bearer ${process.env.CHATBY_TOKEN}`, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(45000),
   });
-  if (!response.ok) throw Error(`CHATBY_HTTP_${response.status}`);
+  if (!response.ok) {
+    const error=Error(`CHATBY_HTTP_${response.status}`);
+    if(response.status===429){
+      const seconds=Number(response.headers.get('retry-after'));
+      error.retryAt=new Date(Date.now()+Math.max(60000,Number.isFinite(seconds)&&seconds>0?seconds*1000:20*60000)).toISOString();
+    }
+    throw error;
+  }
   const data = await response.json();
   if (data.status === 'error' || data.success === false || data.error) throw Error('CHATBY_API_ERROR');
   return data;
@@ -74,7 +81,9 @@ async function main() {
   // The list endpoint omits return timestamps. Read details, never infer return
   // completion from a rejection or from a return request.
   for (let i = 0; i < orders.length; i++) {
-    if (['REJECTED', 'REFUSED', 'RETURNED'].includes(orders[i].sub_status)
+    if ((['REFUSED', 'RETURNED'].includes(orders[i].sub_status)
+        || (['DELIVERED','PAID'].includes(orders[i].sub_status)
+          && issues.some(issue => String(issue.order_id) === String(orders[i].id) && issue.status !== 'RESOLVED')))
         && phones.has(phone(orders[i].shipping_address?.phone_number))) {
       const detail = (await client.request('getOrder', { id: orders[i].id })).data;
       if (!detail || String(detail.id) !== String(orders[i].id)) throw Error('ORDER_SCHEMA');
@@ -125,6 +134,18 @@ async function main() {
     const combined = new Map(orders.map(o => [String(o.id), o]));
     for (const order of recent) combined.set(String(order.id), order);
     combined.set(String(freshOrder.id), freshOrder);
+    // Preserve timestamp evidence only by rereading affected terminal orders,
+    // never by carrying stale details across inventory refreshes.
+    for (const order of combined.values()) {
+      if (String(order.id)!==String(freshOrder.id)
+          && phone(order.shipping_address?.phone_number)===phone(current.phone||current.user_id)
+          && ['DELIVERED','PAID'].includes(order.sub_status)
+          && issues.some(i=>String(i.order_id)===String(order.id)&&i.status!=='RESOLVED')) {
+        const detail=(await client.request('getOrder',{id:order.id})).data;
+        if(!detail||String(detail.id)!==String(order.id))throw Error('ORDER_SCHEMA');
+        combined.set(String(order.id),detail);
+      }
+    }
     const currentOrders = [...combined.values()];
     const decision = decide(current, currentOrders, issues);
     if (!decision.eligible || String(decision.orderId) !== String(candidate.decision.orderId)) { summary.skipped++; continue; }
@@ -133,12 +154,24 @@ async function main() {
     write(`backup-${event.contactHash}.json`, { at: new Date().toISOString(), contact: current, order: freshOrder });
     unverified.push(event);
     write('pending.json', unverified); journal({ ...event, result: 'attempting' });
-    const response = await chat('/subscriber/delete', 'DELETE', { user_ns: current.user_ns });
+    let response;
+    try { response = await chat('/subscriber/delete', 'DELETE', { user_ns: current.user_ns }); }
+    catch(error){
+      if(error.message==='CHATBY_HTTP_429'){
+        // Explicit throttle rejection means this DELETE was not accepted.
+        // Prior accepted mutations still require absence reconciliation.
+        unverified.pop();
+        if(unverified.length)write('pending.json',unverified);
+        else fs.unlinkSync(path.join(root,'pending.json'));
+        journal({...event,result:'rate_limit_rejected'});
+      }
+      throw error;
+    }
     if (!['ok', 'success'].includes(String(response.status).toLowerCase()) && response.success !== true) throw Error('DELETE_RESPONSE_AMBIGUOUS');
     journal({ ...event, result: 'api_success' });
     // First deletion immediately, then bounded batches. Any uncertain DELETE
     // remains journalled and stops retries until absence has been reconciled.
-    if (completed.length === 0 || unverified.length >= 10) await verify();
+    if (completed.length === 0 || unverified.length >= 25) await verify();
   }
   if (unverified.length) await verify();
   summary.finishedAt = new Date().toISOString();
@@ -149,5 +182,6 @@ async function main() {
 main().catch(error => {
   const safeError = /^[A-Z_0-9]+$/.test(error.message) ? error.message : 'RUN_FAILED';
   write('failure.json', { at: new Date().toISOString(), error: safeError });
+  if(error.retryAt)write('schedule.json',{...read('schedule.json'),nextRunAt:error.retryAt,retryReason:safeError});
   emit({ error: safeError }); process.exitCode = 1;
 });
