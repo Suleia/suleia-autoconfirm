@@ -2,7 +2,8 @@ export function createAbsentObserverHealth({now=()=>new Date()}={}) {
   const state={last_started_at:null,last_completed_at:null,last_error:null,running:false};
   return {
     start(){state.running=true;state.last_started_at=new Date(now()).toISOString();},
-    finish(result){state.running=false;if(result?.deferred)return;state.last_completed_at=new Date(now()).toISOString();state.last_error=result?.failed?'OBSERVER_PROVIDER_READ_FAILED':null;},
+    finish(result){state.running=false;if(result?.deferred)return;state.last_completed_at=new Date(now()).toISOString();state.last_error=result?.failed
+      ? (/^CHATBY_(?:MESSAGES_HTTP_[0-9]{3}|ABSENT_MESSAGES_INVALID|ABSENT_HISTORY_INCOMPLETE)$/.test(result.error_code || '')?result.error_code:'OBSERVER_PROVIDER_READ_FAILED'):null;},
     fail(){state.running=false;state.last_error='OBSERVER_CYCLE_FAILED';},
     snapshot(){const lag=state.last_completed_at?Math.max(0,(+new Date(now())-Date.parse(state.last_completed_at))/1000):null;
       return {...state,lag_seconds:lag,healthy:lag!==null && lag<=300 && !state.last_error};}

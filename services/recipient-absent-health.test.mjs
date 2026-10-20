@@ -9,6 +9,14 @@ test('observer health detects missing cycles and provider failures, recovers onl
  h.finish({failed:true});assert.equal(h.snapshot().healthy,false);h.finish({observed:1});assert.equal(h.snapshot().healthy,true);
  h.fail();assert.equal(h.snapshot().healthy,false);
 });
+test('health exposes only allowlisted provider failure codes and stays unhealthy',()=>{
+ const h=createAbsentObserverHealth();
+ h.finish({failed:true,error_code:'CHATBY_MESSAGES_HTTP_404'});
+ assert.equal(h.snapshot().last_error,'CHATBY_MESSAGES_HTTP_404');
+ assert.equal(h.snapshot().healthy,false);
+ h.finish({failed:true,error_code:'private-provider-response'});
+ assert.equal(h.snapshot().last_error,'OBSERVER_PROVIDER_READ_FAILED');
+});
 test('resolution breaker is visible but does not disable notification health or native control',async()=>{
  const queries=[];const pool={query:async sql=>{queries.push(sql);return {rows:sql.includes('native_control')?[{status:'CANARY',automation_live:true,native_send_enabled:true,canary_issue_id:'private-id'}]:sql.includes('resolution_control')?[{status:'DISABLED',circuit_breaker_reason:'PROVIDER_RESULT_UNVERIFIED'}]:[{reservations:1,notifications:1,timers:1,resolutions:0,callbacks:1}]};}};
  const out=await readAbsentControllerHealth(pool,{snapshot:()=>({healthy:true,last_completed_at:'2026-09-25T12:00:00Z'})});
