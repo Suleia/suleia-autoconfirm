@@ -26,3 +26,14 @@ test('failed history read is visibly unknown instead of reporting no customer ac
  const cell=html.split('incident-activity-cell')[1].split('</td>')[0];
  assert.match(cell,/Sin lectura verificada/);assert.doesNotMatch(cell,/Sin actividad posterior|Sin respuesta ni acción posterior/);
 });
+test('unresolved customer reply shows an expanded decision with reason and required input',()=>{
+ const html=render({orderId:'fixture',customerActivityLastText:'<script>customer</script>',incidentResolution:{customer_replied:true,current_owner:'HUMAN',human_review_reason:'DELIVERY_DATE_AND_WINDOW_REQUIRED',customer_event_at:'2026-10-20T10:00:00Z',observed_at:'2026-10-20T10:30:00Z'}});
+ assert.match(html,/Necesita tu decisión/);assert.match(html,/Falta una fecha/);assert.match(html,/Obtener del cliente el día/);assert.match(html,/2026-10-20T10:30:00Z/);assert.doesNotMatch(html,/<script>/);
+});
+test('verified actions and customer waits do not request a human decision',()=>{
+ for(const twin of [{customer_replied:true,current_owner:'PROVIDER',verification_status:'VERIFIED'}, {customer_replied:false,current_owner:'CUSTOMER'}])assert.doesNotMatch(render({orderId:'fixture',incidentResolution:twin}),/Necesita tu decisión/);
+});
+test('unknown blockers remain visible and escaped rather than hiding the reply',()=>{
+ const html=render({orderId:'fixture',incidentResolution:{customer_replied:true,current_owner:'HUMAN',human_review_reason:'<unknown>'}});
+ assert.match(html,/Necesita tu decisión/);assert.match(html,/Qué falta/);assert.match(html,/&lt;unknown&gt;/);
+});
