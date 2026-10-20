@@ -1,0 +1,11 @@
+[Unit]
+Description=Delete completed-order Chatby contacts with verified retention guards
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=suleiaops
+ExecStart=/usr/bin/flock -n /home/suleiaops/.contact-retention.lock /usr/bin/docker exec suleia-incident-browser node /state/contact-retention-code/contact-retention.mjs --execute --due
+TimeoutStartSec=6h
+UMask=0077

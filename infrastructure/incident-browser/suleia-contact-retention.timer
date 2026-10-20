@@ -1,0 +1,10 @@
+[Unit]
+Description=Check durable 72-hour Chatby contact-cleanup schedule
+
+[Timer]
+OnCalendar=*-*-* *:00/15:00
+Persistent=true
+Unit=suleia-contact-retention.service
+
+[Install]
+WantedBy=timers.target
