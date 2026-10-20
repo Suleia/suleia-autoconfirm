@@ -33,7 +33,11 @@ Backups of contact metadata and order evidence are private mode-0600 files under
 `/state/contact-retention/`, not Git. They are not backups of conversation history.
 Deletion is irreversible through this job. Its pending journal prevents blind
 retries. Absence is verified against a complete contact inventory after the
-first deletion and each batch of 25. Calls are spaced at least eight seconds.
+first deletion and each batch of 25. Calls initially use eight-second spacing.
+Verified provider rate-limit headers allow 1.5-second spacing while at least
+100 requests and 10% of the provider budget remain. Below that reserve spacing
+returns to eight seconds, and below 50 remaining requests to twenty seconds.
+Missing or invalid headers retain the conservative eight-second interval.
 HTTP 429 preserves the provider's retry time in the durable schedule. An
 explicitly throttled DELETE is not marked accepted; ambiguous outcomes still
 require reconciliation before retry. `latest.json`, `failure.json` and
