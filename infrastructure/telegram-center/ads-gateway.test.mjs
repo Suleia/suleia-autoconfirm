@@ -22,3 +22,9 @@ test('proposal has CONFIRMAR/CANCELAR buttons and clear blocked/unknown results'
   const result=formatAdsResult({proposal:{id:'0123456789abcdef',state:'PENDING',mode:'SHADOW',request:'Fixture request',expiresAt:Date.now()+300000,intent:{period:'hoy'},items:[{name:'Fixture campaign',campaignId:'1',before:5000,after:6000,reasons:['MAX_CHANGE_PERCENT'],metric:null}]}});
   assert.match(result.text,/supera el porcentaje/);assert.equal(result.markup.inline_keyboard[0][0].callback_data,'confirm:0123456789abcdef');
 });
+
+test('2.0 help and daily summary use existing shared gateway, not a second interpreter',async()=>{
+ const requests=[];const gateway=createAdsGateway({commandCenterEnabled:true,adsApiUrl:'https://operations.test/api/internal/ads-intelligence/command',botToken:'fixture-bot-secret'},async(url,opts)=>{requests.push(JSON.parse(opts.body));return {ok:true,json:async()=>({ok:true,data:{text:'fixture brief'}})};});
+ const help=await gateway.handle('/help',{user:'1',chat:'1'},1);assert.match(help.text,/contexto de campaña caduca/);assert.equal(requests.length,0);
+ assert.equal((await gateway.handle('/resumen hoy',{user:'2',chat:'2'},2)).text,'fixture brief');assert.equal(requests[0].text,'¿Cómo va Suleia hoy?');assert.equal(requests[0].actor.user,'2');assert.equal(requests[0].requestKey,'telegram:2');
+});
