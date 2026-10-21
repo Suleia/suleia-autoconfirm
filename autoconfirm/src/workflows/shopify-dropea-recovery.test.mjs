@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {planShopifyDropeaRecovery as plan,recoverShopifyOrder,verifyRecoveredOrder} from './shopify-dropea-recovery.mjs';
+import {planShopifyDropeaRecovery as plan,recoverShopifyOrder,verifyRecoveredOrder,recoveryCorrection} from './shopify-dropea-recovery.mjs';
 const now=Date.parse('2026-10-21T12:00:00Z');
 const order=()=>({id:123,name:'#123',created_at:'2026-10-21T09:00:00Z',currency:'EUR',financial_status:'pending',payment_gateway_names:['Cash on Delivery (COD)'],email:'fixture@example.invalid',total_price:'29.99',shipping_address:{first_name:'Fixture',last_name:'Example',address1:'Example Street',address2:'Test',city:'Madrid',province:'Madrid',zip:'28001',country_code:'ES',phone:'+34600000000'},line_items:[{sku:'TEST',quantity:2,current_quantity:2,price:'29.99',requires_shipping:true,discount_allocations:[{amount:'29.99'}]}]});
 const products=[{id:1,owner_id:7,variants:[{variant_id:8,sku:'TEST',stock:100}]}];
@@ -35,3 +35,13 @@ test('uncertain transport never replays a POST',async()=>{let posts=0;const d=de
 test('fresh GET plus unique lookup required for verified',async()=>{let n=0;const d=deps({findExisting:async()=>++n<3?[]:[{id:9}]});assert.equal((await recoverShopifyOrder(order(),d.config)).status,'verified');assert.equal(d.counts.posts,1);assert.equal(d.counts.audits[0].result,'attempted');});
 test('duplicate after creation is never called verified',async()=>{let n=0;const d=deps({findExisting:async()=>++n<3?[]:[{id:9},{id:10}]});assert.equal((await recoverShopifyOrder(order(),d.config)).status,'applied_unverified');});
 test('definitive provider validation differs from an uncertain transport',async()=>{const d=deps({createOrder:async()=>{const e=Error('rejected');e.code='PROVIDER_VALIDATION_REJECTED';e.definitive=true;throw e;}});assert.equal((await recoverShopifyOrder(order(),d.config)).status,'provider_rejected');});
+test('postal coverage rejects may retry at most hourly after definitive failure',()=>{
+ const meta={digest:'same',idempotencyKey:'stable'};
+ const previous={status:'provider_rejected',attempted_at:new Date(now-3600_000).toISOString(),raw:{digest:'same',definitive:true,providerFailureCode:'POSTAL_CODE_NOT_COVERED'}};
+ assert.ok(recoveryCorrection(previous,meta,now).idempotencyKey.startsWith('stable-coverage-'));
+ assert.equal(recoveryCorrection({...previous,attempted_at:new Date(now-3599_000).toISOString()},meta,now),null);
+ assert.equal(recoveryCorrection({...previous,status:'applied_unverified'},meta,now),null);
+ assert.equal(recoveryCorrection({...previous,raw:{...previous.raw,definitive:false}},meta,now),null);
+ assert.equal(recoveryCorrection({...previous,raw:{...previous.raw,providerFailureCode:'OTHER'}},meta,now),null);
+ assert.deepEqual(recoveryCorrection(previous,{...meta,digest:'corrected'},now),{idempotencyKey:'stable'});
+});

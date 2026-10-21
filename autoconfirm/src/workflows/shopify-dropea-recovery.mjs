@@ -1,6 +1,15 @@
 import {createHash} from 'node:crypto';
 
 export const RECOVERY_TEMPLATE = 'shopify_dropea_import_v1';
+export function recoveryCorrection(previous,meta,now=Date.now()) {
+  if(previous?.status!=='provider_rejected'||previous.raw?.definitive!==true||!previous.raw?.digest)return null;
+  if(previous.raw.digest!==meta.digest)return {idempotencyKey:meta.idempotencyKey};
+  const attempted=Date.parse(previous.attempted_at);
+  if(previous.raw.providerFailureCode==='POSTAL_CODE_NOT_COVERED'&&Number.isFinite(attempted)&&now-attempted>=3600_000) {
+    return {idempotencyKey:`${meta.idempotencyKey}-coverage-${Math.floor(now/3600_000)}`};
+  }
+  return null;
+}
 const cents = value => {
   if (!/^\d+(?:\.\d{1,2})?$/.test(String(value))) throw Error('INVALID_MONEY');
   return Math.round(Number(value) * 100);
@@ -100,6 +109,7 @@ export async function recoverShopifyOrder(order,{products,carriers,storeId,now,b
   if (!live) return {...identity,status:'ready',totalCents:plan.expectedCents,digest:plan.digest};
   const reservation=await claim(identity.orderId,{digest:plan.digest,idempotencyKey:plan.idempotencyKey});
   if (!reservation.acquired||!reservation.persistent) return {...identity,status:'blocked',reason:reservation.reason||'PERSISTENT_CLAIM_REQUIRED'};
+  if(reservation.idempotencyKey)plan.idempotencyKey=reservation.idempotencyKey;
   const attemptedAt=new Date().toISOString();
   const fresh=await readSource(identity.orderId);
   const freshPlan=planShopifyDropeaRecovery(fresh,products,carriers,{storeId,now:now??Date.now(),blocked});
@@ -127,7 +137,7 @@ export async function recoverShopifyOrder(order,{products,carriers,storeId,now,b
     const reason=/^[A-Z0-9_]{1,120}$/.test(error?.code||'')?error.code:'CREATE_RESULT_UNCERTAIN';
     const status=error.definitive===true?'provider_rejected':'applied_unverified';
     const result={...identity,status,reason,at:new Date().toISOString()};
-    await finish(identity.orderId,{status,attemptedAt,lastError:reason,raw:{digest:plan.digest,idempotencyKey:plan.idempotencyKey,definitive:error.definitive===true}});
+    await finish(identity.orderId,{status,attemptedAt,lastError:reason,raw:{digest:plan.digest,idempotencyKey:plan.idempotencyKey,definitive:error.definitive===true,providerFailureCode:error.providerFailureCode||null}});
     await audit({...result,reason,result:status});
     return result;
   }

@@ -5,7 +5,7 @@ import {isBlockedCustomerOrder} from '../src/policies/blocked-customers.mjs';
 import {getAppConfig} from '../src/config.mjs';
 import {claimTemplateDelivery,finishTemplateDelivery} from '../src/db/supabase-store.mjs';
 import {updateRows} from '../src/clients/supabase.mjs';
-import {recoverShopifyOrder,RECOVERY_TEMPLATE} from '../src/workflows/shopify-dropea-recovery.mjs';
+import {recoverShopifyOrder,RECOVERY_TEMPLATE,recoveryCorrection} from '../src/workflows/shopify-dropea-recovery.mjs';
 
 const config=getAppConfig();
 const live=process.argv.includes('--live');
@@ -31,7 +31,10 @@ async function dropea(url,{method='GET',body,key,retry=0}={}){
  if(r.status===429&&method==='GET'&&retry<2){await new Promise(resolve=>setTimeout(resolve,Math.min(30,Math.max(5,Number(r.headers.get('retry-after'))||5))*1000));return dropea(url,{method,retry:retry+1});}
  if(!r.ok&&!(r.status===504&&j?.data?.operation_id)){
   const e=Error('DROPEA_HTTP_'+r.status);e.code='DROPEA_HTTP_'+r.status;
-  if(method==='POST'&&r.status===400&&j?.failure?.type==='ValidationFailure'){e.definitive=true;e.code='PROVIDER_VALIDATION_REJECTED';}
+  if(method==='POST'&&r.status===400&&j?.failure?.type==='ValidationFailure'){
+   e.definitive=true;e.code=/^[A-Z0-9_]{1,120}$/.test(j.failure.code||'')?j.failure.code:'PROVIDER_VALIDATION_REJECTED';e.providerFailureCode=e.code;
+   await fs.appendFile(path.join(stateDir,'provider-rejections.jsonl'),JSON.stringify({at:new Date().toISOString(),idempotencyKey:key,http:r.status,failure:j.failure})+'\n',{mode:0o600});
+  }
   throw e;
  }
  if(!j?.data||(r.status!==504&&j.success!==true))throw Error('DROPEA_SCHEMA_INVALID');
@@ -76,9 +79,10 @@ async function claim(orderId,meta){
  const old=r.existing;
  // A changed payload may retry only a definitive pre-saga validation rejection.
  // An uncertain POST, operation in progress or unchanged body stays blocked.
- if(old?.status!=='provider_rejected'||old.raw?.definitive!==true||!old.raw?.digest||old.raw.digest===meta.digest)return r;
- const rows=await updateRows('template_delivery_ledger',{status:'claimed',attempted_at:new Date().toISOString(),updated_at:new Date().toISOString()},{query:{template_key:'eq.'+old.template_key,status:'eq.provider_rejected','raw->>digest':'eq.'+old.raw.digest},returning:'representation'});
- return {acquired:Array.isArray(rows)&&rows.length===1,persistent:true,reason:'validation_correction_claimed'};
+ const correction=recoveryCorrection(old,meta);
+ if(!correction)return {...r,reason:old?.last_error||r.reason};
+ const rows=await updateRows('template_delivery_ledger',{status:'claimed',attempted_at:new Date().toISOString(),updated_at:new Date().toISOString()},{query:{template_key:'eq.'+old.template_key,status:'eq.provider_rejected',attempted_at:'eq.'+old.attempted_at,'raw->>digest':'eq.'+old.raw.digest},returning:'representation'});
+ return {acquired:Array.isArray(rows)&&rows.length===1,persistent:true,reason:'validation_correction_claimed',idempotencyKey:correction.idempotencyKey};
 }
 const startedAt=new Date().toISOString();
 const shop=(await dropea(base+'/dropshipper/shops/'+storeId)).data.shop;
