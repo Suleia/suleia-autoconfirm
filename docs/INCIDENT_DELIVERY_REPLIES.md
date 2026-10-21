@@ -35,7 +35,10 @@ claim a private screenshot was attached to an API note when it was not.
 
 Payment/discount dependencies, competing preferences, incomplete instructions
 and expired dates instead produce a targeted clarification at most once per
-incident. Agency/address requests stay with their existing owner. Cancellation
+incident and missing-information phase; the exact non-delivery acknowledgement
+is still only once per incident. A clear later payment-availability confirmation
+with a complete schedule can proceed without asking the same question again.
+Agency/address requests stay with their existing owner. Cancellation
 or return language blocks recovery, including earlier same-incident requests
 outside the short reply cluster. Unknown/silent/stale/identity-conflicting cases
 cannot produce a transport solution. No discount acceptance is interpreted as

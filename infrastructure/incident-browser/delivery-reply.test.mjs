@@ -46,6 +46,12 @@ test('payment, ambiguous revisions and expired windows get one clarification, no
  }
  const i=input('Esta tarde');i.now=Date.parse('2026-10-21T20:00:00Z');assert.equal(deliveryReplyPlan(i).kind,'CLARIFY');
 });
+test('a clear cash confirmation and complete schedule resolves the prior payment clarification',()=>{
+ const i=add(input('No llevaba efectivo suficiente'),'Ya tengo el efectivo, mañana por la tarde');
+ const p=deliveryReplyPlan(i);assert.equal(p.kind,'SOLUTION');assert.equal(p.date,'2026-10-22');assert.equal(p.time_window,'afternoon');
+ const incomplete=deliveryReplyPlan(input('Ya tengo el efectivo'));assert.equal(incomplete.kind,'CLARIFY');assert.equal(incomplete.reason,'DELIVERY_SCHEDULE_AFTER_PAYMENT_REQUIRED');
+ for(const t of ['No tengo el efectivo, mañana por la tarde','Si tengo el efectivo, mañana por la tarde'])assert.equal(deliveryReplyPlan(input(t)).kind,'CLARIFY');
+});
 test('current-order identity, one-hour settling and 24-hour message window remain required',()=>{
  for(const change of [i=>i.incident.chatbyOrderAssociation='PHONE_ONLY',i=>i.messages[0].user_ns='other',i=>i.messages[0].order_id='900002',i=>i.order.orderId='900002',i=>i.issue.status='RESOLVED',i=>i.order.status='DELIVERED',i=>i.incident.incidentType='address']){
   const i=input();change(i);assert.equal(deliveryReplyPlan(i).eligible,false);

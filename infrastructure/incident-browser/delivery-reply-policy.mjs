@@ -10,6 +10,8 @@ const nonDelivery=t=>/\bno (?:me |nos |le |les )?(?:(?:ha|han|a|an|habia|habian)
 const explanation=t=>/^(?:estoy|estaba|estare) trabajando[.! ]*$/.test(t)||/^no (?:estaba|me encontraba) en casa[.! ]*$/.test(t);
 const irrelevant=t=>/^[?¿!.,… ]*$/.test(t)||/^(?:hola|buenas tardes|buenos dias|gracias|ok|vale|otro dia o datos|confirmar mi pedido)[.! ]*$/.test(t);
 const wants=t=>/\b(?:lo quiero|quiero (?:el|mi) pedido|quiero recibirlo|entregarmelo|pueden entregar|vuelvan a entregar)\b/.test(t);
+const paymentConfirmed=t=>/\b(?:ya )?(?:tengo|dispongo de|dispongo del|cuento con) (?:el |del )?(?:efectivo|importe|dinero)\b/.test(t)&&
+ !/\b(?:no|si me|si tengo|quizas?|tal vez|descuento|rebaja|cambiar el precio)\b/.test(t);
 const hasPreference=t=>/\b(?:hoy|manana|tarde|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hora|horas|partir|despues|antes|desde|entre|cualquier dia)\b|\d/.test(t);
 const iso=t=>new Date(t).toISOString();
 
@@ -46,7 +48,9 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
   evidence:cluster.map(m=>({id:String(m.id),at:iso(messageTimestamp(m)),text:addressMessageText(m)}))};
  const finish=p=>{const plan={eligible:true,...identity,...p};return {...plan,hash:resolutionHash(plan)};};
  const clarify=(reason,content)=>finish({kind:'CLARIFY',reason,content});
- if(/efectivo|dinero|importe|pagar|pago|precio|descuento|euros|tarjeta/.test(combined))return clarify('PAYMENT_OR_PRICE_NEEDS_CONFIRMATION',
+ const confirmedPayment=paymentConfirmed(normalized.at(-1));
+ if(/efectivo|dinero|importe|pagar|pago|precio|descuento|euros|tarjeta/.test(combined)&&
+   !(confirmedPayment&&!/descuento|rebaja|cambiar el precio/.test(combined)))return clarify('PAYMENT_OR_PRICE_NEEDS_CONFIRMATION',
   'Hola, ¿sigue queriendo recibir su pedido? Confírmenos que dispondrá del importe indicado y díganos qué día y en qué franja horaria puede recibirlo. Gracias.');
  if(/\bo mejor\b|\b(?:quizas?|tal vez|puede que)\b/.test(combined))return clarify('CONTRADICTORY_OR_UNCERTAIN_PREFERENCE',
   'Hola, para solicitar la entrega correctamente, indíquenos el día y el horario exactos que prefiere. Gracias.');
@@ -54,7 +58,7 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  let selected=null,slot=null,recurring=false,scheduleSource=null;
  for(let n=0;n<texts.length;n++){
   let t=normalized[n].replace(/(\d)\s*hs?\b/g,'$1 h');
-  if(explanation(t)||irrelevant(t))continue;
+  if(explanation(t)||irrelevant(t)||confirmedPayment&&/efectivo|dinero|importe/.test(t)&&!hasPreference(t))continue;
   if(hasPreference(t)){
    let parsed=preciseRetrySlot(t,messageTimestamp(cluster[n]));
    const every=/\bcualquier dia(?: de la semana)?\b/.test(t);
@@ -69,7 +73,8 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
   }else if(!nonDelivery(t)&&!wants(t))return clarify('CUSTOMER_MESSAGE_NEEDS_CLARIFICATION',
    'Hola, ¿quiere que solicitemos una nueva entrega de su pedido? Si es así, indíquenos el día y la franja horaria en que puede recibirlo. Gracias.');
  }
- if(!reportsNonDelivery&&!selected&&!normalized.some(wants))return block('NO_DELIVERY_REQUEST');
+ if(!reportsNonDelivery&&!selected&&!normalized.some(wants))return confirmedPayment?clarify('DELIVERY_SCHEDULE_AFTER_PAYMENT_REQUIRED',
+  'Gracias por confirmarlo. ¿Qué día y en qué franja horaria puede recibir su pedido?'):block('NO_DELIVERY_REQUEST');
  if(!selected){
   const earlier=meaningful.filter(m=>!cluster.includes(m));
   if(earlier.some(m=>hasPreference(fold(addressMessageText(m)))))return clarify('EARLIER_PREFERENCE_REQUIRES_RENEWAL',
