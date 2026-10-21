@@ -3,7 +3,7 @@ import {addressCapability,configuredAddressMode,configuredAddressBreaker,address
 import {planDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
 import {findVerifiedTemplateDelivery,messageTimestamp,isCustomerInteraction,extractWamid} from './incident-discount-policy.mjs';
 export const ADDRESS_TEMPLATE='dropea_incidencia_direccion_v1';
-export const ADDRESS_POLICY=Object.freeze({id:'ADDRESS_INCORRECT_POLICY_V1',response_policy:'ADDRESS_INCORRECT_RESPONSE_V1',version:'2026-09-26.2',offer_hours:24,return_hours:48,anchor:'REAL_INITIAL_TEMPLATE_SEND',partial_response:'WAIT_DETAILS_THEN_MANUAL_REVIEW',discount_application:'MANUAL_ONLY',owner:'render_incident_automation'});
+export const ADDRESS_POLICY=Object.freeze({id:'ADDRESS_INCORRECT_POLICY_V1',response_policy:'ADDRESS_INCORRECT_RESPONSE_V1',version:'2026-10-21.1',offer_hours:24,return_hours:48,discount_response_hours:24,return_requires_verified_discount_offer:true,anchor:'REAL_INITIAL_TEMPLATE_SEND',partial_response:'WAIT_DETAILS_THEN_MANUAL_REVIEW',discount_application:'MANUAL_ONLY',owner:'render_incident_automation'});
 export const ADDRESS_STAGES=['SOLUTION','CHANGE_ADDRESS','PICKUP','OFFER','RETURN','DETAILS'];
 const hash=x=>crypto.createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const norm=x=>String(x||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
@@ -75,7 +75,7 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
  const base={policy:ADDRESS_POLICY,policy_snapshot_hash:hash(ADDRESS_POLICY),canonical_issue_id:String(incident?.incidenceId||''),canonical_order_id:String(incident?.orderId||''),conversation_id:incident?.chatbyUserNs||null,template_name:ADDRESS_TEMPLATE,notification_at:null,message_id:null,state:'ADDRESS_ISSUE_DETECTED',intent:'NO_RESPONSE',action:'WAIT_FOR_NOTIFICATION',eligible:false,read_at:iso(now),missing_fields:[],customer_message_present:false};
  base.issue_version=(issue?.raw||issue)?.updated_at||null;
  base.read_verified=false;
- const done=extra=>{const d={...base,...extra};const input_snapshot_hash=hash([d.canonical_issue_id,d.canonical_order_id,d.issue_version,d.notification_at,d.message_id,d.last_customer_at,d.intent,d.address]);return {...d,input_snapshot_hash,decision_id:hash([input_snapshot_hash,d.policy_snapshot_hash,d.action,d.state]),decision_status:'CURRENT'};};
+ const done=extra=>{const d={...base,...extra};const input_snapshot_hash=hash([d.canonical_issue_id,d.canonical_order_id,d.issue_version,d.notification_at,d.message_id,d.last_customer_at,d.intent,d.address,d.discount_offered_at,d.discount_offer_message_id,d.offer_due_at,d.return_due_at]);return {...d,input_snapshot_hash,decision_id:hash([input_snapshot_hash,d.policy_snapshot_hash,d.action,d.state]),decision_status:'CURRENT'};};
  if(incident?.incidentType!=='address'||!incident.incidenceId||!incident.orderId||incident.chatbyReadVerified!==true||incident.chatbyOrderAssociation!=='EXACT_ORDER'||!incident.chatbyUserNs)return done({state:'EVIDENCE_UNVERIFIED'});
  if(messages.some(m=>m.user_ns&&String(m.user_ns)!==String(incident.chatbyUserNs)))return done({state:'CONVERSATION_MISMATCH'});
  base.read_verified=true;
@@ -84,7 +84,9 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
  const notices=valid.filter(exactAddressNotice).sort((a,b)=>messageTimestamp(a)-messageTimestamp(b));
  const notice=notices[0];if(!notice)return done({state:'INITIAL_TEMPLATE_NOT_OBSERVED'});
  base.notification_at=iso(messageTimestamp(notice));base.message_id=extractWamid(notice);
- base.offer_due_at=iso(messageTimestamp(notice)+24*3600000);base.return_due_at=iso(messageTimestamp(notice)+48*3600000);
+ base.offer_due_at=iso(messageTimestamp(notice)+ADDRESS_POLICY.offer_hours*3600000);
+ base.initial_return_due_at=iso(messageTimestamp(notice)+ADDRESS_POLICY.return_hours*3600000);
+ base.return_due_at=null;
  // Preserve the first observed send across retries; never restart deadlines.
  if(previous?.notification_at&&previous.message_id!==base.message_id)return done({state:'NOTIFICATION_CONFLICT',action:'HUMAN_REVIEW'});
  const inbound=messages.filter(isCustomerInteraction);
@@ -95,6 +97,10 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
  const neutral=t=>/^(?:hola[!,. ]*|vale[!,. ]*|gracias[!,. ]*|buenos dias[!,. ]*|buenas tardes[!,. ]*|buen finde[!,. ]*|ahora te digo[!,. ]*|[\p{Emoji_Presentation}\s]+)$/u.test(norm(t));
  const offer=findVerifiedTemplateDelivery(valid.filter(m=>messageTimestamp(m)>=messageTimestamp(notice)),'es_es_dropea_incidencia_descuento_5_v1');
  base.discount_offered_at=offer?.sentAt||null;
+ base.discount_offer_message_id=offer?.wamid||null;
+ // An offer missed by a previous cycle remains recoverable. A late verified
+ // send starts its own full response window before any silent-return proposal.
+ if(offer)base.return_due_at=iso(Math.max(Date.parse(base.initial_return_due_at),Date.parse(offer.sentAt)+ADDRESS_POLICY.discount_response_hours*3600000));
  let discountAccepted=false;
  for(const m of replies){
    const t=addressMessageText(m);
@@ -160,7 +166,7 @@ export function addressResponseDecision({incident,messages=[],order=null,issue=n
    if(parsed.kind==='AGENCY_REQUEST')return done({state:'AGENCY_REQUEST',action:'PICKUP_AT_AGENCY',eligible:!!issue&&planDropeaResolution(issue,'PICKUP_AT_AGENCY').allowed});
    return done({state:'HUMAN_REVIEW_REQUIRED',action:'HUMAN_REVIEW'});
  }
- if(now>=Date.parse(base.return_due_at))return done({state:'RETURN_PREPARED',action:'RETURN_TO_ORIGIN',eligible:true});
+ if(offer&&now>=Date.parse(base.return_due_at))return done({state:'RETURN_PREPARED',action:'RETURN_TO_ORIGIN',eligible:true});
  const discount=offer;
  if(discount)return done({state:'DISCOUNT_OFFERED',discount_offered_at:discount.sentAt,action:'WAIT_FOR_CUSTOMER'});
  if(now>=Date.parse(base.offer_due_at))return done({state:'DISCOUNT_OFFER_PREPARED',action:'OFFER_5_EURO_DISCOUNT',eligible:true});

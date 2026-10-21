@@ -7,7 +7,11 @@ Direction node and automatic reply ownership need read-only Chatby inspection.
 
 T0 requires the exact structured template name, outbound wamid and timestamp
 after the exact incident opened, in the exact associated order conversation.
-There is no issue-date fallback. Initial deadlines: offer5EUR at24h, return48h.
+There is no issue-date fallback. The 5 EUR offer is due at 24 hours and remains
+recoverable when a previous cycle missed it, including after 48 hours. A silent
+return proposal requires a verified offer and waits until the later of initial
+notice +48 hours and actual offer +24 hours. Without a verified offer there is no
+silent-return deadline. Explicit customer return requests keep their own path.
 Each write rereads current provider issue/order and Chatby. Claims use existing
 durable message/address/return ledgers. Late cooperative input supersedes return.
 
@@ -16,7 +20,15 @@ It never becomes initial-timer silence, regardless of elapsed time. Missing-fiel
 text is allowed only inside the24h customer reply window; outside that window it
 is manual. No approved template is changed to reopen the reply window.
 An isolated greeting does not erase an earlier address; ambiguity requires review.
-Accepted discounts remain manual, without support email or automatic application.
+Accepted discounts leave this address executor as `MANUAL_DISCOUNT_RECOVERY`.
+The separately authorized accepted-discount support workflow owns any support
+email and matching solution; sending an offer does not change the COD amount.
+
+Policy revision `2026-10-21.1` changes offer/return timing and its registry hash.
+Deployments must register the new policy hash and exact tested release gate;
+existing RETURN modes, breakers, claims and independent authorization remain.
+Fresh capability execution also binds the policy and decision hashes, so a
+decision from an older policy or a crossed deadline cannot reserve an action.
 
 New execution defaults to SHADOW. Master `ADDRESS_AUTOMATION_ENABLED=true` plus
 `ADDRESS_{SOLUTION,OFFER,RETURN,DETAILS}_MODE=CANARY` requires the corresponding

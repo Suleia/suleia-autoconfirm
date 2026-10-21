@@ -32,13 +32,23 @@ test('I late partial response cancels a reserved return before the provider writ
  const saved={...process.env};Object.assign(process.env,{ADDRESS_AUTOMATION_ENABLED:'true',ADDRESS_RETURN_MODE:'CANARY',ADDRESS_RETURN_CANARY_ISSUE_ID:'11'});
  try{
   let reads=0,writes=0;const finished=[];
+  const offer={type:'out',mid:'wamid.offer',ts:(t+24*3600000)/1000,text:'es_es_dropea_incidencia_descuento_5_v1'};
   const result=await executeIncidentDiscountNoResponseReturn(incident,{}, {
-   now,addressMessages:[notice],credentialAvailable:true,inspectPrior:async()=>({}),
-   readCurrent:async()=>({issue,order}),readMessages:async()=>++reads===1?[notice]:[notice,partial],
+   now,addressMessages:[notice,offer],credentialAvailable:true,inspectPrior:async()=>({}),
+   readCurrent:async()=>({issue,order}),readMessages:async()=>++reads===1?[notice,offer]:[notice,offer,partial],
    claimReturn:async()=>({acquired:true,persistent:true}),finishReturn:async row=>finished.push(row),returnIssue:async()=>writes++
   });
   assert.equal(result.status,'BLOCKED_CUSTOMER_ACTIVITY');assert.equal(writes,0);assert.equal(finished[0].status,'aborted');
  }finally{for(const k of ['ADDRESS_AUTOMATION_ENABLED','ADDRESS_RETURN_MODE','ADDRESS_RETURN_CANARY_ISSUE_ID'])saved[k]===undefined?delete process.env[k]:process.env[k]=saved[k];}
+});
+test('overdue address without a verified discount never reserves or submits a silent return',async()=>{
+ let writes=0,reads=0;
+ const result=await executeIncidentDiscountNoResponseReturn(incident,{}, {
+  now,addressMessages:[notice],addressEnvironment:{...env,ADDRESS_RETURN_MODE:'CANARY',ADDRESS_RETURN_CANARY_ISSUE_ID:'11'},
+  readCurrent:async()=>{reads++;return {issue,order};},claimReturn:async()=>{writes++;return {acquired:true,persistent:true};},returnIssue:async()=>writes++
+ });
+ assert.equal(result.eligible,false);assert.equal(result.status,'DISCOUNT_OFFER_PREPARED');
+ assert.equal(reads,0);assert.equal(writes,0);
 });
 test('partial details send has a persistent once-only claim',async()=>{
  const currentNotice={...notice,ts:(now-2*3600000)/1000};

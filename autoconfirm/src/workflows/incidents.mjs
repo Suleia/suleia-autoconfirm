@@ -2,6 +2,8 @@ import { absentDiscountReturnDecision } from './absent-discount-return.mjs';
 import {executeObservedAddress} from './address-observed-executor.mjs';
 import {recoverReconciledAddressDetails} from './address-reconciled-details.mjs';
 import {runIncidentResolutionCycle} from './incident-resolution-runtime.mjs';
+import {applyAcceptedDiscountFeedback} from './accepted-discount-feedback.mjs';
+import {selectRows} from '../clients/supabase.mjs';
 import {refreshAddressCapabilities,runAddressCapability,addressCapabilitiesSnapshot} from './address-capabilities.mjs';
 import {addressExcluded} from './address-capability-policy.mjs';
 import {addressResponseDecision,addressStageAllowed,ADDRESS_POLICY,ADDRESS_STAGES} from './address-response-policy.mjs';
@@ -2960,6 +2962,10 @@ async function performPendingIncidentSync({
       try{incidentResolutionSummary=await runIncidentResolutionCycle(analyzed.map(item=>({...item,incident:enrichedById.get(String(item.incident.incidenceId))||item.incident})),{execute:returnOnly!==true});}
       catch{incidentResolutionSummary={enabled:true,failures:1,status:'DURABLE_STORE_UNAVAILABLE',new_write_default:'SHADOW'};}
     }
+    try {
+      const feedback=(await selectRows('app_state',{query:{key:'eq.accepted_discount_support_feedback_v1',select:'value'},limit:1}))[0];
+      applyAcceptedDiscountFeedback(incidents,feedback?.value);
+    } catch { /* Support observations must not interrupt incident processing. */ }
     const sortedIncidents = sortIncidentsByIncidenceDesc(incidents);
     const discountRecoverySummary = {
       enabled: config.enableIncidentDiscountTemplate === true,

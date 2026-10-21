@@ -46,7 +46,7 @@ export async function runAddressCapability(item,expected,{stage=addressCapabilit
  if(incident.chatbyReadVerified!==true||incident.chatbyOrderAssociation!=='EXACT_ORDER'||!incident.chatbyUserNs)return blocked('BLOCKED_EXACT_CONVERSATION');
  const messages=await readMessages(incident.chatbyUserNs).catch(()=>null);if(!messages)return blocked('BLOCKED_CHATBY_READ');
  const d=addressResponseDecision({incident,messages,order:fresh.order,issue,previous:expected,now:now()});
- if(!d.read_verified||!d.message_id||!d.issue_version||d.decision_status!=='CURRENT'||d.input_snapshot_hash!==expected.input_snapshot_hash)return blocked('DECISION_SUPERSEDED');
+ if(!d.read_verified||!d.message_id||!d.issue_version||d.decision_status!=='CURRENT'||d.input_snapshot_hash!==expected.input_snapshot_hash||d.policy_snapshot_hash!==expected.policy_snapshot_hash||d.decision_id!==expected.decision_id)return blocked('DECISION_SUPERSEDED');
  if(stage==='INTERPRETATION'){
   if(!['VALID_ADDRESS','INCOMPLETE_ADDRESS','ADDRESS_CONFIRMED','AMBIGUOUS_ADDRESS','RETURN_REQUEST','AGENCY_REQUEST','OTHER_RESPONSE'].includes(d.intent)||!d.customer_message_present)return blocked('WAITING_REAL_INTERPRETATION_CASE');
  }else if(!d.eligible||addressCapability(d.action)!==stage)return blocked('CAPABILITY_NOT_ELIGIBLE');

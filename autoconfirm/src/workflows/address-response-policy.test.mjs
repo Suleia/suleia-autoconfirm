@@ -6,12 +6,49 @@ const incident={incidentType:'address',incidenceId:'11',orderId:'22',incidenceDa
 const order={orderId:'22',customerPhone:'600000000'};
 const notice={type:'out',mid:'wamid.fixture',ts:t/1000,payload:{name:'dropea_incidencia_direccion_v1'}};
 const reply=(text,h=2)=>({type:'in',ts:(t+h*3600000)/1000,text});
+const discount=(h=24)=>({type:'out',mid:'wamid.offer',ts:(t+h*3600000)/1000,text:'es_es_dropea_incidencia_descuento_5_v1'});
 const d=(replies=[],h=3)=>decide({incident,order,messages:[notice,...replies],now:t+h*3600000});
 test('A/D/H full address at2h/30h/47h59 supersedes both initial milestones',()=>{
  for(const h of [2,30,47+59/60]){const x=d([reply('Calle Mayor 25, 3B, 48012 Bilbao',h)],49);assert.equal(x.action,'PROVIDE_ADDRESS_SOLUTION');assert.equal(x.address.floor,'3');assert.equal(x.address.door,'B');assert.equal(x.initial_milestones,'SUPERSEDED_BY_CUSTOMER_RESPONSE');}
 });
-test('B/C 24/48h milestones use the real send, no initial send means no timer',()=>{
- assert.equal(d([],23.999).action,'WAIT_FOR_CUSTOMER');assert.equal(d([],24).action,'OFFER_5_EURO_DISCOUNT');assert.equal(d([],48).action,'RETURN_TO_ORIGIN');assert.equal(decide({incident,order,messages:[],now:t+99*3600000}).return_due_at,undefined);
+test('B/C offer stays due after24h until verified delivery; no initial send means no timer',()=>{
+ assert.equal(d([],23.999).action,'WAIT_FOR_CUSTOMER');
+ for(const h of [24,47.999,48,49,96,720]){
+  const x=d([],h);assert.equal(x.action,'OFFER_5_EURO_DISCOUNT');assert.equal(x.eligible,true);
+  assert.equal(x.return_due_at,null);assert.equal(x.initial_return_due_at,new Date(t+48*3600000).toISOString());
+ }
+ assert.equal(decide({incident,order,messages:[],now:t+99*3600000}).return_due_at,undefined);
+});
+test('silent return needs verified offer and max(initial48h, offer24h) at exact boundaries',()=>{
+ for(const [sent,due] of [[12,48],[24,48],[25,49],[60,84]]){
+  const offer=discount(sent);
+  assert.equal(d([offer],due-1/3600000).action,'WAIT_FOR_CUSTOMER');
+  const x=d([offer],due);assert.equal(x.action,'RETURN_TO_ORIGIN');
+  assert.equal(x.return_due_at,new Date(t+due*3600000).toISOString());
+ }
+ assert.equal(d([discount(60)],60).action,'WAIT_FOR_CUSTOMER');
+ assert.equal(d([{...discount(25),mid:null}],96).action,'OFFER_5_EURO_DISCOUNT');
+ assert.equal(d([discount(-0.5)],96).action,'OFFER_5_EURO_DISCOUNT');
+ assert.equal(d([discount(100)],96).action,'OFFER_5_EURO_DISCOUNT');
+});
+test('late cancellation, acceptance and cooperation supersede overdue offer and silent return',()=>{
+ for(const supplied of [[],[discount(60)]]){
+  assert.equal(d([...supplied,reply('No quiero el pedido',70)],96).intent,'RETURN_REQUEST');
+  assert.equal(d([...supplied,reply('Calle Mayor 25, 48012 Bilbao',70)],96).action,'PROVIDE_ADDRESS_SOLUTION');
+  assert.equal(d([...supplied,reply('Calle Mayor 25',70)],96).action,'HUMAN_REVIEW');
+ }
+ assert.equal(d([discount(60),reply('Quiero el descuento',61)],96).action,'MANUAL_DISCOUNT_RECOVERY');
+ const cancelled=d([discount(60),reply('Quiero el descuento',61),reply('No quiero el pedido',62)],96);
+ assert.equal(cancelled.intent,'RETURN_REQUEST');assert.equal(cancelled.action,'RETURN_TO_ORIGIN');
+});
+test('verified offer evidence and deadlines are part of the fresh decision snapshot',()=>{
+ const before=d([],60),after=d([discount(60)],60),duplicate=d([discount(60),discount(60)],60);
+ assert.notEqual(before.input_snapshot_hash,after.input_snapshot_hash);
+ assert.notEqual(before.decision_id,after.decision_id);
+ assert.equal(after.input_snapshot_hash,duplicate.input_snapshot_hash);
+ assert.equal(after.return_due_at,duplicate.return_due_at);
+ const oldIssue=decide({incident:{...incident,incidenceDate:new Date(t+3600000).toISOString()},order,messages:[notice,discount(24)],now:t+96*3600000});
+ assert.equal(oldIssue.action,'WAIT_FOR_NOTIFICATION');assert.equal(oldIssue.eligible,false);
 });
 test('E/F partial cooperation blocks silence and explicit later CP/city completes address',()=>{
  const partial=reply('Calle Mayor 25',10);assert.equal(d([partial],49).state,'WAITING_DETAILS_MANUAL_REVIEW');
@@ -20,7 +57,7 @@ test('E/F partial cooperation blocks silence and explicit later CP/city complete
  const x=d([partial,reply('48012 Bilbao',30)],49);assert.equal(x.action,'PROVIDE_ADDRESS_SOLUTION');assert.deepEqual(x.missing_fields,[]);
 });
 test('G greetings do not stop timers; ambiguous address blocks autonomous action',()=>{
- for(const text of ['hola','🙂','ahora te digo']){const x=d([reply(text)],49);assert.equal(x.action,'RETURN_TO_ORIGIN');assert.equal(x.customer_message_present,true);assert.equal(x.intent,'NO_RESPONSE');}
+ for(const text of ['hola','🙂','ahora te digo']){const x=d([reply(text)],49);assert.equal(x.action,'OFFER_5_EURO_DISCOUNT');assert.equal(x.customer_message_present,true);assert.equal(x.intent,'NO_RESPONSE');}
  const ambiguous=d([reply('Quizá Calle Mayor 25, 48012 Bilbao')],49);assert.equal(ambiguous.eligible,false);assert.equal(ambiguous.intent,'AMBIGUOUS_ADDRESS');
  const cooperative=d([reply('Calle Mayor 25'),reply('gracias',3)],49);assert.equal(cooperative.action,'HUMAN_REVIEW');
 });
