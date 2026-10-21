@@ -1,11 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {planShopifyDropeaRecovery as plan,recoverShopifyOrder,verifyRecoveredOrder,recoveryCorrection} from './shopify-dropea-recovery.mjs';
+import {planShopifyDropeaRecovery as plan,recoverShopifyOrder,verifyRecoveredOrder,recoveryCorrection,collectDropeaPages} from './shopify-dropea-recovery.mjs';
 const now=Date.parse('2026-10-21T12:00:00Z');
 const order=()=>({id:123,name:'#123',created_at:'2026-10-21T09:00:00Z',currency:'EUR',financial_status:'pending',payment_gateway_names:['Cash on Delivery (COD)'],email:'fixture@example.invalid',total_price:'29.99',shipping_address:{first_name:'Fixture',last_name:'Example',address1:'Example Street',address2:'Test',city:'Madrid',province:'Madrid',zip:'28001',country_code:'ES',phone:'+34600000000'},line_items:[{sku:'TEST',quantity:2,current_quantity:2,price:'29.99',requires_shipping:true,discount_allocations:[{amount:'29.99'}]}]});
 const products=[{id:1,owner_id:7,variants:[{variant_id:8,sku:'TEST',stock:100}]}];
 const carriers=[{code:'GLS',services:[{code:'96|18',is_active:true}]}];
 const opts={storeId:10,now};
+test('pagination continues beyond a provider count limited to current page',async()=>{
+ const visited=[];const rows=await collectDropeaPages(async page=>{visited.push(page);return {items:page===1?[{id:1},{id:2}]:page===2?[{id:3},{id:4}]:[{id:5}],pagination:{page,total:2,total_pages:1}};},{limit:2});
+ assert.deepEqual(rows.map(x=>x.id),[1,2,3,4,5]);assert.deepEqual(visited,[1,2,3]);
+});
+test('repeated pages fail closed instead of looping or claiming full coverage',async()=>{await assert.rejects(collectDropeaPages(async()=>({items:[{id:1}],pagination:{total_pages:1}}),{limit:1}),/DROPEA_PAGE_REPEAT/);});
 const fixturePlan=()=>plan(order(),products,carriers,opts);
 function actual(p){return {id:9,status:'PENDING',store_id:10,external_order_id:'#123',payment_method:'COD',currency:'EUR',total_amount:29.99,line_items:p.payload.line_items,shipping_address:{...p.payload.customer_details.shipping_address,email:p.payload.customer_details.email,phone_number:p.payload.customer_details.phone}};}
 test('COD pack preserves both units and exact discounted cents',()=>{const p=fixturePlan();assert.equal(p.eligible,true);assert.deepEqual(p.payload.line_items,[{variant_id:8,quantity:1,unit_price:14.99},{variant_id:8,quantity:1,unit_price:15}]);assert.equal(p.expectedCents,2999);assert.equal(p.payload.customer_details.shipping_address.postal_code,'28001');});
@@ -27,6 +32,7 @@ test('blocked customers and island services stay blocked',()=>{assert.equal(plan
 test('postcondition detects amount, quantity, reference and address changes',()=>{const p=fixturePlan(),a=actual(p);assert.equal(verifyRecoveredOrder(a,p),true);for(const changed of [{total_amount:30},{store_id:11},{external_order_id:'#124'},{line_items:[{variant_id:8,quantity:1}]},{shipping_address:{...a.shipping_address,postal_code:'28002'}},{status:'ERROR'}])assert.equal(verifyRecoveredOrder({...a,...changed},p),false);});
 function deps(extra={}){const counts={posts:0,claims:0,audits:[]},p=fixturePlan();return {counts,config:{products,carriers,...opts,live:true,readSource:async()=>order(),findExisting:async()=>[],readCreated:async()=>actual(p),createOrder:async()=>{counts.posts++;return {id:9};},claim:async()=>{counts.claims++;return {acquired:true,persistent:true};},finish:async()=>{},audit:async e=>counts.audits.push(e),...extra}};}
 test('existing references never create or claim',async()=>{const d=deps({findExisting:async()=>[{id:9}]});assert.equal((await recoverShopifyOrder(order(),d.config)).status,'already_present');assert.equal(d.counts.posts,0);assert.equal(d.counts.claims,0);});
+test('historical imported orders are reconciled before the creation age gate',async()=>{const d=deps({findExisting:async()=>[{id:9}]});assert.equal((await recoverShopifyOrder({...order(),created_at:'2020-01-01T00:00:00Z'},d.config)).status,'already_present');assert.equal(d.counts.posts,0);});
 test('dry-run has no writes',async()=>{const d=deps({live:false});assert.equal((await recoverShopifyOrder(order(),d.config)).status,'ready');assert.equal(d.counts.claims,0);assert.equal(d.counts.posts,0);});
 test('persistent claim required',async()=>{const d=deps({claim:async()=>({acquired:true,persistent:false})});assert.equal((await recoverShopifyOrder(order(),d.config)).status,'blocked');assert.equal(d.counts.posts,0);});
 test('changed source blocks after claim',async()=>{const d=deps({readSource:async()=>({...order(),cancelled_at:'2026-10-21'})});assert.equal((await recoverShopifyOrder(order(),d.config)).reason,'SOURCE_CHANGED');assert.equal(d.counts.posts,0);});

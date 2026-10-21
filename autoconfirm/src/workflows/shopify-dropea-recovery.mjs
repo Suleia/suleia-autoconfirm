@@ -1,6 +1,22 @@
 import {createHash} from 'node:crypto';
 
 export const RECOVERY_TEMPLATE = 'shopify_dropea_import_v1';
+export async function collectDropeaPages(fetchPage,{limit=100,maxPages=100}={}) {
+  const rows=new Map(),pages=new Set();
+  for(let page=1;page<=maxPages;page++){
+    const data=await fetchPage(page);
+    if(!Array.isArray(data?.items)||!data.pagination)throw Error('DROPEA_PAGE_INVALID');
+    const ids=data.items.map(x=>String(x.id));
+    const fingerprint=ids.join('|');
+    if(ids.length&&pages.has(fingerprint))throw Error('DROPEA_PAGE_REPEAT');
+    pages.add(fingerprint);
+    for(const item of data.items){if(!item.id)throw Error('DROPEA_ITEM_ID_MISSING');rows.set(String(item.id),item);}
+    // The provider's current list endpoint reports total == current page size.
+    // Probe the next full page rather than trusting its premature total_pages=1.
+    if(data.items.length<limit)return [...rows.values()];
+  }
+  throw Error('DROPEA_PAGE_LIMIT');
+}
 export function recoveryCorrection(previous,meta,now=Date.now()) {
   if(previous?.status!=='provider_rejected'||previous.raw?.definitive!==true||!previous.raw?.digest)return null;
   if(previous.raw.digest!==meta.digest)return {idempotencyKey:meta.idempotencyKey};

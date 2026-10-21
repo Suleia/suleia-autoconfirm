@@ -5,7 +5,7 @@ import {isBlockedCustomerOrder} from '../src/policies/blocked-customers.mjs';
 import {getAppConfig} from '../src/config.mjs';
 import {claimTemplateDelivery,finishTemplateDelivery} from '../src/db/supabase-store.mjs';
 import {updateRows} from '../src/clients/supabase.mjs';
-import {recoverShopifyOrder,RECOVERY_TEMPLATE,recoveryCorrection} from '../src/workflows/shopify-dropea-recovery.mjs';
+import {recoverShopifyOrder,RECOVERY_TEMPLATE,recoveryCorrection,collectDropeaPages} from '../src/workflows/shopify-dropea-recovery.mjs';
 
 const config=getAppConfig();
 const live=process.argv.includes('--live');
@@ -41,14 +41,11 @@ async function dropea(url,{method='GET',body,key,retry=0}={}){
  return {http:r.status,data:j.data};
 }
 async function items(pathname){
- const all=[];
- for(let page=1;page<=100;page++){
+ return collectDropeaPages(async page=>{
   const {data}=await dropea(base+pathname+(pathname.includes('?')?'&':'?')+'limit=100&page='+page);
-  if(!Array.isArray(data.items)||!data.pagination)throw Error('DROPEA_PAGE_INVALID');
-  all.push(...data.items);
-  if(data.pagination.has_next_page===false||data.pagination.total_pages<=page)return all;
- }
- throw Error('DROPEA_PAGE_LIMIT');
+  if(pathname.startsWith('/dropshipper/orders?')&&data.items?.some(o=>o.store_id!==storeId))throw Error('DROPEA_ORDER_STORE_MISMATCH');
+  return data;
+ });
 }
 const shopify=createShopifyReadAuth(config);
 const shopifyRoot=`https://${config.shopifyDomain}/admin/api/${config.shopifyApiVersion}/`;
@@ -90,14 +87,14 @@ if(shop?.id!==storeId||shop.name!=='Suleia'||shop.status!=='ACTIVE'||shop.store_
 const products=await items('/dropshipper/shops/'+storeId+'/products');
 const carriers=(await dropea(base+'/dropshipper/catalogs/carriers')).data.items;
 const orders=await sources(),results=[];
-// One paginated recent-order snapshot avoids a request for every old Shopify
-// order. Every possible creation still gets two fresh exact-reference reads.
-const recentOrders=target?null:await items('/dropshipper/orders?store_id='+storeId+'&date_from='+encodeURIComponent(new Date(Date.now()-8*86400_000).toISOString()));
+// One complete paginated snapshot reconciles historical references as well,
+// avoiding both per-order flooding and mislabelling old imported orders.
+// Every possible creation still gets fresh exact-reference reads.
+const recentOrders=target?null:await items('/dropshipper/orders?store_id='+storeId);
 const byReference=new Map();
 for(const o of recentOrders||[]){const ref=String(o.external_order_id||'').replace(/^#/,'');byReference.set(ref,[...(byReference.get(ref)||[]),o]);}
 for(const order of orders){
  try{
-  if(!target&&Date.now()-Date.parse(order.created_at)>7*86400_000){results.push({orderId:String(order.id),reference:order.name,status:'historical_review',reason:'STALE_ORDER_REQUIRES_REVIEW'});continue;}
   let lookupCount=0;
   results.push(await recoverShopifyOrder(order,{products,carriers,storeId,live,
    blocked:isBlockedCustomerOrder({customerPhone:order.shipping_address?.phone||order.phone},config.defaultStore),
