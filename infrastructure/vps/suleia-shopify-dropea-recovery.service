@@ -1,0 +1,28 @@
+[Unit]
+Description=Recover missing Shopify orders into Dropea with persistent dedupe
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=suleiaops
+Group=suleiaops
+EnvironmentFile=/etc/suleia/shopify-dropea-recovery.env
+Environment=SULEIA_SHOPIFY_DROPEA_LIVE=true
+Environment=SHOPIFY_DROPEA_RECOVERY_STATE_DIR=/var/lib/suleia-shopify-dropea
+StateDirectory=suleia-shopify-dropea
+StateDirectoryMode=0700
+ExecStart=/usr/bin/flock -n /var/lib/suleia-shopify-dropea/cycle.lock /opt/suleia-node/node-v22.22.0-linux-x64/bin/node /opt/suleia-shopify-dropea/current/autoconfirm/tools/recover-shopify-dropea.mjs --live
+SuccessExitStatus=2
+TimeoutStartSec=45min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_INET AF_INET6
+CapabilityBoundingSet=
