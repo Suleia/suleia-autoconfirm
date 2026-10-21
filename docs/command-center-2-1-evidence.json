@@ -1,0 +1,93 @@
+{
+  "kind": "OFFLINE_RENDER_AND_BUTTON_CONTRACT_NOT_LIVE_TELEGRAM",
+  "iterations": 100,
+  "formattingLatencyMs": {
+    "p50": 0.8855000000000359,
+    "p95": 1.726300000000009,
+    "max": 26.796900000000022
+  },
+  "metaSynthetic": {
+    "text": "📊 <b>META ADS · 2026-10-21</b>\n\n💰 Gasto: 360 €\n🛒 Compras: 72\n🚀 <b>ROAS GLOBAL: 6,5</b>\n\n<b>CAMPAÑAS POR ROAS</b> · 1/3\n\n<b>1. Campaña de prueba 1</b>\n<b>ROAS: 12</b>\nGasto: 30 € · Compras: 6\n\n<b>2. Campaña de prueba 2</b>\n<b>ROAS: 11</b>\nGasto: 30 € · Compras: 6\n\n<b>3. Campaña de prueba 3</b>\n<b>ROAS: 10</b>\nGasto: 30 € · Compras: 6\n\n<b>4. Campaña de prueba 4</b>\n<b>ROAS: 9</b>\nGasto: 30 € · Compras: 6\n\n🕒 Actualizado: 21/10/26, 20:58\nFuente: Meta · 7d clic / 1d vista · Europe/Madrid\nLas conversiones pueden llegar con retraso. ROAS no equivale a beneficio.",
+    "parseMode": "HTML",
+    "navigation": [
+      {
+        "label": "🔄 Actualizar",
+        "request": {
+          "action": "analyze",
+          "query": {
+            "since": "2026-10-21",
+            "until": "2026-10-21",
+            "level": "campaign",
+            "force": true
+          },
+          "includeInactive": false
+        },
+        "page": 0,
+        "view": "summary"
+      },
+      {
+        "label": "🔍 Ver diagnóstico",
+        "request": {
+          "action": "analyze",
+          "query": {
+            "since": "2026-10-21",
+            "until": "2026-10-21",
+            "level": "campaign"
+          },
+          "includeInactive": false
+        },
+        "page": 0,
+        "view": "diagnosis"
+      },
+      {
+        "label": "📈 Ver anuncios",
+        "request": {
+          "action": "analyze",
+          "query": {
+            "since": "2026-10-21",
+            "until": "2026-10-21",
+            "level": "ad"
+          },
+          "includeInactive": false
+        },
+        "page": 0,
+        "view": "summary"
+      },
+      {
+        "label": "Ver más →",
+        "request": {
+          "action": "analyze",
+          "query": {
+            "since": "2026-10-21",
+            "until": "2026-10-21",
+            "level": "campaign"
+          },
+          "includeInactive": false
+        },
+        "page": 1,
+        "view": "summary"
+      }
+    ]
+  },
+  "ordersRealReadOnlySnapshot": {
+    "text": "📦 <b>PEDIDOS DE HOY</b>\n\n🛒 Recibidos: <b>22</b>\n✅ Confirmados: <b>18</b>\n⏳ Pendientes: <b>3</b>\n❌ Cancelados: <b>1</b>\n\n📊 Confirmación: <b>81,8 %</b>\n\n⚠️ Copia desactualizada; no se ha podido confirmar una actualización.\n\n⚠️ Cobertura sin verificar: cifras parciales, no total definitivo.\n\n🕒 Actualizado: 21/10/26, 20:58\nFuente: Dropea V2 · Europe/Madrid",
+    "parseMode": "HTML",
+    "navigation": [
+      {
+        "label": "🔄 Actualizar ahora",
+        "request": {
+          "action": "orders-summary",
+          "view": "today"
+        }
+      }
+    ]
+  },
+  "liveRead": {
+    "observedAt": "2026-10-21T18:58:10.141Z",
+    "measuredAt": "2026-10-21T19:00:18.608Z",
+    "connectorDurationSeconds": 16.1,
+    "rows": 22,
+    "paginationComplete": true,
+    "note": "Coverage of importer not verified. MCP latency is not Telegram runtime latency."
+  }
+}

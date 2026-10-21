@@ -66,7 +66,11 @@ export function createApis(config, fetchImpl = fetch) {
       if (!/^\d+$/.test(id)) throw new Error('CAMPAIGN_ID_INVALID');
       return graph(id, changes, 'POST');
     },
-    async send(chatId, text, replyMarkup) {
+    async send(chatId, text, replyMarkup, parseMode) {
+      if(parseMode==='HTML') {
+        if(text.length>4096)throw Error('TELEGRAM_REPORT_TOO_LONG');
+        return telegram('sendMessage',{chat_id:chatId,text,parse_mode:'HTML',disable_web_page_preview:true,...(replyMarkup?{reply_markup:replyMarkup}:{})});
+      }
       const chunks = String(text).match(/[\s\S]{1,3500}/gu) || ['Sin datos.'];
       for (let i = 0; i < chunks.length; i += 1) await telegram('sendMessage', {
         chat_id: chatId, text: chunks[i], disable_web_page_preview: true,

@@ -1,9 +1,12 @@
+import {compactMeta,compactOrders} from './compact-reports.mjs';
 const reasons={MAX_BUDGET:'supera el presupuesto máximo',MAX_CHANGE_PERCENT:'supera el porcentaje de cambio permitido',MIN_BUDGET:'inferior al mínimo permitido',CAMPAIGN_INACTIVE:'campaña inactiva',NO_ELIGIBLE_AD:'sin anuncio activo elegible',CAMPAIGN_DAILY_BUDGET_REQUIRED:'el presupuesto no es diario a nivel campaña',AUTOMATION_CONFLICT:'posible conflicto con regla automática',SAMPLE_POLICY_NOT_CONFIGURED:'mínimos de muestra pendientes de configurar',INSUFFICIENT_SAMPLE:'muestra insuficiente',ROAS_FILTER_NOT_MET:'no cumple el filtro de ROAS',ROAS_MISSING:'ROAS ausente',ROAS_AMBIGUOUS:'ROAS ambiguo',ROAS_ZERO_SPEND:'gasto cero',METRIC_CHANGED:'las métricas han cambiado; prepara una propuesta nueva',REVALIDATION_FAILED:'la revalidación ha rechazado el cambio',EXPIRED:'confirmación caducada',PROVIDER_RESULT_UNKNOWN:'resultado incierto; requiere reconciliación sin reenvío',UNRESOLVED_OPERATION:'hay una operación sin reconciliar',CIRCUIT_OPEN:'ejecutor temporalmente bloqueado por errores'};
 import {createHmac} from 'node:crypto';
 Object.assign(reasons,{STALE_DATA:'datos históricos desactualizados',INCOMPLETE_EVIDENCE:'historial incompleto',LEARNING_EVIDENCE_NOT_ENABLED:'protección de aprendizaje pendiente de activar',LEARNING_POLICY_CHANGED:'la política de protección ha cambiado',CURRENT_DAY_HISTORY_UNAVAILABLE:'historial de hoy sin verificar',INSUFFICIENT_MULTIDAY_SAMPLE:'muestra multidiaria insuficiente',VERIFIED_ECONOMICS_MISSING:'margen cobrado sin verificar',RECENT_SIGNIFICANT_CHANGE:'modificación reciente: mantener en observación',VOLATILITY_OR_INCOMPLETE_HISTORY:'resultados variables o historia incompleta',EXTERNAL_BUDGET_NOT_RECONCILED:'cambio externo pendiente de conciliar',DAILY_CHANGE_LIMIT:'límite diario de cambios alcanzado',LEARNING_ACTIVE:'aprendizaje activo'});
 const money=c=>Number.isFinite(c)?`${(c/100).toFixed(2)} €`:'no disponible';
 export function signAdsBridge(secret,timestamp,body){return createHmac('sha256',createHmac('sha256',secret).update('suleia:ads-bridge:v3').digest()).update(`${timestamp}.${body}`).digest('hex');}
-export function formatAdsResult(data) {
+export function formatAdsResult(data,options={}) {
+  if(data.orders)return compactOrders(data.orders,data.view);
+  if(data.analysis?.version===3)return compactMeta(data,options);
   if(data.morning){const b=data.morning;return {text:[`Informe matinal · ${b.range.since} → ${b.range.until}`,`Gasto ${money(b.spend===null?null:b.spend*100)} · Compras ${b.purchases??'N/D'} · CPA ${money(b.cpa===null?null:b.cpa*100)} · ROAS ${b.roas??'N/D'}`,`Mejoran: ${b.improving.join(', ')||'sin evidencia suficiente'}`,`Empeoran: ${b.deteriorating.join(', ')||'sin evidencia suficiente'}`,...b.priorities.map((p,i)=>`${i+1}. ${p.title} · ${p.campaign}\n${p.evidence}\nRiesgo: ${p.risk}`),...b.learningRisks.slice(0,5).map(p=>`${p.campaign}: ${p.reasons.join(', ')}`),'Solo preparado bajo demanda. Notificaciones recurrentes apagadas; LIVE desactivado.'].join('\n\n')};}
   const p=data.proposal;
   if(p){
@@ -31,7 +34,18 @@ export function formatAdsResult(data) {
 export function createAdsGateway(config,fetchImpl=fetch){
   const url=new URL(config.adsApiUrl);
   if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)throw Error('ADS_API_URL_INVALID');
-  return {async handle(text,actor,updateId){
+  async function request(body,options={}){
+    const serialized=JSON.stringify(body),timestamp=String(Date.now());
+    const headers=config.adsApiToken?{Authorization:`Bearer ${config.adsApiToken}`}:{'X-Suleia-Ads-Timestamp':timestamp,'X-Suleia-Ads-Signature':signAdsBridge(config.botToken,timestamp,serialized)};
+    const r=await fetchImpl(url,{method:'POST',redirect:'error',headers:{...headers,'Content-Type':'application/json'},body:serialized,signal:AbortSignal.timeout(12000)});
+    if(!r.ok)throw Error(`ADS_SERVICE_${r.status}`);
+    const result=await r.json();if(!result.ok)throw Error('ADS_SERVICE_FAILED');
+    return formatAdsResult(result.data,options);
+  }
+  return {async read(body,actor,options={}) {
+    if(!['analyze','orders-summary'].includes(body.action))throw Error('READ_ACTION_INVALID');
+    return request({...body,actor},options);
+  },async handle(text,actor,updateId){
     if(config.commandCenterEnabled){
       if(/^\/(start|help|ayuda)$/.test(text))return {text:'Suleia Command Center 2.0\nPuedes consultar: «¿Cómo va Suleia hoy?», «Analiza NIDA», «¿Y ayer?», «Consulta pedido ES…», «¿Qué incidencias necesitan atención?», «Beneficio de 2026-10», «Salud de servicios», «Mis decisiones».\nEl contexto de campaña caduca a los 15 minutos y pertenece a tu cuenta. Los cambios necesitan una propuesta completa y tu confirmación. No se ejecutan cambios reales en Meta.\nSin modelo externo; si una frase es ambigua te pediré que la concretes. Trendtrack y avisos programados pendientes de activación.\n/campanas · /estado · /historial'};
       const executive=/^\/resumen (hoy|ayer)$/.exec(text);if(executive)text=`¿Cómo va Suleia ${executive[1]}?`;
@@ -45,11 +59,6 @@ export function createAdsGateway(config,fetchImpl=fetch){
     if(command)body={action:{confirmar:'confirm',cancelar:'cancel',reconciliar:'reconcile'}[command[1]],id:command[2],actor};
     else if(['/campanas','/historial','/estado'].includes(text))body={action:{'/campanas':'inventory','/historial':'history','/estado':'status'}[text],actor};
     else if(/^\/(start|help|ayuda)$/.test(text))return {text:'Suleia Ads Intelligence · simulación y propuestas con confirmación.\nEjemplo: «Sube 10 € el presupuesto de todas las campañas activas que tengan un ROAS superior a 5 hoy».\nAnaliza las campañas de los últimos 7 días.\n/campanas · /historial · /estado · /reconciliar CÓDIGO'};
-    const serialized=JSON.stringify(body),timestamp=String(Date.now());
-    const headers=config.adsApiToken?{Authorization:`Bearer ${config.adsApiToken}`}:{'X-Suleia-Ads-Timestamp':timestamp,'X-Suleia-Ads-Signature':signAdsBridge(config.botToken,timestamp,serialized)};
-    const r=await fetchImpl(url,{method:'POST',redirect:'error',headers:{...headers,'Content-Type':'application/json'},body:serialized,signal:AbortSignal.timeout(55000)});
-    if(!r.ok)throw Error(`ADS_SERVICE_${r.status}`);
-    const result=await r.json();if(!result.ok)throw Error('ADS_SERVICE_FAILED');
-    return formatAdsResult(result.data);
+    return request(body);
   }};
 }

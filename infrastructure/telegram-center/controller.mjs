@@ -29,6 +29,45 @@ export class Controller {
   constructor({ config, api, store, now = () => Date.now() }) {
     Object.assign(this, { config, api, store, now });
     this.adsGateway = config.adsEnabled ? createAdsGateway(config) : null;
+    this.reportBusy=new Set();
+  }
+  reportButtons(result,userId,chatId,messageId=null) {
+    if(!result.navigation)return result;
+    this.store.state.reportButtons||={};
+    const entries=this.store.state.reportButtons;
+    for(const [key,item] of Object.entries(entries))if(item.expiresAt<this.now())delete entries[key];
+    while(Object.keys(entries).length>200)delete entries[Object.keys(entries)[0]];
+    const keys=[];
+    const buttons=result.navigation.map(item=>{
+      const key=randomBytes(8).toString('hex');keys.push(key);
+      entries[key]={...item,userId:String(userId),chatId:String(chatId),messageId,expiresAt:this.now()+24*3600000};
+      return {text:item.label,callback_data:`read:${key}`};
+    });
+    this.store.save();
+    return {...result,buttonKeys:keys,markup:{inline_keyboard:[buttons.slice(0,3),buttons.slice(3)].filter(r=>r.length)}};
+  }
+  async readCallback(callback,message,sender) {
+    const key=callback.data.slice(5),entry=this.store.state.reportButtons?.[key];
+    if(!this.adsGateway||!entry||entry.userId!==String(sender.id)||entry.chatId!==String(message.chat.id)||entry.messageId!==message.message_id||entry.expiresAt<this.now()) {
+      await this.api.telegram('answerCallbackQuery',{callback_query_id:callback.id,text:'Botón caducado. Solicita un informe nuevo.'}).catch(()=>{});return;
+    }
+    const lock=`${message.chat.id}:${message.message_id}`;
+    this.store.state.reportClicks||={};
+    await this.api.telegram('answerCallbackQuery',{callback_query_id:callback.id,text:this.reportBusy.has(lock)?'Actualización en curso.':'Consultando…'}).catch(()=>{});
+    if(this.reportBusy.has(lock)||this.now()-(this.store.state.reportClicks[lock]||0)<2000)return;
+    this.store.state.reportClicks[lock]=this.now();
+    for(const [key,at] of Object.entries(this.store.state.reportClicks))if(this.now()-at>60000)delete this.store.state.reportClicks[key];
+    entry.lastClick=this.now();this.reportBusy.add(lock);
+    try {
+      const result=this.reportButtons(await this.adsGateway.read(entry.request,{user:String(sender.id),chat:String(message.chat.id)},entry),sender.id,message.chat.id,message.message_id);
+      await this.api.telegram('editMessageText',{chat_id:message.chat.id,message_id:message.message_id,text:result.text,parse_mode:result.parseMode,reply_markup:result.markup,disable_web_page_preview:true});
+      // Retain old tokens briefly for throttling concurrent/replayed clicks.
+      this.store.save();
+      return {authorized:true,replied:true};
+    } catch {
+      // Preserve the last visible reliable report; never duplicate on edit failure.
+      await this.api.telegram('answerCallbackQuery',{callback_query_id:callback.id,text:'No se pudo actualizar. Conservamos el informe anterior.',show_alert:true}).catch(()=>{});
+    } finally {this.reportBusy.delete(lock);}
   }
   authorized(message = {}, sender = message.from) {
     return message?.chat?.type === 'private' && sender && !sender.is_bot &&
@@ -227,6 +266,7 @@ export class Controller {
     const message = callback?.message || update.message;
     const sender = callback?.from || message?.from;
     if (!this.authorized(message, sender)) return; // No replies or logs for unknown senders.
+    if(callback&&/^read:[a-f0-9]{16}$/.test(callback.data||''))return this.readCallback(callback,message,sender);
     let text = message.text || '';
     if (callback) {
       await this.api.telegram('answerCallbackQuery', { callback_query_id: callback.id }).catch(() => {});
@@ -241,9 +281,12 @@ export class Controller {
     let result;
     try { result = this.adsGateway ? await this.adsGateway.handle(text,{user:String(sender.id),chat:String(message.chat.id)},update.update_id) : await this.command(text, sender.id, message.chat.id); }
     catch (error) {
-      result = { text: error.service ? `No se pudo consultar ${error.service}. Código ${error.status}; inténtalo más tarde.` : error.message };
+      result = { text: error.service ? `No se pudo consultar ${error.service}. Código ${error.status}; inténtalo más tarde.` : this.adsGateway?'No se pudo obtener un informe actualizado. Inténtalo de nuevo en unos segundos.':error.message };
     }
-    await this.api.send(message.chat.id, result.text, result.markup);
+    result=this.reportButtons(result,sender.id,message.chat.id);
+    const sent=await this.api.send(message.chat.id, result.text, result.markup,result.parseMode);
+    for(const key of result.buttonKeys||[])this.store.state.reportButtons[key].messageId=sent?.message_id;
+    if(result.buttonKeys)this.store.save();
     this.store.record({event:'TELEGRAM_COMMAND_REPLIED',userId:String(sender.id),chatId:String(message.chat.id),updateId:update.update_id,channel:this.adsGateway?'SHARED_ADS_GATEWAY':'LEGACY_READ_ONLY'});
     return { authorized: true, replied: true };
   }
