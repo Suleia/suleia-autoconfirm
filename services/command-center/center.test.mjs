@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import {CommandCenter,CONTEXT_TTL_MS,parseBusiness,freshness,consolidateAlerts} from './center.mjs';
 
 const clock=Date.parse('2026-10-21T10:00:00Z'),at=new Date(clock).toISOString();
+test('2.1 requested reports route to the shared reader; callback authorization stays server-side',async()=>{
+ let reads=0;const f=fixture({orderReader:{get:async()=>{reads++;return {received:22};}},roles:{'1':'operator','2':'analyst'}});
+ assert.equal((await f.request('¿Cuántos pedidos llevamos hoy?')).orders.received,22);
+ await assert.rejects(f.c.command({action:'orders-summary',actor:{user:'2',chat:'2'}}),/ACTOR_UNAUTHORIZED/);assert.equal(reads,1);
+ for(const text of ['¿Cuál está funcionando mejor?','¿Dónde estamos perdiendo dinero?','¿Qué anuncios están vendiendo más?'])assert.equal(parseBusiness(text).tool,'ads');
+ const ads=fixture();const compared=await ads.request('Compara las campañas de hoy con ayer');assert.equal(compared.analysis.query.period,'hoy');assert.equal(compared.previousDay.query.period,'ayer');
+});
 function fixture(options={}) {
  let now=clock,reads=0,proposals=0,confirmations=0;const context=new Map(),history=[];
  const report={version:3,observedAt:at,contract:'fixture-contract',totals:{spend:50,purchases:4,roas:null},actions:[{id:'a',code:'CTR_DROP',priority:3,evidenceText:'CTR inferior al periodo anterior con muestra suficiente.',action:'Revisar anuncio',entityId:'3'}]};
