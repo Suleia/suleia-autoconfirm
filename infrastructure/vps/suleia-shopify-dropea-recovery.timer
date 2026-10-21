@@ -1,0 +1,11 @@
+[Unit]
+Description=Reconcile missing Shopify orders in Dropea every hour
+
+[Timer]
+OnCalendar=*-*-* *:05:00 UTC
+Persistent=true
+AccuracySec=15s
+Unit=suleia-shopify-dropea-recovery.service
+
+[Install]
+WantedBy=timers.target
