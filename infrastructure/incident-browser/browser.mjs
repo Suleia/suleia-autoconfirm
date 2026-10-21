@@ -69,6 +69,7 @@ async function status(){
  let control={mode:'OBSERVE_ONLY'};
  try{control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));}catch{}
  let reconcile=false;try{await fs.access('/state/retry-reconcile.json');reconcile=true;}catch{}
+ try{await fs.access('/state/delivery-reply-inflight.json');reconcile=true;}catch{}
  const sites={};
  for(const [name,url] of targets){
   const page=context.pages().find(p=>p.url().startsWith(new URL(url).origin));

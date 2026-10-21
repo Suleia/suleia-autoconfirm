@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deliveryReplyPlan,NON_DELIVERY_ACK} from './delivery-reply-policy.mjs';
 import {executeDeliveryReply,sendDeliveryReplyOnce,verifiedDeliverySolution,solutionNoteHash} from './delivery-reply-executor.mjs';
+import {readPersistedDetailProof} from './delivery-reply-runtime.mjs';
 const now=Date.parse('2026-10-21T13:00:00Z');
 function input(text='No me han entregado mi pedido'){
  return {incident:{orderId:'900001',incidenceId:'800001',incidentType:'absent',chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER',chatbyUserNs:'test',incidenceDate:'2026-10-21T07:00:00Z'},
@@ -112,4 +113,14 @@ test('an API omission requires bound fresh persisted-detail evidence, never an H
  const proof={provider:'DROPEA_PERSISTED_DETAIL',verified:true,orderId:'900001',issueId:'800001',noteHash:solutionNoteHash(h.plan.note),observedAt:at};
  assert.equal(verifiedDeliverySolution(raw,h.plan,at),false);assert.equal(verifiedDeliverySolution(raw,h.plan,at,proof),true);
  for(const d of [{orderId:'900002'},{issueId:'800002'},{noteHash:'wrong'},{observedAt:'2020-01-01T00:00:00Z'},{verified:false},{provider:'HTTP_RECEIPT'}])assert.equal(verifiedDeliverySolution(raw,h.plan,at,{...proof,...d}),false);
+});
+test('persisted detail waits for the note and reads fresh modal content, never the loading snapshot',async()=>{
+ const h=harness(),events=[];let ready=false;
+ const named={waitFor:async()=>events.push('dialog'),count:async()=>1};
+ const dialog={getByText:(text)=>text==='Cerrar'?{click:async()=>events.push('close')}:{waitFor:async()=>{ready=true;events.push('note');}},
+  innerText:async()=>{assert.equal(ready,true);events.push('fresh text');return `Detalle de Incidencia ES900001 ${h.plan.note}`;}};
+ const page={getByRole:()=>named,screenshot:async()=>events.push('screenshot')};
+ const proof=await readPersistedDetailProof({},h.plan,{read:async()=>({page,dialog,text:'Loading...'}),write:async()=>events.push('proof')});
+ assert.equal(proof.verified,true);assert.equal(proof.noteHash,solutionNoteHash(h.plan.note));
+ assert.deepEqual(events,['dialog','note','fresh text','screenshot','proof','close']);
 });

@@ -6,6 +6,23 @@ import {readEvidenceDetail} from './dropea-ui.mjs';
 
 const stateFile='/state/delivery-reply-inflight.json';
 const issueKey=p=>({storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea'});
+export async function readPersistedDetailProof(context,plan,{read=readEvidenceDetail,write=fs.writeFile}={}){
+ const {page,dialog}=await read(context,plan);
+ // The dialog becomes visible before its asynchronous detail payload arrives.
+ // Wait for the expected persisted text, then read the live locator, not the
+ // earlier snapshot returned while the modal was loading.
+ const named=page.getByRole('dialog',{name:'Detalle de Incidencia',exact:true});
+ await named.waitFor({state:'visible',timeout:15000});
+ await dialog.getByText(plan.note,{exact:false}).waitFor({state:'visible',timeout:15000});
+ const text=await dialog.innerText(),normalized=s=>String(s||'').replace(/\s+/g,' ').trim();
+ if(await named.count()!==1||!text.includes('ES'+plan.orderId)||!normalized(text).includes(normalized(plan.note)))return null;
+ const proof={provider:'DROPEA_PERSISTED_DETAIL',verified:true,orderId:plan.orderId,issueId:plan.issueId,
+  noteHash:solutionNoteHash(plan.note),observedAt:new Date().toISOString()};
+ await page.screenshot({path:`/evidence/verified-solution-${plan.orderId}-${plan.issueId}.png`,timeout:15000});
+ await write(`/evidence/verified-solution-${plan.orderId}-${plan.issueId}.json`,JSON.stringify(proof),{mode:0o600});
+ await dialog.getByText('Cerrar',{exact:true}).click();
+ return proof;
+}
 async function updateControl(patch){
  const old=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
  await fs.writeFile('/state/delivery-control.tmp',JSON.stringify({...old,...patch}),{mode:0o600});
@@ -35,15 +52,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
   // Public Issue DTO omits resolution_note. Read the persisted DETAIL view,
   // never the draft form and never press Save again to obtain this evidence.
   if(!context)return false;
-  const {page,dialog,text}=await readEvidenceDetail(context,plan);
-  const normalized=s=>String(s||'').replace(/\s+/g,' ').trim();
-  if(await page.getByRole('dialog',{name:'Detalle de Incidencia',exact:true}).count()!==1||
-     !text.includes('ES'+plan.orderId)||!normalized(text).includes(normalized(plan.note)))return false;
-  const proof={provider:'DROPEA_PERSISTED_DETAIL',verified:true,orderId:plan.orderId,issueId:plan.issueId,
-   noteHash:solutionNoteHash(plan.note),observedAt:new Date().toISOString()};
-  await page.screenshot({path:`/evidence/verified-solution-${plan.orderId}-${plan.issueId}.png`,timeout:15000});
-  await fs.writeFile(`/evidence/verified-solution-${plan.orderId}-${plan.issueId}.json`,JSON.stringify(proof),{mode:0o600});
-  await dialog.getByText('Cerrar',{exact:true}).click();
+  const proof=await readPersistedDetailProof(context,plan);
   return verifiedDeliverySolution(raw,plan,attemptedAt,proof);
  }
  const finish=async(status,p,attemptedAt=new Date().toISOString())=>{
