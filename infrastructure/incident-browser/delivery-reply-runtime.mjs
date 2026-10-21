@@ -126,15 +126,16 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
     writeSolution:p=>executeDropeaV2Resolution(p.issueId,'PROVIDE_SOLUTION',{note:p.note},{idempotencyNonce:p.hash}),
     verifySolution:verifyPersisted
    });
-   admitted++;report.cases.push({...observed,...result});
+   admitted++;report.cases.push({...observed,...result,reason:result.reason||plan.reason});
    if(result.status==='VERIFIED'){
-    if(plan.kind==='SOLUTION')report.solutions++;else report.messages++;
+    if(plan.kind==='SOLUTION')report.solutions++;
+    else if(!result.alreadySent&&!result.reconciled)report.messages++;
     if(control.deliveryReplyMode==='AUTO_CANARY'&&plan.kind==='SOLUTION'){
      await updateControl({deliveryReplyMode:'AUTO',deliveryReplyCanary:{verified:true,orderId:plan.orderId,at:new Date().toISOString()}});
      control.deliveryReplyMode='AUTO';report.mode='AUTO';
     }
    }
-   await fs.appendFile('/state/delivery-reply-audit.jsonl',JSON.stringify({at:new Date().toISOString(),...item,reason:plan.reason,...result})+'\n',{mode:0o600});
+   await fs.appendFile('/state/delivery-reply-audit.jsonl',JSON.stringify({at:new Date().toISOString(),...item,...result,reason:result.reason||plan.reason})+'\n',{mode:0o600});
    if(result.solutionAttempted&&result.status!=='VERIFIED')break;
   }catch(e){report.cases.push({...item,status:'REVIEW_REQUIRED',reason:typeof e.code==='string'&&/^[A-Z0-9_]+$/.test(e.code)?e.code:'DELIVERY_REPLY_READ_OR_EXECUTION_FAILED'});
    try{await fs.access(stateFile);break;}catch{}
