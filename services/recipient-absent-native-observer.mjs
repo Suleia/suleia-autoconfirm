@@ -30,8 +30,9 @@ export function createNativeAbsentObserver({pool,token,fetchImpl=fetch,now=()=>n
     try{
       const rows=await pool.query(`SELECT claim_id FROM operations.recipient_absent_native_notifications
         WHERE status IN ('CLAIMED','SENT','VERIFIED') AND claimed_at>now()-interval '72 hours'
-        ORDER BY (outcome->>'last_observed_at')::timestamptz NULLS FIRST,claimed_at LIMIT 5`);
-      let observed=0,failed=false;
+        ORDER BY greatest((outcome->>'last_observed_at')::timestamptz,
+          (outcome->>'last_read_failed_at')::timestamptz) NULLS FIRST,claimed_at LIMIT 5`);
+      let observed=0,failed=false,errorCode=null;
       for(const row of rows.rows){
         try{
           await reconcileNativeAbsentNotice({pool,claimId:row.claim_id,now,readHistory:async claim=>{
@@ -41,10 +42,18 @@ export function createNativeAbsentObserver({pool,token,fetchImpl=fetch,now=()=>n
         }catch(error){
           // Respect provider cooldown globally for this observer. No immediate
           // retries, even if several other claims are waiting.
-          failed=true;cooldownUntil=Math.max(+new Date(now())+120000,error.retryNotBefore || 0);break;
+          failed=true;
+          errorCode=/^CHATBY_(?:MESSAGES_HTTP_[0-9]{3}|ABSENT_MESSAGES_INVALID|ABSENT_HISTORY_INCOMPLETE)$/.test(error.code || '')
+            ? error.code : 'OBSERVER_READ_FAILED';
+          // Record attempts separately from verified evidence. A missing contact
+          // must not monopolize the oldest-first queue on every cycle.
+          await pool.query(`UPDATE operations.recipient_absent_native_notifications
+            SET outcome=coalesce(outcome,'{}'::jsonb) || $2::jsonb WHERE claim_id=$1`,
+          [row.claim_id,JSON.stringify({last_read_failed_at:new Date(now()).toISOString(),last_read_error:errorCode})]);
+          cooldownUntil=Math.max(+new Date(now())+120000,error.retryNotBefore || 0);break;
         }
       }
-      return {observed,...(failed?{failed:true}:{})};
+      return {observed,...(failed?{failed:true,error_code:errorCode}:{})};
     }finally{running=false;}
   }};
 }

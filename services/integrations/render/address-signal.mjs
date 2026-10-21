@@ -8,7 +8,7 @@ export function normalizeAddressSignal(row,{hmacKey}={}){
  const observation=Object.fromEntries(keys.map(k=>[k,d[k]??null]));
  observation.issue_version=d.issue_version||null;
  observation.read_verified=d.read_verified===true;
- observation.notification_message_id=d.message_id?crypto.createHash('sha256').update(String(d.message_id)).digest('hex'):null;
+ observation.notification_message_id_hash=d.message_id?crypto.createHash('sha256').update(String(d.message_id)).digest('hex'):null;
  observation.provider_plan=d.provider_plan?{action:d.provider_plan.action,allowed:d.provider_plan.allowed===true,reason:d.provider_plan.reason||null}:null;
  const execution=d.last_execution||d.execution;
  observation.current_gate=d.execution?Object.fromEntries(['status','capability','mode','breaker','action_id','promoted'].map(k=>[k,d.execution[k]??null])):null;

@@ -8,6 +8,10 @@ const sameTime=(a,b)=>Boolean(a&&b)&&new Date(a).getTime()===new Date(b).getTime
 // This materializes the existing owner's decision; it cannot execute an action.
 // Timer identity deliberately excludes issue version and observation event.
 export function materializeAddress({issue,observation:d={},policy,previous={},now=new Date()}) {
+ // The producer now explicitly labels the already-hashed provider reference.
+ // Preserve its value and legacy reader compatibility: timer identity and
+ // notification anchors must not change when the projection contract evolves.
+ d={...d,notification_message_id:d.notification_message_id_hash??d.notification_message_id};
  const time=+new Date(now),age=time-Date.parse(d.read_at);
  const verified=d.read_verified===true&&age>=0&&age<=20*60000;
  const versionMatches=sameTime(d.issue_version,issue.updated_at);

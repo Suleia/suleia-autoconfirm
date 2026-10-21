@@ -20,3 +20,34 @@ test('no persisted claims means no provider access or customer actions',async()=
  let fetches=0;const observer=createNativeAbsentObserver({pool:{query:async()=>({rows:[]})},token:'synthetic',fetchImpl:async()=>{fetches++;throw new Error('not expected');}});
  assert.deepEqual(await observer.run(),{observed:0});assert.equal(fetches,0);
 });
+test('failed history advances attempt fairness without marking evidence verified or retrying',async()=>{
+ const queries=[];let reads=0;
+ const pool={query:async(sql,args)=>{
+  queries.push({sql,args});
+  if(sql.includes('SELECT claim_id'))return {rows:[{claim_id:'synthetic-claim'}]};
+  if(sql.includes('SELECT *'))return {rows:[{conversation_id:'synthetic-conversation'}]};
+  return {rows:[]};
+ }};
+ const observer=createNativeAbsentObserver({pool,token:'synthetic',now:()=>new Date('2026-10-20T10:00:00Z'),
+  fetchImpl:async()=>{reads++;return new Response('',{status:404});}});
+ assert.deepEqual(await observer.run(),{observed:0,failed:true,error_code:'CHATBY_MESSAGES_HTTP_404'});
+ assert.deepEqual(await observer.run(),{observed:0,deferred:true});
+ assert.equal(reads,1);
+ assert.match(queries[0].sql,/greatest[\s\S]*last_read_failed_at/);
+ const update=queries.find(q=>q.sql.startsWith('UPDATE'));
+ assert.deepEqual(JSON.parse(update.args[1]),{last_read_failed_at:'2026-10-20T10:00:00.000Z',last_read_error:'CHATBY_MESSAGES_HTTP_404'});
+ assert.doesNotMatch(update.sql,/SET status|last_observed_at|DELETE|INSERT/);
+});
+test('unexpected provider exception cannot leak message or credentials into diagnostics',async()=>{
+ const saved=[];
+ const pool={query:async(sql,args)=>{
+  if(sql.includes('SELECT claim_id'))return {rows:[{claim_id:'test'}]};
+  if(sql.includes('SELECT *'))return {rows:[{conversation_id:'test'}]};
+  saved.push(args);return {rows:[]};
+ }};
+ const observer=createNativeAbsentObserver({pool,token:'synthetic',
+ fetchImpl:async()=>{throw Object.assign(new Error('private-provider-response'),{code:'private-secret'});}});
+ const result=await observer.run();
+ assert.equal(result.error_code,'OBSERVER_READ_FAILED');
+ assert.doesNotMatch(JSON.stringify({result,saved}),/private-provider|private-secret/);
+});

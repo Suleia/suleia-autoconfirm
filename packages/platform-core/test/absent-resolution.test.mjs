@@ -4,6 +4,21 @@ import {verifiedAbsentOrderPhone,absentResolutionPreflight,recipientAbsentResolu
 import {interpretAbsentResponse} from '../src/incident/recipient-absent-policy.mjs';
 import {absentSolutionCapability} from '../../../services/integrations/dropea/absent-solution.mjs';
 import {fixture,now} from './fixtures/absent-resolution.mjs';
+import {containsDirectPii} from '../../suleia-operations-mcp/src/shadow/masking.mjs';
+
+test('shadow message hashes are typed without changing live response IDs or idempotency',()=>{
+ const x=fixture('mañana por la mañana');
+ x.events[0].chatby_message_id='a'.repeat(20)+'678123456'+'b'.repeat(35);
+ const raw=absentResolutionPreflight(x,now);
+ x.events[0].chatby_message_id_is_hash=true;
+ const hashed=absentResolutionPreflight(x,now);
+ assert.equal(hashed.resolution_structured.source_message_id,null);
+ assert.equal(hashed.resolution_structured.source_message_id_hash,x.events[0].chatby_message_id);
+ assert.equal(containsDirectPii(hashed.resolution_structured),false);
+ assert.equal(raw.resolution_structured.source_message_id,x.events[0].chatby_message_id);
+ assert.equal(hashed.idempotency_key,raw.idempotency_key);
+ assert.equal(hashed.resolution_text,raw.resolution_text);
+});
 
 for(const [payload,window,phrase,opposite] of [['ABSENT_TOMORROW_AM','MORNING','por la mañana','por la tarde'],['ABSENT_TOMORROW_PM','AFTERNOON','por la tarde','por la mañana']])test(`verified ${payload}: exact text and no inversion`,()=>{
  const x=fixture('');Object.assign(x.events[0],{button_payload:payload,message_type:'BUTTON',button_verified:true});

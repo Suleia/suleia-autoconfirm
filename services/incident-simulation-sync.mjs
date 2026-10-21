@@ -25,6 +25,10 @@ async function persistAutopilot(projector, { issue, order, interpretation, decis
 }
 
 export async function syncIncidentSimulations({ pool, projector, now = () => new Date(), maxRecords = 500, privateDataKey = '', absentLogisticsRead = null, onlyRecipientAbsent = false, excludeRecipientAbsent = false, replayAllAbsent = false, absentTemplateStatus = 'NOT_VERIFIED' }) {
+  // The existing projection loop owns maintenance, not a new timer process.
+  // The DB trigger records expiry and cannot execute provider actions.
+  await pool.query(`UPDATE operations.incident_timers SET updated_at=statement_timestamp()
+    WHERE status='ACTIVE' AND due_at<=statement_timestamp()`);
   const candidates = await pool.query(`SELECT i.*, o.identity_status, o.total_amount,
     o.lifecycle_classification, o.canonical_state,l.conversation_status,
     l.reason_code AS conversation_reason,l.conversation_freshness,
@@ -50,7 +54,7 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
     }
     const events = await pool.query(`SELECT canonical_issue_id,canonical_order_id,direction,message_type,button_payload,
       sanitized_text,occurred_at AS created_at,incident_version,relevance_status,intent,intent_confidence,
-      chatby_message_id_hash AS chatby_message_id
+      chatby_message_id_hash AS chatby_message_id,true AS chatby_message_id_is_hash
       FROM operations.chatby_conversation_events
       WHERE canonical_issue_id=$1 ORDER BY occurred_at`, [row.canonical_issue_id]);
     const issue = {
@@ -75,7 +79,7 @@ export async function syncIncidentSimulations({ pool, projector, now = () => new
     if (row.type === 'RECIPIENT_ABSENT') {
       const evidence = await pool.query(`SELECT m.canonical_issue_id,m.canonical_order_id,m.direction,m.message_type,
         m.occurred_at AS created_at,m.message_text_ciphertext,m.intent,m.context_template_slug,m.incident_relevance,
-        m.chatby_message_id_hash AS chatby_message_id,e.button_payload,e.chatby_conversation_id_hash,e.chatby_contact_id_hash,
+        m.chatby_message_id_hash AS chatby_message_id,true AS chatby_message_id_is_hash,e.button_payload,e.chatby_conversation_id_hash,e.chatby_contact_id_hash,
         'CURRENT_ORDER_EXACT_MATCH'::text AS relevance_status
         FROM operations.chatby_private_message_display m LEFT JOIN operations.chatby_conversation_events e
         ON e.canonical_issue_id=m.canonical_issue_id AND e.chatby_message_id_hash=m.chatby_message_id_hash
