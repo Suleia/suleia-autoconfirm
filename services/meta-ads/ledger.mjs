@@ -1,6 +1,22 @@
 import { createHash } from 'node:crypto';
+import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 export class AdsLedger {
   constructor(pool){this.pool=pool;}
+  async withAccountBudgetLock(account,fn){
+    const c=await this.pool.connect();let locked=false;
+    try{locked=(await c.query('SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS locked',['ads-account-budget:'+account])).rows[0].locked;if(!locked)throw Error('ACCOUNT_BUDGET_BUSY');return await fn();}
+    finally{let failure;try{if(locked)await c.query('SELECT pg_advisory_unlock(hashtextextended($1,0))',['ads-account-budget:'+account]);}catch(error){failure=error;throw error;}finally{c.release(failure);}}
+  }
+  async budgetUsage(account,now,cooldownMs=86400000){
+    const day=Date.parse(businessDayBounds({now:new Date(now)}).utc_start),since=Math.min(day,now-cooldownMs);
+    const rows=(await this.pool.query(`SELECT o.campaign_id,o.updated_at,i->>'before' AS before,i->>'after' AS after
+      FROM economics.ads_operations o JOIN economics.ads_proposals p ON p.id=o.proposal_id
+      CROSS JOIN LATERAL jsonb_array_elements(p.body->'items') i
+      WHERE o.account_id=$1 AND i->>'campaignId'=o.campaign_id
+      AND o.state IN ('EXECUTING','UNKNOWN','VERIFIED','RECONCILED') AND o.updated_at>=to_timestamp($2/1000.0)`,[account,since])).rows;
+    if(rows.some(r=>![Number(r.before),Number(r.after)].every(Number.isSafeInteger)||!Number.isFinite(Date.parse(r.updated_at))))throw Error('BUDGET_HISTORY_INVALID');
+    return {increaseCents:rows.filter(r=>Date.parse(r.updated_at)>=day).reduce((sum,r)=>sum+Math.max(0,Number(r.after)-Number(r.before)),0),changedCampaignIds:[...new Set(rows.filter(r=>Date.parse(r.updated_at)>now-cooldownMs).map(r=>r.campaign_id))]};
+  }
   async algorithmJournal(){return (await this.pool.query('SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal ORDER BY created_at DESC LIMIT 50')).rows;}
   async appendAlgorithmJournal({eventType,reference,principal,report}){
     const id=createHash('sha256').update(`${report.evidenceDigest}:${eventType}:${reference}:${principal}`).digest('hex');
@@ -36,6 +52,8 @@ export class AdsLedger {
   async finish(id,state){await this.pool.query('UPDATE economics.ads_proposals SET state=$2 WHERE id=$1 AND state=$3',[id,state,['EXPIRED','STALE_POLICY_OR_MODE'].includes(state)?'PENDING':'RUNNING']);return this.get(id);}
   async cancel(id){await this.pool.query("UPDATE economics.ads_proposals SET state='CANCELLED' WHERE id=$1 AND state='PENDING'",[id]);return this.get(id);}
   async history(){const r=await this.pool.query('SELECT id FROM economics.ads_proposals ORDER BY created_at DESC LIMIT 30');return Promise.all(r.rows.map(x=>this.get(x.id)));}
+  async reportHistory(user,start,end){const r=await this.pool.query(`SELECT DISTINCT p.id FROM economics.ads_proposals p LEFT JOIN economics.ads_operations o ON o.proposal_id=p.id
+    WHERE p.body->'actor'->>'user'=$1 AND ((o.updated_at >= $2::timestamptz AND o.updated_at < $3::timestamptz) OR (p.state='PENDING' AND p.expires_at>now()))`,[user,start,end]);return Promise.all(r.rows.map(x=>this.get(x.id)));}
   async pendingForActor(user){const r=await this.pool.query("SELECT id FROM economics.ads_proposals WHERE state='PENDING' AND body->'actor'->>'user'=$1 AND expires_at>now() LIMIT 2",[user]);return Promise.all(r.rows.map(x=>this.get(x.id)));}
   async persistFacts(facts,client=this.pool){
     if(!facts.length)return;

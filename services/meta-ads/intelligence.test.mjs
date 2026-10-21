@@ -20,6 +20,8 @@ export class MemoryLedger {
   async history(){return Promise.all([...this.p.keys()].map(id=>this.get(id)));}
   async pendingForActor(user){return (await this.history()).filter(p=>p.state==='PENDING'&&p.actor.user===user).slice(0,2);}
   async record(id,campaign,result){this.ops.set(id+':'+campaign,result);}
+  async withAccountBudgetLock(key,fn){if(this.locks.has('account:'+key))throw Error('ACCOUNT_BUDGET_BUSY');this.locks.add('account:'+key);try{return await fn();}finally{this.locks.delete('account:'+key);}}
+  async budgetUsage(account,now,cooldown=86400000){let increaseCents=0;const changedCampaignIds=[];for(const [key,op]of this.ops){if(!['VERIFIED','RECONCILED','UNKNOWN','EXECUTING'].includes(op.state))continue;const [id,campaign]=key.split(':'),p=this.p.get(id),item=p.items.find(i=>i.campaignId===campaign);const at=op.verifiedAt||p.createdAt;if(now-at<cooldown)changedCampaignIds.push(campaign);if(new Date(at).toISOString().slice(0,10)===new Date(now).toISOString().slice(0,10))increaseCents+=Math.max(0,item.after-item.before);}return {increaseCents,changedCampaignIds};}
   async persistFacts(facts){for(const f of facts)this.facts.set([f.accountId,f.level,f.entityId,f.since,f.until,f.contract].join(':'),f);}
   async withCampaignLock(key,fn){if(this.locks.has(key))throw Error('CAMPAIGN_BUSY');this.locks.add(key);try{return await fn({
     unresolved:async(_,campaign)=>[...this.ops].some(([k,v])=>k.endsWith(':'+campaign)&&['EXECUTING','UNKNOWN'].includes(v.state)),
@@ -38,13 +40,13 @@ function fixture(options={}){
   reader.readEntities=async()=>campaigns;
   const writer={setDailyBudget:async(id,cents)=>{writes++;campaigns.find(c=>c.id===id).daily_budget=String(cents);return {success:true};}};
   const ledger=new MemoryLedger();
-  const policy={maxBudgetCents:20000,maxChangePercent:20,minSpend:15,minPurchases:2,minImpressions:500,maxAgeMs:120000,liveCampaignIds:['11','12']};
+  const policy={maxBudgetCents:20000,maxChangePercent:20,minSpend:15,minPurchases:2,minImpressions:500,maxAgeMs:120000,liveCampaignIds:['11','12'],maxAggregateIncreaseCents:3000,campaignCooldownMs:86400000};
   const engine=new AdsIntelligence({reader,ledger,policy,allowedActors:['1'],accountId:'9',now:()=>now,...options,writer});
   return {engine,reader,ledger,policy,campaigns,rows,rules,writes:()=>writes,setNow:n=>{now=n;},propose:(text=request,key='telegram:1')=>engine.propose({actor,requestKey:key,text})};
 }
 test('Spanish mandatory request preserves absolute EUR delta, strict filter and today',()=>{
   assert.deepEqual(parseAdsIntent(request),{kind:'budget',mode:'increase',value:'10',unit:'money',selector:'ALL_ACTIVE',period:'hoy',filter:{operator:'gt',threshold:5}});
-  assert.equal(parseAdsIntent('Baja 5 € a las campañas con ROAS inferior a 2').kind,'clarify');
+  assert.equal(parseAdsIntent('Baja 5 € a las campañas con ROAS inferior a 2').period,'hoy');
   assert.equal(parseAdsIntent('Aumenta un 15 % las campañas rentables').kind,'clarify');
   assert.equal(parseAdsIntent('Sube 10 € a NIDA').selector,'nida');
   assert.equal(parseAdsIntent('Pon el presupuesto de CollaGum a 50 €').mode,'set');
@@ -100,7 +102,7 @@ test('concurrent confirmation has one durable claim and SHADOW never mutates',as
 });
 test('natural confirmation is actor-bound and requires one unique pending proposal',async()=>{const f=fixture(),runtime={engine:f.engine,ledger:f.ledger};await f.propose(request,'telegram:1');const q=await f.propose(request,'telegram:2');assert.equal((await adsCommand(runtime,{action:'request',actor,text:'Sí, hazlo'})).proposal.state,'CLARIFICATION');await f.engine.cancel({id:q.id,actor});const result=await adsCommand(runtime,{action:'request',actor,text:'Sí, hazlo'});assert.equal(result.proposal.state,'SIMULATED');assert.equal(f.writes(),0);});
 test('LIVE factory gate is closed; a SIMULATION proposal cannot become LIVE',async()=>{
-  const f=fixture({mode:'LIVE'}),p=await f.propose();await assert.rejects(f.engine.confirm({id:p.id,actor}),/LIVE_NOT_AUTHORIZED/);assert.equal(f.writes(),0);
+  const f=fixture({mode:'LIVE',liveCompiled:false}),p=await f.propose();await assert.rejects(f.engine.confirm({id:p.id,actor}),/LIVE_NOT_AUTHORIZED/);assert.equal(f.writes(),0);
   const g=fixture(),q=await g.propose();g.engine.mode='LIVE';assert.equal((await g.engine.confirm({id:q.id,actor})).state,'STALE_POLICY_OR_MODE');
 });
 test('executor harness verifies partial results, opens circuit, and never retries unknown mutation',async()=>{
@@ -115,6 +117,18 @@ test('executor harness verifies partial results, opens circuit, and never retrie
   f.campaigns[0].daily_budget='11000';await f.engine.reconcile({id:p.id,actor});assert.equal((await f.ledger.get(p.id)).items[0].result.state,'RECONCILED');assert.equal(calls,1);
 });
 test('future executor harness verifies success with one absolute budget assignment',async()=>{const f=fixture({mode:'LIVE',liveCompiled:true}),p=await f.propose();const r=await f.engine.confirm({id:p.id,actor});assert.equal(r.items[0].result.state,'VERIFIED');assert.equal(f.writes(),1);await f.engine.confirm({id:p.id,actor});assert.equal(f.writes(),1);});
+test('approved account accumulation and cooldown are enforced at proposal and confirmation',async()=>{
+ const f=fixture({mode:'LIVE'});f.policy.maxAggregateIncreaseCents=500;
+ const over=await f.propose();assert.ok(over.items[0].reasons.includes('AGGREGATE_DAILY_LIMIT'));await f.engine.confirm({id:over.id,actor});assert.equal(f.writes(),0);
+ const g=fixture({mode:'LIVE'}),first=await g.propose();await g.engine.confirm({id:first.id,actor});
+ const repeat=await g.propose('Sube 5 € a 11','telegram:2');assert.ok(repeat.items[0].reasons.includes('CAMPAIGN_COOLDOWN'));await g.engine.confirm({id:repeat.id,actor});assert.equal(g.writes(),1);
+ const h=fixture({mode:'LIVE'}),pending=await h.propose();h.ledger.budgetUsage=async()=>({increaseCents:2900,changedCampaignIds:[]});const result=await h.engine.confirm({id:pending.id,actor});assert.ok(result.items[0].result.reasons.includes('AGGREGATE_DAILY_LIMIT'));assert.equal(h.writes(),0);
+});
+test('two different confirmations cannot bypass account-wide serialization',async()=>{
+ const f=fixture({mode:'LIVE'}),a=await f.propose(),b=await f.propose('Sube 5 € a 11','telegram:second');
+ const results=await Promise.allSettled([f.engine.confirm({id:a.id,actor}),f.engine.confirm({id:b.id,actor})]);
+ assert.equal(f.writes(),1);assert.ok(results.some(r=>r.status==='rejected'&&r.reason.message==='ACCOUNT_BUDGET_BUSY'));
+});
 test('future executor distinguishes confirmed rejection from a request never sent',async()=>{
  for(const [flag,state]of [['definitiveRejection','FAILED'],['notSent','STALE']]){const f=fixture({mode:'LIVE',liveCompiled:true});f.engine.writer={setDailyBudget:async()=>{throw Object.assign(Error('sanitized'),{[flag]:true,status:400});}};const p=await f.propose(),r=await f.engine.confirm({id:p.id,actor});assert.equal(r.items[0].result.state,state);}
 });
