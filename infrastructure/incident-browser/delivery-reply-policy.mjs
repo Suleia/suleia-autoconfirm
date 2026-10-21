@@ -8,7 +8,7 @@ export const NON_DELIVERY_ACK='Hola, no se preocupe y reportamos a la empresa de
 const fold=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
 const nonDelivery=t=>/\bno (?:me |nos |le |les )?(?:(?:ha|han|a|an|habia|habian) )?(?:llegado|entregado|recibido|visitado|llamado|traido)\b|\bno (?:me |nos )?(?:ha|han) realizado (?:la |ninguna )?entrega\b|\bno (?:se )?(?:(?:ha|han) )?(?:pasado|presentado|venido)\b|\b(?:no he rechazado|no lo he rechazado|cuando he dicho yo que no)\b/.test(t);
 const explanation=t=>/^(?:estoy|estaba|estare) trabajando[.! ]*$/.test(t)||/^no (?:estaba|me encontraba) en casa[.! ]*$/.test(t);
-const irrelevant=t=>/^(?:hola|buenas tardes|buenos dias|gracias|ok|vale|otro dia o datos|confirmar mi pedido)[.! ]*$/.test(t);
+const irrelevant=t=>/^[?¿!.,… ]*$/.test(t)||/^(?:hola|buenas tardes|buenos dias|gracias|ok|vale|otro dia o datos|confirmar mi pedido)[.! ]*$/.test(t);
 const wants=t=>/\b(?:lo quiero|quiero (?:el|mi) pedido|quiero recibirlo|entregarmelo|pueden entregar|vuelvan a entregar)\b/.test(t);
 const hasPreference=t=>/\b(?:hoy|manana|tarde|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hora|horas|partir|despues|antes|desde|entre|cualquier dia)\b|\d/.test(t);
 const iso=t=>new Date(t).toISOString();
@@ -17,6 +17,7 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  const block=reason=>({eligible:false,reason});
  const raw=issue?.raw||issue;
  if(!['absent','rejected_goods'].includes(incident.incidentType))return block('EXISTING_WORKFLOW_OWNER');
+ if(!['RECIPIENT_ABSENT','REFUSED_BY_RECIPIENT'].includes(raw?.type))return block('EXISTING_PROVIDER_WORKFLOW_OWNER');
  if(String(raw?.id)!==String(incident.incidenceId)||String(raw?.order_id)!==String(incident.orderId)||String(order?.orderId)!==String(incident.orderId))return block('IDENTITY_CONFLICT');
  if(raw.status!=='PENDING'||raw.is_active!==true||raw.resolution_status||!['ERROR','INCIDENCE'].includes(order.status))return block('CURRENT_PENDING_ISSUE_REQUIRED');
  const base=currentCustomerIntent({incident,order,messages,now});
@@ -50,7 +51,7 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  if(/\bo mejor\b|\b(?:quizas?|tal vez|puede que)\b/.test(combined))return clarify('CONTRADICTORY_OR_UNCERTAIN_PREFERENCE',
   'Hola, para solicitar la entrega correctamente, indíquenos el día y el horario exactos que prefiere. Gracias.');
  const reportsNonDelivery=normalized.some(nonDelivery);
- let selected=null,slot=null,recurring=false;
+ let selected=null,slot=null,recurring=false,scheduleSource=null;
  for(let n=0;n<texts.length;n++){
   let t=normalized[n].replace(/(\d)\s*hs?\b/g,'$1 h');
   if(explanation(t)||irrelevant(t))continue;
@@ -60,7 +61,8 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
    const clean=t.replace(/\bcualquier dia(?: de la semana)?\b/,'').replace(/\b(?:q|que) es cuando termino\b.*$/,'').trim();
    const window=requestedWindowWithoutDate(clean);
    if(parsed.date||window){
-    if(!parsed.date&&window){const next=slot?.date?slot:nextBusinessMorning(now,order);if(!next)return block('BUSINESS_CALENDAR_REQUIRED');parsed={...next,time_window:window};}
+    if(parsed.date)scheduleSource='CUSTOMER_EXPLICIT';
+    if(!parsed.date&&window){const next=slot?.date?slot:nextBusinessMorning(now,order);if(!next)return block('BUSINESS_CALENDAR_REQUIRED');if(!slot?.date)scheduleSource='OWNER_NEXT_BUSINESS_CUSTOMER_WINDOW';parsed={...next,time_window:window};}
     selected=cluster[n];slot=parsed;recurring=every;
    }else return clarify('PRECISE_PREFERENCE_NEEDS_CLARIFICATION',
     'Hola, para respetar su disponibilidad, indíquenos un día y un horario concretos para solicitar la entrega. Gracias.');
@@ -81,12 +83,12 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  if(!raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION'))return block('PROVIDER_SOLUTION_NOT_ALLOWED');
  const preference=selected?addressMessageText(selected):null;
  const note=['El cliente quiere recibir su pedido.',reportsNonDelivery?'Indica que no se ha realizado la entrega o niega haberla rechazado.':null,
-  slot?`Solicita entrega el ${slot.date} por la ${slot.time_window==='morning'?'mañana':'tarde'}.`:null,
+  slot?`${scheduleSource==='CUSTOMER_EXPLICIT'?'Solicita entrega':'Proponemos próxima fecha hábil de entrega'} el ${slot.date} por la ${slot.time_window==='morning'?'mañana':'tarde'}.`:null,
   preference?`Disponibilidad literal del cliente: «${preference}».`:null,
   recurring?'La disponibilidad indicada es recurrente.':null,
   'Por favor, gestionar la entrega respetando sus indicaciones.'].filter(Boolean).join(' ');
  if(note.length>500)return block('SOLUTION_NOTE_TOO_LONG');
  return finish({kind:'SOLUTION',reason:reportsNonDelivery?'CUSTOMER_REPORTS_NON_DELIVERY':'CUSTOMER_DELIVERY_PREFERENCE',
   note,acknowledgement:reportsNonDelivery?NON_DELIVERY_ACK:null,date:slot?.date||null,time_window:slot?.time_window||null,
-  preferenceMessageId:selected?String(selected.id):null});
+  scheduleSource,preferenceMessageId:selected?String(selected.id):null});
 }

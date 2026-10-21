@@ -6,7 +6,7 @@ const now=Date.parse('2026-10-21T13:00:00Z');
 function input(text='No me han entregado mi pedido'){
  return {incident:{orderId:'900001',incidenceId:'800001',incidentType:'absent',chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER',chatbyUserNs:'test',incidenceDate:'2026-10-21T07:00:00Z'},
   order:{orderId:'900001',status:'ERROR',createdAt:'2026-10-19T10:00:00Z',customerPhone:'600000001',customerName:'Example',raw:{shipping_address:{country:'ES',postal_code:'28001'}}},
-  issue:{id:800001,order_id:900001,status:'PENDING',is_active:true,allowed_resolution_options:['PROVIDE_SOLUTION','RETRY']},
+  issue:{id:800001,order_id:900001,type:'RECIPIENT_ABSENT',status:'PENDING',is_active:true,allowed_resolution_options:['PROVIDE_SOLUTION','RETRY']},
   messages:[{id:'700001',type:'in',user_ns:'test',ts:Date.parse('2026-10-21T10:00:00Z')/1000,payload:{text}}],now};
 }
 function add(i,text,at='2026-10-21T10:00:30Z'){i.messages.push({id:String(700001+i.messages.length),type:'in',user_ns:'test',ts:Date.parse(at)/1000,payload:{text}});return i;}
@@ -32,6 +32,11 @@ test('a precise hour refines the previous date, including hs and same-day future
 test('recurring afternoon availability retains its literal lower bound',()=>{
  const p=deliveryReplyPlan(input('Cualquier día de la semana a partir de las 16h que es cuando termino'));
  assert.equal(p.kind,'SOLUTION');assert.equal(p.date,'2026-10-22');assert.match(p.note,/16h/);assert.equal(p.time_window,'afternoon');
+ assert.equal(p.scheduleSource,'OWNER_NEXT_BUSINESS_CUSTOMER_WINDOW');assert.match(p.note,/Proponemos próxima fecha hábil/);
+});
+test('punctuation does not erase a denial of refusal, but a pickup issue remains with its existing owner',()=>{
+ const i=add(input('???????'),'¿Cuándo he dicho yo que no?');assert.equal(deliveryReplyPlan(i).kind,'SOLUTION');
+ i.issue.type='PICKUP_AT_AGENCY';assert.equal(deliveryReplyPlan(i).reason,'EXISTING_PROVIDER_WORKFLOW_OWNER');
 });
 test('payment, ambiguous revisions and expired windows get one clarification, no transport decision',()=>{
  for(const text of ['No llevaba efectivo suficiente','Antes de las 16 horas o mejor esta tarde','Lo quiero el lunes por la tarde']){
