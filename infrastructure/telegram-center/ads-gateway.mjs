@@ -51,6 +51,7 @@ export function createAdsGateway(config,fetchImpl=fetch){
     if(command)body={action:{confirmar:'confirm',cancelar:'cancel',reconciliar:'reconcile'}[command[1]],id:command[2],actor};
     else if(['/campanas','/historial','/estado'].includes(text))body={action:{'/campanas':'inventory','/historial':'history','/estado':'status'}[text],actor};
     else if(/^\/(start|help|ayuda)$/.test(text))return {text:'Suleia Ads Intelligence · simulación y propuestas con confirmación.\nEjemplo: «Sube 10 € el presupuesto de todas las campañas activas que tengan un ROAS superior a 5 hoy».\nAnaliza las campañas de los últimos 7 días.\n/campanas · /historial · /estado · /reconciliar CÓDIGO'};
-    return request(body);
+    const detailed=/\b(?:diagnostico|detalle|detalles|detallado|detallada)\b/.test(text.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase());
+    return request(body,detailed?{view:'diagnosis'}:{});
   }};
 }
