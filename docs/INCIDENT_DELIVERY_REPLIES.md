@@ -24,7 +24,11 @@ After provider-verified message readback, the worker submits PROVIDE_SOLUTION
 with a note saying the customer wants the order and preserving applicable day,
 window and literal time restrictions. It verifies identity, resolved state,
 SOLUTION_PROVIDED, the exact persisted note and a fresh change timestamp. HTTP
-200 alone is insufficient. The existing Dropea API contract for this action
+200 alone is insufficient. Production's public Issue DTO omits the note, so
+the worker independently reads the persisted "Detalle de Incidencia" view,
+matches the exact text and numeric issue/order, and saves a private receipt
+and screenshot. Reconciliation of that omission never submits the note again.
+The existing Dropea API contract for this action
 does not accept an attachment; the separately retained RETRY UI path captures
 and uploads actual customer evidence whenever that form requires it. Never
 claim a private screenshot was attached to an API note when it was not.

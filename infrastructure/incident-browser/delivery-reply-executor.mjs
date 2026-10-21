@@ -1,12 +1,21 @@
 import {extractWamid,isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
 import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
 import {findAddressDetailsReadback} from '../../autoconfirm/src/workflows/address-observed-executor.mjs';
+import {createHash} from 'node:crypto';
 const sameText=(a,b)=>String(a||'').replace(/\s+/g,' ').trim()===String(b||'').replace(/\s+/g,' ').trim();
+export const solutionNoteHash=note=>createHash('sha256').update(String(note||'').replace(/\s+/g,' ').trim()).digest('hex');
 
-export function verifiedDeliverySolution(raw,plan,attemptedAt){
+export function verifiedDeliverySolutionState(raw,plan,attemptedAt){
  return String(raw?.id)===plan.issueId&&String(raw?.order_id)===plan.orderId&&raw.status==='RESOLVED'&&
-  raw.resolution_status==='SOLUTION_PROVIDED'&&sameText(raw.resolution_note,plan.note)&&
+  raw.resolution_status==='SOLUTION_PROVIDED'&&
   Number.isFinite(Date.parse(raw.resolution_changed_at))&&Date.parse(raw.resolution_changed_at)>=Date.parse(attemptedAt)-1000;
+}
+export function verifiedDeliverySolution(raw,plan,attemptedAt,noteEvidence=null){
+ const persistedNote=sameText(raw?.resolution_note,plan.note)||noteEvidence?.provider==='DROPEA_PERSISTED_DETAIL'&&
+  noteEvidence.verified===true&&noteEvidence.orderId===plan.orderId&&noteEvidence.issueId===plan.issueId&&
+  noteEvidence.noteHash===solutionNoteHash(plan.note)&&Number.isFinite(Date.parse(noteEvidence.observedAt))&&
+  Date.parse(noteEvidence.observedAt)>=Date.parse(attemptedAt)-1000;
+ return verifiedDeliverySolutionState(raw,plan,attemptedAt)&&persistedNote;
 }
 
 export async function sendDeliveryReplyOnce(plan,content,purpose,deps){

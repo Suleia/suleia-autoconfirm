@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deliveryReplyPlan,NON_DELIVERY_ACK} from './delivery-reply-policy.mjs';
-import {executeDeliveryReply,sendDeliveryReplyOnce,verifiedDeliverySolution} from './delivery-reply-executor.mjs';
+import {executeDeliveryReply,sendDeliveryReplyOnce,verifiedDeliverySolution,solutionNoteHash} from './delivery-reply-executor.mjs';
 const now=Date.parse('2026-10-21T13:00:00Z');
 function input(text='No me han entregado mi pedido'){
  return {incident:{orderId:'900001',incidenceId:'800001',incidentType:'absent',chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER',chatbyUserNs:'test',incidenceDate:'2026-10-21T07:00:00Z'},
@@ -105,4 +105,11 @@ test('provider readback requires the exact solution note, numeric identities and
  const raw={id:800001,order_id:900001,status:'RESOLVED',resolution_status:'SOLUTION_PROVIDED',resolution_note:h.plan.note,resolution_changed_at:at};
  assert.equal(verifiedDeliverySolution(raw,h.plan,at),true);
  for(const d of [{id:800002},{order_id:900002},{resolution_note:'Different'},{resolution_note:null},{resolution_changed_at:'2020-01-01T00:00:00Z'}])assert.equal(verifiedDeliverySolution({...raw,...d},h.plan,at),false);
+});
+test('an API omission requires bound fresh persisted-detail evidence, never an HTTP receipt alone',()=>{
+ const h=harness(),at=new Date(now).toISOString();
+ const raw={id:800001,order_id:900001,status:'RESOLVED',resolution_status:'SOLUTION_PROVIDED',resolution_changed_at:at};
+ const proof={provider:'DROPEA_PERSISTED_DETAIL',verified:true,orderId:'900001',issueId:'800001',noteHash:solutionNoteHash(h.plan.note),observedAt:at};
+ assert.equal(verifiedDeliverySolution(raw,h.plan,at),false);assert.equal(verifiedDeliverySolution(raw,h.plan,at,proof),true);
+ for(const d of [{orderId:'900002'},{issueId:'800002'},{noteHash:'wrong'},{observedAt:'2020-01-01T00:00:00Z'},{verified:false},{provider:'HTTP_RECEIPT'}])assert.equal(verifiedDeliverySolution(raw,h.plan,at,{...proof,...d}),false);
 });

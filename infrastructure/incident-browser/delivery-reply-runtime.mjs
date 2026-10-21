@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import {deliveryReplyPlan} from './delivery-reply-policy.mjs';
-import {executeDeliveryReply,verifiedDeliverySolution} from './delivery-reply-executor.mjs';
+import {executeDeliveryReply,verifiedDeliverySolution,verifiedDeliverySolutionState,solutionNoteHash} from './delivery-reply-executor.mjs';
 import {loadProviderEnv} from './worker.mjs';
+import {readEvidenceDetail} from './dropea-ui.mjs';
 
 const stateFile='/state/delivery-reply-inflight.json';
 const issueKey=p=>({storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea'});
@@ -13,7 +14,7 @@ async function updateControl(patch){
 
 // Remains in the existing 30-minute worker, shares the existing issue/message
 // ledgers and never owns address, discount, return or confirmation workflows.
-export async function runDeliveryReplyCycle({deadlineAt=Date.now()+15*60000}={}){
+export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60000}={}){
  await loadProviderEnv();
  const {selectRows,upsertRows}=await import('../../autoconfirm/src/clients/supabase.mjs');
  const {getIncidentChatMessages,loadSubscriberIndex,findSubscriberInIndexForExactOrder,sendTextMessage}=await import('../../autoconfirm/src/clients/chatby.mjs');
@@ -26,6 +27,25 @@ export async function runDeliveryReplyCycle({deadlineAt=Date.now()+15*60000}={})
  const control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
  const canWrite=['AUTO','AUTO_CANARY'].includes(control.mode)&&['AUTO','AUTO_CANARY'].includes(control.deliveryReplyMode);
  report.mode=canWrite?control.deliveryReplyMode:'OBSERVE_ONLY';
+ async function verifyPersisted(plan,attemptedAt,current=null){
+  const after=current||await readDropeaV2ReturnIssueState({orderId:plan.orderId,incidenceId:plan.issueId},{includeOrder:true});
+  const raw=after.issue?.raw||after.issue;
+  if(!verifiedDeliverySolutionState(raw,plan,attemptedAt))return false;
+  if(verifiedDeliverySolution(raw,plan,attemptedAt))return true;
+  // Public Issue DTO omits resolution_note. Read the persisted DETAIL view,
+  // never the draft form and never press Save again to obtain this evidence.
+  if(!context)return false;
+  const {page,dialog,text}=await readEvidenceDetail(context,plan);
+  const normalized=s=>String(s||'').replace(/\s+/g,' ').trim();
+  if(await page.getByRole('dialog',{name:'Detalle de Incidencia',exact:true}).count()!==1||
+     !text.includes('ES'+plan.orderId)||!normalized(text).includes(normalized(plan.note)))return false;
+  const proof={provider:'DROPEA_PERSISTED_DETAIL',verified:true,orderId:plan.orderId,issueId:plan.issueId,
+   noteHash:solutionNoteHash(plan.note),observedAt:new Date().toISOString()};
+  await page.screenshot({path:`/evidence/verified-solution-${plan.orderId}-${plan.issueId}.png`,timeout:15000});
+  await fs.writeFile(`/evidence/verified-solution-${plan.orderId}-${plan.issueId}.json`,JSON.stringify(proof),{mode:0o600});
+  await dialog.getByText('Cerrar',{exact:true}).click();
+  return verifiedDeliverySolution(raw,plan,attemptedAt,proof);
+ }
  const finish=async(status,p,attemptedAt=new Date().toISOString())=>{
   const r=await finishTemplateDelivery({...issueKey(p),status,attemptedAt,sentAt:status==='verified'?new Date().toISOString():null,
    raw:{owner:'vps_delivery_reply',reason:p.reason,orderId:p.orderId,issueId:p.issueId,contextHash:p.hash,
@@ -37,9 +57,12 @@ export async function runDeliveryReplyCycle({deadlineAt=Date.now()+15*60000}={})
  let pending=null;try{pending=JSON.parse(await fs.readFile(stateFile,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
  if(pending){
   const current=await readDropeaV2ReturnIssueState({orderId:pending.plan.orderId,incidenceId:pending.plan.issueId},{includeOrder:true});
-  if(verifiedDeliverySolution(current.issue?.raw||current.issue,pending.plan,pending.attemptedAt)){
+  if(await verifyPersisted(pending.plan,pending.attemptedAt,current)){
    await finish('verified',pending.plan,pending.attemptedAt);await fs.unlink(stateFile);
-   if(canWrite&&control.deliveryReplyMode==='AUTO_CANARY')await updateControl({deliveryReplyMode:'AUTO',deliveryReplyCanary:{verified:true,orderId:pending.plan.orderId,at:new Date().toISOString()}});
+   if(canWrite&&control.deliveryReplyMode==='AUTO_CANARY'){
+    await updateControl({deliveryReplyMode:'AUTO',deliveryReplyCanary:{verified:true,orderId:pending.plan.orderId,at:new Date().toISOString()}});
+    control.deliveryReplyMode='AUTO';report.mode='AUTO';
+   }
    report.reconciled=1;
   }else{report.status='RECONCILIATION_REQUIRED';return report;}
  }
@@ -92,12 +115,15 @@ export async function runDeliveryReplyCycle({deadlineAt=Date.now()+15*60000}={})
     journal:async(p,at)=>{attemptedAt=at;await fs.writeFile('/state/delivery-reply-inflight.tmp',JSON.stringify({plan:p,attemptedAt:at}),{mode:0o600});await fs.rename('/state/delivery-reply-inflight.tmp',stateFile);},
     clearJournal:()=>fs.unlink(stateFile),
     writeSolution:p=>executeDropeaV2Resolution(p.issueId,'PROVIDE_SOLUTION',{note:p.note},{idempotencyNonce:p.hash}),
-    verifySolution:async(p,at)=>{const after=await readDropeaV2ReturnIssueState(incident,{includeOrder:true});return verifiedDeliverySolution(after.issue?.raw||after.issue,p,at);}
+    verifySolution:verifyPersisted
    });
    admitted++;report.cases.push({...observed,...result});
    if(result.status==='VERIFIED'){
     if(plan.kind==='SOLUTION')report.solutions++;else report.messages++;
-    if(control.deliveryReplyMode==='AUTO_CANARY'&&plan.kind==='SOLUTION')await updateControl({deliveryReplyMode:'AUTO',deliveryReplyCanary:{verified:true,orderId:plan.orderId,at:new Date().toISOString()}});
+    if(control.deliveryReplyMode==='AUTO_CANARY'&&plan.kind==='SOLUTION'){
+     await updateControl({deliveryReplyMode:'AUTO',deliveryReplyCanary:{verified:true,orderId:plan.orderId,at:new Date().toISOString()}});
+     control.deliveryReplyMode='AUTO';report.mode='AUTO';
+    }
    }
    await fs.appendFile('/state/delivery-reply-audit.jsonl',JSON.stringify({at:new Date().toISOString(),...item,reason:plan.reason,...result})+'\n',{mode:0o600});
    if(result.solutionAttempted&&result.status!=='VERIFIED')break;

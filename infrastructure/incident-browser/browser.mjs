@@ -108,7 +108,7 @@ async function observe(){
   await fs.access('/state/provider-env.json');
   const {runVpsRetryCycle}=await import('./runtime.mjs');
   const result=await runVpsRetryCycle(context);
-  try{result.deliveryReplies=await (await import('./delivery-reply-runtime.mjs')).runDeliveryReplyCycle({deadlineAt:Date.parse(startedAt)+20*60000});}
+  try{result.deliveryReplies=await (await import('./delivery-reply-runtime.mjs')).runDeliveryReplyCycle(context,{deadlineAt:Date.parse(startedAt)+20*60000});}
   catch{result.deliveryReplies={status:'DELIVERY_REPLY_CYCLE_REQUIRES_REVIEW'};}
   try{result.addressDetailsReconciliation=await (await import('./reconcile-details.mjs')).reconcileAddressDetails();}
   catch{result.addressDetailsReconciliationError='RECEIPT_RECONCILIATION_UNAVAILABLE';}
