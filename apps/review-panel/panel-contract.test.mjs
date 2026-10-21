@@ -7,7 +7,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   const script = fs.readFileSync(new URL('./app.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
   const loginCss = fs.readFileSync(new URL('./login.css', import.meta.url), 'utf8');
-  assert.equal((html.match(/class="nav-item/g) || []).length, 5);
+  assert.equal((html.match(/class="nav-item/g) || []).length, 6);
+  assert.match(html,/>Ads Intelligence</);
+  assert.match(html,/id="ads-view"/);
   assert.match(html, />Centro de datos e información</);
   assert.match(html,/>Automatización</);
   assert.match(html, />Pedidos</);

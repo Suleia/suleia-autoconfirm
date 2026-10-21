@@ -107,12 +107,15 @@ test('finance spend backfill accepts a closed explicit date and rejects today or
   await assert.rejects(() => runMetaAdsFinanceSpendReadCycle({ config, client, now, businessDate: '2026-09-01' }), /NOT_CLOSED/);
 });
 
-test('Meta Ads package is isolated from order, Dropea, GLS, Chatby and incident modules', () => {
+test('Meta Ads read runtime is isolated from logistics and only the gated adapter may declare POST', () => {
   const directory = fileURLToPath(new URL('.', import.meta.url));
   const sources = fs.readdirSync(directory)
-    .filter((name) => name.endsWith('.mjs') && !name.endsWith('.test.mjs'))
+    .filter((name) => name.endsWith('.mjs') && !name.endsWith('.test.mjs') && name !== 'executor-transport.mjs')
     .map((name) => fs.readFileSync(`${directory}/${name}`, 'utf8'))
     .join('\n');
   assert.doesNotMatch(sources, /autoconfirm|dropea|chatby|shopify|gls|incident/i);
   assert.doesNotMatch(sources, /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i);
+  const adapter=fs.readFileSync(`${directory}/executor-transport.mjs`,'utf8');
+  assert.match(adapter,/liveCompiled=LIVE_COMPILED/);
+  assert.match(adapter,/if\(!liveCompiled\|\|mode!=='LIVE'\|\|writesEnabled!==true\)throw Error\('LIVE_NOT_AUTHORIZED'\)/);
 });

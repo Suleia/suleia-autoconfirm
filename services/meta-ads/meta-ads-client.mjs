@@ -1,7 +1,7 @@
 import { collectPaginated, createReadOnlyTransport } from '../../packages/platform-core/src/read-only-transport.mjs';
 
 const GRAPH_HOST = 'graph.facebook.com';
-const CAMPAIGN_FIELDS = 'id,name,status,effective_status,daily_budget,lifetime_budget,budget_remaining';
+const CAMPAIGN_FIELDS = 'id,account_id,name,status,effective_status,daily_budget,lifetime_budget,budget_remaining';
 const ADSET_FIELDS = 'id,campaign_id,name,status,effective_status,daily_budget,lifetime_budget,budget_remaining';
 const INSIGHT_FIELDS = [
   'campaign_id',
@@ -75,6 +75,7 @@ export function createMetaAdsReadClient({
       throw new MetaAdsReadError(`Meta read failed with HTTP ${response.status}`, `META_HTTP_${response.status}`, response.status);
     }
     const payload = await response.json();
+    if (payload?.error) throw new MetaAdsReadError('Meta returned an API error', 'META_API_ERROR', response.status);
     if (!payload || typeof payload !== 'object') throw new MetaAdsReadError('Meta returned an invalid payload', 'META_PAYLOAD_INVALID');
     return payload;
   }
@@ -91,6 +92,46 @@ export function createMetaAdsReadClient({
   }
 
   return Object.freeze({
+    async readCampaigns() {
+      const result = await paginated(`act_${accountId}/campaigns`, { fields: CAMPAIGN_FIELDS, limit: 100 });
+      if (!result.complete) throw new MetaAdsReadError('Incomplete campaign inventory', 'META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    readCampaign(id) {
+      if (!/^\d+$/.test(String(id))) throw new MetaAdsReadError('Invalid campaign ID', 'META_ID_INVALID');
+      return getJson(String(id), { fields: CAMPAIGN_FIELDS });
+    },
+    async readRules() {
+      const result = await paginated(`act_${accountId}/adrules_library`, { fields: 'id,status,execution_spec,evaluation_spec', limit: 100 });
+      if (!result.complete) throw new MetaAdsReadError('Incomplete rules inventory', 'META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readDelivery() {
+      const result = await paginated(`act_${accountId}/ads`, { fields: 'id,campaign_id,adset_id,status,effective_status', limit: 100 });
+      if (!result.complete) throw new MetaAdsReadError('Incomplete delivery inventory', 'META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readEntities(level) {
+      if(level==='campaign')return this.readCampaigns();
+      if(!['adset','ad'].includes(level))throw new MetaAdsReadError('Invalid entity level','META_LEVEL_INVALID');
+      const result=await paginated(`act_${accountId}/${level==='adset'?'adsets':'ads'}`,{fields:level==='adset'?ADSET_FIELDS:'id,campaign_id,adset_id,name,status,effective_status',limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete entity inventory','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readInsights({ since, until, level = 'campaign', daily = false }) {
+      const valid = (day) => /^\d{4}-\d{2}-\d{2}$/.test(day) && !Number.isNaN(Date.parse(day)) && new Date(day).toISOString().slice(0, 10) === day;
+      if (!valid(since) || !valid(until) || since > until || Date.parse(until) - Date.parse(since) > 31 * 86400000 || !['campaign', 'adset', 'ad'].includes(level)) throw new MetaAdsReadError('Invalid insight period or level', 'META_PERIOD_INVALID');
+      const result = await paginated(`act_${accountId}/insights`, {
+        level, fields: ['campaign_id','campaign_name', ...(level !== 'campaign' ? ['adset_id','adset_name'] : []), ...(level === 'ad' ? ['ad_id','ad_name'] : []),
+          'date_start','date_stop','spend','impressions','reach','frequency','cpm','clicks','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click','outbound_clicks','outbound_clicks_ctr','actions','action_values','purchase_roas'].join(','),
+        time_range: JSON.stringify({ since, until }), ...(daily ? { time_increment: 1 } : {}),
+        // One explicit reporting contract for all consumers. Never mix this with
+        // legacy account-specific windows in the same fact key or comparison.
+        action_attribution_windows: JSON.stringify(['7d_click', '1d_view']), action_report_time: 'conversion', limit: 100
+      });
+      if (!result.complete) throw new MetaAdsReadError('Incomplete insights', 'META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
     async readPermissions() {
       const result = await paginated('me/permissions', { limit: 100 });
       if (!result.complete) throw new MetaAdsReadError('Meta permissions pagination is incomplete', result.reason);
