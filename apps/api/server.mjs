@@ -10,6 +10,8 @@ import { createAdsRuntime } from '../../services/meta-ads/runtime.mjs';
 import { adsCommand } from '../../services/meta-ads/command-service.mjs';
 import {verifyAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
 import {reviewAds} from '../../services/meta-ads/monitor.mjs';
+import {createAlgorithmOrdersReader} from '../../services/meta-ads/algorithm-orders.mjs';
+import {createShopifyReadAuth} from '../../autoconfirm/src/clients/shopify-read-auth.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -130,10 +132,11 @@ export function createOperationsServer({ config, repository, authenticate, finan
     const requestUrl = new URL(req.url, 'http://operations.internal');
     const adsBridge = requestUrl.pathname === '/api/internal/ads-intelligence/command';
     const adsProposal=requestUrl.pathname==='/api/operations/ads-intelligence/proposals';
+    const adsAlgorithmJournal=requestUrl.pathname==='/api/operations/ads-intelligence/algorithm/journal';
     const feedbackMatch = requestUrl.pathname.match(/^\/api\/operations\/incidents\/([^/]+)\/feedback$/);
     const fixedExpenseCreate = requestUrl.pathname === '/api/operations/finance/fixed-expenses';
     const fixedExpenseUpdate = requestUrl.pathname.match(/^\/api\/operations\/finance\/fixed-expenses\/([^/]+)$/);
-    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate || adsProposal)) || (req.method === 'PATCH' && (fixedExpenseUpdate || adsProposal));
+    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate || adsProposal || adsAlgorithmJournal)) || (req.method === 'PATCH' && (fixedExpenseUpdate || adsProposal));
     if (req.method !== 'GET' && !internalWrite && !(adsBridge && req.method === 'POST')) return json(res, 405, { ok: false, error: 'method_not_allowed' });
     if (!allowRequest(req)) return json(res, 429, { ok: false, error: 'rate_limited' });
     if(adsBridge){
@@ -184,7 +187,11 @@ export function createOperationsServer({ config, repository, authenticate, finan
     }
     try {
       let data;
-      if(adsProposal && ['POST','PATCH'].includes(req.method)){
+      if(adsAlgorithmJournal&&req.method==='POST'){
+        if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
+        const body=await jsonBody(req,2048);data=await adsRuntime.journal({eventType:body.eventType,reference:body.reference,principal:principal.principal_hash});
+        return json(res,200,{ok:true,data,meta_budget_writes:0,external_actions:0,internal_configuration_writes:1});
+      } else if(adsProposal && ['POST','PATCH'].includes(req.method)){
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         const body=await jsonBody(req,4096);
         data=await adsRuntime.saveRecommendation({query:body.query||{},actionId:body.actionId,id:body.id,state:req.method==='PATCH'?body.state:null,principal:principal.principal_hash});
@@ -211,6 +218,15 @@ export function createOperationsServer({ config, repository, authenticate, finan
         if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
         audit({ event: 'incident_recommendation_feedback', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'recorded' });
         return json(res, 201, { ok: true, data, actions_executed: 0, production_writes: 0, internal_feedback_writes: 1 });
+      } else if(adsAlgorithmJournal){
+        if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
+        data=await adsRuntime.journalHistory();
+      } else if(requestUrl.pathname==='/api/operations/ads-intelligence/algorithm'){
+        if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
+        data=await adsRuntime.algorithm();
+      } else if(requestUrl.pathname==='/api/operations/ads-intelligence/algorithm/simulate'){
+        if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
+        data=await adsRuntime.simulate({campaignId:requestUrl.searchParams.get('campaignId'),newBudgetCents:Number(requestUrl.searchParams.get('newBudgetCents')),days:Number(requestUrl.searchParams.get('days'))});
       } else if (requestUrl.pathname === '/api/operations/ads-intelligence') {
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         data=await adsRuntime.overview(Object.fromEntries(requestUrl.searchParams));
@@ -237,7 +253,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
       return json(res, 200, { ok: true, data, actions_executed: 0, production_writes: 0,
         meta_budget_writes: 0, external_actions: 0 });
     } catch (error) {
-      if (error?.status === 400 || error?.status === 413 || error?.code === 'INVALID_FEEDBACK' || error?.code === 'INVALID_FIXED_EXPENSE') {
+      if (error?.status === 400 || error?.status === 413 || error?.message === 'QUERY_INVALID' || error?.code === 'INVALID_FEEDBACK' || error?.code === 'INVALID_FIXED_EXPENSE') {
         return json(res, error.status || 400, { ok: false, error: error.message || 'invalid_feedback' });
       }
       audit({ event: 'operations_read_failed', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'error' });
@@ -256,7 +272,9 @@ export async function startOperationsServer() {
       const pg=createRequire(new URL('../../packages/suleia-operations-mcp/package.json',import.meta.url))('pg');
       adsPool=new pg.Pool({connectionString:process.env.ADS_INTELLIGENCE_DATABASE_URL,max:8,statement_timeout:10000,application_name:'suleia-ads-intelligence'});
     }
-    adsRuntime=createAdsRuntime({pool:adsPool||repository.pool});
+    const shopifyConfig={shopifyDomain:process.env.SHOPIFY_DOMAIN||process.env.SHOPIFY_SHOP,shopifyAdminAccessToken:process.env.SHOPIFY_ADMIN_ACCESS_TOKEN||process.env.SHOPIFY_ACCESS_TOKEN,shopifyClientId:process.env.SHOPIFY_CLIENT_ID,shopifyClientSecret:process.env.SHOPIFY_CLIENT_SECRET};
+    const readOrders=process.env.ADS_ALGORITHM_SHOPIFY_READ_ENABLED==='true'?createAlgorithmOrdersReader({authenticatedRead:createShopifyReadAuth(shopifyConfig)}):null;
+    adsRuntime=createAdsRuntime({pool:adsPool||repository.pool,readOrders});
   }
   const authenticate = createOperationsAuth({
     issuer: config.oauthIssuer,

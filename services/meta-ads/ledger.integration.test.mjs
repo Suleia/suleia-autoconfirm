@@ -15,7 +15,13 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     await pool.query('CREATE SCHEMA economics; CREATE SCHEMA read_models; CREATE ROLE suleia_operations_readonly NOLOGIN; CREATE ROLE suleia_backup NOLOGIN; CREATE ROLE suleia_ingestion NOLOGIN; CREATE ROLE suleia_api_login NOLOGIN;');
     await pool.query(fs.readFileSync(new URL('../../migrations/054_ads_intelligence.sql',import.meta.url),'utf8'));
     await pool.query(fs.readFileSync(new URL('../../migrations/055_ads_intelligence_v3.sql',import.meta.url),'utf8'));
+    await pool.query(fs.readFileSync(new URL('../../migrations/056_ads_algorithm_journal.sql',import.meta.url),'utf8'));
     const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
+    const report={evidenceDigest:'fixture-digest',observedAt:new Date().toISOString(),range:{since:'2026-10-01',until:'2026-10-20'},policyVersion:'meta-learning-v4.1',narrative:[],campaigns:[]};
+    const journal=await Promise.all([a.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report}),b.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report})]);assert.equal(journal.filter(j=>j.recorded).length,1);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_algorithm_journal','INSERT') AS allowed")).rows[0].allowed,true);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_algorithm_journal','UPDATE') AS allowed")).rows[0].allowed,false);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.ads_algorithm_journal','INSERT') AS allowed")).rows[0].allowed,false);
     const action={id:'fixture',observedAt:'2026-10-21T09:00:00Z',title:'Review',evidence:{current:1}};
     const recommendations=await Promise.all([a.saveRecommendation({action,principal:'hash',accountId:'9'}),b.saveRecommendation({action,principal:'hash',accountId:'9'})]);assert.equal(recommendations[0].id,recommendations[1].id);
     const reviewed=await a.reviewRecommendation({id:recommendations[0].id,principal:'hash',state:'APPROVED_FOR_REVIEW'});assert.equal(reviewed.state,'APPROVED_FOR_REVIEW');assert.equal((await b.reviewRecommendation({id:reviewed.id,principal:'hash2',state:'DISMISSED'})).state,'APPROVED_FOR_REVIEW');

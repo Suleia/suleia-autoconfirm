@@ -29,6 +29,8 @@ COPY apps ./apps
 COPY services ./services
 COPY infrastructure/scripts/absent-orders-alert.mjs ./infrastructure/scripts/absent-orders-alert.mjs
 COPY autoconfirm/src/clients/gls.mjs ./autoconfirm/src/clients/gls.mjs
+COPY autoconfirm/src/clients/shopify-read-auth.mjs ./autoconfirm/src/clients/shopify-read-auth.mjs
+COPY autoconfirm/src/fetch-with-retry.mjs ./autoconfirm/src/fetch-with-retry.mjs
 COPY autoconfirm/data/incident-policy.json ./autoconfirm/data/incident-policy.json
 COPY scripts/run-dropea-v2-shadow-phase.mjs ./scripts/run-dropea-v2-shadow-phase.mjs
 COPY scripts/replay-recipient-absent-shadow.mjs ./scripts/replay-recipient-absent-shadow.mjs

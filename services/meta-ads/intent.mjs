@@ -3,6 +3,7 @@ export function parseAdsIntent(input) {
   const text = clean(input);
   const periodMatch = /\b(hoy|ayer|ultimos (?:3|tres|7|siete|30|treinta) dias)\b/.exec(text);
   const period = periodMatch ? ({ 'ultimos tres dias':'3d','ultimos 3 dias':'3d','ultimos siete dias':'7d','ultimos 7 dias':'7d','ultimos treinta dias':'30d','ultimos 30 dias':'30d' }[periodMatch[1]] || periodMatch[1]) : null;
+  if(!/^(sube|aumenta|baja|reduce|pon|fija|establece)\b/.test(text)&&/bloques|algoritmo|distribuyendo|estables|estabilidad|volatil|escalarias|escalar manana|plan de presupuestos|ultima vez|ultima subida|despues de|conviene (?:bajar|subir|mantener)|perjudicado|preparada para escalar|ha subido el cpm|fatigando|informe matinal/.test(text))return {kind:'algorithm',period:'30d',question:text};
   if (/\b(no|nunca|manana|automaticamente|cada|despues)\b/.test(text)) return { kind:'clarify', question:'Indica una única acción inmediata, campaña o filtro, importe y periodo.' };
   const filter = /roas (superior a|mayor que|inferior a|menor que) (\d+(?:[.,]\d+)?)/.exec(text);
   const change = /^(sube|aumenta|baja|reduce|pon|fija|establece)\b/.exec(text);

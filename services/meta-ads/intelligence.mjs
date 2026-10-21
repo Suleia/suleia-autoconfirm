@@ -71,7 +71,9 @@ export class AdsIntelligence {
     const selected=intent.selector==='ALL_ACTIVE'?inventory.campaigns.filter(c=>c.status==='ACTIVE'&&c.effective_status==='ACTIVE'):inventory.campaigns.filter(c=>String(c.id)===intent.selector||match(c.name,intent.selector));
     if (intent.selector!=='ALL_ACTIVE'&&selected.length!==1) return {state:'CLARIFICATION',question:selected.length?'Hay varias campañas. Indica el ID exacto.':'No encuentro esa campaña. Indica el ID exacto.'};
     const metrics=new Map(snapshot.facts.map(f=>[f.campaignId,f]));
-    const items=selected.map(c=>{const metric=metrics.get(String(c.id))||null,decision=this.policyReasons(c,metric,intent,inventory);return {campaignId:String(c.id),name:c.name,before:c.daily_budget===null||c.daily_budget===undefined?null:Number(c.daily_budget),after:decision.after,reasons:decision.reasons,metric,status:'PENDING'};});
+    const items=[];
+    for(const c of selected){const metric=metrics.get(String(c.id))||null,decision=this.policyReasons(c,metric,intent,inventory),learning=this.learningAssessment?await this.learningAssessment(c):null;
+      items.push({campaignId:String(c.id),name:c.name,before:c.daily_budget===null||c.daily_budget===undefined?null:Number(c.daily_budget),after:decision.after,reasons:[...new Set([...decision.reasons,...(learning?.reasons||[])])],learning,metric,status:'PENDING'});}
     const id=randomBytes(8).toString('hex');
     const p={id,requestKey:key,requestHash:hash(text),actor,request:text,intent,accountId:this.accountId,contract:CONTRACT,mode:this.mode,state:'PENDING',createdAt:this.now(),expiresAt:this.now()+300000,policyHash:hash(this.policy),inventoryCount:inventory.campaigns.length,selectedCount:selected.length,items};
     const saved=await this.ledger.createProposal(p);
@@ -96,6 +98,7 @@ export class AdsIntelligence {
           const [inventory,snapshot]=await Promise.all([this.inventory(),this.snapshot(p.intent.period||'hoy')]);
           const c=inventory.campaigns.find(c=>String(c.id)===item.campaignId), metric=snapshot.facts.find(f=>f.campaignId===item.campaignId);
           const result=c?this.policyReasons(c,metric,p.intent,inventory):{reasons:['CAMPAIGN_MISSING']};
+          if(c&&this.learningAssessment){const learning=await this.learningAssessment(c);result.reasons.push(...learning.reasons);if(hash(learning.policy)!==hash(item.learning?.policy))result.reasons.push('LEARNING_POLICY_CHANGED');}
           if (this.now()>=p.expiresAt||!c||Number(c.daily_budget)!==item.before||result.after!==item.after||result.reasons.length) {await tx.record(id,item.campaignId,{state:'STALE',reasons:this.now()>=p.expiresAt?['EXPIRED']:['REVALIDATION_FAILED',...result.reasons]});return;}
           // Preserve the local business day and reject changed evidence rather
           // than carrying yesterday's selection into a new day.

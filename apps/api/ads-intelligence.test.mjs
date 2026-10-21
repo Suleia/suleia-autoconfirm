@@ -31,3 +31,18 @@ test('Ads bridge accepts only POST; status remains simulation and exposes no sec
 test('Ads overview uses existing panel auth and is GET only',async()=>fixture(async base=>{
   const path=base+'/api/operations/ads-intelligence';assert.equal((await fetch(path)).status,401);const r=await fetch(path,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.equal((await r.json()).data.liveEnabled,false);assert.equal((await fetch(path,{method:'POST',headers:{Authorization:'Bearer read-test'}})).status,405);
 }));
+test('V4 analysis, mechanical simulation and journal retain auth and zero Meta writes',async()=>{
+ const calls=[],runtime={engine:{mode:'SHADOW'},algorithm:async()=>({version:'ADS_ALGORITHM_V4',liveEnabled:false}),journalHistory:async()=>[],simulate:async q=>{calls.push(q);return {externalWrites:0,mode:'SHADOW'};},journal:async q=>{calls.push(q);return {execution:'REVIEW_ONLY'};}};
+ await fixture(async base=>{
+  const path=base+'/api/operations/ads-intelligence/algorithm';
+  for(const suffix of ['', '/simulate?campaignId=1&newBudgetCents=6000&days=7']){
+   assert.equal((await fetch(path+suffix)).status,401);
+   const r=await fetch(path+suffix,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);
+   assert.equal((await fetch(path+suffix,{method:'POST',headers:{Authorization:'Bearer read-test'}})).status,405);
+  }
+  assert.equal((await fetch(path+'/journal',{method:'POST',body:'{}'})).status,401);
+  assert.equal((await fetch(path+'/journal')).status,401);
+  assert.equal((await fetch(path+'/journal',{headers:{Authorization:'Bearer read-test'}})).status,200);
+  const r=await fetch(path+'/journal',{method:'POST',headers:{Authorization:'Bearer read-test'},body:JSON.stringify({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'spoofed'})});assert.equal(r.status,200);assert.equal(calls[1].principal,'test');assert.equal((await r.json()).internal_configuration_writes,1);
+ },runtime);
+});
