@@ -15,7 +15,10 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   if(env.META_WRITES_ENABLED==='true'||((writes||mode==='LIVE')&&(!LIVE_COMPILED||mode!=='LIVE'||!writes)))throw Error('LIVE_NOT_AUTHORIZED');
   const getNumber=(name)=>env[name]===undefined||String(env[name]).trim()===''?null:Number(env[name]);
   const reader=createMetaAdsReadClient({accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID||'').replace(/^act_/,''),apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',fetchImpl});
-  const ledger=new AdsLedger(pool);
+  const reportReadOnly=env.ADS_REPORT_READ_ONLY==='true';
+  const writesBlocked=new Set(['appendAlgorithmJournal','saveRecommendation','reviewRecommendation','claimDigest','finishDigest','createProposal','claimProposal','finish','cancel','persistFacts','persistDailySnapshot','withCampaignLock','record']);
+  const storedLedger=new AdsLedger(pool);
+  const ledger=reportReadOnly?new Proxy(storedLedger,{get(target,key){if(writesBlocked.has(key))return async()=>{throw Error('ADS_REPORT_READ_ONLY');};const value=target[key];return typeof value==='function'?value.bind(target):value;}}):storedLedger;
   const liveCampaignIds=String(env.ADS_LIVE_CANARY_CAMPAIGN_ID||'').split(',').filter(Boolean);
   const writer=mode==='LIVE'?createMetaBudgetTransport({reader,accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID).replace(/^act_/,''),accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',allowedCampaignIds:liveCampaignIds,mode,writesEnabled:writes}):null;
   const engine=new AdsIntelligence({reader,ledger,accountId:env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID,
@@ -28,10 +31,10 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   if(env.ADS_LEARNING_POLICY_JSON){const configured=JSON.parse(env.ADS_LEARNING_POLICY_JSON);if(!configured.version||!/^meta-learning-v4\.[a-zA-Z0-9.-]+$/.test(configured.version))throw Error('LEARNING_POLICY_VERSION_REQUIRED');for(const k of Object.keys(configured))if(!(k in learningPolicy))throw Error('LEARNING_POLICY_INVALID');for(const[k,v]of Object.entries(configured))if(k!=='version'&&(!Number.isFinite(v)||v<=0))throw Error('LEARNING_POLICY_INVALID');Object.assign(learningPolicy,configured);}
   const ordersReader=readOrders||(env.ADS_ALGORITHM_SHOPIFY_READ_ENABLED==='true'?createAlgorithmOrdersReader({env,fetchImpl}):null);
   const operationsReader=readOperations||(env.ADS_ALGORITHM_OPERATIONS_READ_ENABLED==='true'?createAlgorithmOperationsReader({pool,hashKey:env.MIGRATION_HASH_KEY}):null);
-  const runtime={engine,ledger,algorithmEnabled:env.ADS_ALGORITHM_ENABLED==='true',async algorithm(){
+  const runtime={engine,ledger,reportReadOnly,algorithmEnabled:env.ADS_ALGORITHM_ENABLED==='true',async algorithm(){
     if(env.ADS_ALGORITHM_ENABLED!=='true')throw Error('ADS_ALGORITHM_DISABLED');
     if(algorithmCache&&Date.now()-algorithmCache.at<10*60_000)return algorithmCache.report;
-    if(!algorithmTask)algorithmTask=captureAlgorithmEvidence({reader,readOrders:ordersReader,readOperations:operationsReader}).then(e=>{e.orders=traceOrders(e.orders,e.entities);const report=buildAlgorithmReport(e,{policy:learningPolicy});algorithmCache={at:Date.now(),report};return report;}).finally(()=>{algorithmTask=null;});
+    if(!algorithmTask)algorithmTask=captureAlgorithmEvidence({reader,readOrders:ordersReader,readOperations:operationsReader}).then(e=>{e.orders=traceOrders(e.orders,e.entities);const report={...buildAlgorithmReport(e,{policy:learningPolicy}),reportReadOnly};algorithmCache={at:Date.now(),report};return report;}).finally(()=>{algorithmTask=null;});
     // Cold reads can span many Graph pages. Keep a coalesced task, do not launch
     // a second job when Telegram retries after a bounded response.
     return algorithmTask;
@@ -55,13 +58,13 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     if(!base||Date.now()-base.at>=120000){
       if(!inFlight.has(key)){
         if(inFlight.size>=2)throw Error('ADS_REPORT_BUSY');
-        const task=readReport({reader,ledger,accountId:engine.accountId,policy:engine.policy,mode,query:{period,since,until}}).then(value=>{const entry={at:Date.now(),value};cache.delete(key);cache.set(key,entry);while(cache.size>8)cache.delete(cache.keys().next().value);return entry;}).finally(()=>inFlight.delete(key));
+        const task=readReport({reader,ledger:reportReadOnly?null:ledger,accountId:engine.accountId,policy:engine.policy,mode,query:{period,since,until}}).then(value=>{const entry={at:Date.now(),value};cache.delete(key);cache.set(key,entry);while(cache.size>8)cache.delete(cache.keys().next().value);return entry;}).finally(()=>inFlight.delete(key));
         inFlight.set(key,task);
       }
       base=await inFlight.get(key);
     }
     const value=assembleReport({...base.value.dataset,selector,filters:{level,campaignId,adsetId,adId}});
-    return {...value,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt}};
+    return {...value,reportReadOnly,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt}};
   },async saveRecommendation({query,actionId,principal,id,state}){
     if(state)return ledger.reviewRecommendation({id,principal,state});
     const report=await this.overview(query),action=report.actions.find(a=>a.id===actionId);
