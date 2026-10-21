@@ -69,6 +69,7 @@ async function status(){
  let control={mode:'OBSERVE_ONLY'};
  try{control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));}catch{}
  let reconcile=false;try{await fs.access('/state/retry-reconcile.json');reconcile=true;}catch{}
+ try{await fs.access('/state/delivery-reply-inflight.json');reconcile=true;}catch{}
  const sites={};
  for(const [name,url] of targets){
   const page=context.pages().find(p=>p.url().startsWith(new URL(url).origin));
@@ -108,6 +109,8 @@ async function observe(){
   await fs.access('/state/provider-env.json');
   const {runVpsRetryCycle}=await import('./runtime.mjs');
   const result=await runVpsRetryCycle(context);
+  try{result.deliveryReplies=await (await import('./delivery-reply-runtime.mjs')).runDeliveryReplyCycle(context,{deadlineAt:Date.parse(startedAt)+20*60000});}
+  catch{result.deliveryReplies={status:'DELIVERY_REPLY_CYCLE_REQUIRES_REVIEW'};}
   try{result.addressDetailsReconciliation=await (await import('./reconcile-details.mjs')).reconcileAddressDetails();}
   catch{result.addressDetailsReconciliationError='RECEIPT_RECONCILIATION_UNAVAILABLE';}
   try{result.feedback=await (await import('./feedback.mjs')).followRetryOutcomes();}
