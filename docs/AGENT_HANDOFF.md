@@ -24,6 +24,17 @@ GitHub is the durable coordination layer:
 Never place credentials or customer personal data in this document, issues,
 commits or pull requests.
 
+## Windows Juan SSH onboarding (2026-10-22)
+
+The owner directly supplied Juan's independent public key and authorized
+`ssh suleia` from Juan's Windows PC as the existing operations user.
+The key is installed on the VPS with all previous key entries retained.
+See `docs/vps/SSH_WINDOWS_JUAN.md` and
+`scripts/configure-suleia-ssh-juan.ps1` for the client configuration and
+the required actual login check from Juan's session. This chat's connected
+host belongs to another Windows user; it cannot verify Juan's local login.
+Do not copy private keys between PCs or claim the pending client check passed.
+
 ## Handoff format
 
 ```text
