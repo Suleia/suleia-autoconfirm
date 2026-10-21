@@ -1,4 +1,5 @@
 import { collectPaginated, createReadOnlyTransport } from '../../packages/platform-core/src/read-only-transport.mjs';
+import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 
 const GRAPH_HOST = 'graph.facebook.com';
 const CAMPAIGN_FIELDS = 'id,account_id,name,status,effective_status,daily_budget,lifetime_budget,budget_remaining';
@@ -96,6 +97,43 @@ export function createMetaAdsReadClient({
   }
 
   return Object.freeze({
+    configuredAccountId:String(accountId).replace(/^act_/,''),
+    async readAdRankings({since,until}) {
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until||Date.parse(until)-Date.parse(since)>30*86400000)throw new MetaAdsReadError('Invalid ranking period','META_PERIOD_INVALID');
+      const result=await paginated(`act_${accountId}/insights`,{level:'ad',fields:'ad_id,quality_ranking,engagement_rate_ranking,conversion_rate_ranking',time_range:JSON.stringify({since,until}),action_attribution_windows:JSON.stringify(['7d_click','1d_view']),action_report_time:'conversion',limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete rankings','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readActivityHistory({since,until}) {
+      const start=Date.parse(businessDayBounds({businessDate:since}).utc_start),end=Date.parse(businessDayBounds({businessDate:until}).utc_end_exclusive)-1000;
+      if(!Number.isFinite(start)||!Number.isFinite(end)||start>end||end-start>32*86400000)throw new MetaAdsReadError('Invalid activity period','META_PERIOD_INVALID');
+      const result=await paginated(`act_${accountId}/activities`,{fields:'event_time,event_type,object_id,object_name,actor_id,actor_name,application_id,application_name,extra_data',since:Math.floor(start/1000),until:Math.floor(end/1000),limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete activity history','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readAuditDetails(level) {
+      const fields={campaign:'id,name,objective,bid_strategy,daily_budget,lifetime_budget,created_time,updated_time,status,effective_status',adset:'id,campaign_id,name,optimization_goal,bid_strategy,daily_budget,lifetime_budget,created_time,updated_time,status,effective_status,learning_stage_info',ad:'id,campaign_id,adset_id,name,created_time,updated_time,status,effective_status'};
+      if(!fields[level])throw new MetaAdsReadError('Invalid level','META_LEVEL_INVALID');
+      const result=await paginated(`act_${accountId}/${level==='campaign'?'campaigns':level==='adset'?'adsets':'ads'}`,{fields:fields[level],limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete audit inventory','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readAuditRules() {
+      const result=await paginated(`act_${accountId}/adrules_library`,{fields:'id,name,status,execution_spec,evaluation_spec,schedule_spec',limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete rules','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readHourlyTraffic({since,until}) {
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until||Date.parse(until)-Date.parse(since)>30*86400000)throw new MetaAdsReadError('Invalid hourly period','META_PERIOD_INVALID');
+      const result=await paginated(`act_${accountId}/insights`,{level:'campaign',fields:'campaign_id,campaign_name,date_start,date_stop,spend,impressions,inline_link_clicks',time_range:JSON.stringify({since,until}),time_increment:1,breakdowns:'hourly_stats_aggregated_by_advertiser_time_zone',action_attribution_windows:JSON.stringify(['7d_click','1d_view']),action_report_time:'conversion',limit:500});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete hourly traffic','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readHourlyReportedActions({since,until}) {
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until||Date.parse(until)-Date.parse(since)>30*86400000)throw new MetaAdsReadError('Invalid hourly period','META_PERIOD_INVALID');
+      const result=await paginated(`act_${accountId}/insights`,{level:'campaign',fields:'campaign_id,date_start,date_stop,actions,action_values',time_range:JSON.stringify({since,until}),time_increment:1,breakdowns:'hourly_stats_aggregated_by_advertiser_time_zone',action_attribution_windows:JSON.stringify(['7d_click','1d_view']),action_report_time:'conversion',limit:500});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete hourly actions','META_PAGINATION_INCOMPLETE');return result.items;
+    },
     async readCreatives(){
       const result=await paginated(`act_${accountId}/ads`,{fields:'id,creative{id,thumbnail_url,image_url,effective_object_story_id}',limit:100});
       if(!result.complete)throw new MetaAdsReadError('Incomplete creatives','META_PAGINATION_INCOMPLETE');

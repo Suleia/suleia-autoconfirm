@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 export class AdsLedger {
   constructor(pool){this.pool=pool;}
+  async algorithmJournal(){return (await this.pool.query('SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal ORDER BY created_at DESC LIMIT 50')).rows;}
+  async appendAlgorithmJournal({eventType,reference,principal,report}){
+    const id=createHash('sha256').update(`${report.evidenceDigest}:${eventType}:${reference}:${principal}`).digest('hex');
+    const body={eventType,reference,principal,evidenceDigest:report.evidenceDigest,observedAt:report.observedAt,range:report.range,policyVersion:report.policyVersion,mode:'SHADOW',externalWrites:0,narrative:report.narrative,campaign:reference==='ACCOUNT'?null:report.campaigns.find(c=>c.campaignId===reference)};
+    const r=await this.pool.query('INSERT INTO economics.ads_algorithm_journal(id,event_type,reference,body) VALUES($1,$2,$3,$4) ON CONFLICT(id) DO NOTHING RETURNING id',[id,eventType,reference,body]);return {id,eventType,reference,recorded:r.rowCount===1,execution:'REVIEW_ONLY',externalWrites:0};
+  }
   async recommendations(){return (await this.pool.query('SELECT body,state,id FROM economics.ads_recommendations ORDER BY created_at DESC LIMIT 50')).rows.map(r=>({...r.body,id:r.id,state:r.state}));}
   async saveRecommendation({action,principal,accountId}){
     const id=createHash('sha256').update(`${accountId}:${action.id}:${action.observedAt}`).digest('hex').slice(0,24);
