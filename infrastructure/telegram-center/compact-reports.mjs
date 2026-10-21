@@ -17,7 +17,7 @@ export function compactOrders(o,view='today') {
   lines.push(`🕒 Actualizado: ${time(o.observedAt)}\nFuente: Dropea V2 · Europe/Madrid`);
   return {text:lines.join('\n\n'),parseMode:'HTML',navigation:nav};
 }
-export function compactMeta(data,{page=0,view=['diagnosis','improve'].includes(data.focus)?'diagnosis':'summary'}={}) {
+export function compactMeta(data,{page=0,view=data.focus==='improve'?'diagnosis':'summary'}={}) {
   const a=data.analysis,focus=data.focus,isFunnel=focus==='funnel',isOpportunity=focus==='opportunities';
   const opportunityIds=new Set((a.opportunities||[]).map(x=>x.entityId));
   const all=focus==='improve'?(a.improveAds||[]):focus==='top'?(a.topAds||[]):isOpportunity?(a.facts||[]).filter(f=>opportunityIds.has(f.entityId)):(a.facts||[]);

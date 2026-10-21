@@ -2,6 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createAdsGateway,formatAdsResult} from './ads-gateway.mjs';
 import {verifyAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
+
+test('ordinary campaign questions stay compact despite canonical diagnosis focus; detail remains explicit',async()=>{
+ const data={focus:'diagnosis',analysis:{version:3,range:{since:'2026-10-22',until:'2026-10-22'},level:'campaign',facts:Array.from({length:5},(_,i)=>({entityId:String(i),name:'Campaign '+i,delivery:'ACTIVE',roas:5-i,roasStatus:'VALID',spend:30,purchases:6,impressions:2000,linkCtr:2,cpa:5,diagnoses:[{recommendedAction:'Review the offer'}]})),totals:{spend:150,purchases:30,roas:3},observedAt:'2026-10-21T22:28:00Z',actions:[]}};
+ const gateway=createAdsGateway({adsApiUrl:'https://operations.test',botToken:'fixture'},async()=>({ok:true,json:async()=>({ok:true,data})}));
+ const actor={user:'1',chat:'1'};
+ const summary=await gateway.handle('¿Cómo van las campañas hoy?',actor,1);
+ assert.doesNotMatch(summary.text,/CTR:|CPC:|CPA:/);assert.match(summary.text,/Campaign 3/);assert.doesNotMatch(summary.text,/Campaign 4/);
+ assert.equal(summary.navigation.find(b=>b.label==='Ver más →').view,'summary');
+ const diagnosis=summary.navigation.find(b=>b.label==='🔍 Ver diagnóstico');
+ assert.match((await gateway.read(diagnosis.request,actor,diagnosis)).text,/CTR:/);
+ assert.match((await gateway.handle('Analiza las campañas en detalle',actor,2)).text,/CTR:/);
+ assert.match((await gateway.handle('Diagnóstico de las campañas',actor,3)).text,/CTR:/);
+ assert.doesNotMatch((await gateway.handle('Analiza las campañas',actor,4)).text,/CTR:/);
+});
 test('gateway sends one idempotent request to shared service, never Meta',async()=>{
   const requests=[];const gateway=createAdsGateway({adsApiUrl:'https://operations.test/api/internal/ads-intelligence/command',adsApiToken:'test-credential'},async(url,opts)=>{requests.push({url:String(url),opts});return {ok:true,json:async()=>({ok:true,data:{proposal:{state:'CLARIFICATION',question:'Indica periodo'}}})};});
   assert.equal((await gateway.handle('Baja 5 € a las campañas con ROAS inferior a 2',{user:'1',chat:'1'},42)).text,'Indica periodo');
