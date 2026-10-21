@@ -75,7 +75,7 @@ export class CommandCenter {
    if(body.action==='prepare-budget'){
      this.authorize(actor,'propose');
      if(!/^\d+$/.test(body.campaignId||'')||!['increase','decrease'].includes(body.direction)||!Number.isFinite(body.percent)||body.percent<=0||body.percent>this.ads.engine.policy.maxChangePercent||!/^telegram:prepare:[a-f0-9]{16}$/.test(body.requestKey||''))throw Error('QUERY_INVALID');
-     return adsCommand(this.ads,{action:'request',actor,requestKey:body.requestKey,text:`${body.direction==='increase'?'Sube':'Baja'} ${body.percent} % el presupuesto de ${body.campaignId}`});
+     return adsCommand(this.ads,{action:'request',actor,requestKey:body.requestKey,text:`${body.direction==='increase'?'Sube':'Baja'} ${body.percent} % el presupuesto de ${body.campaignId} con ROAS ${body.direction==='increase'?'superior a 10':'inferior a 3'} hoy`});
    }
    if(body.action==='daily-report'||(body.action==='request'&&/\b(?:informe|pdf|imagen del resumen)\b/.test(clean(body.text))&&!/informe ejecutivo|informe matinal/.test(clean(body.text)))) {
      this.authorize(actor,'orders');this.authorize(actor,'ads');

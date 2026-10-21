@@ -1,5 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+test('single-campaign recommendation retains its ROAS guard instead of expanding scope',()=>{
+ const intent=parseAdsIntent('Sube 10 % el presupuesto de 123 con ROAS superior a 10 hoy');
+ assert.equal(intent.selector,'123');assert.equal(intent.filter.threshold,10);assert.equal(intent.period,'hoy');
+ assert.equal(parseAdsIntent('Sube 10 % el presupuesto de 123 y 456 con ROAS superior a 10 hoy').kind,'clarify');
+});
 import { AdsIntelligence } from './intelligence.mjs';
 import { normalizeInsight,windowFor,CONTRACT } from './metrics.mjs';
 import { parseAdsIntent,budgetAfter } from './intent.mjs';

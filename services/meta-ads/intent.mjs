@@ -14,9 +14,10 @@ export function parseAdsIntent(input) {
     const amount = amounts[0], target=/\ba \d+(?:[.,]\d{1,2})?\s*(?:€|euros?)(?: diarios)?$/.test(text), mode = ['pon','fija','establece'].includes(change[1])||target ? 'set' : ['baja','reduce'].includes(change[1]) ? 'decrease' : 'increase';
     if (mode === 'set' && ['%','por ciento'].includes(amount[2])) return {kind:'clarify',question:'Para fijar un presupuesto indica euros, no un porcentaje.'};
     if (filter) {
-      const remainder = text.replace(change[0],'').replace(amount[0],'').replace(filter[0],'').replace(periodMatch?.[0]||'\u0000','');
+      let remainder = text.replace(change[0],'').replace(amount[0],'').replace(filter[0],'').replace(periodMatch?.[0]||'\u0000','');
+      const exact=/\b(?:de|a) (\d+)\b/.exec(remainder);if(exact)remainder=remainder.replace(exact[0],' de campanas ');
       if (!/^(?:\s|el|presupuesto|de|a|las|todas|campanas|activas|que|tengan|un|con)+$/.test(remainder)) return {kind:'clarify',question:'No he podido delimitar el filtro. Indica todas las campañas activas y un único criterio de ROAS.'};
-      return {kind:'budget',mode,value:amount[1].replace(',','.'),unit:['%','por ciento'].includes(amount[2])?'percent':'money',selector:'ALL_ACTIVE',period:period||'hoy',filter:{operator:['superior a','mayor que'].includes(filter[1])?'gt':'lt',threshold:Number(filter[2].replace(',','.'))}};
+      return {kind:'budget',mode,value:amount[1].replace(',','.'),unit:['%','por ciento'].includes(amount[2])?'percent':'money',selector:exact?exact[1]:'ALL_ACTIVE',period:period||'hoy',filter:{operator:['superior a','mayor que'].includes(filter[1])?'gt':'lt',threshold:Number(filter[2].replace(',','.'))}};
     }
     let selector = text.slice(change[0].length).replace(/ diarios$/,'').replace(amount[0],'').replace(/^(?: el presupuesto de | el presupuesto | un | a | de )/,'').trim();
     selector = selector.replace(/^(?:el )?presupuesto (?:de )?/,'').replace(/^(?:a |de |la campana )/,'').replace(/ (?:a|en)$/,'').trim();
