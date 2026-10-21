@@ -33,9 +33,15 @@ theme copy over a changed live theme.
   byte for byte; only the product-guarded style is appended.
 - Public preview HTML contains the added style and no Liquid errors.
 - Live theme files and `updatedAt` (`2026-10-19T11:00:09Z`) remain unchanged.
-- Desktop/mobile visual QA and live application are pending owner approval
-  for the narrow browser exception required by `AGENTS.md`. The connector
-  permits unpublished writes only. No live-write restriction was bypassed.
+- Owner approved the browser exception for CollaGum design and colors only.
+- Desktop preview reviewed at 1536 x 639 and mobile at 390 x 844. Title palette
+  and typography, selected pack, prices and stock panel were visually checked.
+  No horizontal overflow in either view; screenshots remain private locally.
+- Live application is blocked by the Shopify editor remaining completely
+  blank, both by direct link and Online Store > Edit theme. The main admin
+  and product preview load. The connector permits unpublished writes only.
+  No browser settings, cookies, permissions or credentials were changed;
+  no live-write restriction was bypassed. The viewport override was reset.
 
 Full theme/template backups and HTML evidence are private local working files,
 outside Git, in `shopify-theme-work/collagum-premium-20261021`.
