@@ -24,6 +24,41 @@ test('three recommendations maximum, product detail and stale clock disclosure',
  data.analysis.actions=Array.from({length:5},(_,i)=>({entityId:'1',name:'Campaña',action:'Consejo '+i}));data.analysis.cache={status:'STALE'};
  const r=compactMeta(data,{view:'diagnosis'});assert.equal((r.text.match(/Consejo/g)||[]).length,3);assert.match(r.text,/A · B/);assert.match(r.text,/Última instantánea/);assert.match(r.text,/20:28/);
 });
+test('V3 improvement and top views use their canonical ad selections, not the generic ROAS ranking',()=>{
+ const data=report([fact('generic',99,{name:'GENERIC_WINNER'})]);
+ data.analysis.topAds=[fact('top',5,{name:'VERIFIED_TOP'}),fact('paused',8,{name:'PAUSED_TOP',delivery:'PAUSED'})];
+ data.analysis.improveAds=[fact('weak',0.4,{name:'HIGH_SPEND_PROBLEM',spend:90,diagnoses:[{recommendedAction:'Revisar oferta & ficha'}]}),fact('weak2',2,{name:'LOWER_SPEND_PROBLEM',spend:30})];
+ const improve=compactMeta({...data,focus:'improve'});
+ assert.match(improve.text,/ANUNCIOS A MEJORAR/);assert.match(improve.text,/Revisar oferta &amp; ficha/);
+ assert.ok(improve.text.indexOf('HIGH_SPEND_PROBLEM')<improve.text.indexOf('LOWER_SPEND_PROBLEM'));
+ assert.doesNotMatch(improve.text,/GENERIC_WINNER|VERIFIED_TOP/);
+ assert.equal(improve.navigation[0].request.focus,'improve');assert.equal(improve.navigation[0].view,'diagnosis');
+ const top=compactMeta({...data,focus:'top'});
+ assert.match(top.text,/VERIFIED_TOP/);assert.doesNotMatch(top.text,/GENERIC_WINNER|HIGH_SPEND_PROBLEM|PAUSED_TOP/);
+ assert.match(compactMeta({...data,focus:'top',includeInactive:true}).text,/PAUSED_TOP/);
+ assert.doesNotMatch(compactMeta({...data,focus:'top',analysis:{...data.analysis,topAds:[]}}).text,/GENERIC_WINNER/);
+});
+test('V3 funnel retains stage values, missing evidence and the aggregation caveat in compact escaped HTML',()=>{
+ const data=report([fact('generic',99,{name:'GENERIC_WINNER'})]);
+ data.focus='funnel';data.selector='exact-campaign';
+ data.analysis.funnel={stages:[{label:'Checkout <&>',value:123,rate:50},{label:'Compras',value:null,rate:null}],note:'Eventos agregados; no usuarios únicos & sin causalidad.'};
+ const r=compactMeta(data);
+ assert.match(r.text,/EMBUDO DE CONVERSIÓN/);assert.match(r.text,/Checkout &lt;&amp;&gt;: <b>123<\/b> · 50 %/);
+ assert.match(r.text,/Compras: <b>N\/D<\/b>/);assert.match(r.text,/no usuarios únicos &amp; sin causalidad/);
+ assert.doesNotMatch(r.text,/GENERIC_WINNER|Sin campañas activas/);
+ assert.equal(r.navigation[0].request.focus,'funnel');assert.equal(r.navigation[0].request.query.selector,'exact-campaign');
+ const ads=r.navigation.find(b=>b.label==='📈 Ver anuncios');assert.equal(ads.request.focus,'diagnosis');assert.equal(ads.request.query.level,'ad');
+ assert.match(compactMeta({...data,analysis:{...data.analysis,funnel:null}}).text,/Datos insuficientes para reconstruir el embudo/);
+});
+test('V3 opportunity view retains favorable evidence and risk, without substituting an unrelated action',()=>{
+ const data=report([fact('eligible',5),fact('unrelated',9)]);data.focus='opportunities';
+ data.analysis.actions=[{entityId:'eligible',name:'Incidencia',action:'UNRELATED_ACTION'}];
+ data.analysis.opportunities=[{entityId:'eligible',name:'Producto <A>',action:'Validar margen',favorable:'12 compras & muestra estable',risk:'Cobro < ingreso atribuido'}];
+ const r=compactMeta(data);assert.match(r.text,/OPORTUNIDADES A VALIDAR/);
+ assert.match(r.text,/A favor: 12 compras &amp; muestra estable/);assert.match(r.text,/Riesgo: Cobro &lt; ingreso atribuido/);
+ assert.doesNotMatch(r.text,/UNRELATED_ACTION|Campaña unrelated/);assert.equal(r.navigation[0].request.focus,'opportunities');
+ assert.match(compactMeta({...data,analysis:{...data.analysis,opportunities:[]}}).text,/Sin oportunidades verificadas/);
+});
 test('historical order format and confirmation event view use supplied dynamic numbers',()=>{
  const data={received:22,confirmed:17,pending:4,cancelled:1,confirmations:19,coverage:'COMPLETE',freshness:'FRESH',observedAt:new Date(now).toISOString()};
  const r=compactOrders(data);assert.match(r.text,/77,3 %/);assert.match(r.text,/<b>22<\/b>/);assert.match(compactOrders(data,'confirmations').text,/<b>19<\/b>/);
@@ -62,6 +97,15 @@ test('long escaped diagnostic content remains a complete bounded Telegram messag
  const data=report(Array.from({length:4},(_,i)=>fact(String(i),2,{name:'&'.repeat(500),product:{name:'&'.repeat(200),products:Array.from({length:8},()=>({name:'&'.repeat(100)}))},diagnoses:Array.from({length:3},()=>({recommendedAction:'&'.repeat(300)}))})));
  data.analysis.actions=Array.from({length:3},()=>({entityId:'0',name:'&'.repeat(300),action:'&'.repeat(500)}));
  const r=compactMeta(data,{view:'diagnosis'});assert.ok(r.text.length<4096,r.text.length);assert.equal((r.text.match(/<b>/g)||[]).length,(r.text.match(/<\/b>/g)||[]).length);
+});
+test('focused opportunity and funnel content remains bounded and structurally valid with long provider strings',()=>{
+ const data=report(Array.from({length:4},(_,i)=>fact(String(i),2,{name:'&'.repeat(500),product:{name:'&'.repeat(200),products:Array.from({length:8},()=>({name:'&'.repeat(100)}))},diagnoses:[{recommendedAction:'&'.repeat(500)},{recommendedAction:'&'.repeat(500)}]})));
+ data.analysis.opportunities=data.analysis.facts.map(f=>({entityId:f.entityId,name:'&'.repeat(500),action:'&'.repeat(500),favorable:'&'.repeat(500),risk:'&'.repeat(500)}));
+ data.analysis.funnel={stages:Array.from({length:8},()=>({label:'&'.repeat(500),value:1,rate:null})),note:'&'.repeat(1000)};
+ for(const focus of ['opportunities','funnel']){
+  const r=compactMeta({...data,focus},{view:'diagnosis'});assert.ok(r.text.length<4096,`${focus}: ${r.text.length}`);
+  assert.equal((r.text.match(/<b>/g)||[]).length,(r.text.match(/<\/b>/g)||[]).length);assert.doesNotMatch(r.text,/&(?!amp;|lt;|gt;|quot;)/);
+ }
 });
 test('HTML API sends one complete message with parse mode and markup',async()=>{
  const calls=[];const api=createApis({botToken:'fixture'},async(url,options)=>{calls.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true,result:{message_id:4}})};});

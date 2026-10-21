@@ -16,14 +16,6 @@ export function formatAdsResult(data,options={}) {
       'SIMULATION/SHADOW no modifican Meta. Un resultado incierto nunca se reenvía automáticamente.'].join('\n\n');
     return {text,...(p.state==='PENDING'?{markup:{inline_keyboard:[[{text:'CONFIRMAR',callback_data:`confirm:${p.id}`},{text:'CANCELAR',callback_data:`cancel:${p.id}`}]]}}:{})};
   }
-  if(data.analysis?.version===3){const a=data.analysis,scope=data.focus==='improve'?a.improveAds:data.focus==='top'?a.topAds:a.facts.filter(f=>f.source==='META_INSIGHTS').sort((x,y)=>(y.spend||0)-(x.spend||0));
-    return {text:[`Ads Intelligence · ${a.range.since} → ${a.range.until} · ${a.level} · Europe/Madrid${a.range.partial?' · en curso, sin comparación con días completos':''}`,`Actualizado ${a.observedAt} · ${a.quality.attribution}`,`Gasto ${money(a.totals.spend===null?null:a.totals.spend*100)} · Compras ${a.totals.purchases??'no disponibles'} · ROAS ${a.totals.roas===null?'no disponible':a.totals.roas.toFixed(2)}`,
-    ...scope.slice(0,6).map(f=>`${f.name} · ROAS ${f.roas===null?'no disponible':f.roas.toFixed(2)} · ${f.purchases??'N/D'} compras · ${f.status}\n${f.diagnoses.filter(d=>d.severity!=='INFO').map(d=>`${d.probableCause}. ${d.recommendedAction}`).join('\n')||'Sin señal concluyente de deterioro con la muestra disponible.'}`),
-    ...(data.focus==='funnel'?[a.funnel.stages.map(s=>`${s.label}: ${s.value??'N/D'}${s.rate===null?'':` (${s.rate.toFixed(1)} % aprox.)`}`).join(' → '),a.funnel.note]:[]),
-    ...a.actions.slice(0,3).map(x=>`${x.title} · ${x.name}\n${x.evidenceText}\n${x.action} · Confianza ${x.confidence}`),
-    ...(data.focus==='opportunities'?a.opportunities.slice(0,3).map(o=>`${o.name}: ${o.favorable}. ${o.action}. Riesgo: ${o.risk}`):[]),
-    'ROAS Meta ≠ beneficio. Pedidos y costes: NO_ATRIBUIDOS. No se modifica ningún presupuesto.'].join('\n\n')};
-  }
   if(data.analysis){const a=data.analysis;return {text:[`Meta Ads · ${a.range.since} → ${a.range.until} · Europe/Madrid${a.range.partial?' · periodo en curso':''}`,`Fuente Meta · ${a.contract} · consulta ${a.observedAt}`,
     ...a.facts.map(f=>`${f.name} · ID ${f.entityId}\nGasto ${money(f.spend===null?null:f.spend*100)} · Compras ${f.purchases??'no disponibles'} · ROAS ${f.roas??'no disponible'}\nCTR enlace ${f.linkCtr??'no disponible'} · CPC enlace ${money(f.linkCpc===null?null:f.linkCpc*100)}\n${f.diagnoses.map(d=>`${d.code} · ${d.confidence}: ${d.probableCause}. ${d.recommendedAction}`).join('\n')||'Sin señal concluyente con la muestra y referencia disponibles.'}`),
     'ROAS atribuido no equivale a beneficio neto ni a pedidos entregados.'].join('\n\n')};}
