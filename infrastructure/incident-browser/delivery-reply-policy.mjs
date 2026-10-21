@@ -1,0 +1,92 @@
+import {currentCustomerIntent,madridDate,resolutionHash} from '../../autoconfirm/src/workflows/incident-intent-v2.mjs';
+import {isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
+import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
+import {preciseRetrySlot,requestedWindowWithoutDate} from './retry-policy.mjs';
+import {nextBusinessMorning} from './business-day.mjs';
+
+export const NON_DELIVERY_ACK='Hola, no se preocupe y reportamos a la empresa de transporte para que le realicen la entrega. Un saludo';
+const fold=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
+const nonDelivery=t=>/\bno (?:me |nos |le |les )?(?:(?:ha|han|a|an|habia|habian) )?(?:llegado|entregado|recibido|visitado|llamado|traido)\b|\bno (?:me |nos )?(?:ha|han) realizado (?:la |ninguna )?entrega\b|\bno (?:se )?(?:(?:ha|han) )?(?:pasado|presentado|venido)\b|\b(?:no he rechazado|no lo he rechazado|cuando he dicho yo que no)\b/.test(t);
+const explanation=t=>/^(?:estoy|estaba|estare) trabajando[.! ]*$/.test(t)||/^no (?:estaba|me encontraba) en casa[.! ]*$/.test(t);
+const irrelevant=t=>/^(?:hola|buenas tardes|buenos dias|gracias|ok|vale|otro dia o datos|confirmar mi pedido)[.! ]*$/.test(t);
+const wants=t=>/\b(?:lo quiero|quiero (?:el|mi) pedido|quiero recibirlo|entregarmelo|pueden entregar|vuelvan a entregar)\b/.test(t);
+const hasPreference=t=>/\b(?:hoy|manana|tarde|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hora|horas|partir|despues|antes|desde|entre|cualquier dia)\b|\d/.test(t);
+const iso=t=>new Date(t).toISOString();
+
+export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now()}){
+ const block=reason=>({eligible:false,reason});
+ const raw=issue?.raw||issue;
+ if(!['absent','rejected_goods'].includes(incident.incidentType))return block('EXISTING_WORKFLOW_OWNER');
+ if(String(raw?.id)!==String(incident.incidenceId)||String(raw?.order_id)!==String(incident.orderId)||String(order?.orderId)!==String(incident.orderId))return block('IDENTITY_CONFLICT');
+ if(raw.status!=='PENDING'||raw.is_active!==true||raw.resolution_status||!['ERROR','INCIDENCE'].includes(order.status))return block('CURRENT_PENDING_ISSUE_REQUIRED');
+ const base=currentCustomerIntent({incident,order,messages,now});
+ if(base.status==='NOT_VERIFIABLE')return block(base.reason);
+ const created=Date.parse(order.createdAt),anchor=Date.parse(base.notice_at||incident.incidenceDate);
+ const incoming=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)>=Math.max(created,anchor))
+  .sort((a,b)=>messageTimestamp(a)-messageTimestamp(b));
+ const meaningful=incoming.filter(m=>!irrelevant(fold(addressMessageText(m))));
+ if(!meaningful.length)return block('NO_CURRENT_DELIVERY_REPLY');
+ const last=meaningful.at(-1),lastAt=messageTimestamp(last),lastText=addressMessageText(last);
+ if(now-lastAt<3600000)return block('REPLY_SETTLING_WINDOW');
+ if(now-lastAt>=24*3600000)return block('CUSTOMER_REPLY_WINDOW_EXPIRED');
+ if(meaningful.some(m=>/\b(?:no lo quiero|no quiero (?:el|mi) pedido|cancel|devol)/.test(fold(addressMessageText(m)))))return block('CANCELLATION_OR_RETURN_TAKES_PRECEDENCE');
+ // Consecutive details form one reply. Never assemble an old instruction with
+ // a later unrelated answer, or discard an explicit earlier preference.
+ const cluster=meaningful.filter(m=>lastAt-messageTimestamp(m)<=30*60000);
+ const texts=cluster.map(addressMessageText),normalized=texts.map(fold),combined=normalized.join(' ');
+ if(combined.length>1000||/https?:|ignora.*instrucciones|contrase|\btoken\b/.test(combined))return block('UNTRUSTED_OR_LONG_REPLY');
+ if(/\b(?:no lo quiero|ya no|no quiero (?:el|mi) pedido|cancel|devol|anular|rechazo el pedido|no me lo envie)/.test(combined))return block('CANCELLATION_OR_RETURN_TAKES_PRECEDENCE');
+ if(/\b(?:agencia|recoger|recojo|direccion|calle|avenida|postal|piso|puerta)\b/.test(combined))return block('AGENCY_OR_ADDRESS_REQUIRES_EXISTING_OWNER');
+ const lastId=String(last.id||'');
+ if(!/^\d+$/.test(lastId))return block('MESSAGE_IDENTITY_REQUIRED');
+ const identity={orderId:String(order.orderId),issueId:String(raw.id),conversationId:incident.chatbyUserNs,
+  messageId:lastId,messageAt:iso(lastAt),text:lastText,customerName:order.customerName,
+  phone:String(order.customerPhone||'').replace(/\D/g,'').replace(/^34(?=\d{9}$)/,''),
+  evidence:cluster.map(m=>({id:String(m.id),at:iso(messageTimestamp(m)),text:addressMessageText(m)}))};
+ const finish=p=>{const plan={eligible:true,...identity,...p};return {...plan,hash:resolutionHash(plan)};};
+ const clarify=(reason,content)=>finish({kind:'CLARIFY',reason,content});
+ if(/efectivo|dinero|importe|pagar|pago|precio|descuento|euros|tarjeta/.test(combined))return clarify('PAYMENT_OR_PRICE_NEEDS_CONFIRMATION',
+  'Hola, ¿sigue queriendo recibir su pedido? Confírmenos que dispondrá del importe indicado y díganos qué día y en qué franja horaria puede recibirlo. Gracias.');
+ if(/\bo mejor\b|\b(?:quizas?|tal vez|puede que)\b/.test(combined))return clarify('CONTRADICTORY_OR_UNCERTAIN_PREFERENCE',
+  'Hola, para solicitar la entrega correctamente, indíquenos el día y el horario exactos que prefiere. Gracias.');
+ const reportsNonDelivery=normalized.some(nonDelivery);
+ let selected=null,slot=null,recurring=false;
+ for(let n=0;n<texts.length;n++){
+  let t=normalized[n].replace(/(\d)\s*hs?\b/g,'$1 h');
+  if(explanation(t)||irrelevant(t))continue;
+  if(hasPreference(t)){
+   let parsed=preciseRetrySlot(t,messageTimestamp(cluster[n]));
+   const every=/\bcualquier dia(?: de la semana)?\b/.test(t);
+   const clean=t.replace(/\bcualquier dia(?: de la semana)?\b/,'').replace(/\b(?:q|que) es cuando termino\b.*$/,'').trim();
+   const window=requestedWindowWithoutDate(clean);
+   if(parsed.date||window){
+    if(!parsed.date&&window){const next=slot?.date?slot:nextBusinessMorning(now,order);if(!next)return block('BUSINESS_CALENDAR_REQUIRED');parsed={...next,time_window:window};}
+    selected=cluster[n];slot=parsed;recurring=every;
+   }else return clarify('PRECISE_PREFERENCE_NEEDS_CLARIFICATION',
+    'Hola, para respetar su disponibilidad, indíquenos un día y un horario concretos para solicitar la entrega. Gracias.');
+  }else if(!nonDelivery(t)&&!wants(t))return clarify('CUSTOMER_MESSAGE_NEEDS_CLARIFICATION',
+   'Hola, ¿quiere que solicitemos una nueva entrega de su pedido? Si es así, indíquenos el día y la franja horaria en que puede recibirlo. Gracias.');
+ }
+ if(!reportsNonDelivery&&!selected&&!normalized.some(wants))return block('NO_DELIVERY_REQUEST');
+ if(!selected){
+  const earlier=meaningful.filter(m=>!cluster.includes(m));
+  if(earlier.some(m=>hasPreference(fold(addressMessageText(m)))))return clarify('EARLIER_PREFERENCE_REQUIRES_RENEWAL',
+   'Hola, queremos respetar el horario que nos indicó. Confírmenos qué día y franja horaria le vienen bien para solicitar una nueva entrega. Gracias.');
+ }
+ if(slot){
+  const today=madridDate(now),hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Madrid',hour:'2-digit',hourCycle:'h23'}).format(new Date(now)));
+  if(!slot.time_window||slot.date<today||(slot.date===today&&hour>=({morning:14,afternoon:21}[slot.time_window]||0)))return clarify('REQUESTED_DELIVERY_WINDOW_EXPIRED',
+   'Hola, el horario de entrega que nos indicó ya ha pasado o necesita concretarse. ¿Qué nuevo día y franja horaria le vienen bien? Gracias.');
+ }
+ if(!raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION'))return block('PROVIDER_SOLUTION_NOT_ALLOWED');
+ const preference=selected?addressMessageText(selected):null;
+ const note=['El cliente quiere recibir su pedido.',reportsNonDelivery?'Indica que no se ha realizado la entrega o niega haberla rechazado.':null,
+  slot?`Solicita entrega el ${slot.date} por la ${slot.time_window==='morning'?'mañana':'tarde'}.`:null,
+  preference?`Disponibilidad literal del cliente: «${preference}».`:null,
+  recurring?'La disponibilidad indicada es recurrente.':null,
+  'Por favor, gestionar la entrega respetando sus indicaciones.'].filter(Boolean).join(' ');
+ if(note.length>500)return block('SOLUTION_NOTE_TOO_LONG');
+ return finish({kind:'SOLUTION',reason:reportsNonDelivery?'CUSTOMER_REPORTS_NON_DELIVERY':'CUSTOMER_DELIVERY_PREFERENCE',
+  note,acknowledgement:reportsNonDelivery?NON_DELIVERY_ACK:null,date:slot?.date||null,time_window:slot?.time_window||null,
+  preferenceMessageId:selected?String(selected.id):null});
+}

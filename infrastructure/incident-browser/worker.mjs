@@ -21,8 +21,9 @@ export async function loadProviderEnv(){
  }
  process.env.STORE_CONFIG_PATH='/state/worker-stores.json';
  const credentials=JSON.parse(await fs.readFile('/state/provider-env.json','utf8'));
- const allowed=new Set(['SUPABASE_ENABLED','SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_SCHEMA','CHATBY_TOKEN','CHATBY_BASE_URL','DROPEA_STORES_CONFIG']);
+ const allowed=new Set(['SUPABASE_ENABLED','SUPABASE_URL','SUPABASE_SERVICE_ROLE_KEY','SUPABASE_SCHEMA','CHATBY_TOKEN','CHATBY_BASE_URL','DROPEA_STORES_CONFIG','DROPEA_ISSUE_ACTIONS_STORES_CONFIG']);
  for(const c of JSON.parse(credentials.DROPEA_STORES_CONFIG||'[]'))if(/^[A-Z][A-Z0-9_]{2,127}$/.test(c.jwt_secret_reference))allowed.add(c.jwt_secret_reference);
+ for(const c of JSON.parse(credentials.DROPEA_ISSUE_ACTIONS_STORES_CONFIG||'[]'))if(/^[A-Z][A-Z0-9_]{2,127}$/.test(c.jwt_secret_reference))allowed.add(c.jwt_secret_reference);
  for(const [key,value]of Object.entries(credentials))if(allowed.has(key))process.env[key]=String(value);
 }
 
