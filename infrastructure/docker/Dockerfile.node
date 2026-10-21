@@ -37,4 +37,7 @@ COPY scripts/replay-recipient-absent-shadow.mjs ./scripts/replay-recipient-absen
 COPY contracts/external/dropea/public-api-v2/0.1.0 ./contracts/external/dropea/public-api-v2/0.1.0
 COPY packages/platform-core ./packages/platform-core
 COPY packages/suleia-operations-mcp ./packages/suleia-operations-mcp
+# Source archives may be extracted under a private operator umask. Directory
+# modes must allow the existing unprivileged runtime to traverse public code.
+RUN find /app -type d -exec chmod 755 {} +
 USER suleia
