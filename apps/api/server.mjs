@@ -8,6 +8,8 @@ import { timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createAdsRuntime } from '../../services/meta-ads/runtime.mjs';
 import { adsCommand } from '../../services/meta-ads/command-service.mjs';
+import {verifyAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
+import {reviewAds} from '../../services/meta-ads/monitor.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -75,18 +77,19 @@ function limiter(limit) {
   };
 }
 
-async function jsonBody(req, maxBytes = 2048) {
+async function jsonBody(req, maxBytes = 2048, raw = false) {
   const chunks = []; let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
     if (size > maxBytes) throw Object.assign(new Error('payload_too_large'), { status: 413 });
     chunks.push(chunk);
   }
+  if(raw)return Buffer.concat(chunks).toString('utf8');
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); }
   catch { throw Object.assign(new Error('invalid_json'), { status: 400 }); }
 }
 
-export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, adsBridgeToken = '', audit = () => {} }) {
+export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, adsBridgeToken = '', adsBridgeSecret = '', audit = () => {} }) {
   const allowRequest = limiter(config.rateLimitPerMinute);
   const financeCache = new Map();
   const financeInFlight = new Map();
@@ -126,20 +129,23 @@ export function createOperationsServer({ config, repository, authenticate, finan
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, 'http://operations.internal');
     const adsBridge = requestUrl.pathname === '/api/internal/ads-intelligence/command';
+    const adsProposal=requestUrl.pathname==='/api/operations/ads-intelligence/proposals';
     const feedbackMatch = requestUrl.pathname.match(/^\/api\/operations\/incidents\/([^/]+)\/feedback$/);
     const fixedExpenseCreate = requestUrl.pathname === '/api/operations/finance/fixed-expenses';
     const fixedExpenseUpdate = requestUrl.pathname.match(/^\/api\/operations\/finance\/fixed-expenses\/([^/]+)$/);
-    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate)) || (req.method === 'PATCH' && fixedExpenseUpdate);
+    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate || adsProposal)) || (req.method === 'PATCH' && (fixedExpenseUpdate || adsProposal));
     if (req.method !== 'GET' && !internalWrite && !(adsBridge && req.method === 'POST')) return json(res, 405, { ok: false, error: 'method_not_allowed' });
     if (!allowRequest(req)) return json(res, 429, { ok: false, error: 'rate_limited' });
     if(adsBridge){
       const writesForEnvelope=adsRuntime?.engine.mode==='LIVE'?null:0;
       if(req.method!=='POST')return json(res,405,{ok:false,error:'method_not_allowed'});
       const expected=Buffer.from(`Bearer ${adsBridgeToken}`),actual=Buffer.from(req.headers.authorization||'');
-      if(adsBridgeToken.length<32||actual.length!==expected.length||!timingSafeEqual(actual,expected))return json(res,401,{ok:false,error:'unauthorized'});
-      if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
       try{
-        const body=await jsonBody(req,8192);const data=await adsCommand(adsRuntime,body);
+        const raw=await jsonBody(req,8192,true);
+        const legacy=adsBridgeToken.length>=32&&actual.length===expected.length&&timingSafeEqual(actual,expected);
+        if(!legacy&&!verifyAdsBridge(adsBridgeSecret,req.headers['x-suleia-ads-timestamp'],raw,req.headers['x-suleia-ads-signature']))return json(res,401,{ok:false,error:'unauthorized'});
+        if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
+        const body=JSON.parse(raw);const data=await adsCommand(adsRuntime,body);
         audit({event:'ads_command',action:body.action,outcome:'ok',meta_budget_writes:writesForEnvelope});
         return json(res,200,{ok:true,data,meta_budget_writes:writesForEnvelope});
       }catch(error){audit({event:'ads_command_failed',outcome:'blocked',meta_budget_writes:writesForEnvelope});return json(res,error.message==='ACTOR_UNAUTHORIZED'?403:503,{ok:false,error:'ads_command_blocked'});}
@@ -178,7 +184,13 @@ export function createOperationsServer({ config, repository, authenticate, finan
     }
     try {
       let data;
-      if ((req.method === 'POST' && fixedExpenseCreate) || (req.method === 'PATCH' && fixedExpenseUpdate)) {
+      if(adsProposal && ['POST','PATCH'].includes(req.method)){
+        if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
+        const body=await jsonBody(req,4096);
+        data=await adsRuntime.saveRecommendation({query:body.query||{},actionId:body.actionId,id:body.id,state:req.method==='PATCH'?body.state:null,principal:principal.principal_hash});
+        audit({event:'ads_recommendation_review',principal_hash:principal.principal_hash,outcome:'saved',meta_budget_writes:0});
+        return json(res,200,{ok:true,data,meta_budget_writes:0,internal_configuration_writes:1});
+      } else if ((req.method === 'POST' && fixedExpenseCreate) || (req.method === 'PATCH' && fixedExpenseUpdate)) {
         const body = await jsonBody(req, 4096);
         if (financeReportClient && fixedExpenseCreate) data = await financeReportClient.addExpense(body);
         else data = await repository.saveFixedExpense(fixedExpenseUpdate ? decodeURIComponent(fixedExpenseUpdate[1]) : null, body, principal.principal_hash);
@@ -201,7 +213,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         return json(res, 201, { ok: true, data, actions_executed: 0, production_writes: 0, internal_feedback_writes: 1 });
       } else if (requestUrl.pathname === '/api/operations/ads-intelligence') {
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
-        data=await adsRuntime.overview({period:requestUrl.searchParams.get('period')||'7d',level:requestUrl.searchParams.get('level')||'campaign'});
+        data=await adsRuntime.overview(Object.fromEntries(requestUrl.searchParams));
       } else if (requestUrl.pathname === '/api/operations/meta-budget/policy') data = publicMetaBudgetPolicy();
       else if (requestUrl.pathname === '/api/operations/meta-budget/simulation') data = await repository.metaBudgetSimulation(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/meta-budget/history') data = await repository.metaBudgetHistory(requestUrl.searchParams);
@@ -240,10 +252,11 @@ export async function startOperationsServer() {
   const financeReportClient = createFinanceReportClient(config);
   let adsPool=null,adsRuntime=null;
   if(process.env.ADS_INTELLIGENCE_READ_ENABLED==='true'){
-    if(!process.env.ADS_INTELLIGENCE_DATABASE_URL)throw Error('ADS_DATABASE_URL_REQUIRED');
-    const pg=createRequire(new URL('../../packages/suleia-operations-mcp/package.json',import.meta.url))('pg');
-    adsPool=new pg.Pool({connectionString:process.env.ADS_INTELLIGENCE_DATABASE_URL,max:8,statement_timeout:10000,application_name:'suleia-ads-intelligence'});
-    adsRuntime=createAdsRuntime({pool:adsPool});
+    if(process.env.ADS_INTELLIGENCE_DATABASE_URL){
+      const pg=createRequire(new URL('../../packages/suleia-operations-mcp/package.json',import.meta.url))('pg');
+      adsPool=new pg.Pool({connectionString:process.env.ADS_INTELLIGENCE_DATABASE_URL,max:8,statement_timeout:10000,application_name:'suleia-ads-intelligence'});
+    }
+    adsRuntime=createAdsRuntime({pool:adsPool||repository.pool});
   }
   const authenticate = createOperationsAuth({
     issuer: config.oauthIssuer,
@@ -256,11 +269,14 @@ export async function startOperationsServer() {
     repository,
     authenticate,
     financeReportClient,
-    adsRuntime,adsBridgeToken:process.env.ADS_INTELLIGENCE_BRIDGE_TOKEN||'',
+    adsRuntime,adsBridgeToken:process.env.ADS_INTELLIGENCE_BRIDGE_TOKEN||'',adsBridgeSecret:process.env.TELEGRAM_BOT_TOKEN||'',
     audit: (event) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`)
   });
   server.listen(config.port, '0.0.0.0');
-  process.on('SIGTERM', async () => { server.close(); await repository.close(); if(adsPool)await adsPool.end(); });
+  let adsReviewBusy=false;
+  const adsTimer=adsRuntime&&process.env.ADS_INTELLIGENCE_MONITOR_ENABLED==='true'?setInterval(async()=>{if(adsReviewBusy)return;adsReviewBusy=true;try{await reviewAds({runtime:adsRuntime,enabled:true});}catch{process.stdout.write(JSON.stringify({event:'ads_review_failed',meta_budget_writes:0})+'\n');}finally{adsReviewBusy=false;}},30*60*1000):null;
+  adsTimer?.unref();
+  process.on('SIGTERM', async () => { if(adsTimer)clearInterval(adsTimer);server.close(); await repository.close(); if(adsPool)await adsPool.end(); });
   return server;
 }
 

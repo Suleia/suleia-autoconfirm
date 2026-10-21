@@ -54,6 +54,7 @@ export function createMetaAdsReadClient({
     maxRetries
   });
   let readCount = 0;
+  let active=0,usage=null;const waiting=[];
 
   async function getJson(pathOrUrl, parameters = {}) {
     const target = /^https:\/\//.test(pathOrUrl) ? new URL(pathOrUrl) : new URL(pathOrUrl.replace(/^\//, ''), base);
@@ -66,10 +67,13 @@ export function createMetaAdsReadClient({
     for (const [key, value] of Object.entries(parameters)) {
       if (value !== null && value !== undefined) target.searchParams.set(key, String(value));
     }
-    const response = await transport(target, {
+    if(active>=2)await new Promise(resolve=>waiting.push(resolve));else active++;
+    let response;try{response = await transport(target, {
       method: 'GET',
       headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` }
-    });
+    });}finally{const next=waiting.shift();if(next)next();else active--;}
+    const header=response.headers?.get?.('x-ad-account-usage');
+    if(header)try{const parsed=JSON.parse(header);usage={accIdUtilPct:Number(parsed.acc_id_util_pct)||0};}catch{}
     readCount += 1;
     if (!response.ok) {
       throw new MetaAdsReadError(`Meta read failed with HTTP ${response.status}`, `META_HTTP_${response.status}`, response.status);
@@ -92,6 +96,12 @@ export function createMetaAdsReadClient({
   }
 
   return Object.freeze({
+    async readCreatives(){
+      const result=await paginated(`act_${accountId}/ads`,{fields:'id,creative{id,thumbnail_url,image_url,effective_object_story_id}',limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete creatives','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    usage(){return usage;},
     async readCampaigns() {
       const result = await paginated(`act_${accountId}/campaigns`, { fields: CAMPAIGN_FIELDS, limit: 100 });
       if (!result.complete) throw new MetaAdsReadError('Incomplete campaign inventory', 'META_PAGINATION_INCOMPLETE');

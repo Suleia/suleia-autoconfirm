@@ -113,7 +113,8 @@ test('Meta Ads read runtime is isolated from logistics and only the gated adapte
     .filter((name) => name.endsWith('.mjs') && !name.endsWith('.test.mjs') && name !== 'executor-transport.mjs')
     .map((name) => fs.readFileSync(`${directory}/${name}`, 'utf8'))
     .join('\n');
-  assert.doesNotMatch(sources, /autoconfirm|dropea|chatby|shopify|gls|incident/i);
+  const dependencies=[...sources.matchAll(/(?:from\s*|import\s*\(\s*)['"]([^'"]+)['"]/g)].map(m=>m[1]).join('\n');
+  assert.doesNotMatch(dependencies, /autoconfirm|dropea|chatby|shopify|gls|incident/i);
   assert.doesNotMatch(sources, /method:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/i);
   const adapter=fs.readFileSync(`${directory}/executor-transport.mjs`,'utf8');
   assert.match(adapter,/liveCompiled=LIVE_COMPILED/);

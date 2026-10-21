@@ -12,9 +12,16 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
   const pool=new pg.Pool({host:'/var/run/postgresql',database:'ads_v2_test',user:'postgres',max:6});
   try{
     assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name,'ads_v2_test');
-    await pool.query('CREATE SCHEMA economics; CREATE SCHEMA read_models; CREATE ROLE suleia_operations_readonly NOLOGIN; CREATE ROLE suleia_backup NOLOGIN; CREATE ROLE suleia_ingestion NOLOGIN;');
+    await pool.query('CREATE SCHEMA economics; CREATE SCHEMA read_models; CREATE ROLE suleia_operations_readonly NOLOGIN; CREATE ROLE suleia_backup NOLOGIN; CREATE ROLE suleia_ingestion NOLOGIN; CREATE ROLE suleia_api_login NOLOGIN;');
     await pool.query(fs.readFileSync(new URL('../../migrations/054_ads_intelligence.sql',import.meta.url),'utf8'));
+    await pool.query(fs.readFileSync(new URL('../../migrations/055_ads_intelligence_v3.sql',import.meta.url),'utf8'));
     const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
+    const action={id:'fixture',observedAt:'2026-10-21T09:00:00Z',title:'Review',evidence:{current:1}};
+    const recommendations=await Promise.all([a.saveRecommendation({action,principal:'hash',accountId:'9'}),b.saveRecommendation({action,principal:'hash',accountId:'9'})]);assert.equal(recommendations[0].id,recommendations[1].id);
+    const reviewed=await a.reviewRecommendation({id:recommendations[0].id,principal:'hash',state:'APPROVED_FOR_REVIEW'});assert.equal(reviewed.state,'APPROVED_FOR_REVIEW');assert.equal((await b.reviewRecommendation({id:reviewed.id,principal:'hash2',state:'DISMISSED'})).state,'APPROVED_FOR_REVIEW');
+    assert.equal((await a.recommendations()).length,1);assert.equal(await a.claimDigest('day',{count:1}),true);assert.equal(await b.claimDigest('day',{count:1}),false);await a.finishDigest('day','UNKNOWN');
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_api_login','economics.ads_recommendations','INSERT') AS allowed")).rows[0].allowed,true);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.ads_recommendations','INSERT') AS allowed")).rows[0].allowed,false);
     const saved=await Promise.all([a.createProposal(p),b.createProposal({...p,id:'1123456789abcdef'})]);assert.equal(saved[0].id,saved[1].id);const id=saved[0].id;
     assert.equal((await Promise.all([a.claimProposal(id),b.claimProposal(id)])).filter(Boolean).length,1);
     await a.withCampaignLock('9:11',async tx=>{
