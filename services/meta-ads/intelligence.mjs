@@ -4,7 +4,7 @@ import { budgetAfter, parseAdsIntent } from './intent.mjs';
 import { diagnose } from './diagnostics.mjs';
 const hash = x => createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const match = (name, selector) => name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().includes(selector.toLowerCase());
-export const LIVE_COMPILED = false; // Phase F requires a separate reviewed release.
+export const LIVE_COMPILED = true; // Owner-authorized budget-only release; runtime gates remain mandatory.
 
 export class AdsIntelligence {
   constructor({ reader, ledger, policy, allowedActors, accountId, mode='SIMULATION', now=()=>Date.now(), writer=null, liveCompiled=LIVE_COMPILED }) {
@@ -32,7 +32,8 @@ export class AdsIntelligence {
   policyReasons(campaign,metric,intent,inventory) {
     const p=this.policy,reasons=[];
     if (String(campaign.account_id)!==this.accountId) reasons.push('ACCOUNT_MISMATCH');
-    if(this.mode==='LIVE'&&!p.liveCampaignIds?.includes(String(campaign.id)))reasons.push('LIVE_CANARY_ONLY');
+    if(this.mode==='LIVE'&&!p.liveAccountBudgets&&!p.liveCampaignIds?.includes(String(campaign.id)))reasons.push('LIVE_CANARY_ONLY');
+    if(this.mode==='LIVE'&&(!Number.isSafeInteger(p.maxAggregateIncreaseCents)||p.maxAggregateIncreaseCents<=0||!Number.isFinite(p.campaignCooldownMs)||p.campaignCooldownMs<86400000))reasons.push('ACCUMULATION_POLICY_NOT_CONFIGURED');
     if (campaign.status!=='ACTIVE'||campaign.effective_status!=='ACTIVE') reasons.push('CAMPAIGN_INACTIVE');
     if (!inventory.ads.some(a=>String(a.campaign_id)===String(campaign.id)&&a.status==='ACTIVE'&&a.effective_status==='ACTIVE')) reasons.push('NO_ELIGIBLE_AD');
     if (!Number.isSafeInteger(Number(campaign.daily_budget))||Number(campaign.daily_budget)<=0||Number(campaign.lifetime_budget)>0) reasons.push('CAMPAIGN_DAILY_BUDGET_REQUIRED');
@@ -74,6 +75,10 @@ export class AdsIntelligence {
     const items=[];
     for(const c of selected){const metric=metrics.get(String(c.id))||null,decision=this.policyReasons(c,metric,intent,inventory),learning=this.learningAssessment?await this.learningAssessment(c):null;
       items.push({campaignId:String(c.id),name:c.name,before:c.daily_budget===null||c.daily_budget===undefined?null:Number(c.daily_budget),after:decision.after,reasons:[...new Set([...decision.reasons,...(learning?.reasons||[])])],learning,metric,status:'PENDING'});}
+    let usage=null;if(this.ledger.budgetUsage)usage=await this.ledger.budgetUsage(this.accountId,this.now(),this.policy.campaignCooldownMs||86400000);
+    if(usage){for(const item of items)if(usage.changedCampaignIds.includes(item.campaignId))item.reasons.push('CAMPAIGN_COOLDOWN');
+      const increase=items.filter(i=>!i.reasons.length).reduce((s,i)=>s+Math.max(0,i.after-i.before),0);
+      if(increase+usage.increaseCents>this.policy.maxAggregateIncreaseCents)for(const i of items)if(!i.reasons.length)i.reasons.push('AGGREGATE_DAILY_LIMIT');}
     const id=randomBytes(8).toString('hex');
     const p={id,requestKey:key,requestHash:hash(text),actor,request:text,intent,accountId:this.accountId,contract:CONTRACT,mode:this.mode,state:'PENDING',createdAt:this.now(),expiresAt:this.now()+300000,policyHash:hash(this.policy),inventoryCount:inventory.campaigns.length,selectedCount:selected.length,items};
     const saved=await this.ledger.createProposal(p);
@@ -81,6 +86,12 @@ export class AdsIntelligence {
     return saved;
   }
   async confirm({id,actor}) {
+    this.authorize(actor);
+    if(this.mode!=='LIVE')return this.confirmLocked({id,actor});
+    if(!this.liveCompiled||!this.writer||!this.ledger.withAccountBudgetLock||!this.ledger.budgetUsage)throw Error('LIVE_NOT_AUTHORIZED');
+    return this.ledger.withAccountBudgetLock(this.accountId,()=>this.confirmLocked({id,actor}));
+  }
+  async confirmLocked({id,actor}) {
     this.authorize(actor);
     let p=await this.ledger.get(id);if (!p||p.actor.user!==actor.user||p.actor.chat!==actor.chat) throw Error('PROPOSAL_NOT_AUTHORIZED');
     if (p.state!=='PENDING') return p;
@@ -104,6 +115,8 @@ export class AdsIntelligence {
           // than carrying yesterday's selection into a new day.
           if (p.intent.filter&&hash({since:metric.since,until:metric.until,spend:metric.spend,purchases:metric.purchases,value:metric.purchaseValue})!==hash({since:item.metric.since,until:item.metric.until,spend:item.metric.spend,purchases:item.metric.purchases,value:item.metric.purchaseValue})) {await tx.record(id,item.campaignId,{state:'STALE',reasons:['METRIC_CHANGED']});return;}
           if (this.mode!=='LIVE') {await tx.record(id,item.campaignId,{state:'SIMULATED',before:item.before,after:item.after,metric,mode:this.mode,externalWrites:0});return;}
+          const usage=await this.ledger.budgetUsage(this.accountId,this.now(),this.policy.campaignCooldownMs);
+          if(usage.changedCampaignIds.includes(item.campaignId)||usage.increaseCents+Math.max(0,item.after-item.before)>this.policy.maxAggregateIncreaseCents){await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:[usage.changedCampaignIds.includes(item.campaignId)?'CAMPAIGN_COOLDOWN':'AGGREGATE_DAILY_LIMIT']});return;}
           // Durable intent must precede the only mutating call. Crash/timeout
           // remains UNKNOWN/EXECUTING and requires read-only reconciliation.
           if (!await tx.claimOperation(id,item.campaignId,this.accountId)) return;

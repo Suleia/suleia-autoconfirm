@@ -5,7 +5,7 @@ export async function adsCommand(runtime,body) {
   const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};runtime.engine.authorize(actor);
   if(body.action==='inventory')return {inventory:await runtime.engine.inventory()};
   if(body.action==='history')return {history:(await runtime.ledger.history()).filter(p=>p.actor.user===actor.user)};
-  if(body.action==='status')return {text:`Ads Intelligence · ${runtime.engine.mode} · ${runtime.engine.mode==='LIVE'?'Canary limitado a la campaña autorizada':'LIVE desactivado'}. Confirmación por operación. Límites: ${runtime.engine.policy.maxBudgetCents/100} EUR/día y ${runtime.engine.policy.maxChangePercent}% de cambio.`};
+  if(body.action==='status')return {text:`Ads Intelligence · ${runtime.engine.mode} · ${runtime.engine.mode==='LIVE'?'Presupuestos con confirmación humana':'LIVE desactivado'}. Límites: ${runtime.engine.policy.maxBudgetCents/100} EUR/día por campaña y ${runtime.engine.policy.maxChangePercent}% por cambio. Aumento agregado: ${runtime.engine.policy.maxAggregateIncreaseCents/100} EUR/día; intervalo por campaña: ${runtime.engine.policy.campaignCooldownMs/3600000} h. Las protecciones pueden bloquear propuestas; no hay ejecución automática.`};
   if(body.action==='analyze')return {analysis:await runtime.overview(body.query)};
   if(body.action==='request'){
     const reply=String(body.text||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase();

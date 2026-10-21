@@ -1,6 +1,6 @@
 const clean = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/^[¿?¡!]+|[¿?¡!.,]+$/g,'').replace(/\s+/g,' ').trim();
 export function parseAdsIntent(input) {
-  const text = clean(input);
+  const text = clean(input).replace(/roas\s*\+\s*(\d)/g,'roas superior a $1').replace(/roas\s*-\s*(\d)/g,'roas inferior a $1');
   const periodMatch = /\b(hoy|ayer|ultimos (?:3|tres|7|siete|30|treinta) dias)\b/.exec(text);
   const period = periodMatch ? ({ 'ultimos tres dias':'3d','ultimos 3 dias':'3d','ultimos siete dias':'7d','ultimos 7 dias':'7d','ultimos treinta dias':'30d','ultimos 30 dias':'30d' }[periodMatch[1]] || periodMatch[1]) : null;
   if(!/^(sube|aumenta|baja|reduce|pon|fija|establece)\b/.test(text)&&/bloques|algoritmo|distribuyendo|estables|estabilidad|volatil|escalarias|escalar manana|plan de presupuestos|ultima vez|ultima subida|despues de|conviene (?:bajar|subir|mantener)|perjudicado|preparada para escalar|ha subido el cpm|fatigando|informe matinal/.test(text))return {kind:'algorithm',period:'30d',question:text};
@@ -14,10 +14,10 @@ export function parseAdsIntent(input) {
     const amount = amounts[0], target=/\ba \d+(?:[.,]\d{1,2})?\s*(?:€|euros?)(?: diarios)?$/.test(text), mode = ['pon','fija','establece'].includes(change[1])||target ? 'set' : ['baja','reduce'].includes(change[1]) ? 'decrease' : 'increase';
     if (mode === 'set' && ['%','por ciento'].includes(amount[2])) return {kind:'clarify',question:'Para fijar un presupuesto indica euros, no un porcentaje.'};
     if (filter) {
-      if (!period) return {kind:'clarify',question:'¿Qué periodo de ROAS quieres usar: hoy, ayer, 3, 7 o 30 días completos?'};
-      const remainder = text.replace(change[0],'').replace(amount[0],'').replace(filter[0],'').replace(periodMatch[0],'');
+      let remainder = text.replace(change[0],'').replace(amount[0],'').replace(filter[0],'').replace(periodMatch?.[0]||'\u0000','');
+      const exact=/\b(?:de|a) (\d+)\b/.exec(remainder);if(exact)remainder=remainder.replace(exact[0],' de campanas ');
       if (!/^(?:\s|el|presupuesto|de|a|las|todas|campanas|activas|que|tengan|un|con)+$/.test(remainder)) return {kind:'clarify',question:'No he podido delimitar el filtro. Indica todas las campañas activas y un único criterio de ROAS.'};
-      return {kind:'budget',mode,value:amount[1].replace(',','.'),unit:['%','por ciento'].includes(amount[2])?'percent':'money',selector:'ALL_ACTIVE',period,filter:{operator:['superior a','mayor que'].includes(filter[1])?'gt':'lt',threshold:Number(filter[2].replace(',','.'))}};
+      return {kind:'budget',mode,value:amount[1].replace(',','.'),unit:['%','por ciento'].includes(amount[2])?'percent':'money',selector:exact?exact[1]:'ALL_ACTIVE',period:period||'hoy',filter:{operator:['superior a','mayor que'].includes(filter[1])?'gt':'lt',threshold:Number(filter[2].replace(',','.'))}};
     }
     let selector = text.slice(change[0].length).replace(/ diarios$/,'').replace(amount[0],'').replace(/^(?: el presupuesto de | el presupuesto | un | a | de )/,'').trim();
     selector = selector.replace(/^(?:el )?presupuesto (?:de )?/,'').replace(/^(?:a |de |la campana )/,'').replace(/ (?:a|en)$/,'').trim();

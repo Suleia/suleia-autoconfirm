@@ -12,6 +12,8 @@ import {createAlgorithmOperationsReader} from './algorithm-operations.mjs';
 export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrders=null,readOperations=null}) {
   if(env.ADS_INTELLIGENCE_READ_ENABLED!=='true')return null;
   const mode=env.ADS_INTELLIGENCE_MODE||'SIMULATION',writes=env.ADS_INTELLIGENCE_WRITES_ENABLED==='true';
+  const liveAccountBudgets=env.ADS_LIVE_ACCOUNT_BUDGETS_ENABLED==='true';
+  if(mode==='LIVE'&&(env.ADS_LIVE_BUDGETS_AUTHORIZED!=='true'||!Number.isFinite(Number(env.ADS_MAX_AGGREGATE_INCREASE_EUR))||Number(env.ADS_MAX_AGGREGATE_INCREASE_EUR)<=0||!Number.isFinite(Number(env.ADS_CAMPAIGN_COOLDOWN_HOURS))||Number(env.ADS_CAMPAIGN_COOLDOWN_HOURS)<24||![env.ADS_MIN_SPEND_EUR,env.ADS_MIN_PURCHASES,env.ADS_MIN_IMPRESSIONS].every(x=>Number.isFinite(Number(x))&&Number(x)>0)))throw Error('LIVE_NOT_AUTHORIZED');
   if(env.META_WRITES_ENABLED==='true'||((writes||mode==='LIVE')&&(!LIVE_COMPILED||mode!=='LIVE'||!writes)))throw Error('LIVE_NOT_AUTHORIZED');
   const getNumber=(name)=>env[name]===undefined||String(env[name]).trim()===''?null:Number(env[name]);
   const reader=createMetaAdsReadClient({accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID||'').replace(/^act_/,''),apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',fetchImpl});
@@ -20,11 +22,11 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   const storedLedger=new AdsLedger(pool);
   const ledger=reportReadOnly?new Proxy(storedLedger,{get(target,key){if(writesBlocked.has(key))return async()=>{throw Error('ADS_REPORT_READ_ONLY');};const value=target[key];return typeof value==='function'?value.bind(target):value;}}):storedLedger;
   const liveCampaignIds=String(env.ADS_LIVE_CANARY_CAMPAIGN_ID||'').split(',').filter(Boolean);
-  const writer=mode==='LIVE'?createMetaBudgetTransport({reader,accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID).replace(/^act_/,''),accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',allowedCampaignIds:liveCampaignIds,mode,writesEnabled:writes}):null;
+  const writer=mode==='LIVE'?createMetaBudgetTransport({reader,accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID).replace(/^act_/,''),accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',allowedCampaignIds:liveCampaignIds,accountBudgetsAuthorized:liveAccountBudgets,mode,writesEnabled:writes}):null;
   const engine=new AdsIntelligence({reader,ledger,accountId:env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID,
     allowedActors:String(env.TELEGRAM_ALLOWED_USER_IDS||'').split(',').filter(x=>/^\d+$/.test(x)),mode,writer,
     policy:{maxBudgetCents:env.META_MAX_DAILY_BUDGET_EUR?Math.round(Number(env.META_MAX_DAILY_BUDGET_EUR)*100):null,maxChangePercent:getNumber('META_MAX_BUDGET_CHANGE_PERCENT'),minBudgetCents:1,maxAgeMs:120000,
-      minSpend:getNumber('ADS_MIN_SPEND_EUR'),minPurchases:getNumber('ADS_MIN_PURCHASES'),minImpressions:getNumber('ADS_MIN_IMPRESSIONS'),minFunnelEvents:getNumber('ADS_MIN_FUNNEL_EVENTS'),liveCampaignIds}});
+      minSpend:getNumber('ADS_MIN_SPEND_EUR'),minPurchases:getNumber('ADS_MIN_PURCHASES'),minImpressions:getNumber('ADS_MIN_IMPRESSIONS'),minFunnelEvents:getNumber('ADS_MIN_FUNNEL_EVENTS'),liveCampaignIds,liveAccountBudgets,maxAggregateIncreaseCents:Number.isFinite(getNumber('ADS_MAX_AGGREGATE_INCREASE_EUR'))?Math.round(getNumber('ADS_MAX_AGGREGATE_INCREASE_EUR')*100):null,campaignCooldownMs:(getNumber('ADS_CAMPAIGN_COOLDOWN_HOURS')||24)*3600000}});
   const cache=new Map(),inFlight=new Map();let algorithmCache=null,algorithmTask=null;
   const productMappings=JSON.parse(env.ADS_VERIFIED_PRODUCT_LINKS_JSON||'[]');
   if(!Array.isArray(productMappings))throw Error('PRODUCT_LINKS_INVALID');
@@ -71,7 +73,8 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     }
     const value=assembleReport({...base.value.dataset,productMappings,selector,filters:{level,campaignId,adsetId,adId}});
     stale ||= Date.now()-Date.parse(value.observedAt)>=120000;
-    return {...value,reportReadOnly,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt,status:stale?'STALE':'FRESH'}};
+    const budgetCandidates=level==='campaign'&&!stale?(value.facts||[]).filter(f=>f.delivery==='ACTIVE'&&f.roasStatus==='VALID'&&f.spend>=engine.policy.minSpend&&f.purchases>=engine.policy.minPurchases&&f.impressions>=engine.policy.minImpressions&&(f.roas>10||f.roas<3)).slice(0,3).map(f=>({campaignId:f.campaignId||f.entityId,name:f.name,direction:f.roas>10?'increase':'decrease',percent:Math.min(10,engine.policy.maxChangePercent),roas:f.roas})):[];
+    return {...value,budgetCandidates,reportReadOnly,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt,status:stale?'STALE':'FRESH'}};
   },async saveRecommendation({query,actionId,principal,id,state}){
     if(state)return ledger.reviewRecommendation({id,principal,state});
     const report=await this.overview(query),action=report.actions.find(a=>a.id===actionId);
@@ -80,7 +83,12 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   }};
   engine.learningAssessment=async(campaign)=>{
     if(env.ADS_ALGORITHM_ENABLED!=='true')return {reasons:['LEARNING_EVIDENCE_NOT_ENABLED'],policy:learningPolicy};
-    const report=await runtime.algorithm();return report.campaigns.find(c=>c.campaignId===String(campaign.id))||{reasons:['LEARNING_EVIDENCE_MISSING'],policy:learningPolicy};
+    if(algorithmCache&&Date.now()-Date.parse(algorithmCache.report.observedAt)>=engine.policy.maxAgeMs)algorithmCache=null;
+    const report=await runtime.algorithm(),assessment=report.campaigns.find(c=>c.campaignId===String(campaign.id));
+    if(!assessment)return {reasons:['LEARNING_EVIDENCE_MISSING'],policy:learningPolicy};
+    // Explicit, confirmed budget instructions do not assert profitability.
+    // Keep the diagnostic abstention and every operational learning protection.
+    return {...assessment,reasons:assessment.reasons.filter(r=>r!=='VERIFIED_ECONOMICS_MISSING'),warnings:assessment.reasons.includes('VERIFIED_ECONOMICS_MISSING')?['Margen y ROAS de equilibrio no acreditados; este cambio no implica rentabilidad.']:[]};
   };
   return runtime;
 }

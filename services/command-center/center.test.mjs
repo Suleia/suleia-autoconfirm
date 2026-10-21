@@ -22,6 +22,22 @@ function fixture(options={}) {
  return {c,request,ads,repository,ledger,history,context,report,setNow:n=>now=n,get reads(){return reads;},get proposals(){return proposals;},get confirmations(){return confirmations;}};
 }
 
+test('report snapshot excludes private proposals, scopes audit by actor and includes prior period without claiming equal elapsed time',async()=>{
+ const f=fixture({orderReader:{get:async spec=>({received:3,period:spec})}});
+ let auditArgs;f.ads.ledger.reportHistory=async(...args)=>{auditArgs=args;return [];};
+ const original=f.ads.overview;f.ads.overview=async q=>({...await original(q),proposals:[{request:'DO_NOT_LEAK'}]});
+ const r=await f.request('Dame el informe de hoy en PDF');
+ assert.equal(r.format,'pdf');assert.equal(r.report.orders.received,3);assert.equal(r.report.previousOrders.period.from,'2026-10-20');
+ assert.equal(auditArgs[0],'1');assert.match(r.report.comparisonNote,/completo/);assert.ok(!JSON.stringify(r).includes('DO_NOT_LEAK'));
+ await assert.rejects(f.c.command({action:'daily-report',actor:{user:'2',chat:'1'}}),/ACTOR_UNAUTHORIZED/);
+});
+
+test('prepare button never confirms and rejects oversized or unbound changes',async()=>{
+ const f=fixture(),base={action:'prepare-budget',actor:{user:'1',chat:'1'},campaignId:'123',direction:'increase',percent:10,requestKey:'telegram:prepare:0123456789abcdef'};
+ await f.c.command(base);assert.equal(f.proposals,1);assert.equal(f.confirmations,0);
+ for(const changes of [{percent:11},{requestKey:'unsafe'},{campaignId:'ambiguous'}])await assert.rejects(f.c.command({...base,...changes}),/QUERY_INVALID/);
+});
+
 for(const [text,tool] of [['¿Cómo va Suleia hoy?','executive'],['¿Qué está fallando?','executive'],['¿Por qué tenemos pocas ventas?','executive'],['Analiza todas las campañas','ads'],['¿Qué producto deja más beneficio?','finance'],['¿Qué incidencias necesitan atención?','incidents'],['Consulta pedido ES1234567','orders'],['Consulta pedido #3136','orders'],['Salud de servicios','health'],['Consulta Trendtrack','commercial'],['¿Cuál es el peor anuncio?','ads'],['¿Cómo va NIDA?','ads']])test('Spanish tool routing: '+text,()=>assert.equal(parseBusiness(text).tool,tool));
 
 test('context is per actor, expires and only supports read follow-ups',async()=>{

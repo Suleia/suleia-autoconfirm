@@ -31,6 +31,16 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_api_login','economics.command_decisions','UPDATE') OR has_table_privilege('suleia_api_login','economics.command_decisions','DELETE') AS allowed")).rows[0].allowed,false);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.command_context','SELECT') AS allowed")).rows[0].allowed,false);
     const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
+    const reserved={...p,id:'fedcba9876543210',requestKey:'aggregate:fixture',accountId:'888',actor:{user:'42',chat:'42'},items:[{campaignId:'88',before:5000,after:5500}]};
+    await a.createProposal(reserved);
+    await a.withAccountBudgetLock('888',async()=>{
+      await assert.rejects(b.withAccountBudgetLock('888',async()=>{}),/ACCOUNT_BUDGET_BUSY/);
+      await a.withCampaignLock('888:88',async tx=>assert.equal(await tx.claimOperation(reserved.id,'88','888'),true));
+      assert.deepEqual(await b.budgetUsage('888',Date.now()),{increaseCents:500,changedCampaignIds:['88']});
+    });
+    await b.withAccountBudgetLock('888',async()=>{});
+    const begin=new Date(Date.now()-60000).toISOString(),end=new Date(Date.now()+60000).toISOString();
+    assert.equal((await a.reportHistory('42',begin,end)).length,1);assert.equal((await a.reportHistory('43',begin,end)).length,0);
     const report={evidenceDigest:'fixture-digest',observedAt:new Date().toISOString(),range:{since:'2026-10-01',until:'2026-10-20'},policyVersion:'meta-learning-v4.1',narrative:[],campaigns:[]};
     const journal=await Promise.all([a.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report}),b.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report})]);assert.equal(journal.filter(j=>j.recorded).length,1);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_algorithm_journal','INSERT') AS allowed")).rows[0].allowed,true);
