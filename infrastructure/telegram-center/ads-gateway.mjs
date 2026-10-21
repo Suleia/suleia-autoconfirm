@@ -1,5 +1,7 @@
 const reasons={MAX_BUDGET:'supera el presupuesto máximo',MAX_CHANGE_PERCENT:'supera el porcentaje de cambio permitido',MIN_BUDGET:'inferior al mínimo permitido',CAMPAIGN_INACTIVE:'campaña inactiva',NO_ELIGIBLE_AD:'sin anuncio activo elegible',CAMPAIGN_DAILY_BUDGET_REQUIRED:'el presupuesto no es diario a nivel campaña',AUTOMATION_CONFLICT:'posible conflicto con regla automática',SAMPLE_POLICY_NOT_CONFIGURED:'mínimos de muestra pendientes de configurar',INSUFFICIENT_SAMPLE:'muestra insuficiente',ROAS_FILTER_NOT_MET:'no cumple el filtro de ROAS',ROAS_MISSING:'ROAS ausente',ROAS_AMBIGUOUS:'ROAS ambiguo',ROAS_ZERO_SPEND:'gasto cero',METRIC_CHANGED:'las métricas han cambiado; prepara una propuesta nueva',REVALIDATION_FAILED:'la revalidación ha rechazado el cambio',EXPIRED:'confirmación caducada',PROVIDER_RESULT_UNKNOWN:'resultado incierto; requiere reconciliación sin reenvío',UNRESOLVED_OPERATION:'hay una operación sin reconciliar',CIRCUIT_OPEN:'ejecutor temporalmente bloqueado por errores'};
+import {createHmac} from 'node:crypto';
 const money=c=>Number.isFinite(c)?`${(c/100).toFixed(2)} €`:'no disponible';
+export function signAdsBridge(secret,timestamp,body){return createHmac('sha256',createHmac('sha256',secret).update('suleia:ads-bridge:v3').digest()).update(`${timestamp}.${body}`).digest('hex');}
 export function formatAdsResult(data) {
   const p=data.proposal;
   if(p){
@@ -8,6 +10,14 @@ export function formatAdsResult(data) {
       ...p.items.map(i=>`${i.name} · ID ${i.campaignId}\n${money(i.before)} → ${money(i.after)}/día\nROAS ${i.metric?.roas??'no disponible'} · Gasto ${money(i.metric?.spend===null?null:i.metric?.spend*100)} · Compras ${i.metric?.purchases??'no disponibles'}\n${i.result?`${i.result.state}: ${(i.result.reasons||[]).map(r=>reasons[r]||r).join('; ')}`:i.reasons.length?`Bloqueada: ${i.reasons.map(r=>reasons[r]||r).join('; ')}`:'Elegible para simulación confirmada'}`),
       'SIMULATION/SHADOW no modifican Meta. Un resultado incierto nunca se reenvía automáticamente.'].join('\n\n');
     return {text,...(p.state==='PENDING'?{markup:{inline_keyboard:[[{text:'CONFIRMAR',callback_data:`confirm:${p.id}`},{text:'CANCELAR',callback_data:`cancel:${p.id}`}]]}}:{})};
+  }
+  if(data.analysis?.version===3){const a=data.analysis,scope=data.focus==='improve'?a.improveAds:data.focus==='top'?a.topAds:a.facts.filter(f=>f.source==='META_INSIGHTS').sort((x,y)=>(y.spend||0)-(x.spend||0));
+    return {text:[`Ads Intelligence · ${a.range.since} → ${a.range.until} · ${a.level} · Europe/Madrid${a.range.partial?' · en curso, sin comparación con días completos':''}`,`Actualizado ${a.observedAt} · ${a.quality.attribution}`,`Gasto ${money(a.totals.spend===null?null:a.totals.spend*100)} · Compras ${a.totals.purchases??'no disponibles'} · ROAS ${a.totals.roas===null?'no disponible':a.totals.roas.toFixed(2)}`,
+    ...scope.slice(0,6).map(f=>`${f.name} · ROAS ${f.roas===null?'no disponible':f.roas.toFixed(2)} · ${f.purchases??'N/D'} compras · ${f.status}\n${f.diagnoses.filter(d=>d.severity!=='INFO').map(d=>`${d.probableCause}. ${d.recommendedAction}`).join('\n')||'Sin señal concluyente de deterioro con la muestra disponible.'}`),
+    ...(data.focus==='funnel'?[a.funnel.stages.map(s=>`${s.label}: ${s.value??'N/D'}${s.rate===null?'':` (${s.rate.toFixed(1)} % aprox.)`}`).join(' → '),a.funnel.note]:[]),
+    ...a.actions.slice(0,3).map(x=>`${x.title} · ${x.name}\n${x.evidenceText}\n${x.action} · Confianza ${x.confidence}`),
+    ...(data.focus==='opportunities'?a.opportunities.slice(0,3).map(o=>`${o.name}: ${o.favorable}. ${o.action}. Riesgo: ${o.risk}`):[]),
+    'ROAS Meta ≠ beneficio. Pedidos y costes: NO_ATRIBUIDOS. No se modifica ningún presupuesto.'].join('\n\n')};
   }
   if(data.analysis){const a=data.analysis;return {text:[`Meta Ads · ${a.range.since} → ${a.range.until} · Europe/Madrid${a.range.partial?' · periodo en curso':''}`,`Fuente Meta · ${a.contract} · consulta ${a.observedAt}`,
     ...a.facts.map(f=>`${f.name} · ID ${f.entityId}\nGasto ${money(f.spend===null?null:f.spend*100)} · Compras ${f.purchases??'no disponibles'} · ROAS ${f.roas??'no disponible'}\nCTR enlace ${f.linkCtr??'no disponible'} · CPC enlace ${money(f.linkCpc===null?null:f.linkCpc*100)}\n${f.diagnoses.map(d=>`${d.code} · ${d.confidence}: ${d.probableCause}. ${d.recommendedAction}`).join('\n')||'Sin señal concluyente con la muestra y referencia disponibles.'}`),
@@ -29,7 +39,9 @@ export function createAdsGateway(config,fetchImpl=fetch){
     if(command)body={action:{confirmar:'confirm',cancelar:'cancel',reconciliar:'reconcile'}[command[1]],id:command[2],actor};
     else if(['/campanas','/historial','/estado'].includes(text))body={action:{'/campanas':'inventory','/historial':'history','/estado':'status'}[text],actor};
     else if(/^\/(start|help|ayuda)$/.test(text))return {text:'Suleia Ads Intelligence · simulación y propuestas con confirmación.\nEjemplo: «Sube 10 € el presupuesto de todas las campañas activas que tengan un ROAS superior a 5 hoy».\nAnaliza las campañas de los últimos 7 días.\n/campanas · /historial · /estado · /reconciliar CÓDIGO'};
-    const r=await fetchImpl(url,{method:'POST',redirect:'error',headers:{Authorization:`Bearer ${config.adsApiToken}`,'Content-Type':'application/json'},body:JSON.stringify(body),signal:AbortSignal.timeout(55000)});
+    const serialized=JSON.stringify(body),timestamp=String(Date.now());
+    const headers=config.adsApiToken?{Authorization:`Bearer ${config.adsApiToken}`}:{'X-Suleia-Ads-Timestamp':timestamp,'X-Suleia-Ads-Signature':signAdsBridge(config.botToken,timestamp,serialized)};
+    const r=await fetchImpl(url,{method:'POST',redirect:'error',headers:{...headers,'Content-Type':'application/json'},body:serialized,signal:AbortSignal.timeout(55000)});
     if(!r.ok)throw Error(`ADS_SERVICE_${r.status}`);
     const result=await r.json();if(!result.ok)throw Error('ADS_SERVICE_FAILED');
     return formatAdsResult(result.data);

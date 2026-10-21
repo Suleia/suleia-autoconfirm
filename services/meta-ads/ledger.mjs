@@ -1,5 +1,20 @@
+import { createHash } from 'node:crypto';
 export class AdsLedger {
   constructor(pool){this.pool=pool;}
+  async recommendations(){return (await this.pool.query('SELECT body,state,id FROM economics.ads_recommendations ORDER BY created_at DESC LIMIT 50')).rows.map(r=>({...r.body,id:r.id,state:r.state}));}
+  async saveRecommendation({action,principal,accountId}){
+    const id=createHash('sha256').update(`${accountId}:${action.id}:${action.observedAt}`).digest('hex').slice(0,24);
+    const body={action,principal,accountId,execution:'REVIEW_ONLY',createdAt:new Date().toISOString()};
+    const r=await this.pool.query("INSERT INTO economics.ads_recommendations(id,body,state) VALUES($1,$2,'DRAFT') ON CONFLICT(id) DO UPDATE SET id=EXCLUDED.id RETURNING id,body,state",[id,body]);return {...r.rows[0].body,id,state:r.rows[0].state};
+  }
+  async reviewRecommendation({id,principal,state}){
+    if(!/^[a-f0-9]{24}$/.test(id||'')||!['APPROVED_FOR_REVIEW','DISMISSED'].includes(state))throw Error('QUERY_INVALID');
+    const r=await this.pool.query("UPDATE economics.ads_recommendations SET state=$2,body=body||jsonb_build_object('reviewedBy',$3::text,'reviewedAt',now()),updated_at=now() WHERE id=$1 AND state='DRAFT' RETURNING id,body,state",[id,state,principal]);
+    if(!r.rowCount){const existing=await this.pool.query('SELECT id,body,state FROM economics.ads_recommendations WHERE id=$1',[id]);if(!existing.rowCount)throw Error('NOT_FOUND');return {...existing.rows[0].body,id,state:existing.rows[0].state};}
+    return {...r.rows[0].body,id,state:r.rows[0].state};
+  }
+  async claimDigest(key,body){return (await this.pool.query('INSERT INTO economics.ads_alert_digests(key,body) VALUES($1,$2) ON CONFLICT DO NOTHING RETURNING key',[key,body])).rowCount===1;}
+  async finishDigest(key,state){await this.pool.query('UPDATE economics.ads_alert_digests SET state=$2 WHERE key=$1',[key,state]);}
   async byRequest(key){const r=await this.pool.query('SELECT id FROM economics.ads_proposals WHERE request_key=$1',[key]);return r.rows[0]?this.get(r.rows[0].id):null;}
   async createProposal(p){
     const r=await this.pool.query(`INSERT INTO economics.ads_proposals(id,request_key,body,state,expires_at) VALUES($1,$2,$3,'PENDING',to_timestamp($4/1000.0)) ON CONFLICT(request_key) DO NOTHING RETURNING id`,[p.id,p.requestKey,p,p.expiresAt]);

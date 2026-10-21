@@ -26,7 +26,7 @@ export function normalizeInsight(row, context) {
   const cart = action(row.actions, ['offsite_conversion.fb_pixel_add_to_cart','add_to_cart','omni_add_to_cart']);
   const checkout = action(row.actions, ['offsite_conversion.fb_pixel_initiate_checkout','initiate_checkout','omni_initiated_checkout']);
   return {
-    level: context.level, entityId: String(row[`${context.level}_id`] || ''), campaignId: String(row.campaign_id || ''),
+    level: context.level, entityId: String(row[`${context.level}_id`] || ''), campaignId: String(row.campaign_id || ''), adsetId: String(row.adset_id || ''), adId: String(row.ad_id || ''),
     name: String(row[`${context.level}_name`] || ''), since: row.date_start, until: row.date_stop,
     spend, impressions, reach: number(row.reach), frequency: number(row.frequency),
     cpm: ratio(spend, impressions, 1000), linkClicks: clicks, linkCtr: ratio(clicks, impressions, 100),
@@ -46,6 +46,11 @@ export function localDay(now = Date.now(), zone = 'Europe/Madrid') {
 }
 export function windowFor(period, now, zone = 'Europe/Madrid') {
   const day = localDay(now, zone), shift = n => new Date(Date.parse(day+'T12:00:00Z') - n*86400000).toISOString().slice(0,10);
+  if(period && typeof period==='object') {
+    const {since,until}=period,valid=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d;
+    if(!valid(since)||!valid(until)||since>until||until>day||Date.parse(until)-Date.parse(since)>30*86400000)throw Error('QUERY_INVALID');
+    return {since,until,partial:until===day};
+  }
   if (period === 'hoy') return { since: day, until: day, partial: true };
   if (period === 'ayer') return { since: shift(1), until: shift(1), partial: false };
   const n = Number(String(period).replace('d',''));

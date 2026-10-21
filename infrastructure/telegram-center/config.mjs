@@ -12,7 +12,7 @@ export function loadConfig(env = process.env) {
   const writesEnabled = env.META_WRITES_ENABLED === 'true';
   const adsEnabled = env.ADS_INTELLIGENCE_TELEGRAM_ENABLED === 'true';
   if(adsEnabled && writesEnabled) throw new Error('ADS_INTELLIGENCE requires legacy META_WRITES_ENABLED=false');
-  if(adsEnabled && (!env.ADS_INTELLIGENCE_API_URL || !env.ADS_INTELLIGENCE_BRIDGE_TOKEN))throw new Error('Falta configurar el servicio compartido de Ads Intelligence');
+  if(adsEnabled && !env.ADS_INTELLIGENCE_API_URL)throw new Error('Falta configurar el servicio compartido de Ads Intelligence');
   const maxBudget = Number(env.META_MAX_DAILY_BUDGET_EUR);
   const maxChange = Number(env.META_MAX_BUDGET_CHANGE_PERCENT || 20);
   if (writesEnabled && (!Number.isFinite(maxBudget) || maxBudget <= 0)) throw new Error('Las escrituras requieren META_MAX_DAILY_BUDGET_EUR');
