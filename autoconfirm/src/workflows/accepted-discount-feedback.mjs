@@ -22,7 +22,7 @@ export function applyAcceptedDiscountFeedback(incidents, feedback, now = Date.no
       customer_replied: previous.customer_replied === true || item.customerResponseStatus === 'DISCOUNT_ACCEPTED',
       customer_replied_but_unresolved: previous.customer_replied === true || item.customerResponseStatus === 'DISCOUNT_ACCEPTED',
       customer_event_at: item.customerResponseAt || previous.customer_event_at || null,
-      human_review_reason: String(item.supportIssueId) !== String(item.currentIssueId)
+      human_review_reason: item.supportVerified === true && item.supportIssueId && String(item.supportIssueId) !== String(item.currentIssueId)
         ? 'ACCEPTED_DISCOUNT_INCIDENT_REOPENED' : 'ACCEPTED_DISCOUNT_SUPPORT_RECONCILIATION_REQUIRED',
       next_best_action: 'REVIEW_ACCEPTED_DISCOUNT_SUPPORT', explicit_wait_until: null,
       execution_status: 'NOT_REQUESTED', verification_status: 'NOT_VERIFIED', action_prepared: false
