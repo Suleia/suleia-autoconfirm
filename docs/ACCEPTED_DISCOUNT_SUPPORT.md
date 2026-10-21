@@ -23,6 +23,14 @@ The server reports `acceptedDiscountSupport.enabled`, `ready`, `missing`, `lastR
 
 The scheduler checks every 15 minutes. Existing emails, persisted claims and uncertain writes require operator reconciliation. The worker does not automatically migrate or replay historical acceptances. Solution verification confirms the exact issue/order and provider status; the provider's read contract may not expose the literal submitted note. Reconcile COD changes separately with support/provider evidence.
 
+## VPS outcome reconciliation
+
+The existing 30-minute VPS worker now re-reads a previously verified support case instead of reporting `ALREADY_VERIFIED` indefinitely. This observation has no email, solution, claim or financial writer. A different or reopened pending issue remains in human review: an old acceptance cannot authorize a new issue. Later customer corrections, ambiguous replies, uncertain shared claims, association failures and unavailable reads remain visible review reasons.
+
+Only the fresh provider `raw.total_amount` and explicit `raw.currency === 'EUR'` can establish `ORDER_AMOUNT_DISCOUNT_VERIFIED` and `orderDiscountApplied: true` against the receipt's exact final cents. The normalizer's EUR default is not evidence. This verifies the order amount; `discountApplied` remains false and `carrierCodApplied` remains null because the parcel's collectable amount is not independently exposed by this contract.
+
+The worker stores the contact-free observation in `app_state.accepted_discount_support_feedback_v1`. Its `cases` entries identify the current and originally supported issue, amount outcome, customer-response classification and review reason, without message text, phone, email, namespace, screenshots, message/mail identifiers or notes. Consumers must check each case's `checkedAt`, not only the aggregate update time. Pending cases with a previous support receipt remain eligible for observation after their response classification changes. At most ten verified receipts are re-read per cycle, rotating least recently checked first; existing new-send eligibility, the one-email batch bound and all persistent claims remain unchanged.
+
 ## Validation
 
 Run `node --test --test-concurrency=1 autoconfirm/src/workflows/*.test.mjs autoconfirm/src/clients/dropea-v2*.test.mjs autoconfirm/src/clients/discount-support-gmail.test.mjs` from the repository root. Sequential execution avoids the existing shared local configuration-file initialization race on Windows.
