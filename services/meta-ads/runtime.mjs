@@ -26,6 +26,8 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     policy:{maxBudgetCents:env.META_MAX_DAILY_BUDGET_EUR?Math.round(Number(env.META_MAX_DAILY_BUDGET_EUR)*100):null,maxChangePercent:getNumber('META_MAX_BUDGET_CHANGE_PERCENT'),minBudgetCents:1,maxAgeMs:120000,
       minSpend:getNumber('ADS_MIN_SPEND_EUR'),minPurchases:getNumber('ADS_MIN_PURCHASES'),minImpressions:getNumber('ADS_MIN_IMPRESSIONS'),minFunnelEvents:getNumber('ADS_MIN_FUNNEL_EVENTS'),liveCampaignIds}});
   const cache=new Map(),inFlight=new Map();let algorithmCache=null,algorithmTask=null;
+  const productMappings=JSON.parse(env.ADS_VERIFIED_PRODUCT_LINKS_JSON||'[]');
+  if(!Array.isArray(productMappings))throw Error('PRODUCT_LINKS_INVALID');
   const learningPolicy={...ALGORITHM_POLICY};
   // Versioned diagnostic overrides do not relax the existing monetary policy.
   if(env.ADS_LEARNING_POLICY_JSON){const configured=JSON.parse(env.ADS_LEARNING_POLICY_JSON);if(!configured.version||!/^meta-learning-v4\.[a-zA-Z0-9.-]+$/.test(configured.version))throw Error('LEARNING_POLICY_VERSION_REQUIRED');for(const k of Object.keys(configured))if(!(k in learningPolicy))throw Error('LEARNING_POLICY_INVALID');for(const[k,v]of Object.entries(configured))if(k!=='version'&&(!Number.isFinite(v)||v<=0))throw Error('LEARNING_POLICY_INVALID');Object.assign(learningPolicy,configured);}
@@ -52,19 +54,24 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   },async overview(query={}){
     const {period='7d',level='campaign',since,until,selector,campaignId,adsetId,adId}=query;
     if(Boolean(since)!==Boolean(until)||(!since&&!['hoy','ayer','3d','7d','30d'].includes(period))||!['campaign','adset','ad'].includes(level)||[campaignId,adsetId,adId].some(id=>id&&!/^\d+$/.test(id))||(selector&&(typeof selector!=='string'||selector.length>100))||query.productId)throw Error('QUERY_INVALID');
-    windowFor(since?{since,until}:period,Date.now());
-    const key=since?`${since}:${until}`:period;
+    const window=windowFor(since?{since,until}:period,Date.now());
+    const key=`${window.since}:${window.until}`;
     let base=cache.get(key);
-    if(!base||Date.now()-base.at>=120000){
+    let stale=false;
+    if(query.force===true||!base||Date.now()-Date.parse(base.value.observedAt)>=120000){
       if(!inFlight.has(key)){
         if(inFlight.size>=2)throw Error('ADS_REPORT_BUSY');
         const task=readReport({reader,ledger:reportReadOnly?null:ledger,accountId:engine.accountId,policy:engine.policy,mode,query:{period,since,until}}).then(value=>{const entry={at:Date.now(),value};cache.delete(key);cache.set(key,entry);while(cache.size>8)cache.delete(cache.keys().next().value);return entry;}).finally(()=>inFlight.delete(key));
         inFlight.set(key,task);
       }
-      base=await inFlight.get(key);
+      let timer;
+      try {base=await Promise.race([inFlight.get(key),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('ADS_REPORT_TIMEOUT')),4000);})]);}
+      catch {if(!base)throw Error('META_REPORT_PREPARING_OR_UNAVAILABLE');stale=true;}
+      finally {clearTimeout(timer);}
     }
-    const value=assembleReport({...base.value.dataset,selector,filters:{level,campaignId,adsetId,adId}});
-    return {...value,reportReadOnly,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt}};
+    const value=assembleReport({...base.value.dataset,productMappings,selector,filters:{level,campaignId,adsetId,adId}});
+    stale ||= Date.now()-Date.parse(value.observedAt)>=120000;
+    return {...value,reportReadOnly,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt,status:stale?'STALE':'FRESH'}};
   },async saveRecommendation({query,actionId,principal,id,state}){
     if(state)return ledger.reviewRecommendation({id,principal,state});
     const report=await this.overview(query),action=report.actions.find(a=>a.id===actionId);

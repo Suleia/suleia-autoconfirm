@@ -1,4 +1,5 @@
 import {adsCommand} from '../meta-ads/command-service.mjs';
+import {orderSummaryIntent,OrderSummaryReader,readOrderSummary} from './order-summary.mjs';
 
 const clean=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[¿?¡!]/g,'').replace(/\s+/g,' ').trim();
 const label=s=>String(s||'').replace(/[\r\n\u0000-\u001f]/g,' ').slice(0,100);
@@ -29,13 +30,14 @@ export function parseBusiness(input,context=null) {
  if(/^registra (?:la )?decision (aceptar|rechazar|observar) ([a-f0-9]{64})$/.test(text)){const m=text.match(/(aceptar|rechazar|observar) ([a-f0-9]{64})$/);return {tool:'decision',verdict:m[1],reference:m[2]};}
  if(/trendtrack|competencia|competidor/.test(text))return {tool:'commercial'};
  if(/incidencias?/.test(text))return {tool:'incidents'};
+ const summary=orderSummaryIntent(text);if(summary)return {tool:'orders',summary};
  if(/pedido/.test(text)){const ids=[...text.matchAll(/#?\b(?:ES)?\d{3,12}\b/gi)];return ids.length===1?{tool:'orders',id:ids[0][0].replace(/^#/,'').toUpperCase()}:{tool:'clarify',question:'Indica un único ID exacto de Dropea (por ejemplo ES1234567). La cola no contiene todos los pedidos de Shopify.'};}
  if(/beneficio|rentabilidad|finanzas|resultado financiero/.test(text))return {tool:'finance',product:/producto|nida|collagum|seoul/.test(text),month:/\b(20\d{2}-\d{2})\b/.exec(text)?.[1]||null};
  if(/salud|servicios|conexiones|fuentes/.test(text))return {tool:'health'};
  if(/como va suleia|que esta fallando|pocas ventas|informe ejecutivo|resumen diario|tres prioridades|que ha cambiado desde ayer/.test(text))return {tool:'executive',period:period||'hoy'};
- if(/analiza|campana|anuncio|como va |ctr|cpc|cpm|roas|carrito|checkout|publicidad|conversion|clic/.test(text)){
+ if(/analiza|campana|anuncio|como va |ctr|cpc|cpm|roas|carrito|checkout|publicidad|conversion|clic|funcionando mejor|perdiendo dinero/.test(text)){
    const selector=/^(?:analiza|como va) (?:la campana )?(.+?)(?: hoy| ayer| de los ultimos|$)/.exec(text)?.[1];
-   return {tool:'ads',period:period||'7d',level:/anuncio/.test(text)?'ad':'campaign',selector:selector&&!/^(?:todas|todas las campanas|las campanas|suleia)$/.test(selector)?selector:null,focus:/peor|mal|mejorar/.test(text)?'improve':/mejor|conviert/.test(text)?'top':/donde|carrito|checkout/.test(text)?'funnel':'diagnosis',original:input};
+   return {tool:'ads',period:period||'hoy',level:/anuncio/.test(text)?'ad':'campaign',selector:selector&&!/^(?:todas|todas las campanas|las campanas|suleia)$/.test(selector)?selector:null,focus:/anuncios.*vendiendo/.test(text)?'sales':/peor|mal|mejorar/.test(text)?'improve':/mejor|conviert/.test(text)?'top':/donde|carrito|checkout/.test(text)?'funnel':'diagnosis',original:input,compare:/compara.*hoy.*ayer/.test(text),includeInactive:/inactivas|pausadas/.test(text)};
  }
  return {tool:'clarify',question:'Puedo consultar campañas, pedidos por ID, incidencias, finanzas y salud. Indica qué necesitas; los cambios requieren una propuesta concreta.'};
 }
@@ -43,8 +45,9 @@ export function parseBusiness(input,context=null) {
 // All tools are bounded reads over the already-authorized application services.
 // Source payloads, customer text, secrets, phone/address fields never enter responses or memory.
 export class CommandCenter {
- constructor({ads,repository,readFinance,ledger,roles={},now=()=>Date.now()}) {
+ constructor({ads,repository,readFinance,ledger,roles={},now=()=>Date.now(),orderReader=null}) {
    Object.assign(this,{ads,repository,readFinance,ledger,roles,now});this.inflight=new Map();
+   this.orderReader=orderReader||new OrderSummaryReader({read:n=>readOrderSummary(repository.pool,n),now});
  }
  authorize(actor,capability) {
    this.ads.engine.authorize(actor); // Existing numeric allowlist + private actor binding remains authoritative.
@@ -68,6 +71,8 @@ export class CommandCenter {
  async command(body) {
    const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};
    this.ads.engine.authorize(actor);
+   if(body.action==='orders-summary') {this.authorize(actor,'orders');return {orders:await this.orderReader.get(),view:['today','confirmations','hour'].includes(body.view)?body.view:'today'};}
+   if(body.action==='analyze') {this.authorize(actor,'ads');return {analysis:await this.ads.overview(body.query),view:body.view,focus:body.focus,includeInactive:body.includeInactive===true};}
    if(body.action!=='request'){
      this.authorize(actor,['confirm','cancel','reconcile'].includes(body.action)?'confirm':body.action==='history'?'history':'ads');
      return adsCommand(this.ads,body);
@@ -88,11 +93,12 @@ export class CommandCenter {
    this.authorize(actor,intent.tool==='executive'?'ads':intent.tool==='decision'?'history':intent.tool);
    if(intent.tool==='ads'){
      let result;
-     if(/cpm|fatig|creativ|carritos|checkout|perdemos|clics|algoritmo|bloques|ultima subida/i.test(body.text)&&!intent.followup)result=await adsCommand(this.ads,body);
-     else result={analysis:await this.ads.overview({period:intent.period,level:intent.level,selector:intent.selector}),focus:intent.focus};
+     if(/algoritmo|bloques|ultima subida/i.test(body.text)&&!intent.followup)result=await adsCommand(this.ads,body);
+     else result={analysis:await this.ads.overview({period:intent.compare?'hoy':intent.period,level:intent.level,selector:intent.selector}),focus:intent.focus,selector:intent.selector};
      await this.ledger.saveContext(actor.user,{tool:'ads',period:intent.period,selector:intent.selector,level:intent.level},this.now()+CONTEXT_TTL_MS);
      await this.remember(actor,body,'QUERY',{tool:'ads',period:intent.period,selector:intent.selector,observedAt:result.analysis?.observedAt||null});
-     return result;
+     if(intent.compare)result.previousDay=await this.ads.overview({period:'ayer',level:intent.level,selector:intent.selector});
+     return {...result,includeInactive:intent.includeInactive};
    }
    if(intent.tool==='history')return {text:(await this.ledger.history(actor.user)).map(d=>`${d.id} · ${d.kind} · ${d.body.observedAt}`).join('\n')||'No hay decisiones registradas para tu cuenta.'};
    if(intent.tool==='decision'){
@@ -104,6 +110,7 @@ export class CommandCenter {
    if(intent.tool==='commercial')return {text:'Trendtrack no está conectado al entorno del servidor. No se consultaron datos ni se consumieron créditos. La conexión de ChatGPT no concede acceso a este bot.'};
    let evidence,text;
    if(intent.tool==='orders'){
+     if(intent.summary)return {orders:await this.orderReader.get(),view:intent.summary};
      const found=await this.repository.orderDetail(intent.id),o=found?.order;
      evidence=o?{id:label(o.dropea_order_id||o.canonical_order_id),state:label(o.lifecycle_status||o.status),observedAt:iso(o.source_updated_at),freshness:freshness(o.source_updated_at,this.now())}:null;
      text=evidence?`Pedido ${evidence.id}: ${evidence.state}. Fuente: copia operativa Dropea · ${evidence.observedAt||'fecha no verificable'} · ${evidence.freshness}.`:'Pedido no encontrado por ID exacto en la copia operativa. No significa que no exista en Shopify.';

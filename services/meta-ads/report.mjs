@@ -1,3 +1,4 @@
+import {productLink} from './product-links.mjs';
 import { createHash } from 'node:crypto';
 import { CONTRACT, normalizeInsight, ratio, windowFor } from './metrics.mjs';
 import { diagnose } from './diagnostics.mjs';
@@ -31,7 +32,7 @@ function enrich(f,entity,prior,range,policy){
   const enough=f.spend>=policy.minSpend&&f.impressions>=policy.minImpressions&&f.purchases>=policy.minPurchases;
   const stable=enough&&f.purchaseValue>f.spend&&prior?.purchases>=policy.minPurchases&&prior?.roas>0&&f.roas>=prior.roas*.85&&!range.partial;
   // No verified campaign/order/margin linkage exists: never label 'Rentable'.
-  const status=f.source!=='META_INSIGHTS'||!enough||f.roas===null?'Datos insuficientes':material.some(d=>d.severity==='HIGH')?'Mejorable':material.length?'Vigilar':stable?'Potencialmente rentable':'Vigilar';
+  const status=f.source!=='META_INSIGHTS'||!enough||f.roas===null?'Datos insuficientes':material.some(d=>d.severity==='HIGH')?'Mejorable':material.length?'Vigilar':stable?'Validar margen':'Vigilar';
   return {...f,delivery:entity?.effective_status||'UNKNOWN',budgetCents:entity?.daily_budget?Number(entity.daily_budget):null,product:null,productStatus:'NO_ATRIBUIDO',diagnoses,status,stable,delta:{roas:range.partial?null:delta(f.roas,prior?.roas),cpa:range.partial?null:delta(f.cpa,prior?.cpa),ctr:range.partial?null:delta(f.linkCtr,prior?.linkCtr)},creative:entity?.creative||null};
 }
 export function makeFunnel(current,prior,comparable){
@@ -43,7 +44,7 @@ export function makeFunnel(current,prior,comparable){
   const worst=funnel.filter(f=>f.rateDelta!==null&&f.rateDelta<0).sort((a,b)=>a.rateDelta-b.rateDelta)[0];
   return {stages:funnel,worstStage:worst?.key||null,note:'Eventos atribuidos agregados, no usuarios únicos. Las tasas son aproximadas; pueden superar el 100 % y no prueban causalidad.'};
 }
-export function assembleReport({account,range,comparison,observedAt,current,prior,daily,entities,policy={},mode='SIMULATION',selector=null,filters={},creativeStatus='AVAILABLE'}){
+export function assembleReport({account,range,comparison,observedAt,current,prior,daily,entities,policy={},mode='SIMULATION',selector=null,filters={},creativeStatus='AVAILABLE',productMappings=[]}){
   const sample={...DIAGNOSTIC_SAMPLE};
   const levels=['campaign','adset','ad'],facts={},baseline={};
   const campaigns=entities.campaign||[],lookup=new Map(campaigns.map(c=>[String(c.id),c]));
@@ -58,7 +59,7 @@ export function assembleReport({account,range,comparison,observedAt,current,prio
     const byId=new Map((current[level]||[]).map(f=>[f.entityId,f]));
     for(const e of entities[level]||[])if(!byId.has(String(e.id)))byId.set(String(e.id),{...normalizeInsight({[level+'_id']:e.id,[level+'_name']:e.name,campaign_id:level==='campaign'?e.id:e.campaign_id,adset_id:level==='adset'?e.id:e.adset_id,ad_id:level==='ad'?e.id:undefined,date_start:range.since,date_stop:range.until},{level,complete:true,contract:CONTRACT,observedAt}),source:'META_NO_INSIGHT_ROW'});
     const map=new Map((entities[level]||[]).map(e=>[String(e.id),e]));
-    facts[level]=[...byId.values()].filter(accepts).map(f=>({...enrich(f,map.get(f.entityId),before.get(f.entityId),range,sample),series:(daily[level]||[]).filter(d=>d.entityId===f.entityId).map(d=>({day:d.since,spend:d.spend,purchases:d.purchases,roas:d.roas})).sort((a,b)=>a.day.localeCompare(b.day))}));
+    facts[level]=[...byId.values()].filter(accepts).map(f=>({...enrich(f,map.get(f.entityId),before.get(f.entityId),range,sample),product:productLink(f.campaignId,productMappings),series:(daily[level]||[]).filter(d=>d.entityId===f.entityId).map(d=>({day:d.since,spend:d.spend,purchases:d.purchases,roas:d.roas})).sort((a,b)=>a.day.localeCompare(b.day))}));
   }
   const actual=facts[activeLevel].filter(f=>f.source==='META_INSIGHTS'),totals=aggregate(actual),previous=aggregate(baseline[activeLevel]);
   const meaningful=facts.campaign.filter(f=>f.source==='META_INSIGHTS'&&f.spend>0);
