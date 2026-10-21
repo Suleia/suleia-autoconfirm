@@ -1,6 +1,6 @@
 # Command Center 2.1 — shared API delivery
 
-Development only, based on PR #123 (`1b02399`), paired with the Telegram changes stacked on PR #124 (`031d5eb`). No deployment, provider messages, budget changes, Dropea writes or new polling process.
+Owner-authorized deployment verified on 2026-10-21. Based on PR #123 (`1b02399`), paired with the Telegram changes stacked on PR #124 (`031d5eb`). No provider messages, budget changes, Dropea writes or new polling process.
 
 ## Implemented
 
@@ -24,3 +24,14 @@ Covers historical 22/17/4/1, SHIPPING confirmation, older-order confirmation tod
 Require full Linux/Node 22 Telegram tests, live read-only SQL verification, source coverage, a validated product catalogue where desired, real panel/Telegram Meta reconciliation and cold/warm p50/p95 measurements. Real MCP observation at 20:58 Madrid found 22/18/3/1; the 20:28 22/17/4/1 reference is historical fixture evidence only.
 
 Deploy API before Telegram after owner authorization, retaining all existing credentials and no new grants. Preserve later incident changes when composing release artifacts. Record previous immutable API and Telegram releases and state backup. Roll back only these reporting commits and the single existing Telegram service release; no schema migrations are introduced. Complete deployment and rollback procedure is in the companion Telegram `docs/COMMAND_CENTER_2_1.md`.
+
+## Verified production activation — 2026-10-21
+
+- Active API artifact: `eb510a8ca04ed5925e47417c718fb677bca7e060`, image `suleia-command-center21-api:eb510a8`. Previous image `suleia-command-center2-api:97786dd` retained.
+- Independent review found and fixed a stale-fallback presentation regression. The served Ads panel now places an accessible historical-data warning before numbers and recommendations when `cache.status` is `STALE`.
+- Full Linux/Node22 API/panel group: 271 passed, zero failures, one unchanged optional PostgreSQL integration skipped. The real canonical query was separately run with the existing read-only operations role: both views accessible, read-only default preserved, 377 ms measured. No migration or new grant.
+- Actual read-only source check returned complete metadata and internally consistent cohort/event counts. The importer copy was older than the 60-second threshold and was correctly labelled STALE; no real-time Dropea refresh is claimed.
+- Signed real API reads worked for both existing administrators; unknown actors and crossed chats were rejected, and the public reporting route still requires OAuth. Both actors received the same Meta range, attribution, totals and observedAt from the canonical runtime; campaign/ad/adset reads passed. Shared panel routing and served artifact were checked, without claiming a new authenticated browser session.
+- Eight warm API reads measured p50 406 ms / p95 1185 ms; this small canary is not a production SLA or Telegram network latency measurement. The cold request returned the bounded preparing response after 4154 ms; coalesced forced reads retained explicitly marked stale data while the background read completed. Missing validated campaign/product catalogue remains unlinked.
+- Only the API and panel containers changed. The panel was copied from the actual current release and only `ads-intelligence-v3.js` replaced; later incident-panel PR #127 and all other public files were byte-preserved and checked over HTTPS. All unrelated container identities remained unchanged.
+- Meta remains SHADOW with writes false; existing credentials, administrators, database roles, spend limits and operational automations were preserved. Private receipts and logs: `/root/suleia-command-center21-20261021` on the server.
