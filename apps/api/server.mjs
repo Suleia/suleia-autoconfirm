@@ -12,6 +12,8 @@ import {verifyAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
 import {reviewAds} from '../../services/meta-ads/monitor.mjs';
 import {createAlgorithmOrdersReader} from '../../services/meta-ads/algorithm-orders.mjs';
 import {createShopifyReadAuth} from '../../autoconfirm/src/clients/shopify-read-auth.mjs';
+import {CommandCenter} from '../../services/command-center/center.mjs';
+import {CommandLedger} from '../../services/command-center/ledger.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -91,7 +93,7 @@ async function jsonBody(req, maxBytes = 2048, raw = false) {
   catch { throw Object.assign(new Error('invalid_json'), { status: 400 }); }
 }
 
-export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, adsBridgeToken = '', adsBridgeSecret = '', audit = () => {} }) {
+export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, commandLedger = null, commandRoles = {}, adsBridgeToken = '', adsBridgeSecret = '', audit = () => {} }) {
   const allowRequest = limiter(config.rateLimitPerMinute);
   const financeCache = new Map();
   const financeInFlight = new Map();
@@ -128,6 +130,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
       throw error;
     } finally { financeInFlight.delete(key); }
   };
+  const commandCenter=adsRuntime&&commandLedger?new CommandCenter({ads:adsRuntime,repository,readFinance:cachedFinance,ledger:commandLedger,roles:commandRoles}):null;
   return http.createServer(async (req, res) => {
     const requestUrl = new URL(req.url, 'http://operations.internal');
     const adsBridge = requestUrl.pathname === '/api/internal/ads-intelligence/command';
@@ -148,7 +151,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         const legacy=adsBridgeToken.length>=32&&actual.length===expected.length&&timingSafeEqual(actual,expected);
         if(!legacy&&!verifyAdsBridge(adsBridgeSecret,req.headers['x-suleia-ads-timestamp'],raw,req.headers['x-suleia-ads-signature']))return json(res,401,{ok:false,error:'unauthorized'});
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
-        const body=JSON.parse(raw);const data=await adsCommand(adsRuntime,body);
+        const body=JSON.parse(raw);const data=commandCenter?await commandCenter.command(body):await adsCommand(adsRuntime,body);
         audit({event:'ads_command',action:body.action,outcome:'ok',meta_budget_writes:writesForEnvelope});
         return json(res,200,{ok:true,data,meta_budget_writes:writesForEnvelope});
       }catch(error){audit({event:'ads_command_failed',outcome:'blocked',meta_budget_writes:writesForEnvelope});return json(res,error.message==='ACTOR_UNAUTHORIZED'?403:503,{ok:false,error:'ads_command_blocked'});}
@@ -174,6 +177,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         refresh_interval_seconds: 45,
         finance_refresh_interval_seconds: config.financeRefreshIntervalSeconds,
         analytics_enabled: process.env.ORDER_INTELLIGENCE_ENABLED !== 'false',
+        command_center_enabled: Boolean(commandCenter),
         run_mode: 'SHADOW_READ_ONLY'
       });
     }
@@ -218,6 +222,9 @@ export function createOperationsServer({ config, repository, authenticate, finan
         if (data === null) return json(res, 404, { ok: false, error: 'not_found' });
         audit({ event: 'incident_recommendation_feedback', principal_hash: principal.principal_hash, path: requestUrl.pathname, outcome: 'recorded' });
         return json(res, 201, { ok: true, data, actions_executed: 0, production_writes: 0, internal_feedback_writes: 1 });
+      } else if(requestUrl.pathname==='/api/operations/command-center'){
+        if(!commandCenter)return json(res,503,{ok:false,error:'command_center_disabled'});
+        data=await commandCenter.status();
       } else if(adsAlgorithmJournal){
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         data=await adsRuntime.journalHistory();
@@ -267,6 +274,7 @@ export async function startOperationsServer() {
   const repository = await OperationsRepository.connect(config.databaseUrl, { privateDataKey: config.privateDataKey });
   const financeReportClient = createFinanceReportClient(config);
   let adsPool=null,adsRuntime=null;
+  if(process.env.COMMAND_CENTER_ENABLED==='true'&&(!process.env.ADS_INTELLIGENCE_DATABASE_URL||process.env.ADS_REPORT_READ_ONLY==='true'))throw Error('COMMAND_CENTER_REQUIRES_APPROVED_ADS_PERSISTENCE');
   if(process.env.ADS_INTELLIGENCE_READ_ENABLED==='true'){
     if(process.env.ADS_INTELLIGENCE_DATABASE_URL){
       const pg=createRequire(new URL('../../packages/suleia-operations-mcp/package.json',import.meta.url))('pg');
@@ -287,7 +295,9 @@ export async function startOperationsServer() {
     repository,
     authenticate,
     financeReportClient,
-    adsRuntime,adsBridgeToken:process.env.ADS_INTELLIGENCE_BRIDGE_TOKEN||'',adsBridgeSecret:process.env.TELEGRAM_BOT_TOKEN||'',
+    adsRuntime,commandLedger:process.env.COMMAND_CENTER_ENABLED==='true'&&adsRuntime?new CommandLedger(adsPool||repository.pool):null,
+    commandRoles:process.env.COMMAND_CENTER_ROLES_JSON?JSON.parse(process.env.COMMAND_CENTER_ROLES_JSON):{},
+    adsBridgeToken:process.env.ADS_INTELLIGENCE_BRIDGE_TOKEN||'',adsBridgeSecret:process.env.TELEGRAM_BOT_TOKEN||'',
     audit: (event) => process.stdout.write(`${JSON.stringify({ at: new Date().toISOString(), ...event })}\n`)
   });
   server.listen(config.port, '0.0.0.0');
