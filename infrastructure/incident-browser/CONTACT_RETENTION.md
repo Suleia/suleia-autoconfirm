@@ -26,6 +26,11 @@ authorized ERROR/REJECTED. A return request alone does not qualify. Returned
 parcels require an explicit return timestamp. Other nonterminal orders or
 unresolved incidents protect the contact. A confirmed delivery supersedes only
 incidents whose last change demonstrably predates that delivery.
+The Dropea Issue contract distinguishes operational closure (`is_active=false`)
+from the preserved user-workflow status. Carrier-closed historical issues may
+still say PENDING or INFO; they do not constitute open cases. Only an explicit
+boolean false qualifies as carrier closure; missing, null or string values
+retain the existing protections. Every related active order still blocks.
 Before each deletion, reload the contact and order and check newly created
 orders. Full inventories refresh at least every minute during execution.
 
@@ -33,7 +38,17 @@ Backups of contact metadata and order evidence are private mode-0600 files under
 `/state/contact-retention/`, not Git. They are not backups of conversation history.
 Deletion is irreversible through this job. Its pending journal prevents blind
 retries. Absence is verified against a complete contact inventory after the
-first deletion and each batch of 25. Calls are spaced at least eight seconds.
+first deletion and each batch of 25. Calls initially use eight-second spacing.
+Verified provider rate-limit headers allow 1.5-second spacing while at least
+100 requests and 10% of the provider budget remain. Below that reserve spacing
+returns to eight seconds, and below 50 remaining requests to twenty seconds.
+Missing or invalid headers retain the conservative eight-second interval.
+Bulk maintenance stops issuing requests once the observed remaining budget is
+below 100 requests or 10% of the provider limit. This reserves capacity for
+messaging and incident workers. The durable next-run time honors reset headers;
+without one it uses a 20-minute maintenance pause, not an asserted provider
+reset. Accepted deletes still require inventory reconciliation on resume.
+`provider-budget.json` records only status, counters and observation times.
 HTTP 429 preserves the provider's retry time in the durable schedule. An
 explicitly throttled DELETE is not marked accepted; ambiguous outcomes still
 require reconciliation before retry. `latest.json`, `failure.json` and

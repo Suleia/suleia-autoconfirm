@@ -49,7 +49,10 @@ export function decide(contact, orders, issues) {
   }
   const ids = new Set(related.map(o => String(o.id)));
   if (issues.some(i => {
-    if (!ids.has(String(i.order_id)) || i.status === 'RESOLVED') return false;
+    // Dropea Issue contract: carrier closure changes is_active/resolved_at,
+    // not the preserved user-workflow status (which may remain PENDING/INFO).
+    // Only an explicit boolean false proves this operational closure.
+    if (!ids.has(String(i.order_id)) || i.status === 'RESOLVED' || i.is_active === false) return false;
     const linked = related.find(o => String(o.id) === String(i.order_id));
     // A later completed delivery supersedes an earlier carrier incident.
     // Never ignore incidents opened/updated after delivery or unknown dates.
