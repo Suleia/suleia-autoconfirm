@@ -2,6 +2,10 @@
 
 Updated: 2026-07-25
 
+Owner-authorized bot coordination across PCs (2026-10-21): read
+`docs/CODEX_BOT_CROSS_PC_AUTHORIZATION.md` and the latest Agent Hub deployment
+lease before continuing PR #128/#129 or routine bot/reporting maintenance.
+
 ## Purpose
 
 This document lets Codex and the ChatGPT confirmation agent work from the same

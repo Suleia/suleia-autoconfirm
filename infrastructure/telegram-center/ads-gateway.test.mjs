@@ -28,3 +28,14 @@ test('2.0 help and daily summary use existing shared gateway, not a second inter
  const help=await gateway.handle('/help',{user:'1',chat:'1'},1);assert.match(help.text,/contexto de campaña caduca/);assert.equal(requests.length,0);
  assert.equal((await gateway.handle('/resumen hoy',{user:'2',chat:'2'},2)).text,'fixture brief');assert.equal(requests[0].text,'¿Cómo va Suleia hoy?');assert.equal(requests[0].actor.user,'2');assert.equal(requests[0].requestKey,'telegram:2');
 });
+test('V3 gateway preserves explicit funnel and selected improvement content through read navigation',async()=>{
+ const analysis={version:3,range:{since:'2026-10-21',until:'2026-10-21'},level:'campaign',facts:[{entityId:'generic',name:'GENERIC_CAMPAIGN',delivery:'ACTIVE',roas:9,roasStatus:'VALID'}],totals:{spend:60,purchases:12,roas:4},observedAt:'2026-10-21T19:00:00Z',actions:[],improveAds:[{entityId:'weak',name:'WEAK_AD',delivery:'ACTIVE',roas:.4,roasStatus:'VALID',spend:30,purchases:1,impressions:2000}],funnel:{stages:[{label:'Checkout',value:40,rate:50}],note:'Eventos agregados, no usuarios únicos.'}};
+ const requests=[];const gateway=createAdsGateway({adsApiUrl:'https://operations.test/api/internal/ads-intelligence/command',botToken:'fixture'},async(url,opts)=>{
+  const body=JSON.parse(opts.body);requests.push(body);return {ok:true,json:async()=>({ok:true,data:{analysis,focus:body.focus||'funnel'}})};
+ });
+ const funnel=await gateway.handle('Dónde se pierde la conversión',{user:'1',chat:'1'},8);
+ assert.match(funnel.text,/EMBUDO DE CONVERSIÓN/);assert.match(funnel.text,/Checkout: <b>40<\/b>/);assert.match(funnel.text,/no usuarios únicos/);
+ const improved=await gateway.read({action:'analyze',query:{level:'ad'},focus:'improve'},{user:'1',chat:'1'});
+ assert.match(improved.text,/WEAK_AD/);assert.doesNotMatch(improved.text,/GENERIC_CAMPAIGN/);
+ assert.deepEqual(requests[1].actor,{user:'1',chat:'1'});assert.equal(requests[1].focus,'improve');
+});
