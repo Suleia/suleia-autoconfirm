@@ -1,6 +1,6 @@
 # Command Center 2.1 — Telegram development delivery
 
-Prepared 2026-10-21. Not deployed. Based on PR #124 / `031d5eb` (the existing Telegram gateway); companion API changes are based on PR #123 / `1b02399`. Existing V3/V4 readers, actor authorization, admin linking and sole polling process are retained. No live Telegram messages, Meta changes or Dropea actions were executed.
+Deployed and verified 2026-10-21 with explicit owner authorization. Based on PR #124 / `031d5eb` (the existing Telegram gateway); companion API changes are based on PR #123 / `1b02399`. Existing V3/V4 readers, actor authorization, admin linking and sole polling process are retained. No test Telegram messages, Meta changes or Dropea actions were executed.
 
 ## Changes
 
@@ -39,4 +39,14 @@ EVIDENCE: focused tests and anonymized protocol evidence above
 RISKS: full Linux suite, source coverage, real Meta consistency and latency need server verification; no on-demand Dropea refresh capability exists in the current API role
 NEXT: review companion changes and perform authorized staging verification before requesting production deployment
 
-No Agent Hub comment was sent from this chat; this handoff is ready for the owner to post.
+## Verified activation — 2026-10-21
+
+- Owner requested all pending bot changes from the other PC and clarified that Codex on that PC is the delegated technical collaborator. The project authorization is recorded in `docs/CODEX_BOT_CROSS_PC_AUTHORIZATION.md` and Agent Hub issuecomment-6326768337; host permissions and sensitive-action approvals remain separate.
+- Deployed API first (`eb510a8ca04ed5925e47417c718fb677bca7e060`), then this bot artifact `4e79eac2b6b5ff3ff6789c1a7ce8574555da27fb` at `/opt/suleia-telegram-releases/release.command-center21-4e79eac`. Prior immutable API/panel/bot artifacts retained; no PR merge.
+- Independent review fixed compact formatting that had hidden V3 funnel/improve/top/opportunity answers. Regression coverage preserves each focus, navigation, HTML escaping and size limits.
+- Full Linux/Node22 bot/shared group: 178 passed, zero failures, one unchanged optional PostgreSQL integration skipped. Companion API/panel: 271 passed, zero failures, one optional PG skip; groups overlap. Canonical SQL permissions/query were separately checked against the real read-only role, without new grants.
+- Protocol canary used the real signed deployed API with local Telegram transport stubs for both admins: bold HTML ROAS, compact orders, refresh editing the original message, cross-actor denial and silent unknown actors all passed. Zero actual Telegram test sends, no delivery screenshot claim.
+- A private-umask traversal permission on the new code directory caused the first activation to fail. The former release was restored; the code directory permission and rollback stop/start sequence were corrected, traversal preflight added, and final activation passed. This was a deployment-helper issue; no storage/security guarantee was weakened.
+- Final service active and fresh READ_ONLY health verified at `2026-10-21T21:34:14.600Z`. Poller lock matches the existing systemd MainPID. Complete environment, allowlist/token, administrator verification, identity and state/offset preserved; private state backup retained. No second poller or new service.
+- Real warm API canary: eight samples, p50 406 ms / p95 1185 ms. Cold requests can return the bounded preparing response; stale source copies are visibly warned. No end-to-end Telegram network SLA, real-time Dropea refresh or campaign/product identification without a validated catalogue is claimed.
+- Meta remains SHADOW with writes disabled, existing 100 EUR/day and 10% bounds and confirmation controls retained. Financial/live Meta activation is outside this technical delegation. Final private receipts/logs remain under `/root/suleia-command-center21-20261021`.
