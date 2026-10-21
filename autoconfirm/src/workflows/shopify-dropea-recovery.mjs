@@ -33,10 +33,13 @@ export function planShopifyDropeaRecovery(order, products, carriers, {
   if (!address.first_name||!address.address1||!address.city||!address.province) return fail('ADDRESS_INCOMPLETE');
   const phone=address.phone||order.phone||'';
   if (!/^(?:34)?[6789]\d{8}$/.test(phone.replace(/\D/g,''))) return fail('PHONE_INVALID');
-  // COD orders from the native form often have no email. Preserve an empty
-  // value; never manufacture a customer's email to satisfy a provider field.
-  const email=order.email||order.contact_email||'';
-  if (email&&!/^\S+@\S+\.\S+$/.test(email)) return fail('EMAIL_INVALID');
+  // Match Dropea's native COD import convention, verified against existing
+  // source/provider pairs with no source email. This is a provider routing
+  // identifier, never a customer-supplied email or a Shopify customer edit.
+  const sourceEmail=order.email||order.contact_email||'';
+  const digits=phone.replace(/\D/g,'');
+  const email=sourceEmail||`${digits.length===9?'34'+digits:digits}@dropea.io`;
+  if (!/^\S+@\S+\.\S+$/.test(email)) return fail('EMAIL_INVALID');
   // This is the store's existing standard service, verified against the live catalog.
   // Island/overseas destinations need their actual service; never force a mainland one.
   if (/^(07|35|38|51|52)/.test(address.zip)) return fail('NON_MAINLAND_SERVICE_REQUIRES_REVIEW');
@@ -68,7 +71,8 @@ export function planShopifyDropeaRecovery(order, products, carriers, {
       shipping_address:{first_name:address.first_name,last_name:address.last_name||'',address_line_1:address.address1,address_line_2:address.address2||'',city:address.city,state:address.province,postal_code:address.zip,country:address.country_code}
     }};
     if (!Number.isInteger(payload.store_id)||payload.store_id<1) return fail('STORE_INVALID');
-    return {eligible:true,payload,expectedCents,digest:hash(payload),sourceId:String(order.id),reference:order.name,idempotencyKey:`suleia-shopify-import-${storeId}-${order.id}`};
+    const digest=hash(payload);
+    return {eligible:true,payload,expectedCents,digest,technicalContact:!sourceEmail,sourceId:String(order.id),reference:order.name,idempotencyKey:`suleia-shopify-import-${storeId}-${order.id}-${digest.slice(0,12)}`};
   } catch { return fail('SOURCE_MONEY_INVALID'); }
 }
 
@@ -78,7 +82,10 @@ export function verifyRecoveredOrder(actual,plan) {
   if (actual.currency!=='EUR'||Math.round(Number(actual.total_amount)*100)!==plan.expectedCents||actual.payment_method!=='COD') return false;
   if (JSON.stringify(qtyMap(actual.line_items))!==JSON.stringify(qtyMap(plan.payload.line_items))) return false;
   const a=actual.shipping_address||{},e=plan.payload.customer_details.shipping_address;
-  return ['address_line_1','address_line_2','city','state','postal_code','country'].every(k=>String(a[k]||'')===String(e[k]||''));
+  const phoneKey=value=>String(value||'').replace(/\D/g,'').replace(/^34(?=\d{9}$)/,'');
+  return ['address_line_1','address_line_2','city','state','postal_code','country'].every(k=>String(a[k]||'')===String(e[k]||''))
+    &&phoneKey(a.phone_number)===phoneKey(plan.payload.customer_details.phone)
+    &&String(a.email||'').toLowerCase()===plan.payload.customer_details.email.toLowerCase();
 }
 
 export async function recoverShopifyOrder(order,{products,carriers,storeId,now,blocked,live=false,
@@ -91,7 +98,7 @@ export async function recoverShopifyOrder(order,{products,carriers,storeId,now,b
   const plan=planShopifyDropeaRecovery(order,products,carriers,{storeId,now,blocked});
   if (!plan.eligible) return {...identity,status:'blocked',reason:plan.reason};
   if (!live) return {...identity,status:'ready',totalCents:plan.expectedCents,digest:plan.digest};
-  const reservation=await claim(identity.orderId);
+  const reservation=await claim(identity.orderId,{digest:plan.digest,idempotencyKey:plan.idempotencyKey});
   if (!reservation.acquired||!reservation.persistent) return {...identity,status:'blocked',reason:reservation.reason||'PERSISTENT_CLAIM_REQUIRED'};
   const attemptedAt=new Date().toISOString();
   const fresh=await readSource(identity.orderId);
@@ -118,9 +125,10 @@ export async function recoverShopifyOrder(order,{products,carriers,storeId,now,b
     return result;
   } catch(error) {
     const reason=/^[A-Z0-9_]{1,120}$/.test(error?.code||'')?error.code:'CREATE_RESULT_UNCERTAIN';
-    const result={...identity,status:'applied_unverified',reason,at:new Date().toISOString()};
-    await finish(identity.orderId,{status:'applied_unverified',attemptedAt,lastError:reason,raw:{digest:plan.digest,idempotencyKey:plan.idempotencyKey}});
-    await audit({...result,reason,result:'applied_unverified'});
+    const status=error.definitive===true?'provider_rejected':'applied_unverified';
+    const result={...identity,status,reason,at:new Date().toISOString()};
+    await finish(identity.orderId,{status,attemptedAt,lastError:reason,raw:{digest:plan.digest,idempotencyKey:plan.idempotencyKey,definitive:error.definitive===true}});
+    await audit({...result,reason,result:status});
     return result;
   }
 }
