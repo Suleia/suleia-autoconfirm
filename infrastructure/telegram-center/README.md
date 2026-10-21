@@ -123,6 +123,11 @@ is stopped. It takes the same state lock, verifies reads, and sends no messages.
 
 ## Operations and recovery
 
+Adding another administrator requires a provider-verified numeric identity and
+separate owner approval. See [the staged verification and revocation runbook](../../docs/TELEGRAM_SECOND_ADMIN.md).
+`admin-link.mjs` is an offline operator helper only; it is never loaded by the
+service and has no grant command. Never run its collector beside active polling.
+
 - `node /opt/suleia-telegram/service.mjs --healthcheck` returns nonzero if local
   health is failed or older than two minutes. It needs only `STATE_DIRECTORY`.
   Connect this local check to existing host monitoring. A preflight-only check
