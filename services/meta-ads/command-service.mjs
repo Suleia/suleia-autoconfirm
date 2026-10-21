@@ -15,6 +15,7 @@ export async function adsCommand(runtime,body) {
       return {proposal:await runtime.engine[/^(no|cancela)/.test(reply)?'cancel':'confirm']({id:pending[0].id,actor})};
     }
     const intent=parseAdsIntent(body.text);
+    if(runtime.reportReadOnly&&intent.kind==='budget')return {text:'El panel está en modo consulta. La persistencia de propuestas necesita aprobar la conexión limitada de Ads. No se ha preparado ni ejecutado ningún cambio.'};
     if(!/^(sube|aumenta|baja|reduce|pon|fija|establece)\b/i.test(body.text)&&/cpm|fatig|creativ|carritos|checkout|perdemos|clics/i.test(body.text))return {text:answerTechnicalQuestion(await runtime.overview({period:intent.period==='30d'?'30d':intent.period||'7d'}),body.text)};
     if(intent.kind==='algorithm'){
       let timer;try{const report=await Promise.race([runtime.algorithm(),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),12000);})]);
