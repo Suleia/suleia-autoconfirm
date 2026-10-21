@@ -1,6 +1,9 @@
 import { getAppConfig } from '../config.mjs';
+import { createMetaAdsReadClient } from '../../../services/meta-ads/meta-ads-client.mjs';
+import { readLegacyInsights } from '../../../services/meta-ads/compat.mjs';
 
 const config = getAppConfig();
+function canonicalReader() {return createMetaAdsReadClient({accessToken:config.metaAccessToken,accountId:String(config.metaAdAccountId||'').replace(/^act_/,''),apiVersion:config.metaApiVersion});}
 
 function normalizeAdAccountId(adAccountId) {
   if (!adAccountId) return null;
@@ -59,7 +62,7 @@ async function metaFetch(url) {
     try {
       response = await fetch(url, {
         signal: controller.signal,
-        headers: { Accept: 'application/json' }
+        headers: { Accept: 'application/json', Authorization: `Bearer ${config.metaAccessToken}` }
       });
     } catch (error) {
       if (attempt < maxAttempts) {
@@ -81,14 +84,14 @@ async function metaFetch(url) {
       await sleep(retryDelayMs(response, attempt));
       continue;
     }
-    throw new Error(`Meta respondio ${response.status}: ${JSON.stringify(data?.error || data)}`);
+    throw new Error(`Meta respondio ${response.status}.`);
   }
 
   throw new Error('Meta no pudo completar la solicitud.');
 }
 
 async function metaRequest(path, params = {}) {
-  return metaFetch(graphUrl(path, { ...params, access_token: config.metaAccessToken }));
+  return metaFetch(graphUrl(path, params));
 }
 
 async function metaPagedRequest(path, params = {}, { maxPages = 50 } = {}) {
@@ -100,6 +103,7 @@ async function metaPagedRequest(path, params = {}, { maxPages = 50 } = {}) {
     const next = result?.paging?.next;
     if (!next) return rows;
     const nextUrl = new URL(next);
+    nextUrl.searchParams.delete('access_token');
     const cursor = nextUrl.searchParams.get('after') || next;
     if (visited.has(cursor)) throw new Error('Meta repitio un cursor de paginacion.');
     visited.add(cursor);
@@ -158,13 +162,14 @@ export async function getAdAccountSummary() {
 }
 
 export async function getCampaigns({ limit = 100, includeBudgetFields = false } = {}) {
+  if (process.env.META_CANONICAL_READ_ENABLED === 'true') return canonicalReader().readCampaigns();
   const adAccountId = normalizeAdAccountId(config.metaAdAccountId);
   if (!adAccountId) throw new Error('Falta META_AD_ACCOUNT_ID.');
 
   const baseFields = ['id', 'name', 'status', 'effective_status', 'objective', 'created_time', 'updated_time'];
   const budgetFields = ['daily_budget', 'lifetime_budget', 'budget_remaining', 'spend_cap', 'bid_strategy'];
 
-  const result = await metaRequest(`${adAccountId}/campaigns`, {
+  const result = await metaPagedRequest(`${adAccountId}/campaigns`, {
     fields: [
       ...baseFields,
       ...(includeBudgetFields ? budgetFields : [])
@@ -172,10 +177,14 @@ export async function getCampaigns({ limit = 100, includeBudgetFields = false } 
     limit
   });
 
-  return result.data || [];
+  return result;
 }
 
 export async function getCampaignInsights({ since, until, datePreset, level = 'campaign', limit = 100, timeIncrement = null } = {}) {
+  if (process.env.META_CANONICAL_READ_ENABLED === 'true') {
+    if(datePreset)throw new Error('CANONICAL_EXPLICIT_DATES_REQUIRED');
+    return readLegacyInsights(canonicalReader(),{since,until,level,timeIncrement});
+  }
   const adAccountId = normalizeAdAccountId(config.metaAdAccountId);
   if (!adAccountId) throw new Error('Falta META_AD_ACCOUNT_ID.');
 

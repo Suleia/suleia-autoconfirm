@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { amount, dateRange, previousRange, reportText, comparisonText } from './reports.mjs';
 import { parseSpanish, matchingCampaigns, cleanSelector } from './spanish.mjs';
+import { createAdsGateway } from './ads-gateway.mjs';
 
 export const help = [
   'Suleia Command Center · Meta Ads',
@@ -27,6 +28,7 @@ export const help = [
 export class Controller {
   constructor({ config, api, store, now = () => Date.now() }) {
     Object.assign(this, { config, api, store, now });
+    this.adsGateway = config.adsEnabled ? createAdsGateway(config) : null;
   }
   authorized(message = {}, sender = message.from) {
     return message?.chat?.type === 'private' && sender && !sender.is_bot &&
@@ -237,7 +239,7 @@ export class Controller {
       await this.api.send(message.chat.id, 'La orden es antigua. Envía una nueva.'); return;
     }
     let result;
-    try { result = await this.command(text, sender.id, message.chat.id); }
+    try { result = this.adsGateway ? await this.adsGateway.handle(text,{user:String(sender.id),chat:String(message.chat.id)},update.update_id) : await this.command(text, sender.id, message.chat.id); }
     catch (error) {
       result = { text: error.service ? `No se pudo consultar ${error.service}. Código ${error.status}; inténtalo más tarde.` : error.message };
     }

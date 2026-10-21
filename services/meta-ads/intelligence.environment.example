@@ -1,0 +1,15 @@
+# Deployment template only. No credentials or flags are changed by this file.
+ADS_INTELLIGENCE_READ_ENABLED=false
+ADS_INTELLIGENCE_WRITES_ENABLED=false
+ADS_INTELLIGENCE_MODE=SIMULATION
+ADS_INTELLIGENCE_DATABASE_URL=
+ADS_INTELLIGENCE_BRIDGE_TOKEN=
+# Reuse the approved values from trusted runtime storage. Do not replace them
+# with a test fixture policy. Observed 2026-10-21: 100 EUR and 10 percent.
+META_MAX_DAILY_BUDGET_EUR=
+META_MAX_BUDGET_CHANGE_PERCENT=
+# These require review before conditional proposals become eligible.
+ADS_MIN_SPEND_EUR=
+ADS_MIN_PURCHASES=
+ADS_MIN_IMPRESSIONS=
+ADS_MIN_FUNNEL_EVENTS=
