@@ -32,6 +32,10 @@ export function createAdsGateway(config,fetchImpl=fetch){
   const url=new URL(config.adsApiUrl);
   if(url.protocol!=='https:'||url.username||url.password||url.search||url.hash)throw Error('ADS_API_URL_INVALID');
   return {async handle(text,actor,updateId){
+    if(config.commandCenterEnabled){
+      if(/^\/(start|help|ayuda)$/.test(text))return {text:'Suleia Command Center 2.0\nPuedes consultar: «¿Cómo va Suleia hoy?», «Analiza NIDA», «¿Y ayer?», «Consulta pedido ES…», «¿Qué incidencias necesitan atención?», «Beneficio de 2026-10», «Salud de servicios», «Mis decisiones».\nEl contexto de campaña caduca a los 15 minutos y pertenece a tu cuenta. Los cambios necesitan una propuesta completa y tu confirmación. No se ejecutan cambios reales en Meta.\nSin modelo externo; si una frase es ambigua te pediré que la concretes. Trendtrack y avisos programados pendientes de activación.\n/campanas · /estado · /historial'};
+      const executive=/^\/resumen (hoy|ayer)$/.exec(text);if(executive)text=`¿Cómo va Suleia ${executive[1]}?`;
+    }
     const budget=/^\/presupuesto (\d+) (\d+(?:[.,]\d{1,2})?)$/.exec(text);
     if(budget)text=`Pon el presupuesto de ${budget[1]} a ${budget[2]} €`;
     const report=/^\/(?:resumen|analizar) (hoy|ayer|3d|7d|30d)$/.exec(text);

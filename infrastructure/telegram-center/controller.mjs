@@ -244,6 +244,7 @@ export class Controller {
       result = { text: error.service ? `No se pudo consultar ${error.service}. Código ${error.status}; inténtalo más tarde.` : error.message };
     }
     await this.api.send(message.chat.id, result.text, result.markup);
+    this.store.record({event:'TELEGRAM_COMMAND_REPLIED',userId:String(sender.id),chatId:String(message.chat.id),updateId:update.update_id,channel:this.adsGateway?'SHARED_ADS_GATEWAY':'LEGACY_READ_ONLY'});
     return { authorized: true, replied: true };
   }
 }
