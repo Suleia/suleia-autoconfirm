@@ -6,6 +6,7 @@ import { loadConfig } from './config.mjs';
 import { Store } from './store.mjs';
 import { createApis } from './api.mjs';
 import { Controller } from './controller.mjs';
+import { createAdminLinkObserver } from './admin-link-observer.mjs';
 
 export async function preflight(config, api) {
   const bot = await api.telegram('getMe');
@@ -25,6 +26,7 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
   store.state.identity = identity; store.save();
   if (checkOnly) { store.health({ ok: true, mode: 'PREFLIGHT_ONLY' }); return; }
   const controller = new Controller({ config, api, store });
+  const adminLink = createAdminLinkObserver({ config, api, store });
   store.health({ ok: true, mode: config.writesEnabled ? 'CONFIRMED_ACTIONS' : 'READ_ONLY' });
   while (!signal?.aborted) {
     try {
@@ -35,7 +37,7 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
       for (const update of updates) {
         if (signal?.aborted) break;
         if (!Number.isSafeInteger(update.update_id) || update.update_id < store.state.offset) continue;
-        const outcome = await controller.handle(update);
+        const outcome = await adminLink.handle(update) || await controller.handle(update);
         if (outcome?.authorized && outcome.replied) {
           store.state.metrics ||= { processedOwnerMessages: 0 };
           store.state.metrics.processedOwnerMessages += 1;
