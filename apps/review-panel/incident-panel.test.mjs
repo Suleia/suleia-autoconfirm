@@ -24,11 +24,40 @@ test('observed customer activity renders the actual text, timestamp and customer
   assert.match(text(row),/Cliente respondió/);
   assert.doesNotMatch(text(row),/Chatby no verificable/);
 });
-test('accepted discount is visible with date and a manual-only queue shortcut',()=>{
+test('accepted discount is visible with date and a manual queue shortcut without claiming support emails are disabled',()=>{
  const {context,get,data}=setup(),item=data.items[0];
  item.manual_discount={label:'Descuento aceptado · acción manual',pending:true,accepted_at:'2026-09-22T12:00:00Z'};
  assert.match(text(context.ui.rowIncident(item)),/Descuento aceptado · acción manual/);
- assert.match(text(context.ui.rowIncident(item)),/sin correo automático/);
+ assert.match(text(context.ui.rowIncident(item)),/Comprobar estado del descuento y de soporte/);
+ assert.doesNotMatch(text(context.ui.rowIncident(item)),/sin correo automático/);
  context.ui.renderFilters();const button=all(get('filters')).find(e=>e.tagName==='button'&&e.textContent.startsWith('Descuentos aceptados'));
  button.events.click();assert.equal(context.ui.state.filters.manual_discount,'pending');assert.equal(context.ui.state.filters.scope,'ACTIVE');
+});
+test('reopened discount and support reconciliation remain expanded without a new customer reply',()=>{
+ for(const reason of ['ACCEPTED_DISCOUNT_INCIDENT_REOPENED','ACCEPTED_DISCOUNT_SUPPORT_RECONCILIATION_REQUIRED']){
+  const {context,data}=setup(),item=data.items[0];
+  item.manual_discount={label:'Descuento aceptado',pending:true,accepted_at:'2026-09-19T12:00:00Z'};
+  item.resolution_observation={observed_at:new Date().toISOString(),customer_replied:false,current_owner:'HUMAN',verification_status:'NOT_VERIFIED',human_review_reason:reason};
+  const row=context.ui.rowIncident(item),alert=all(row).find(e=>e.className==='ip-human-review');
+  assert.ok(alert);assert.match(text(alert),reason==='ACCEPTED_DISCOUNT_INCIDENT_REOPENED'?/Incidencia reabierta · descuento pendiente de comprobar/:/conciliación de soporte pendiente/);
+  assert.match(text(alert),/otra incidencia/);assert.match(text(alert),/instrucción actual del cliente/);assert.match(text(alert),/importe contra reembolso/);assert.match(text(alert),/No repetir el correo/);
+  assert.match(text(alert),/Aceptación registrada en el pedido/);assert.match(text(alert),/Evidencia vigente/);
+  assert.match(text(row),/Revisar el correo anterior/);assert.doesNotMatch(text(row),/sin correo automático|el cliente ha respondido|Cliente respondió: Sí/);
+  assert.equal(all(alert).some(e=>e.tagName==='details'),false);
+ }
+});
+test('historic discount acceptance is not presented as a new post-opening response',()=>{
+ const {context,data}=setup(),item=data.items[0];
+ item.recovery.evidence={customer_interacted:true,message:'Aceptación sintética anterior',response_at:'2026-09-19T12:00:00Z'};
+ item.resolution_observation={observed_at:'2020-01-01',customer_replied:true,current_owner:'HUMAN',verification_status:'NOT_VERIFIED',human_review_reason:'ACCEPTED_DISCOUNT_INCIDENT_REOPENED',customer_event_at:'2026-09-19T12:00:00Z'};
+ const row=context.ui.rowIncident(item);assert.match(text(row),/anterior o simultánea a esta incidencia/);assert.match(text(row),/Aceptación registrada en el pedido/);
+ assert.doesNotMatch(text(row),/tras la apertura|Cliente respondió: Sí|Necesita tu decisión · el cliente ha respondido/);
+ assert.match(text(row),/Actualizar evidencia antes de decidir/);
+});
+test('discount review alert respects active and verified boundaries and keeps untrusted values as text',()=>{
+ const {context,data}=setup(),item=data.items[0],injection='<img src=x onerror=alert(1)>';
+ item.resolution_observation={observed_at:'2020-01-01',customer_replied:false,current_owner:'HUMAN',verification_status:'NOT_VERIFIED',human_review_reason:'ACCEPTED_DISCOUNT_SUPPORT_RECONCILIATION_REQUIRED',customer_intents:[injection],resolution_plan:{steps:[{action:injection,status:'PREPARED'}]}};
+ let row=context.ui.rowIncident(item);assert.ok(text(row).includes(injection));assert.equal(all(row).some(e=>e.tagName==='img'),false);assert.ok(all(row).some(e=>e.className==='ip-human-review'));
+ item.resolution_observation.verification_status='VERIFIED';row=context.ui.rowIncident(item);assert.equal(all(row).some(e=>e.className==='ip-human-review'),false);
+ item.resolution_observation.verification_status='NOT_VERIFIED';item.is_active=false;row=context.ui.rowIncident(item);assert.equal(all(row).some(e=>e.className==='ip-human-review'),false);
 });
