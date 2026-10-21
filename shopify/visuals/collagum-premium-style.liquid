@@ -1,0 +1,131 @@
+{% doc %}
+  Cosmetic finish for CollaGum only. Append to the existing product custom Liquid;
+  preserve its original content. No scripts, forms, content or purchase changes.
+{% enddoc %}
+{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}
+<style id="suleia-collagum-premium-20261021">
+#MainContent {
+  --cg-ink: #142d47;
+  --cg-blue: #286582;
+  --cg-muted: #526774;
+  --cg-ice: #edf5f8;
+  --cg-silver: #d7e3e9;
+  --color-foreground: 37, 63, 82;
+  --color-base-accent-1: 40, 101, 130;
+  --color-base-accent-2: 20, 45, 71;
+  background-color: #fbfcfd;
+  color: #253f52;
+}
+#MainContent :is(.color-background-1, .color-custom, [class*="color-scheme-template"]) {
+  --color-background: 251, 252, 253;
+  --gradient-background: #fbfcfd;
+  --color-foreground: 37, 63, 82;
+  --color-button: 20, 45, 71;
+  --color-button-text: 255, 255, 255;
+  --color-accent: 40, 101, 130;
+}
+#MainContent :is(h1, h2, .h1, .h2) {
+  color: var(--cg-ink);
+  font-family: Georgia, 'Times New Roman', serif;
+  font-weight: 500;
+  letter-spacing: -.025em;
+  line-height: 1.16;
+}
+#MainContent .product__title h1 {
+  font-size: clamp(2.9rem, 2.8vw, 4rem);
+  line-height: 1.14;
+}
+#MainContent :is(h1, h2, h3) :is(strong, b, [style*="color"]) {
+  color: var(--cg-blue) !important;
+}
+#MainContent :is(.product__info-container, .rich-text__text, .image-with-text__text) {
+  color: var(--cg-muted);
+}
+#MainContent .product__text { --text-color: #286582; }
+#MainContent :is(.quantity-breaks, .shipping-checkpoints) {
+  --color-accent: 40, 101, 130;
+  --color-foreground: 20, 45, 71;
+}
+#MainContent .quantity-break {
+  background: #fff;
+  border-color: var(--cg-silver);
+  border-radius: 12px;
+  box-shadow: 0 3px 14px rgba(20,45,71,.035);
+}
+#MainContent .quantity-breaks input:checked + .quantity-break {
+  background: var(--cg-ice);
+  border-color: var(--cg-blue);
+  box-shadow: 0 4px 18px rgba(40,101,130,.1);
+}
+#MainContent :is(.quantity-break__badge, .quantity-break__benefit) {
+  background: var(--cg-ink);
+  color: #fff;
+}
+#MainContent :is(.quantity-break__label, .quantity-break__price) { color: var(--cg-ink); }
+#MainContent :is(.quantity-break__caption, .quantity-break__compare-price) { color: var(--cg-muted); }
+#MainContent .quantity-breaks__title {
+  color: var(--cg-blue);
+  font-weight: 600;
+  letter-spacing: .07em;
+}
+#MainContent .nida-stock-alert {
+  background: var(--cg-ice);
+  border-color: var(--cg-silver);
+  border-radius: 10px;
+  box-shadow: none;
+}
+#MainContent :is(.nida-stock-text, .nida-stock-text strong) { color: #36586b; }
+#MainContent .nida-stock-important { color: #245a75 !important; background: #deedf3; }
+#MainContent :is(.nida-dot, .nida-dot::after) { background: #6f9fb5; }
+#MainContent :is(.product-form__submit, .rich-text .button, .image-with-text .button) {
+  background: var(--cg-ink);
+  color: #fff;
+  border-color: var(--cg-ink);
+  border-radius: 10px;
+  box-shadow: 0 6px 18px rgba(20,45,71,.12);
+}
+#MainContent :is(.product-form__submit, .rich-text .button, .image-with-text .button):hover {
+  background: #234c68;
+}
+#MainContent :is(.product-form__submit, .rich-text .button, .image-with-text .button):focus-visible {
+  outline: 3px solid #82b3c9;
+  outline-offset: 4px;
+}
+#MainContent .thumbnail { border-color: var(--cg-silver); border-radius: 9px; box-shadow: none; }
+#MainContent .thumbnail[aria-current="true"] { border-color: var(--cg-blue); box-shadow: 0 0 0 1px var(--cg-blue); }
+#MainContent .loecare-widget { background: var(--cg-ice); border-radius: 12px; box-shadow: none; }
+#MainContent :is(.loecare-text, .loecare-name, .loecare-count) { color: var(--cg-ink); }
+#MainContent .shipping-checkpoints__bar { background-color: var(--cg-silver); }
+#MainContent .shipping-checkpoint__icon { --color-background: 20, 45, 71; --color-foreground: 255, 255, 255; }
+#MainContent .step-desc { background: #f4f8fa; }
+#MainContent .step-desc .step-desc__card {
+  background: #fff;
+  border-color: var(--cg-silver);
+  border-radius: 16px;
+  box-shadow: 0 5px 22px rgba(20,45,71,.045);
+}
+#MainContent .step-desc .step-desc__image-wrap { background: var(--cg-ice); }
+#MainContent .step-desc .step-desc__number { background: var(--cg-ice); color: var(--cg-ink); border-color: var(--cg-silver); }
+#MainContent .step-desc .step-desc__step-title { color: var(--cg-ink); }
+#MainContent .step-desc .step-desc__step-text { color: var(--cg-muted); }
+#MainContent :is(.accordion, .accordion summary) { border-color: var(--cg-silver); }
+#MainContent :is(.accordion__title, .collapsible-content__heading) { color: var(--cg-ink); }
+#MainContent .rating-item { border-color: var(--cg-silver); }
+#MainContent :is(.rating-label, .rating-number) { color: var(--cg-ink); }
+#MainContent :is(.jdgm-prev-badge__stars, .jdgm-star) { color: #8a713e !important; }
+#MainContent .cg-reviews { background: linear-gradient(180deg, #edf5f8 0%, #fbfcfd 100%); }
+#MainContent .cg-reviews article {
+  border-color: var(--cg-silver);
+  border-radius: 16px;
+  box-shadow: 0 5px 22px rgba(20,45,71,.045);
+}
+#MainContent .cg-reviews strong { color: var(--cg-ink); }
+#MainContent .cg-reviews p { color: var(--cg-muted); }
+#MainContent .cg-reviews .cg-stars { color: #8a713e; }
+@media (max-width: 749px) {
+  #MainContent .product__title h1 { font-size: 2.9rem; line-height: 1.16; }
+  #MainContent .quantity-break { border-radius: 10px; }
+  #MainContent .nida-stock-text { font-size: 1.25rem; line-height: 1.5; }
+}
+</style>
+{% endif %}
