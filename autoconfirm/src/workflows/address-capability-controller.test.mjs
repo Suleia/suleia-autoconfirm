@@ -70,6 +70,35 @@ test('discount canary requires one accepted send and persists a promotion; no re
   assert.equal((await store.get('CHANGE_ADDRESS')).value.breaker,'CLOSED');
  }
 });
+test('overdue offer remains admissible through its existing guarded canary without enabling returns',async()=>{
+ const {deps,store}=await setup();
+ const overdueNotice={...notice,ts:(now-72*3600000)/1000};
+ const overdueIncident={...incident,incidenceDate:at(now-73*3600000)};
+ const overdueIssue={...issue,created_at:overdueIncident.incidenceDate};
+ const overdueItem={...item,incident:overdueIncident,issue:overdueIssue,messages:[overdueNotice]};
+ const decision=addressResponseDecision({...overdueItem,now});assert.equal(decision.action,'OFFER_5_EURO_DISCOUNT');
+ const row=await store.get('OFFER');await store.cas('OFFER',row,{...row.value,activated_at:at(now-96*3600000)});
+ const result=await runAddressCapability(overdueItem,decision,{...deps,readCurrent:async()=>({issue:overdueIssue,order}),readMessages:async()=>[overdueNotice],execute:async({onWrite})=>{onWrite();return {status:'sent',verified:true};}});
+ assert.equal(result.promoted,true);assert.equal(result.intended_writes,1);
+ assert.equal((await store.get('RETURN')).value.breaker,'OPEN');assert.equal((await store.get('RETURN')).value.mode,'CANARY');
+ assert.equal((await runAddressCapability(overdueItem,decision,{...deps,stage:'RETURN'})).status,'CAPABILITY_BLOCKED');
+});
+test('stale policy and time-crossed offer decisions cannot reserve the capability',async()=>{
+ const {deps,store,audit}=await setup();
+ const offerNotice={...notice,ts:(now-24*3600000)/1000};
+ const offerIncident={...incident,incidenceDate:at(now-25*3600000)};
+ const offerIssue={...issue,created_at:offerIncident.incidenceDate};
+ const offerItem={...item,incident:offerIncident,issue:offerIssue,messages:[offerNotice]};
+ const decision=addressResponseDecision({...offerItem,now});
+ const waiting=addressResponseDecision({...offerItem,now:now-1});
+ assert.equal(waiting.action,'WAIT_FOR_CUSTOMER');assert.equal(waiting.input_snapshot_hash,decision.input_snapshot_hash);
+ const row=await store.get('OFFER');await store.cas('OFFER',row,{...row.value,activated_at:at(now-48*3600000)});
+ const check={...deps,stage:'OFFER',readCurrent:async()=>({issue:offerIssue,order}),readMessages:async()=>[offerNotice]};
+ for(const stale of [waiting,{...decision,policy_snapshot_hash:'old-policy'},{...decision,decision_id:'old-decision'}]){
+  assert.equal((await runAddressCapability(offerItem,stale,check)).status,'DECISION_SUPERSEDED');
+ }
+ assert.equal(audit.length,0);assert.equal((await store.get('OFFER')).value.phase,'WAITING_ELIGIBLE_CASE');
+});
 test('health panel distinguishes armed canary from verified live capability',()=>{
  const h=addressRuntimeStatus({lastAddressWorkflowAt:at(now),addressWorkflowSummary:{observed:1},addressCapabilities:{CHANGE_ADDRESS:{effective_mode:'LIVE',effective_breaker:'CLOSED',promotion:{verified:true}},DETAILS:{effective_mode:'CANARY',phase:'WAITING_ELIGIBLE_CASE'}}},env);
  assert.equal(h.stages.change_address,'LIVE');assert.equal(h.stages.details,'CANARY');assert.equal(h.stages.return,'SHADOW');assert.equal(h.breakers.return,'OPEN');
