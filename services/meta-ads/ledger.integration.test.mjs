@@ -5,6 +5,7 @@ import {createRequire} from 'node:module';
 import {AdsLedger} from './ledger.mjs';
 import {AdsIntelligence} from './intelligence.mjs';
 import {localDay} from './metrics.mjs';
+import {CommandLedger} from '../command-center/ledger.mjs';
 
 test('isolated PostgreSQL enforces persistence, idempotency, locks and least privilege',{skip:process.env.ADS_TEST_ISOLATED!=='true'},async()=>{
   // Socket-only ephemeral test database. Never accepts a production URL.
@@ -16,6 +17,19 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     await pool.query(fs.readFileSync(new URL('../../migrations/054_ads_intelligence.sql',import.meta.url),'utf8'));
     await pool.query(fs.readFileSync(new URL('../../migrations/055_ads_intelligence_v3.sql',import.meta.url),'utf8'));
     await pool.query(fs.readFileSync(new URL('../../migrations/056_ads_algorithm_journal.sql',import.meta.url),'utf8'));
+    await pool.query(fs.readFileSync(new URL('../../migrations/057_command_center.sql',import.meta.url),'utf8'));
+    const commandLedger=new CommandLedger(pool),n=Date.now();
+    await commandLedger.saveContext('1',{tool:'ads',selector:'fixture'},n+5000);
+    assert.equal((await commandLedger.context('1',n)).selector,'fixture');
+    assert.equal(await commandLedger.context('1',n+6000),null);
+    assert.equal(await commandLedger.context('2',n),null);
+    const decision={actor:'1',key:'telegram:test:1',kind:'QUERY',evidence:{tool:'ads',observedAt:new Date(n).toISOString()},at:n};
+    const firstDecision=await commandLedger.remember(decision);
+    assert.equal(await commandLedger.remember(decision),firstDecision);
+    assert.equal((await commandLedger.history('1')).length,1);
+    assert.equal((await commandLedger.history('2')).length,0);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_api_login','economics.command_decisions','UPDATE') OR has_table_privilege('suleia_api_login','economics.command_decisions','DELETE') AS allowed")).rows[0].allowed,false);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.command_context','SELECT') AS allowed")).rows[0].allowed,false);
     const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
     const report={evidenceDigest:'fixture-digest',observedAt:new Date().toISOString(),range:{since:'2026-10-01',until:'2026-10-20'},policyVersion:'meta-learning-v4.1',narrative:[],campaigns:[]};
     const journal=await Promise.all([a.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report}),b.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report})]);assert.equal(journal.filter(j=>j.recorded).length,1);

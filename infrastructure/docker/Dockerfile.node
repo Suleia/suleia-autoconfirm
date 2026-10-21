@@ -37,4 +37,7 @@ COPY scripts/replay-recipient-absent-shadow.mjs ./scripts/replay-recipient-absen
 COPY contracts/external/dropea/public-api-v2/0.1.0 ./contracts/external/dropea/public-api-v2/0.1.0
 COPY packages/platform-core ./packages/platform-core
 COPY packages/suleia-operations-mcp ./packages/suleia-operations-mcp
+# Normalize public source traversal when an operator extracts a Git archive
+# under a private umask; the runtime itself remains unprivileged.
+RUN find /app -type d -exec chmod 755 {} +
 USER suleia
