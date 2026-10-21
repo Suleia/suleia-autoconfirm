@@ -1,0 +1,10 @@
+import fs from 'node:fs/promises';
+import {createMetaAdsReadClient} from '../meta-ads-client.mjs';
+import {readReport} from '../report.mjs';
+const args=process.argv.slice(2),output=args[0],period=args[1]||'7d';
+if(!output)throw Error('Usage: node capture-report.mjs PRIVATE_OUTPUT_PATH [7d]');
+const env=process.env,accountId=String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID||'').replace(/^act_/,''),reader=createMetaAdsReadClient({accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,accountId,apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0'});
+const report=await readReport({reader,accountId,query:{period},mode:'SHADOW',policy:{maxBudgetCents:env.META_MAX_DAILY_BUDGET_EUR?Number(env.META_MAX_DAILY_BUDGET_EUR)*100:null,maxChangePercent:env.META_MAX_BUDGET_CHANGE_PERCENT?Number(env.META_MAX_BUDGET_CHANGE_PERCENT):null}});
+report.proposals=[];report.recommendationProposals=[];report.validation={gets:reader.requestCount(),metaWrites:0,dbWrites:0,telegramSends:0};
+await fs.writeFile(output,JSON.stringify(report),{mode:0o600,flag:'wx'});
+process.stdout.write(JSON.stringify({observedAt:report.observedAt,range:report.range,gets:reader.requestCount(),metaWrites:0})+'\n');

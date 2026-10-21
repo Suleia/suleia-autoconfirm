@@ -1,0 +1,65 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {createRequire} from 'node:module';
+import {AdsLedger} from './ledger.mjs';
+import {AdsIntelligence} from './intelligence.mjs';
+import {localDay} from './metrics.mjs';
+
+test('isolated PostgreSQL enforces persistence, idempotency, locks and least privilege',{skip:process.env.ADS_TEST_ISOLATED!=='true'},async()=>{
+  // Socket-only ephemeral test database. Never accepts a production URL.
+  const pg=createRequire('/app/packages/suleia-operations-mcp/package.json')('pg');
+  const pool=new pg.Pool({host:'/var/run/postgresql',database:'ads_v2_test',user:'postgres',max:6});
+  try{
+    assert.equal((await pool.query('SELECT current_database() AS name')).rows[0].name,'ads_v2_test');
+    await pool.query('CREATE SCHEMA economics; CREATE SCHEMA read_models; CREATE ROLE suleia_operations_readonly NOLOGIN; CREATE ROLE suleia_backup NOLOGIN; CREATE ROLE suleia_ingestion NOLOGIN; CREATE ROLE suleia_api_login NOLOGIN;');
+    await pool.query(fs.readFileSync(new URL('../../migrations/054_ads_intelligence.sql',import.meta.url),'utf8'));
+    await pool.query(fs.readFileSync(new URL('../../migrations/055_ads_intelligence_v3.sql',import.meta.url),'utf8'));
+    await pool.query(fs.readFileSync(new URL('../../migrations/056_ads_algorithm_journal.sql',import.meta.url),'utf8'));
+    const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
+    const report={evidenceDigest:'fixture-digest',observedAt:new Date().toISOString(),range:{since:'2026-10-01',until:'2026-10-20'},policyVersion:'meta-learning-v4.1',narrative:[],campaigns:[]};
+    const journal=await Promise.all([a.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report}),b.appendAlgorithmJournal({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'test',report})]);assert.equal(journal.filter(j=>j.recorded).length,1);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_algorithm_journal','INSERT') AS allowed")).rows[0].allowed,true);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_algorithm_journal','UPDATE') AS allowed")).rows[0].allowed,false);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.ads_algorithm_journal','INSERT') AS allowed")).rows[0].allowed,false);
+    const action={id:'fixture',observedAt:'2026-10-21T09:00:00Z',title:'Review',evidence:{current:1}};
+    const recommendations=await Promise.all([a.saveRecommendation({action,principal:'hash',accountId:'9'}),b.saveRecommendation({action,principal:'hash',accountId:'9'})]);assert.equal(recommendations[0].id,recommendations[1].id);
+    const reviewed=await a.reviewRecommendation({id:recommendations[0].id,principal:'hash',state:'APPROVED_FOR_REVIEW'});assert.equal(reviewed.state,'APPROVED_FOR_REVIEW');assert.equal((await b.reviewRecommendation({id:reviewed.id,principal:'hash2',state:'DISMISSED'})).state,'APPROVED_FOR_REVIEW');
+    assert.equal((await a.recommendations()).length,1);assert.equal(await a.claimDigest('day',{count:1}),true);assert.equal(await b.claimDigest('day',{count:1}),false);await a.finishDigest('day','UNKNOWN');
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_api_login','economics.ads_recommendations','INSERT') AS allowed")).rows[0].allowed,true);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.ads_recommendations','INSERT') AS allowed")).rows[0].allowed,false);
+    const saved=await Promise.all([a.createProposal(p),b.createProposal({...p,id:'1123456789abcdef'})]);assert.equal(saved[0].id,saved[1].id);const id=saved[0].id;
+    assert.equal((await Promise.all([a.claimProposal(id),b.claimProposal(id)])).filter(Boolean).length,1);
+    await a.withCampaignLock('9:11',async tx=>{
+      await assert.rejects(b.withCampaignLock('9:11',async()=>{}),/CAMPAIGN_BUSY/);
+      assert.equal(await tx.claimOperation(id,'11','9'),true);assert.equal(await tx.claimOperation(id,'11','9'),false);
+      await tx.record(id,'11',{state:'UNKNOWN',before:10000,after:11000});assert.equal(await tx.unresolved('9','11'),true);
+      await tx.openCircuit('9',Date.now()+60000);assert.equal(await tx.circuitOpen('9',Date.now()),true);
+    });
+    await b.withCampaignLock('9:11',async tx=>{assert.equal((await tx.operation(id,'11')).state,'UNKNOWN');await tx.record(id,'11',{state:'RECONCILED'});assert.equal(await tx.unresolved('9','11'),false);});
+    await a.finish(id,'REVIEW_REQUIRED');assert.equal((await b.get(id)).state,'REVIEW_REQUIRED');assert.equal((await b.get(id)).items[0].result.state,'RECONCILED');
+    assert.equal(Number((await pool.query('SELECT count(*) FROM economics.ads_events')).rows[0].count),2);
+    await b.record(id,'11',{state:'FAILED',reasons:['META_REJECTED_400']});assert.equal((await b.get(id)).items[0].result.state,'FAILED');
+    const f={accountId:'9',level:'campaign',entityId:'11',since:'2026-10-20',until:'2026-10-20',contract:'fixture-contract',spend:20,observedAt:'2026-10-21T08:00:00Z'};
+    await a.persistFacts([f]);await b.persistFacts([f]);await b.persistFacts([{...f,spend:999,observedAt:'2026-10-21T07:00:00Z'}]);
+    assert.equal(Number((await pool.query('SELECT count(*) FROM economics.ads_insights')).rows[0].count),1);
+    assert.equal((await pool.query('SELECT body FROM economics.ads_insights')).rows[0].body.spend,20);
+    const coverage={accountId:'9',level:'campaign',since:f.since,until:f.until,contract:f.contract,observedAt:f.observedAt};
+    await a.persistDailySnapshot([f],coverage);
+    assert.equal(Number((await pool.query('SELECT spend FROM read_models.ads_spend_daily')).rows[0].spend),20);
+    await a.persistDailySnapshot([],{...coverage,observedAt:'2026-10-21T09:00:00Z'});
+    const empty=(await pool.query('SELECT spend,coverage_status FROM read_models.ads_spend_daily')).rows[0];assert.equal(empty.spend,null);assert.equal(empty.coverage_status,'NO_ROWS');
+    assert.equal(Number((await pool.query('SELECT count(*) FROM economics.ads_insights')).rows[0].count),1);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.ads_operations','INSERT') AS allowed")).rows[0].allowed,false);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_operations','INSERT') AS allowed")).rows[0].allowed,true);
+    assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_events','UPDATE') AS allowed")).rows[0].allowed,false);
+    let mutations=0;const campaign={id:'22',account_id:'99',name:'Fixture campaign',status:'ACTIVE',effective_status:'ACTIVE',daily_budget:'10000'};
+    const reader={readAccount:async()=>({id:'act_99',account_status:1,currency:'EUR',timezone_name:'Europe/Madrid'}),readCampaigns:async()=>[campaign],readRules:async()=>[],readDelivery:async()=>[{campaign_id:'22',status:'ACTIVE',effective_status:'ACTIVE'}],readInsights:async()=>[{campaign_id:'22',campaign_name:'Fixture campaign',date_start:localDay(),date_stop:localDay(),spend:'20',impressions:'2000',actions:[{action_type:'purchase',value:'3'}],action_values:[{action_type:'purchase',value:'120'}]}]};
+    const setup={reader,accountId:'99',allowedActors:['1'],mode:'SHADOW',policy:{maxBudgetCents:20000,maxChangePercent:20,minSpend:15,minPurchases:2,minImpressions:500,maxAgeMs:120000},writer:{setDailyBudget:async()=>{mutations++;throw Error('MUTATION_MUST_NOT_RUN');}}};
+    const first=new AdsIntelligence({...setup,ledger:a}),second=new AdsIntelligence({...setup,ledger:b}),actor={user:'1',chat:'1'};
+    const proposal=await first.propose({actor,requestKey:'integration:1',text:'Sube 10 € el presupuesto de todas las campañas activas que tengan un ROAS superior a 5 hoy'});
+    await Promise.all([first.confirm({id:proposal.id,actor}),second.confirm({id:proposal.id,actor})]);
+    const completed=await b.get(proposal.id);assert.equal(completed.items[0].result.state,'SIMULATED');assert.equal(mutations,0);
+    assert.equal((await second.propose({actor,requestKey:'integration:1',text:proposal.request})).id,proposal.id);
+  }finally{await pool.end();}
+});

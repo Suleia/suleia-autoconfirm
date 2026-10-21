@@ -1,0 +1,48 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {once} from 'node:events';
+import {createOperationsServer,loadOperationsConfig} from './server.mjs';
+import {signAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
+const token='test-only-bridge-credential-0000000000000000000';
+async function fixture(fn,runtime={engine:{authorize(actor){if(actor.user!=='1'||actor.chat!=='1')throw Error('ACTOR_UNAUTHORIZED');},mode:'SIMULATION',policy:{maxBudgetCents:10000,maxChangePercent:10}},ledger:{history:async()=>[]},overview:async()=>({liveEnabled:false})}){
+  const server=createOperationsServer({config:loadOperationsConfig({privateDataKey:'fixture-private-key-longer-than-thirty-two-characters',databaseUrl:'postgres://unused',oauthIssuer:'https://issuer.test',oauthAudience:'test',oauthClientId:'test',oauthJwksUrl:'https://issuer.test/keys'}),repository:{},authenticate:async req=>{if(req.headers.authorization!=='Bearer read-test')throw Error('UNAUTHORIZED');return {principal_hash:'test'};},adsRuntime:runtime,adsBridgeToken:token,adsBridgeSecret:'existing-test-only-bot-secret'});
+  server.listen(0,'127.0.0.1');await once(server,'listening');try{await fn('http://127.0.0.1:'+server.address().port);}finally{await new Promise(r=>server.close(r));}
+}
+test('Ads bridge rejects missing/incorrect credentials and unapproved actors',async()=>fixture(async base=>{
+  const path=base+'/api/internal/ads-intelligence/command';
+  for(const auth of ['', 'Bearer read-test','Bearer wrong']){const r=await fetch(path,{method:'POST',headers:{Authorization:auth},body:'{}'});assert.equal(r.status,401);}
+  const r=await fetch(path,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({action:'status',actor:{user:'2',chat:'2'}})});assert.equal(r.status,403);
+}));
+
+test('existing bot secret authenticates a body-bound timely signature; OAuth cannot spoof actors',async()=>fixture(async base=>{
+ const path=base+'/api/internal/ads-intelligence/command',body=JSON.stringify({action:'status',actor:{user:'1',chat:'1'}}),at=String(Date.now()),signature=signAdsBridge('existing-test-only-bot-secret',at,body);
+ const headers={'X-Suleia-Ads-Timestamp':at,'X-Suleia-Ads-Signature':signature};assert.equal((await fetch(path,{method:'POST',headers,body})).status,200);assert.equal((await fetch(path,{method:'POST',headers,body:body+' '})).status,401);
+ assert.equal((await fetch(path,{method:'POST',headers:{Authorization:'Bearer read-test'},body})).status,401);
+}));
+
+test('panel proposals save/review internal recommendations only under existing auth',async()=>{
+ const calls=[],runtime={engine:{mode:'SHADOW'},saveRecommendation:async p=>{calls.push(p);return {state:p.state||'DRAFT',execution:'REVIEW_ONLY'};}};
+ await fixture(async base=>{const path=base+'/api/operations/ads-intelligence/proposals';assert.equal((await fetch(path,{method:'POST',body:'{}'})).status,401);for(const method of['POST','PATCH']){const r=await fetch(path,{method,headers:{Authorization:'Bearer read-test'},body:JSON.stringify({actionId:'test',id:'test',state:'APPROVED_FOR_REVIEW'})});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);}assert.equal(calls[0].principal,'test');assert.equal(calls[0].state,null);assert.equal(calls[1].state,'APPROVED_FOR_REVIEW');},runtime);
+});
+test('Ads bridge accepts only POST; status remains simulation and exposes no secrets',async()=>fixture(async base=>{
+  const path=base+'/api/internal/ads-intelligence/command';assert.equal((await fetch(path)).status,405);
+  const r=await fetch(path,{method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify({action:'status',actor:{user:'1',chat:'1'}})});const b=await r.json();assert.equal(r.status,200);assert.match(b.data.text,/SIMULATION/);assert.equal(b.meta_budget_writes,0);assert.ok(!JSON.stringify(b).includes(token));
+}));
+test('Ads overview uses existing panel auth and is GET only',async()=>fixture(async base=>{
+  const path=base+'/api/operations/ads-intelligence';assert.equal((await fetch(path)).status,401);const r=await fetch(path,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.equal((await r.json()).data.liveEnabled,false);assert.equal((await fetch(path,{method:'POST',headers:{Authorization:'Bearer read-test'}})).status,405);
+}));
+test('V4 analysis, mechanical simulation and journal retain auth and zero Meta writes',async()=>{
+ const calls=[],runtime={engine:{mode:'SHADOW'},algorithm:async()=>({version:'ADS_ALGORITHM_V4',liveEnabled:false}),journalHistory:async()=>[],simulate:async q=>{calls.push(q);return {externalWrites:0,mode:'SHADOW'};},journal:async q=>{calls.push(q);return {execution:'REVIEW_ONLY'};}};
+ await fixture(async base=>{
+  const path=base+'/api/operations/ads-intelligence/algorithm';
+  for(const suffix of ['', '/simulate?campaignId=1&newBudgetCents=6000&days=7']){
+   assert.equal((await fetch(path+suffix)).status,401);
+   const r=await fetch(path+suffix,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);
+   assert.equal((await fetch(path+suffix,{method:'POST',headers:{Authorization:'Bearer read-test'}})).status,405);
+  }
+  assert.equal((await fetch(path+'/journal',{method:'POST',body:'{}'})).status,401);
+  assert.equal((await fetch(path+'/journal')).status,401);
+  assert.equal((await fetch(path+'/journal',{headers:{Authorization:'Bearer read-test'}})).status,200);
+  const r=await fetch(path+'/journal',{method:'POST',headers:{Authorization:'Bearer read-test'},body:JSON.stringify({eventType:'DIAGNOSIS',reference:'ACCOUNT',principal:'spoofed'})});assert.equal(r.status,200);assert.equal(calls[1].principal,'test');assert.equal((await r.json()).internal_configuration_writes,1);
+ },runtime);
+});

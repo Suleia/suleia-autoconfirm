@@ -1161,6 +1161,7 @@ async function refresh({ force = false, background = false } = {}) {
   if (state.refreshing) return; state.refreshing = true; $('refresh-button').disabled = true; $('refresh-button').textContent = 'Actualizando…';
   try {
     if (state.view === 'finance') await loadResultsFinance({ force, background });
+    else if (state.view === 'ads') await AdsIntelligencePanel.load();
     else if (state.view === 'analytics') await OrderIntelligencePanel.load();
     else if (state.view === 'automation') await AutomationPanel.load();
     else if (state.view === 'incidents') await loadQueue();
@@ -1176,8 +1177,11 @@ function setView(view) {
   $('app').setAttribute('data-view',view);
   if(view==='incidents'){state.limit=10;$('page-size').value='10';}
   document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
-  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados',analytics:'Centro de datos e información' }; $('view-title').textContent = titles[view];
+  const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados',analytics:'Centro de datos e información',ads:'Ads Intelligence' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance',automation=view==='automation',analytics=view==='analytics'; $('summary').hidden = finance||automation||analytics; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation||analytics;$('automation-view').hidden=!automation;$('analytics-view').hidden=!analytics;
+  $('ads-view').hidden=view!=='ads';
+  if(view==='ads'){history.replaceState({},'',location.pathname+'#ads');$('summary').hidden=true;$('queue-card').hidden=true;$('recovery-center').hidden=true;AdsIntelligencePanel.load();return;}
+  if(location.hash==='#ads')history.replaceState({},'',location.pathname);
   $('recovery-center').hidden=view!=='incidents';
   if(analytics){if(!(location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname+'#analytics');OrderIntelligencePanel.load();return;}
   if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname);
@@ -1195,7 +1199,7 @@ async function init() {
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
   $('login').hidden = true; $('app').hidden = false;
   if (state.config.analytics_enabled === false) { const analyticsNav=document.querySelector('[data-view="analytics"]');if(analyticsNav)analyticsNav.hidden=true;if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname); }
-  if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
+  if(location.hash==='#ads')setView('ads');else if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !activeToken()) return;
     const financeInterval = Number(state.config.finance_refresh_interval_seconds || 120) * 1000;
