@@ -31,9 +31,11 @@ The owner directly supplied Juan's independent public key and authorized
 The key is installed on the VPS with all previous key entries retained.
 See `docs/vps/SSH_WINDOWS_JUAN.md` and
 `scripts/configure-suleia-ssh-juan.ps1` for the client configuration and
-the required actual login check from Juan's session. This chat's connected
-host belongs to another Windows user; it cannot verify Juan's local login.
-Do not copy private keys between PCs or claim the pending client check passed.
+the actual login check from Juan's session. On 2026-10-22, the owner reported
+that `ssh suleia whoami` from that PC returned `suleiaops`. The VPS SSH journal
+independently confirms two successful authentications with Juan's authorized
+fingerprint at 00:22 Europe/Madrid. This chat did not execute commands on
+Juan's PC. Do not copy private keys between PCs.
 
 ## Handoff format
 

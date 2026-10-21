@@ -50,6 +50,15 @@ Despues, el comando habitual de conexion es:
 ssh suleia
 ```
 
+## Acceso verificado el 22 de octubre de 2026
+
+El propietario comunico que `ssh suleia whoami`, ejecutado desde el PC de
+Juan, devolvio `suleiaops`. Este chat no ejecuto comandos en ese PC.
+Una lectura independiente del registro SSH del VPS confirma dos accesos
+correctos con la huella autorizada de Juan a las 00:22:06 y 00:22:17,
+hora de Madrid (22:22:06 y 22:22:17 UTC del dia anterior).
+No se infiere de esta prueba que un despliegue de aplicaciones haya ocurrido.
+
 ## Revocacion
 
 Desde otro acceso administrativo que siga funcionando, retirar unicamente
