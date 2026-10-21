@@ -84,6 +84,20 @@ test('fresh exact-order conversation, namespace and phone association are all re
  }
 });
 
+test('a legacy receipt without namespace binds only to its valid recorded phone and fresh exact evidence',async()=>{
+ const f=fixture();f.receipt.chatby_user_ns=null;f.receipt.raw.phone='+34600000000';f.current.order.customerPhone='600000000';
+ const r=await run(f);assert.equal(r.supportVerified,true);assert.equal(r.reason,'INCIDENT_REOPENED_REVIEW_REQUIRED');
+ assert.equal(r.orderDiscountApplied,true);assert.equal(r.discountApplied,false);
+});
+
+test('legacy receipt cannot bind a different phone, foreign phone, missing phone, wrong subscriber or missing acceptance',async()=>{
+ for(const change of [f=>f.receipt.raw.phone='+34611111111',f=>f.receipt.raw.phone='+33600000000',f=>delete f.receipt.raw.phone,
+  f=>f.conversation.sameConversation=false,f=>f.conversation.exactOrder=false,f=>f.conversation.samePhone=false,f=>f.messages.length=0]){
+  const f=fixture();f.receipt.chatby_user_ns=null;f.receipt.raw.phone='+34600000000';f.current.order.customerPhone='+34600000000';change(f);
+  const r=await run(f);assert.equal(r.supportVerified,false);assert.equal(r.needsHumanReview,true);
+ }
+});
+
 test('a later cancellation, address correction, agency request or ambiguous response blocks reuse',async()=>{
  for(const [text,intent]of [['No quiero el pedido','REQUESTS_RETURN'],['Recoger en agencia','REQUESTS_AGENCY'],['Mi dirección ahora es otra','AMBIGUOUS'],['Sí','AMBIGUOUS']]){
   const f=fixture();f.messages.push({id:'new',direction:'inbound',text,created_at:'2026-10-20T10:00:00Z'});
