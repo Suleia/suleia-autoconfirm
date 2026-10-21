@@ -3,6 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { SCOPES, requireScopes } from '../security/scopes.mjs';
 import { containsObviousPii, maskPii } from '../security/pii.mjs';
+import { ANALYTICS_TOOLS } from '../../../platform-core/src/analytics/order-intelligence.mjs';
 
 const orderId = z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/);
 const incidentId = z.string().min(1).max(100).regex(/^[A-Za-z0-9_-]+$/);
@@ -433,10 +434,26 @@ export function createMcpServer({ service, audit, authContext, config }) {
     })
   });
 
+  if (process.env.ORDER_INTELLIGENCE_ENABLED !== 'false') for (const name of ANALYTICS_TOOLS) {
+    registerReadTool({ ...common, name, title: name.replaceAll('_', ' '),
+      description: safeDescription('the user asks for DATA_INTELLIGENCE: private aggregate analytics from canonical purchase cohorts in Europe/Madrid, including sample, confidence, maturity, missing costs and source freshness. Net profit by segment remains unknown when Meta/overhead is not attributed.'),
+      inputSchema: {
+        date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        product: z.string().max(120).optional(), offer: z.string().max(120).optional(),
+        province: z.string().max(20).optional(), outcome: z.string().max(30).optional(),
+        maturity: z.enum(['IMMATURE','MATURING','MATURE']).optional(),
+        metric: z.string().max(60).optional(), dimension: z.enum(['province','locality','hour','weekday','product','offer','quantity','ticket','confirmation_delay','response_delay','incident']).optional(),
+        pattern_type: z.string().max(60).optional(), confidence: z.enum(['INSUFFICIENT_SAMPLE','LOW_CONFIDENCE','NORMAL']).optional(),
+        limit: listLimit.optional(), offset: listOffset.optional()
+      }, scopes: [SCOPES.ORDERS_READ], handler: args => service.getOrderIntelligence(name, args)
+    });
+  }
   return server;
 }
 
 export const MCP_TOOL_NAMES = Object.freeze([
+  ...ANALYTICS_TOOLS,
   'get_order',
   'get_order_timeline',
   'get_data_freshness',

@@ -1,4 +1,5 @@
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
+import { createAnalyticsReader } from '../analytics/read-service.mjs';
 import { projectRecipientAbsentShadow } from '../../../platform-core/src/incident/absent-panel-projection.mjs';
 import { projectNotificationScopedIncident } from '../../../platform-core/src/incident/notification-evidence.mjs';
 
@@ -56,7 +57,9 @@ export function createPostgresReadRepository(config, { pool } = {}) {
     return result.rows;
   }
 
+  const orderIntelligence = createAnalyticsReader(query);
   return Object.freeze({
+    orderIntelligence,
     source: 'postgres_shadow_readonly',
 
     async searchOrders({ orderId = null, status = null, subStatus = null, lifecycleStatus = null,

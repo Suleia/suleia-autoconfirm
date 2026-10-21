@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import { statfsSync } from 'node:fs';
+import { ANALYTICS_AGENT, ANALYTICS_TOOLS } from '../../../platform-core/src/analytics/order-intelligence.mjs';
 import {
   AGENT_CATALOG,
   DEPARTMENTS,
@@ -12,6 +13,7 @@ import {
 } from '../../../platform-core/src/governance/temporal-policies.mjs';
 
 const FINAL_MCP_TOOLS = Object.freeze([
+  ...ANALYTICS_TOOLS,
   'get_order',
   'get_order_timeline',
   'get_data_freshness',
@@ -58,6 +60,12 @@ const SERVICE_MANIFEST = Object.freeze([
 })));
 
 const COMPONENTS = Object.freeze([
+  {
+    component_id: 'ORDER_INTELLIGENCE_AGENT', type: 'MODULE', purpose: 'Read-only purchase-cohort business intelligence with source quality, maturity and finance reconciliation.',
+    location: 'packages/platform-core/src/analytics', status: 'READ_ONLY',
+    consumes: ['canonical orders', 'canonical outcome timestamps', 'existing finance read model'], produces: ['aggregate analytics', 'exploratory patterns', 'explainable insights'],
+    dependencies: ['postgres'], consumers: ['operations-center', 'mcp-server'], database_objects: ['analytics.order_facts','analytics.order_cells','analytics.detected_patterns','analytics.insights']
+  },
   {
     component_id: 'event-store', type: 'MODULE', purpose: 'Append-only order event contracts and deterministic replay input.',
     location: 'packages/platform-core/src/event-store.mjs', status: 'IMPLEMENTED_SIMULATION',
@@ -389,6 +397,7 @@ export function createPlatformKnowledge({ repository, config }) {
         return {
           organization: SULEIA_OPERATING_SYSTEM.name,
           agent_count: AGENT_CATALOG.length,
+          additional_read_only_agents: [ANALYTICS_AGENT],
           department_count: DEPARTMENTS.length,
           agents: AGENT_CATALOG.map((agent) => ({
             agent_id: agent.agent_id,

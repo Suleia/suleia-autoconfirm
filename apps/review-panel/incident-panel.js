@@ -37,6 +37,25 @@ const IncidentPanel=(()=>{
       const o=item.resolution_observation;
       const details=node('details','ip-resolution'),heading=node('summary','','Plan de resolución');details.append(heading);
       const current=Date.now()-Date.parse(o.observed_at)<45*60000&&Date.parse(o.observed_at)<=Date.now()&&!(Date.parse(item.latest_private_customer_message_at)>Date.parse(o.observed_at))&&item.is_active===true;
+      if(item.is_active===true && o.customer_replied && o.verification_status!=='VERIFIED' && (o.current_owner==='HUMAN'||o.human_review_reason)){
+        const reason=o.human_review_reason||o.capability_blocker||'REVIEW_REQUIRED';
+        const explanations={
+          CUSTOMER_RESPONSE_REQUIRES_REVIEW:['La respuesta no permite identificar una instrucción segura.','Revisar el mensaje y decidir la gestión o la aclaración necesaria.'],
+          DELIVERY_DATE_AND_WINDOW_REQUIRED:['Falta una fecha o franja inequívoca.','Obtener del cliente el día y la franja de entrega.'],
+          REQUESTED_DELIVERY_DATE_EXPIRED:['La fecha solicitada ya ha pasado.','Solicitar una fecha nueva; no reutilizar la anterior.'],
+          REQUESTED_DELIVERY_WINDOW_EXPIRED:['La franja solicitada ya ha terminado.','Solicitar un nuevo día y franja.'],
+          CAPABILITY_RELEASE_GATE:['La versión desplegada necesita validar las pruebas de resolución.','Validar la versión y su control de activación; no pedir de nuevo datos al cliente.'],
+          CAPABILITY_SHADOW:['La acción identificada no está habilitada para ejecución automática.','Revisar su capacidad o tramitar el caso manualmente.'],
+          CAPABILITY_RESERVED_OR_UNCERTAIN:['Hay una ejecución anterior pendiente de comprobar.','Verificar Dropea antes de repetir cualquier acción.'],
+          CAPABILITY_NOT_ALLOWED:['Dropea no permite la acción solicitada.','Revisar las opciones disponibles con el transportista.'],
+          DISCOUNT_ECONOMIC_MUTATION_CONTRACT_UNAVAILABLE:['El descuento aceptado no tiene aplicación económica verificada.','Comprobar el importe contra reembolso con soporte.'],
+          INTENT_CHANGED_AFTER_ACTION_RECONCILE:['El cliente cambió su respuesta después de una gestión.','Comprobar qué se ejecutó antes de atender la nueva instrucción.']
+        };
+        const [why,next]=explanations[reason]||['No hay una solución automática validada con la evidencia disponible.','Revisar el mensaje y el bloqueo; verificar cualquier gestión anterior antes de actuar.'];
+        const alert=node('div','ip-human-review');alert.setAttribute('role','note');
+        alert.append(node('strong','','Necesita tu decisión · el cliente ha respondido'),node('p','',`Motivo: ${why}`),node('p','',`Qué falta: ${next}`),node('small','',`Respuesta: ${incidentDate(o.customer_event_at||e.response_at)} · Revisión: ${incidentDate(o.observed_at)}`),node('small','',current?'Evidencia vigente':'Actualizar evidencia antes de decidir'),node('small','',`Referencia: ${reason}`));
+        result.prepend?result.prepend(alert):result.append(alert);
+      }
       for(const [label,value] of [['Observación',current?'Vigente':'Actualizar evidencia'],['Cliente respondió',o.customer_replied?'Sí':'No verificado'],['Intención',(o.customer_intents||[]).join(' + ')],['Plan',(o.resolution_plan?.steps||[]).map(s=>`${s.action} [${s.status}]`).join(' → ')],['Siguiente acción',o.next_best_action||(o.explicit_wait_until?'WAIT':'HUMAN_REVIEW')],['Responsable',o.current_owner],['Esperando a',o.timer_state?.waiting_for],['Límite',o.timer_state?.deadline?incidentDate(o.timer_state.deadline):'—'],['Ejecución',o.execution_status],['Verificación',o.verification_status],['Resultado logístico',o.logistics_outcome],['Bloqueo',o.human_review_reason||o.capability_blocker||'Ninguno observado']])details.append(node('small','',`${label}: ${value||'—'}`));
       details.addEventListener('click',event=>event.stopPropagation());details.addEventListener('keydown',event=>event.stopPropagation());result.append(details);
     }

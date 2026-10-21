@@ -35,9 +35,9 @@ async function harness(scopes = ['orders:read','timelines:read','decisions:read'
   return { client, server };
 }
 
-test('definitive catalog has exactly sixteen unique tools and preserves the original eight', () => {
-  assert.equal(MCP_TOOL_NAMES.length, 16);
-  assert.equal(new Set(MCP_TOOL_NAMES).size, 16);
+test('catalog has twenty-eight unique tools and preserves the original eight', () => {
+  assert.equal(MCP_TOOL_NAMES.length, 28);
+  assert.equal(new Set(MCP_TOOL_NAMES).size, 28);
   for (const name of originalEight) assert.equal(MCP_TOOL_NAMES.includes(name), true);
 });
 
