@@ -31,6 +31,7 @@ function time(env, name, fallback) {
 }
 
 export function loadMetaBudgetConfig(env = process.env) {
+  if(env.AUTOPILOT_ENABLED==='true')throw new MetaBudgetConfigurationError('Legacy V1 shadow policy is superseded by Autopilot V5.1', 'META_BUDGET_LEGACY_POLICY_SUPERSEDED');
   const mode = String(env.META_AUTOMATION_MODE || 'SIMULATION').trim().toUpperCase();
   if (!DECLARED_MODES.includes(mode)) throw new MetaBudgetConfigurationError('Unknown META_AUTOMATION_MODE', 'META_BUDGET_MODE_INVALID');
   if (!ENABLED_MODES.has(mode)) throw new MetaBudgetConfigurationError(`${mode} is declared but disabled in this release`, 'META_BUDGET_MODE_NOT_ENABLED');

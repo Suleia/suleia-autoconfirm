@@ -13,6 +13,14 @@ export function parseMetaMinorUnits(value) {
   if (!Number.isSafeInteger(amount)) throw new MetaMoneyError('Meta money exceeds the safe integer range');
   return amount;
 }
+export function parseMetaCurrencyCents(value) {
+  if(value===null||value===undefined||value==='')return null;
+  const m=/^(\d+)(?:\.(\d{1,2}))?$/.exec(String(value));
+  if(!m)throw new MetaMoneyError('Invalid EUR decimal');
+  const cents=Number(m[1])*100+Number((m[2]||'').padEnd(2,'0'));
+  if(!Number.isSafeInteger(cents))throw new MetaMoneyError('EUR decimal outside safe range');
+  return cents;
+}
 
 export function minorUnitsToCurrency(minorUnits, exponent = 2) {
   if (!Number.isSafeInteger(minorUnits) || minorUnits < 0) throw new MetaMoneyError('Invalid minor-unit amount');

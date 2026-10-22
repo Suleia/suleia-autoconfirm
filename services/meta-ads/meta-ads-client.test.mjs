@@ -18,6 +18,12 @@ function client(fetchImpl) {
     maxRetries: 0
   });
 }
+test('account daily spending and category minimums are GET-only and identity bound',async()=>{
+ const calls=[],api=client(async(url,options)=>{calls.push({url:new URL(url),options});return response(new URL(url).pathname.endsWith('/minimum_budgets')?{data:[{currency:'EUR',min_daily_budget_imp:90}]}:{data:[{account_id:'123',date_start:'2026-10-22',date_stop:'2026-10-22',spend:'20.22'}]});});
+ const spend=await api.readAccountDaySpend({since:'2026-10-22',until:'2026-10-22'});assert.equal(spend.spendCents,2022);assert.equal(spend.complete,true);assert.equal((await api.readMinimumBudgets())[0].currency,'EUR');assert.ok(calls.every(c=>c.options.method==='GET'&&!c.options.body));assert.equal(calls[0].url.searchParams.get('level'),'account');
+ const missing=client(async()=>response({data:[]}));assert.equal((await missing.readAccountDaySpend({since:'2026-10-22',until:'2026-10-22'})).spendCents,null);
+ const wrong=client(async()=>response({data:[{account_id:'99',date_start:'2026-10-22',date_stop:'2026-10-22',spend:'0'}]}));await assert.rejects(wrong.readAccountDaySpend({since:'2026-10-22',until:'2026-10-22'}),/identity/);
+});
 
 test('active campaigns are discovered dynamically with GET and ACTIVE filtering', async () => {
   const calls = [];

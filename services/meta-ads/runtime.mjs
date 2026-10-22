@@ -8,17 +8,21 @@ import {captureAlgorithmEvidence} from './algorithm-reader.mjs';
 import {buildAlgorithmReport,simulateBudget,traceOrders,ALGORITHM_POLICY} from './algorithm.mjs';
 import {createAlgorithmOrdersReader} from './algorithm-orders.mjs';
 import {createAlgorithmOperationsReader} from './algorithm-operations.mjs';
+import {loadAutopilotConfig} from './autopilot/policy.mjs';
+import {BudgetAutopilot} from './autopilot/service.mjs';
 
 export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrders=null,readOperations=null}) {
   if(env.ADS_INTELLIGENCE_READ_ENABLED!=='true')return null;
-  const mode=env.ADS_INTELLIGENCE_MODE||'SIMULATION',writes=env.ADS_INTELLIGENCE_WRITES_ENABLED==='true';
+  const autopilotConfig=loadAutopilotConfig(env);
+  const mode=autopilotConfig.enabled?autopilotConfig.mode:env.ADS_INTELLIGENCE_MODE||'SIMULATION',writes=env.ADS_INTELLIGENCE_WRITES_ENABLED==='true';
   const liveAccountBudgets=env.ADS_LIVE_ACCOUNT_BUDGETS_ENABLED==='true';
   if(mode==='LIVE'&&(env.ADS_LIVE_BUDGETS_AUTHORIZED!=='true'||!Number.isFinite(Number(env.ADS_MAX_AGGREGATE_INCREASE_EUR))||Number(env.ADS_MAX_AGGREGATE_INCREASE_EUR)<=0||!Number.isFinite(Number(env.ADS_CAMPAIGN_COOLDOWN_HOURS))||Number(env.ADS_CAMPAIGN_COOLDOWN_HOURS)<24||![env.ADS_MIN_SPEND_EUR,env.ADS_MIN_PURCHASES,env.ADS_MIN_IMPRESSIONS].every(x=>Number.isFinite(Number(x))&&Number(x)>0)))throw Error('LIVE_NOT_AUTHORIZED');
   if(env.META_WRITES_ENABLED==='true'||((writes||mode==='LIVE')&&(!LIVE_COMPILED||mode!=='LIVE'||!writes)))throw Error('LIVE_NOT_AUTHORIZED');
   const getNumber=(name)=>env[name]===undefined||String(env[name]).trim()===''?null:Number(env[name]);
   const reader=createMetaAdsReadClient({accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID||'').replace(/^act_/,''),apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',fetchImpl});
   const reportReadOnly=env.ADS_REPORT_READ_ONLY==='true';
-  const writesBlocked=new Set(['appendAlgorithmJournal','saveRecommendation','reviewRecommendation','claimDigest','finishDigest','createProposal','claimProposal','finish','cancel','persistFacts','persistDailySnapshot','withCampaignLock','record']);
+  if(autopilotConfig.enabled&&reportReadOnly)throw Error('AUTOPILOT_REQUIRES_APPROVED_ADS_PERSISTENCE');
+  const writesBlocked=new Set(['claimAutopilotSlot','finishAutopilotSlot','appendAlgorithmJournal','saveRecommendation','reviewRecommendation','claimDigest','finishDigest','createProposal','claimProposal','finish','cancel','persistFacts','persistDailySnapshot','withCampaignLock','record']);
   const storedLedger=new AdsLedger(pool);
   const ledger=reportReadOnly?new Proxy(storedLedger,{get(target,key){if(writesBlocked.has(key))return async()=>{throw Error('ADS_REPORT_READ_ONLY');};const value=target[key];return typeof value==='function'?value.bind(target):value;}}):storedLedger;
   const liveCampaignIds=String(env.ADS_LIVE_CANARY_CAMPAIGN_ID||'').split(',').filter(Boolean);
@@ -73,7 +77,8 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     }
     const value=assembleReport({...base.value.dataset,productMappings,selector,filters:{level,campaignId,adsetId,adId}});
     stale ||= Date.now()-Date.parse(value.observedAt)>=120000;
-    const budgetCandidates=level==='campaign'&&!stale?(value.facts||[]).filter(f=>f.delivery==='ACTIVE'&&f.roasStatus==='VALID'&&f.spend>=engine.policy.minSpend&&f.purchases>=engine.policy.minPurchases&&f.impressions>=engine.policy.minImpressions&&(f.roas>10||f.roas<3)).slice(0,3).map(f=>({campaignId:f.campaignId||f.entityId,name:f.name,direction:f.roas>10?'increase':'decrease',percent:Math.min(10,engine.policy.maxChangePercent),roas:f.roas})):[];
+    const budgetCandidates=!autopilotConfig.enabled&&level==='campaign'&&!stale?(value.facts||[]).filter(f=>f.delivery==='ACTIVE'&&f.roasStatus==='VALID'&&f.spend>=engine.policy.minSpend&&f.purchases>=engine.policy.minPurchases&&f.impressions>=engine.policy.minImpressions&&(f.roas>10||f.roas<3)).slice(0,3).map(f=>({campaignId:f.campaignId||f.entityId,name:f.name,direction:f.roas>10?'increase':'decrease',percent:Math.min(10,engine.policy.maxChangePercent),roas:f.roas})):[];
+    if(autopilotConfig.enabled)value.autopilotPolicy={version:autopilotConfig.policy.version,increaseCents:1000,decreaseCents:1000,maxBudgetCents:7000,roasThreshold:3.8};
     return {...value,budgetCandidates,reportReadOnly,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt,status:stale?'STALE':'FRESH'}};
   },async saveRecommendation({query,actionId,principal,id,state}){
     if(state)return ledger.reviewRecommendation({id,principal,state});
@@ -90,5 +95,9 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     // Keep the diagnostic abstention and every operational learning protection.
     return {...assessment,reasons:assessment.reasons.filter(r=>r!=='VERIFIED_ECONOMICS_MISSING'),warnings:assessment.reasons.includes('VERIFIED_ECONOMICS_MISSING')?['Margen y ROAS de equilibrio no acreditados; este cambio no implica rentabilidad.']:[]};
   };
+  autopilotConfig.legacy={...engine.policy};
+  if(autopilotConfig.enabled)engine.policy.maxBudgetCents=Math.min(engine.policy.maxBudgetCents||7000,7000);
+  runtime.autopilot=new BudgetAutopilot({engine,ledger,config:autopilotConfig});
+  if(!autopilotConfig.enabled)engine.autopilot=null;
   return runtime;
 }

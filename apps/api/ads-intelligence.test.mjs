@@ -31,6 +31,11 @@ test('Ads bridge accepts only POST; status remains simulation and exposes no sec
 test('Ads overview uses existing panel auth and is GET only',async()=>fixture(async base=>{
   const path=base+'/api/operations/ads-intelligence';assert.equal((await fetch(path)).status,401);const r=await fetch(path,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.equal((await r.json()).data.liveEnabled,false);assert.equal((await fetch(path,{method:'POST',headers:{Authorization:'Bearer read-test'}})).status,405);
 }));
+test('Budget Autopilot overview retains OAuth GET-only boundary and zero writes',async()=>{
+ const runtime={engine:{mode:'SHADOW'},autopilot:{overview:async()=>({mode:'SHADOW',liveEnabled:false,externalWrites:0,policy:{maxBudgetCents:7000}}),audit:async()=>({entries:[],nextCursor:null})}};
+ await fixture(async base=>{const path=base+'/api/operations/ads-intelligence/autopilot';assert.equal((await fetch(path)).status,401);assert.equal((await fetch(path,{method:'POST',headers:{Authorization:'Bearer read-test'},body:'{}'})).status,405);const r=await fetch(path,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);const body=await r.json();assert.equal(body.data.policy.maxBudgetCents,7000);assert.equal(body.meta_budget_writes,0);},runtime);
+ await fixture(async base=>{const path=base+'/api/operations/ads-intelligence/autopilot/history';assert.equal((await fetch(path)).status,401);const r=await fetch(path,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.deepEqual((await r.json()).data.entries,[]);assert.equal((await fetch(path,{method:'POST'})).status,405);},runtime);
+});
 test('V4 analysis, mechanical simulation and journal retain auth and zero Meta writes',async()=>{
  const calls=[],runtime={engine:{mode:'SHADOW'},algorithm:async()=>({version:'ADS_ALGORITHM_V4',liveEnabled:false}),journalHistory:async()=>[],simulate:async q=>{calls.push(q);return {externalWrites:0,mode:'SHADOW'};},journal:async q=>{calls.push(q);return {execution:'REVIEW_ONLY'};}};
  await fixture(async base=>{

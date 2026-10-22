@@ -21,6 +21,7 @@ export function parseAdsIntent(input) {
     }
     let selector = text.slice(change[0].length).replace(/ diarios$/,'').replace(amount[0],'').replace(/^(?: el presupuesto de | el presupuesto | un | a | de )/,'').trim();
     selector = selector.replace(/^(?:el )?presupuesto (?:de )?/,'').replace(/^(?:a |de |la campana )/,'').replace(/ (?:a|en)$/,'').trim();
+    if(/^(?:todas las |todas |las )campanas activas$/.test(selector))return {kind:'budget',mode,value:amount[1].replace(',','.'),unit:['%','por ciento'].includes(amount[2])?'percent':'money',selector:'ALL_ACTIVE',period:null,filter:null};
     if (!selector || /\b(campanas|todas|todos|hoy|ayer|roas|si|cuando)\b/.test(selector)) return {kind:'clarify',question:'Indica una campaña concreta o un filtro completo con periodo.'};
     return {kind:'budget',mode,value:amount[1].replace(',','.'),unit:['%','por ciento'].includes(amount[2])?'percent':'money',selector,period:null,filter:null,...(target&&!['pon','fija','establece'].includes(change[1])?{direction:['baja','reduce'].includes(change[1])?'decrease':'increase'}:{})};
   }

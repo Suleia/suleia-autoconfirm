@@ -8,6 +8,7 @@ import { createApis } from './api.mjs';
 import { Controller } from './controller.mjs';
 import { createAdminLinkObserver } from './admin-link-observer.mjs';
 import {DailyReports} from './daily-reports.mjs';
+import {AutopilotReports} from './autopilot-reports.mjs';
 
 export async function preflight(config, api) {
   const bot = await api.telegram('getMe');
@@ -28,12 +29,14 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
   if (checkOnly) { store.health({ ok: true, mode: 'PREFLIGHT_ONLY' }); return; }
   const controller = new Controller({ config, api, store });
   const dailyReports = new DailyReports({config,api,store,gateway:controller.adsGateway});
+  const autopilotReports = new AutopilotReports({config,api,store,gateway:controller.adsGateway});
   const healthMode=config.sharedBudgetWritesEnabled?'SHARED_CONFIRMED_BUDGETS':config.writesEnabled?'CONFIRMED_ACTIONS':'READ_ONLY';
   const adminLink = createAdminLinkObserver({ config, api, store });
   store.health({ ok: true, mode: healthMode });
   while (!signal?.aborted) {
     try {
       await dailyReports.tick();
+      await autopilotReports.tick();
       const updates = await api.telegram('getUpdates', {
         offset: store.state.offset, limit: 20, timeout: 25, allowed_updates: ['message', 'callback_query']
       });

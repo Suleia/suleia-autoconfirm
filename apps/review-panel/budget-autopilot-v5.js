@@ -1,0 +1,67 @@
+/* Budget plans and verified changes remain separate; no write control in this view. */
+const BudgetAutopilotPanel=(()=>{
+  let report=null,selected='ALL',generation=0;
+  const colors=['#6d55c9','#008779','#cc8735','#3c72c7','#b15384','#718546','#b75c4e','#737e98','#9641a5'];
+  const money=c=>Number.isFinite(c)?(c/100).toLocaleString('es-ES',{style:'currency',currency:'EUR'}):'N/D';
+  const when=v=>v?new Date(v).toLocaleString('es-ES',{timeZone:'Europe/Madrid',day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}):'Sin ejecución';
+  const reasons={MAX_CHANGE_PERCENT:'Límite anterior del 10 %',CAMPAIGN_COOLDOWN:'Espera anterior de 24 h',OPERATING_MINIMUM_NOT_APPROVED:'Mínimo operativo sin aprobar',META_MINIMUM_NOT_VERIFIED:'Mínimo Meta sin verificar',INCREMENTAL_POLICY_NOT_APPROVED:'Falta aprobar evidencia incremental',CONVERSIONS_ALREADY_USED:'Compras ya utilizadas',GLOBAL_EXPOSURE_POLICY_NOT_APPROVED:'Techo global sin aprobar',GLOBAL_EXPOSURE_LIMIT:'Techo global alcanzado',LEGACY_SAMPLE_MINIMUM:'Mínimo anterior: cinco compras',REDUCTION_SAMPLE_POLICY_NOT_APPROVED:'Muestra para reducir sin aprobar',REDUCTION_SAMPLE_INSUFFICIENT:'Muestra insuficiente para reducir',MIN_THREE_PURCHASES:'Menos de tres compras',AUTOPILOT_STALE_OR_WRONG_DAY:'Datos sin verificar hoy',ROAS_MISSING:'ROAS ausente',ROAS_AMBIGUOUS:'ROAS ambiguo',ROAS_SCOPE_MISMATCH:'Evento ROAS distinto de compras',INSUFFICIENT_SAMPLE:'Muestra insuficiente',MAX_BUDGET:'Máximo alcanzado',MANUAL_HOLD_UNTIL_NIGHT:'Orden manual hasta las 22:30',META_MINIMUM_CONFLICT:'Conflicto con mínimo Meta'};
+  function button(text,handler,primary=false){const b=node('button',primary?'ai-primary':'ai-secondary',text);b.type='button';b.addEventListener('click',handler);return b;}
+  function card(title){const c=node('section','ai-card ba-card');c.append(node('h3','',title));return c;}
+  function badge(text,tone='neutral'){return node('span','ai-tag '+tone,text);}
+  function changeCell(c){const cell=node('td');cell.append(node('span','',when(c.lastChangeAt)),node('small','',`${c.verifiedChangesToday||0} verificados / ${c.shadowChangesToday||0} planes hoy`));return cell;}
+  async function auditHistory(){
+    const scope=selected,c=card('Historial completo · '+(scope==='ALL'?'todas las campañas':scope)),more=button('Cargar registros anteriores',read),status=node('p','ai-footnote');let cursor=null,busy=false;
+    c.append(status,more);$('ads-view').append(c);c.scrollIntoView?.({behavior:'smooth',block:'start'});
+    async function read(){if(busy)return;busy=true;more.disabled=true;try{const query=new URLSearchParams({limit:'25',...(scope!=='ALL'?{campaignId:scope}:{}),...(cursor?{cursor}:{})});const page=await api('/api/operations/ads-intelligence/autopilot/history?'+query);for(const p of page.entries){const detail=node('details','ba-audit-entry');detail.append(node('summary','',`${when(p.createdAt)} · ${p.mode} · ${p.state} · ${p.origin}`));for(const i of p.items)detail.append(node('p','',`${i.name}: ${money(i.before)} → ${money(i.after)} · ${i.result?.state||p.state} · ${p.actor}`));c.append(detail);}cursor=page.nextCursor;status.textContent=page.entries.length?'Orden cronológico descendente; las simulaciones no representan cambios aplicados.':'No hay más operaciones propias registradas para este alcance.';more.hidden=!cursor;c.append(more);}catch{status.textContent='No se ha podido comprobar el historial. No se ha modificado ningún presupuesto.';}finally{busy=false;more.disabled=false;}}
+    await read();
+  }
+  function chart(rows){
+    const c=card('Evolución del presupuesto'),svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+    const narrow=typeof matchMedia==='function'&&matchMedia('(max-width:600px)').matches,width=narrow?480:960;
+    svg.setAttribute('viewBox',`0 0 ${width} 280`);svg.setAttribute('role','img');svg.setAttribute('aria-label','Presupuesto verificado y planes SHADOW por campaña');svg.setAttribute('class','ba-chart');
+    const plot=(tag,attributes)=>{const el=document.createElementNS(svg.namespaceURI,tag);for(const[k,v]of Object.entries(attributes))el.setAttribute(k,v);svg.append(el);return el;};
+    const observed=Date.parse(report.observedAt),day=new Date(report.observedAt).toLocaleDateString('en-CA',{timeZone:'Europe/Madrid'});
+    const times=[observed,...report.timeline.map(t=>t.at)].filter(Number.isFinite),start=Math.min(...times)-60000,end=Math.max(...times)+60000;
+    const maximum=Math.max(7000,...rows.map(r=>r.before).filter(Number.isFinite),...report.timeline.map(t=>t.after).filter(Number.isFinite));
+    const x=t=>55+(t-start)/(end-start||1)*(width-80),y=v=>238-v/maximum*205;
+    for(let cents=0;cents<=maximum;cents+=1000){plot('line',{x1:55,x2:width-25,y1:y(cents),y2:y(cents),stroke:'#e8e5f1'});const t=plot('text',{x:4,y:y(cents)+4,fill:'#736d89','font-size':narrow?14:12});t.textContent=money(cents);}
+    plot('line',{x1:55,x2:width-25,y1:y(7000),y2:y(7000),stroke:'#a374c8','stroke-dasharray':'5 5'});
+    const legend=node('div','ba-legend');
+    rows.forEach((row,i)=>{
+      const color=colors[i%colors.length],history=report.timeline.filter(t=>t.campaignId===row.campaignId);
+      const actual=history.filter(t=>t.state==='VERIFIED').flatMap(t=>[{at:t.at-1,value:t.before},{at:t.at,value:t.after}]);
+      actual.push({at:observed,value:row.before});actual.sort((a,b)=>a.at-b.at);
+      const planned=history.filter(t=>t.state==='SIMULATED').map(t=>({at:t.at,value:t.after})).sort((a,b)=>a.at-b.at);
+      for(const[points,dash]of[[actual,false],[planned,true]]){
+        const valid=points.filter(p=>Number.isFinite(p.value));
+        if(valid.length>1)plot('path',{d:valid.map((p,j)=>`${j?'L':'M'}${x(p.at)},${y(p.value)}`).join(' '),fill:'none',stroke:color,'stroke-width':2,...(dash?{'stroke-dasharray':'6 5'}:{})});
+        for(const p of valid)plot('circle',{cx:x(p.at),cy:y(p.value),r:3,fill:dash?'white':color,stroke:color});
+      }
+      const label=node('span','',row.name);label.style.borderColor=color;legend.append(label);
+    });
+    const label=plot('text',{x:55,y:271,fill:'#736d89','font-size':narrow?14:12});label.textContent=day+' · '+when(start)+' → '+when(end);
+    c.append(svg,legend,node('p','ai-footnote','Línea continua: cambios propios verificados y lectura actual. Discontinua: planes SHADOW. Sin historia se muestra un solo punto; no se inventa una trayectoria.'));
+    return c;
+  }
+  function render(){
+    const root=$('ads-view');root.replaceChildren();
+    const head=node('header','ai-toolbar'),copy=node('div');copy.append(node('p','ai-breadcrumb','Suleia Command Center  ›  Ads Intelligence'),node('h2','','Budget Autopilot'),node('p','ai-subtitle','ROAS de hoy, decisiones trazables y presupuesto bajo control'));
+    head.append(copy,button('← Ads Intelligence',()=>AdsIntelligencePanel.load()),button('Actualizar',load,true));root.append(head);
+    const status=node('section','ai-card ba-status');status.append(badge(report.mode,'purple'),badge(report.enabled?'Scheduler habilitado':'Preparado · scheduler desactivado','neutral'),node('strong','',report.writesEnabled?'Escrituras con política y verificación':'Escrituras Meta desactivadas'),node('p','',`Fuente Meta: ${when(report.observedAt)} · Europe/Madrid. Próxima revisión ${when(report.nextReviewAt)}. Última ejecución ${when(report.lastExecutionAt)}.`));root.append(status);
+    const rows=report.campaigns.filter(c=>selected==='ALL'||c.campaignId===selected),actual=report.timeline.filter(t=>t.state==='VERIFIED');
+    const kpis=node('div','ai-kpis ba-kpis');
+    for(const[label,value,note]of[['Campañas supervisadas',String(report.campaigns.length),'Solo presupuesto diario de campaña'],['Presupuesto configurado',money(report.campaigns.reduce((s,c)=>s+(Number.isFinite(c.before)?c.before:0),0)),'No equivale a gasto consumido'],['Cambios verificados hoy',String(actual.length),`${money(actual.reduce((s,t)=>s+Math.max(0,t.after-t.before),0))} de aumentos`],['Decisiones bloqueadas',String(report.campaigns.filter(c=>c.reasons.length).length),'Los motivos permanecen visibles']]){const c=node('article','ai-kpi ba-kpi');c.append(node('span','ai-kpi-label',label),node('strong','',value),node('small','',note));kpis.append(c);}root.append(kpis);
+    const policy=card('Política V5.1 y protecciones vigentes');policy.append(node('p','','+10 € con ROAS >3,8 y al menos tres compras. −10 € a las 12:00 y 19:00 con ROAS <3,8 y evidencia suficiente. ROAS =3,8: mantener.'),node('p','','Máximo 70 €/campaña. Sin subidas desde las 22:30. Techos a las 23:59: 25 € con ROAS ≥3,8; 20 € con ROAS bajo o no fiable. Desconocido no significa cero.'),node('p','ba-warning',`Siguen bloqueando los límites anteriores: ${report.legacyLimits.maxChangePercent??'N/D'} % por cambio, ${money(report.legacyLimits.maxAggregateIncreaseCents)} de incremento agregado y ${(report.legacyLimits.campaignCooldownMs||0)/3600000} h entre cambios.`));
+    const blockers=node('div','ba-chips');for(const r of report.policyConflicts)blockers.append(badge(reasons[r]||r,'orange'));policy.append(blockers);root.append(policy);
+    const controls=node('div','ai-scope'),select=node('select','ba-select');select.setAttribute('aria-label','Filtrar campaña');for(const[id,name]of[['ALL','Todas las campañas'],...report.campaigns.map(c=>[c.campaignId,c.name])]){const o=node('option','',name);o.value=id;o.selected=id===selected;select.append(o);}select.addEventListener('change',()=>{selected=select.value;render();});controls.append(select);root.append(controls,chart(rows));
+    const tableCard=card('Campañas y próxima decisión'),wrap=node('div','ba-table-wrap'),table=node('table','ba-table'),thead=node('thead'),tr=node('tr');
+    for(const title of['Campaña','ROAS / compras hoy','Actual','Previsto','Máximo','23:59','Último cambio','Estado y motivos'])tr.append(node('th','',title));thead.append(tr);table.append(thead);const body=node('tbody');
+    for(const c of rows){const row=node('tr'),name=node('td');name.append(node('strong','',c.name),node('small','',c.campaignId));row.append(name,node('td','',`${c.metric?.metaRoas??'N/D'} / ${c.metric?.purchases??'N/D'}`),node('td','',money(c.before)),node('td','',c.action==='HOLD'?'Mantener':money(c.after)),node('td','','70 €'),node('td','',`≤ ${money(c.nightTargetCents)}`),changeCell(c));const state=node('td');state.append(badge(c.reasons.length?'Bloqueada':c.action==='HOLD'?'Mantener':'Candidata',c.reasons.length?'orange':'green'));for(const reason of c.reasons)state.append(node('small','',reasons[reason]||reason));if(c.manualHoldUntil)state.append(node('small','',c.manualHoldUntil));row.append(state);Array.from(row.children).forEach((cell,index)=>cell.setAttribute('data-label',['Campaña','ROAS / compras','Actual','Previsto','Máximo','23:59','Último cambio','Estado y motivos'][index]));body.append(row);}table.append(body);wrap.append(table);tableCard.append(wrap);root.append(tableCard);
+    const lower=node('div','ba-lower'),rules=card('Horarios de revisión'),pills=node('div','ba-chips');for(const time of report.reviewTimes)pills.append(badge(time,['12:00','19:00'].includes(time)?'purple':time>='22:30'?'blue':'neutral'));rules.append(pills,node('p','ai-footnote','Una decisión por horario. No se recuperan subidas perdidas tras una caída. La latencia de Meta puede impedir confirmar el objetivo exactamente a las 23:59.'));
+    const history=card('Historial y auditoría');for(const t of report.timeline.filter(t=>selected==='ALL'||t.campaignId===selected).slice(-12).reverse()){const line=node('p');line.append(node('strong','',t.name),node('small','',`${when(t.at)} · ${money(t.before)} → ${money(t.after)} · ${t.state} · ${t.origin} · ${t.actor}`));history.append(line);}if(!report.timeline.length)history.append(node('p','ai-empty','Sin operaciones registradas hoy. Una decisión prevista aún no es un cambio aplicado.'));history.append(button('Consultar historial completo',auditHistory));lower.append(rules,history);root.append(lower);
+    if(report.alerts.length){const alerts=card('Alertas que requieren revisión');alerts.setAttribute('role','alert');for(const a of report.alerts)alerts.append(node('p','ba-warning',`${a.slot}: ${a.code}. No se repetirá una ejecución incierta.`));root.append(alerts);}
+    root.append(node('p','ai-source-footer','SIMULATION / SHADOW no modifican presupuestos. El modo LIVE exige una autorización posterior y una versión revisada.'));
+  }
+  async function load(){const id=++generation,root=$('ads-view');root.setAttribute('aria-busy','true');try{const result=await api('/api/operations/ads-intelligence/autopilot');if(id!==generation)return;report=result;render();}catch{if(id===generation)root.replaceChildren(node('h2','','Budget Autopilot'),node('p','ai-error','No se ha podido verificar el estado. No hay datos actuales para decidir cambios.'),button('Reintentar',load),button('← Ads Intelligence',()=>AdsIntelligencePanel.load()));}finally{if(id===generation)root.setAttribute('aria-busy','false');}}
+  return {load};
+})();

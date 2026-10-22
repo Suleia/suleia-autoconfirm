@@ -21,6 +21,7 @@ export function loadConfig(env = process.env) {
   if (!Number.isFinite(maxChange) || maxChange <= 0 || maxChange > 100) throw new Error('Límite de cambio inválido');
   return {
     dailyReportsEnabled:env.COMMAND_CENTER_DAILY_REPORT_ENABLED==='true',
+    autopilotReportsEnabled:env.AUTOPILOT_TELEGRAM_REPORTS_ENABLED==='true',
     sharedBudgetWritesEnabled:adsEnabled&&env.COMMAND_CENTER_BUDGET_WRITES_ENABLED==='true',
     adsEnabled, commandCenterEnabled, adsApiUrl:env.ADS_INTELLIGENCE_API_URL,adsApiToken:env.ADS_INTELLIGENCE_BRIDGE_TOKEN,
     botToken: required('TELEGRAM_BOT_TOKEN'),
