@@ -2,7 +2,7 @@ import { randomBytes, createHash } from 'node:crypto';
 import { CONTRACT, normalizeInsight, windowFor } from './metrics.mjs';
 import { budgetAfter, parseAdsIntent } from './intent.mjs';
 import { diagnose } from './diagnostics.mjs';
-import {manualAutopilotReasons,AUTOPILOT_VERSION,autopilotMetric} from './autopilot/policy.mjs';
+import {manualAutopilotReasons,AUTOPILOT_VERSION,autopilotMetric,consolidatedPolicy} from './autopilot/policy.mjs';
 const hash = x => createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const match = (name, selector) => name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().includes(selector.toLowerCase());
 export const LIVE_COMPILED = true; // Owner-authorized budget-only release; runtime gates remain mandatory.
@@ -60,7 +60,7 @@ export class AdsIntelligence {
     else {
       if (after>p.maxBudgetCents) reasons.push('MAX_BUDGET');
       if (after<(p.minBudgetCents||1)) reasons.push('MIN_BUDGET');
-      if (Math.abs(after-Number(campaign.daily_budget))*100>Number(campaign.daily_budget)*p.maxChangePercent) reasons.push('MAX_CHANGE_PERCENT');
+      if (!consolidatedPolicy(this.autopilot?.config)&&Math.abs(after-Number(campaign.daily_budget))*100>Number(campaign.daily_budget)*p.maxChangePercent) reasons.push('MAX_CHANGE_PERCENT');
     }
     if(this.autopilot?.config.enabled&&intent.mode!=='scheduled')reasons.push(...manualAutopilotReasons({before:Number(campaign.daily_budget),after,metric,now:this.now(),config:this.autopilot.config,inventory}));
     return {after,reasons};
@@ -78,7 +78,7 @@ export class AdsIntelligence {
       const reasons=[...new Set([...decision.reasons,...base.reasons,...(learning?.reasons||[]),...(decision.action==='HOLD'?['AUTOPILOT_HOLD']:[])])];
       items.push({...decision,reasons,learning,status:'PENDING'});
     }
-    const now=this.now(),proposal={id:hash(requestKey).slice(0,16),requestKey,requestHash,actor:{user:'SYSTEM_AUTOPILOT',chat:'SYSTEM_AUTOPILOT'},origin:'AUTOPILOT',request:`Autopilot ${slot.key}`,intent,
+    const now=this.now(),proposal={id:hash(requestKey).slice(0,16),requestKey,requestHash,authorizationReference:config.approved.approvalReference,actor:{user:'SYSTEM_AUTOPILOT',chat:'SYSTEM_AUTOPILOT'},origin:'AUTOPILOT',request:`Autopilot ${slot.key}`,intent,
       accountId:this.accountId,contract:CONTRACT,mode:this.mode,state:'PENDING',createdAt:now,expiresAt:now+300000,policyHash:this.policyDigest(),
       selectedCount:items.length,inventoryCount:evidence.inventory.campaigns.length,items,autopilot:{slot,version:AUTOPILOT_VERSION,config,observedAt:evidence.snapshot.observedAt}};
     return this.ledger.createProposal(proposal);
@@ -106,11 +106,11 @@ export class AdsIntelligence {
       if(this.autopilot?.config.enabled)decision.reasons.push(...await this.autopilot.manualAssessment(c,decision.after));
       items.push({campaignId:String(c.id),name:c.name,before:c.daily_budget===null||c.daily_budget===undefined?null:Number(c.daily_budget),after:decision.after,reasons:[...new Set([...decision.reasons,...(learning?.reasons||[])])],learning,metric,status:'PENDING'});}
     let usage=null;if(this.ledger.budgetUsage)usage=await this.ledger.budgetUsage(this.accountId,this.now(),this.policy.campaignCooldownMs||86400000);
-    if(usage){for(const item of items)if(usage.changedCampaignIds.includes(item.campaignId))item.reasons.push('CAMPAIGN_COOLDOWN');
+    if(usage){for(const item of items)if(!consolidatedPolicy(this.autopilot?.config)&&usage.changedCampaignIds.includes(item.campaignId))item.reasons.push('CAMPAIGN_COOLDOWN');
       const increase=items.filter(i=>!i.reasons.length).reduce((s,i)=>s+Math.max(0,i.after-i.before),0);
       if(increase+usage.increaseCents>this.policy.maxAggregateIncreaseCents)for(const i of items)if(!i.reasons.length)i.reasons.push('AGGREGATE_DAILY_LIMIT');}
     const id=randomBytes(8).toString('hex');
-    const p={id,requestKey:key,requestHash:hash(text),actor,request:text,intent,accountId:this.accountId,contract:CONTRACT,mode:this.mode,state:'PENDING',createdAt:this.now(),expiresAt:this.now()+300000,policyHash:this.policyDigest(),inventoryCount:inventory.campaigns.length,selectedCount:selected.length,items};
+    const p={id,requestKey:key,requestHash:hash(text),authorizationReference:this.autopilot?.config.approved.approvalReference,actor,request:text,intent,accountId:this.accountId,contract:CONTRACT,mode:this.mode,state:'PENDING',createdAt:this.now(),expiresAt:this.now()+300000,policyHash:this.policyDigest(),inventoryCount:inventory.campaigns.length,selectedCount:selected.length,items};
     if(this.autopilot?.config.enabled)p.manualHoldUntil='Hasta las 22:30 Europe/Madrid del día de ejecución; nunca prevalece sobre la reducción nocturna.';
     const saved=await this.ledger.createProposal(p);
     if(saved.requestHash!==p.requestHash)throw Error('IDEMPOTENCY_PAYLOAD_CONFLICT');
@@ -131,10 +131,16 @@ export class AdsIntelligence {
     // A simulation proposal can never turn LIVE after a configuration change.
     if (p.mode!==this.mode||p.policyHash!==this.policyDigest()) return this.ledger.finish(id,'STALE_POLICY_OR_MODE');
     if (this.mode==='LIVE'&&(!this.liveCompiled||!this.writer)) throw Error('LIVE_NOT_AUTHORIZED');
+    let activation=null,trialAttempted=false;
+    if(this.mode==='LIVE'&&consolidatedPolicy(this.autopilot?.config)){
+      if(!this.ledger.liveActivation)throw Error('LIVE_CANARY_GUARD_UNAVAILABLE');
+      activation=await this.ledger.liveActivation(this.accountId,this.autopilot.config.approved.approvalReference);
+    }
     if (!await this.ledger.claimProposal(id)) return this.ledger.get(id);
     try {
       for (const item of p.items) {
         if (item.reasons.length) {await this.ledger.record(id,item.campaignId,{state:'BLOCKED',reasons:item.reasons});continue;}
+        if(activation?.stage==='REVIEW_REQUIRED'||activation?.stage==='CANARY_PENDING'&&trialAttempted){await this.ledger.record(id,item.campaignId,{state:'BLOCKED',reasons:[activation.stage==='REVIEW_REQUIRED'?'LIVE_REVIEW_REQUIRED':'CANARY_VERIFICATION_PENDING']});continue;}
         await this.ledger.withCampaignLock(`${this.accountId}:${item.campaignId}`,async tx=>{
           if (await tx.unresolved(this.accountId,item.campaignId)) {await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:['UNRESOLVED_OPERATION']});return;}
           if (await tx.circuitOpen(this.accountId,this.now())) {await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:['CIRCUIT_OPEN']});return;}
@@ -150,10 +156,12 @@ export class AdsIntelligence {
           if (p.intent.filter&&hash({since:metric.since,until:metric.until,spend:metric.spend,purchases:metric.purchases,value:metric.purchaseValue})!==hash({since:item.metric.since,until:item.metric.until,spend:item.metric.spend,purchases:item.metric.purchases,value:item.metric.purchaseValue})) {await tx.record(id,item.campaignId,{state:'STALE',reasons:['METRIC_CHANGED']});return;}
           if (this.mode!=='LIVE') {await tx.record(id,item.campaignId,{state:'SIMULATED',before:item.before,after:item.after,metric,mode:this.mode,externalWrites:0});return;}
           const usage=await this.ledger.budgetUsage(this.accountId,this.now(),this.policy.campaignCooldownMs);
-          if(usage.changedCampaignIds.includes(item.campaignId)||usage.increaseCents+Math.max(0,item.after-item.before)>this.policy.maxAggregateIncreaseCents){await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:[usage.changedCampaignIds.includes(item.campaignId)?'CAMPAIGN_COOLDOWN':'AGGREGATE_DAILY_LIMIT']});return;}
+          const cooldown=!consolidatedPolicy(this.autopilot?.config)&&usage.changedCampaignIds.includes(item.campaignId);
+          if(cooldown||usage.increaseCents+Math.max(0,item.after-item.before)>this.policy.maxAggregateIncreaseCents){await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:[cooldown?'CAMPAIGN_COOLDOWN':'AGGREGATE_DAILY_LIMIT']});return;}
           // Durable intent must precede the only mutating call. Crash/timeout
           // remains UNKNOWN/EXECUTING and requires read-only reconciliation.
           if (!await tx.claimOperation(id,item.campaignId,this.accountId)) return;
+          if(activation?.stage==='CANARY_PENDING')trialAttempted=true;
           try {
             const response=await this.writer.setDailyBudget(item.campaignId,item.after,{expectedBefore:item.before});
             const after=await this.reader.readCampaign(item.campaignId);

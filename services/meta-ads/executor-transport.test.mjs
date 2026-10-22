@@ -28,3 +28,34 @@ test('Meta timeout/429/5xx has no retry and response bodies cannot leak credenti
  for(const status of [429,500]){const f=setup();let calls=0;f.config.fetchImpl=async()=>{calls++;return new Response(JSON.stringify({error:{code:status===429?4:1,message:'fixture-token'}}),{status});};const writer=createMetaBudgetTransport(f.config);await assert.rejects(writer.setDailyBudget('11',11000,{expectedBefore:10000}),e=>!e.message.includes('fixture-token')&&e.definitiveRejection===(status===429));assert.equal(calls,1);}
  const f=setup();let calls=0;f.config.fetchImpl=async()=>{calls++;throw Error('fixture-token');};await assert.rejects(createMetaBudgetTransport(f.config).setDailyBudget('11',11000,{expectedBefore:10000}),e=>e.definitiveRejection===false&&!e.message.includes('fixture-token'));assert.equal(calls,1);
 });
+
+test('validation-only instance cannot assign and always submits explicit validate_only with unchanged readback',async()=>{
+ const f=setup();f.config.reader.readAccount=async()=>({id:'act_9',currency:'EUR',timezone_name:'Europe/Madrid',account_status:1});f.row.id='11';
+ const validator=createMetaBudgetTransport({...f.config,mode:'SHADOW',writesEnabled:false,liveCompiled:false,validationOnly:true});
+ await assert.rejects(validator.setDailyBudget('11',2000,{expectedBefore:10000}),/VALIDATION_ONLY_TRANSPORT/);assert.equal(f.calls.length,0);
+ const result=await validator.validateDailyBudget('11',2000,{expectedBefore:10000});
+ assert.deepEqual(result,{validated:true,accountId:'9',campaignId:'11',currency:'EUR',budgetCents:2000,unchangedBudgetCents:10000,externalWrites:0});
+ assert.equal(f.calls.length,1);const body=new URLSearchParams(f.calls[0].options.body);
+ assert.equal(body.get('daily_budget'),'2000');assert.deepEqual(JSON.parse(body.get('execution_options')),['validate_only']);
+ assert.throws(()=>createMetaBudgetTransport({...f.config,validationOnly:true}),/VALIDATION_ONLY_CONFIG_INVALID/);
+});
+
+test('validation refuses wrong identity/currency and detects a provider changing the budget without retry or restoration',async()=>{
+ for(const metadata of [{id:'8',currency:'EUR',timezone_name:'Europe/Madrid',account_status:1},{id:'9',currency:'USD',timezone_name:'Europe/Madrid',account_status:1}]){
+  const f=setup();f.config.reader.readAccount=async()=>metadata;
+  const validator=createMetaBudgetTransport({...f.config,mode:'SHADOW',writesEnabled:false,validationOnly:true});
+  await assert.rejects(validator.validateDailyBudget('11',2000,{expectedBefore:10000}),e=>e.notSent===true);assert.equal(f.calls.length,0);
+ }
+ const f=setup();f.row.id='11';f.config.reader.readAccount=async()=>({id:'9',currency:'EUR',timezone_name:'Europe/Madrid',account_status:1});
+ f.config.fetchImpl=async(url,options)=>{f.calls.push({url,options});f.row.daily_budget='2000';return new Response(JSON.stringify({success:true}));};
+ const validator=createMetaBudgetTransport({...f.config,mode:'SHADOW',writesEnabled:false,validationOnly:true});
+ await assert.rejects(validator.validateDailyBudget('11',2000,{expectedBefore:10000}),e=>e.notSent===false);assert.equal(f.calls.length,1);
+});
+
+test('V5.1 write validates the exact target first and sends only one assigning POST',async()=>{
+ const f=setup();f.row.id='11';f.config.reader.readAccount=async()=>({id:'9',currency:'EUR',timezone_name:'Europe/Madrid',account_status:1});
+ const writer=createMetaBudgetTransport({...f.config,validateBeforeWrite:true});await writer.setDailyBudget('11',11000,{expectedBefore:10000});
+ assert.equal(f.calls.length,2);assert.deepEqual(JSON.parse(new URLSearchParams(f.calls[0].options.body).get('execution_options')),['validate_only']);assert.equal(new URLSearchParams(f.calls[1].options.body).has('execution_options'),false);
+ const g=setup();g.row.id='11';g.config.reader.readAccount=f.config.reader.readAccount;let attempts=0;g.config.fetchImpl=async()=>{attempts++;return new Response(JSON.stringify({error:{code:100}}),{status:400});};
+ await assert.rejects(createMetaBudgetTransport({...g.config,validateBeforeWrite:true}).setDailyBudget('11',11000,{expectedBefore:10000}));assert.equal(attempts,1);
+});

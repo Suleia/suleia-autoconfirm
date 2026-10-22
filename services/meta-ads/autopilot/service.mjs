@@ -1,19 +1,19 @@
-import {AUTOPILOT_VERSION,evaluateAutopilot,nightTarget,autopilotMetric} from './policy.mjs';
+import {AUTOPILOT_VERSION,evaluateAutopilot,nightTarget,autopilotMetric,consolidatedPolicy} from './policy.mjs';
 import {reviewSlot,nextReview,madridTime,REVIEW_TIMES} from './schedule.mjs';
 
 export class BudgetAutopilot {
   constructor({engine,ledger,config,now=()=>Date.now(),readConstraints=null,learningWaitMs=3000}) {
-    Object.assign(this,{engine,ledger,config,now,readConstraints,learningWaitMs});this.busy=false;
+    Object.assign(this,{engine,ledger,config,now,readConstraints,learningWaitMs});this.busy=false;this.minimumReceipts=new Map();
     engine.autopilot=this;
   }
-  async learningAssessment(campaign) {
+  async learningAssessment(campaign,{waitMs=this.learningWaitMs}={}) {
     if(!this.engine.learningAssessment)return null;
     let timer;
     const pending=()=>({reasons:['LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE'],policy:null});
     try {
       return await Promise.race([
         Promise.resolve().then(()=>this.engine.learningAssessment(campaign)),
-        new Promise(resolve=>{timer=setTimeout(()=>resolve(pending()),this.learningWaitMs);})
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(pending()),waitMs);})
       ]);
     } catch {return pending();}
     finally {clearTimeout(timer);}
@@ -23,19 +23,30 @@ export class BudgetAutopilot {
     try {
       const rows=await this.engine.reader.readMinimumBudgets();
       const perCampaign={};
-      for(const row of this.config.verifiedMinimums||[])if(row.accountId===this.engine.accountId&&Date.parse(row.verifiedAt)<=this.now()&&Date.parse(row.validUntil)>this.now())perCampaign[row.campaignId]={verified:true,minimumCents:row.minimumCents,reference:row.reference,verifiedAt:row.verifiedAt,validUntil:row.validUntil};
+      for(const row of [...(this.config.verifiedMinimums||[]),...this.minimumReceipts.values()])if(row.accountId===this.engine.accountId&&Date.parse(row.verifiedAt)<=this.now()&&Date.parse(row.validUntil)>this.now())perCampaign[row.campaignId]={verified:true,minimumCents:row.minimumCents,reference:row.reference,verifiedAt:row.verifiedAt,validUntil:row.validUntil};
+      if(this.config.mode==='LIVE'&&consolidatedPolicy(this.config)&&this.engine.writer?.validateDailyBudget){
+        const campaigns=await this.engine.reader.readCampaigns();
+        for(const c of campaigns.filter(c=>c.status==='ACTIVE'&&c.effective_status==='ACTIVE'&&Number.isSafeInteger(Number(c.daily_budget))&&Number(c.daily_budget)>0)){
+          if(perCampaign[String(c.id)]?.minimumCents===this.config.approved.minimumBudgetCents)continue;
+          try {
+            await this.engine.writer.validateDailyBudget(String(c.id),this.config.approved.minimumBudgetCents,{expectedBefore:Number(c.daily_budget)});
+            const at=this.now(),receipt={accountId:this.engine.accountId,campaignId:String(c.id),currency:'EUR',minimumCents:this.config.approved.minimumBudgetCents,reference:this.config.approved.approvalReference,verifiedAt:new Date(at).toISOString(),validUntil:new Date(at+86400000).toISOString()};
+            this.minimumReceipts.set(String(c.id),receipt);perCampaign[String(c.id)]={...receipt,verified:true};
+          } catch {perCampaign[String(c.id)]={verified:false,reason:'META_MINIMUM_VALIDATION_UNAVAILABLE'};}
+        }
+      }
       // The account endpoint publishes different billing/optimization categories.
       // Taking their maximum as every campaign's minimum would invent a mapping.
       return {verified:false,minimumCents:null,perCampaign,accountMinimums:rows.filter(r=>r.currency==='EUR'),scope:'ACCOUNT_CATEGORIES_REQUIRE_CAMPAIGN_VERIFICATION',observedAt:new Date(this.now()).toISOString()};
     } catch {return {verified:false,minimumCents:null,reason:'META_MINIMUM_UNAVAILABLE'};}
   }
-  async capture() {
+  async capture({learningWaitMs=this.learningWaitMs}={}) {
     const at=this.now(),date=madridTime(at).date;
     const [inventory,snapshot,history,constraints]=await Promise.all([this.engine.inventory(),this.engine.snapshot('hoy','campaign',{persist:false}),this.ledger.autopilotHistory(this.engine.accountId,at),this.constraints()]);
     if(madridTime(this.now()).date!==date||snapshot.range.since!==date)throw Error('AUTOPILOT_DAY_CHANGED');
     snapshot.facts=snapshot.facts.map(autopilotMetric);
     const learning=new Map();
-    if(this.engine.learningAssessment)await Promise.all(inventory.campaigns.filter(c=>c.effective_status==='ACTIVE').map(async c=>{learning.set(String(c.id),await this.learningAssessment(c));}));
+    if(this.engine.learningAssessment)await Promise.all(inventory.campaigns.filter(c=>c.effective_status==='ACTIVE').map(async c=>{learning.set(String(c.id),await this.learningAssessment(c,{waitMs:learningWaitMs}));}));
     return {inventory,snapshot,history,constraints,at,learning};
   }
   decisions(evidence,slot) {
@@ -70,7 +81,7 @@ export class BudgetAutopilot {
     if(this.config.mode!=='LIVE'){
       const history=await this.ledger.autopilotHistory(this.engine.accountId,this.now());
       const simulated=history.filter(p=>p.mode===this.config.mode&&madridTime(p.createdAt).date===madridTime(this.now()).date).flatMap(p=>p.items.filter(i=>i.result?.state==='SIMULATED').map(i=>({p,i})));
-      if(simulated.some(({p,i})=>i.campaignId===String(campaign.id)&&this.now()-p.createdAt<(this.config.legacy.campaignCooldownMs||86400000)))reasons.push('CAMPAIGN_COOLDOWN');
+      if(!consolidatedPolicy(this.config)&&simulated.some(({p,i})=>i.campaignId===String(campaign.id)&&this.now()-p.createdAt<(this.config.legacy.campaignCooldownMs||86400000)))reasons.push('CAMPAIGN_COOLDOWN');
       const usage=await this.ledger.budgetUsage(this.engine.accountId,this.now());
       if(simulated.reduce((s,{i})=>s+Math.max(0,i.after-i.before),0)+usage.increaseCents+Math.max(0,after-Number(campaign.daily_budget))>this.config.legacy.maxAggregateIncreaseCents)reasons.push('AGGREGATE_DAILY_LIMIT');
     }
@@ -85,7 +96,7 @@ export class BudgetAutopilot {
       if(!claimed)return {state:'ALREADY_CLAIMED',slot:slot.key,externalWrites:0};
       let proposalId=null;
       try {
-        const evidence=await this.capture();
+        const evidence=await this.capture({learningWaitMs:consolidatedPolicy(this.config)?20000:this.learningWaitMs});
         if(reviewSlot(this.now())?.key!==slot.key)throw Error('AUTOPILOT_SLOT_EXPIRED');
         const decisions=this.decisions(evidence,slot);
         const proposal=await this.engine.proposeScheduled({slot,decisions,evidence,config:this.config});
@@ -94,7 +105,7 @@ export class BudgetAutopilot {
         const outcomes=result.items.map(i=>({campaignId:i.campaignId,state:i.result?.state||'UNKNOWN',reasons:i.result?.reasons||i.reasons}));
         const hasUnknown=outcomes.some(i=>['UNKNOWN','EXECUTING'].includes(i.state));
         const body={version:AUTOPILOT_VERSION,slot,proposalId:result.id,mode:this.config.mode,externalWrites:hasUnknown?null:result.items.reduce((s,i)=>s+(i.result?.externalWrites||0),0),completedAt:this.now(),decisions,outcomes,
-          executionState:hasUnknown?'UNKNOWN_RESULT':outcomes.length>0&&outcomes.every(i=>i.state==='VERIFIED')?'VERIFIED':outcomes.some(i=>i.state==='VERIFIED')?'PARTIAL_FAILURE':this.config.mode==='LIVE'?'BLOCKED':'SIMULATED'};
+          executionState:hasUnknown?'UNKNOWN_RESULT':outcomes.length>0&&outcomes.every(i=>i.state==='VERIFIED')?'VERIFIED':outcomes.some(i=>i.state==='VERIFIED')?'PARTIAL_FAILURE':this.config.mode==='LIVE'?'BLOCKED':'SIMULATED',minimumReceipts:evidence.constraints?.perCampaign||{}};
         // A SHADOW night target is a projection, never verified enforcement.
         if(slot.time==='23:59')body.finalCheck={state:'NOT_ENFORCED_SHADOW',observedBudgets:decisions.map(d=>({campaignId:d.campaignId,actualCents:d.before,targetCents:d.nightTargetCents,withinTarget:d.before<=d.nightTargetCents}))};
         if(slot.time==='23:59'&&this.config.mode==='LIVE'){
@@ -119,10 +130,11 @@ export class BudgetAutopilot {
     const interrupted=slots.filter(s=>s.state==='EXECUTING'&&at-Date.parse(s.created_at)>300000);
     const campaigns=this.decisions(evidence,hypothetical);
     const timeline=evidence.history.flatMap(p=>p.items.map(i=>({at:p.createdAt,campaignId:i.campaignId,name:i.name,before:i.before,after:i.after,mode:p.mode,origin:p.origin||'MANUAL',state:i.result?.state||p.state,actor:p.origin==='AUTOPILOT'?'SYSTEM_AUTOPILOT':p.actor.user}))).filter(x=>madridTime(x.at).date===local.date);
-    return {version:AUTOPILOT_VERSION,mode:this.config.mode,enabled:this.config.enabled,liveEnabled:this.config.mode==='LIVE'&&this.config.liveCompiled,writesEnabled:this.config.writesEnabled,liveCompiled:this.config.liveCompiled,policy:this.config.policy,approved:this.config.approved,legacyLimits:this.config.legacy,
+    const liveActivation=this.config.mode==='LIVE'&&consolidatedPolicy(this.config)?await this.ledger.liveActivation(this.engine.accountId,this.config.approved.approvalReference):null;
+    return {version:AUTOPILOT_VERSION,mode:this.config.mode,enabled:this.config.enabled,liveEnabled:this.config.mode==='LIVE'&&this.config.liveCompiled,writesEnabled:this.config.writesEnabled,liveCompiled:this.config.liveCompiled,liveActivation,policy:this.config.policy,approved:this.config.approved,legacyLimits:this.config.legacy,
       date:local.date,timezone:'Europe/Madrid',observedAt:evidence.snapshot.observedAt,nextReviewAt:nextAt,lastExecutionAt:slots.find(s=>s.completed_at)?.completed_at||null,reviewTimes:REVIEW_TIMES,campaigns,timeline,slots,inventory:evidence.inventory.campaigns.map(c=>({campaignId:String(c.id),name:c.name,status:c.effective_status})),
       constraints:evidence.constraints,accountSpend:evidence.inventory.accountSpend,alerts:[...interrupted.map(s=>({code:'INTERRUPTED_REVIEW_REQUIRED',slot:s.slot_key})),...slots.filter(s=>s.state==='FAILED').map(s=>({code:s.body?.code||'AUTOPILOT_REVIEW_FAILED',slot:s.slot_key})),...slots.filter(s=>s.body?.finalCheck?.state==='CRITICAL_UNVERIFIED_CAP').map(s=>({code:'CRITICAL_UNVERIFIED_CAP',slot:s.slot_key})),...(evidence.inventory.accountSpend?.spendCents>=this.config.approved.globalSpendLimitCents&&this.config.approved.globalSpendLimitCents?[{code:'ACCOUNT_SPEND_LIMIT_REACHED',slot:local.date}]:[])],
-      policyConflicts:['MAX_CHANGE_PERCENT','CAMPAIGN_COOLDOWN',...(!this.config.approved.minimumBudgetCents?['OPERATING_MINIMUM_NOT_APPROVED']:[]),...(!this.config.approved.globalSpendLimitCents?['GLOBAL_SPEND_LIMIT_NOT_APPROVED']:[]),...(!this.config.approved.incrementalPurchases?['INCREMENTAL_POLICY_NOT_APPROVED']:[])],externalWrites:0};
+      policyConflicts:[...(!consolidatedPolicy(this.config)?['MAX_CHANGE_PERCENT','CAMPAIGN_COOLDOWN']:[]),...(!this.config.approved.minimumBudgetCents?['OPERATING_MINIMUM_NOT_APPROVED']:[]),...(!this.config.approved.globalSpendLimitCents&&this.config.approved.globalSpendLimitMode!=='UNLIMITED_AUTHORIZED'?['GLOBAL_SPEND_LIMIT_NOT_APPROVED']:[]),...(!this.config.approved.incrementalPurchases?['INCREMENTAL_POLICY_NOT_APPROVED']:[])],externalWrites:0};
   }
   async audit(query={}){return this.ledger.autopilotAudit(this.engine.accountId,query);}
 }

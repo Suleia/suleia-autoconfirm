@@ -1,6 +1,7 @@
 const clean=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[¿?¡!]/g,'').trim();
 const money=c=>Number.isFinite(c)?(c/100).toLocaleString('es-ES',{style:'currency',currency:'EUR'}):'N/D';
 export const AUTOPILOT_REASONS=Object.freeze({
+  CANARY_VERIFICATION_PENDING:'primer cambio real pendiente de verificar; las demás acciones esperan',LIVE_REVIEW_REQUIRED:'hay una operación fallida o incierta; se necesita revisión antes de continuar',ROAS_REDUCTIONS_NOT_AUTHORIZED:'reducciones por ROAS desactivadas',
   FUTURE_DAY_METRICS_REQUIRED:'la próxima revisión pertenece a otro día; sus métricas aún no existen',INCREMENTAL_SCOPE_CHANGED:'el tipo de compras o contrato ha cambiado desde la subida anterior',
   GLOBAL_SPEND_LIMIT_NOT_APPROVED:'límite diario de gasto global pendiente de aprobación',ACCOUNT_SPEND_UNVERIFIED:'gasto global del día sin verificar',ACCOUNT_SPEND_LIMIT_REACHED:'gasto global observado en el límite autorizado',GLOBAL_EXPOSURE_UNVERIFIED:'inventario de exposición incompleto',
   OPERATING_MINIMUM_NOT_APPROVED:'mínimo operativo pendiente de aprobación',META_MINIMUM_NOT_VERIFIED:'mínimos de Meta sin verificar',META_MINIMUM_CONFLICT:'el objetivo queda bajo el mínimo de Meta',
@@ -33,7 +34,8 @@ export function formatAutopilot(report,query={kind:'status'}) {
   if(query.kind==='near')selected=selected.filter(c=>c.before>=6000);
   const ids=new Set(selected.map(c=>c.campaignId));
   const timeline=report.timeline.filter(t=>ids.has(t.campaignId)),verified=timeline.filter(t=>t.state==='VERIFIED');
-  const header=`Budget Autopilot V5.1 · ${report.mode}${report.enabled?'':' · desactivado'}\n${report.date} · Europe/Madrid · máximo 70 €/campaña\nRegla ordinaria: ±10 €; incremento con ROAS >3,8 y al menos tres compras.\nObservado ${report.observedAt} · próxima revisión ${report.nextReviewAt}`;
+  const activation={CANARY_PENDING:'Primer cambio elegible pendiente de verificación en Meta.',CANARY_VERIFIED:'Primer cambio real verificado; ejecución automática habilitada.',REVIEW_REQUIRED:'Ejecución bloqueada: hay una operación que requiere revisión.'}[report.liveActivation?.stage];
+  const header=`Budget Autopilot V5.1 · ${report.mode}${report.enabled?'':' · desactivado'}\n${report.date} · Europe/Madrid · máximo 70 €/campaña\nRegla ordinaria: ±10 €; incremento con ROAS >3,8 y al menos tres compras.\n${activation?activation+'\n':''}Observado ${report.observedAt} · próxima revisión ${report.nextReviewAt}`;
   if(query.kind==='increases'||query.kind==='reductions'){
     const rows=verified.filter(t=>query.kind==='increases'?t.after>t.before:t.after<t.before);
     const sum=rows.reduce((s,r)=>s+Math.abs(r.after-r.before),0);

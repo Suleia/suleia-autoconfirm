@@ -2,11 +2,17 @@ import { createHash } from 'node:crypto';
 import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 export class AdsLedger {
   constructor(pool){this.pool=pool;}
+  async liveActivation(account,reference){
+    if(!/^[\w:./-]{3,160}$/.test(reference||''))throw Error('LIVE_APPROVAL_REFERENCE_INVALID');
+    const rows=(await this.pool.query("SELECT o.state,o.body FROM economics.ads_operations o JOIN economics.ads_proposals p ON p.id=o.proposal_id WHERE o.account_id=$1 AND p.body->>'authorizationReference'=$2 AND p.body->>'mode'='LIVE' AND o.state IN ('VERIFIED','FAILED','UNKNOWN','EXECUTING','RECONCILED')",[account,reference])).rows;
+    return {stage:rows.some(r=>['FAILED','UNKNOWN','EXECUTING','RECONCILED'].includes(r.state))?'REVIEW_REQUIRED':rows.some(r=>r.state==='VERIFIED'&&r.body?.externalWrites===1&&r.body?.response?.success===true)?'CANARY_VERIFIED':'CANARY_PENDING'};
+  }
   async claimAutopilotSlot(account,slot,at){return (await this.pool.query("INSERT INTO economics.ads_autopilot_slots(account_id,slot_key,state,body,created_at) VALUES($1,$2,'EXECUTING',$3,to_timestamp($4/1000.0)) ON CONFLICT DO NOTHING RETURNING slot_key",[account,slot.key,{slot,externalWrites:0},at])).rowCount===1;}
   async finishAutopilotSlot(account,key,state,body){await this.pool.query("UPDATE economics.ads_autopilot_slots SET state=$3,body=$4,completed_at=now() WHERE account_id=$1 AND slot_key=$2 AND state='EXECUTING'",[account,key,state,body]);}
   async autopilotSlots(account,now){const start=new Date(Date.parse(businessDayBounds({now:new Date(now)}).utc_start)-10*60000).toISOString();return (await this.pool.query('SELECT slot_key,state,body,created_at,completed_at FROM economics.ads_autopilot_slots WHERE account_id=$1 AND created_at>=$2 ORDER BY created_at DESC LIMIT 50',[account,start])).rows;}
-  async autopilotHistory(account,now){
-    const start=Math.min(Date.parse(businessDayBounds({now:new Date(now)}).utc_start),now-86400000);
+  async autopilotHistory(account,now,lookbackMs=86400000){
+    if(!Number.isSafeInteger(lookbackMs)||lookbackMs<86400000||lookbackMs>72*3600000)throw Error('AUTOPILOT_HISTORY_RANGE_INVALID');
+    const start=Math.min(Date.parse(businessDayBounds({now:new Date(now)}).utc_start),now-lookbackMs);
     const rows=(await this.pool.query(`SELECT p.body,p.state,coalesce(jsonb_agg(jsonb_build_object('campaignId',o.campaign_id,'result',o.body||jsonb_build_object('state',o.state))) FILTER(WHERE o.campaign_id IS NOT NULL),'[]'::jsonb) AS operations
       FROM economics.ads_proposals p LEFT JOIN economics.ads_operations o ON o.proposal_id=p.id
       WHERE p.body->>'accountId'=$1 AND p.created_at>=to_timestamp($2/1000.0) GROUP BY p.id ORDER BY p.created_at DESC LIMIT 301`,[account,start])).rows;

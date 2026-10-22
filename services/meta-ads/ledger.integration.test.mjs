@@ -32,6 +32,12 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_api_login','economics.command_decisions','UPDATE') OR has_table_privilege('suleia_api_login','economics.command_decisions','DELETE') AS allowed")).rows[0].allowed,false);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.command_context','SELECT') AS allowed")).rows[0].allowed,false);
     const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
+    const approval='chat:fixture:live-v51';
+    const canary={...p,id:'9999999999999999',requestKey:'canary:fixture',accountId:'999',authorizationReference:approval,mode:'LIVE',items:[{campaignId:'99',before:2000,after:3000}]};
+    await a.createProposal(canary);assert.equal((await a.liveActivation('999',approval)).stage,'CANARY_PENDING');
+    await a.withCampaignLock('999:99',async tx=>{await tx.claimOperation(canary.id,'99','999');assert.equal((await b.liveActivation('999',approval)).stage,'REVIEW_REQUIRED');await tx.record(canary.id,'99',{state:'VERIFIED',response:{success:true},externalWrites:1});});
+    assert.equal((await b.liveActivation('999',approval)).stage,'CANARY_VERIFIED');assert.equal((await b.liveActivation('998',approval)).stage,'CANARY_PENDING');assert.equal((await b.liveActivation('999','chat:other')).stage,'CANARY_PENDING');
+    await a.withCampaignLock('999:99',async tx=>tx.record(canary.id,'99',{state:'UNKNOWN'}));assert.equal((await b.liveActivation('999',approval)).stage,'REVIEW_REQUIRED');
     const slot={key:'2026-10-22:12:00',kind:'SPECIAL',time:'12:00',date:'2026-10-22'};
     assert.equal((await Promise.all([a.claimAutopilotSlot('9',slot,Date.now()),b.claimAutopilotSlot('9',slot,Date.now())])).filter(Boolean).length,1);
     await a.finishAutopilotSlot('9',slot.key,'COMPLETE',{externalWrites:0});
@@ -77,7 +83,7 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     });
     await b.withCampaignLock('9:11',async tx=>{assert.equal((await tx.operation(id,'11')).state,'UNKNOWN');await tx.record(id,'11',{state:'RECONCILED'});assert.equal(await tx.unresolved('9','11'),false);});
     await a.finish(id,'REVIEW_REQUIRED');assert.equal((await b.get(id)).state,'REVIEW_REQUIRED');assert.equal((await b.get(id)).items[0].result.state,'RECONCILED');
-    assert.equal(Number((await pool.query('SELECT count(*) FROM economics.ads_events')).rows[0].count),2);
+    assert.equal(Number((await pool.query('SELECT count(*) FROM economics.ads_events WHERE proposal_id=$1',[id])).rows[0].count),2);
     await b.record(id,'11',{state:'FAILED',reasons:['META_REJECTED_400']});assert.equal((await b.get(id)).items[0].result.state,'FAILED');
     const f={accountId:'9',level:'campaign',entityId:'11',since:'2026-10-20',until:'2026-10-20',contract:'fixture-contract',spend:20,observedAt:'2026-10-21T08:00:00Z'};
     await a.persistFacts([f]);await b.persistFacts([f]);await b.persistFacts([{...f,spend:999,observedAt:'2026-10-21T07:00:00Z'}]);
