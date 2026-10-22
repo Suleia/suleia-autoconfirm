@@ -654,6 +654,14 @@ export async function syncChatbyReadOnly({
         && Date.parse(e.created_at)===Date.parse(metrics.incident_notified_at));
       await onAbsentConversation({events,chatby:{verified:true,history_complete:messages.complete===true,
         conversation_id:String(subscriber.user_ns),
+        order_absent_notices:messages.items.filter(m=>direction(m)==='OUTBOUND' && messageType(m)==='TEMPLATE'
+          && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(templateSlug(m))
+          && Date.parse(occurredAt(m))>=Date.parse(issue.order_created_at)).map(m=>({
+            message_id:m.id || m.mid || null,provider_message_id:m.wamid || m.payload?.wamid
+              || (String(m.mid || '').startsWith('wamid.')?m.mid:null),at:occurredAt(m),template_name:templateSlug(m)})),
+        unverifiable_customer_activity:messages.items.some(m=>direction(m)==='INBOUND' && !Number.isFinite(Date.parse(occurredAt(m)))),
+        order_recovery_offer_count:messages.items.filter(m=>direction(m)==='OUTBOUND' && messageType(m)==='TEMPLATE'
+          && /descuento_5_v1$/.test(templateSlug(m)) && Date.parse(occurredAt(m))>=Date.parse(issue.order_created_at)).length,
         order_notification_count:messages.items.filter(m=>direction(m)==='OUTBOUND' && messageType(m)==='TEMPLATE'
           && INCIDENT_NOTIFICATION_TEMPLATES.RECIPIENT_ABSENT.includes(templateSlug(m))
           && Date.parse(occurredAt(m))>=Date.parse(issue.order_created_at)).length,

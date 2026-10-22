@@ -14,6 +14,12 @@ GitHub is the durable coordination layer:
 - commits and pull requests hold proposed or implemented changes;
 - Render and Supabase remain runtime systems, not agent-to-agent chat channels.
 
+Owner update 2026-10-22: a new, verified second failed delivery attempt may
+receive one separate absence notice using the existing controller and approved
+v3 template. This narrowly replaces the blanket one-absence-notice-per-order
+rule; other lifecycle templates retain their rules. See SECOND_ABSENCE_NOTICE.md
+for the durable two-stage claim, fresh receipt checks and flag-only rollback.
+
 ## Repository
 
 - Name: `Suleia/suleia-autoconfirm`
