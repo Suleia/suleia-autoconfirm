@@ -15,6 +15,13 @@ import {
 
 const now = Date.parse('2026-07-16T16:00:00.000Z');
 
+test('fresh exact customer desire outranks old carrier refusal and pickup text in the panel decision',()=>{
+ const response={status:'RESPONDED',confidence:'HIGH',waiting_for_order:true,delivery_attempt_denied_by_customer:true,at:'2026-07-16T15:00:00Z'};
+ const base={classification:{type:'rejected_goods'},chatby:{chatbyReadVerified:true,customerMessages:1,lastCustomerMessage:'nadie ha venido y sigo esperando el pedido'},incidentDate:'2026-07-16T10:00:00Z',transportHistory:[{text:'NO ACEPTA EXPEDICIÓN; recoger en agencia'}],customerResponse:response,now};
+ const d=incidentOperationalDecision(base);assert.equal(d.action,'accept_solution');assert.equal(d.customerIntent,'WANTS_ORDER');assert.equal(d.nextBestAction,'PROVIDE_SOLUTION_NEW_DELIVERY');assert.match(d.text,/nueva entrega/);
+ const old=incidentOperationalDecision({...base,customerResponse:{...response,at:'2026-07-15T10:00:00Z'}});assert.notEqual(old.customerIntent,'WANTS_ORDER');
+});
+
 const rejectedDiscountIncident = {
   incidenceId: 'fixture-discount-issue',
   orderId: 'fixture-discount-order',

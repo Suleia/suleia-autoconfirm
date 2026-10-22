@@ -1,8 +1,9 @@
 import {currentCustomerIntent,resolutionHash,madridDate} from './incident-intent-v2.mjs';
 import {addressResponseDecision,parseCustomerAddress} from './address-response-policy.mjs';
 import {planDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
+import {newDeliverySolution} from './customer-delivery-intent.mjs';
 
-export const RESOLUTION_POLICY_VERSION='2026-10-08.1';
+export const RESOLUTION_POLICY_VERSION='2026-10-22.customer-delivery.1';
 export const WORKFLOW_POLICY=Object.freeze({
   rejected_goods:{workflow:'REJECTED',discount:'PREPARED_CONTRACT_REQUIRED',silent_return:'EXISTING_LIVE',explicit_return:'CANARY_REQUIRED'},
   absent:{workflow:'ABSENT',discount:'PREPARED_CONTRACT_REQUIRED',silent_return:'EXISTING_POLICY',explicit_return:'CANARY_REQUIRED'},
@@ -20,9 +21,11 @@ export function resolutionCandidate({incident,order,issue,messages=[],previous=n
     issue_state:raw.status||incident.issueStatus||'UNKNOWN',current_policy:policy||null,policy_version:RESOLUTION_POLICY_VERSION,
     customer_contact_status:response.notice_at?'VERIFIED':'NOT_VERIFIED',customer_response_status:response.status,
     customer_intents:response.intents,customer_replied:response.has_reply,customer_event_hash:response.event_hash,
+    provider_raw_type:raw.type||null,customer_intent:response.customer_intent||null,waiting_for_order:response.waiting_for_order===true,delivery_attempt_denied_by_customer:response.delivery_attempt_denied_by_customer===true,requests_redelivery:response.requests_redelivery===true,
     customer_event_at:response.at||null,notification_at:response.notice_at||null,
     next_best_action:null,explicit_wait_until:null,human_review_reason:null,current_owner:'AUTOMATION',timer_state:null,
     execution_status:'NOT_REQUESTED',verification_status:'NOT_REQUESTED',logistics_outcome:'STILL_PENDING',
+    commercially_resolved:false,logistics_state:'STILL_PENDING',
     resolution_plan:null,plan_history:previous?.plan_history||[],observed_at:iso(now),is_active:raw.is_active===true&&raw.status==='PENDING',
     prior_incident_id:previous&&previous.incident_id!==String(incident.incidenceId)?previous.incident_id:null,
     previous_plan_id:previous?.previous_plan_id||null};
@@ -67,6 +70,12 @@ export function resolutionCandidate({incident,order,issue,messages=[],previous=n
       else if(action==='ASK_MISSING_FIELDS'){steps=[step(action)];review('EXISTING_ADDRESS_DETAILS_OWNER');}
       else review(d.state||'ADDRESS_REQUIRES_REVIEW');
     }else if(intents.includes('REQUESTS_AGENCY')){action='PICKUP_AT_AGENCY';steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];}
+    else if(['absent','rejected_goods'].includes(incident.incidentType)&&response.literal_delivery_preference&&(!response.literal_delivery_preference.date||response.literal_delivery_preference.date>madridDate(now))&&raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
+      action='PROVIDE_SOLUTION';data={note:`El cliente quiere recibir el pedido y solicita una nueva entrega. Disponibilidad literal: «${response.literal_delivery_preference.literal}». Por favor, realizar la entrega respetando sus indicaciones.`};steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];t.next_best_action_detail='PROVIDE_SOLUTION_NEW_DELIVERY';
+    }
+    else if(['absent','rejected_goods'].includes(incident.incidentType)&&response.waiting_for_order&&!response.delivery_qualification&&intents.includes('WANTS_ORDER')&&!response.slot?.date&&!response.slot?.time_window&&raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
+      action='PROVIDE_SOLUTION';data={note:newDeliverySolution(response)};steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];t.next_best_action_detail='PROVIDE_SOLUTION_NEW_DELIVERY';
+    }
     else if(intents.includes('WANTS_ORDER')||intents.includes('REQUESTS_RETRY')){
       action='RETRY_DELIVERY';data=response.slot||{};steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];
       if(!data.date||!data.time_window)review('DELIVERY_DATE_AND_WINDOW_REQUIRED');
@@ -167,10 +176,10 @@ export function logisticsFollowUp(twin,current,{newIssueId=null,now=Date.now()}=
     }
   }
   if(['DELIVERED','RETURNED'].includes(status)){
-    t.logistics_outcome=status;t.resolved_at=t.resolved_at||iso(now);t.verification_status='VERIFIED';t.is_active=false;t.customer_replied_but_unresolved=false;
+    t.logistics_outcome=status;t.logistics_state=status;t.commercially_resolved=status==='DELIVERED';t.resolved_at=t.resolved_at||iso(now);t.verification_status='VERIFIED';t.is_active=false;t.customer_replied_but_unresolved=false;
     t.resolution_actor=t.resolution_plan?.status==='VERIFIED'?'AUTOMATION':'PROVIDER';
     t.next_best_action=null;t.explicit_wait_until=null;t.human_review_reason=null;t.current_owner='PROVIDER';t.findings=[];
   }else if(newIssueId&&String(newIssueId)!==t.incident_id){t.logistics_outcome='NEW_INCIDENT';t.linked_next_incident_id=String(newIssueId);t.is_active=false;t.next_best_action=null;t.explicit_wait_until=null;t.current_owner='AUTOMATION';t.human_review_reason='SUPERSEDED_BY_NEW_INCIDENT';}
-  else {t.logistics_outcome='STILL_PENDING';t.current_owner='PROVIDER';t.next_best_action=null;t.explicit_wait_until=iso(now+24*3600000);t.human_review_reason=null;t.timer_state={waiting_for:'LOGISTICS_OUTCOME',waiting_since:t.timer_state?.waiting_since||iso(now),deadline:t.explicit_wait_until,on_timeout_action:'VERIFY_PROVIDER'};}
+  else {t.logistics_outcome='STILL_PENDING';t.logistics_state=t.requests_redelivery?'AWAITING_NEW_DELIVERY':'STILL_PENDING';t.commercially_resolved=false;t.current_owner='PROVIDER';t.next_best_action=null;t.explicit_wait_until=iso(now+24*3600000);t.human_review_reason=null;t.timer_state={waiting_for:'LOGISTICS_OUTCOME',waiting_since:t.timer_state?.waiting_since||iso(now),deadline:t.explicit_wait_until,on_timeout_action:'VERIFY_PROVIDER'};}
   return t;
 }
