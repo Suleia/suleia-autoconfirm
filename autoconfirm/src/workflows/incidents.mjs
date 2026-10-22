@@ -54,6 +54,8 @@ import { incorrectAddressOperationalDecision } from './incident-address-resoluti
 import { inspectPriorOrderReturn } from './incident-order-return-guard.mjs';
 import { createIncidentSyncQueue } from '../incident-sync-queue.mjs';
 import { REJECTED_POLICY, rejectedIntent, rejectedDecisionSnapshot } from './recipient-rejected-policy.mjs';
+import {currentCustomerIntent} from './incident-intent-v2.mjs';
+import {newDeliverySolution} from './customer-delivery-intent.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'incidents-cache.json');
@@ -777,6 +779,7 @@ export function incidentOperationalDecision({
   transportHistory = [],
   phone = '',
   incidentDate = null,
+  customerResponse = null,
   now = Date.now()
 } = {}) {
   const transportText = normalize((Array.isArray(transportHistory) ? transportHistory : [])
@@ -790,6 +793,11 @@ export function incidentOperationalDecision({
   const customerResponded = Number(chatby.customerMessages || 0) > 0;
   const ageHours = ageHoursAt(incidentDate, now);
   const discountExchange = findDiscountRecoveryExchange(chatby.messagesForNotification, incidentDate);
+
+  if(['absent','rejected_goods'].includes(classification?.type)&&chatby.chatbyReadVerified===true&&customerResponse?.status==='RESPONDED'&&customerResponse.confidence==='HIGH'&&customerResponse.waiting_for_order&&!customerResponse.delivery_qualification&&Date.parse(customerResponse.at)>=Date.parse(incidentDate))return {
+    eligible:true,action:'accept_solution',text:newDeliverySolution(customerResponse),confidence:99,ruleId:'core_customer_requests_new_delivery',owner:'vps_delivery_reply',
+    customerIntent:'WANTS_ORDER',nextBestAction:'PROVIDE_SOLUTION_NEW_DELIVERY',reason:customerResponse.delivery_attempt_denied_by_customer?'El cliente sigue esperando, quiere recibir el pedido e indica que nadie ha acudido. Solicitar nueva entrega.':'El cliente confirma que sigue esperando y quiere recibir el pedido. Solicitar nueva entrega.'
+  };
 
   if (/pasaran a recoger en agencia|pasara a recoger en agencia|recoger en agencia|recogida en agencia/.test(transportText)) {
     return {
@@ -2634,12 +2642,14 @@ async function performPendingIncidentSync({
         timeoutHours: config.defaultStore.incidentResponseTimeoutHours
       });
       const baseRecommendation = typeAwareIncidentSolution(classification, chatby, issue, responseWait);
+      const currentResponse=currentCustomerIntent({incident:{orderId,incidenceDate:currentIncidenceDate,incidentType:classification.type,chatbyReadVerified:chatby.chatbyReadVerified,chatbyOrderAssociation:chatby.orderAssociation,chatbyUserNs:chatby.userNs},order,messages:chatby.messagesForNotification||[]});
       const genericOperationalDecision = incidentOperationalDecision({
         classification,
         chatby,
         transportHistory,
         phone,
-        incidentDate: currentIncidenceDate
+        incidentDate: currentIncidenceDate,
+        customerResponse:currentResponse
       });
       const operationalDecision = classification.type === 'address'
         ? incorrectAddressOperationalDecision({ classification, chatby, phone })
@@ -2702,6 +2712,10 @@ async function performPendingIncidentSync({
         transportLogCompleteness: carrierIncident ? 'dropea_incidence_history' : glsTracking?.history?.length ? 'official_tracking' : 'summary_only',
         transportLogSource: carrierIncident?.source || glsTracking?.source || 'Dropea Public API V2: resumen de incidencia',
         chatbyIntent: chatby.intent || 'unknown',
+        customerIntent:currentResponse.customer_intent||null,
+        waitingForOrder:currentResponse.waiting_for_order===true,
+        deliveryAttemptDeniedByCustomer:currentResponse.delivery_attempt_denied_by_customer===true,
+        requestsRedelivery:currentResponse.requests_redelivery===true,
         chatbyStatus: chatby.status,
         chatbySummary: chatby.summary,
         customerSignalLabel: customerSignal.label,

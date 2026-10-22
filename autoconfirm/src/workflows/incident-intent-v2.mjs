@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { isCustomerInteraction, messageTimestamp, findVerifiedTemplateDelivery } from './incident-discount-policy.mjs';
 import { addressMessageText, parseCustomerAddress } from './address-response-policy.mjs';
+import {customerDeliverySignals} from './customer-delivery-intent.mjs';
 
 export const resolutionHash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const fold = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -36,22 +37,25 @@ export function deliverySlot(text, at) {
 export function parseCustomerIntentV2(text, {at, offerVerified=false, button=null}={}) {
   const t=fold(text), ambiguous=reason=>({intents:['AMBIGUOUS'],confidence:'LOW',reason,slot:{date:null,time_window:null}});
   if(!t&&!button)return {intents:['IRRELEVANT'],confidence:'HIGH',slot:{date:null,time_window:null}};
-  if(t.length>1000 || /https?:|ignora.*instrucciones|\b(?:quiza|quizas|no se|tal vez|puede que)\b/.test(t))return ambiguous('AMBIGUOUS_CUSTOMER_RESPONSE');
+  if(t.length>1000 || /https?:|ignora.*instrucciones|\b(?:quiza|quizas|no se(?! (?:ha|han|paso|presento)\b)|tal vez|puede que)\b/.test(t))return ambiguous('AMBIGUOUS_CUSTOMER_RESPONSE');
   if(/^(hola|buenos dias|buenas tardes|gracias|ok|vale)[!., ]*$/.test(t))return {intents:['IRRELEVANT'],confidence:'HIGH',slot:{date:null,time_window:null}};
   let slot=deliverySlot(t,at);
-  const intents=[];
-  const returns=/\b(?:ya no lo quiero|no lo quiero|no quiero (?:el|este) pedido|devolver|devolverlo|devuelvelo|cancelalo)\b/.test(t)||button==='REQUEST_RETURN';
+  const intents=[],delivery=customerDeliverySignals(t);
+  if(delivery.contradictory)return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
+  if(delivery.conditional)return ambiguous('CONDITIONAL_DELIVERY_REQUEST');
+  const returns=/\b(?:ya no lo quiero|no lo quiero|no quiero (?:el|mi|este) pedido|no quiero recibirlo|devolver|devolverlo|devuelvelo|cancelalo)\b/.test(t)||button==='REQUEST_RETURN';
   const wants=/\b(?:lo quiero|quiero (?:el|mi) pedido|quiero recibirlo|vuelvan a entregar|entregar de nuevo|reintentar)\b/.test(t)&&!returns;
   const rejectDiscount=/\b(?:sin descuento|no quiero (?:el )?descuento|rechazo (?:el )?descuento)\b/.test(t)||button==='REJECT_DISCOUNT';
   const accepts=/\b(?:acepto (?:el )?descuento|quiero (?:el )?descuento|con (?:los |el )?(?:5|cinco) euros|con (?:el )?descuento)\b/.test(t)||/^acepto[.! ]*$/.test(t)||button==='ACCEPT_DISCOUNT_5';
   if(returns && /no (?:quiero )?devolver|no lo devuelv/.test(t))return ambiguous('NEGATED_RETURN');
-  if(returns&&(accepts||wants||slot.date))return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
+  if(returns&&(accepts||wants||delivery.wants_order||slot.date))return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
   if(accepts&&rejectDiscount)return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
-  if(/\bno\b/.test(t)&&!returns&&!rejectDiscount)return ambiguous('NEGATED_OR_QUALIFIED_REQUEST');
+  if(/\bno\b/.test(t)&&!returns&&!rejectDiscount&&!delivery.wants_order)return ambiguous('NEGATED_OR_QUALIFIED_REQUEST');
   if(returns)intents.push('WANTS_RETURN');
   if(rejectDiscount)intents.push('REJECTS_DISCOUNT');
   if(accepts){if(!offerVerified)return ambiguous('VERIFIED_OFFER_REQUIRED');intents.push('ACCEPTS_DISCOUNT','WANTS_ORDER');}
   if(wants)intents.push('WANTS_ORDER');
+  if(delivery.wants_order&&!returns){intents.push('WANTS_ORDER','WAITING_FOR_ORDER','REQUESTS_REDELIVERY');if(delivery.delivery_attempt_denied_by_customer)intents.push('DELIVERY_NOT_ATTEMPTED_ACCORDING_TO_CUSTOMER');}
   if(/recog(?:er|ida|erlo).*agencia|recojo.*(?:agencia|oficina)/.test(t)||button==='ABSENT_PICKUP_AGENCY')intents.push('REQUESTS_AGENCY','WANTS_ORDER');
   if(button==='ABSENT_TOMORROW_MORNING'||button==='ABSENT_TOMORROW_AFTERNOON')slot={date:addDays(madridDate(at),1),time_window:button.endsWith('MORNING')?'morning':'afternoon'};
   if(slot.date)intents.push('PROVIDES_DATE','REQUESTS_RETRY','WANTS_ORDER');
@@ -59,9 +63,9 @@ export function parseCustomerIntentV2(text, {at, offerVerified=false, button=nul
   const address=parseCustomerAddress(text);
   if(['VALID_ADDRESS','INCOMPLETE_ADDRESS'].includes(address.kind))intents.push('PROVIDES_ADDRESS');
   if(/(?:direccion|datos).*(?:correct[ao]s?|mism[ao]s?)|confirmo (?:la|mi) direccion/.test(t))intents.push('CONFIRMS_ADDRESS');
-  if(/[?¿]/.test(t)||/^(?:cuando|donde|como|por que)\b/.test(t))return {intents:['ASKS_QUESTION'],confidence:'HIGH',slot};
+  if((/[?¿]/.test(t)||/^(?:cuando|donde|como|por que)\b/.test(t))&&!delivery.wants_order)return {intents:['ASKS_QUESTION'],confidence:'HIGH',slot};
   if(intents.includes('WANTS_RETURN')&&intents.some(i=>['REQUESTS_AGENCY','PROVIDES_ADDRESS','CONFIRMS_ADDRESS'].includes(i)))return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
-  return {intents:intents.length?[...new Set(intents)]:['AMBIGUOUS'],confidence:intents.length?'HIGH':'LOW',slot};
+  return {intents:intents.length?[...new Set(intents)]:['AMBIGUOUS'],confidence:intents.length?'HIGH':'LOW',slot,...(delivery.wants_order&&!returns?{customer_intent:'WANTS_ORDER',...delivery}:{})};
 }
 
 export function currentCustomerIntent({incident,order,messages=[],now=Date.now()}) {

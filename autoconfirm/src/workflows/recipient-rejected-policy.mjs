@@ -1,7 +1,8 @@
 import crypto from 'node:crypto';
+import {customerDeliverySignals} from './customer-delivery-intent.mjs';
 
 export const REJECTED_POLICY = Object.freeze({
-  policy_id: 'RECIPIENT_REJECTED_POLICY_V1', policy_version: '2026-09-26.1',
+  policy_id: 'RECIPIENT_REJECTED_POLICY_V1', policy_version: '2026-10-22.1',
   discount_amount_eur: 5, offer_delay_hours: 24, recovery_timeout_hours: 48,
   timer: 'RECIPIENT_REJECTED_RECOVERY_48H', owner: 'render_incident_automation',
   latest_valid_intent_wins: true, ambiguous_return: false,
@@ -13,12 +14,13 @@ const norm = value => String(value || '').normalize('NFD').replace(/[\u0300-\u03
 // Only current, exactly correlated inbound messages may be passed by the caller.
 export function rejectedIntent(text, { offerVerified = false, previouslyConfirmed = false } = {}) {
   const t = norm(text);
+  const delivery=customerDeliverySignals(t);
   const base = { intent: 'AMBIGUOUS', wants_order: null, discount_accepted: false, requests_return: false };
   if (!t) return { ...base, intent: 'NO_RESPONSE' };
-  if (/\b(?:quiza|no se|ya veremos|ahora no|me pillo fuera|no estaba)\b/.test(t)) return base;
+  if (/\b(?:quiza|no se(?! (?:ha|han|paso|presento)\b)|ya veremos|ahora no|me pillo fuera|no estaba)\b/.test(t)) return base;
   if (/no (?:lo )?he pedido|no hice (?:el|este) pedido/.test(t)) return { ...base,
     reason: previouslyConfirmed ? 'CURRENT_ORDER_PREVIOUSLY_CONFIRMED' : 'ORDER_ORIGIN_DISPUTED' };
-  const wants = /(?:si |mejor |final |pero )?(?:lo quiero|quiero (?:el pedido|recibirlo)|quiero que.*(?:lleven|entreguen))|que me lo vuelvan a llevar|si[, ]+(?:manana|por la)|wants_order|requests_new_delivery/.test(t)
+  const wants = (delivery.wants_order||/(?:si |mejor |final |pero )?(?:lo quiero|quiero (?:el pedido|recibirlo)|quiero que.*(?:lleven|entreguen))|que me lo vuelvan a llevar|si[, ]+(?:manana|por la)|wants_order|requests_new_delivery/.test(t))
     && !/no (?:lo quiero|quiero (?:el pedido|recibirlo))/.test(t);
   const rejectsDiscount = /no quiero (?:el )?descuento|sin descuento|rechazo (?:el )?descuento|rejects_discount/.test(t);
   if (wants && rejectsDiscount) return { ...base, intent: 'REJECTS_DISCOUNT', wants_order: true };
@@ -30,6 +32,7 @@ export function rejectedIntent(text, { offerVerified = false, previouslyConfirme
   if (offerVerified && /quiero el descuento|acepto (?:el )?descuento|accept_discount_5|^acepto[.! ]*$/.test(t))
     return { ...base, intent: 'ACCEPTS_DISCOUNT', wants_order: true, discount_accepted: true };
   if (/recoger en agencia|recogida en agencia/.test(t)) return { ...base, intent: 'REQUESTS_AGENCY', wants_order: true };
+  if(delivery.wants_order)return {...base,...delivery,intent:'WANTS_ORDER'};
   if (wants) return { ...base, intent: 'WANTS_ORDER', wants_order: true };
   return base;
 }
