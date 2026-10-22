@@ -137,10 +137,11 @@ export function createOperationsServer({ config, repository, authenticate, finan
     const adsBridge = requestUrl.pathname === '/api/internal/ads-intelligence/command';
     const adsProposal=requestUrl.pathname==='/api/operations/ads-intelligence/proposals';
     const adsAlgorithmJournal=requestUrl.pathname==='/api/operations/ads-intelligence/algorithm/journal';
+    const adsReviewRecord=requestUrl.pathname==='/api/operations/ads-intelligence/review/records';
     const feedbackMatch = requestUrl.pathname.match(/^\/api\/operations\/incidents\/([^/]+)\/feedback$/);
     const fixedExpenseCreate = requestUrl.pathname === '/api/operations/finance/fixed-expenses';
     const fixedExpenseUpdate = requestUrl.pathname.match(/^\/api\/operations\/finance\/fixed-expenses\/([^/]+)$/);
-    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate || adsProposal || adsAlgorithmJournal)) || (req.method === 'PATCH' && (fixedExpenseUpdate || adsProposal));
+    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate || adsProposal || adsAlgorithmJournal || adsReviewRecord)) || (req.method === 'PATCH' && (fixedExpenseUpdate || adsProposal));
     if (req.method !== 'GET' && !internalWrite && !(adsBridge && req.method === 'POST')) return json(res, 405, { ok: false, error: 'method_not_allowed' });
     if (!allowRequest(req)) return json(res, 429, { ok: false, error: 'rate_limited' });
     if(adsBridge){
@@ -153,8 +154,9 @@ export function createOperationsServer({ config, repository, authenticate, finan
         if(!legacy&&!verifyAdsBridge(adsBridgeSecret,req.headers['x-suleia-ads-timestamp'],raw,req.headers['x-suleia-ads-signature']))return json(res,401,{ok:false,error:'unauthorized'});
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         const body=JSON.parse(raw);const data=commandCenter?await commandCenter.command(body):await adsCommand(adsRuntime,body);
-        audit({event:'ads_command',action:body.action,outcome:'ok',meta_budget_writes:writesForEnvelope});
-        return json(res,200,{ok:true,data,meta_budget_writes:writesForEnvelope});
+        const reviewRead=Boolean(data.review||body.action==='review'||(body.action==='request'&&adsRuntime.review?.parse(body.text)));
+        audit({event:'ads_command',action:body.action,outcome:'ok',meta_budget_writes:reviewRead?0:writesForEnvelope});
+        return json(res,200,{ok:true,data,meta_budget_writes:reviewRead?0:writesForEnvelope});
       }catch(error){const code=adsCommandErrorCode(error);audit({event:'ads_command_failed',outcome:'blocked',code,meta_budget_writes:writesForEnvelope});return json(res,code==='ACTOR_UNAUTHORIZED'?403:503,{ok:false,error:'ads_command_blocked',code});}
     }
     if (requestUrl.pathname === '/health') {
@@ -179,6 +181,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         finance_refresh_interval_seconds: config.financeRefreshIntervalSeconds,
         analytics_enabled: process.env.ORDER_INTELLIGENCE_ENABLED !== 'false',
         command_center_enabled: Boolean(commandCenter),
+        ads_review_v6_enabled: Boolean(adsRuntime?.reviewEnabled),
         run_mode: 'SHADOW_READ_ONLY'
       });
     }
@@ -192,7 +195,24 @@ export function createOperationsServer({ config, repository, authenticate, finan
     }
     try {
       let data;
-      if(adsAlgorithmJournal&&req.method==='POST'){
+      if(requestUrl.pathname.startsWith('/api/operations/ads-intelligence/review')){
+        if(!adsRuntime?.review)return json(res,503,{ok:false,error:'ads_review_disabled'});
+        const query=Object.fromEntries(requestUrl.searchParams);
+        const path=requestUrl.pathname;
+        if(adsReviewRecord&&req.method==='POST'){
+          const body=await jsonBody(req,8192);
+          data=await adsRuntime.review.record({...body,principal:principal.principal_hash});
+          audit({event:'ads_review_record',kind:body.kind,principal_hash:principal.principal_hash,meta_budget_writes:0});
+          return json(res,200,{ok:true,data,meta_budget_writes:0,external_actions:0,internal_configuration_writes:1});
+        }
+        if(path.endsWith('/records'))data=await adsRuntime.review.history(query);
+        else if(path.endsWith('/query'))data=await adsRuntime.review.answer(query.question,query);
+        else if(path.endsWith('/alerts'))data=await adsRuntime.review.alerts(query);
+        else if(path.endsWith('/audit'))data=await adsRuntime.review.audit(query.profile);
+        else if(path==='/api/operations/ads-intelligence/review')data=await adsRuntime.review.report(query);
+        else return json(res,404,{ok:false,error:'not_found'});
+        return json(res,200,{ok:true,data,meta_budget_writes:0,external_actions:0});
+      }else if(adsAlgorithmJournal&&req.method==='POST'){
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         const body=await jsonBody(req,2048);data=await adsRuntime.journal({eventType:body.eventType,reference:body.reference,principal:principal.principal_hash});
         return json(res,200,{ok:true,data,meta_budget_writes:0,external_actions:0,internal_configuration_writes:1});

@@ -2,6 +2,29 @@ import { createHash } from 'node:crypto';
 import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 export class AdsLedger {
   constructor(pool){this.pool=pool;}
+  async appendReviewRecord({kind,reference,record,principal,evidenceDigest,observedAt}){
+    const eventType=kind.startsWith('EXPERIMENT')?'EXPERIMENT_DESIGN':kind==='DECISION'?'RECOMMENDATION':'OBSERVATION';
+    const body={version:'suleia-review-v6.0',kind,reference,record,principal,evidenceDigest,observedAt,externalWrites:0};
+    const id=createHash('sha256').update(JSON.stringify(body)).digest('hex');
+    const insert=c=>c.query('INSERT INTO economics.ads_algorithm_journal(id,event_type,reference,body) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[id,eventType,reference.slice(0,100),body]);
+    if(kind==='ALERT_OBSERVATION'){
+      const c=await this.pool.connect();try{
+        await c.query('BEGIN');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['ads-review-alert:'+reference]);
+        const last=(await c.query("SELECT created_at FROM economics.ads_algorithm_journal WHERE body->>'version'='suleia-review-v6.0' AND body->>'kind'='ALERT_OBSERVATION' AND body->'record'->>'key'=$1 ORDER BY created_at DESC LIMIT 1",[reference])).rows[0];
+        if(last&&Date.now()-Date.parse(last.created_at)<record.cooldownMs)throw Error('ALERT_COOLDOWN_OR_MISSING');
+        await insert(c);await c.query('COMMIT');
+      }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+    }else await insert(this.pool);
+    return {id,...body,execution:'REVIEW_ONLY'};
+  }
+  async reviewById(id){if(!/^[a-f0-9]{64}$/.test(id||''))throw Error('QUERY_INVALID');return (await this.pool.query("SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal WHERE id=$1 AND body->>'version'='suleia-review-v6.0'",[id])).rows[0]||null;}
+  async reviewHistory({cursor=null,limit=25}={}){
+    if(!Number.isInteger(Number(limit))||limit<1||limit>50)throw Error('QUERY_INVALID');
+    let a=null;if(cursor){try{a=JSON.parse(Buffer.from(cursor,'base64url'));if(!/^[a-f0-9]{64}$/.test(a.id)||!Number.isFinite(Date.parse(a.at)))throw Error();}catch{throw Error('QUERY_INVALID');}}
+    const rows=(await this.pool.query(`SELECT id,event_type,reference,body,created_at,to_char(created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS anchor_at FROM economics.ads_algorithm_journal
+      WHERE body->>'version'='suleia-review-v6.0' AND ($1::timestamptz IS NULL OR (created_at,id)<($1::timestamptz,$2::text)) ORDER BY created_at DESC,id DESC LIMIT $3`,[a?.at||null,a?.id||null,Number(limit)+1])).rows;
+    const page=rows.slice(0,Number(limit)),last=page.at(-1);return {entries:page,nextCursor:rows.length>limit?Buffer.from(JSON.stringify({at:last.anchor_at,id:last.id})).toString('base64url'):null};
+  }
   async liveActivation(account,reference){
     if(!/^[\w:./-]{3,160}$/.test(reference||''))throw Error('LIVE_APPROVAL_REFERENCE_INVALID');
     const rows=(await this.pool.query("SELECT o.state,o.body FROM economics.ads_operations o JOIN economics.ads_proposals p ON p.id=o.proposal_id WHERE o.account_id=$1 AND p.body->>'authorizationReference'=$2 AND p.body->>'mode'='LIVE' AND o.state IN ('VERIFIED','FAILED','UNKNOWN','EXECUTING','RECONCILED')",[account,reference])).rows;
@@ -49,7 +72,8 @@ export class AdsLedger {
     if(rows.some(r=>![Number(r.before),Number(r.after)].every(Number.isSafeInteger)||!Number.isFinite(Date.parse(r.updated_at))))throw Error('BUDGET_HISTORY_INVALID');
     return {increaseCents:rows.filter(r=>Date.parse(r.updated_at)>=day||['EXECUTING','UNKNOWN'].includes(r.state)).reduce((sum,r)=>sum+Math.max(0,Number(r.after)-Number(r.before)),0),changedCampaignIds:[...new Set(rows.filter(r=>Date.parse(r.updated_at)>now-cooldownMs||['EXECUTING','UNKNOWN'].includes(r.state)).map(r=>r.campaign_id))]};
   }
-  async algorithmJournal(){return (await this.pool.query('SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal ORDER BY created_at DESC LIMIT 50')).rows;}
+  async algorithmJournal(){return (await this.pool.query("SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version' IS DISTINCT FROM 'suleia-review-v6.0' ORDER BY created_at DESC LIMIT 50")).rows;}
+  async latestReviewAlert(reference){return (await this.pool.query("SELECT id,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version'='suleia-review-v6.0' AND body->>'kind'='ALERT_OBSERVATION' AND body->'record'->>'key'=$1 ORDER BY created_at DESC LIMIT 1",[reference])).rows[0]||null;}
   async appendAlgorithmJournal({eventType,reference,principal,report}){
     const id=createHash('sha256').update(`${report.evidenceDigest}:${eventType}:${reference}:${principal}`).digest('hex');
     const body={eventType,reference,principal,evidenceDigest:report.evidenceDigest,observedAt:report.observedAt,range:report.range,policyVersion:report.policyVersion,mode:'SHADOW',externalWrites:0,narrative:report.narrative,campaign:reference==='ACCOUNT'?null:report.campaigns.find(c=>c.campaignId===reference)};

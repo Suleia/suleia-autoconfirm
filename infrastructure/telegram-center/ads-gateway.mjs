@@ -29,6 +29,7 @@ function formatBudgetProposal(p){
 }
 export function signAdsBridge(secret,timestamp,body){return createHmac('sha256',createHmac('sha256',secret).update('suleia:ads-bridge:v3').digest()).update(`${timestamp}.${body}`).digest('hex');}
 export function formatAdsResult(data,options={}) {
+  if(data.review)return {text:[data.text,data.deepLink?`Abrir Ads Intelligence: ${data.deepLink}`:null].filter(Boolean).join('\n\n').slice(0,3900)};
   if(data.autopilot)return {text:(data.text||'Budget Autopilot: informe actualizado no disponible.').slice(0,3900),autopilot:data.autopilot,cycleText:data.cycleText,cycleKey:data.cycleKey,navigation:[{label:'Campañas de hoy',request:{action:'analyze',query:{period:'hoy',level:'campaign'}}}]};
   if(data.report)return {text:`Informe Suleia · ${data.report.period.label}${data.report.period.partial?' · provisional':''}`,artifact:{kind:'report',report:data.report},format:data.format};
   if(data.orders)return compactOrders(data.orders,data.view,data.metric);
