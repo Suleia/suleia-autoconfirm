@@ -24,6 +24,25 @@ test('panel proposals save/review internal recommendations only under existing a
  const calls=[],runtime={engine:{mode:'SHADOW'},saveRecommendation:async p=>{calls.push(p);return {state:p.state||'DRAFT',execution:'REVIEW_ONLY'};}};
  await fixture(async base=>{const path=base+'/api/operations/ads-intelligence/proposals';assert.equal((await fetch(path,{method:'POST',body:'{}'})).status,401);for(const method of['POST','PATCH']){const r=await fetch(path,{method,headers:{Authorization:'Bearer read-test'},body:JSON.stringify({actionId:'test',id:'test',state:'APPROVED_FOR_REVIEW'})});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);}assert.equal(calls[0].principal,'test');assert.equal(calls[0].state,null);assert.equal(calls[1].state,'APPROVED_FOR_REVIEW');},runtime);
 });
+
+test('V6 review endpoints retain OAuth and explicit zero budget writes even alongside LIVE',async()=>{
+ const calls=[],runtime={engine:{mode:'LIVE',authorize(a){if(a.user!=='1'||a.chat!=='1')throw Error('ACTOR_UNAUTHORIZED');}},review:{report:async q=>{calls.push(q);return {version:'v6',externalWrites:0};},answer:async text=>text==='Ambigua'?{text:'Indica un ID exacto'}:({text:'same shared analysis',review:{version:'v6'},externalWrites:0}),history:async()=>({entries:[],nextCursor:null}),alerts:async()=>({notificationsEnabled:false}),audit:async()=>({profile:{scheduled:false}}),record:async b=>{calls.push(b);return {execution:'REVIEW_ONLY'};}}};
+ await fixture(async base=>{
+  for(const suffix of ['', '/query?question=Auditoria+de+campanas','/records','/alerts','/audit?profile=daily']){
+   const url=base+'/api/operations/ads-intelligence/review'+suffix;
+   assert.equal((await fetch(url)).status,401);const r=await fetch(url,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);
+  }
+  const url=base+'/api/operations/ads-intelligence/review/records';assert.equal((await fetch(url,{method:'POST',body:'{}'})).status,401);
+  const r=await fetch(url,{method:'POST',headers:{Authorization:'Bearer read-test'},body:JSON.stringify({kind:'REVIEW',principal:'spoofed'})});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);assert.equal(calls.at(-1).principal,'test');const bridge=await fetch(base+'/api/internal/ads-intelligence/command',{method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify({action:'review',text:'Ambigua',actor:{user:'1',chat:'1'}})});assert.equal(bridge.status,200);assert.equal((await bridge.json()).meta_budget_writes,0);
+  assert.equal((await fetch(url,{method:'DELETE',headers:{Authorization:'Bearer read-test'}})).status,405);
+  assert.equal((await fetch(base+'/api/operations/ads-intelligence/review/unknown',{headers:{Authorization:'Bearer read-test'}})).status,404);
+ },runtime);
+});
+
+test('V6 disabled deployment does not expose records or change existing Ads endpoints',async()=>fixture(async base=>{
+ const r=await fetch(base+'/api/operations/ads-intelligence/review',{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,503);assert.equal((await r.json()).error,'ads_review_disabled');
+ assert.equal((await fetch(base+'/api/operations/ads-intelligence',{headers:{Authorization:'Bearer read-test'}})).status,200);
+}));
 test('Ads bridge accepts only POST; status remains simulation and exposes no secrets',async()=>fixture(async base=>{
   const path=base+'/api/internal/ads-intelligence/command';assert.equal((await fetch(path)).status,405);
   const r=await fetch(path,{method:'POST',headers:{Authorization:'Bearer '+token},body:JSON.stringify({action:'status',actor:{user:'1',chat:'1'}})});const b=await r.json();assert.equal(r.status,200);assert.match(b.data.text,/SIMULATION/);assert.equal(b.meta_budget_writes,0);assert.ok(!JSON.stringify(b).includes(token));

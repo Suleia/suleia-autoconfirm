@@ -26,6 +26,18 @@ commits or pull requests.
 
 ## Budget Autopilot V5.1 SHADOW deployment (2026-10-22)
 
+### Later state / V6 development (2026-10-23)
+
+The owner subsequently approved guarded V5.1 LIVE; the captured production API
+revision is e4d3b9d and the current development base is b9e8e4b (PR134). Preserve
+that existing policy and executor. See `ADS_INTELLIGENCE_V6.md` and
+`ADS_INTELLIGENCE_V6_AUDIT.md` for the V6 development implementation, aggregate
+read-only audit, 298-test Node22/PostgreSQL validation, local fixture screenshots,
+and release/rollback plan. V6 is not merged/deployed; its flag defaults off, and
+its review service has no budget writer, message sender or scheduler. No new
+production tasks or notifications are authorized. The SHADOW paragraph below
+describes the earlier historical deployment, not the current LIVE state.
+
 See `META_BUDGET_AUTOPILOT_V5_1.md`. This branch implements fixed EUR 10 candidates,
 EUR 70 cap, Madrid slots and progressive night caps through the existing executor.
 The owner separately approved SHADOW deployment, migration 058 and scheduled SHADOW

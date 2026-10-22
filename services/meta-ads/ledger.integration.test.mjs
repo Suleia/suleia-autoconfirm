@@ -32,6 +32,17 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_api_login','economics.command_decisions','UPDATE') OR has_table_privilege('suleia_api_login','economics.command_decisions','DELETE') AS allowed")).rows[0].allowed,false);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.command_context','SELECT') AS allowed")).rows[0].allowed,false);
     const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
+    const review={kind:'REVIEW',reference:'ACCOUNT',record:{summary:['fixture']},principal:'reviewer1',evidenceDigest:'fixture',observedAt:new Date().toISOString()};
+    const reviewedTwice=await Promise.all([a.appendReviewRecord(review),b.appendReviewRecord(review)]);assert.equal(reviewedTwice[0].id,reviewedTwice[1].id);
+    await b.appendReviewRecord({...review,principal:'reviewer2'});
+    const pageV6=await a.reviewHistory({limit:1});assert.equal(pageV6.entries.length,1);assert.ok(pageV6.nextCursor);
+    const nextV6=await b.reviewHistory({limit:1,cursor:pageV6.nextCursor});assert.equal(nextV6.entries.length,1);assert.notEqual(pageV6.entries[0].id,nextV6.entries[0].id);assert.equal(nextV6.nextCursor,null);
+    assert.equal((await a.reviewById(reviewedTwice[0].id)).body.principal,'reviewer1');
+    assert.ok(!(await a.algorithmJournal()).some(e=>e.body.version==='suleia-review-v6.0'));
+    const alert={...review,kind:'ALERT_OBSERVATION',reference:'9:campaign:11:CTR_DECLINE',record:{key:'9:campaign:11:CTR_DECLINE',cooldownMs:86400000}};
+    const concurrentAlerts=await Promise.allSettled([a.appendReviewRecord(alert),b.appendReviewRecord({...alert,principal:'reviewer2'})]);
+    assert.equal(concurrentAlerts.filter(x=>x.status==='fulfilled').length,1);assert.equal(concurrentAlerts.filter(x=>x.status==='rejected').length,1);
+    assert.equal((await a.latestReviewAlert(alert.reference)).body.kind,'ALERT_OBSERVATION');
     const approval='chat:fixture:live-v51';
     const canary={...p,id:'9999999999999999',requestKey:'canary:fixture',accountId:'999',authorizationReference:approval,mode:'LIVE',items:[{campaignId:'99',before:2000,after:3000}]};
     await a.createProposal(canary);assert.equal((await a.liveActivation('999',approval)).stage,'CANARY_PENDING');
