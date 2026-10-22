@@ -83,7 +83,7 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     });
     await b.withCampaignLock('9:11',async tx=>{assert.equal((await tx.operation(id,'11')).state,'UNKNOWN');await tx.record(id,'11',{state:'RECONCILED'});assert.equal(await tx.unresolved('9','11'),false);});
     await a.finish(id,'REVIEW_REQUIRED');assert.equal((await b.get(id)).state,'REVIEW_REQUIRED');assert.equal((await b.get(id)).items[0].result.state,'RECONCILED');
-    assert.equal(Number((await pool.query('SELECT count(*) FROM economics.ads_events')).rows[0].count),2);
+    assert.equal(Number((await pool.query('SELECT count(*) FROM economics.ads_events WHERE proposal_id=$1',[id])).rows[0].count),2);
     await b.record(id,'11',{state:'FAILED',reasons:['META_REJECTED_400']});assert.equal((await b.get(id)).items[0].result.state,'FAILED');
     const f={accountId:'9',level:'campaign',entityId:'11',since:'2026-10-20',until:'2026-10-20',contract:'fixture-contract',spend:20,observedAt:'2026-10-21T08:00:00Z'};
     await a.persistFacts([f]);await b.persistFacts([f]);await b.persistFacts([{...f,spend:999,observedAt:'2026-10-21T07:00:00Z'}]);
