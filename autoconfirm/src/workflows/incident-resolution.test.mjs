@@ -31,6 +31,12 @@ test('carrier refusal cannot override current waiting/no-attempt customer eviden
 test('a waiting request with unparsed availability or price cannot lose its conditions',()=>{
  for(const t of ['sigo esperando, después de las 17:00','no me ha llegado, no estoy en casa mañana','sigo esperando, quiero cambiar la dirección','sigo esperando pero solo si me hacen descuento']){const c=resolutionCandidate(input('rejected_goods',t));assert.ok(c.twin.human_review_reason,t);assert.notEqual(c.twin.next_best_action,'PROVIDE_SOLUTION',t);}
 });
+
+test('a literal future date/hour can be provided without inventing an AM/PM window',()=>{
+ const c=resolutionCandidate(input('rejected_goods','Lunes alas 2 45'));
+ assert.equal(c.twin.next_best_action,'PROVIDE_SOLUTION');assert.equal(c.twin.human_review_reason,null);assert.match(c.data.note,/Lunes alas 2 45/);assert.doesNotMatch(c.data.note,/por la tarde|por la mañana/);
+ assert.equal(c.response.slot.time_window,null);assert.equal(c.providerPlan.body.resolution_data,undefined);
+});
 test('rejecting discount does not reject order; missing slot is explicit review',()=>{
  const c=resolutionCandidate(input('rejected_goods','quiero el pedido pero sin descuento'));
  assert.ok(c.response.intents.includes('WANTS_ORDER'));assert.ok(c.response.intents.includes('REJECTS_DISCOUNT'));

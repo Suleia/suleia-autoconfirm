@@ -70,6 +70,9 @@ export function resolutionCandidate({incident,order,issue,messages=[],previous=n
       else if(action==='ASK_MISSING_FIELDS'){steps=[step(action)];review('EXISTING_ADDRESS_DETAILS_OWNER');}
       else review(d.state||'ADDRESS_REQUIRES_REVIEW');
     }else if(intents.includes('REQUESTS_AGENCY')){action='PICKUP_AT_AGENCY';steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];}
+    else if(['absent','rejected_goods'].includes(incident.incidentType)&&response.literal_delivery_preference&&(!response.literal_delivery_preference.date||response.literal_delivery_preference.date>madridDate(now))&&raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
+      action='PROVIDE_SOLUTION';data={note:`El cliente quiere recibir el pedido y solicita una nueva entrega. Disponibilidad literal: «${response.literal_delivery_preference.literal}». Por favor, realizar la entrega respetando sus indicaciones.`};steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];t.next_best_action_detail='PROVIDE_SOLUTION_NEW_DELIVERY';
+    }
     else if(['absent','rejected_goods'].includes(incident.incidentType)&&response.waiting_for_order&&!response.delivery_qualification&&intents.includes('WANTS_ORDER')&&!response.slot?.date&&!response.slot?.time_window&&raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
       action='PROVIDE_SOLUTION';data={note:newDeliverySolution(response)};steps=[step(action),step('VERIFY_PROVIDER',action),step('WAIT_LOGISTICS_OUTCOME','VERIFY_PROVIDER')];t.next_best_action_detail='PROVIDE_SOLUTION_NEW_DELIVERY';
     }

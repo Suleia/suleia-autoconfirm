@@ -34,6 +34,19 @@ export function deliverySlot(text, at) {
   return {date:dates[0],time_window:morning!==afternoon&&!/\d|antes|despues|hasta|a partir/.test(remainder)?morning?'morning':'afternoon':null};
 }
 
+// PROVIDE_SOLUTION accepts a literal preference; RETRY still requires its
+// structured date/window. Never turn an unspecified 12-hour clock into AM/PM.
+export function literalDeliveryPreference(text,at,now=Date.now()){
+ const t=fold(text),slot=deliverySlot(t,at);
+ if(!t||t.length>180||/https?:|\b(?:no|o|quizas?|tal vez|solo si|cancel\w*|devol\w*|anul\w*|rechaz\w*|agencia|recoger|direccion|calle|precio|descuento|efectivo|pagar)\b/.test(t))return null;
+ const hours=[...t.matchAll(/\b(?:a\s*las?|sobre\s+las?)\s*(\d{1,2})(?:\s*[:h.]\s*(\d{2})|\s+(\d{2}))?(?!\d)/g)];
+ if(hours.length!==1||Number(hours[0][1])>23||Number(hours[0][2]||hours[0][3]||0)>59)return null;
+ const hasDate=/\b(?:hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}/.test(t);
+ if(hasDate&&!slot.date)return null;
+ if(slot.date&&slot.date<=madridDate(now))return null;
+ return {literal:String(text).trim(),date:slot.date||null,clockInterpretation:'LITERAL_NO_AM_PM_INFERENCE'};
+}
+
 export function parseCustomerIntentV2(text, {at, offerVerified=false, button=null}={}) {
   const t=fold(text), ambiguous=reason=>({intents:['AMBIGUOUS'],confidence:'LOW',reason,slot:{date:null,time_window:null}});
   if(!t&&!button)return {intents:['IRRELEVANT'],confidence:'HIGH',slot:{date:null,time_window:null}};
@@ -65,7 +78,8 @@ export function parseCustomerIntentV2(text, {at, offerVerified=false, button=nul
   if(/(?:direccion|datos).*(?:correct[ao]s?|mism[ao]s?)|confirmo (?:la|mi) direccion/.test(t))intents.push('CONFIRMS_ADDRESS');
   if((/[?¿]/.test(t)||/^(?:cuando|donde|como|por que)\b/.test(t))&&!delivery.wants_order)return {intents:['ASKS_QUESTION'],confidence:'HIGH',slot};
   if(intents.includes('WANTS_RETURN')&&intents.some(i=>['REQUESTS_AGENCY','PROVIDES_ADDRESS','CONFIRMS_ADDRESS'].includes(i)))return ambiguous('CONTRADICTORY_CUSTOMER_RESPONSE');
-  return {intents:intents.length?[...new Set(intents)]:['AMBIGUOUS'],confidence:intents.length?'HIGH':'LOW',slot,...(delivery.wants_order&&!returns?{customer_intent:'WANTS_ORDER',...delivery}:{})};
+  const literal=intents.includes('WANTS_ORDER')&&!returns?literalDeliveryPreference(text,at,at):null;
+  return {intents:intents.length?[...new Set(intents)]:['AMBIGUOUS'],confidence:intents.length?'HIGH':'LOW',slot,...(delivery.wants_order&&!returns?{customer_intent:'WANTS_ORDER',...delivery}:{}),...(literal?{literal_delivery_preference:literal,customer_intent:'WANTS_ORDER',requests_redelivery:true}:{})};
 }
 
 export function currentCustomerIntent({incident,order,messages=[],now=Date.now()}) {
