@@ -9,3 +9,19 @@ test('requires corroborated second absence and exact active issue, not hints',()
 test('requires verified v3 on current order; v2, missing provider ID, old order, future, fallback block',()=>{for(const change of [i=>i.messages[0].payload.name='dropea_ausente_v2',i=>delete i.messages[0].mid,i=>i.incident.absentDiscountOrderCreatedAt='2026-09-30T00:00:00Z',i=>i.messages[0].ts=(now+1)/1000,i=>i.incident.chatbyOrderAssociation='PHONE_FALLBACK',i=>i.incident.chatbyReadVerified=false]){const i=input();change(i);assert.equal(absentDiscountPolicy(i).eligible,false);}});
 test('any inbound text, button, unknown timestamp or simultaneous interaction blocks; earlier reply does not',()=>{for(const m of [{type:'in',ts:now/1000,content:'hola'},{type:'in',msg_type:'postback',ts:now/1000},{type:'in',content:'audio'},{type:'in',ts:Date.parse(sent)/1000}]){const i=input();i.messages.push(m);assert.equal(absentDiscountPolicy(i).eligible,false);}const i=input();i.messages.push({type:'in',ts:(Date.parse(sent)-1000)/1000});assert.equal(absentDiscountPolicy(i).eligible,true);});
 test('existing offer from any lifecycle prevents another discount',()=>{const i=input();i.discountPersistentDelivery={status:'sent',sent_at:sent};assert.equal(absentDiscountPolicy(i).reason,'discount_template_already_sent');delete i.discountPersistentDelivery;i.messages.push({type:'agent',ts:now/1000,mid:'wamid.discount',payload:{name:i.discountTemplateName}});assert.equal(absentDiscountPolicy(i).eligible,false);});
+
+test('a separate second notice never renews the first notice clock in either history order',()=>{
+ const i=input(),original=absentDiscountPolicy(i),second={...i.messages[0],mid:'wamid.second',ts:(now-60000)/1000};
+ for(const messages of [[...i.messages,second],[second,...i.messages]])assert.deepEqual(absentDiscountPolicy({...i,messages}),original);
+});
+test('a second notice cannot erase a customer interaction after the initial notice',()=>{
+ const i=input();i.messages.push({type:'in',ts:(Date.parse(sent)+60000)/1000,content:'Hola'},
+  {...i.messages[0],mid:'wamid.second',ts:(now-60000)/1000});
+ assert.equal(absentDiscountPolicy(i).reason,'customer_interaction_after_absent_v3');
+});
+test('first notice is scoped to current order; uncertain or future receipts remain blocked',()=>{
+ const i=input();i.messages.unshift({...i.messages[0],mid:'wamid.older-order',ts:Date.parse('2026-09-27T08:00:00Z')/1000});
+ assert.equal(absentDiscountPolicy(i).eligibilityAnchorAt,new Date(sent).toISOString());
+ for(const ts of [undefined,(now+60000)/1000]){const f=input();f.messages.push({...f.messages[0],mid:'wamid.uncertain',ts});
+  assert.equal(absentDiscountPolicy(f).reason,'absent_v3_current_order_not_verified');}
+});
