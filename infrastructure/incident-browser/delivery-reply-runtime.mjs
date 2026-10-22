@@ -58,7 +58,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
  const finish=async(status,p,attemptedAt=new Date().toISOString())=>{
   const r=await finishTemplateDelivery({...issueKey(p),status,attemptedAt,sentAt:status==='verified'?new Date().toISOString():null,
    raw:{owner:'vps_delivery_reply',reason:p.reason,orderId:p.orderId,issueId:p.issueId,contextHash:p.hash,
-    messageId:p.messageId,note:p.note,date:p.date,time_window:p.time_window,status}});
+    messageId:p.messageId,note:p.note,date:p.date,time_window:p.time_window,status,customerIntent:p.customer_intent||null,waitingForOrder:p.waiting_for_order===true,deliveryAttemptDeniedByCustomer:p.delivery_attempt_denied_by_customer===true,logisticsStatus:status==='verified'?'AWAITING_NEW_DELIVERY':null,commerciallyClosed:false}});
   if(r?.skipped)throw Error('DELIVERY_REPLY_DURABLE_JOURNAL_REQUIRED');
  };
  // Reconcile an interrupted POST using reads only, before admitting any other
@@ -107,7 +107,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    if(!await association(current.order,messages)){report.cases.push({...item,status:'BLOCKED',reason:'FRESH_EXACT_ORDER_ASSOCIATION_REQUIRED'});continue;}
    const prior=await inspectPriorOrderReturn(incident);
    if(prior.verified||prior.blocked){report.cases.push({...item,status:'BLOCKED',reason:'PRIOR_RETURN_GUARD'});continue;}
-   const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null};
+   const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null,providerRawType:raw.type,customerIntent:plan.customer_intent||null,waitingForOrder:plan.waiting_for_order===true,deliveryAttemptDeniedByCustomer:plan.delivery_attempt_denied_by_customer===true,nextBestAction:plan.next_best_action||null};
    if(!canWrite||(control.deliveryReplyMode==='AUTO_CANARY'&&(admitted||control.deliveryReplyCanaryOrderId&&String(control.deliveryReplyCanaryOrderId)!==plan.orderId))){report.cases.push(observed);continue;}
    let attemptedAt=null;
    const revalidate=async()=>{

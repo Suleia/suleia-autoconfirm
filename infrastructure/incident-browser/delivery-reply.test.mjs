@@ -18,6 +18,28 @@ test('explicit non-delivery gets the owner exact acknowledgement and a delivery 
   assert.equal(p.acknowledgement,NON_DELIVERY_ACK);assert.match(p.note,/quiere recibir/);assert.equal(p.date,null);
  }
 });
+
+test('carrier refusal plus a waiting/no-attempt reply prepares a new delivery without recovery or clarification',()=>{
+ for(const text of ['nadie ha venido y sigo esperando el pedido','sigo esperando mi pedido','no meallegado el paquete, sigo esperando mi pedido','¿Cuándo me lo van a entregar?']){
+  const i=input(text);i.incident.incidentType='rejected_goods';i.issue.type='REFUSED_BY_RECIPIENT';const p=deliveryReplyPlan(i);
+  assert.equal(p.kind,'SOLUTION',text);assert.equal(p.customer_intent,'WANTS_ORDER');assert.equal(p.waiting_for_order,true);assert.equal(p.next_best_action,'PROVIDE_SOLUTION_NEW_DELIVERY');assert.match(p.note,/nueva entrega/);assert.equal(p.content,undefined);assert.equal(p.date,null);
+  assert.equal(p.delivery_attempt_denied_by_customer,text.startsWith('nadie'));
+ }
+});
+
+test('a later explicit renewed desire can supersede old cancellation; a later cancellation always blocks',()=>{
+ const i=input('No quiero el pedido');i.messages[0].ts=Date.parse('2026-10-21T08:00:00Z')/1000;
+ add(i,'Sigo esperando mi pedido','2026-10-21T10:00:00Z');assert.equal(deliveryReplyPlan(i).kind,'SOLUTION');
+ add(i,'Ya no lo quiero','2026-10-21T10:01:00Z');assert.equal(deliveryReplyPlan(i).eligible,false);
+});
+
+test('literal future day/hour is preserved in a solution without a fabricated 12-hour conversion',()=>{
+ const p=deliveryReplyPlan(input('Viernes alas 2 45'));
+ assert.equal(p.kind,'SOLUTION');assert.equal(p.date,'2026-10-23');assert.equal(p.time_window,null);assert.equal(p.scheduleSource,'CUSTOMER_LITERAL_PREFERENCE');assert.match(p.note,/Viernes alas 2 45/);assert.doesNotMatch(p.note,/por la tarde|por la mañana/);
+ const q=deliveryReplyPlan(input('Quiero recibirlo sobre las 2'));
+ assert.equal(q.kind,'SOLUTION');assert.equal(q.date,null);assert.equal(q.time_window,null);assert.match(q.note,/sobre las 2/);
+ for(const t of ['Viernes a las 25:70','Viernes a las 2 o a las 3','Viernes a las 2 y a las 3'])assert.notEqual(deliveryReplyPlan(input(t)).kind,'SOLUTION',t);
+});
 test('a factual follow-up does not erase the preceding explicit date/window',()=>{
  const i=add(input('Mañana por la tarde'),'Estoy trabajando');
  const p=deliveryReplyPlan(i);assert.equal(p.kind,'SOLUTION');assert.equal(p.date,'2026-10-22');assert.equal(p.time_window,'afternoon');

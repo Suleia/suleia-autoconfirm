@@ -76,7 +76,7 @@ export function retryEvidencePlan({incident,order,issue,messages,now=Date.now(),
   &&/^\d{4}-\d{2}-\d{2}$/.test(ownerApproval.date)
   &&['morning','afternoon'].includes(ownerApproval.time_window);
  const requestedWindow=requestedWindowWithoutDate(text);
- if(!approved&&!requestedWindow&&(intent.confidence!=='HIGH'||intent.intents.some(x=>!['PROVIDES_DATE','REQUESTS_RETRY','WANTS_ORDER','PROVIDES_TIME_WINDOW'].includes(x))))return deny('REPLY_NOT_UNAMBIGUOUS_RETRY');
+ if(!approved&&!requestedWindow&&(intent.confidence!=='HIGH'||intent.intents.some(x=>!['PROVIDES_DATE','REQUESTS_RETRY','WANTS_ORDER','PROVIDES_TIME_WINDOW','WAITING_FOR_ORDER','REQUESTS_REDELIVERY','DELIVERY_NOT_ATTEMPTED_ACCORDING_TO_CUSTOMER'].includes(x))))return deny('REPLY_NOT_UNAMBIGUOUS_RETRY');
  let slot=intent.evidence==='VERIFIED_STRUCTURED_BUTTON'?intent.slot:preciseRetrySlot(text,Date.parse(intent.at)),scheduleSource='CUSTOMER_EXPLICIT';
  if(approved){
   slot={date:ownerApproval.date,time_window:ownerApproval.time_window};
@@ -90,7 +90,7 @@ export function retryEvidencePlan({incident,order,issue,messages,now=Date.now(),
   if(!slot)return deny('BUSINESS_CALENDAR_REQUIRED');
   slot={...slot,time_window:requestedWindow};
   scheduleSource='OWNER_NEXT_BUSINESS_CUSTOMER_WINDOW';
- }else if(!slot.date&&!slot.time_window&&intent.intents.length===1&&intent.intents[0]==='WANTS_ORDER'&&plainDesire(text)){
+ }else if(!slot.date&&!slot.time_window&&intent.intents.includes('WANTS_ORDER')&&intent.intents.every(i=>['WANTS_ORDER','WAITING_FOR_ORDER','REQUESTS_REDELIVERY'].includes(i))&&plainDesire(text)){
   const anchor=Date.parse(intent.notice_at||incident.incidenceDate);
   const relevant=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)>=anchor);
   if(relevant.some(m=>preference(addressMessageText(m))))return deny('PRIOR_CUSTOMER_PREFERENCE_REQUIRES_REVIEW');

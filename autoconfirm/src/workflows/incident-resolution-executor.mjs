@@ -70,6 +70,7 @@ export function recordResolutionExecution(twin,result){
   if(verifiedProviderConflict(result))return {...t,execution_status:'PROVIDER_ALREADY_SOLVED',verification_status:'NOT_APPLIED',human_review_reason:'PROVIDER_ALREADY_SOLVED',next_best_action:null,explicit_wait_until:null,current_owner:'HUMAN'};
   if(result.status==='PREPARED')return {...t,capability_blocker:result.reason,human_review_reason:result.reason,next_best_action:null,explicit_wait_until:null,current_owner:'HUMAN'};
   t.execution_status=result.status;t.verification_status=result.verified?'VERIFIED':'UNKNOWN';
+  if(result.verified&&t.requests_redelivery){t.logistics_state='AWAITING_NEW_DELIVERY';t.commercially_resolved=false;}
   if(t.resolution_plan){t.resolution_plan.status=result.verified?'VERIFIED':'UNKNOWN';
     t.resolution_plan.steps=t.resolution_plan.steps.map((s,i)=>i===0?{...s,status:result.status,verification:t.verification_status,attempted_at:result.attemptedAt||null,verified_at:result.verifiedAt||null}:s);}
   t.next_best_action=result.verified?'VERIFY_PROVIDER':'RECONCILE_PROVIDER';t.explicit_wait_until=null;t.human_review_reason=null;t.current_owner='PROVIDER';
