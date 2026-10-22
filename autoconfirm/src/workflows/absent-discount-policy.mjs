@@ -22,8 +22,16 @@ export function absentDiscountPolicy({ incident, messages = [], now = Date.now()
     const name = raw.payload?.name || raw.content?.name || raw.template_name || raw.templateName || (typeof raw.content === 'string' ? raw.content : '');
     return String(name).toLowerCase().replace(/^es_es[ _-]+/, '').trim() === 'dropea_ausente_v3';
   });
-  const initial = findVerifiedTemplateDelivery(v3Messages, 'dropea_ausente_v3');
-  const sent = Date.parse(initial?.sentAt), created = Date.parse(incident.absentDiscountOrderCreatedAt);
+  // The second-absence notice is a separate lifecycle stage. It must never
+  // restart the existing 24-hour clock or hide a reply to the initial notice.
+  // Keep the shared helper's latest-delivery semantics for all other policies.
+  const created = Date.parse(incident.absentDiscountOrderCreatedAt);
+  const deliveries = v3Messages.map(m => findVerifiedTemplateDelivery([m], 'dropea_ausente_v3')).filter(Boolean);
+  if (deliveries.some(d => !Number.isFinite(Date.parse(d.sentAt)) || Date.parse(d.sentAt) > Number(now)))
+    return deny('absent_v3_current_order_not_verified');
+  const initial = deliveries.filter(d => Date.parse(d.sentAt) >= created)
+    .sort((a,b) => Date.parse(a.sentAt) - Date.parse(b.sentAt))[0];
+  const sent = Date.parse(initial?.sentAt);
   if (!Number.isFinite(sent) || !Number.isFinite(created) || sent < created || sent > Number(now)) return deny('absent_v3_current_order_not_verified');
   const anchor = { merchandiseTemplateSentAt: initial.sentAt, eligibilityAnchorAt: initial.sentAt };
   const prior = discountTemplateName && findVerifiedTemplateDelivery(messages, discountTemplateName);
