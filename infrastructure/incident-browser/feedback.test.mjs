@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readRetryOutcome} from './feedback.mjs';
+import {readRetryOutcome,deliveryFollowupReceipts,deliveryFollowupStatus} from './feedback.mjs';
 
 const attemptedAt='2026-10-14T10:00:00Z';
 const original={id:'101',order_id:'501',status:'RESOLVED',resolution_status:'RETRY'};
@@ -32,4 +32,14 @@ test('duplicate discoveries are read once and unrelated orders are never fetched
 test('delivered order remains delivered despite a cached incident',async()=>{
  const result=await readRetryOutcome(input({current:{order:{orderId:'501',status:'DELIVERED'},issue:original},readIssue:async()=>{throw Error('must not read');}}));
  assert.deepEqual(result,{outcome:'DELIVERED'});
+});
+
+test('verified solutions are followed alongside retries; receipt or issue resolution is not delivery',async()=>{
+ const rows=['vps_retry_evidence','vps_delivery_reply','other'].map((owner,n)=>({order_id:'501',attempted_at:attemptedAt,raw:{owner,issueId:String(101+n)}}));
+ assert.equal(deliveryFollowupReceipts([...rows,rows[0]]).length,2);
+ assert.equal(deliveryFollowupReceipts([{...rows[1],raw:{...rows[1].raw,orderId:'999'}}]).length,0);
+ const result=await readRetryOutcome(input({current:{order:{orderId:'501',status:'ERROR'},issue:{...original,resolution_status:'SOLUTION_PROVIDED'}},incidents:[]}));
+ assert.deepEqual(result,{outcome:'AWAITING_CARRIER'});assert.deepEqual(deliveryFollowupStatus(result),{logisticsStatus:'AWAITING_NEW_DELIVERY',commerciallyClosed:false});
+ assert.equal(deliveryFollowupStatus({outcome:'DELIVERED'}).commerciallyClosed,true);assert.equal(deliveryFollowupStatus({outcome:'INCIDENT_REOPENED'}).commerciallyClosed,false);
+ await assert.rejects(()=>readRetryOutcome(input({current:{order:{orderId:'999',status:'DELIVERED'},issue:original}})),/IDENTITY_MISMATCH/);
 });

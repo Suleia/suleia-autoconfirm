@@ -3,13 +3,14 @@ import {isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/work
 import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
 import {preciseRetrySlot,requestedWindowWithoutDate} from './retry-policy.mjs';
 import {nextBusinessMorning} from './business-day.mjs';
+import {customerDeliverySignals,newDeliverySolution} from '../../autoconfirm/src/workflows/customer-delivery-intent.mjs';
 
 export const NON_DELIVERY_ACK='Hola, no se preocupe y reportamos a la empresa de transporte para que le realicen la entrega. Un saludo';
 const fold=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();
-const nonDelivery=t=>/\bno (?:me |nos |le |les )?(?:(?:ha|han|a|an|habia|habian) )?(?:llegado|entregado|recibido|visitado|llamado|traido)\b|\bno (?:me |nos )?(?:ha|han) realizado (?:la |ninguna )?entrega\b|\bno (?:se )?(?:(?:ha|han) )?(?:pasado|presentado|venido)\b|\b(?:no he rechazado|no lo he rechazado|cuando he dicho yo que no)\b/.test(t);
+const nonDelivery=t=>customerDeliverySignals(t).reports_non_delivery||/\bno (?:me |nos |le |les )?(?:(?:ha|han|a|an|habia|habian) )?(?:llegado|entregado|recibido|visitado|llamado|traido)\b|\bno (?:me |nos )?(?:ha|han) realizado (?:la |ninguna )?entrega\b|\bno (?:se )?(?:(?:ha|han) )?(?:pasado|presentado|venido)\b|\b(?:no he rechazado|no lo he rechazado|cuando he dicho yo que no)\b/.test(t);
 const explanation=t=>/^(?:estoy|estaba|estare) trabajando[.! ]*$/.test(t)||/^no (?:estaba|me encontraba) en casa[.! ]*$/.test(t);
 const irrelevant=t=>/^[?¿!.,… ]*$/.test(t)||/^(?:hola|buenas tardes|buenos dias|gracias|ok|vale|otro dia o datos|confirmar mi pedido)[.! ]*$/.test(t);
-const wants=t=>/\b(?:lo quiero|quiero (?:el|mi) pedido|quiero recibirlo|entregarmelo|pueden entregar|vuelvan a entregar)\b/.test(t);
+const wants=t=>customerDeliverySignals(t).wants_order||/\b(?:lo quiero|quiero (?:el|mi) pedido|quiero recibirlo|entregarmelo|pueden entregar|vuelvan a entregar)\b/.test(t);
 const paymentConfirmed=t=>/\b(?:ya )?(?:tengo|dispongo de|dispongo del|cuento con) (?:el |del )?(?:efectivo|importe|dinero)\b/.test(t)&&
  !/\b(?:no|si me|si tengo|quizas?|tal vez|descuento|rebaja|cambiar el precio)\b/.test(t);
 const hasPreference=t=>/\b(?:hoy|manana|tarde|lunes|martes|miercoles|jueves|viernes|sabado|domingo|hora|horas|partir|despues|antes|desde|entre|cualquier dia)\b|\d/.test(t);
@@ -32,10 +33,11 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  const last=meaningful.at(-1),lastAt=messageTimestamp(last),lastText=addressMessageText(last);
  if(now-lastAt<3600000)return block('REPLY_SETTLING_WINDOW');
  if(now-lastAt>=24*3600000)return block('CUSTOMER_REPLY_WINDOW_EXPIRED');
- if(meaningful.some(m=>/\b(?:no lo quiero|no quiero (?:el|mi) pedido|cancel|devol)/.test(fold(addressMessageText(m)))))return block('CANCELLATION_OR_RETURN_TAKES_PRECEDENCE');
+ const cancelled=meaningful.filter(m=>/\b(?:no lo quiero|no quiero (?:el|mi) pedido|no quiero recibirlo|cancel|devol)/.test(fold(addressMessageText(m)))).at(-1);
+ if(cancelled&&(messageTimestamp(cancelled)>=lastAt||!customerDeliverySignals(lastText).explicit_desire))return block('CANCELLATION_OR_RETURN_TAKES_PRECEDENCE');
  // Consecutive details form one reply. Never assemble an old instruction with
  // a later unrelated answer, or discard an explicit earlier preference.
- const cluster=meaningful.filter(m=>lastAt-messageTimestamp(m)<=30*60000);
+ const cluster=meaningful.filter(m=>lastAt-messageTimestamp(m)<=30*60000&&(!cancelled||messageTimestamp(m)>messageTimestamp(cancelled)));
  const texts=cluster.map(addressMessageText),normalized=texts.map(fold),combined=normalized.join(' ');
  if(combined.length>1000||/https?:|ignora.*instrucciones|contrase|\btoken\b/.test(combined))return block('UNTRUSTED_OR_LONG_REPLY');
  if(/\b(?:no lo quiero|ya no|no quiero (?:el|mi) pedido|cancel|devol|anular|rechazo el pedido|no me lo envie)/.test(combined))return block('CANCELLATION_OR_RETURN_TAKES_PRECEDENCE');
@@ -54,7 +56,8 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
   'Hola, ¿sigue queriendo recibir su pedido? Confírmenos que dispondrá del importe indicado y díganos qué día y en qué franja horaria puede recibirlo. Gracias.');
  if(/\bo mejor\b|\b(?:quizas?|tal vez|puede que)\b/.test(combined))return clarify('CONTRADICTORY_OR_UNCERTAIN_PREFERENCE',
   'Hola, para solicitar la entrega correctamente, indíquenos el día y el horario exactos que prefiere. Gracias.');
- const reportsNonDelivery=normalized.some(nonDelivery);
+ const signals=customerDeliverySignals(combined),reportsNonDelivery=normalized.some(nonDelivery);
+ if(signals.conditional)return clarify('CONDITIONAL_DELIVERY_REQUEST','Hola, indíquenos si quiere recibir el pedido y qué condición necesitamos resolver para solicitar la entrega. Gracias.');
  let selected=null,slot=null,recurring=false,scheduleSource=null;
  for(let n=0;n<texts.length;n++){
   let t=normalized[n].replace(/(\d)\s*hs?\b/g,'$1 h');
@@ -87,13 +90,13 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  }
  if(!raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION'))return block('PROVIDER_SOLUTION_NOT_ALLOWED');
  const preference=selected?addressMessageText(selected):null;
- const note=['El cliente quiere recibir su pedido.',reportsNonDelivery?'Indica que no se ha realizado la entrega o niega haberla rechazado.':null,
+ const note=[signals.waiting_for_order?newDeliverySolution(signals):'El cliente quiere recibir su pedido.',!signals.waiting_for_order&&reportsNonDelivery?'Indica que no se ha realizado la entrega o niega haberla rechazado.':null,
   slot?`${scheduleSource==='CUSTOMER_EXPLICIT'?'Solicita entrega':'Proponemos próxima fecha hábil de entrega'} el ${slot.date} por la ${slot.time_window==='morning'?'mañana':'tarde'}.`:null,
   preference?`Disponibilidad literal del cliente: «${preference}».`:null,
   recurring?'La disponibilidad indicada es recurrente.':null,
   'Por favor, gestionar la entrega respetando sus indicaciones.'].filter(Boolean).join(' ');
  if(note.length>500)return block('SOLUTION_NOTE_TOO_LONG');
- return finish({kind:'SOLUTION',reason:reportsNonDelivery?'CUSTOMER_REPORTS_NON_DELIVERY':'CUSTOMER_DELIVERY_PREFERENCE',
+ return finish({kind:'SOLUTION',customer_intent:'WANTS_ORDER',waiting_for_order:signals.waiting_for_order,delivery_attempt_denied_by_customer:signals.delivery_attempt_denied_by_customer,requests_redelivery:true,provider_raw_type:raw.type,next_best_action:'PROVIDE_SOLUTION_NEW_DELIVERY',reason:signals.delivery_attempt_denied_by_customer?'CUSTOMER_REPORTS_NO_DELIVERY_ATTEMPT':reportsNonDelivery?'CUSTOMER_REPORTS_NON_DELIVERY':'CUSTOMER_DELIVERY_PREFERENCE',
   note,acknowledgement:reportsNonDelivery?NON_DELIVERY_ACK:null,date:slot?.date||null,time_window:slot?.time_window||null,
   scheduleSource,preferenceMessageId:selected?String(selected.id):null});
 }
