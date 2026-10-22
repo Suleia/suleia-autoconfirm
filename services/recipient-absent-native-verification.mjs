@@ -15,6 +15,8 @@ export function verifyNativeAbsentNotice(claim,history,now=new Date()){
   const m=matches[0];
   if(!m || !m.message_id || String(m.template_id)!=='1552419' || Date.parse(m.at)>+now
     || !Number.isFinite(Date.parse(m.at)) || m.delivery_failed===true)return {verified:false,reason:'NOTICE_NOT_OBSERVED'};
+  if(claim.outcome?.notice_stage==='SECOND_ABSENCE' && !String(m.provider_message_id || '').startsWith('wamid.'))
+    return {verified:false,reason:'SECOND_NOTICE_PROVIDER_ID_REQUIRED'};
   return {verified:true,message_id:String(m.message_id),provider_message_id:m.provider_message_id || null,
     notification_at:new Date(m.at).toISOString(),timer:claim.outcome?.notice_stage==='SECOND_ABSENCE'?null:{timer_id:randomUUID(),message_id:String(m.message_id),
       policy_version:'RECIPIENT_ABSENT_POLICY_V1',timer_type:'CUSTOMER_INITIAL_RESPONSE_48H',
@@ -46,7 +48,8 @@ export async function reconcileNativeAbsentNotice({pool,claimId,readHistory,now=
       await client.query("UPDATE operations.recipient_absent_native_control SET circuit_breaker_reason=$1,circuit_breaker_at=now() WHERE workflow='RECIPIENT_ABSENT'",[result.reason]);
       await client.query("UPDATE operations.recipient_absent_resolution_control SET circuit_breaker_reason=$1,circuit_breaker_at=now() WHERE workflow='RECIPIENT_ABSENT'",[result.reason]);
     }
-    if(result.verified && current.status!=='VERIFIED'){
+    if(result.verified && (current.status!=='VERIFIED'
+      || (current.outcome?.notice_stage==='SECOND_ABSENCE' && !current.outcome?.provider_message_id))){
       await client.query("UPDATE operations.recipient_absent_native_notifications SET status='SENT',message_id=$2,notification_at=$3,outcome=coalesce(outcome,'{}'::jsonb)||$4::jsonb WHERE claim_id=$1",
         [claimId,result.message_id,result.notification_at,JSON.stringify({provider_message_id:result.provider_message_id})]);
       const t=result.timer;

@@ -6,8 +6,9 @@ second absence occurred. The owner explicitly requested that second stage on
 2026-10-22; it is separate from the unanswered 24-hour discount offer.
 
 The existing single controller/sender, approved `dropea_ausente_v3`, body,
-buttons and native reply destinations remain unchanged. Only that controller
-is redeployed. Render and other templates/flows remain unchanged.
+buttons and native reply destinations remain unchanged. The controller release
+is scoped to that service. Companion PR138 changes only Render's absence clock
+to retain its original first-notice anchor; deploy it before opening this flag.
 
 `second_absence_notice_authorized=true` in the existing control evidence opens
 the new stage under all existing master/owner/freshness/current-order guards.
@@ -25,6 +26,9 @@ also prevents repeated same-incident sends. No migration or additional grant
 is needed. The second stage rereads Chatby and Dropea after its durable claim
 before the single POST; uncertainty never releases the claim.
 
+Independent observation requires the second notice's actual WhatsApp WAMID,
+never merely the provisional Chatby row. A late definitive ID can upgrade the
+same persisted receipt without another POST. Initial notice behavior is unchanged.
 Independent observation bounds the first receipt at its authorized successor's
 claim. A genuine extra notice still trips the duplicate breaker. Stage and
 predecessor evidence survive receipt updates. The second receipt starts no new

@@ -28,6 +28,8 @@ test('real PostgreSQL serializes initial/second/third stages and preserves indep
   history.messages.push({...first,message_id:'second',provider_message_id:'wamid.second',at:'2026-10-22T10:01:00Z'});
   assert.equal((await verify(initial[0])).verified,true,'authorized successor is not a duplicate of first');
   assert.equal((await verify(seconds[0])).verified,true);
+  await pool.query("UPDATE operations.recipient_absent_native_notifications SET outcome=outcome-'provider_message_id' WHERE claim_id=$1",[seconds[0]]);
+  assert.equal((await verify(seconds[0])).verified,true,'late definitive provider ID upgrades an earlier provisional receipt');
   assert.deepEqual((await pool.query('SELECT * FROM operations.recipient_absent_native_timers')).rows,timerBefore,'initial deadline unchanged; no new timer');
   assert.equal(await claim('third','SECOND_ABSENCE',initial[0]),null);
   assert.equal(await claim('third'),null);
@@ -35,5 +37,6 @@ test('real PostgreSQL serializes initial/second/third stages and preserves indep
   assert.deepEqual(rows.map(r=>r.status),['VERIFIED','VERIFIED']);
   assert.deepEqual(rows.map(r=>r.outcome.notice_stage),['INITIAL','SECOND_ABSENCE']);
   assert.equal(rows[1].outcome.previous_claim_id,initial[0]);
+  assert.equal(rows[1].outcome.provider_message_id,'wamid.second');
  }finally{await db.close();}
 });

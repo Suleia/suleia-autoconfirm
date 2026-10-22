@@ -25,11 +25,12 @@ test('wrong conversation, incomplete history, future/failed/missing and preclaim
 });
 
 test('authorized second notice bounds the first observation and does not reset or create a response timer',()=>{
- const second={...msg,message_id:'second-notice',at:'2026-09-24T10:01:00Z'};
+ const second={...msg,message_id:'second-notice',provider_message_id:'wamid.second',at:'2026-09-24T10:01:00Z'};
  const h=history([msg,second]),later=new Date('2026-09-24T12:00:00Z');
  assert.equal(verifyNativeAbsentNotice(claim,h,later).reason,'DUPLICATE_V3_NOTICE');
  assert.equal(verifyNativeAbsentNotice({...claim,next_authorized_claim_at:'2026-09-24T10:00:00Z'},h,later).message_id,msg.message_id);
  const result=verifyNativeAbsentNotice({...claim,claimed_at:'2026-09-24T10:00:00Z',outcome:{notice_stage:'SECOND_ABSENCE'}},h,later);
  assert.equal(result.verified,true);assert.equal(result.message_id,'second-notice');assert.equal(result.timer,null);
+ assert.equal(verifyNativeAbsentNotice({...claim,claimed_at:'2026-09-24T10:00:00Z',outcome:{notice_stage:'SECOND_ABSENCE'}},history([{...second,provider_message_id:null}]),later).reason,'SECOND_NOTICE_PROVIDER_ID_REQUIRED');
  assert.equal(verifyNativeAbsentNotice({...claim,claimed_at:'2026-09-24T10:00:00Z',outcome:{notice_stage:'SECOND_ABSENCE'}},history([msg,second,{...second,message_id:'duplicate'}]),later).reason,'DUPLICATE_V3_NOTICE');
 });
