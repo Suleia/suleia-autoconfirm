@@ -1,4 +1,4 @@
-import {currentCustomerIntent,madridDate,resolutionHash} from '../../autoconfirm/src/workflows/incident-intent-v2.mjs';
+import {currentCustomerIntent,madridDate,resolutionHash,literalDeliveryPreference} from '../../autoconfirm/src/workflows/incident-intent-v2.mjs';
 import {isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
 import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
 import {preciseRetrySlot,requestedWindowWithoutDate} from './retry-policy.mjs';
@@ -58,7 +58,7 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
   'Hola, para solicitar la entrega correctamente, indíquenos el día y el horario exactos que prefiere. Gracias.');
  const signals=customerDeliverySignals(combined),reportsNonDelivery=normalized.some(nonDelivery);
  if(signals.conditional)return clarify('CONDITIONAL_DELIVERY_REQUEST','Hola, indíquenos si quiere recibir el pedido y qué condición necesitamos resolver para solicitar la entrega. Gracias.');
- let selected=null,slot=null,recurring=false,scheduleSource=null;
+ let selected=null,slot=null,recurring=false,scheduleSource=null,literalPreference=null;
  for(let n=0;n<texts.length;n++){
   let t=normalized[n].replace(/(\d)\s*hs?\b/g,'$1 h');
   if(explanation(t)||irrelevant(t)||confirmedPayment&&/efectivo|dinero|importe/.test(t)&&!hasPreference(t))continue;
@@ -67,7 +67,11 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
    const every=/\bcualquier dia(?: de la semana)?\b/.test(t);
    const clean=t.replace(/\bcualquier dia(?: de la semana)?\b/,'').replace(/\b(?:q|que) es cuando termino\b.*$/,'').trim();
    const window=requestedWindowWithoutDate(clean);
-   if(parsed.date||window){
+   const literal=literalDeliveryPreference(texts[n],messageTimestamp(cluster[n]),now);
+   if(literal&&(!parsed.date||!parsed.time_window)){
+    selected=cluster[n];slot={date:literal.date||slot?.date||null,time_window:null};literalPreference=literal;scheduleSource='CUSTOMER_LITERAL_PREFERENCE';
+   }else if(parsed.date||window){
+    literalPreference=null;
     if(parsed.date)scheduleSource='CUSTOMER_EXPLICIT';
     if(!parsed.date&&window){const next=slot?.date?slot:nextBusinessMorning(now,order);if(!next)return block('BUSINESS_CALENDAR_REQUIRED');if(!slot?.date)scheduleSource='OWNER_NEXT_BUSINESS_CUSTOMER_WINDOW';parsed={...next,time_window:window};}
     selected=cluster[n];slot=parsed;recurring=every;
@@ -83,7 +87,8 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
   if(earlier.some(m=>hasPreference(fold(addressMessageText(m)))))return clarify('EARLIER_PREFERENCE_REQUIRES_RENEWAL',
    'Hola, queremos respetar el horario que nos indicó. Confírmenos qué día y franja horaria le vienen bien para solicitar una nueva entrega. Gracias.');
  }
- if(slot){
+ if(literalPreference&&slot?.date&&slot.date<=madridDate(now))return clarify('REQUESTED_DELIVERY_WINDOW_EXPIRED','Hola, la fecha de entrega indicada ya necesita renovarse. Confírmenos qué día le viene bien para solicitar una nueva entrega. Gracias.');
+ if(slot&&!literalPreference){
   const today=madridDate(now),hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Madrid',hour:'2-digit',hourCycle:'h23'}).format(new Date(now)));
   if(!slot.time_window||slot.date<today||(slot.date===today&&hour>=({morning:14,afternoon:21}[slot.time_window]||0)))return clarify('REQUESTED_DELIVERY_WINDOW_EXPIRED',
    'Hola, el horario de entrega que nos indicó ya ha pasado o necesita concretarse. ¿Qué nuevo día y franja horaria le vienen bien? Gracias.');
@@ -91,7 +96,7 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  if(!raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION'))return block('PROVIDER_SOLUTION_NOT_ALLOWED');
  const preference=selected?addressMessageText(selected):null;
  const note=[signals.waiting_for_order?newDeliverySolution(signals):'El cliente quiere recibir su pedido.',!signals.waiting_for_order&&reportsNonDelivery?'Indica que no se ha realizado la entrega o niega haberla rechazado.':null,
-  slot?`${scheduleSource==='CUSTOMER_EXPLICIT'?'Solicita entrega':'Proponemos próxima fecha hábil de entrega'} el ${slot.date} por la ${slot.time_window==='morning'?'mañana':'tarde'}.`:null,
+  slot?.date&&slot?.time_window?`${scheduleSource==='CUSTOMER_EXPLICIT'?'Solicita entrega':'Proponemos próxima fecha hábil de entrega'} el ${slot.date} por la ${slot.time_window==='morning'?'mañana':'tarde'}.`:literalPreference?.date?`Fecha solicitada: ${literalPreference.date}; horario según indicación literal del cliente.`:null,
   preference?`Disponibilidad literal del cliente: «${preference}».`:null,
   recurring?'La disponibilidad indicada es recurrente.':null,
   'Por favor, gestionar la entrega respetando sus indicaciones.'].filter(Boolean).join(' ');
