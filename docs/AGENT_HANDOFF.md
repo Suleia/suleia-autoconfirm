@@ -24,15 +24,21 @@ GitHub is the durable coordination layer:
 Never place credentials or customer personal data in this document, issues,
 commits or pull requests.
 
-## Budget Autopilot V5.1 development (2026-10-22)
+## Budget Autopilot V5.1 SHADOW deployment (2026-10-22)
 
-See `META_BUDGET_AUTOPILOT_V5_1.md`. This owner-requested branch implements
-fixed EUR10 candidates, EUR70 cap, Madrid slots and progressive night caps through
-the existing budget executor. It has no deployment/LIVE authorization. The new
-compiled gate is false, scheduler and notifications default off, and the SHADOW
-profile disables shared monetary writes. Existing manual LIVE production remains
-untouched. Keep legacy risk limits blocking until consolidated policy approval;
-do not invent operating minima, global spend/exposure or incremental evidence.
+See `META_BUDGET_AUTOPILOT_V5_1.md`. This branch implements fixed EUR 10 candidates,
+EUR 70 cap, Madrid slots and progressive night caps through the existing executor.
+The owner separately approved SHADOW deployment, migration 058 and scheduled SHADOW
+reviews, including simulation of previously LIVE confirmed manual budget orders.
+API code 5177e53 is healthy; the panel and existing single bot are deployed. Limited
+SQL grants and both actors' signed access are verified. Automatic LIVE remains
+compiled false, all Meta writes and new Autopilot reports are off. The cold learning
+read is bounded and pending evidence blocks changes. Final Node 22 suite passed 360
+tests; the unchanged migration passed its isolated PostgreSQL integration.
+At 12:09 Madrid the next slot is 13:00; none had yet been due since activation.
+Do not claim that first cycle completed or replay 12:00. Keep legacy risk limits
+blocking until consolidated policy approval; do not invent minima, global limits
+or incremental evidence. The report contains actual deployment and rollback paths.
 
 ## Handoff format
 

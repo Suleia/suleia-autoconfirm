@@ -1,7 +1,46 @@
-# Meta Budget Autopilot V5.1 — entrega de desarrollo
+# Meta Budget Autopilot V5.1 — implementación y despliegue SHADOW
 
 22 de octubre de 2026. V5.1 sustituye las fórmulas porcentuales solicitadas en V5.
-Esta rama prepara código y pruebas; **no despliega ni activa el Autopilot**.
+La entrega inicial fue de desarrollo. Después, el propietario autorizó por separado
+el despliegue, la migración 058 y las revisiones SHADOW. **SHADOW está desplegado;
+LIVE continúa desactivado.**
+
+## Estado del despliegue autorizado
+
+Comprobación final a las 12:09 de Madrid del 22 de octubre:
+
+- API saludable: `suleia-budget-autopilot-v51-api:5177e53`, revisión de código
+  `5177e53feabdbf638dc0eb2e71d8b844218df6a9`.
+- Panel servido desde `/opt/suleia-panel-releases/budget-autopilot-v51-38133ea`.
+  Los cuatro archivos modificados se comprobaron mediante HTTP en el servidor.
+  Acceso: **Campañas / Ads Intelligence → Budget Autopilot**.
+- Un único bot activo, release `budget-autopilot-v51-38133ea`, modo `READ_ONLY`.
+  Identidad, token, dos administradores y offset conservados; su bloqueo coincide
+  con el PID del servicio. No se enviaron mensajes de prueba reales.
+- Migración 058 aplicada y privilegios del rol limitado comprobados.
+- `AUTOPILOT_ENABLED=true`, `AUTOPILOT_MODE=SHADOW`, gate compilado LIVE falso;
+  API en SHADOW y escritores Meta desactivados. Informes automáticos nuevos apagados.
+  También se simulan las órdenes manuales del ejecutor compartido, como se aprobó.
+- Ambos actores existentes obtuvieron estado firmado 200/SHADOW/cero escrituras.
+  Actor desconocido y chat cruzado: 403; vista sin OAuth: 401; POST a la vista: 405.
+- Lectura real de nueve campañas y de sus restricciones completada. Próxima revisión:
+  **13:00 Madrid (11:00 UTC)**. Al cerrar, todavía no había una revisión programada
+  vencida tras la activación: tabla de slots vacía. No se recuperó el horario de las
+  12:00 y no se presenta una lectura manual como un ciclo automático completado.
+- Cero operaciones financieras antes y después; contenedores ajenos sin cambios.
+  Se mantienen los bloqueos por política pendiente descritos abajo.
+
+La corrección de espera de aprendizaje se verificó antes de habilitar el scheduler:
+360 pruebas Node 22/Linux aprobadas, cero fallidas y una integración opcional
+omitida, previamente ejecutada con PostgreSQL 17 sobre la misma migración sin cambios.
+La primera espera excesiva se encontró con el scheduler apagado; no dejó un slot
+interrumpido ni una operación financiera.
+
+El recibo de configuración y el procedimiento de reversión están en
+`/root/suleia-budget-v51-38133ea/`. Para revertir, leer primero Agent Hub y comprobar
+que el baseline no cambió; ejecutar allí `switch-deploy.py rollback` como root.
+Restaura únicamente imágenes, rutas y opciones no secretas cambiadas; conserva
+la tabla de auditoría y el estado/offset actuales. No rebobina mensajes ni presupuestos.
 
 ## Estado y alcance
 
@@ -15,11 +54,10 @@ Esta rama prepara código y pruebas; **no despliega ni activa el Autopilot**.
 - No se modifica el token, los administradores, los pedidos, las incidencias,
   las campañas, los presupuestos reales ni las reglas nativas de Meta.
 
-La producción observada es posterior al estado descrito inicialmente en V5:
+La producción observada al comenzar era posterior al estado descrito en V5:
 Command Center 3 ya tiene presupuestos **manuales confirmados** autorizados por
-el propietario. Esa producción continúa funcionando; no se ha cambiado aquí.
-Desplegar el perfil SHADOW nuevo requeriría aprobación y pondría también las
-propuestas del ejecutor compartido en simulación durante esa fase.
+el propietario. La autorización posterior del despliegue SHADOW puso también las
+propuestas de ese ejecutor compartido en simulación durante esta fase.
 
 ## Auditoría realizada
 
@@ -126,8 +164,8 @@ API existente: tick cada 15 s, solo si está habilitado
 
 No hay otro daemon, importador, timer ni consumidor de Telegram. La migración
 058 añade únicamente reservas de slots y un índice de auditoría en las tablas
-Ads existentes. Usa el mismo rol limitado. Ninguna migración se ha aplicado aquí
-al PostgreSQL productivo.
+Ads existentes. Usa el mismo rol limitado. Se aplicó después de la aprobación
+expresa del despliegue SHADOW.
 
 Un slot que quedó ejecutándose tras una caída permanece pendiente de revisión;
 no se roba su reserva ni se repite. Las revisiones de las 12:00 y 19:00 son únicas.
@@ -183,7 +221,7 @@ Capturas **locales con datos ficticios**, sin sesión ni conexión a Meta:
 - [Móvil](assets/budget-autopilot-v51-mobile.png).
 
 Se comprobó filtrado, ausencia de errores JavaScript y ausencia de desbordamiento
-del documento a 1536 y 390 px. El panel no está desplegado por esta entrega.
+del documento a 1536 y 390 px. El panel se sirve en el despliegue SHADOW indicado arriba.
 
 ## Simulación reproducible
 
@@ -222,7 +260,7 @@ La autorización del token tampoco certifica una operación real completada.
 
 Verificación final del código:
 
-- **Node 22/Linux: 358 aprobadas, 0 fallidas**, una integración opcional omitida
+- **Node 22/Linux: 360 aprobadas, 0 fallidas**, una integración opcional omitida
   en ese grupo y ejecutada después por separado.
 - **PostgreSQL 17 aislado: 1 aprobada, 0 fallidas**. Incluye migración 058, unicidad
   de slot, permisos de lectura, reserva antigua incierta y paginación con empates
