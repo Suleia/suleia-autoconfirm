@@ -88,7 +88,7 @@ test('Madrid scheduler handles DST, exact slot uniqueness and no catch-up',()=>{
  assert.equal(reviewSlot(at('23:59')).kind,'NIGHT');
 });
 test('LIVE and write flag attempts fail before any transport; explicit approval reference required',()=>{
- assert.equal(AUTOPILOT_LIVE_COMPILED,false);
+ assert.equal(AUTOPILOT_LIVE_COMPILED,true);
  for(const env of [{AUTOPILOT_MODE:'LIVE'},{AUTOPILOT_ENABLED:'true',META_WRITES_ENABLED:'true'},{AUTOPILOT_ENABLED:'true',ADS_INTELLIGENCE_WRITES_ENABLED:'true'},{AUTOPILOT_ENABLED:'true',ADS_INTELLIGENCE_MODE:'LIVE'}])assert.throws(()=>loadAutopilotConfig(env),/AUTOPILOT/);
  assert.throws(()=>loadAutopilotConfig({AUTOPILOT_APPROVED_POLICY_JSON:'{"minimumBudgetCents":100}'}),/APPROVAL/);
  assert.throws(()=>createAdsRuntime({env:{ADS_INTELLIGENCE_READ_ENABLED:'true',AUTOPILOT_ENABLED:'true',ADS_INTELLIGENCE_MODE:'LIVE'},fetchImpl:()=>{throw Error('must not fetch');}}),/AUTOPILOT/);
@@ -104,6 +104,7 @@ class MemoryLedger {
  async cancel(id){return this.finish(id,'CANCELLED');}
  async record(id,campaignId,result){this.operations.set(id+':'+campaignId,result);}
  async budgetUsage(){return {increaseCents:0,changedCampaignIds:[]};}
+ async liveActivation(account,reference){const rows=[...this.proposals.values()].filter(p=>p.accountId===account&&p.authorizationReference===reference&&p.mode==='LIVE').flatMap(p=>p.items.map(i=>this.operations.get(p.id+':'+i.campaignId)).filter(Boolean));return {stage:rows.some(r=>['FAILED','UNKNOWN','EXECUTING','RECONCILED'].includes(r.state))?'REVIEW_REQUIRED':rows.some(r=>r.state==='VERIFIED'&&r.externalWrites===1&&r.response?.success===true)?'CANARY_VERIFIED':'CANARY_PENDING'};}
  async withAccountBudgetLock(_account,fn){if(this.accountLocked)throw Error('ACCOUNT_BUDGET_BUSY');this.accountLocked=true;try{return await fn();}finally{this.accountLocked=false;}}
  async withCampaignLock(_key,fn){return fn({unresolved:async()=>false,circuitOpen:async()=>false,record:(...a)=>this.record(...a),claimOperation:async()=>true,openCircuit:async()=>{}});}
  async autopilotHistory(){return Promise.all([...this.proposals.keys()].map(id=>this.get(id)));}
@@ -221,8 +222,8 @@ test('offline definite rejection stays FAILED, never VERIFIED or automatically r
  const f=offlineLiveFixture();let attempts=0;f.engine.writer={setDailyBudget:async()=>{attempts++;throw Object.assign(Error('reject fixture'),{definitiveRejection:true,status:400});}};
  const r=await f.service.tick(),p=await f.ledger.get(r.proposalId);assert.equal(p.items[0].result.state,'FAILED');assert.equal(r.finalCheck.state,'CRITICAL_UNVERIFIED_CAP');await f.service.tick();assert.equal(attempts,1);
 });
-test('runtime factory cannot compile LIVE through environment flags',()=>{
- assert.throws(()=>createAdsRuntime({env:{ADS_INTELLIGENCE_READ_ENABLED:'true',AUTOPILOT_ENABLED:'true',AUTOPILOT_MODE:'LIVE',AUTOPILOT_LIVE_AUTHORIZED:'true',ADS_INTELLIGENCE_MODE:'LIVE',ADS_INTELLIGENCE_WRITES_ENABLED:'true',META_WRITES_ENABLED:'false',LIVE_COMPILED:'true',AUTOPILOT_LIVE_COMPILED:'true'},fetchImpl:()=>{throw Error('must not fetch');}}),/AUTOPILOT_LIVE_NOT_AUTHORIZED/);
+test('runtime factory cannot activate LIVE through flags without the complete approved policy',()=>{
+ assert.throws(()=>createAdsRuntime({env:{ADS_INTELLIGENCE_READ_ENABLED:'true',AUTOPILOT_ENABLED:'true',AUTOPILOT_MODE:'LIVE',AUTOPILOT_LIVE_AUTHORIZED:'true',ADS_INTELLIGENCE_MODE:'LIVE',ADS_INTELLIGENCE_WRITES_ENABLED:'true',META_WRITES_ENABLED:'false',LIVE_COMPILED:'true',AUTOPILOT_LIVE_COMPILED:'true'},fetchImpl:()=>{throw Error('must not fetch');}}),/AUTOPILOT_LIVE_POLICY_INCOMPLETE/);
 });
 test('account spending guard distinguishes missing, stale and reached limits',()=>{
  assert.ok(decision({accountSpend:null}).reasons.includes('ACCOUNT_SPEND_UNVERIFIED'));
@@ -253,3 +254,52 @@ test('overview previews the actual next slot, never another noon cut or tomorrow
  const night=fixture({time:'23:59'}),next=await night.service.overview();assert.equal(next.campaigns[0].action,'HOLD');assert.ok(next.campaigns[0].reasons.includes('FUTURE_DAY_METRICS_REQUIRED'));
 });
 test('no active campaigns cannot produce a fabricated VERIFIED operation',async()=>{const f=fixture();f.reader.readCampaigns=async()=>[];const r=await f.service.tick();assert.equal(r.decisions.length,0);assert.notEqual(r.executionState,'VERIFIED');assert.equal(f.calls(),0);});
+
+test('explicit fixed-EUR consolidation replaces old percentage/five-purchase/cooldown bounds only in that profile',()=>{
+ const cfg=config();Object.assign(cfg.approved,{policyProfile:'V5_1_FIXED_EUR',globalSpendLimitMode:'UNLIMITED_AUTHORIZED'});delete cfg.approved.globalSpendLimitCents;
+ cfg.legacy={...legacy,maxChangePercent:10,minPurchases:5};
+ const d=decision({cfg,purchases:3});assert.equal(d.state,'VALIDATED');
+ const history=[{id:'own',accountId:'9',origin:'AUTOPILOT',mode:'LIVE',createdAt:at('09:00'),items:[{campaignId:'11',before:2000,after:2500,metric:metric(at('09:00'),4.2,3),result:{state:'VERIFIED',verifiedAt:at('09:00')}}]}];
+ const second=decision({cfg,purchases:6,history});assert.equal(second.state,'VALIDATED');
+ assert.ok(decision({cfg,purchases:3,history}).reasons.includes('CONVERSIONS_ALREADY_USED'));
+ assert.ok(decision({cfg,accountSpend:null}).reasons.includes('ACCOUNT_SPEND_UNVERIFIED'));
+ assert.ok(!decision({cfg,accountSpend:{date:day,complete:true,observedAt:new Date(at('10:00')).toISOString(),spendCents:999999999}}).reasons.includes('ACCOUNT_SPEND_LIMIT_REACHED'));
+ assert.throws(()=>loadAutopilotConfig({AUTOPILOT_APPROVED_POLICY_JSON:JSON.stringify({...cfg.approved,globalSpendLimitCents:10})}),/POLICY_INVALID/);
+});
+
+test('LIVE requires every approved control and campaign-bound minimum receipts',()=>{
+ const approved={approvalReference:'chat:fixture:live-v51',policyProfile:'V5_1_FIXED_EUR',minimumBudgetCents:1500,globalExposureCents:100000,globalSpendLimitMode:'UNLIMITED_AUTHORIZED',incrementalPurchases:3,roasReductionMode:'ENABLED',reductionMinSpend:15,reductionMinImpressions:1000,attributionMaturityMinutes:120};
+ const env={AUTOPILOT_ENABLED:'true',AUTOPILOT_MODE:'LIVE',AUTOPILOT_LIVE_AUTHORIZED:'true',ADS_INTELLIGENCE_MODE:'LIVE',ADS_INTELLIGENCE_WRITES_ENABLED:'true',META_WRITES_ENABLED:'false',AUTOPILOT_APPROVED_POLICY_JSON:JSON.stringify(approved),AUTOPILOT_VERIFIED_MINIMUMS_JSON:JSON.stringify([{campaignId:'11',accountId:'9',currency:'EUR',minimumCents:1500,verifiedAt:'2026-10-22T10:00Z',validUntil:'2026-10-23T10:00Z',reference:approved.approvalReference}])};
+ assert.equal(loadAutopilotConfig(env).mode,'LIVE');
+ for(const key of ['policyProfile','minimumBudgetCents','globalExposureCents','globalSpendLimitMode','incrementalPurchases','roasReductionMode','reductionMinSpend','reductionMinImpressions','attributionMaturityMinutes']){const missing={...approved};delete missing[key];assert.throws(()=>loadAutopilotConfig({...env,AUTOPILOT_APPROVED_POLICY_JSON:JSON.stringify(missing)}),/POLICY_INCOMPLETE/);}
+ assert.throws(()=>loadAutopilotConfig({...env,AUTOPILOT_VERIFIED_MINIMUMS_JSON:'[]'}),/POLICY_INCOMPLETE/);
+ assert.throws(()=>loadAutopilotConfig({...env,AUTOPILOT_LIVE_AUTHORIZED:'false'}),/LIVE_NOT_AUTHORIZED/);
+});
+
+test('fixed profile reduction maturity starts again after the last own budget change, with a separate blocked mode',()=>{
+ const cfg=config();Object.assign(cfg.approved,{policyProfile:'V5_1_FIXED_EUR',roasReductionMode:'ENABLED'});
+ const history=[{origin:'AUTOPILOT',mode:'LIVE',createdAt:at('11:00'),items:[{campaignId:'11',before:2000,after:2500,result:{state:'VERIFIED',verifiedAt:at('11:00')}}]}];
+ assert.ok(decision({cfg,time:'12:00',roas:3.7,history}).reasons.includes('REDUCTION_SAMPLE_INSUFFICIENT'));
+ history[0].createdAt=at('09:00');history[0].items[0].result.verifiedAt=at('09:00');assert.ok(!decision({cfg,time:'12:00',roas:3.7,history}).reasons.includes('REDUCTION_SAMPLE_INSUFFICIENT'));
+ cfg.approved.roasReductionMode='BLOCKED';assert.ok(decision({cfg,time:'12:00',roas:3.7}).reasons.includes('ROAS_REDUCTIONS_NOT_AUTHORIZED'));
+});
+
+test('first eligible LIVE batch changes only one campaign; verified proof enables later batches',async()=>{
+ const f=offlineLiveFixture(),second={...f.c,id:'12',name:'Second fixture'},baseInsights=f.reader.readInsights;
+ f.cfg.approved.policyProfile='V5_1_FIXED_EUR';
+ f.reader.readCampaigns=async()=>[f.c,second];f.reader.readDelivery=async()=>['11','12'].map(id=>({campaign_id:id,status:'ACTIVE',effective_status:'ACTIVE'}));
+ f.reader.readInsights=async()=>{const row=(await baseInsights())[0];return [row,{...row,campaign_id:'12',campaign_name:second.name}];};
+ f.reader.readCampaign=async id=>id==='11'?f.c:second;
+ const writes=[];f.engine.writer={setDailyBudget:async(id,cents)=>{writes.push(id);(id==='11'?f.c:second).daily_budget=String(cents);return {success:true};}};
+ const result=await f.service.tick(),p=await f.ledger.get(result.proposalId);assert.deepEqual(writes,['11']);assert.equal(p.items[1].result.state,'BLOCKED');assert.ok(p.items[1].result.reasons.includes('CANARY_VERIFICATION_PENDING'));
+ assert.equal((await f.ledger.liveActivation('9',f.cfg.approved.approvalReference)).stage,'CANARY_VERIFIED');
+ const actor={user:'2',chat:'2'},next=await f.engine.propose({actor,requestKey:'after-canary',text:'Pon Second fixture a 24 €'});await f.engine.confirm({id:next.id,actor});assert.deepEqual(writes,['11','12']);
+});
+
+test('an uncertain first real result blocks all further LIVE batches under the same approval',async()=>{
+ const f=offlineLiveFixture();f.cfg.approved.policyProfile='V5_1_FIXED_EUR';let writes=0;
+ f.engine.writer={setDailyBudget:async()=>{writes++;throw Error('uncertain fixture');}};
+ const result=await f.service.tick();assert.equal((await f.ledger.get(result.proposalId)).items[0].result.state,'UNKNOWN');
+ assert.equal((await f.ledger.liveActivation('9',f.cfg.approved.approvalReference)).stage,'REVIEW_REQUIRED');
+ const actor={user:'1',chat:'1'},next=await f.engine.propose({actor,requestKey:'after-uncertain',text:'Pon NIDA fixture a 24 €'});const outcome=await f.engine.confirm({id:next.id,actor});assert.equal(writes,1);assert.ok(outcome.items[0].result.reasons.includes('LIVE_REVIEW_REQUIRED'));
+});

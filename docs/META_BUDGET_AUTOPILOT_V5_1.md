@@ -1,5 +1,9 @@
 # Meta Budget Autopilot V5.1 — implementación y despliegue SHADOW
 
+Estado histórico de la entrega SHADOW. La autorización y política posteriores se
+documentan en [activación LIVE](META_BUDGET_AUTOPILOT_LIVE.md); consultar el Agent Hub
+para la evidencia efectiva del despliegue y del primer cambio real.
+
 22 de octubre de 2026. V5.1 sustituye las fórmulas porcentuales solicitadas en V5.
 La entrega inicial fue de desarrollo. Después, el propietario autorizó por separado
 el despliegue, la migración 058 y las revisiones SHADOW. **SHADOW está desplegado;
