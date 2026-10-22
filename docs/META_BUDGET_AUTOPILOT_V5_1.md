@@ -239,6 +239,15 @@ no se quitó esa protección del bot para adaptar el código al PC.
 
 ## Despliegue propuesto y rollback
 
+La primera comprobación de SHADOW encontró una lectura fría del histórico de
+aprendizaje que superaba 85 segundos. Se acota su espera a tres segundos sin
+desactivar la lectura compartida de fondo. Una protección pendiente o fallida
+añade `LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE` y bloquea la propuesta. La
+propuesta automática reutiliza la evaluación capturada; la confirmación vuelve
+a evaluar con la misma espera acotada. No se omite la protección para cumplir el
+horario. Hay pruebas con lecturas que nunca responden y con errores, además de
+una comprobación de que preparar la propuesta no lanza otra evaluación.
+
 1. Aprobar por separado el despliegue SHADOW y la migración 058. Confirmar que
    durante esa fase las órdenes presupuestarias del ejecutor compartido se simulan.
 2. Releer Agent Hub y el runtime del otro PC; conservar las versiones posteriores

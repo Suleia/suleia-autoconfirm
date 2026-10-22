@@ -2,9 +2,21 @@ import {AUTOPILOT_VERSION,evaluateAutopilot,nightTarget,autopilotMetric} from '.
 import {reviewSlot,nextReview,madridTime,REVIEW_TIMES} from './schedule.mjs';
 
 export class BudgetAutopilot {
-  constructor({engine,ledger,config,now=()=>Date.now(),readConstraints=null}) {
-    Object.assign(this,{engine,ledger,config,now,readConstraints});this.busy=false;
+  constructor({engine,ledger,config,now=()=>Date.now(),readConstraints=null,learningWaitMs=3000}) {
+    Object.assign(this,{engine,ledger,config,now,readConstraints,learningWaitMs});this.busy=false;
     engine.autopilot=this;
+  }
+  async learningAssessment(campaign) {
+    if(!this.engine.learningAssessment)return null;
+    let timer;
+    const pending=()=>({reasons:['LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE'],policy:null});
+    try {
+      return await Promise.race([
+        Promise.resolve().then(()=>this.engine.learningAssessment(campaign)),
+        new Promise(resolve=>{timer=setTimeout(()=>resolve(pending()),this.learningWaitMs);})
+      ]);
+    } catch {return pending();}
+    finally {clearTimeout(timer);}
   }
   async constraints() {
     if(this.readConstraints)return this.readConstraints();
@@ -23,7 +35,7 @@ export class BudgetAutopilot {
     if(madridTime(this.now()).date!==date||snapshot.range.since!==date)throw Error('AUTOPILOT_DAY_CHANGED');
     snapshot.facts=snapshot.facts.map(autopilotMetric);
     const learning=new Map();
-    if(this.engine.learningAssessment)await Promise.all(inventory.campaigns.filter(c=>c.effective_status==='ACTIVE').map(async c=>{learning.set(String(c.id),await this.engine.learningAssessment(c));}));
+    if(this.engine.learningAssessment)await Promise.all(inventory.campaigns.filter(c=>c.effective_status==='ACTIVE').map(async c=>{learning.set(String(c.id),await this.learningAssessment(c));}));
     return {inventory,snapshot,history,constraints,at,learning};
   }
   decisions(evidence,slot) {

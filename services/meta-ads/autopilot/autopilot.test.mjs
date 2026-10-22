@@ -126,6 +126,28 @@ test('scheduled SHADOW decision reuses existing executor, claims once and never 
  const recreated=new BudgetAutopilot({engine:f.engine,ledger:f.ledger,config:f.cfg,now:()=>at('10:00')});
  assert.equal((await recreated.tick()).state,'ALREADY_CLAIMED');
 });
+test('slow or unavailable learning evidence cannot delay a slot or permit a change',async()=>{
+ for(const read of [()=>new Promise(()=>{}),async()=>{throw Error('unavailable');}]){
+  const f=fixture();f.service.learningWaitMs=1;f.engine.learningAssessment=read;
+  const report=await f.service.overview();
+  assert.ok(report.campaigns[0].reasons.includes('LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE'));
+  const result=await f.service.tick();
+  assert.equal(result.externalWrites,0);assert.equal(f.calls(),0);
+  const proposal=await f.ledger.get(result.proposalId);
+  assert.equal(proposal.items[0].result.state,'BLOCKED');
+  assert.ok(proposal.items[0].result.reasons.includes('LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE'));
+ }
+});
+
+test('scheduled proposals reuse the captured learning decision without starting another read',async()=>{
+ const f=fixture();let reads=0;
+ f.engine.learningAssessment=async()=>{reads++;return {reasons:[],policy:{version:'fixture'}};};
+ const evidence=await f.service.capture();
+ assert.equal(reads,1);
+ await f.engine.proposeScheduled({slot:reviewSlot(at('10:00')),decisions:f.service.decisions(evidence,reviewSlot(at('10:00'))),evidence,config:f.cfg});
+ assert.equal(reads,1);
+});
+
 test('two schedulers share a durable slot; interrupted claims are never replayed',async()=>{
  const ledger=new MemoryLedger(),a=fixture({ledger}),b=fixture({ledger});
  const results=await Promise.all([a.service.tick(),b.service.tick()]);assert.equal(results.filter(r=>r.state==='SIMULATED').length,1);assert.equal(ledger.proposals.size,1);

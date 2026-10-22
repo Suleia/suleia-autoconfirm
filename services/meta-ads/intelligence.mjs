@@ -74,7 +74,7 @@ export class AdsIntelligence {
     const items=[];
     for(const decision of decisions){
       const c=evidence.inventory.campaigns.find(c=>String(c.id)===decision.campaignId);
-      const base=this.policyReasons(c,decision.metric,intent,evidence.inventory),learning=this.learningAssessment?await this.learningAssessment(c):null;
+      const base=this.policyReasons(c,decision.metric,intent,evidence.inventory),learning=this.learningAssessment?(evidence.learning?.get(String(c.id))||{reasons:['LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE'],policy:null}):null;
       const reasons=[...new Set([...decision.reasons,...base.reasons,...(learning?.reasons||[]),...(decision.action==='HOLD'?['AUTOPILOT_HOLD']:[])])];
       items.push({...decision,reasons,learning,status:'PENDING'});
     }
@@ -143,7 +143,7 @@ export class AdsIntelligence {
           const result=c?this.policyReasons(c,metric,p.intent,inventory):{reasons:['CAMPAIGN_MISSING']};
           if(c&&automatic){const current=await this.autopilot.validate(c,metric,p);result.reasons.push(...current.reasons);if(current.after!==item.after)result.reasons.push('AUTOPILOT_DECISION_CHANGED');}
           if(c&&!automatic&&this.autopilot?.config.enabled)result.reasons.push(...await this.autopilot.manualAssessment(c,result.after));
-          if(c&&this.learningAssessment){const learning=await this.learningAssessment(c);result.reasons.push(...learning.reasons);if(hash(learning.policy)!==hash(item.learning?.policy))result.reasons.push('LEARNING_POLICY_CHANGED');}
+          if(c&&this.learningAssessment){const learning=automatic?await this.autopilot.learningAssessment(c):await this.learningAssessment(c);result.reasons.push(...learning.reasons);if(hash(learning.policy)!==hash(item.learning?.policy))result.reasons.push('LEARNING_POLICY_CHANGED');}
           if (this.now()>=p.expiresAt||!c||Number(c.daily_budget)!==item.before||result.after!==item.after||result.reasons.length) {await tx.record(id,item.campaignId,{state:'STALE',reasons:this.now()>=p.expiresAt?['EXPIRED']:['REVALIDATION_FAILED',...result.reasons]});return;}
           // Preserve the local business day and reject changed evidence rather
           // than carrying yesterday's selection into a new day.
