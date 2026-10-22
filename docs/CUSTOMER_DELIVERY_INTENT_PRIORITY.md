@@ -18,6 +18,12 @@ nota profesional solicitando nueva entrega. Fechas, horarios, dirección, agenci
 y condiciones económicas siguen sus rutas existentes y no se eliminan. Si el
 contrato exige RETRY, se conserva el slot y la evidencia real requeridos.
 
+Una hora literal válida puede conservarse en la nota de PROVIDE_SOLUTION aunque
+no determine una franja estructurada. Por ejemplo, una hora de doce horas sin
+AM/PM no se convierte a otra hora por suposición. Se conserva el texto indicado,
+se validan fechas futuras y horas/minutos, y se bloquean opciones contradictorias
+o fechas vencidas. Esta regla no relaja el contrato estructurado de RETRY.
+
 Una cancelación o contradicción posterior bloquea la nueva entrega. Una queja
 neutra no revive una cancelación anterior; una respuesta posterior explícita de
 que sigue esperando o quiere recibirlo sí puede renovar la instrucción. Saludos
