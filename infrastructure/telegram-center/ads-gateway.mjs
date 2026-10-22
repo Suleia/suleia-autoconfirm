@@ -7,6 +7,7 @@ const money=c=>Number.isFinite(c)?`${(c/100).toFixed(2)} €`:'no disponible';
 Object.assign(reasons,{CAMPAIGN_COOLDOWN:'ya hubo un cambio en las últimas 24 horas',AGGREGATE_DAILY_LIMIT:'supera el aumento agregado diario autorizado',ACCUMULATION_POLICY_NOT_CONFIGURED:'faltan límites de acumulación autorizados',LIVE_CANARY_ONLY:'campaña fuera del ámbito autorizado'});
 export function signAdsBridge(secret,timestamp,body){return createHmac('sha256',createHmac('sha256',secret).update('suleia:ads-bridge:v3').digest()).update(`${timestamp}.${body}`).digest('hex');}
 export function formatAdsResult(data,options={}) {
+  if(data.autopilot)return {text:(data.text||'Budget Autopilot: informe actualizado no disponible.').slice(0,3900),autopilot:data.autopilot,cycleText:data.cycleText,cycleKey:data.cycleKey,navigation:[{label:'Campañas de hoy',request:{action:'analyze',query:{period:'hoy',level:'campaign'}}}]};
   if(data.report)return {text:`Informe Suleia · ${data.report.period.label}${data.report.period.partial?' · provisional':''}`,artifact:{kind:'report',report:data.report},format:data.format};
   if(data.orders)return compactOrders(data.orders,data.view,data.metric);
   if(data.analysis?.version===3)return compactMeta(data,options);
@@ -42,7 +43,7 @@ export function createAdsGateway(config,fetchImpl=fetch){
     return formatted;
   }
   return {async prepareBudget(body,actor,key){return request({...body,actor,requestKey:`telegram:prepare:${key}`});},async read(body,actor,options={}) {
-    if(!['analyze','orders-summary','daily-report'].includes(body.action))throw Error('READ_ACTION_INVALID');
+    if(!['analyze','orders-summary','daily-report','autopilot'].includes(body.action))throw Error('READ_ACTION_INVALID');
     return request({...body,actor},options);
   },async handle(text,actor,updateId){
     if(config.commandCenterEnabled){

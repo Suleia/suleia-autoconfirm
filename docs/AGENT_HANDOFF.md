@@ -24,6 +24,16 @@ GitHub is the durable coordination layer:
 Never place credentials or customer personal data in this document, issues,
 commits or pull requests.
 
+## Budget Autopilot V5.1 development (2026-10-22)
+
+See `META_BUDGET_AUTOPILOT_V5_1.md`. This owner-requested branch implements
+fixed EUR10 candidates, EUR70 cap, Madrid slots and progressive night caps through
+the existing budget executor. It has no deployment/LIVE authorization. The new
+compiled gate is false, scheduler and notifications default off, and the SHADOW
+profile disables shared monetary writes. Existing manual LIVE production remains
+untouched. Keep legacy risk limits blocking until consolidated policy approval;
+do not invent operating minima, global spend/exposure or incremental evidence.
+
 ## Handoff format
 
 ```text

@@ -14,8 +14,12 @@ export function action(rows, types) {
   }
   return { value: null, status: 'MISSING', type: null };
 }
+import {selectPurchaseRoas} from './purchase-roas.mjs';
 const purchases = ['offsite_conversion.fb_pixel_purchase','omni_purchase','purchase'];
 export function normalizeInsight(row, context) {
+  const nativeRoas=selectPurchaseRoas(row);
+  const nativeCount=nativeRoas.action_type?action(row.actions,[nativeRoas.action_type]):{value:null,status:'MISSING'};
+  const nativeValue=nativeRoas.action_type?action(row.action_values,[nativeRoas.action_type]):{value:null,status:'MISSING'};
   const spend = number(row.spend), impressions = number(row.impressions), clicks = number(row.inline_link_clicks);
   const count = action(row.actions, purchases);
   // Value and count must have the same event scope.
@@ -35,6 +39,8 @@ export function normalizeInsight(row, context) {
     costPerCart: ratio(spend, cart.value), costPerCheckout: ratio(spend, checkout.value),
     purchases: count.value, purchaseValue: value.value, purchaseType: count.type, cpa: ratio(spend, count.value),
     roas: ['VALID','ZERO'].includes(roasStatus) ? ratio(value.value, spend) : null, roasStatus,
+    metaRoas:nativeRoas.value,metaRoasStatus:nativeRoas.status==='AVAILABLE'?(nativeRoas.value===0?'ZERO':'VALID'):nativeRoas.status==='AMBIGUOUS'?'AMBIGUOUS':'MISSING',metaRoasPurchaseType:nativeRoas.action_type,
+    metaPurchases:nativeCount.value,metaPurchaseValue:nativeValue.value,metaPurchaseStatus:nativeCount.status,metaPurchaseValueStatus:nativeValue.status,
     funnel: { clickToLanding: ratio(landing.value, clicks), landingToCart: ratio(cart.value, landing.value), cartToCheckout: ratio(checkout.value, cart.value), checkoutToPurchase: ratio(count.value, checkout.value) },
     quality: { purchase: count.status, purchaseValue: value.status, landing: landing.status, cart: cart.status, checkout: checkout.status },
     source: 'META_INSIGHTS', contract: CONTRACT, ...context

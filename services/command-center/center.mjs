@@ -1,4 +1,5 @@
 import {adsCommand} from '../meta-ads/command-service.mjs';
+import {parseAutopilotQuery} from '../meta-ads/autopilot/queries.mjs';
 import {orderSummaryIntent,OrderSummaryReader,readOrderSummary} from './order-summary.mjs';
 import {parseOrderRequest,parsePeriodText,resolvePeriod} from './periods.mjs';
 
@@ -72,8 +73,10 @@ export class CommandCenter {
  async command(body) {
    const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};
    this.ads.engine.authorize(actor);
+   if(body.action==='autopilot'||(body.action==='request'&&parseAutopilotQuery(body.text))){this.authorize(actor,'ads');return adsCommand(this.ads,body);}
    if(body.action==='prepare-budget'){
      this.authorize(actor,'propose');
+     if(this.ads.autopilot?.config.enabled)return {text:'La política vigente es V5.1, con importes absolutos. Solicita «Sube 10 € a la campaña ID» o «Baja 10 € a la campaña ID». Se preparará una propuesta nueva con los límites actuales.'};
      if(!/^\d+$/.test(body.campaignId||'')||!['increase','decrease'].includes(body.direction)||!Number.isFinite(body.percent)||body.percent<=0||body.percent>this.ads.engine.policy.maxChangePercent||!/^telegram:prepare:[a-f0-9]{16}$/.test(body.requestKey||''))throw Error('QUERY_INVALID');
      return adsCommand(this.ads,{action:'request',actor,requestKey:body.requestKey,text:`${body.direction==='increase'?'Sube':'Baja'} ${body.percent} % el presupuesto de ${body.campaignId} con ROAS ${body.direction==='increase'?'superior a 10':'inferior a 3'} hoy`});
    }

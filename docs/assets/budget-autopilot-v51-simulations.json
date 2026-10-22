@@ -1,0 +1,176 @@
+{
+  "mode": "SIMULATION",
+  "data": "FICTIONAL_POLICY_EXAMPLES",
+  "version": "meta-budget-autopilot-v5.1",
+  "externalWrites": 0,
+  "approvedPolicyValues": {},
+  "results": [
+    {
+      "scenario": "20 → 30",
+      "time": "10:00",
+      "beforeCents": 2000,
+      "candidateCents": 3000,
+      "action": "INCREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "GLOBAL_EXPOSURE_POLICY_NOT_APPROVED",
+        "GLOBAL_SPEND_LIMIT_NOT_APPROVED",
+        "LEGACY_SAMPLE_MINIMUM",
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED",
+        "MAX_CHANGE_PERCENT"
+      ],
+      "nightTargetCents": 2500
+    },
+    {
+      "scenario": "25 → 35",
+      "time": "07:00",
+      "beforeCents": 2500,
+      "candidateCents": 3500,
+      "action": "INCREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "GLOBAL_EXPOSURE_POLICY_NOT_APPROVED",
+        "GLOBAL_SPEND_LIMIT_NOT_APPROVED",
+        "LEGACY_SAMPLE_MINIMUM",
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED",
+        "MAX_CHANGE_PERCENT"
+      ],
+      "nightTargetCents": 2500
+    },
+    {
+      "scenario": "60 → 70",
+      "time": "10:00",
+      "beforeCents": 6000,
+      "candidateCents": 7000,
+      "action": "INCREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "GLOBAL_EXPOSURE_POLICY_NOT_APPROVED",
+        "GLOBAL_SPEND_LIMIT_NOT_APPROVED",
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED",
+        "MAX_CHANGE_PERCENT"
+      ],
+      "nightTargetCents": 2500
+    },
+    {
+      "scenario": "65 → 70",
+      "time": "10:00",
+      "beforeCents": 6500,
+      "candidateCents": 7000,
+      "action": "INCREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "GLOBAL_EXPOSURE_POLICY_NOT_APPROVED",
+        "GLOBAL_SPEND_LIMIT_NOT_APPROVED",
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED"
+      ],
+      "nightTargetCents": 2500
+    },
+    {
+      "scenario": "70: mantener",
+      "time": "10:00",
+      "beforeCents": 7000,
+      "candidateCents": 7000,
+      "action": "HOLD",
+      "state": "BLOCKED",
+      "blockers": [
+        "MAX_BUDGET"
+      ],
+      "nightTargetCents": 2500
+    },
+    {
+      "scenario": "12:00: 70 → 60",
+      "time": "12:00",
+      "beforeCents": 7000,
+      "candidateCents": 6000,
+      "action": "DECREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "REDUCTION_SAMPLE_POLICY_NOT_APPROVED",
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED",
+        "MAX_CHANGE_PERCENT"
+      ],
+      "nightTargetCents": 2000
+    },
+    {
+      "scenario": "19:00: 30 → 20",
+      "time": "19:00",
+      "beforeCents": 3000,
+      "candidateCents": 2000,
+      "action": "DECREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "REDUCTION_SAMPLE_POLICY_NOT_APPROVED",
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED",
+        "MAX_CHANGE_PERCENT"
+      ],
+      "nightTargetCents": 2000
+    },
+    {
+      "scenario": "ROAS =3,8",
+      "time": "12:00",
+      "beforeCents": 2500,
+      "candidateCents": 2500,
+      "action": "HOLD",
+      "state": "HOLD",
+      "blockers": [],
+      "nightTargetCents": 2500
+    },
+    {
+      "scenario": "ROAS ausente",
+      "time": "12:00",
+      "beforeCents": 2500,
+      "candidateCents": 2500,
+      "action": "HOLD",
+      "state": "BLOCKED",
+      "blockers": [
+        "ROAS_MISSING"
+      ],
+      "nightTargetCents": 2000
+    },
+    {
+      "scenario": "Noche: ROAS alto",
+      "time": "23:59",
+      "beforeCents": 7000,
+      "candidateCents": 2500,
+      "action": "NIGHT_DECREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED",
+        "MAX_CHANGE_PERCENT"
+      ],
+      "nightTargetCents": 2500
+    },
+    {
+      "scenario": "Noche: ROAS desconocido",
+      "time": "23:59",
+      "beforeCents": 7000,
+      "candidateCents": 2000,
+      "action": "NIGHT_DECREASE",
+      "state": "BLOCKED",
+      "blockers": [
+        "OPERATING_MINIMUM_NOT_APPROVED",
+        "META_MINIMUM_NOT_VERIFIED",
+        "MAX_CHANGE_PERCENT"
+      ],
+      "nightTargetCents": 2000
+    },
+    {
+      "scenario": "Noche: presupuesto ya bajo",
+      "time": "23:59",
+      "beforeCents": 1500,
+      "candidateCents": 1500,
+      "action": "HOLD",
+      "state": "HOLD",
+      "blockers": [],
+      "nightTargetCents": 2500
+    }
+  ]
+}

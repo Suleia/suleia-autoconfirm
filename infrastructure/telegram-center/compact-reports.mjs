@@ -46,6 +46,7 @@ export function compactMeta(data,{page=0,view=data.focus==='improve'?'diagnosis'
   if(page>0)navigation.push({label:'← Anterior',request,page:page-1,view});
   if(page+1<pages)navigation.push({label:'Ver más →',request,page:page+1,view});
   for(const candidate of a.budgetCandidates||[])navigation.push({label:`Preparar ${candidate.direction==='increase'?'+':'-'}${candidate.percent}% · ${String(candidate.name).slice(0,20)}`,request:{action:'prepare-budget',campaignId:candidate.campaignId,direction:candidate.direction,percent:candidate.percent}});
+  if(a.autopilotPolicy)navigation.push({label:'Budget Autopilot · ±10 €',request:{action:'autopilot'}});
   const heading=isFunnel?'EMBUDO DE CONVERSIÓN':focus==='improve'?'ANUNCIOS A MEJORAR':focus==='top'?'ANUNCIOS DESTACADOS':isOpportunity?'OPORTUNIDADES A VALIDAR':`${a.level==='ad'?'ANUNCIOS':a.level==='adset'?'CONJUNTOS':'CAMPAÑAS'} POR ${data.focus==='sales'&&a.level==='ad'?'COMPRAS':'ROAS'}`;
   const lines=[`📊 <b>META ADS · ${a.range.since===a.range.until?safe(a.range.since):safe(a.range.since+' → '+a.range.until)}</b>`,
     `💰 Gasto: ${money(a.totals?.spend)}\n🛒 Compras: ${metric(a.totals?.purchases,0)}\n🚀 <b>ROAS GLOBAL: ${metric(a.totals?.roas)}</b>`,
@@ -69,7 +70,7 @@ export function compactMeta(data,{page=0,view=data.focus==='improve'?'diagnosis'
   if(!recommendations.length&&!isOpportunity)recommendations.push(...(a.opportunities||[]).filter(x=>visibleIds.has(x.entityId)).slice(0,3));
   if(recommendations.length)lines.push('💡 <b>QUÉ HARÍA HOY</b>\n'+recommendations.map(x=>`• ${safe(x.name,55)}: ${safe(x.action,isOpportunity?100:130)}${isOpportunity?`\nA favor: ${safe(x.favorable,90)}\nRiesgo: ${safe(x.risk,90)}`:''}`).join('\n'));
   if(data.previousDay)lines.push(`Ayer (día completo): gasto ${money(data.previousDay.totals.spend)} · compras ${metric(data.previousDay.totals.purchases,0)} · ROAS ${metric(data.previousDay.totals.roas)}.\nHoy está en curso; no implica una tendencia comparable.`);
-  if(focus==='budget')lines.push((a.budgetCandidates||[]).length?'Las candidatas superan la muestra mínima. Preparar cambio comprueba límites e historial; no modifica Meta.':'Datos insuficientes o ninguna campaña cumple ROAS > 10 / < 3 y la muestra mínima.');
+  if(focus==='budget')lines.push(a.autopilotPolicy?'V5.1 usa cambios de 10 €, máximo 70 €, ROAS >3,8 y tres compras como mínimo solicitado; se mantienen los bloqueos de seguridad. Consulta Budget Autopilot para ver cada motivo.':(a.budgetCandidates||[]).length?'Las candidatas superan la muestra mínima. Preparar cambio comprueba límites e historial; no modifica Meta.':'Datos insuficientes o ninguna campaña cumple ROAS > 10 / < 3 y la muestra mínima.');
   if(a.cache?.status==='STALE')lines.push('⚠️ No se pudo refrescar Meta. Última instantánea disponible.');
   lines.push(`🕒 Actualizado: ${time(a.observedAt)}\nFuente: Meta · 7d clic / 1d vista · Europe/Madrid\nLas conversiones pueden llegar con retraso. ROAS no equivale a beneficio.`);
   return {text:lines.join('\n\n'),parseMode:'HTML',navigation};

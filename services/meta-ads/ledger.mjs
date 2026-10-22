@@ -2,6 +2,32 @@ import { createHash } from 'node:crypto';
 import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 export class AdsLedger {
   constructor(pool){this.pool=pool;}
+  async claimAutopilotSlot(account,slot,at){return (await this.pool.query("INSERT INTO economics.ads_autopilot_slots(account_id,slot_key,state,body,created_at) VALUES($1,$2,'EXECUTING',$3,to_timestamp($4/1000.0)) ON CONFLICT DO NOTHING RETURNING slot_key",[account,slot.key,{slot,externalWrites:0},at])).rowCount===1;}
+  async finishAutopilotSlot(account,key,state,body){await this.pool.query("UPDATE economics.ads_autopilot_slots SET state=$3,body=$4,completed_at=now() WHERE account_id=$1 AND slot_key=$2 AND state='EXECUTING'",[account,key,state,body]);}
+  async autopilotSlots(account,now){const start=new Date(Date.parse(businessDayBounds({now:new Date(now)}).utc_start)-10*60000).toISOString();return (await this.pool.query('SELECT slot_key,state,body,created_at,completed_at FROM economics.ads_autopilot_slots WHERE account_id=$1 AND created_at>=$2 ORDER BY created_at DESC LIMIT 50',[account,start])).rows;}
+  async autopilotHistory(account,now){
+    const start=Math.min(Date.parse(businessDayBounds({now:new Date(now)}).utc_start),now-86400000);
+    const rows=(await this.pool.query(`SELECT p.body,p.state,coalesce(jsonb_agg(jsonb_build_object('campaignId',o.campaign_id,'result',o.body||jsonb_build_object('state',o.state))) FILTER(WHERE o.campaign_id IS NOT NULL),'[]'::jsonb) AS operations
+      FROM economics.ads_proposals p LEFT JOIN economics.ads_operations o ON o.proposal_id=p.id
+      WHERE p.body->>'accountId'=$1 AND p.created_at>=to_timestamp($2/1000.0) GROUP BY p.id ORDER BY p.created_at DESC LIMIT 301`,[account,start])).rows;
+    if(rows.length>300)throw Error('AUTOPILOT_HISTORY_INCOMPLETE');
+    return rows.map(r=>({...r.body,state:r.state,items:r.body.items.map(i=>({...i,result:r.operations.find(o=>o.campaignId===i.campaignId)?.result||null}))}));
+  }
+  async autopilotAudit(account,{campaignId=null,cursor=null,limit=25}={}){
+    if(campaignId&&!/^\d+$/.test(campaignId))throw Error('QUERY_INVALID');
+    if(!Number.isInteger(limit)||limit<1||limit>50)throw Error('QUERY_INVALID');
+    let anchor=null;
+    if(cursor){try{if(cursor.length>512)throw Error();anchor=JSON.parse(Buffer.from(cursor,'base64url').toString());if(!/^[a-f0-9]{16}$/.test(anchor.id)||typeof anchor.at!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(anchor.at)||!Number.isFinite(Date.parse(anchor.at)))throw Error();}catch{throw Error('QUERY_INVALID');}}
+    const rows=(await this.pool.query(`SELECT p.id,p.body,p.state,p.created_at,to_char(p.created_at AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS cursor_at,
+      coalesce(jsonb_agg(jsonb_build_object('campaignId',o.campaign_id,'result',o.body||jsonb_build_object('state',o.state))) FILTER(WHERE o.campaign_id IS NOT NULL),'[]'::jsonb) AS operations
+      FROM economics.ads_proposals p LEFT JOIN economics.ads_operations o ON o.proposal_id=p.id
+      WHERE p.body->>'accountId'=$1 AND ($2::text IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(p.body->'items') i WHERE i->>'campaignId'=$2))
+      AND ($3::timestamptz IS NULL OR p.created_at<$3::timestamptz OR(p.created_at=$3::timestamptz AND p.id<$4))
+      GROUP BY p.id ORDER BY p.created_at DESC,p.id DESC LIMIT $5`,[account,campaignId,anchor?.at||null,anchor?.id||null,limit+1])).rows;
+    const page=rows.slice(0,limit),last=page.at(-1);
+    return {entries:page.map(r=>({id:r.id,state:r.state,createdAt:r.created_at,origin:r.body.origin||'MANUAL',mode:r.body.mode,actor:r.body.actor?.user,
+      items:r.body.items.filter(i=>!campaignId||i.campaignId===campaignId).map(i=>({campaignId:i.campaignId,name:i.name,before:i.before,after:i.after,reasons:i.reasons,metric:i.metric,result:r.operations.find(o=>o.campaignId===i.campaignId)?.result||null}))})),nextCursor:rows.length>limit?Buffer.from(JSON.stringify({at:last.cursor_at,id:last.id})).toString('base64url'):null};
+  }
   async withAccountBudgetLock(account,fn){
     const c=await this.pool.connect();let locked=false;
     try{locked=(await c.query('SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS locked',['ads-account-budget:'+account])).rows[0].locked;if(!locked)throw Error('ACCOUNT_BUDGET_BUSY');return await fn();}
@@ -9,13 +35,13 @@ export class AdsLedger {
   }
   async budgetUsage(account,now,cooldownMs=86400000){
     const day=Date.parse(businessDayBounds({now:new Date(now)}).utc_start),since=Math.min(day,now-cooldownMs);
-    const rows=(await this.pool.query(`SELECT o.campaign_id,o.updated_at,i->>'before' AS before,i->>'after' AS after
+    const rows=(await this.pool.query(`SELECT o.campaign_id,o.updated_at,o.state,i->>'before' AS before,i->>'after' AS after
       FROM economics.ads_operations o JOIN economics.ads_proposals p ON p.id=o.proposal_id
       CROSS JOIN LATERAL jsonb_array_elements(p.body->'items') i
       WHERE o.account_id=$1 AND i->>'campaignId'=o.campaign_id
-      AND o.state IN ('EXECUTING','UNKNOWN','VERIFIED','RECONCILED') AND o.updated_at>=to_timestamp($2/1000.0)`,[account,since])).rows;
+      AND o.state IN ('EXECUTING','UNKNOWN','VERIFIED','RECONCILED') AND (o.updated_at>=to_timestamp($2/1000.0) OR o.state IN ('EXECUTING','UNKNOWN'))`,[account,since])).rows;
     if(rows.some(r=>![Number(r.before),Number(r.after)].every(Number.isSafeInteger)||!Number.isFinite(Date.parse(r.updated_at))))throw Error('BUDGET_HISTORY_INVALID');
-    return {increaseCents:rows.filter(r=>Date.parse(r.updated_at)>=day).reduce((sum,r)=>sum+Math.max(0,Number(r.after)-Number(r.before)),0),changedCampaignIds:[...new Set(rows.filter(r=>Date.parse(r.updated_at)>now-cooldownMs).map(r=>r.campaign_id))]};
+    return {increaseCents:rows.filter(r=>Date.parse(r.updated_at)>=day||['EXECUTING','UNKNOWN'].includes(r.state)).reduce((sum,r)=>sum+Math.max(0,Number(r.after)-Number(r.before)),0),changedCampaignIds:[...new Set(rows.filter(r=>Date.parse(r.updated_at)>now-cooldownMs||['EXECUTING','UNKNOWN'].includes(r.state)).map(r=>r.campaign_id))]};
   }
   async algorithmJournal(){return (await this.pool.query('SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal ORDER BY created_at DESC LIMIT 50')).rows;}
   async appendAlgorithmJournal({eventType,reference,principal,report}){

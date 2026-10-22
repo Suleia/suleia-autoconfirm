@@ -234,10 +234,16 @@ export function createOperationsServer({ config, repository, authenticate, finan
       } else if(requestUrl.pathname==='/api/operations/ads-intelligence/algorithm/simulate'){
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         data=await adsRuntime.simulate({campaignId:requestUrl.searchParams.get('campaignId'),newBudgetCents:Number(requestUrl.searchParams.get('newBudgetCents')),days:Number(requestUrl.searchParams.get('days'))});
+      } else if (requestUrl.pathname === '/api/operations/ads-intelligence/autopilot/history') {
+        if(!adsRuntime?.autopilot)return json(res,503,{ok:false,error:'autopilot_unavailable'});
+        data=await adsRuntime.autopilot.audit({campaignId:requestUrl.searchParams.get('campaignId'),cursor:requestUrl.searchParams.get('cursor'),limit:Number(requestUrl.searchParams.get('limit')||25)});
+      } else if (requestUrl.pathname === '/api/operations/ads-intelligence/autopilot') {
+        if(!adsRuntime?.autopilot)return json(res,503,{ok:false,error:'autopilot_unavailable'});
+        data=await adsRuntime.autopilot.overview();
       } else if (requestUrl.pathname === '/api/operations/ads-intelligence') {
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         data=await adsRuntime.overview(Object.fromEntries(requestUrl.searchParams));
-      } else if (requestUrl.pathname === '/api/operations/meta-budget/policy') data = publicMetaBudgetPolicy();
+      } else if (requestUrl.pathname === '/api/operations/meta-budget/policy') data = {...publicMetaBudgetPolicy(),...(adsRuntime?.autopilot?.config.enabled?{status:'ARCHIVED_SIMULATION_POLICY',superseded_by:adsRuntime.autopilot.config.policy.version,active_policy:adsRuntime.autopilot.config.policy}:{})};
       else if (requestUrl.pathname === '/api/operations/meta-budget/simulation') data = await repository.metaBudgetSimulation(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/meta-budget/history') data = await repository.metaBudgetHistory(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
@@ -304,7 +310,9 @@ export async function startOperationsServer() {
   let adsReviewBusy=false;
   const adsTimer=adsRuntime&&process.env.ADS_INTELLIGENCE_MONITOR_ENABLED==='true'?setInterval(async()=>{if(adsReviewBusy)return;adsReviewBusy=true;try{await reviewAds({runtime:adsRuntime,enabled:true});}catch{process.stdout.write(JSON.stringify({event:'ads_review_failed',meta_budget_writes:0})+'\n');}finally{adsReviewBusy=false;}},30*60*1000):null;
   adsTimer?.unref();
-  process.on('SIGTERM', async () => { if(adsTimer)clearInterval(adsTimer);server.close(); await repository.close(); if(adsPool)await adsPool.end(); });
+  const autopilotTimer=adsRuntime?.autopilot?.config.enabled?setInterval(()=>adsRuntime.autopilot.tick().catch(()=>process.stdout.write(JSON.stringify({event:'autopilot_scheduler_failed',meta_budget_writes:0})+'\n')),15000):null;
+  autopilotTimer?.unref();
+  process.on('SIGTERM', async () => { if(adsTimer)clearInterval(adsTimer);if(autopilotTimer)clearInterval(autopilotTimer);server.close(); await repository.close(); if(adsPool)await adsPool.end(); });
   return server;
 }
 

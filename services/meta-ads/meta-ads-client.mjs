@@ -1,5 +1,6 @@
 import { collectPaginated, createReadOnlyTransport } from '../../packages/platform-core/src/read-only-transport.mjs';
 import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
+import {parseMetaCurrencyCents} from './meta-money.mjs';
 
 const GRAPH_HOST = 'graph.facebook.com';
 const CAMPAIGN_FIELDS = 'id,account_id,name,status,effective_status,daily_budget,lifetime_budget,budget_remaining';
@@ -153,6 +154,21 @@ export function createMetaAdsReadClient({
       const result = await paginated(`act_${accountId}/adrules_library`, { fields: 'id,status,execution_spec,evaluation_spec', limit: 100 });
       if (!result.complete) throw new MetaAdsReadError('Incomplete rules inventory', 'META_PAGINATION_INCOMPLETE');
       return result.items;
+    },
+    async readMinimumBudgets() {
+      const result=await paginated(`act_${accountId}/minimum_budgets`,{fields:'currency,min_daily_budget_high_freq,min_daily_budget_imp,min_daily_budget_low_freq,min_daily_budget_video_views',limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete budget constraints','META_PAGINATION_INCOMPLETE');
+      return result.items;
+    },
+    async readAccountDaySpend({since,until}) {
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||since!==until)throw new MetaAdsReadError('Invalid account spend day','META_PERIOD_INVALID');
+      const at=new Date().toISOString();
+      const result=await paginated(`act_${accountId}/insights`,{level:'account',fields:'account_id,date_start,date_stop,spend',time_range:JSON.stringify({since,until}),action_attribution_windows:JSON.stringify(['7d_click','1d_view']),action_report_time:'conversion',limit:100});
+      if(!result.complete||result.items.length!==1)return {complete:false,spendCents:null,date:since,observedAt:at};
+      const row=result.items[0];
+      if(String(row.account_id)!==String(accountId)||row.date_start!==since||row.date_stop!==until)throw new MetaAdsReadError('Account spend identity mismatch','META_ACCOUNT_SPEND_IDENTITY');
+      const cents=parseMetaCurrencyCents(row.spend);
+      return {complete:cents!==null,spendCents:cents,date:since,observedAt:at};
     },
     async readDelivery() {
       const result = await paginated(`act_${accountId}/ads`, { fields: 'id,campaign_id,adset_id,status,effective_status', limit: 100 });
