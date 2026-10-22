@@ -73,6 +73,16 @@ export class CommandCenter {
  async command(body) {
    const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};
    this.ads.engine.authorize(actor);
+   if(body.action==='review'||(body.action==='request'&&this.ads.review?.parse(body.text))){
+     this.authorize(actor,'ads');
+     if(body.action==='request'&&(typeof body.text!=='string'||body.text.length>1000||typeof body.requestKey!=='string'||body.requestKey.length>180))throw Error('QUERY_INVALID');
+     const result=await adsCommand(this.ads,body),intent=this.ads.review?.parse(body.text||'Auditoría de campañas');
+     if(result.review&&intent){
+       await this.ledger.saveContext(actor.user,{tool:'ads',review:'v6',period:intent.period,selector:intent.selector,level:intent.level},this.now()+CONTEXT_TTL_MS);
+       if(body.requestKey)await this.remember(actor,body,'QUERY',{tool:'ads',version:'v6',period:intent.period,observedAt:result.review.observedAt,evidenceDigest:result.review.evidenceDigest});
+     }
+     return result;
+   }
    if(body.action==='autopilot'||(body.action==='request'&&parseAutopilotQuery(body.text))){this.authorize(actor,'ads');return adsCommand(this.ads,body);}
    if(body.action==='prepare-budget'){
      this.authorize(actor,'propose');
@@ -119,6 +129,12 @@ export class CommandCenter {
    this.authorize(actor,intent.tool==='executive'?'ads':intent.tool==='decision'?'history':intent.tool);
    if(intent.tool==='ads'){
      let result;
+     if(intent.followup&&context?.review==='v6'&&this.ads.review){
+       result=await this.ads.review.answer('Auditoría de campañas',{period:intent.period,level:intent.level,selector:intent.selector});
+       await this.ledger.saveContext(actor.user,{...context,period:intent.period},this.now()+CONTEXT_TTL_MS);
+       await this.remember(actor,body,'QUERY',{tool:'ads',version:'v6',observedAt:result.review?.observedAt||null,evidenceDigest:result.review?.evidenceDigest||null});
+       return result;
+     }
      if(/algoritmo|bloques|ultima subida/i.test(body.text)&&!intent.followup)result=await adsCommand(this.ads,body);
      else result={analysis:await this.ads.overview({period:intent.compare?'hoy':intent.period,level:intent.level,selector:intent.selector}),focus:intent.focus,selector:intent.selector};
      await this.ledger.saveContext(actor.user,{tool:'ads',period:intent.period,selector:intent.selector,level:intent.level},this.now()+CONTEXT_TTL_MS);

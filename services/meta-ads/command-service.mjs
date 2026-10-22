@@ -5,6 +5,10 @@ import {parseAutopilotQuery,formatAutopilot,formatAutopilotCycle} from './autopi
 import {consolidatedPolicy} from './autopilot/policy.mjs';
 export async function adsCommand(runtime,body) {
   const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};runtime.engine.authorize(actor);
+  if(body.action==='review'||(body.action==='request'&&runtime.review?.parse(body.text))){
+    if(!runtime.review)throw Error('ADS_REVIEW_DISABLED');
+    return runtime.review.answer(body.text||'Auditoría completa de campañas',body.query||{});
+  }
   if(body.action==='autopilot'){
     const report=await runtime.autopilot.overview(),cycle=body.cycleKey?report.slots.find(s=>s.slot_key===body.cycleKey):report.slots[0];
     return {autopilot:report,text:formatAutopilot(report).slice(0,3900),cycleText:cycle?formatAutopilotCycle(report,cycle):null,cycleKey:cycle?.slot_key};
