@@ -20,6 +20,17 @@ test('rejected acceptance is composable and prepares the complete plan without i
  assert.deepEqual(c.twin.resolution_plan.steps.map(s=>s.action),['APPLY_DISCOUNT','VERIFY_DISCOUNT','RETRY_DELIVERY','VERIFY_RETRY','WAIT_LOGISTICS_OUTCOME']);
  assert.equal(c.twin.human_review_reason,'DISCOUNT_ECONOMIC_MUTATION_CONTRACT_UNAVAILABLE');assert.equal(c.twin.verification_status,'NOT_REQUESTED');
 });
+
+test('carrier refusal cannot override current waiting/no-attempt customer evidence',()=>{
+ const i=input('rejected_goods','nadie ha venido y sigo esperando el pedido'),c=resolutionCandidate(i);
+ assert.equal(c.twin.provider_raw_type,'REFUSED_BY_RECIPIENT');assert.equal(c.twin.customer_intent,'WANTS_ORDER');assert.equal(c.twin.waiting_for_order,true);assert.equal(c.twin.delivery_attempt_denied_by_customer,true);
+ assert.equal(c.twin.next_best_action,'PROVIDE_SOLUTION');assert.equal(c.twin.next_best_action_detail,'PROVIDE_SOLUTION_NEW_DELIVERY');assert.equal(c.twin.human_review_reason,null);assert.equal(c.providerPlan.allowed,true);assert.match(c.data.note,/nueva entrega/);assert.match(c.data.note,/nadie ha acudido/);
+ i.messages.push(message('ya no lo quiero',4,at+1000));assert.equal(resolutionCandidate(i).action,'REQUEST_RETURN');
+});
+
+test('a waiting request with unparsed availability or price cannot lose its conditions',()=>{
+ for(const t of ['sigo esperando, después de las 17:00','no me ha llegado, no estoy en casa mañana','sigo esperando, quiero cambiar la dirección','sigo esperando pero solo si me hacen descuento']){const c=resolutionCandidate(input('rejected_goods',t));assert.ok(c.twin.human_review_reason,t);assert.notEqual(c.twin.next_best_action,'PROVIDE_SOLUTION',t);}
+});
 test('rejecting discount does not reject order; missing slot is explicit review',()=>{
  const c=resolutionCandidate(input('rejected_goods','quiero el pedido pero sin descuento'));
  assert.ok(c.response.intents.includes('WANTS_ORDER'));assert.ok(c.response.intents.includes('REJECTS_DISCOUNT'));
