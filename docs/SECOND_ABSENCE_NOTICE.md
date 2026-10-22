@@ -46,6 +46,18 @@ blocking, independent verification, no third stage and unchanged initial timer.
 The test harness supplies the existing migration fixture; no production
 credentials, customer data or provider access enter these tests.
 
+Production closure (2026-10-22): controller runtime `d64bb5b`, companion Render
+runtime `e7c10a6`, both healthy and the second-stage flag enabled. Three genuine
+second-stage messages have independently observed WhatsApp WAMIDs and VERIFIED
+claims; two were processed by the natural controller cycle, one through a
+bounded verification invocation of the identical existing selector/executor.
+Rechecking the latter consumed its existing claim and made no further POST.
+All original native timers, controller environment, sandbox/networks and
+unrelated running container identities were preserved; no order has more than
+two native notice claims. The reported delivered order has no second-stage
+claim. Private deployment/postcondition receipts are retained on the server at
+`/root/suleia-second-absence-d64bb5b/`; no raw conversations are published.
+
 Rollback: disable only `second_absence_notice_authorized` to stop new second
 claims while retaining deployed observation and every current claim/receipt.
 Before restoring the old image, reconcile any existing second-stage claim: the
