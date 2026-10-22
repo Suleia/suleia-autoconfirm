@@ -15,6 +15,12 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
     const client=getClient(row);if(!client)throw new Error('DROPEA_READ_CLIENT_NOT_AVAILABLE');
     const callbackControl=await pool.query("SELECT evidence FROM operations.recipient_absent_resolution_control WHERE workflow='RECIPIENT_ABSENT'");
     const noticeRow=(await pool.query("SELECT * FROM operations.recipient_absent_native_notifications WHERE canonical_issue_id=$1 AND status='VERIFIED'",[id])).rows[0];
+    const notificationHistory=(await pool.query(`SELECT n.*,jsonb_build_object('carrier',i.carrier,'market',i.market,
+      'delivery_attempt_number',i.delivery_attempt_number,'initial_carrier_code',i.initial_carrier_code,
+      'initial_carrier_substatus_code',i.initial_carrier_substatus_code,
+      'initial_carrier_description_sanitized',i.initial_carrier_description_sanitized) AS prior_issue
+      FROM operations.recipient_absent_native_notifications n JOIN read_models.operations_incident_records i USING(canonical_issue_id)
+      WHERE n.canonical_order_id=$1 ORDER BY n.claimed_at`,[row.canonical_order_id])).rows;
     let conversation={events:[],chatby:{}};
     const sync=await syncChatby({pool,projector,token:chatbyToken,hmacKey:privacyKey,
       onlyRecipientAbsent:true,onlyCanonicalIssueId:id,maxConversations:1,minRequestIntervalMs:3500,
@@ -34,13 +40,14 @@ export function createRecipientAbsentResolutionRuntime({pool,projector,clients,w
     const issue={...row,type:rawIssue.type,status:rawIssue.status,is_active:rawIssue.is_active,carrier:rawIssue.carrier,
       initial_carrier_code:rawIssue.initial_carrier_code,initial_carrier_substatus_code:rawIssue.initial_carrier_substatus_code,
       initial_carrier_description_sanitized:rawIssue.initial_carrier_description,
+      delivery_attempt_number:rawIssue.delivery_attempt_number,
       created_at:rawIssue.created_at,updated_at:rawIssue.updated_at,resolution_status:rawIssue.resolution_status,
       resolution_changed_at:rawIssue.resolution_changed_at,allowed_resolution_options:rawIssue.allowed_resolution_options,observed_at:issueAt};
     const current=await pool.query('SELECT current FROM read_models.recipient_absent_current_context WHERE canonical_issue_id=$1',[id]);
     // The decision below is rebuilt from these direct reads. A newer provider
     // updated_at does not make the same active issue historical. Supersession
     // still comes from the explicit current-issue view, never timestamp age.
-    return {issue,decision_currentness:current.rows[0]?.current===true?'CURRENT':'HISTORICAL',return_in_progress:/RETURN/.test(String(rawOrder.status)+' '+String(rawOrder.sub_status)),order:{canonical_order_id:row.canonical_order_id,identity_status:row.identity_status,
+    return {issue,notification_history:notificationHistory,decision_currentness:current.rows[0]?.current===true?'CURRENT':'HISTORICAL',return_in_progress:/RETURN/.test(String(rawOrder.status)+' '+String(rawOrder.sub_status)),order:{canonical_order_id:row.canonical_order_id,identity_status:row.identity_status,
       canonical_state:mapDropeaOrderState(rawOrder.status,rawOrder.sub_status).canonical_state,observed_at:orderAt},...conversation,
       verified_phone:verifiedAbsentOrderPhone({issue,providerOrder:rawOrder,observedAt:orderAt,privacyKey}),
       logistics_capability:absentSolutionCapability({issue,observedAt:issueAt})};

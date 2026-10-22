@@ -56,6 +56,13 @@ Before proposing or changing anything, read:
   result.
 - Message and template delivery must be idempotent: never send the same
   lifecycle template twice for the same order.
+  Owner-authorized exception (2026-10-22): the existing absent controller may
+  send one separate second-absence notice after a distinct, later failed attempt
+  verified from fresh provider evidence. Reuse the approved v3 text/buttons,
+  require the verified first receipt, reserve the new stage durably and verify
+  independently. At most two absent notices per order; no third notice,
+  uncertain resend or timer renewal. All other lifecycle templates keep their
+  existing once-per-order rule.
 
 ## Collaboration protocol
 

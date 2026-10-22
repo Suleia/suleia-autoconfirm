@@ -21,6 +21,16 @@ function fixture(){let claimed=false,sends=0,c=control(),f=fresh(),chain=Promise
   const args={candidate:{canonical_issue_id:'i',dropea_order_id:'123'},ledger,readFresh:async()=>f,readTemplate:async()=>template(),
     send:async()=>{sends++;if(fail)throw Error('timeout');},persistOutcome:async(id,status)=>outcomes.push(status),now:()=>now};
   return {args,c,f,outcomes,setFail:()=>{fail=true;},sends:()=>sends};}
+
+export function secondFresh(){
+ const f=fresh(),at='2026-09-28T12:00:00Z';
+ f.chatby.order_notification_count=1;f.chatby.unverifiable_customer_activity=false;f.chatby.order_recovery_offer_count=0;
+ f.chatby.order_absent_notices=[{message_id:'first-message',provider_message_id:'wamid.first',at,template_name:'dropea_ausente_v3'}];
+ f.notification_history=[{claim_id:'first-claim',canonical_issue_id:'previous-issue',canonical_order_id:'o',
+   conversation_id:'synthetic',status:'VERIFIED',notification_at:at,message_id:'first-message',
+   prior_issue:{delivery_attempt_number:1},outcome:{provider_message_id:'wamid.first'}}];
+ return f;
+}
 test('concurrent attempts and restart replay share a consumed claim; native owner is denied',async()=>{
  const x=fixture();await Promise.all(Array.from({length:20},()=>deliverAbsentTemplate(x.args)));assert.equal(x.sends(),1);
  await deliverAbsentTemplate(x.args);assert.equal(x.sends(),1);
@@ -53,4 +63,30 @@ test('approved exact template, three native reply destinations and current order
  const p=approvedAbsentPayload(template(),{conversationId:'synthetic',orderId:'123'});
  assert.equal(p.content.params['BODY_{{2}}'],'ES123');assert.equal(Object.keys(p.content.params).filter(k=>k.startsWith('QUICK_REPLY')).length,3);
  for(const change of [{status:'PENDING'},{id:7},{name:'v2'},{components:[]}])assert.throws(()=>approvedAbsentPayload({...template(),...change},{conversationId:'synthetic',orderId:'123'}));
+});
+
+test('a distinct later verified second absence may send once only under the new explicit authority',async()=>{
+ const x=fixture();Object.assign(x.f,secondFresh());
+ assert.equal((await deliverAbsentTemplate(x.args)).status,'BLOCKED');assert.equal(x.sends(),0);
+ x.c.evidence.second_absence_notice_authorized=true;
+ assert.equal((await deliverAbsentTemplate(x.args)).status,'ACKNOWLEDGED');
+ await Promise.all(Array.from({length:20},()=>deliverAbsentTemplate(x.args)));
+ assert.equal(x.sends(),1);
+});
+
+test('second notice rechecks reply, delivery and identity after claiming; it never releases the claim',async()=>{
+ for(const change of [f=>f.chatby.customer_activity_after_issue=true,f=>f.order.canonical_state='DELIVERED',
+   f=>f.issue.is_active=false,f=>f.chatby.conversation_id='wrong',f=>f.chatby.order_absent_notices=[]]){
+   const x=fixture();Object.assign(x.f,secondFresh());x.c.evidence.second_absence_notice_authorized=true;
+   let reads=0;const original=x.args.readFresh;
+   x.args.readFresh=async()=>{if(++reads===2)change(x.f);return original();};
+   assert.equal((await deliverAbsentTemplate(x.args)).status,'BLOCKED');assert.equal(x.sends(),0);
+   assert.deepEqual(x.outcomes,['BLOCKED_BEFORE_POST']);
+ }
+});
+
+test('second notice uncertainty is never retried',async()=>{
+ const x=fixture();Object.assign(x.f,secondFresh());x.c.evidence.second_absence_notice_authorized=true;x.setFail();
+ assert.equal((await deliverAbsentTemplate(x.args)).status,'RECONCILIATION_REQUIRED');
+ await deliverAbsentTemplate(x.args);assert.equal(x.sends(),1);
 });
