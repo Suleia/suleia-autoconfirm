@@ -6,6 +6,39 @@ los requisitos pendientes de la entrega SHADOW de la PR #133. El estado real se
 registra en el Agent Hub y en el recibo de despliegue; este archivo no constituye
 prueba de una modificación financiera.
 
+## Verificación del despliegue
+
+Activado el 22 de octubre a las 12:58 de Madrid. API saludable en
+`suleia-budget-autopilot-live-api:e4d3b9d`, código
+`e4d3b9d230b218cc79f8e71b49593128ec9d9c74`; PR #134 apilada sobre #133.
+El commit 6d50526 corrige únicamente el alcance de una aserción de integración.
+Node 22/Linux: 375 pruebas, 374 pasan, cero fallos y una integración opcional
+omitida; PostgreSQL 17 aislado: 1/1 pasa después de esa corrección. Los contenedores
+de prueba no recibieron credenciales, datos productivos, red ni puertos públicos.
+
+Los 46 archivos de base se contrastaron antes del overlay. Nueve campañas
+aceptaron la validación de 15 EUR con lectura posterior del presupuesto sin cambios.
+LIVE tiene scheduler y ejecutor compartido habilitados, legacy Meta writes apagado,
+política exacta y nueve recibos vigentes. Ambos administradores obtienen estado
+firmado 200; usuario desconocido y cruce de chat reciben 403. Reglas nativas: cero.
+Panel servido contrastado por hash; bot único con bloqueo igual a MainPID y modo
+SHARED_CONFIRMED_BUDGETS. Token, administradores, estado y contenedores ajenos
+conservados. Informes automáticos Autopilot apagados.
+
+La revisión natural `2026-10-22:13:00` está COMPLETE, executionState BLOCKED,
+externalWrites=0. Las nueve campañas quedaron bloqueadas por sus datos/protecciones
+(incluidos aprendizaje activo, cambios recientes y muestra insuficiente).
+No hubo asignación financiera: CANARY_PENDING. El primer cambio elegible sigue
+limitado a un intento y debe verificarse antes de liberar lotes posteriores.
+Esta observación no verifica una escritura financiera ni garantiza cambios en cada
+horario. Los bloqueos externos no se han eliminado para fabricar una prueba.
+
+Recibo y rollback privados:
+`/root/suleia-budget-live-e4d3b9d/{receipt.json,minimums.json,verification.json,postconditions.json}`;
+runner `/tmp/live-deploy.py rollback`, con destino SHADOW 5177e53 y conservación de
+auditoría/offset. Debe comprobarse el estado fresco antes de usarlo. No hay otra
+intervención o despliegue en curso tras este cierre.
+
 ## Política aprobada
 
 - Pasos de +10/−10 EUR; máximo 70 EUR por campaña y mínimo operativo 15 EUR.
