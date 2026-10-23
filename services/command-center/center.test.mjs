@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {CommandCenter,CONTEXT_TTL_MS,parseBusiness,freshness,consolidateAlerts} from './center.mjs';
+import {parseReviewQuestion} from '../meta-ads/review/queries.mjs';
+
+test('V6 uses existing roles, scoped context and audit; follow-ups and budget confirmations stay separate',async()=>{
+ const f=fixture({roles:{'1':'operator','2':'admin'}}),queries=[];
+ f.ads.review={parse:parseReviewQuestion,answer:async(t,q={})=>{queries.push(q);return {text:'Shared V6',review:{observedAt:at,evidenceDigest:'fixture'},externalWrites:0};}};
+ await assert.rejects(f.request('Auditoría completa de campañas','1'),/ACTOR_UNAUTHORIZED/);
+ const result=await f.request('Analiza campañas NIDA ayer','2');assert.equal(result.review.evidenceDigest,'fixture');assert.equal(f.context.get('2').body.review,'v6');assert.equal(f.history[0].actor,'2');assert.equal(f.context.has('1'),false);
+ await f.request('¿Y hoy?','2');assert.equal(queries.at(-1).period,'hoy');assert.equal(queries.at(-1).selector,'nida');assert.equal(f.proposals,0);assert.equal(f.confirmations,0);
+});
 
 const clock=Date.parse('2026-10-21T10:00:00Z'),at=new Date(clock).toISOString();
 test('2.1 requested reports route to the shared reader; callback authorization stays server-side',async()=>{

@@ -1,0 +1,38 @@
+const ExecutiveReportPanel=(()=>{
+ let generation=0;
+ const button=(label,fn,primary=false)=>{const b=node('button',primary?'ai-primary':'ai-secondary',label);b.type='button';b.addEventListener('click',fn);return b;};
+ const plain=s=>String(s||'').replace(/<\/?b>/g,'').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
+ function messageText(text){const p=node('pre','executive-text');let target=p;for(const token of String(text).split(/(<\/?b>)/)){if(token==='<b>'){const b=node('strong');p.append(b);target=b;}else if(token==='</b>')target=p;else target.append(document.createTextNode(plain(token)));}return p;}
+ function reportDetail(root,value){
+  root.replaceChildren();root.append(node('h3','','Informe '+(value.body?.targetDate||'')),node('p','',`Estado: ${value.state} · ${value.kind} · ${value.errorCode||'sin error'}`));
+  if(!value.body){root.append(node('p','ai-empty','No hay cifras verificadas disponibles todavía.'));return;}
+  const body=value.body;root.append(node('p','ai-footnote',`Observación ${body.observedAt||'no disponible'} · Generado ${body.generatedAt} · ${body.dataState} · Motor ${body.ruleVersion||'N/D'}`));
+  const actions=node('div','rv-actions');for(const [label,tab]of [['Comparar con ayer','comparator'],['Ver anuncios top','creatives'],['Revisar recomendaciones','opportunities']])actions.append(button(label,()=>CampaignReviewPanel.navigate(tab,{period:tab==='comparator'?'ayer':'7d'})));root.append(actions);
+  const campaigns=body.evidence?.today?.inventory?.campaign||body.evidence?.week?.inventory?.campaign||[];
+  if(campaigns.length){const select=node('select');select.setAttribute('aria-label','Campaña del informe');for(const c of campaigns){const o=node('option','',c.name);o.value=c.id;select.append(o);}root.append(select,button('Ver análisis de campaña',()=>CampaignAuditPanel.open(select.value,{period:'7d'})));}
+  const messages=node('div','executive-messages');for(const m of body.messages){const p=node('article','ai-card rv-card executive-message');p.dataset.reportPart=m.part;p.append(messageText(m.text));messages.append(p);}root.append(messages);
+  const delivery=node('section','ai-card rv-card');delivery.append(node('h3','','Historial de envíos Telegram'));
+  if(!value.deliveries.length)delivery.append(node('p','ai-empty',value.kind==='MANUAL'?'La auditoría manual no envía Telegram.':value.dailyEnabled?'Sin envíos registrados. Revisar programación, destinatarios y errores.':'Sin envíos registrados. La activación productiva requiere aprobación.'));
+  for(const d of value.deliveries)delivery.append(node('p',/UNKNOWN|SENDING|REJECTED/.test(d.state)?'audit-warning':'',`Usuario ${d.recipient} · Parte ${d.part+1} · ${d.state} · ${d.attempts} intento(s) · Mensaje ${d.message_id||'sin recibo'}${d.code?' · '+d.code:''}`));
+  delivery.append(node('p','ai-footnote','SENDING tras interrupción y UNKNOWN requieren reconciliación. No se reenvían automáticamente.'));root.append(delivery);
+  const evidence=node('details','ai-card rv-card');evidence.append(node('summary','','Evidencia canónica y comparaciones históricas'),node('p','',`Huella ${body.evidenceDigest} · Cero escrituras Meta`));
+  for(const k of ['today','week','month']){const r=body.evidence?.[k];evidence.append(node('h4','',({today:'Auditoría del día / periodo elegido',week:'Comparación semanal',month:'Evolución mensual'}[k])),node('pre','executive-text',r?JSON.stringify({range:r.range,baseline:r.baselineRange,observedAt:r.observedAt,freshness:r.freshness,totals:r.totals,previous:r.previous,changes:r.changes,warnings:r.warnings},null,2):'Fuente no disponible'));}root.append(evidence);
+ }
+ async function load(root){
+  const current=++generation;root.replaceChildren();root.classList.add('rv-view');root.append(node('h2','','Informes y revisiones'),node('p','ai-footnote','El mismo informe y la misma evidencia para el panel y Telegram. Una auditoría manual no envía el informe diario ni cambia presupuestos.'));
+  const status=node('p','rv-connection','Consultando programación…'),toolbar=node('div','rv-actions'),period=node('select'),detail=node('section','executive-detail'),list=node('section','ai-card rv-card');period.setAttribute('aria-label','Periodo de auditoría ejecutiva');
+  for(const [v,label]of [['hoy','Hoy'],['ayer','Ayer'],...['3','7','14','30','60','90'].map(n=>[n+'d',n+' días completos']),['custom','Personalizado']]){const o=node('option','',label);o.value=v;period.append(o);}
+  const from=node('input'),until=node('input');from.type=until.type='date';from.setAttribute('aria-label','Auditoría desde');until.setAttribute('aria-label','Auditoría hasta');from.hidden=until.hidden=true;period.addEventListener('change',()=>from.hidden=until.hidden=period.value!=='custom');
+  const active=()=>current===generation&&state.view==='ads'&&root.contains(detail);
+  async function open(id,remaining=40){if(!active())return;try{const r=await api('/api/operations/ads-intelligence/executive/'+id);if(!active())return;reportDetail(detail,r);if(r.state==='PREPARING'&&remaining>0)setTimeout(()=>open(id,remaining-1),5000);}catch{detail.replaceChildren(node('p','ai-error','No se pudo consultar el informe. Reintenta; la auditoría no se enviará por Telegram.'));}}
+  const generate=button('Generar auditoría ahora',async()=>{generate.disabled=true;try{const query=period.value==='custom'?{since:from.value,until:until.value}:{period:period.value};const r=await api('/api/operations/ads-intelligence/executive/generate',{method:'POST',body:{query}});await open(r.id);await history();}catch{detail.replaceChildren(node('p','ai-error','No se pudo preparar la auditoría. Comprueba fechas y permisos.'));}finally{generate.disabled=false;}},true);
+  let latest=null,cursor=null;const more=button('Cargar anteriores',()=>history(true));
+  async function history(append=false){try{const h=await api('/api/operations/ads-intelligence/executive/history?'+new URLSearchParams({limit:20,...(append&&cursor?{cursor}:{})}));if(!active())return;status.textContent=`Programación: ${h.time} ${h.timezone} · ${h.enabled?'activada':'preparada, sin activar'} · Próxima ejecución: ${new Date(h.nextExecution).toLocaleString('es-ES',{timeZone:'Europe/Madrid'})} · ${h.recipientsCount} destinatarios configurados`;
+   if(!append){list.replaceChildren(node('h3','','Historial de informes diarios y auditorías'));latest=h.entries[0]?.id||null;}
+   for(const row of h.entries){const item=node('article','executive-history');item.append(node('strong','',`${date(row.created_at)} · ${row.kind}`),node('span','',`${row.state} · ${row.data_state||'sin corte'}${row.error_code?' · '+row.error_code:''}`),button('Abrir informe',()=>open(row.id)));list.append(item);}
+   if(!h.entries.length)list.append(node('p','ai-empty','Todavía no hay informes. Puedes generar una auditoría de lectura.'));cursor=h.nextCursor;more.hidden=!cursor;list.append(more);
+  }catch{status.textContent='Historial no disponible. Revisar migración 059 y permisos SQL; no se sustituyen errores por cifras cero.';}}
+  toolbar.append(period,from,until,generate,button('Ver último informe',()=>latest?open(latest):history()),button('Actualizar historial',()=>history()));root.append(status,toolbar,list,detail);await history();const linked=new URLSearchParams((location.hash||'').split('?')[1]||'');if(/^[a-f0-9]{64}$/.test(linked.get('reportId')||'')){await open(linked.get('reportId'));const part={overview:0,diagnosis:1,creatives:2,opportunities:3}[linked.get('section')];if(part!==undefined)detail.querySelector('[data-report-part=\"'+part+'\"]')?.scrollIntoView({block:'start'});}
+ }
+ return {load};
+})();

@@ -78,7 +78,14 @@ export function createMetaAdsReadClient({
     if(header)try{const parsed=JSON.parse(header);usage={accIdUtilPct:Number(parsed.acc_id_util_pct)||0};}catch{}
     readCount += 1;
     if (!response.ok) {
-      throw new MetaAdsReadError(`Meta read failed with HTTP ${response.status}`, `META_HTTP_${response.status}`, response.status);
+      const payload=await response.json().catch(()=>null),failure=new MetaAdsReadError(`Meta read failed with HTTP ${response.status}`, `META_HTTP_${response.status}`, response.status);
+      // Numeric provider diagnostics only. Error text, URLs and bodies can
+      // contain account details; never attach them to shared reports or logs.
+      failure.providerCode=Number.isInteger(payload?.error?.code)?payload.error.code:null;
+      failure.providerSubcode=Number.isInteger(payload?.error?.error_subcode)?payload.error.error_subcode:null;
+      failure.transient=payload?.error?.is_transient===true;
+      if(response.status===400&&failure.providerCode===17)failure.code='META_RATE_LIMITED';
+      throw failure;
     }
     const payload = await response.json();
     if (payload?.error) throw new MetaAdsReadError('Meta returned an API error', 'META_API_ERROR', response.status);
@@ -182,9 +189,20 @@ export function createMetaAdsReadClient({
       if(!result.complete)throw new MetaAdsReadError('Incomplete entity inventory','META_PAGINATION_INCOMPLETE');
       return result.items;
     },
-    async readInsights({ since, until, level = 'campaign', daily = false }) {
+    async readReviewBreakdown({since,until,kind='device'}) {
+      const allowed={device:'device_platform',placement:'publisher_platform,platform_position',country:'country'};
+      if(!allowed[kind]||!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until||Date.parse(until)-Date.parse(since)>89*86400000)throw new MetaAdsReadError('Invalid review breakdown','META_PERIOD_INVALID');
+      const result=await paginated(`act_${accountId}/insights`,{level:'campaign',fields:'campaign_id,spend,impressions,inline_link_clicks',time_range:JSON.stringify({since,until}),breakdowns:allowed[kind],action_attribution_windows:JSON.stringify(['7d_click','1d_view']),action_report_time:'conversion',limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete review breakdown','META_PAGINATION_INCOMPLETE');return result.items;
+    },
+    async readReviewVideos({since,until}) {
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until||Date.parse(until)-Date.parse(since)>89*86400000)throw new MetaAdsReadError('Invalid review video period','META_PERIOD_INVALID');
+      const result=await paginated(`act_${accountId}/insights`,{level:'ad',fields:'ad_id,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched_actions',time_range:JSON.stringify({since,until}),action_attribution_windows:JSON.stringify(['7d_click','1d_view']),action_report_time:'conversion',limit:100});
+      if(!result.complete)throw new MetaAdsReadError('Incomplete review video evidence','META_PAGINATION_INCOMPLETE');return result.items;
+    },
+    async readInsights({ since, until, level = 'campaign', daily = false, extended = false }) {
       const valid = (day) => /^\d{4}-\d{2}-\d{2}$/.test(day) && !Number.isNaN(Date.parse(day)) && new Date(day).toISOString().slice(0, 10) === day;
-      if (!valid(since) || !valid(until) || since > until || Date.parse(until) - Date.parse(since) > 31 * 86400000 || !['campaign', 'adset', 'ad'].includes(level)) throw new MetaAdsReadError('Invalid insight period or level', 'META_PERIOD_INVALID');
+      if (!valid(since) || !valid(until) || since > until || Date.parse(until) - Date.parse(since) > (extended===true?89:31) * 86400000 || !['campaign', 'adset', 'ad'].includes(level)) throw new MetaAdsReadError('Invalid insight period or level', 'META_PERIOD_INVALID');
       const result = await paginated(`act_${accountId}/insights`, {
         level, fields: ['campaign_id','campaign_name', ...(level !== 'campaign' ? ['adset_id','adset_name'] : []), ...(level === 'ad' ? ['ad_id','ad_name'] : []),
           'date_start','date_stop','spend','impressions','reach','frequency','cpm','clicks','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click','outbound_clicks','outbound_clicks_ctr','actions','action_values','purchase_roas'].join(','),

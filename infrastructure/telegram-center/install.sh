@@ -19,14 +19,14 @@ if systemctl is-active --quiet suleia-telegram; then
   echo 'Stop the existing Telegram service before updating its files.' >&2
   exit 1
 fi
-for file in config store api reports spanish controller service telegram-admin ads-gateway compact-reports artifacts daily-reports autopilot-reports admin-link admin-link-observer; do
+for file in config store api reports spanish controller service telegram-admin ads-gateway compact-reports artifacts daily-reports executive-reports autopilot-reports admin-link admin-link-observer; do
   node --check "$source_dir/$file.mjs"
 done
 systemd-analyze verify "$source_dir/suleia-telegram.service"
 install -d -m 0755 /opt/suleia-telegram-releases
 release_dir=$(mktemp -d /opt/suleia-telegram-releases/release.XXXXXXXX)
 chmod 0755 "$release_dir"
-for file in config store api reports spanish controller service telegram-admin ads-gateway compact-reports artifacts daily-reports autopilot-reports admin-link admin-link-observer; do
+for file in config store api reports spanish controller service telegram-admin ads-gateway compact-reports artifacts daily-reports executive-reports autopilot-reports admin-link admin-link-observer; do
   install -o root -g root -m 0644 "$source_dir/$file.mjs" "$release_dir/$file.mjs"
 done
 install -o root -g root -m 0644 "$source_dir/render-report.py" "$release_dir/render-report.py"

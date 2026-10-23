@@ -20,3 +20,8 @@ COMMAND_CENTER_TELEGRAM_ENABLED=false
 COMMAND_CENTER_BUDGET_WRITES_ENABLED=false
 COMMAND_CENTER_DAILY_REPORT_ENABLED=false
 SULEIA_REPORT_PYTHON=/opt/suleia-report-runtime/bin/python3
+
+# V8 prepared only. Enable both API and existing bot after approval; numeric IDs
+# must already have verified private Ads + finance permissions. No usernames.
+ADS_EXECUTIVE_DAILY_ENABLED=false
+ADS_EXECUTIVE_RECIPIENT_IDS=

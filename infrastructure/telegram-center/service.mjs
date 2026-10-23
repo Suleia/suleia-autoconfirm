@@ -1,3 +1,4 @@
+import {ExecutiveReports} from './executive-reports.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -28,6 +29,8 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
   store.state.identity = identity; store.save();
   if (checkOnly) { store.health({ ok: true, mode: 'PREFLIGHT_ONLY' }); return; }
   const controller = new Controller({ config, api, store });
+  const executiveReports=new ExecutiveReports({config,api,store,gateway:controller.adsGateway});
+  let executiveTask=null;
   const dailyReports = new DailyReports({config,api,store,gateway:controller.adsGateway});
   const autopilotReports = new AutopilotReports({config,api,store,gateway:controller.adsGateway});
   const healthMode=config.sharedBudgetWritesEnabled?'SHARED_CONFIRMED_BUDGETS':config.writesEnabled?'CONFIRMED_ACTIONS':'READ_ONLY';
@@ -35,6 +38,11 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
   store.health({ ok: true, mode: healthMode });
   while (!signal?.aborted) {
     try {
+      // Independent non-blocking read/report lane. No second getUpdates consumer
+      // and no dependency of the API's nocturnal budget scheduler on this task.
+      if(!executiveTask)executiveTask=executiveReports.tick().catch(()=>{
+        store.state.executiveHealth={ok:false,code:'EXECUTIVE_LOCAL_FAILURE',at:Date.now()};store.save();
+      }).finally(()=>{executiveTask=null;});
       await dailyReports.tick();
       await autopilotReports.tick();
       const updates = await api.telegram('getUpdates', {
@@ -52,7 +60,7 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
         }
         store.state.offset = update.update_id + 1; store.save();
       }
-      store.health({ ok: true, mode: healthMode, ...(store.state.metrics || {}) });
+      store.health({ ok: true, mode: healthMode, ...(store.state.metrics || {}), executiveReport:store.state.executiveHealth||{enabled:config.executiveReportsEnabled===true} });
     } catch (error) {
       // No raw exception/URL/body logging: transport URLs contain bot credentials.
       store.health({ ok: false, code: error.service ? `${error.service}_${error.status}` : 'LOCAL_OR_STORAGE_FAILURE' });
@@ -60,6 +68,7 @@ export async function run(config, api, store, { signal, checkOnly = false } = {}
       await delay(Math.min(60000, Math.max(5000, (error.retryAfter || 0) * 1000)), undefined, { signal }).catch(() => {});
     }
   }
+  if(executiveTask)await executiveTask;
   store.health({ ok: false, code: 'STOPPED' });
 }
 

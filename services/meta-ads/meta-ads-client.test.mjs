@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createMetaAdsReadClient, MetaAdsReadError } from './meta-ads-client.mjs';
 
+test('provider rejection retains numeric diagnostics without provider text, credentials or URLs',async()=>{
+ const reader=client(async()=>response({error:{code:100,error_subcode:33,is_transient:false,message:'private account data access_token=secret'}},400));
+ await assert.rejects(reader.readEntities('adset'),error=>{assert.equal(error.code,'META_HTTP_400');assert.equal(error.providerCode,100);assert.equal(error.providerSubcode,33);assert.equal(error.transient,false);assert.doesNotMatch(JSON.stringify(error),/private account|access_token|secret/);return true;});
+});
+test('observed Meta HTTP400 code17 is a rate limit, never an invalid token or a silent generic failure',async()=>{
+ const reader=client(async()=>response({error:{code:17,error_subcode:2446079,message:'private provider text'}},400));
+ await assert.rejects(reader.readEntities('ad'),e=>{assert.equal(e.code,'META_RATE_LIMITED');assert.equal(e.status,400);assert.equal(e.providerCode,17);assert.doesNotMatch(JSON.stringify(e),/private provider/);return true;});
+});
+
 function response(payload, status = 200) {
   return new Response(JSON.stringify(payload), {
     status,

@@ -22,7 +22,7 @@ function harness(){
     sessionStorage:{getItem(){return null;},setItem(){},removeItem(){}},
     document:{getElementById:get,createElement:t=>new Element(t),createElementNS:(_,t)=>new Element(t),createTextNode:String,querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
     fetch:async()=>({ok:true,json:async()=>({oauth:{}})})};
-  vm.runInNewContext(fs.readFileSync(new URL('./results-dashboard.js',import.meta.url),'utf8')+'\n'+fs.readFileSync(new URL('./app.js',import.meta.url),'utf8')+'\nglobalThis.ui={ResultsV2,state,renderResultsFinance};',context);
+  vm.runInNewContext('globalThis.SuleiaShell={mount(){},select(){}};\n'+fs.readFileSync(new URL('./results-dashboard.js',import.meta.url),'utf8')+'\n'+fs.readFileSync(new URL('./app.js',import.meta.url),'utf8')+'\nglobalThis.ui={ResultsV2,state,renderResultsFinance};',context);
   return {...context.ui,get};
 }
 function fixture(){return {

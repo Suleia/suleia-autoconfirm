@@ -3,6 +3,18 @@ import assert from 'node:assert/strict';
 import {createAdsGateway,formatAdsResult,formatAdsError} from './ads-gateway.mjs';
 import {verifyAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
 
+test('canonical202 and private SQL failures give actionable diagnostics without replaying requests',async()=>{
+ for(const code of ['ADS_REPORT_PREPARING','ADS_DATABASE_UNAVAILABLE']){
+  let requests=0;const gateway=createAdsGateway({adsApiUrl:'https://api.example/command',botToken:'fixture'},async()=>{requests++;return new Response(JSON.stringify({ok:false,diagnostic:{code}}),{status:code==='ADS_REPORT_PREPARING'?202:503});});
+  await assert.rejects(gateway.read({action:'analyze',query:{period:'7d'}},{user:'1',chat:'1'}),new RegExp(code));assert.equal(requests,1);assert.equal(formatAdsError(Error(code)).code,code);
+ }
+});
+
+test('V6 delivers the shared explanation and deep link without creating a proposal',()=>{
+ const data={review:{version:'suleia-review-v6.0'},text:'Lectura compartida, hipótesis con muestra insuficiente.',deepLink:'https://panel.example.test/#ads?review=v6',externalWrites:0};
+ const value=formatAdsResult(data);assert.match(value.text,/Lectura compartida/);assert.match(value.text,/https:\/\/panel.example.test/);assert.equal(value.markup,undefined);assert.equal(value.artifact,undefined);
+});
+
 test('ordinary campaign questions stay compact despite canonical diagnosis focus; detail remains explicit',async()=>{
  const data={focus:'diagnosis',analysis:{version:3,range:{since:'2026-10-22',until:'2026-10-22'},level:'campaign',facts:Array.from({length:5},(_,i)=>({entityId:String(i),name:'Campaign '+i,delivery:'ACTIVE',roas:5-i,roasStatus:'VALID',spend:30,purchases:6,impressions:2000,linkCtr:2,cpa:5,diagnoses:[{recommendedAction:'Review the offer'}]})),totals:{spend:150,purchases:30,roas:3},observedAt:'2026-10-21T22:28:00Z',actions:[]}};
  const gateway=createAdsGateway({adsApiUrl:'https://operations.test',botToken:'fixture'},async()=>({ok:true,json:async()=>({ok:true,data})}));

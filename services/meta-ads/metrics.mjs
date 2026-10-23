@@ -50,11 +50,11 @@ export function normalizeInsight(row, context) {
 export function localDay(now = Date.now(), zone = 'Europe/Madrid') {
   return new Intl.DateTimeFormat('en-CA', { timeZone: zone, year:'numeric',month:'2-digit',day:'2-digit' }).format(now);
 }
-export function windowFor(period, now, zone = 'Europe/Madrid') {
+export function windowFor(period, now, zone = 'Europe/Madrid', maxDays = 31) {
   const day = localDay(now, zone), shift = n => new Date(Date.parse(day+'T12:00:00Z') - n*86400000).toISOString().slice(0,10);
   if(period && typeof period==='object') {
     const {since,until}=period,valid=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d;
-    if(!valid(since)||!valid(until)||since>until||until>day||Date.parse(until)-Date.parse(since)>30*86400000)throw Error('QUERY_INVALID');
+    if(![31,90].includes(maxDays)||!valid(since)||!valid(until)||since>until||until>day||Date.parse(until)-Date.parse(since)>(maxDays-1)*86400000)throw Error('QUERY_INVALID');
     return {since,until,partial:until===day};
   }
   if (period === 'hoy') return { since: day, until: day, partial: true };

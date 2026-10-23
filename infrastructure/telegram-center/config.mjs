@@ -19,7 +19,11 @@ export function loadConfig(env = process.env) {
   const maxChange = Number(env.META_MAX_BUDGET_CHANGE_PERCENT || 20);
   if (writesEnabled && (!Number.isFinite(maxBudget) || maxBudget <= 0)) throw new Error('Las escrituras requieren META_MAX_DAILY_BUDGET_EUR');
   if (!Number.isFinite(maxChange) || maxChange <= 0 || maxChange > 100) throw new Error('Límite de cambio inválido');
+  const executiveRecipientIds=String(env.ADS_EXECUTIVE_RECIPIENT_IDS||'').split(',').map(x=>x.trim()).filter(Boolean);
+  if(executiveRecipientIds.some(id=>!ids.includes(id)))throw Error('EXECUTIVE_RECIPIENT_NOT_AUTHORIZED');
+  if(env.ADS_EXECUTIVE_DAILY_ENABLED==='true'&&(!adsEnabled||!commandCenterEnabled||!executiveRecipientIds.length))throw Error('EXECUTIVE_CONFIGURATION_INVALID');
   return {
+    executiveReportsEnabled:env.ADS_EXECUTIVE_DAILY_ENABLED==='true',executiveRecipientIds,
     dailyReportsEnabled:env.COMMAND_CENTER_DAILY_REPORT_ENABLED==='true',
     autopilotReportsEnabled:env.AUTOPILOT_TELEGRAM_REPORTS_ENABLED==='true',
     sharedBudgetWritesEnabled:adsEnabled&&env.COMMAND_CENTER_BUDGET_WRITES_ENABLED==='true',
