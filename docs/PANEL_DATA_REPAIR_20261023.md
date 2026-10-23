@@ -66,3 +66,41 @@ after verification.
 Four missing product-cost units are source-data incompleteness, not a reason to
 show fabricated exact profit. This repair does not claim that incident
 automation blocks, provider coverage or Budget Autopilot eligibility are solved.
+
+## Release acceptance and current status
+
+Runtime candidate: e767d13ec3d691ca4a5aa084010e92b56dc3c501, image
+`suleia-panel-data-repair:e767d13`, immutable ID
+`sha256:f37d27aac887de428440809be24d05c597d1d26afa2023216d0eb0c9c72ee741`.
+Eight runtime files: seven static panel assets and one finance read adapter.
+All 1,129 tests in 110 files passed on Linux Node22 with isolated PostgreSQL17,
+zero skips, network none, read-only fixture mounts and no production credentials.
+Initial isolated harness omissions were repaired before this complete result;
+they were not application failures or production changes.
+
+Read-only production audit: Orders shows its actual 12 pending rows and current
+summary; Automation loads persisted workflow stages and recent verified notice
+actions; Analytics shows its 449-order 30-day cohort, geography, hourly charts,
+funnel and tables with explicit unknown net-profit coverage. Ads overview
+completed a real fresh canonical Meta read with campaign table and graph after
+ordinary OAuth renewal. These are pre-release observations, not proof that the
+repair is deployed or that every autonomous business action is working.
+
+HTML, JS and config responses are HTTP200 with Cache-Control:no-store. The
+existing issue and finance report contracts were inspected directly without
+logging customer information. No provider actions or test messages were sent.
+
+Production application has **not** occurred: automatic approval review rejected
+the deployment invocation and requested a separate post-test owner approval,
+citing the Command Center 3.0 approval condition. The owner has been asked to
+approve PR143's concrete panel-only repair; OpenAI remains excluded. Existing
+API867b3e0, panel e231c06 and bot20378bd remain the active baseline until approval.
+Do not claim repair verification in the browser before the release is applied.
+
+Private VPS preparation and test evidence:
+`/root/suleia-panel-repair-20261023/e767d13/`.
+The deployment script checks an idle safe budget window, no uncertain/executing
+operations and unchanged runtime, then compares the entire effective API
+environment (only build revision may differ), bot PID/config and every unrelated
+container identity. The prior runtime override and immutable images/panel paths
+are retained for guarded rollback; no SQL rollback is necessary.
