@@ -1,6 +1,6 @@
-# Ads Intelligence V8 — candidato de desarrollo
+# Ads Intelligence V8 — implementación y despliegue
 
-Fecha: 23/10/2026. Integra V6, V7 y el informe ejecutivo V8. **No fusionado, desplegado ni activado.** El documento V8 del propietario exige aprobación después de las pruebas. No se han enviado pruebas a personas reales ni cambiado presupuestos Meta.
+Fecha: 23/10/2026. Integra V6, V7 y el informe ejecutivo V8. El propietario autorizó expresamente desplegar la revisión `20378bd5dd1fddb2ab3aa80bfb0ac07a14845528`, aplicar 059 y activar el informe después de superar las verificaciones. **API, panel, bot y migración están desplegados; el envío diario continúa desactivado mientras se verifica el acceso OAuth y la interfaz real.** Véase el [informe de despliegue](ADS_INTELLIGENCE_V8_DEPLOYMENT_20261023.md). No se han enviado pruebas a personas reales ni ejecutado cambios presupuestarios como parte de este trabajo.
 
 ## Estado y componentes reutilizados
 
@@ -46,7 +46,7 @@ Las clasificaciones indican su periodo. No se rellenan tres acciones si falta ev
 
 Los botones de informe abren **la instantánea persistida**, con su ID y sección, después de autenticación. No llevan tokens ni credenciales en la URL. Revisar propuestas abre el ejecutor existente, con sus confirmaciones intactas.
 
-Solo podrán recibirlo los IDs privados configurados expresamente, presentes en la allowlist existente y autorizados por sus roles para Ads y finanzas. No se concede nada por un username. El candidato deja la lista vacía y el envío desactivado. El despliegue deberá verificar el ID del propietario contra la prueba de vinculación y las identidades/roles actuales; Juan no recibe nuevos informes por el mero hecho de llamarse `@Juanmartos`.
+Solo podrán recibirlo los IDs privados configurados expresamente, presentes en la allowlist existente y autorizados por sus roles para Ads y finanzas. No se concede nada por un username. El valor predeterminado de desarrollo deja la lista vacía y el envío desactivado. En el despliegue del 23/10 se verificó privadamente el ID del propietario contra la prueba de vinculación y se configuró ese único destinatario en API y bot. Juan permanece excluido del nuevo envío. Los dos administradores conservan sus permisos existentes.
 
 ## Programación y recuperación
 
@@ -121,18 +121,18 @@ Datos sintéticos; no representan el rendimiento de Suleia.
 ![Informes](assets/ads-v8/desktop-executive-report.png)
 ![Informes en móvil](assets/ads-v8/mobile-executive-report.png)
 
-## Despliegue propuesto — pendiente de autorización
+## Procedimiento de despliegue autorizado
 
 1. Releer Hub y verificar que no hubo otro despliegue. Registrar imagen/revisión API, montaje y hashes del panel, symlink/hashes del bot, flags y huellas de políticas/allowlists, sin copiar secretos a Git.
 2. Backup SQL y estado privado del bot, incluyendo ledger de envíos. No borrar reservas ni offset Telegram. Verificar el ID receptor contra las pruebas ya existentes.
 3. Aplicar 059 con rol de migración y verificar permisos mínimos. No requiere otra conexión SQL ni dar acceso a contactos.
 4. Construir artefactos de la revisión aprobada; desplegar API/panel y release atómico del bot existente. Mantener `ADS_EXECUTIVE_DAILY_ENABLED=false` durante smoke tests. Activar `ADS_REVIEW_V8_ENABLED=true`, conservar la URL HTTPS privada del panel.
 5. Smoke tests de OAuth, fuentes, carga fría, historial, auditoría manual y roles de ambos administradores. Sin envíos reales de prueba ni confirmaciones presupuestarias. Comparar los hashes de V5.1, políticas monetarias, servicios y temporizadores ajenos.
-6. Solo con aprobación de activación: configurar los mismos IDs receptores verificados en API/bot y `ADS_EXECUTIVE_DAILY_ENABLED=true`. No tocar token, autorizaciones Meta, `AUTOPILOT_MODE`, límites ni horarios V5.1. No activar el informe comercial antiguo para conseguir este envío.
+6. El propietario ya autorizó la activación condicionada a superar todas las verificaciones. Configurar el mismo único ID receptor verificado en API/bot y, cuando las comprobaciones estén completas, `ADS_EXECUTIVE_DAILY_ENABLED=true`. No tocar token, autorizaciones Meta, `AUTOPILOT_MODE`, límites ni horarios V5.1. No activar el informe comercial antiguo para conseguir este envío.
 7. Verificar en la siguiente ventana el único informe de cuenta/fecha, destinatarios, huellas, recibos de sus cuatro partes y estado independiente del slot nocturno. No afirmar entrega hasta obtener los recibos; una incertidumbre se investiga sin reenvío.
 
 ### Rollback
 
 Desactivar primero el flag ejecutivo en API y bot. Restaurar imagen API, montaje de panel y symlink anterior del bot mediante los artefactos registrados. Conservar tablas 059, reservas y recibos para evitar reenvíos al volver a activar. Conservar íntegro el ledger V5.1. El rollback SQL destructivo incluido es solo para un entorno de pruebas o una retirada aprobada tras exportar auditoría; **no** forma parte del rollback operativo habitual.
 
-Pendiente: aprobación del despliegue, aprobación de activación del envío y fijación/verificación privada del receptor. No se solicita autorización nueva para gasto: el informe no cambia presupuestos y no amplía la autorización LIVE existente.
+Estado de ejecución: pasos 1–4 completados; comprobaciones técnicas del paso 5 superadas, pero pendiente su comprobación autenticada de interfaz. El destinatario ya está verificado y configurado. La restricción de navegador de `AGENTS.md` impide completar esa prueba de producción sin la excepción solicitada o una comprobación manual del propietario. La autorización de despliegue y de activación condicionada ya existe; no se pide de nuevo. No se solicita autorización nueva para gasto: el informe no cambia presupuestos y no amplía la autorización LIVE existente.
