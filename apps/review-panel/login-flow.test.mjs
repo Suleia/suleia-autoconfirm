@@ -65,7 +65,7 @@ test('login is prepared before it is shown and uses native link navigation', asy
     console,
   };
 
-  await vm.runInNewContext(script, context);
+  await vm.runInNewContext('globalThis.SuleiaShell={mount(){},select(){}};\n'+script, context);
 
   const button = elements.get('login-button');
   const authorize = new URL(button.href);

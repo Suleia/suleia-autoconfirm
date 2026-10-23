@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {aggregate,delta} from '../report.mjs';
-import {CONTRACT,ratio} from '../metrics.mjs';
+import {CONTRACT,ratio,normalizeInsight} from '../metrics.mjs';
 import {productLink} from '../product-links.mjs';
 import {REVIEW_VERSION,REVIEW_POLICY,KNOWLEDGE,AUDIT_PROFILES} from './policy.mjs';
 import {comparisonCompatibility,equivalentHourlyTraffic} from './periods.mjs';
@@ -98,7 +98,8 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
  const range=dataset.range,baselineRange=baseline?.range||dataset.comparison;
  const comparison=comparisonCompatibility(range,baselineRange,CONTRACT,baseline?.current?.[level]?.[0]?.contract||CONTRACT);
  const commercial=reconcileCommerce(commerce),entityMap=new Map((dataset.entities[level]||[]).map(e=>[String(e.id),e]));
- const all=dataset.current[level]||[],previous=baseline?.current?.[level]||dataset.prior[level]||[];
+ const all=[...(dataset.current[level]||[])],previous=baseline?.current?.[level]||dataset.prior[level]||[];
+ for(const e of dataset.entities[level]||[])if(!all.some(f=>f.entityId===String(e.id))){const missing=normalizeInsight({[level+'_id']:e.id,[level+'_name']:e.name,campaign_id:level==='campaign'?e.id:e.campaign_id,adset_id:level==='adset'?e.id:e.adset_id,ad_id:level==='ad'?e.id:undefined,date_start:range.since,date_stop:range.until},{level,accountId:String(dataset.account.id).replace(/^act_/,''),contract:CONTRACT,observedAt:dataset.observedAt,complete:true});all.push({...missing,source:'META_NO_INSIGHT_ROW'});}
  const priorMap=new Map(previous.map(f=>[f.entityId,f]));
  const accepts=f=>(!ids.length||ids.includes(f.campaignId))&&(!query.campaignId||query.campaignId===f.campaignId)&&(!query.adsetId||query.adsetId===f.adsetId)&&(!query.adId||query.adId===f.entityId)&&(!query.productId||productLink(f.campaignId,productMappings,now)?.products.some(p=>String(p.productId)===query.productId));
  if(query.productId&&!productMappings.some(m=>m.products?.some(p=>String(p.productId)===query.productId)))throw Error('PRODUCT_LINK_UNVERIFIED');
@@ -110,25 +111,30 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
   const before=priorMap.get(f.entityId)||null,same=comparison.comparable&&f.contract===before?.contract&&f.purchaseType===before?.purchaseType;
   const quality=sample(f,dataset.daily[level]||[],range,policy,now,metadata);
   const evidenceContext={comparison:{...comparison,comparable:same},policy,quality,commerce:commercial,range,baselineRange,observedAt:dataset.observedAt,daily:dataset.daily[level]||[],metadata};
-  return {...f,name:safe(f.name),campaignName:safe(c?.name||dataset.entities.campaign.find(c=>String(c.id)===f.campaignId)?.name),prior:before,objective:c?.objective||null,optimizationGoal:a?.optimization_goal||null,delivery:e?.effective_status||'UNKNOWN',dailyBudgetCents:e?.daily_budget?Number(e.daily_budget):null,product:productLink(f.campaignId,productMappings,now),creative:e?.creative||null,sample:quality,comparable:same,
+  return {...f,name:safe(f.name),campaignName:safe(c?.name||dataset.entities.campaign.find(c=>String(c.id)===f.campaignId)?.name),prior:before,objective:c?.objective||null,optimizationGoal:a?.optimization_goal||null,delivery:e?.effective_status||'UNKNOWN',dailyBudgetCents:e?.daily_budget?Number(e.daily_budget):null,product:productLink(f.campaignId,productMappings,now),creative:e?.creative||null,launchedAt:metadata.created_time||null,lastChangedAt:metadata.updated_time||null,creativeFormat:metadata.creative?.object_type||'UNAVAILABLE',sample:quality,comparable:same,
    diagnoses:diagnoses(f,before,evidenceContext),decomposition:decompose(f,before,same),profit:null,series:(dataset.daily[level]||[]).filter(x=>x.entityId===f.entityId).toSorted((a,b)=>a.since.localeCompare(b.since)),
    outliers:robustOutliers((dataset.daily[level]||[]).filter(x=>x.entityId===f.entityId).toSorted((a,b)=>a.since.localeCompare(b.since)).map(x=>x.spend))};
  });
  // Campaign optimization context must be homogeneous among its adsets to rank.
  for(const f of rows)if(level==='campaign'){const goals=new Set((extras.metadata?.adset||[]).filter(a=>String(a.campaign_id)===f.campaignId).map(a=>a.optimization_goal).filter(Boolean));f.optimizationGoal=goals.size===1?[...goals][0]:null;}
- const totals=aggregate(selected),before=aggregate(previous.filter(accepts));
+ const actual=selected.filter(f=>f.source==='META_INSIGHTS'),totals=aggregate(actual),priorSelected=previous.filter(accepts),before=aggregate(priorSelected);
+ // Reach/frequency are valid at one provider scope over the whole range. They
+ // are neither summed across audiences nor averaged across daily rows.
+ for(const [target,items]of [[totals,actual],[before,priorSelected]]){target.reach=items.length===1?items[0].reach:null;target.frequency=items.length===1?items[0].frequency:null;}
+ const budgetRows=rows.filter(r=>r.delivery==='ACTIVE');totals.dailyBudgetCents=level==='campaign'&&budgetRows.every(r=>Number.isSafeInteger(r.dailyBudgetCents))?budgetRows.reduce((n,r)=>n+r.dailyBudgetCents,0):null;
+ before.dailyBudgetCents=null;
  const conversionCompatible=comparison.comparable&&totals.purchaseType===before.purchaseType;
  const recommendations=rows.flatMap(f=>f.diagnoses).toSorted((a,b)=>a.priority-b.priority||a.entityId.localeCompare(b.entityId));
- const warnings=[...comparison.reasons,...commercial.issues,...(extras.unavailable||[]),...(!previous.length?['BASELINE_NO_ROWS']:[]),...(range.partial?['PARTIAL_DAY','CONVERSION_LAG']:[]),...(rows.some(r=>r.sample.conversionLag==='POSSIBLE_LATE_CONVERSIONS')?['CONVERSION_LAG']:[]),...(dataset.creativeStatus==='UNAVAILABLE'?['CREATIVES_UNAVAILABLE']:[])];
+ const warnings=[...(selected.some(f=>f.source!=='META_INSIGHTS')?['INVENTORY_WITHOUT_INSIGHTS']:[]),...comparison.reasons,...commercial.issues,...(extras.unavailable||[]),...(!previous.length?['BASELINE_NO_ROWS']:[]),...(range.partial?['PARTIAL_DAY','CONVERSION_LAG']:[]),...(rows.some(r=>r.sample.conversionLag==='POSSIBLE_LATE_CONVERSIONS')?['CONVERSION_LAG']:[]),...(dataset.creativeStatus==='UNAVAILABLE'?['CREATIVES_UNAVAILABLE']:[])];
  const coverage={requested:range,firstObservedDay:(dataset.daily[level]||[]).map(f=>f.since).toSorted()[0]||null,lastObservedDay:(dataset.daily[level]||[]).map(f=>f.since).toSorted().at(-1)||null,daysWithRows:new Set((dataset.daily[level]||[]).map(f=>f.since)).size,
   note:'Complete API pagination is not proof of historical event coverage. Days/entities without Insights remain unknown; unique reach is not summed across days.'};
  const observedAt=dataset.observedAt,stale=dataset.readFailed||now-Date.parse(observedAt)>=120000;
- const report={version:REVIEW_VERSION,agent:'Suleia Campaign Review Agent',reviewExecution:'RECOMMENDATION_ONLY',budgetMode:dataset.mode||'UNKNOWN',account:dataset.account,observedAt,timezone:'Europe/Madrid',contract:CONTRACT,range,baselineRange,comparison,level,selection:ids,totals,previous:before,
-  changes:Object.fromEntries(['spend','impressions','linkClicks','purchases','cpa','roas','linkCtr','linkCpc','cpm'].map(k=>[k,(comparison.comparable&&(!['purchases','cpa','roas'].includes(k)||conversionCompatible))?delta(totals[k],before[k]):null])),
+ const report={version:REVIEW_VERSION,experienceVersion:7,agent:'Suleia Campaign Review Agent',reviewExecution:'RECOMMENDATION_ONLY',budgetMode:dataset.mode||'UNKNOWN',account:dataset.account,observedAt,timezone:'Europe/Madrid',contract:CONTRACT,range,baselineRange,comparison,level,selection:ids,totals,previous:before,
+  changes:Object.fromEntries(['spend','impressions','reach','frequency','linkClicks','landingPageViews','addToCart','initiateCheckout','purchaseValue','purchases','cpa','roas','linkCtr','linkCpc','cpm'].map(k=>[k,(comparison.comparable&&(!['purchases','cpa','roas'].includes(k)||conversionCompatible))?delta(totals[k],before[k]):null])),
   rows,recommendations:stale?[]:recommendations,rankings:stale?[]:ranking(rows),commerce:commercial,coverage,warnings:[...new Set([...warnings,...(stale?['STALE_REPORT']:[])])],freshness:stale?'STALE':'FRESH',
-  inventory:Object.fromEntries(['campaign','adset','ad'].map(l=>[l,(dataset.entities[l]||[]).map(e=>({id:String(e.id),name:safe(e.name),campaignId:l==='campaign'?String(e.id):String(e.campaign_id),adsetId:e.adset_id?String(e.adset_id):null}))])),
+  inventory:Object.fromEntries(['campaign','adset','ad'].map(l=>[l,(dataset.entities[l]||[]).map(e=>({id:String(e.id),name:safe(e.name),campaignId:l==='campaign'?String(e.id):String(e.campaign_id),adsetId:e.adset_id?String(e.adset_id):null,status:e.effective_status||'UNKNOWN'}))])),
   products:productMappings.flatMap(m=>productLink(m.campaignId,productMappings,now)?.products||[]).filter((p,i,a)=>a.findIndex(x=>x.productId===p.productId)===i),
-  hourly:equivalentHourlyTraffic(extras.hourly||[],range,now),breakdowns:extras.breakdowns||{},videos:extras.videos||[],knowledge:KNOWLEDGE,policy,auditProfiles:AUDIT_PROFILES,
+  hourly:equivalentHourlyTraffic((extras.hourly||[]).filter(h=>selected.some(f=>f.campaignId===String(h.campaign_id))),range,now),breakdowns:extras.breakdowns||{},videos:extras.videos||[],knowledge:KNOWLEDGE,policy,auditProfiles:AUDIT_PROFILES,
   statisticalStatus:'EXPLORATORY_OBSERVATIONAL',multipleTesting:{status:'NO_SIGNIFICANCE_CLAIMS',method:'BY available only for justified supplied tests; nonunique event aggregates are not independent binary trials.'},
   limits:['Meta attributed ROAS does not establish settled profit or incrementality.','No campaign is paused, scaled or changed by this review agent.','V5.1 approvals, locks, limits and schedules remain in the existing executor.'],externalWrites:0};
  report.evidenceDigest=digest({range,baselineRange,observedAt,level,selection:ids,rows:rows.map(r=>[r.entityId,r.spend,r.purchases,r.purchaseValue]),commerce:commercial});

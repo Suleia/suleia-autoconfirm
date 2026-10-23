@@ -2,6 +2,14 @@ import { createHash } from 'node:crypto';
 import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 export class AdsLedger {
   constructor(pool){this.pool=pool;}
+  async executiveBudgetCounts(account,at){
+    const day=businessDayBounds({now:new Date(at)});
+    const result=await this.pool.query(`SELECT
+      (SELECT count(DISTINCT(e.proposal_id,e.campaign_id))::int FROM economics.ads_events e JOIN economics.ads_proposals p ON p.id=e.proposal_id
+       WHERE p.body->>'accountId'=$1 AND e.at>=$2 AND e.at<$3 AND e.body->>'state'='VERIFIED' AND e.body->>'externalWrites'='1') AS verified,
+      (SELECT count(*)::int FROM economics.ads_proposals p WHERE p.body->>'accountId'=$1 AND p.state='PENDING' AND p.expires_at>to_timestamp($4/1000.0)) AS pending`,[account,day.utc_start,day.utc_end_exclusive,at]);
+    return {verifiedChanges:result.rows[0].verified,pendingApprovals:result.rows[0].pending};
+  }
   async appendReviewRecord({kind,reference,record,principal,evidenceDigest,observedAt}){
     const eventType=kind.startsWith('EXPERIMENT')?'EXPERIMENT_DESIGN':kind==='DECISION'?'RECOMMENDATION':'OBSERVATION';
     const body={version:'suleia-review-v6.0',kind,reference,record,principal,evidenceDigest,observedAt,externalWrites:0};

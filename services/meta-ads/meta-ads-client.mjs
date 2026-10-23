@@ -78,7 +78,14 @@ export function createMetaAdsReadClient({
     if(header)try{const parsed=JSON.parse(header);usage={accIdUtilPct:Number(parsed.acc_id_util_pct)||0};}catch{}
     readCount += 1;
     if (!response.ok) {
-      throw new MetaAdsReadError(`Meta read failed with HTTP ${response.status}`, `META_HTTP_${response.status}`, response.status);
+      const payload=await response.json().catch(()=>null),failure=new MetaAdsReadError(`Meta read failed with HTTP ${response.status}`, `META_HTTP_${response.status}`, response.status);
+      // Numeric provider diagnostics only. Error text, URLs and bodies can
+      // contain account details; never attach them to shared reports or logs.
+      failure.providerCode=Number.isInteger(payload?.error?.code)?payload.error.code:null;
+      failure.providerSubcode=Number.isInteger(payload?.error?.error_subcode)?payload.error.error_subcode:null;
+      failure.transient=payload?.error?.is_transient===true;
+      if(response.status===400&&failure.providerCode===17)failure.code='META_RATE_LIMITED';
+      throw failure;
     }
     const payload = await response.json();
     if (payload?.error) throw new MetaAdsReadError('Meta returned an API error', 'META_API_ERROR', response.status);

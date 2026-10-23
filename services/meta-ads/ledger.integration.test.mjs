@@ -1,3 +1,4 @@
+import {ExecutiveLedger} from './executive/ledger.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -19,6 +20,31 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     await pool.query(fs.readFileSync(new URL('../../migrations/056_ads_algorithm_journal.sql',import.meta.url),'utf8'));
     await pool.query(fs.readFileSync(new URL('../../migrations/057_command_center.sql',import.meta.url),'utf8'));
     await pool.query(fs.readFileSync(new URL('../../migrations/058_ads_budget_autopilot.sql',import.meta.url),'utf8'));
+    await pool.query(fs.readFileSync(new URL('../../migrations/059_ads_executive_reports.sql',import.meta.url),'utf8'));
+    const ex1=new ExecutiveLedger(pool),ex2=new ExecutiveLedger(pool),reportId='a'.repeat(64),time=Date.now();
+    const spec={id:reportId,account:'9',day:'2026-10-21',kind:'DAILY',principal:'scheduler',now:time};
+    const leases=await Promise.all([ex1.claim(spec),ex2.claim(spec)]);assert.equal(leases.filter(Boolean).length,1);
+    assert.equal(await ex1.complete(reportId,'wrong',{messages:[]}),false);
+    assert.equal(await ex1.complete(reportId,leases.find(Boolean),{observedAt:new Date(time).toISOString(),messages:[{text:'fixture'}]}),true);
+    assert.equal(await ex1.claim(spec),null);assert.equal((await ex2.get(reportId,'8')),null);
+    const part={id:reportId,recipient:'1',part:0,hash:'b'.repeat(64),now:time};
+    const claims=await Promise.all([ex1.claimPart(part),ex2.claimPart(part)]);assert.equal(claims.filter(Boolean).length,1);
+    const claim=claims.find(Boolean);assert.equal(await ex1.claimPart({...part,now:time+86400000}),null);
+    assert.equal(await ex1.finishPart({...part,claim:'wrong',state:'SENT',messageId:1}),false);
+    assert.equal(await ex1.finishPart({...part,claim,state:'UNKNOWN'}),true);assert.equal(await ex2.claimPart({...part,now:time+86400000}),null);
+    const p2={...part,recipient:'2'};const c2=await ex2.claimPart(p2);assert.ok(c2);
+    await ex2.finishPart({...p2,claim:c2,state:'SENT',messageId:22});assert.equal(await ex1.claimPart(p2),null);
+    const retry={...part,part:1};let rc=await ex1.claimPart(retry);await ex1.finishPart({...retry,claim:rc,state:'RETRY',retrySeconds:0});
+    for(let i=0;i<2;i++){rc=await ex1.claimPart({...retry,now:time+10000});assert.ok(rc);await ex1.finishPart({...retry,claim:rc,state:'RETRY',retrySeconds:0});}
+    assert.equal(await ex2.claimPart({...retry,now:time+10000}),null);
+    const retryWrongHash={...retry,part:2};rc=await ex1.claimPart(retryWrongHash);await ex1.finishPart({...retryWrongHash,claim:rc,state:'RETRY',retrySeconds:0});assert.equal(await ex2.claimPart({...retryWrongHash,hash:'c'.repeat(64),now:time+10000}),null);
+    const stale={...spec,id:'c'.repeat(64),kind:'MANUAL'};const old=await ex1.claim(stale);assert.ok(old);const fresh=await ex2.claim({...stale,now:time+301000});assert.ok(fresh);assert.notEqual(old,fresh);assert.equal(await ex1.complete(stale.id,old,{}),false);
+    await ex2.complete(stale.id,fresh,{messages:[]});
+    const h1=await ex1.history('9',{limit:1});assert.equal(h1.entries.length,1);assert.ok(h1.nextCursor);const h2=await ex2.history('9',{limit:1,cursor:h1.nextCursor});assert.notEqual(h1.entries[0].id,h2.entries[0].id);
+    for(const table of ['ads_executive_reports','ads_executive_deliveries']){
+      assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly',$1,'INSERT') AS allowed",['economics.'+table])).rows[0].allowed,false);
+      assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor',$1,'INSERT') AS allowed",['economics.'+table])).rows[0].allowed,true);
+    }
     const commandLedger=new CommandLedger(pool),n=Date.now();
     await commandLedger.saveContext('1',{tool:'ads',selector:'fixture'},n+5000);
     assert.equal((await commandLedger.context('1',n)).selector,'fixture');
@@ -31,6 +57,7 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     assert.equal((await commandLedger.history('2')).length,0);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_api_login','economics.command_decisions','UPDATE') OR has_table_privilege('suleia_api_login','economics.command_decisions','DELETE') AS allowed")).rows[0].allowed,false);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.command_context','SELECT') AS allowed")).rows[0].allowed,false);
+    const summary=await new AdsLedger(pool).executiveBudgetCounts('9',Date.now());assert.deepEqual(summary,{verifiedChanges:0,pendingApprovals:0});
     const a=new AdsLedger(pool),b=new AdsLedger(pool),p={id:'0123456789abcdef',requestKey:'test:1',requestHash:'hash',accountId:'9',actor:{user:'1',chat:'1'},expiresAt:Date.now()+300000,items:[{campaignId:'11'}]};
     const review={kind:'REVIEW',reference:'ACCOUNT',record:{summary:['fixture']},principal:'reviewer1',evidenceDigest:'fixture',observedAt:new Date().toISOString()};
     const reviewedTwice=await Promise.all([a.appendReviewRecord(review),b.appendReviewRecord(review)]);assert.equal(reviewedTwice[0].id,reviewedTwice[1].id);

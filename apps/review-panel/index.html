@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Suleia Operations Center</title>
-  <link rel="stylesheet" href="styles.css?v=20260920-incident-dashboard-v2">
+  <link rel="stylesheet" href="styles.css?v=20261023-v8">
   <link rel="stylesheet" href="login.css?v=20260808-hidden-fix-a00fe6d">
   <link rel="stylesheet" href="results-dashboard.css?v=20260920-results-v2">
-  <link rel="stylesheet" href="incident-panel.css?v=20260926-autonomy">
+  <link rel="stylesheet" href="incident-panel.css?v=20261023-v8">
   <link rel="stylesheet" href="automation-panel.css?v=20260926-autonomy">
   <link rel="stylesheet" href="order-intelligence.css?v=1">
-  <link rel="stylesheet" href="ads-intelligence-v3.css?v=3">
+  <link rel="stylesheet" href="ads-intelligence-v3.css?v=20261023-v8">
   <link rel="stylesheet" href="ads-review-v6.css?v=6">
   <link rel="stylesheet" href="ads-algorithm-v4.css?v=4">
   <link rel="stylesheet" href="command-center.css?v=2">
   <link rel="stylesheet" href="budget-autopilot-v5.css?v=5.1">
+  <link rel="stylesheet" href="app-shell.css?v=7">
+  <link rel="stylesheet" href="ads-intelligence-v7.css?v=7">
 </head>
 <body>
   <div id="login" class="login-shell" hidden>
@@ -36,17 +38,10 @@
         <div class="brand-mark" aria-hidden="true">S</div>
         <div><strong>Suleia</strong><span>Operations Center</span></div>
       </div>
-      <nav aria-label="Secciones principales">
-        <button class="nav-item active" data-view="orders"><span class="nav-icon">P</span>Pedidos</button>
-        <button class="nav-item" data-view="incidents"><span class="nav-icon">I</span>Incidencias</button>
-        <button class="nav-item" data-view="automation"><span class="nav-icon" aria-hidden="true">↯</span>Automatización</button>
-        <button class="nav-item" data-view="finance"><span class="nav-icon">€</span>Panel de resultados</button>
-        <button class="nav-item" data-view="analytics"><span class="nav-icon">▥</span>Centro de datos e información</button>
-        <button class="nav-item" data-view="ads"><span class="nav-icon">A</span>Ads Intelligence</button>
-      </nav>
+      <nav id="primary-navigation" aria-label="Secciones principales"></nav>
       <div class="safety-card">
         <span class="live-dot"></span>
-        <div><strong>Proveedores protegidos</strong><small>Acciones externas: 0</small></div>
+        <div><strong>Acceso protegido</strong><small>Panel de consulta privado</small></div>
       </div>
       <button id="logout-button" class="logout-button">Cerrar sesión</button>
       <div class="ip-sidebar-tools">
@@ -190,10 +185,14 @@
   <script src="automation-panel.js?v=20260926-autonomy" defer></script>
   <script src="order-intelligence.js?v=1" defer></script>
   <script src="budget-autopilot-v5.js?v=5.1" defer></script>
-  <script src="ads-review-v6.js?v=6" defer></script>
-  <script src="ads-intelligence-v3.js?v=3" defer></script>
+  <script src="ads-campaign-audit-v7.js?v=7" defer></script>
+  <script src="ads-executive-v8.js?v=8" defer></script>
+  <script src="ads-review-v6.js?v=20261023-v8" defer></script>
+  <script src="ads-intelligence-v3.js?v=20261023-v8" defer></script>
   <script src="ads-algorithm-v4.js?v=4" defer></script>
   <script src="command-center.js?v=2" defer></script>
-  <script src="app.js?v=20260926-autonomy" defer></script>
+  <script src="app-shell.js?v=7" defer></script>
+  <script src="ads-report-client.js?v=7" defer></script>
+  <script src="app.js?v=20261023-v8" defer></script>
 </body>
 </html>

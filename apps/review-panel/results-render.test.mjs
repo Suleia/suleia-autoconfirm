@@ -28,7 +28,7 @@ test('results dashboard renders headline KPIs, charts and the permanently visibl
     document: { title: 'Operations Center', getElementById: get, createElement: (tag) => new Element(tag), createElementNS: (_ns, tag) => new Element(tag), createTextNode: (text) => String(text), querySelectorAll: () => [], addEventListener() {}, visibilityState: 'visible' },
     fetch: async () => ({ ok: true, json: async () => ({ oauth: { issuer: 'https://mcp.suleia.com/auth/realms/suleia', client_id: 'suleia-operations-center', audience: 'suleia-operations-center', scope: 'openid operations:read' }, refresh_interval_seconds: 45 }) })
   };
-  await vm.runInNewContext(source, context);
+  await vm.runInNewContext('globalThis.SuleiaShell={mount(){},select(){}};\n'+source, context);
   context.__results.state.finance = {
     period: { month: '2026-07', current: false, elapsedDays: 31 }, status: 'reconstructed', currency: 'EUR', generatedAt: '2026-09-12T10:00:00Z',
     counts: { created: 500, confirmed: 420, pendingConfirmation: 20, cancelledBeforeConfirmation: 60, sent: 420, delivered: 280, returned: 100, inTransit: 40, inAir: 40, deliveryRatePercent: 66.67, confirmationRatePercent: 84, statusBreakdown: {} },

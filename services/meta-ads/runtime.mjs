@@ -1,9 +1,13 @@
+import {reportReader} from './report-reader.mjs';
+import {readExecutiveBudget} from './executive/budget-read.mjs';
+import {ExecutiveLedger} from './executive/ledger.mjs';
+import {createExecutiveService} from './executive/service.mjs';
 import { createMetaAdsReadClient } from './meta-ads-client.mjs';
 import { AdsLedger } from './ledger.mjs';
 import { AdsIntelligence, LIVE_COMPILED } from './intelligence.mjs';
 import { createMetaBudgetTransport } from './executor-transport.mjs';
 import { readReport, assembleReport } from './report.mjs';
-import {windowFor} from './metrics.mjs';
+import {windowFor,CONTRACT} from './metrics.mjs';
 import {captureAlgorithmEvidence} from './algorithm-reader.mjs';
 import {buildAlgorithmReport,simulateBudget,traceOrders,ALGORITHM_POLICY,normalizeBudgetActivities} from './algorithm.mjs';
 import {createAlgorithmOrdersReader} from './algorithm-orders.mjs';
@@ -13,9 +17,10 @@ import {BudgetAutopilot} from './autopilot/service.mjs';
 import {ownBudgetGuardAssessment} from './autopilot/learning.mjs';
 import {createReviewService} from './review/service.mjs';
 import {shiftDay} from './review/periods.mjs';
+import {createReportCache,reportDependencyError} from './report-cache.mjs';
 import {aggregateCommerce} from './review/commerce.mjs';
 
-export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrders=null,readOperations=null}) {
+export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrders=null,readOperations=null,reportRead=readReport,reportWaitMs=4000}) {
   if(env.ADS_INTELLIGENCE_READ_ENABLED!=='true')return null;
   const autopilotConfig=loadAutopilotConfig(env);
   const mode=autopilotConfig.enabled?autopilotConfig.mode:env.ADS_INTELLIGENCE_MODE||'SIMULATION',writes=env.ADS_INTELLIGENCE_WRITES_ENABLED==='true';
@@ -35,7 +40,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     allowedActors:String(env.TELEGRAM_ALLOWED_USER_IDS||'').split(',').filter(x=>/^\d+$/.test(x)),mode,writer,
     policy:{maxBudgetCents:env.META_MAX_DAILY_BUDGET_EUR?Math.round(Number(env.META_MAX_DAILY_BUDGET_EUR)*100):null,maxChangePercent:getNumber('META_MAX_BUDGET_CHANGE_PERCENT'),minBudgetCents:1,maxAgeMs:120000,
       minSpend:getNumber('ADS_MIN_SPEND_EUR'),minPurchases:getNumber('ADS_MIN_PURCHASES'),minImpressions:getNumber('ADS_MIN_IMPRESSIONS'),minFunnelEvents:getNumber('ADS_MIN_FUNNEL_EVENTS'),liveCampaignIds,liveAccountBudgets,maxAggregateIncreaseCents:Number.isFinite(getNumber('ADS_MAX_AGGREGATE_INCREASE_EUR'))?Math.round(getNumber('ADS_MAX_AGGREGATE_INCREASE_EUR')*100):null,campaignCooldownMs:(getNumber('ADS_CAMPAIGN_COOLDOWN_HOURS')||24)*3600000}});
-  const cache=new Map(),inFlight=new Map();let algorithmCache=null,algorithmTask=null,budgetGuardCache=null,budgetGuardTask=null;
+  let algorithmCache=null,algorithmTask=null,budgetGuardCache=null,budgetGuardTask=null;
   const productMappings=JSON.parse(env.ADS_VERIFIED_PRODUCT_LINKS_JSON||'[]');
   if(!Array.isArray(productMappings))throw Error('PRODUCT_LINKS_INVALID');
   const learningPolicy={...ALGORITHM_POLICY};
@@ -43,21 +48,11 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   if(env.ADS_LEARNING_POLICY_JSON){const configured=JSON.parse(env.ADS_LEARNING_POLICY_JSON);if(!configured.version||!/^meta-learning-v4\.[a-zA-Z0-9.-]+$/.test(configured.version))throw Error('LEARNING_POLICY_VERSION_REQUIRED');for(const k of Object.keys(configured))if(!(k in learningPolicy))throw Error('LEARNING_POLICY_INVALID');for(const[k,v]of Object.entries(configured))if(k!=='version'&&(!Number.isFinite(v)||v<=0))throw Error('LEARNING_POLICY_INVALID');Object.assign(learningPolicy,configured);}
   const ordersReader=readOrders||(env.ADS_ALGORITHM_SHOPIFY_READ_ENABLED==='true'?createAlgorithmOrdersReader({env,fetchImpl}):null);
   const operationsReader=readOperations||(env.ADS_ALGORITHM_OPERATIONS_READ_ENABLED==='true'?createAlgorithmOperationsReader({pool,hashKey:env.MIGRATION_HASH_KEY}):null);
+  const sharedReportReader=reportReader(reader);
+  const reports=createReportCache({read:(query,maxRangeDays)=>reportRead({reader:sharedReportReader,ledger:reportReadOnly?null:ledger,accountId:engine.accountId,policy:engine.policy,mode,query,maxRangeDays}),waitMs:reportWaitMs,maxAgeMs:engine.policy.maxAgeMs});
   async function snapshot(query={},maxRangeDays=31){
-    const range=windowFor(query.since?{since:query.since,until:query.until}:query.period||'7d',Date.now(),'Europe/Madrid',maxRangeDays),key=`${range.since}:${range.until}`;
-    let base=cache.get(key),readFailed=false;
-    if(query.force===true||!base||Date.now()-Date.parse(base.value.observedAt)>=120000){
-      if(!inFlight.has(key)){
-        if(inFlight.size>=2)throw Error('ADS_REPORT_BUSY');
-        const task=readReport({reader,ledger:reportReadOnly?null:ledger,accountId:engine.accountId,policy:engine.policy,mode,query,maxRangeDays}).then(value=>{const rowCount=Object.values(value.dataset.current).flat().length+Object.values(value.dataset.prior).flat().length+Object.values(value.dataset.daily).flat().length;const entry={at:Date.now(),value,rowCount};cache.delete(key);cache.set(key,entry);while(cache.size>8||(cache.size>1&&[...cache.values()].reduce((s,e)=>s+e.rowCount,0)>40000))cache.delete(cache.keys().next().value);return entry;}).finally(()=>inFlight.delete(key));
-        inFlight.set(key,task);
-      }
-      let timer;
-      try{base=await Promise.race([inFlight.get(key),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('ADS_REPORT_TIMEOUT')),4000);})]);}
-      catch{if(!base)throw Error('META_REPORT_PREPARING_OR_UNAVAILABLE');readFailed=true;}
-      finally{clearTimeout(timer);}
-    }
-    return {...base.value,readFailed};
+    const range=windowFor(query.since?{since:query.since,until:query.until}:query.period||'7d',Date.now(),'Europe/Madrid',maxRangeDays);
+    return reports.snapshot(`${range.since}:${range.until}`,query,maxRangeDays);
   }
   const reviewCache=new Map(),reviewTasks=new Map();
   async function cachedEvidence(key,fn,ttl=600000){
@@ -81,7 +76,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     if(Date.parse(range.until)-Date.parse(range.since)>30*86400000)out.unavailable.push('ACTIVITY_HISTORY_LIMITED_TO_LAST_31_DAYS');
     return out;
   }
-  const runtime={engine,ledger,reportReadOnly,algorithmEnabled:env.ADS_ALGORITHM_ENABLED==='true',async budgetGuards(){
+  const runtime={engine,ledger,reportReadOnly,reportStatus:()=>({...reports.status(),contract:CONTRACT,budgetMode:engine.mode,externalWrites:0}),algorithmEnabled:env.ADS_ALGORITHM_ENABLED==='true',async budgetGuards(){
     if(env.ADS_ALGORITHM_ENABLED!=='true')throw Error('ADS_ALGORITHM_DISABLED');
     if(budgetGuardCache&&Date.now()-Date.parse(budgetGuardCache.observedAt)<60000)return budgetGuardCache;
     if(!budgetGuardTask)budgetGuardTask=captureAlgorithmEvidence({reader,scope:'BUDGET_GUARDS'}).then(e=>{
@@ -109,15 +104,16 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   },async overview(query={}){
     const {period='7d',level='campaign',since,until,selector,campaignId,adsetId,adId}=query;
     if(Boolean(since)!==Boolean(until)||(!since&&!['hoy','ayer','3d','7d','30d'].includes(period))||!['campaign','adset','ad'].includes(level)||[campaignId,adsetId,adId].some(id=>id&&!/^\d+$/.test(id))||(selector&&(typeof selector!=='string'||selector.length>100))||query.productId)throw Error('QUERY_INVALID');
-    const base=await snapshot({period,since,until,force:query.force});
+    const base=await snapshot({period,since,until,force:query.force===true||query.force==='true'});
     const value=assembleReport({...base.dataset,productMappings,selector,filters:{level,campaignId,adsetId,adId}});
     const stale=base.readFailed||Date.now()-Date.parse(value.observedAt)>=120000;
     const budgetCandidates=!autopilotConfig.enabled&&level==='campaign'&&!stale?(value.facts||[]).filter(f=>f.delivery==='ACTIVE'&&f.roasStatus==='VALID'&&f.spend>=engine.policy.minSpend&&f.purchases>=engine.policy.minPurchases&&f.impressions>=engine.policy.minImpressions&&(f.roas>10||f.roas<3)).slice(0,3).map(f=>({campaignId:f.campaignId||f.entityId,name:f.name,direction:f.roas>10?'increase':'decrease',percent:Math.min(10,engine.policy.maxChangePercent),roas:f.roas})):[];
     if(autopilotConfig.enabled)value.autopilotPolicy={version:autopilotConfig.policy.version,increaseCents:1000,decreaseCents:1000,maxBudgetCents:7000,roasThreshold:3.8};
-    return {...value,budgetCandidates,reportReadOnly,proposals:await ledger.history(),recommendationProposals:await ledger.recommendations(),cache:{ttlMs:120000,observedAt:value.observedAt,status:stale?'STALE':'FRESH'}};
+    let proposals,recommendationProposals;try{[proposals,recommendationProposals]=await Promise.all([ledger.history(),ledger.recommendations()]);}catch(error){throw reportDependencyError(error);}
+    return {...value,...(stale?{actions:[],opportunities:[],topAds:[],improveAds:[]}:{}),budgetCandidates,reportReadOnly,proposals,recommendationProposals,cache:{ttlMs:120000,observedAt:value.observedAt,status:stale?'STALE':'FRESH'},diagnostic:base.diagnostic,connection:{source:'META_MARKETING_API',state:stale?'DEGRADED':'CONNECTED',checkedAt:new Date().toISOString(),lastValidAt:value.observedAt,contract:value.contract}};
   },async saveRecommendation({query,actionId,principal,id,state}){
     if(state)return ledger.reviewRecommendation({id,principal,state});
-    const report=await this.overview(query),action=report.actions.find(a=>a.id===actionId);
+    const report=await this.overview(query);if(report.cache.status!=='FRESH')throw Error('RECOMMENDATION_STALE');const action=report.actions.find(a=>a.id===actionId);
     if(!action)throw Error('RECOMMENDATION_STALE');
     return ledger.saveRecommendation({action,principal,accountId:engine.accountId});
   }};
@@ -137,10 +133,13 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   if(autopilotConfig.enabled)engine.policy.maxBudgetCents=Math.min(engine.policy.maxBudgetCents||7000,7000);
   if(autopilotConfig.enabled&&consolidatedPolicy(autopilotConfig))engine.policy.minPurchases=autopilotConfig.policy.minPurchases;
   runtime.autopilot=new BudgetAutopilot({engine,ledger,config:autopilotConfig});
-  runtime.reviewEnabled=env.ADS_REVIEW_V6_ENABLED==='true';
+  runtime.reviewEnabled=env.ADS_REVIEW_V8_ENABLED==='true'||env.ADS_REVIEW_V7_ENABLED==='true'||env.ADS_REVIEW_V6_ENABLED==='true';
   runtime.review=runtime.reviewEnabled?createReviewService({snapshot,extras:reviewExtras,ledger,productMappings,
     readCommerce:ordersReader?range=>cachedEvidence(`commerce:${range.since}:${range.until}`,async()=>aggregateCommerce(await ordersReader(range),{range,shop:env.SHOPIFY_DOMAIN||env.SHOPIFY_SHOP,observedAt:new Date().toISOString()}),120000):null,
-    maxCampaigns:Number(env.ADS_REVIEW_MAX_CAMPAIGNS||5),panelUrl:env.ADS_REVIEW_PANEL_URL||null}):null;
+    budgetPolicy:{version:autopilotConfig.policy.version,policy:autopilotConfig.policy,approved:autopilotConfig.approved},maxCampaigns:Number(env.ADS_REVIEW_MAX_CAMPAIGNS||5),panelUrl:env.ADS_REVIEW_PANEL_URL||null}):null;
+  runtime.executive=runtime.review?createExecutiveService({review:runtime.review,ledger:new ExecutiveLedger(pool),accountId:engine.accountId,panelUrl:env.ADS_REVIEW_PANEL_URL||null,
+    enabled:env.ADS_EXECUTIVE_DAILY_ENABLED==='true'&&!reportReadOnly,recipients:String(env.ADS_EXECUTIVE_RECIPIENT_IDS||'').split(',').map(x=>x.trim()).filter(Boolean),
+    readBudget:()=>readExecutiveBudget({ledger,accountId:engine.accountId,mode:engine.mode,config:autopilotConfig})}):null;
   if(!autopilotConfig.enabled)engine.autopilot=null;
   return runtime;
 }

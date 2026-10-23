@@ -18,7 +18,7 @@ async function fixture(){
     document:{getElementById:get,createElement:tag=>new Element(tag),createTextNode:text=>text,querySelectorAll:()=>[],addEventListener(){}},
     fetch:async()=>({ok:true,json:async()=>({oauth:{issuer:'https://mcp.suleia.com/auth/realms/suleia',client_id:'suleia-operations-center',audience:'suleia-operations-center',scope:'openid operations:read'}})})};
   const source=fs.readFileSync(new URL('./app.js',import.meta.url),'utf8')+'\nglobalThis.ui={state,renderFilters,absentShadowCard};';
-  await vm.runInNewContext(source,context);return {context,get};
+  await vm.runInNewContext('globalThis.SuleiaShell={mount(){},select(){}};\n'+source,context);return {context,get};
 }
 test('actual incident frontend renders the canonical shadow card without execution controls or HTML parsing',async()=>{
   const {context}=await fixture();const at='2026-09-16T12:00:00Z';

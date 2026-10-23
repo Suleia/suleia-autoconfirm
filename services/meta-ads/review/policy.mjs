@@ -15,7 +15,7 @@ const sources=[
  ['wilson','https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm','AVAILABLE','Binomial intervals require a justified trial definition and independence.'],
  ['fdr','https://academic.oup.com/jrsssb/article/57/1/289/7035855','ABSTRACT','BH controls FDR under assumptions; arbitrary dependence uses the conservative BY harmonic correction.']
 ];
-export const KNOWLEDGE={version:'meta-knowledge-2026-10-22-v1',reviewedAt:'2026-10-22',apiVersion:'v25.0',sources:sources.map(([id,url,access,note])=>({id,url,access,note})),
+export const KNOWLEDGE={version:'meta-knowledge-2026-10-23-v7',reviewedAt:'2026-10-23',apiVersion:'v25.0',sources:sources.map(([id,url,access,note])=>({id,url,access,note})),
  official:['Attributed outcomes depend on reporting windows and event scope.','Creative diversification and controlled experiments can inform decisions.','Incrementality requires an appropriate causal study.'],
  internal:['Sample, maturity, materiality and cooldown values are Suleia review criteria, not Meta algorithm rules.','The V5.1 monetary policy remains solely in the existing budget executor.'],
  formulas:{roas:'sum(purchaseValue) / sum(spend)',cpa:'sum(spend) / sum(purchases)',ctr:'100 * sum(linkClicks) / sum(impressions)',cpc:'sum(spend) / sum(linkClicks)',cpm:'1000 * sum(spend) / sum(impressions)',aov:'sum(purchaseValue) / sum(purchases)'}};

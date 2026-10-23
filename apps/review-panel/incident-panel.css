@@ -1,17 +1,6 @@
 /* Reference-aligned incident workspace; no shared order/finance overrides. */
 .ip-search-bar{display:none}
-.ip-sidebar-tools{display:none}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .ip-sidebar-tools{display:grid;gap:12px;margin-top:18px;order:2;font-size:12px;color:#b8c8d8}
-.ip-sidebar-tools summary{cursor:pointer}.ip-sidebar-tools p{font-size:11px;line-height:1.5;color:#9fb1c2}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .logout-button{order:3}
-.app-shell:is([data-view="incidents"],[data-view="automation"]){grid-template-columns:205px minmax(0,1fr);--ip-ink:#183153;--ip-muted:#6b7c93}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .sidebar{padding:22px 14px;background:#0f2744}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .brand{padding:0 3px 30px;gap:10px}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .nav-item{font-size:13px;min-height:46px;border-radius:10px}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .nav-item.active{background:#0d777d;color:white;box-shadow:none}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .safety-card{padding:12px 9px;border-radius:11px}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .safety-card strong{font-size:11px}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .safety-card small{font-size:10px}
+.app-shell:is([data-view="incidents"],[data-view="automation"]){--ip-ink:#183153;--ip-muted:#6b7c93}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .workspace{padding:14px 22px 24px;gap:12px;background:#f6f8fb}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .ip-search-bar{order:-1;display:flex;align-items:center;gap:8px;max-width:500px;background:#edf2f7;border:1px solid #e6edf4;border-radius:8px;padding:0 10px}
 .ip-search{font:inherit;font-size:13px;border:0;outline:0;background:transparent;width:100%;height:36px;color:#183153}
@@ -46,12 +35,12 @@
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-priority-legend span:nth-child(5){color:#b58c16}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-priority-legend span:nth-child(6){color:#109877}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-priority-legend span:nth-child(7){color:#3981d5}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-grid{grid-template-columns:repeat(7,minmax(0,1fr));padding:10px 8px;gap:10px;background:#f7fafd}
+.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-grid{padding:10px 8px;gap:10px;background:#f7fafd}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-field{font-size:12px;gap:6px}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-field select{font-size:12px;padding:7px 6px;height:34px}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-scope-tabs .filter-chip{padding:10px 16px;font-size:12px;font-weight:650;border-radius:6px}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-scope-tabs .active{background:#0d8b8a}
-.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-groups{gap:14px;padding:2px 0 0;border:0;grid-template-columns:1fr 1fr 1.25fr}
+.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-groups{gap:14px;padding:2px 0 0;border:0;}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-group{border-right:1px solid #eef2f6;padding-right:8px}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-group:last-child{border:0;padding:0}
 .app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-group>small{font-size:12px;font-weight:600;margin-bottom:7px}
@@ -86,7 +75,7 @@
 .ip-timer{background:transparent!important}.ip-badge[class*="priority-"]{font-size:13px;min-width:38px;text-align:center;padding:7px}
 .ip-sort{font:inherit;font-weight:inherit;border:0;padding:0;background:none;color:inherit;cursor:pointer;text-align:left}
 .ip-date-range{display:flex;gap:12px;width:100%}
-@media(max-width:1400px){.app-shell:is([data-view="incidents"],[data-view="automation"]){grid-template-columns:190px minmax(0,1fr)}.app-shell:is([data-view="incidents"],[data-view="automation"]) .workspace{padding:12px 16px 24px}.app-shell:is([data-view="incidents"],[data-view="automation"]) #summary{gap:9px}.app-shell:is([data-view="incidents"],[data-view="automation"]) #summary .summary-card>span{font-size:11px}.app-shell:is([data-view="incidents"],[data-view="automation"]) #queue-card th:first-child,.app-shell:is([data-view="incidents"],[data-view="automation"]) .ip-row td:first-child{position:sticky;left:0;z-index:1}}
-@media(max-width:1150px){.app-shell:is([data-view="incidents"],[data-view="automation"]) #summary{grid-template-columns:repeat(3,minmax(0,1fr))}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-groups{grid-template-columns:1fr 1fr}}
-@media(max-width:800px){.app-shell:is([data-view="incidents"],[data-view="automation"]){grid-template-columns:1fr}.app-shell:is([data-view="incidents"],[data-view="automation"]) .sidebar{position:relative;height:auto}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-groups{grid-template-columns:1fr}.app-shell:is([data-view="incidents"],[data-view="automation"]) .queue-footer{flex-wrap:wrap;gap:8px}.app-shell:is([data-view="incidents"],[data-view="automation"]) .topbar h1{font-size:28px}}
+@media(max-width:1400px){.app-shell:is([data-view="incidents"],[data-view="automation"]){}.app-shell:is([data-view="incidents"],[data-view="automation"]) .workspace{padding:12px 16px 24px}.app-shell:is([data-view="incidents"],[data-view="automation"]) #summary{gap:9px}.app-shell:is([data-view="incidents"],[data-view="automation"]) #summary .summary-card>span{font-size:11px}.app-shell:is([data-view="incidents"],[data-view="automation"]) #queue-card th:first-child,.app-shell:is([data-view="incidents"],[data-view="automation"]) .ip-row td:first-child{position:sticky;left:0;z-index:1}}
+@media(max-width:1150px){.app-shell:is([data-view="incidents"],[data-view="automation"]) #summary{grid-template-columns:repeat(3,minmax(0,1fr))}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-grid{}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-groups{}}
+@media(max-width:800px){.app-shell:is([data-view="incidents"],[data-view="automation"]){}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-filter-grid{}.app-shell:is([data-view="incidents"],[data-view="automation"]) .incident-chip-groups{}.app-shell:is([data-view="incidents"],[data-view="automation"]) .queue-footer{flex-wrap:wrap;gap:8px}.app-shell:is([data-view="incidents"],[data-view="automation"]) .topbar h1{font-size:28px}}
 .ip-human-review{border:2px solid #b45309;border-left-width:6px;border-radius:8px;background:#fff7ed;color:#7c2d12;padding:12px;margin:8px 0;min-width:250px;white-space:normal}.ip-human-review strong,.ip-human-review small{display:block}.ip-human-review p{margin:8px 0;line-height:1.45}

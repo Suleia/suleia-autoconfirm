@@ -14,6 +14,7 @@ function redirectUri() { return `${location.origin}${location.pathname}`; }
 
 function showLoginError(message) { const notice = $('login-notice'); notice.textContent = message; notice.hidden = !message; }
 async function prepareLogin() {
+  if ((location.hash || '').startsWith('#ads')) sessionStorage.setItem('suleia_ads_return',location.hash);
   if ((location.hash || '').startsWith('#analytics')) sessionStorage.setItem('suleia_analytics_return', location.hash);
   if (!state.config?.oauth?.issuer || !state.config.oauth.client_id || !state.config.oauth.scope) throw new Error('La configuración de acceso está incompleta.');
   if (!globalThis.crypto?.getRandomValues || !globalThis.crypto?.subtle) throw new Error('Este navegador no permite iniciar el acceso seguro.');
@@ -34,11 +35,19 @@ async function exchangeCode(code, returnedState) {
   sessionStorage.setItem('suleia_access_token', payload.access_token); sessionStorage.setItem('suleia_token_expires_at', String(Date.now() + payload.expires_in * 1000));
   const analyticsReturn = sessionStorage.getItem('suleia_analytics_return') || '';
   sessionStorage.removeItem('suleia_analytics_return');
-  history.replaceState({}, document.title, location.pathname + (analyticsReturn.startsWith('#analytics') ? analyticsReturn : '')); return payload.access_token;
+  const adsReturn=sessionStorage.getItem('suleia_ads_return')||'';sessionStorage.removeItem('suleia_ads_return');
+  history.replaceState({}, document.title, location.pathname + (adsReturn.startsWith('#ads')?adsReturn:analyticsReturn.startsWith('#analytics') ? analyticsReturn : '')); return payload.access_token;
 }
 
 function activeToken() { const token = sessionStorage.getItem('suleia_access_token'); const expires = Number(sessionStorage.getItem('suleia_token_expires_at') || 0); return token && expires > Date.now() + 15000 ? token : null; }
-async function api(path, { signal, method = 'GET', body } = {}) { const response = await fetch(`${operationsBase}${path}`, { method, headers: { Authorization: `Bearer ${state.token}`, Accept: 'application/json', ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined, signal }); if (response.status === 401 || response.status === 403) { signOut(false); throw new Error('Tu sesión ha caducado.'); } if (response.status === 429) throw new Error('Demasiadas actualizaciones seguidas. Espera unos segundos.'); if (!response.ok) throw new Error('La operación no está disponible temporalmente.'); return (await response.json()).data; }
+async function api(path, { signal, method = 'GET', body } = {}) {
+ const response=await fetch(`${operationsBase}${path}`,{method,headers:{Authorization:`Bearer ${state.token}`,Accept:'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal});
+ if(response.status===401||response.status===403){signOut(false);const e=Error('Tu sesión ha caducado.');e.status=response.status;throw e;}
+ const payload=await response.json().catch(()=>null);
+ if(!response.ok||payload?.ok===false){const e=Error(response.status===429?'Demasiadas actualizaciones seguidas. Espera unos segundos.':'La operación no está disponible temporalmente.');e.status=response.status;e.retryAfterSeconds=Number(response.headers.get('Retry-After'))||2;if(['META_MARKETING_API','POSTGRESQL'].includes(payload?.diagnostic?.source))e.diagnostic=payload.diagnostic;throw e;}
+ return payload?.data;
+}
+
 function signOut(remote = true) { sessionStorage.removeItem('suleia_access_token'); sessionStorage.removeItem('suleia_token_expires_at'); state.token = null; $('app').hidden = true; $('login').hidden = false; if (remote && state.config) { const url = new URL(`${state.config.oauth.issuer}/protocol/openid-connect/logout`); url.searchParams.set('client_id', state.config.oauth.client_id); url.searchParams.set('post_logout_redirect_uri', redirectUri()); location.assign(url.toString()); } }
 
 function badge(value) { const v = text(value); const lower = v.toLowerCase(); let tone = 'gray'; if (/ready|pass|exact|verified|delivered|finish|resolved|responded|permitida/.test(lower)) tone = 'green'; else if (/wait|pending|medium|review|active|incidence/.test(lower)) tone = 'amber'; else if (/high|critical|blocked|error|stale|conflict|reject|return|cancel/.test(lower)) tone = 'red'; else if (/human|simulation/.test(lower)) tone = 'purple'; else if (/info|shipping|transit/.test(lower)) tone = 'blue'; return node('span', `badge ${tone}`, v); }
@@ -1176,7 +1185,7 @@ function setView(view) {
   state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : {}; closeDetail();
   $('app').setAttribute('data-view',view);
   if(view==='incidents'){state.limit=10;$('page-size').value='10';}
-  document.querySelectorAll('.nav-item').forEach((item) => item.classList.toggle('active', item.dataset.view === view));
+  SuleiaShell.select(view);
   const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados',analytics:'Centro de datos e información',ads:'Ads Intelligence' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance',automation=view==='automation',analytics=view==='analytics'; $('summary').hidden = finance||automation||analytics; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation||analytics;$('automation-view').hidden=!automation;$('analytics-view').hidden=!analytics;
   $('ads-view').hidden=view!=='ads';
@@ -1199,7 +1208,7 @@ async function init() {
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
   $('login').hidden = true; $('app').hidden = false;
   if (state.config.analytics_enabled === false) { const analyticsNav=document.querySelector('[data-view="analytics"]');if(analyticsNav)analyticsNav.hidden=true;if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname); }
-  if(location.hash==='#ads')setView('ads');else if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
+  if((location.hash||'').startsWith('#ads'))setView('ads');else if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
   setInterval(() => {
     if (document.visibilityState !== 'visible' || !activeToken()) return;
     const financeInterval = Number(state.config.finance_refresh_interval_seconds || 120) * 1000;
@@ -1207,7 +1216,7 @@ async function init() {
     refresh({ background: true });
   }, state.config.refresh_interval_seconds * 1000);
 }
-$('logout-button').addEventListener('click', () => signOut(true)); $('refresh-button').addEventListener('click', () => refresh({ force: true })); $('finance-month').addEventListener('change', () => { updateFinanceMonthNavigation(); loadResultsFinance(); }); $('finance-prev-month').addEventListener('click', () => moveFinanceMonth('older')); $('finance-next-month').addEventListener('click', () => moveFinanceMonth('newer')); $('page-size').addEventListener('change', (event) => { state.limit = Number(event.target.value); state.offset = 0; loadQueue(); }); $('prev-page').addEventListener('click', () => { state.offset = Math.max(0, state.offset - state.limit); loadQueue(); }); $('next-page').addEventListener('click', () => { state.offset += state.limit; loadQueue(); }); document.querySelectorAll('.nav-item').forEach((item) => item.addEventListener('click', () => setView(item.dataset.view))); $('close-drawer').addEventListener('click', closeDetail); $('drawer-backdrop').addEventListener('click', closeDetail); document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeDetail(); });
+SuleiaShell.mount({onNavigate:setView,onSignOut:()=>signOut(true)}); $('refresh-button').addEventListener('click', () => refresh({ force: true })); $('finance-month').addEventListener('change', () => { updateFinanceMonthNavigation(); loadResultsFinance(); }); $('finance-prev-month').addEventListener('click', () => moveFinanceMonth('older')); $('finance-next-month').addEventListener('click', () => moveFinanceMonth('newer')); $('page-size').addEventListener('change', (event) => { state.limit = Number(event.target.value); state.offset = 0; loadQueue(); }); $('prev-page').addEventListener('click', () => { state.offset = Math.max(0, state.offset - state.limit); loadQueue(); }); $('next-page').addEventListener('click', () => { state.offset += state.limit; loadQueue(); }); $('close-drawer').addEventListener('click', closeDetail); $('drawer-backdrop').addEventListener('click', closeDetail); document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeDetail(); });
 $('finance-add-fixed').addEventListener('click', () => openResultExpenseForm());
 $('finance-fixed-cancel').addEventListener('click', closeResultExpenseForm);
 $('finance-fixed-form').addEventListener('submit', saveResultExpense);
