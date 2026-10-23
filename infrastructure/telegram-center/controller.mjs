@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { amount, dateRange, previousRange, reportText, comparisonText } from './reports.mjs';
 import { parseSpanish, matchingCampaigns, cleanSelector } from './spanish.mjs';
-import { createAdsGateway } from './ads-gateway.mjs';
+import { createAdsGateway,formatAdsError } from './ads-gateway.mjs';
 import {dailySettingsCommand} from './daily-reports.mjs';
 
 export const help = [
@@ -284,7 +284,8 @@ export class Controller {
     let result;
     try { result = dailySettingsCommand(text,String(sender.id),this.config,this.store)||(this.adsGateway ? await this.adsGateway.handle(text,{user:String(sender.id),chat:String(message.chat.id)},update.update_id) : await this.command(text, sender.id, message.chat.id)); }
     catch (error) {
-      result = { text: error.service ? `No se pudo consultar ${error.service}. Código ${error.status}; inténtalo más tarde.` : this.adsGateway?'No se pudo obtener un informe actualizado. Inténtalo de nuevo en unos segundos.':error.message };
+      if(this.adsGateway){const diagnostic=formatAdsError(error);this.store.record({event:'TELEGRAM_COMMAND_FAILED',code:diagnostic.code,updateId:update.update_id,userId:String(sender.id)});result={text:diagnostic.text};}
+      else result = { text: error.service ? `No se pudo consultar ${error.service}. Código ${error.status}; inténtalo más tarde.` : error.message };
     }
     result=this.reportButtons(result,sender.id,message.chat.id);
     const sent=result.media?await this.api.media(message.chat.id,result.media,result.markup):await this.api.send(message.chat.id, result.text, result.markup,result.parseMode);

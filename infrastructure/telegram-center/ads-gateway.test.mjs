@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createAdsGateway,formatAdsResult} from './ads-gateway.mjs';
+import {createAdsGateway,formatAdsResult,formatAdsError} from './ads-gateway.mjs';
 import {verifyAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
 
 test('ordinary campaign questions stay compact despite canonical diagnosis focus; detail remains explicit',async()=>{
@@ -32,9 +32,35 @@ test('gateway can reuse the existing bot secret with body-bound signatures, with
  await gateway.handle('Analízame todas las campañas de hoy',{user:'1',chat:'1'},44);
  assert.equal(verifyAdsBridge(secret,request.headers['X-Suleia-Ads-Timestamp'],request.body,request.headers['X-Suleia-Ads-Signature']),true);assert.equal(request.headers.Authorization,undefined);assert.ok(!request.body.includes(secret));
 });
-test('proposal has CONFIRMAR/CANCELAR buttons and clear blocked/unknown results',()=>{
+test('proposal exposes controls only for eligible changes and explains blocked results',()=>{
   const result=formatAdsResult({proposal:{id:'0123456789abcdef',state:'PENDING',mode:'SHADOW',request:'Fixture request',expiresAt:Date.now()+300000,intent:{period:'hoy'},items:[{name:'Fixture campaign',campaignId:'1',before:5000,after:6000,reasons:['MAX_CHANGE_PERCENT'],metric:null}]}});
-  assert.match(result.text,/supera el porcentaje/);assert.equal(result.markup.inline_keyboard[0][0].callback_data,'confirm:0123456789abcdef');
+  assert.match(result.text,/supera el porcentaje/);assert.equal(result.markup,undefined);assert.match(result.text,/no hay cambios que confirmar/);
+});
+
+test('a 19-second shared proposal response survives the previous 12-second cutoff without replay',async(t)=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ t.mock.method(AbortSignal,'timeout',ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(),ms);return controller.signal;});
+ let calls=0;const gateway=createAdsGateway({adsApiUrl:'https://operations.test',botToken:'fixture'},(_url,options)=>new Promise((resolve,reject)=>{
+  calls++;options.signal.addEventListener('abort',()=>reject(Object.assign(Error(),{name:'TimeoutError'})));setTimeout(()=>resolve({ok:true,json:async()=>({ok:true,data:{text:'Propuesta preparada'}})}),19000);
+ }));
+ const pending=gateway.handle('Sube 10 € el presupuesto de todas las campañas activas con ROAS superior a 3,8 hoy',{user:'1',chat:'1'},46);
+ t.mock.timers.tick(19000);assert.equal((await pending).text,'Propuesta preparada');assert.equal(calls,1);
+});
+
+test('bridge errors expose only allowlisted codes and never advise blind financial retries',async()=>{
+ const gateway=createAdsGateway({adsApiUrl:'https://operations.test',botToken:'fixture'},async()=>({ok:false,status:503,json:async()=>({code:'META_HTTP_429',details:'token=DO_NOT_ECHO'})}));
+ await assert.rejects(gateway.handle('/estado',{user:'1',chat:'1'},1),/META_HTTP_429/);
+ const safe=formatAdsError(Error('https://secret.invalid/?access_token=DO_NOT_ECHO'));
+ assert.equal(safe.code,'ADS_COMMAND_FAILED');assert.doesNotMatch(safe.text,/DO_NOT_ECHO/);
+ assert.match(formatAdsError(Error('ADS_BRIDGE_TIMEOUT')).text,/historial.*antes de repetir/);
+});
+
+test('large blocked proposals fit Telegram; all eligible monetary details precede confirmation',()=>{
+ const item=i=>({name:'Campaign '+i,campaignId:String(i),before:2500,after:3500,reasons:i===1?[]:['RECENT_SIGNIFICANT_CHANGE','INSUFFICIENT_MULTIDAY_SAMPLE','LEARNING_ACTIVE','DAILY_CHANGE_LIMIT'],metric:{roas:5,purchases:3,spend:20}});
+ const proposal={id:'0123456789abcdef',state:'PENDING',mode:'LIVE',request:'Sube 10 € con ROAS superior a 3,8',expiresAt:Date.now()+300000,intent:{period:'hoy'},items:Array.from({length:30},(_,i)=>item(i+1))};
+ const result=formatAdsResult({proposal});assert.ok(result.text.length<=4096);assert.match(result.text,/ID 1\n25.00 € → 35.00 €/);assert.equal(result.markup.inline_keyboard[0][0].callback_data,'confirm:0123456789abcdef');
+ proposal.items=Array.from({length:50},(_,i)=>({...item(i+1),reasons:[]}));
+ const tooLarge=formatAdsResult({proposal});assert.equal(tooLarge.markup,undefined);assert.match(tooLarge.text,/por ID de campaña/);
 });
 
 test('2.0 help and daily summary use existing shared gateway, not a second interpreter',async()=>{

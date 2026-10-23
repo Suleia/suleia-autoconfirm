@@ -3,7 +3,7 @@ import {reviewSlot,nextReview,madridTime,REVIEW_TIMES} from './schedule.mjs';
 
 export class BudgetAutopilot {
   constructor({engine,ledger,config,now=()=>Date.now(),readConstraints=null,learningWaitMs=3000}) {
-    Object.assign(this,{engine,ledger,config,now,readConstraints,learningWaitMs});this.busy=false;this.minimumReceipts=new Map();
+    Object.assign(this,{engine,ledger,config,now,readConstraints,learningWaitMs});this.busy=false;this.minimumReceipts=new Map();this.constraintsTask=null;
     engine.autopilot=this;
   }
   async learningAssessment(campaign,{waitMs=this.learningWaitMs}={}) {
@@ -19,6 +19,12 @@ export class BudgetAutopilot {
     finally {clearTimeout(timer);}
   }
   async constraints() {
+    // Coalesce concurrent reads only. Each new capture/revalidation still gets
+    // fresh provider constraints; a failed read is never cached as verified.
+    if(!this.constraintsTask)this.constraintsTask=this.readFreshConstraints().finally(()=>{this.constraintsTask=null;});
+    return this.constraintsTask;
+  }
+  async readFreshConstraints() {
     if(this.readConstraints)return this.readConstraints();
     try {
       const rows=await this.engine.reader.readMinimumBudgets();
@@ -74,8 +80,8 @@ export class BudgetAutopilot {
     const current=this.decisions({snapshot:{facts:[metric]},history,constraints,inventory},slot).find(d=>d.campaignId===String(campaign.id));
     return current||{after:null,reasons:['CAMPAIGN_MISSING']};
   }
-  async manualAssessment(campaign,after) {
-    const constraints=await this.constraints(),minimum=constraints?.perCampaign?constraints.perCampaign[String(campaign.id)]:constraints,reasons=[];
+  async manualAssessment(campaign,after,{constraints:capturedConstraints}={}) {
+    const constraints=capturedConstraints===undefined?await this.constraints():capturedConstraints,minimum=constraints?.perCampaign?constraints.perCampaign[String(campaign.id)]:constraints,reasons=[];
     if(!minimum?.verified)reasons.push('META_MINIMUM_NOT_VERIFIED');
     else if(after<minimum.minimumCents)reasons.push('META_MINIMUM_CONFLICT');
     if(this.config.mode!=='LIVE'){
@@ -89,7 +95,15 @@ export class BudgetAutopilot {
   }
   async tick() {
     if(!this.config.enabled||this.busy)return {state:'IDLE',externalWrites:0};
-    const slot=reviewSlot(this.now());if(!slot)return {state:'NO_CURRENT_SLOT',externalWrites:0};
+    const slot=reviewSlot(this.now());if(!slot){
+      // Warm the existing coalesced GET-only evidence task shortly before the
+      // next review, so a cold history read does not consume its one-minute slot.
+      const until=Date.parse(nextReview(this.now()))-this.now();
+      if(until>0&&until<=45000&&this.engine.prepareBudgetEvidence&&!this.warming){
+        this.warming=Promise.resolve().then(()=>this.engine.prepareBudgetEvidence()).catch(()=>null).finally(()=>{this.warming=null;});
+      }
+      return {state:'NO_CURRENT_SLOT',externalWrites:0};
+    }
     this.busy=true;
     try {
       const claimed=await this.ledger.claimAutopilotSlot(this.engine.accountId,slot,this.now());

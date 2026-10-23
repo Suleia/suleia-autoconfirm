@@ -101,9 +101,10 @@ export class AdsIntelligence {
     const selected=intent.selector==='ALL_ACTIVE'?inventory.campaigns.filter(c=>c.status==='ACTIVE'&&c.effective_status==='ACTIVE'):inventory.campaigns.filter(c=>String(c.id)===intent.selector||match(c.name,intent.selector));
     if (intent.selector!=='ALL_ACTIVE'&&selected.length!==1) return {state:'CLARIFICATION',question:selected.length?'Hay varias campañas. Indica el ID exacto.':'No encuentro esa campaña. Indica el ID exacto.'};
     const metrics=new Map(snapshot.facts.map(f=>[f.campaignId,this.autopilot?.config.enabled?autopilotMetric(f):f]));
+    const constraints=this.autopilot?.config.enabled?await this.autopilot.constraints():undefined;
     const items=[];
     for(const c of selected){const metric=metrics.get(String(c.id))||null,decision=this.policyReasons(c,metric,intent,inventory),learning=this.learningAssessment?await this.learningAssessment(c):null;
-      if(this.autopilot?.config.enabled)decision.reasons.push(...await this.autopilot.manualAssessment(c,decision.after));
+      if(this.autopilot?.config.enabled)decision.reasons.push(...await this.autopilot.manualAssessment(c,decision.after,{constraints}));
       items.push({campaignId:String(c.id),name:c.name,before:c.daily_budget===null||c.daily_budget===undefined?null:Number(c.daily_budget),after:decision.after,reasons:[...new Set([...decision.reasons,...(learning?.reasons||[])])],learning,metric,status:'PENDING'});}
     let usage=null;if(this.ledger.budgetUsage)usage=await this.ledger.budgetUsage(this.accountId,this.now(),this.policy.campaignCooldownMs||86400000);
     if(usage){for(const item of items)if(!consolidatedPolicy(this.autopilot?.config)&&usage.changedCampaignIds.includes(item.campaignId))item.reasons.push('CAMPAIGN_COOLDOWN');

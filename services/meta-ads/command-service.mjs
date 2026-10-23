@@ -44,7 +44,7 @@ export async function adsCommand(runtime,body) {
     }
     if(intent.kind==='analysis')return {analysis:await runtime.overview(intent),focus:intent.focus};
     if(intent.kind==='budget'&&runtime.algorithmEnabled){
-      let timer;try{const ready=await Promise.race([runtime.autopilot?.config.enabled&&consolidatedPolicy(runtime.autopilot.config)?runtime.budgetGuards():runtime.algorithm(),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),12000);})]);
+      let timer;try{const ready=await Promise.race([runtime.autopilot?.config.enabled&&consolidatedPolicy(runtime.autopilot.config)?runtime.budgetGuards():runtime.algorithm(),new Promise(resolve=>{timer=setTimeout(()=>resolve(null),8000);})]);
         if(!ready)return {text:'Preparando las protecciones históricas de la propuesta. Vuelve a solicitarla en unos minutos. Todavía no se ha creado ni ejecutado una propuesta.'};
       }finally{clearTimeout(timer);}
     }

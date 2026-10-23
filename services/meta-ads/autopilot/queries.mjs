@@ -13,6 +13,7 @@ export const AUTOPILOT_REASONS=Object.freeze({
   AUTOPILOT_STALE_OR_WRONG_DAY:'faltan datos actuales del día de Madrid',ROAS_MISSING:'ROAS ausente',ROAS_AMBIGUOUS:'ROAS ambiguo',ROAS_SCOPE_MISMATCH:'ROAS y compras corresponden a eventos distintos',
   MAX_BUDGET:'ya está en el máximo o lo supera',MIN_BUDGET:'inferior al mínimo operativo',INSUFFICIENT_SAMPLE:'muestra insuficiente',ROAS_ZERO_SPEND:'gasto cero',
   AUTOMATION_CONFLICT:'existe una regla automática que puede entrar en conflicto',LEARNING_ACTIVE:'aprendizaje activo',LEARNING_EVIDENCE_NOT_ENABLED:'protección de aprendizaje sin activar',
+  LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE:'protecciones históricas aún no disponibles',CAMPAIGN_AGE_UNKNOWN_OR_YOUNG:'campaña reciente o edad sin verificar',RECENT_SIGNIFICANT_CHANGE:'cambio reciente aún en observación',INSUFFICIENT_MULTIDAY_SAMPLE:'muestra histórica insuficiente',ROAS_MISSING_OR_AMBIGUOUS:'ROAS histórico ausente o ambiguo',DAILY_CHANGE_LIMIT:'cambios externos del día pendientes de revisión',EXTERNAL_BUDGET_NOT_RECONCILED:'presupuesto externo pendiente de conciliar',VOLATILITY_OR_INCOMPLETE_HISTORY:'historia incompleta o volátil',
   NIGHT_UNKNOWN_ROAS_CONSERVATIVE_CAP:'techo conservador de 20 € por ROAS no fiable; no significa ROAS bajo',AUTOPILOT_HOLD:'mantener según la regla horaria'
 });
 export function parseAutopilotQuery(input) {
@@ -35,7 +36,8 @@ export function formatAutopilot(report,query={kind:'status'}) {
   const ids=new Set(selected.map(c=>c.campaignId));
   const timeline=report.timeline.filter(t=>ids.has(t.campaignId)),verified=timeline.filter(t=>t.state==='VERIFIED');
   const activation={CANARY_PENDING:'Primer cambio elegible pendiente de verificación en Meta.',CANARY_VERIFIED:'Primer cambio real verificado; ejecución automática habilitada.',REVIEW_REQUIRED:'Ejecución bloqueada: hay una operación que requiere revisión.'}[report.liveActivation?.stage];
-  const header=`Budget Autopilot V5.1 · ${report.mode}${report.enabled?'':' · desactivado'}\n${report.date} · Europe/Madrid · máximo 70 €/campaña\nRegla ordinaria: ±10 €; incremento con ROAS >3,8 y al menos tres compras.\n${activation?activation+'\n':''}Observado ${report.observedAt} · próxima revisión ${report.nextReviewAt}`;
+  const alerts=(report.alerts||[]).map(a=>a.code==='CRITICAL_UNVERIFIED_CAP'?`ALERTA: el techo nocturno no quedó verificado (${a.slot}).`:a.code==='INTERRUPTED_REVIEW_REQUIRED'?`ALERTA: revisión interrumpida (${a.slot}); necesita comprobación.`:`ALERTA: ${a.code} (${a.slot}).`);
+  const header=`Budget Autopilot V5.1 · ${report.mode}${report.enabled?'':' · desactivado'}\n${report.date} · Europe/Madrid · máximo 70 €/campaña\nRegla ordinaria: ±10 €; incremento con ROAS >3,8 y al menos tres compras.\n${activation?activation+'\n':''}${alerts.length?alerts.join('\n')+'\n':''}Observado ${report.observedAt} · próxima revisión ${report.nextReviewAt}`;
   if(query.kind==='increases'||query.kind==='reductions'){
     const rows=verified.filter(t=>query.kind==='increases'?t.after>t.before:t.after<t.before);
     const sum=rows.reduce((s,r)=>s+Math.abs(r.after-r.before),0);
