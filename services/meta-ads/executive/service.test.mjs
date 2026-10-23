@@ -69,3 +69,31 @@ test('a completed daily delivery is never falsely marked MISSED after the window
 test('an unfinished delivery after23:00 is visible as incomplete and cannot create more sends',async()=>{
  const f=fixture();await f.service.prepare({kind:'DAILY'});await f.service.pending();f.setTime('2026-10-21T21:01:00Z');assert.equal((await f.service.command({operation:'due',actor})).executive.state,'DELIVERY_INCOMPLETE');assert.equal(f.parts.size,0);
 });
+
+test('a retained stale snapshot with a pending canonical refresh waits for fresh evidence',async()=>{
+ const f=fixture(),calls=new Map(),waits=[];let at=FIXTURE_NOW;
+ const base=analyzeReview({dataset:fixtureDataset(),extras:fixtureExtras(fixtureDataset()),now:FIXTURE_NOW});
+ const service=createExecutiveService({...f.options,now:()=>at,sleep:async ms=>{waits.push(ms);at+=ms;},review:{async report(q){
+  const key=q.period+':'+q.level,n=(calls.get(key)||0)+1;calls.set(key,n);
+  return {...structuredClone(base),observedAt:new Date(n===1?at-3600000:at).toISOString(),freshness:n===1?'STALE':'FRESH',diagnostic:n===1?{code:'ADS_REPORT_PREPARING'}:null};
+ }}});
+ const p=await service.prepare({kind:'MANUAL',query:{period:'hoy'},principal:'synthetic-owner'});await service.pending();const r=await service.detail(p.id);
+ assert.equal(r.state,'READY');assert.notEqual(r.body.dataState,'INSUFFICIENT');
+ for(const k of ['today','week','ads','month'])assert.equal(r.body.evidence[k].freshness,'FRESH');
+ assert.deepEqual([...calls.values()],[2,2,2,2]);assert.deepEqual(waits,[3000,3000,3000,3000]);
+ assert.equal(f.parts.size,0);assert.equal(r.body.metaWrites,0);
+});
+
+test('pending retained evidence respects the generation deadline and is never promoted to fresh',async()=>{
+ const f=fixture();let at=FIXTURE_NOW,reads=0;
+ const service=createExecutiveService({...f.options,now:()=>at,generationMs:6000,sleep:async ms=>{at+=ms;},review:{async report(){reads++;return {freshness:'STALE',diagnostic:{code:'ADS_REPORT_PREPARING'}};}}});
+ const p=await service.prepare({kind:'MANUAL'});await service.pending();const r=await service.detail(p.id);
+ assert.equal(reads,2);assert.equal(r.body.dataState,'INSUFFICIENT');assert.ok(r.body.failures.includes('CURRENT_UNAVAILABLE'));assert.equal(f.parts.size,0);
+});
+
+test('a definitive source error preserves historical evidence without automatic retries',async()=>{
+ const f=fixture(),base=analyzeReview({dataset:fixtureDataset(),extras:fixtureExtras(fixtureDataset()),now:FIXTURE_NOW});let reads=0,waits=0;
+ const service=createExecutiveService({...f.options,sleep:async()=>{waits++;},review:{async report(){reads++;return {...structuredClone(base),freshness:'STALE',diagnostic:{code:'META_HTTP_403'}};}}});
+ const p=await service.prepare({kind:'MANUAL'});await service.pending();const r=await service.detail(p.id);
+ assert.equal(reads,4);assert.equal(waits,0);assert.equal(r.body.dataState,'INSUFFICIENT');assert.equal(r.body.evidence.today.freshness,'STALE');assert.equal(r.body.priorities.length,0);
+});

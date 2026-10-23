@@ -1189,8 +1189,8 @@ function setView(view) {
   const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados',analytics:'Centro de datos e información',ads:'Ads Intelligence' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance',automation=view==='automation',analytics=view==='analytics'; $('summary').hidden = finance||automation||analytics; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation||analytics;$('automation-view').hidden=!automation;$('analytics-view').hidden=!analytics;
   $('ads-view').hidden=view!=='ads';
-  if(view==='ads'){history.replaceState({},'',location.pathname+'#ads');$('summary').hidden=true;$('queue-card').hidden=true;$('recovery-center').hidden=true;AdsIntelligencePanel.load();return;}
-  if(location.hash==='#ads')history.replaceState({},'',location.pathname);
+  if(view==='ads'){if(!(location.hash||'').startsWith('#ads'))history.replaceState({},'',location.pathname+'#ads');$('summary').hidden=true;$('queue-card').hidden=true;$('recovery-center').hidden=true;AdsIntelligencePanel.load();return;}
+  if((location.hash||'').startsWith('#ads'))history.replaceState({},'',location.pathname);
   $('recovery-center').hidden=view!=='incidents';
   if(analytics){if(!(location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname+'#analytics');OrderIntelligencePanel.load();return;}
   if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname);

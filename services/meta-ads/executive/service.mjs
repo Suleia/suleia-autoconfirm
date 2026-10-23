@@ -12,7 +12,13 @@ export function createExecutiveService({review,ledger,accountId,readBudget=null,
  async function read(query,deadline){
   for(let i=0;i<30;i++){
    if(now()>=deadline)throw Error('EXECUTIVE_READ_TIMEOUT');
-   try{return await review.report(query);}catch(error){const code=error.code||error.message;if(!['ADS_REPORT_PREPARING','ADS_REPORT_BUSY','META_RATE_LIMITED','META_HTTP_429'].includes(code)||i===29)throw error;await sleep(['META_RATE_LIMITED','META_HTTP_429'].includes(code)?60000:3000);}
+   try{
+    const value=await review.report(query),code=value?.diagnostic?.code;
+    // A retained snapshot can accompany an in-flight canonical refresh. Reuse
+    // that bounded job instead of completing the report with its old cut.
+    if(value?.freshness!=='FRESH'&&['ADS_REPORT_PREPARING','ADS_REPORT_BUSY','META_RATE_LIMITED','META_HTTP_429'].includes(code))throw Object.assign(Error(code),{code});
+    return value;
+   }catch(error){const code=error.code||error.message;if(!['ADS_REPORT_PREPARING','ADS_REPORT_BUSY','META_RATE_LIMITED','META_HTTP_429'].includes(code)||i===29)throw error;await sleep(Math.min(['META_RATE_LIMITED','META_HTTP_429'].includes(code)?60000:3000,Math.max(0,deadline-now())));}
   }
  }
  async function generate({id,lease,day,kind,query}){

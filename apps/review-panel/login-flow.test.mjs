@@ -83,3 +83,21 @@ test('login is prepared before it is shown and uses native link navigation', asy
   assert.ok(storage.get('suleia_pkce_verifier'));
   assert.ok(storage.get('suleia_oauth_state'));
 });
+
+test('full authenticated startup preserves Ads report and campaign links before dispatch, including OAuth return',async()=>{
+ const script=fs.readFileSync(new URL('./app.js',import.meta.url),'utf8');
+ const hashes=['#ads?tab=reports&reportId='+'a'.repeat(64)+'&section=creatives','#ads?tab=comparator&campaignId=123&period=30d'];
+ for(const hash of hashes)for(const callback of [false,true]){
+  const elements=new Map(),storage=new Map(callback?[['suleia_oauth_state','synthetic-state'],['suleia_pkce_verifier','synthetic-verifier'],['suleia_ads_return',hash]]:[['suleia_access_token','synthetic-token'],['suleia_token_expires_at',String(Date.now()+600000)]]),loaded=[];
+  const location={origin:'https://panel.example',pathname:'/operations/',search:callback?'?code=synthetic-code&state=synthetic-state':'',hash:callback?'':hash};
+  const context={URL,URLSearchParams,TextEncoder,btoa,crypto:webcrypto,location,Intl,console,setInterval(){},
+   history:{replaceState(_a,_b,url){const next=new URL(url,location.origin);location.hash=next.hash;location.search=next.search;}},
+   sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},
+   document:{title:'Suleia',getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
+   SuleiaShell:{mount(){},select(){}},AdsIntelligencePanel:{load(){loaded.push(location.hash);}},
+   fetch:async url=>({ok:true,json:async()=>String(url).endsWith('/token')?{access_token:'synthetic-token',expires_in:600}:{oauth:{issuer:'https://panel.example/auth',client_id:'synthetic-client',scope:'openid operations:read'},refresh_interval_seconds:45}})
+  };
+  await vm.runInNewContext(script,context);
+  assert.deepEqual(loaded,[hash]);assert.equal(location.hash,hash);assert.equal(elements.get('app').hidden,false);
+ }
+});
