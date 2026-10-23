@@ -96,3 +96,24 @@ revision. Windows sandbox temporary-file rename permissions prevented that
 local runner from starting; the release evidence comes from the isolated Linux
 run. Deploy this repair over `0906530`, advancing only the same four existing
 exact-revision gates after their complete regression suite passes.
+
+Production verification on 2026-10-23: Render deployment
+`dep-dbdo3iavcj2c738efgag` is LIVE on
+`1808f34422d66059ef4f81c8875d0a967b655b7c`. Only the four existing revision
+gates changed; the fingerprint of all other environment settings matched.
+Real confirmation remains enabled, dry-run false and delay one hour. Existing
+address RETURN SHADOW/OPEN and discount-support disabled remain unchanged.
+API/panel/bot V8 on the separate VPS were outside this Render deployment.
+
+The reported order ES1480818 / Shopify #3188 had dated button consent at
+13:28:15 UTC (15:28 Madrid), due at14:28:15 UTC (16:28 Madrid). The old final
+parser held it despite a strict exact phone/order/conversation match in the
+client's `#Pedido` field. After the repair, the existing natural background
+cycle confirmed it; no diagnostic script called a provider write or manually
+triggered another cycle. A fresh provider GET at15:53:08 UTC verified
+SHIPPING/AWAITING_PICKUP with confirmed_at15:52:03.728 UTC (17:52 Madrid).
+The executor's matching record has CONFIRMED/CONFIRM, the original13:28:15
+signal and14:28:15 deadline, and confirmedAt15:52:03.834 UTC. The natural cycle
+completed15:52:51.429 UTC without a global error. This proves the reported
+case's postcondition; it does not claim every unresolved language case or the
+optional model-credit dependency has been repaired.
