@@ -642,8 +642,8 @@ function fieldValue(subscriber, fieldName) {
   return field?.value ?? null;
 }
 
-function dropeaOrderFieldValue(subscriber) {
-  const field = (subscriber.user_fields || []).find((item) => {
+export function dropeaOrderFieldValue(subscriber) {
+  const field = (subscriber?.user_fields || []).find((item) => {
     const name = normalizeText(item.name);
     const compactName = name.replace(/[^a-z0-9]+/g, '');
     const explicitOrderField = compactName === 'pedido' || compactName === 'idpedido';

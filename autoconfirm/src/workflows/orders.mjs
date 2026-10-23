@@ -24,6 +24,7 @@ import {
   clearSubscriberOrderConfirmationState,
   chatbyNativeOwnsLifecycleTemplate,
   createSubscriber,
+  dropeaOrderFieldValue as currentSubscriberOrderId,
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
   findSubscribersByPhone,
@@ -480,13 +481,13 @@ function latestConfirmationMessageAt(messages) {
 
 function customerMessagesAfter(messages, sinceIso) {
   const since = parseDate(sinceIso);
-  if (!since) return customerMessages(messages);
   return customerMessages(messages).filter((message) => {
+    if (!since) return true;
     const createdAt = messageDate(message);
     if (createdAt) return createdAt >= since;
     const timestamp = messageTimestamp(message);
     return timestamp ? timestamp >= since.getTime() : true;
-  });
+  }).sort((left, right) => messageTimestamp(left) - messageTimestamp(right));
 }
 
 const ADDRESS_CHANGE_PATTERNS = [
@@ -596,6 +597,47 @@ function requestsPromotionChange(text) {
   ].some((pattern) => pattern.test(value));
 }
 
+function textConfirmationEvidence(text) {
+  const review = (reason) => ({ intent: 'REVIEW', confidence: 100, reason });
+  const value = text.replace(/\s+/g, ' ').trim();
+  if (/\b(?:cuanto (?:cuesta|vale|es|tengo)|que precio|cual es (?:el precio|el importe)|como (?:confirmar|confirmo|pago)|no recuerdo|no me acuerdo)\b/.test(value)) {
+    return review('Consulta o duda pendiente; no basta una palabra de confirmacion dentro de la pregunta.');
+  }
+  // Questions, conditions and quoted instructions are not affirmative consent.
+  // Keep these as explicit holds so a prior yes or a persistent tag cannot win.
+  if (/https?:|ignora.*instrucciones|["“][^"”]*(?:confirm|quiero|envia)[^"”]*["”]/.test(value)) {
+    return review('Respuesta citada o no verificable como consentimiento propio del cliente.');
+  }
+  if (/\b(?:solo si|solamente si|unicamente si|quizas|tal vez|puede que|no se si|no estoy segur[oa]|todavia no|aun no|de momento no|espera(?:d|r|en)?|mas adelante)\b/.test(value)
+    || /\bsi (?:cuesta|vale|son|llega|llegan|pueden|podeis|me|no|viene|tiene|incluye|es|se puede)\b/.test(value)
+    || /\b(?:lo quiero|recibirlo|el pedido|enviamelo)\s+si\b/.test(value)) {
+    return review('El cliente expresa una condicion, duda o espera; requiere aclaracion antes de confirmar.');
+  }
+  if (/\b(?:no quiero cancel|no (?:lo )?cancel|no quiero anular|quiero saber|quisiera saber|me gustaria saber|quiero informacion|no puedo confirmar)\w*/.test(value)) {
+    return review('La respuesta no constituye una confirmacion incondicional del pedido.');
+  }
+  if (/\b(?:no tengo (?:dinero|efectivo)|no puedo (?:pagar|recibir|estar)|no (?:he|hemos) confirmado|no esta confirmado)\b/.test(value)) {
+    return review('El cliente indica un impedimento o niega la confirmacion; revisar antes de enviar.');
+  }
+  const assertion = /\b(?:yo\s+)?(?:si\s+)?(?:lo\s+)?(?:quiero|deseo|quisiera|me gustaria)\s+(?:recibir(?:lo| mi pedido| el pedido)|que me (?:envien|manden|entreguen|traigan)(?: el pedido| mi pedido|lo)?|el pedido|mi pedido)\b/.test(value)
+    || /^(?:si[,!. ]+)?(?:yo\s+)?quiero(?:\s*(?:[,!.]|$)|\s+son\s+\d)/.test(value)
+    || /\b(?:si[, ]+)?yo (?:si )?lo quiero\b/.test(value)
+    || /\b(?:envi(?:a|e|en|ad)(?:melo|noslo|lo)|mand(?:a|e|en|ad)(?:melo|noslo|lo)|(?:envi|mand)(?:a|e|en|ad)me (?:el|mi) pedido|pueden (?:enviarmelo|mandarmelo)|podeis (?:enviarmelo|mandarmelo))\b/.test(value)
+    || /\b(?:acepto|confirmo|autorizo) (?:el|mi|este) (?:pedido|envio)\b/.test(value);
+  const questionAt = value.search(/[¿?]/);
+  // An independent confirmation may be followed by a delivery question.
+  // A price/payment question or a question containing the assertion stays held.
+  if (questionAt >= 0) {
+    const beforeQuestion = value.slice(0, questionAt);
+    if (!assertion || !/\b(?:quiero|deseo|confirmo|acepto|enviamelo|mandamelo)\b/.test(beforeQuestion)
+      || /(?:cuanto|precio|cuesta|importe|pagar|pago|euros|\bson\b)/.test(value.slice(questionAt))) {
+      return review('Pregunta pendiente de resolver; no se interpreta como confirmacion automatica.');
+    }
+  }
+  if (assertion) return { intent: 'CONFIRM', confidence: 100, reason: 'El cliente expresa de forma afirmativa que quiere recibir o que se envie el pedido actual.' };
+  return null;
+}
+
 export function deterministicCustomerIntent(messages) {
   const text = normalizeText(messages.map((message) => [
     message.content,
@@ -608,7 +650,7 @@ export function deterministicCustomerIntent(messages) {
   if (!text) return null;
 
   const completedAddressChange = addressChangeWithCompleteAddressIntent(messages);
-  if (completedAddressChange) return completedAddressChange;
+  if (completedAddressChange && !/\b(?:cancel\w*|anul\w*|no quiero|espera(?:d|en)?|solo si)\b/.test(text)) return completedAddressChange;
 
   if (requestsAddressChange(text)) {
     return {
@@ -626,9 +668,16 @@ export function deterministicCustomerIntent(messages) {
     };
   }
 
+  const textEvidence = textConfirmationEvidence(text);
+  if (textEvidence?.intent === 'REVIEW') return textEvidence;
+
   const cancelPatterns = [
     /\bno lo quiero\b/,
     /\bno quiero\b/,
+    /\bno deseo recibir\b/,
+    /\bno (?:autorizo|quisiera|me gustaria) (?:el envio|recibir|que me)\b/,
+    /\bno (?:pueden|podeis) (?:enviarmelo|mandarmelo)\b/,
+    /\bquiero que no (?:me )?(?:lo )?(?:envien|manden|entreguen)\b/,
     /\bno confirmo\b/,
     /\bno confirmar\b/,
     /\bnao quero\b/,
@@ -646,6 +695,7 @@ export function deterministicCustomerIntent(messages) {
     /\bno enviar\b/,
     /\bno lo envie(s)?\b/,
     /\bno me lo envie(s)?\b/,
+    /\bno (?:me |lo |me lo )?env(?:ie|ies|ien|ieses|iad)(?:lo|melo)?\b/,
     /\bno me lo mand(e|es|en)\b/,
     /\bno lo mand(e|es|en)\b/,
     /\bno mand(e|es|en) nada\b/,
@@ -681,12 +731,15 @@ export function deterministicCustomerIntent(messages) {
     };
   }
 
+  if (textEvidence?.intent === 'CONFIRM') return textEvidence;
+
   const confirmPatterns = [
     /^(si|sii|siii|sim|ok|vale|perfecto|claro|correcto)$/,
     /\bconfirmo\b/,
     /\bconfirmado\b/,
     /\bconfirmada\b/,
-    /\bconfirmar\b/,
+    /^confirmar$/,
+    /\b(?:quiero|deseo) confirmar (?:el|mi) pedido\b/,
     /\bconfirmar mi pedido\b/,
     /\bconfirmar o pedido\b/,
     /\bsi lo quiero\b/,
@@ -1202,7 +1255,7 @@ async function unansweredTimeoutCancellationResult(order, store, validFrom) {
   return null;
 }
 
-async function scheduleDelayedConfirmation(order, store, analysis, source, signalAt = null, inboundCustomerMessages = []) {
+export async function scheduleDelayedConfirmation(order, store, analysis, source, signalAt = null, inboundCustomerMessages = []) {
   const delayHours = Number(store.confirmationDelayHours ?? config.defaultStore.confirmationDelayHours ?? 1) || 1;
   const startedAt = signalAt || new Date().toISOString();
   const dueAt = addHours(startedAt, delayHours);
@@ -1237,7 +1290,16 @@ async function scheduleDelayedConfirmation(order, store, analysis, source, signa
   };
 }
 
-async function processDelayedConfirmation(order, store, inboundCustomerMessages) {
+export async function processDelayedConfirmation(order, store, inboundCustomerMessages, { finalRead = false, dependencies = {} } = {}) {
+  const {
+    duplicateGuard = activeDuplicateOrderPolicy,
+    resolveSubscriber = resolveSubscriberForOrder,
+    readOrder = getDropeaOrderById,
+    readMessages = getIncidentChatMessages,
+    confirmOrder = confirmDropeaOrder,
+    cancelOrder = cancelDropeaOrder,
+    verifyConfirmation = inspectAndRepairConfirmedDropeaOrder
+  } = dependencies;
   if (String(order.aiIntent || '').toUpperCase() !== 'CONFIRM_DELAY_PENDING') return null;
 
   const dueAt = parseDate(order.confirmationDueAt);
@@ -1246,8 +1308,10 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
   const latestIntent = customerConversationIntentForOrder(messagesAfterConfirmation, order)
     || deterministicCustomerIntent(messagesAfterConfirmation);
 
+  if (latestIntent?.intent === 'REVIEW') return holdConfirmationForReview(order, store, latestIntent);
+
   if (latestIntent?.intent === 'CANCEL') {
-    const cancellation = await cancelDropeaOrder(order.orderId);
+    const cancellation = await cancelOrder(order.orderId);
     const updated = upsertOrder(store.id, {
       ...order,
       status: 'REJECTED_AFTER_CONFIRM_CANCEL',
@@ -1270,7 +1334,7 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
   }
 
   if (latestIntent?.intent === 'PROMOTION_CHANGE') {
-    const cancellation = await cancelDropeaOrder(order.orderId);
+    const cancellation = await cancelOrder(order.orderId);
     const replyText = promotionChangeMessage(order);
     let chatbyReply = null;
     let chatbyReplyError = null;
@@ -1339,8 +1403,10 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
     };
   }
 
-  const duplicate = await activeDuplicateOrderPolicy(order, store, 'delayed_confirmation_guard');
-  if (duplicate) return duplicate;
+  if (!finalRead) {
+    const duplicate = await duplicateGuard(order, store, 'delayed_confirmation_guard');
+    if (duplicate) return duplicate;
+  }
 
   const delayedConfirmRealEnabled = Boolean(store.delayedConfirmRealEnabled ?? config.defaultStore.delayedConfirmRealEnabled);
   if (!delayedConfirmRealEnabled) {
@@ -1363,7 +1429,24 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
     };
   }
 
-  const confirmation = await confirmDropeaOrder(order.orderId);
+  if (!finalRead) {
+    const subscriber = await resolveSubscriber(order, { requireExactOrder: true });
+    if (!sameOrderId(currentSubscriberOrderId(subscriber), order.orderId)) {
+      return holdConfirmationForReview(order, store, { reason: 'La conversacion ya no esta vinculada exactamente al pedido actual.' });
+    }
+    const remote = await readOrder(order.orderId);
+    if (!remote || String(remote.orderId) !== String(order.orderId)) throw new Error('CONFIRMATION_FRESH_ORDER_UNAVAILABLE');
+    if (String(remote.status).toUpperCase() !== 'PENDING') return { skipped: true, reason: 'order_no_longer_pending' };
+    const fresh = normalizeChatMessages(await readMessages(order.chatbyUserNs));
+    const freshIntent = customerConversationIntentForOrder(fresh, order);
+    if (freshIntent?.intent === 'REVIEW') return holdConfirmationForReview(order, store, freshIntent);
+    if (!freshIntent && !subscriberConfirmationIsCurrent(subscriber, order)) {
+      return holdConfirmationForReview(order, store, { reason: 'La relectura completa no permite verificar la confirmacion del pedido actual.' });
+    }
+    return processDelayedConfirmation(order, store, customerMessagesAfter(fresh, unansweredTimeoutStart(order)), { finalRead: true, dependencies });
+  }
+
+  const confirmation = await confirmOrder(order.orderId);
   const updated = upsertOrder(store.id, {
     ...order,
     status: 'CONFIRMED',
@@ -1375,7 +1458,7 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
   await safeUpsertSheetRow(updated);
   let dropeaRecovery = null;
   try {
-    dropeaRecovery = await inspectAndRepairConfirmedDropeaOrder(updated, { poll: true });
+    dropeaRecovery = await verifyConfirmation(updated, { poll: true });
   } catch (error) {
     dropeaRecovery = { repaired: false, error: error instanceof Error ? error.message : String(error) };
     console.error(`[dropea_post_confirm] Order ${order.orderId} verification failed:`, error);
@@ -1392,6 +1475,20 @@ async function processDelayedConfirmation(order, store, inboundCustomerMessages)
     dropeaRecovery,
     source: order.confirmationSource || 'delayed_confirmation'
   };
+}
+
+async function holdConfirmationForReview(order, store, analysis) {
+  const updated = upsertOrder(store.id, {
+    ...order,
+    status: 'MANUAL_REVIEW',
+    aiIntent: 'CONFIRMATION_REVIEW_REQUIRED',
+    aiConfidence: Number(analysis.confidence ?? 100),
+    confirmationDelayStartedAt: null,
+    confirmationDueAt: null,
+    operationalNote: `Confirmacion detenida: ${analysis.reason || 'Respuesta ambigua o condicionada del cliente.'}`
+  });
+  await safeUpsertSheetRow(updated);
+  return { action: 'confirmation_review_required', dryRun: Boolean(store.agentDryRun ?? config.defaultStore.agentDryRun), analysis, source: 'customer_context_review' };
 }
 
 async function simulationOverrideResult(order, store) {
@@ -1454,23 +1551,6 @@ async function simulationOverrideResult(order, store) {
   return null;
 }
 
-function currentSubscriberOrderId(subscriber) {
-  const fields = subscriber?.user_fields || [];
-  const field = fields.find((item) => {
-    const name = normalizeText(item.name);
-    return name.includes('dropea')
-      && (
-        name.includes('numero')
-        || name.includes('n mero')
-        || name.includes('nã')
-        || name.includes('num')
-        || name.includes('order')
-        || name.includes('pedido')
-      );
-  });
-  return field?.value ? String(field.value) : null;
-}
-
 function subscriberConfirmationTimestamp(subscriber) {
   if (!subscriberConfirmsOrder(subscriber)) return null;
 
@@ -1501,17 +1581,26 @@ export function subscriberConfirmationIsCurrent(subscriber, order, inboundConfir
 
 export function customerConversationIntentForOrder(messages, order) {
   const orderedMessages = [...messages].sort((a, b) => messageTimestamp(a) - messageTimestamp(b));
-  const customerOnly = orderedMessages.filter((message) => isCustomerMessage(message));
+  const customerOnly = customerMessagesAfter(orderedMessages, unansweredTimeoutStart(order));
 
   const completedAddressChange = addressChangeWithCompleteAddressIntent(customerOnly);
-  if (completedAddressChange) return completedAddressChange;
 
   for (let index = customerOnly.length - 1; index >= 0; index -= 1) {
     const message = customerOnly[index];
+    const references = [...normalizedMessageContent(message).matchAll(/(?:\bpedido\s*(?:numero\s*|n[ºo.]\s*)?[#: ]*|#)(?:es)?(\d{4,})\b/g)].map(match => match[1]);
+    const orderIds = [order?.orderId, order?.raw?.external_order_id].filter(Boolean).map(id => String(id).replace(/\D/g, ''));
+    if (orderIds.length && references.some(id => !orderIds.includes(id))) {
+      return { intent: 'REVIEW', confidence: 100, reason: 'La respuesta menciona otro pedido; revisar la vinculacion antes de confirmar.', occurred_at: messageDate(message)?.toISOString() || null, source: 'customer_context_review' };
+    }
     const intent = deterministicCustomerIntent([message]);
     if (!intent) continue;
 
+    if (intent.intent === 'REVIEW' || intent.intent === 'PROMOTION_CHANGE') {
+      return { ...intent, occurred_at: messageDate(message)?.toISOString() || null, source: 'customer_context_review' };
+    }
+
     if (intent.intent === 'ADDRESS_CHANGE') {
+      if (completedAddressChange) return { ...completedAddressChange, occurred_at: messageDate(customerOnly.at(-1))?.toISOString() || null };
       return {
         ...intent,
         occurred_at: messageDate(message)?.toISOString() || null,
@@ -1534,6 +1623,19 @@ export function customerConversationIntentForOrder(messages, order) {
     }
 
     if (intent.intent === 'CONFIRM') {
+      const amounts = [...normalizedMessageContent(message).matchAll(/\b(\d{1,4}(?:[.,]\d{1,2})?)\s*(?:euros?\b|€)/g)].map(match => Number(match[1].replace(',', '.')));
+      const expectedAmount = Number(order.orderAmount);
+      if (order.orderAmount != null && Number.isFinite(expectedAmount) && amounts.some(amount => Math.abs(amount - expectedAmount) > 0.011)) {
+        return { intent: 'REVIEW', confidence: 100, reason: 'El importe mencionado no coincide con el pedido; revisar antes de confirmar.', source: 'customer_context_review' };
+      }
+      if (unansweredTimeoutStart(order) && !messageDate(message)) {
+        return { intent: 'REVIEW', confidence: 100, reason: 'No se puede fechar la respuesta para el pedido actual.', source: 'customer_context_review' };
+      }
+      const acknowledgement = /^(?:si+|sim|ok|vale|perfecto|claro|correcto)[\s.! ,]*$/.test(normalizedMessageContent(message));
+      const previousIntent = customerOnly.slice(0, index).reverse().map(previous => deterministicCustomerIntent([previous])).find(Boolean);
+      if (acknowledgement && previousIntent && previousIntent.intent !== 'CONFIRM') {
+        return { intent: 'REVIEW', confidence: 100, reason: 'Un acuse breve no resuelve la duda, rechazo o cambio anterior; se necesita confirmacion explicita.', source: 'customer_context_review' };
+      }
       return {
         ...intent,
         occurred_at: messageDate(message)?.toISOString() || null,
@@ -1545,7 +1647,7 @@ export function customerConversationIntentForOrder(messages, order) {
     }
   }
 
-  return null;
+  return completedAddressChange;
 }
 
 export function currentConfirmationSupersedesIntent({
@@ -1584,7 +1686,11 @@ function subscriberContainsOrderId(subscriber, orderId) {
   return text.replace(/\D/g, ' ').split(/\s+/).includes(target);
 }
 
-async function resolveSubscriberForOrder(order, { maxPages = 10 } = {}) {
+async function resolveSubscriberForOrder(order, { maxPages = 10, requireExactOrder = false } = {}) {
+  if (requireExactOrder) {
+    const index = await loadSubscriberIndex({ maxPages, limit: 100 });
+    return findSubscriberInIndexForExactOrder(index, { phone: order.customerPhone, orderId: order.orderId });
+  }
   const exact = await findSubscriberForOrder({
     phone: order.customerPhone,
     orderId: order.orderId,
@@ -3541,7 +3647,7 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
     return { skipped: true, reason: 'no_chat_thread' };
   }
 
-  const messages = normalizeChatMessages(await getChatMessages(order.chatbyUserNs));
+  const messages = normalizeChatMessages(await getIncidentChatMessages(order.chatbyUserNs));
   const subscriber = await resolveSubscriberForOrder(order);
 
   const validFrom = unansweredTimeoutStart(order);
@@ -3556,6 +3662,9 @@ export async function analyzeAndMaybeConfirmOrder(order, store = config.defaultS
 
   const immediateCustomerIntent = customerConversationIntentForOrder(inboundCustomerMessages, order)
     || deterministicCustomerIntent(inboundCustomerMessages);
+  if (immediateCustomerIntent?.intent === 'REVIEW' || immediateCustomerIntent?.intent === 'PROMOTION_CHANGE') {
+    return holdConfirmationForReview(order, store, immediateCustomerIntent);
+  }
   const laterCurrentConfirmation = currentConfirmationSupersedesIntent({
     subscriber,
     order,
