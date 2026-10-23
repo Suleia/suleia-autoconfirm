@@ -90,12 +90,37 @@ HTML, JS and config responses are HTTP200 with Cache-Control:no-store. The
 existing issue and finance report contracts were inspected directly without
 logging customer information. No provider actions or test messages were sent.
 
-Production application has **not** occurred: automatic approval review rejected
-the deployment invocation and requested a separate post-test owner approval,
-citing the Command Center 3.0 approval condition. The owner has been asked to
-approve PR143's concrete panel-only repair; OpenAI remains excluded. Existing
-API867b3e0, panel e231c06 and bot20378bd remain the active baseline until approval.
-Do not claim repair verification in the browser before the release is applied.
+Automatic approval review initially rejected application and requested separate
+post-test owner approval, citing the Command Center 3.0 approval condition. No
+workaround was used. The owner then explicitly answered **“Sí, desplegar la
+reparación de la PR #143”**, excluding OpenAI activation. The exact accepted
+e767d13 artifact was applied on 2026-10-23 at18:32:29UTC /20:32Madrid.
+
+API is healthy on the immutable image above; panel mount is
+`/opt/suleia-panel-releases/panel-repair-e767d13`. Every effective environment
+variable is unchanged except build revision. Bot PID/config, permissions,
+recipients, schedules and unrelated container identities are preserved.
+Independent18:37UTC verification matched all seven served asset hashes and all
+19 protected budget source hashes; six unauthorized routes still reject401.
+OpenAI is not configured in production. No schema or provider changes.
+
+The real finance read now uses `ORDER_CREATION_COHORT_FINAL_BREAKDOWN`, revenue
+6063.01EUR,23dailyrows,21complete-profitdays,twoexplicitgaps and six historical
+months. Four unknown product-cost units still prevent exact monthly profit.
+An already-queued source refresh completed at18:37:43UTC; independent18:40:32UTC
+read confirmed refreshingfalse,stalefalse,pendingfalse. No duplicate worker was
+started. Incidents returned13currentrows with three observed customer responses
+and two human-owned response reviews. GET-only canonical Ads reads completed
+with32campaignrows and zero external writes:7d source18:38:05UTC,131purchases,
+ROAS3.3360753. Today's incomplete purchase/ROAS aggregate stays unavailable;
+freshness alone never invents a missing metric.
+
+Post-deployment browser verification is **pending personal login**: Chrome
+reached the normal Suleia OAuth form because the old SSO session expired. The
+owner has been asked to sign in; no credential extraction, service account,
+login bypass or automatic real-user test sends were used. The prior read-only
+view observations remain historical. Do not claim full visual verification
+until the repaired version has actually been inspected after login.
 
 Private VPS preparation and test evidence:
 `/root/suleia-panel-repair-20261023/e767d13/`.
