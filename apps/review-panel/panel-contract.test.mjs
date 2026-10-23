@@ -16,7 +16,9 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.ok(shell.includes("Incidencias"));
   assert.ok(shell.includes("Panel de resultados"));
   assert.doesNotMatch(`${html}\n${script}\n${css}`, /shopify/i);
-  assert.equal((script.match(/['"]POST['"]/gi) || []).length, 4);
+  // Two OAuth grants (PKCE exchange and refresh), plus the same three existing internal expense POSTs.
+  assert.equal((script.match(/['"]POST['"]/gi) || []).length, 5);
+  assert.match(script,/grant_type:'refresh_token'/);
   assert.match(script, /openid-connect\/token/);
   assert.doesNotMatch(script, /method\s*:\s*['"](?:PUT|DELETE)['"]/i);
   assert.match(script, /id \? 'PATCH' : 'POST'/);

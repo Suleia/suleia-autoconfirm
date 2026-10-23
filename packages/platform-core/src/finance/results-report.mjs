@@ -266,9 +266,16 @@ function mapReport(report, source, orders, month, currentDay, freshness) {
 }
 
 function authoritativeSourceAvailable(source) {
-  return Boolean(source?.period?.month && Array.isArray(source.days) && source?.totals
-    && source.days.length > 0 && source.totals.exactNetProfit !== null
-    && source.totals.exactNetProfit !== undefined && Number.isFinite(Number(source.totals.exactNetProfit)));
+  if (!source?.period?.month || !Array.isArray(source.days) || !source.days.length || !source.totals
+    || source.temporalModels?.pnl === 'REALIZED_EVENT_DATE') return false;
+  if (source.totals.exactNetProfit !== null && source.totals.exactNetProfit !== undefined
+    && Number.isFinite(Number(source.totals.exactNetProfit))) return true;
+  // A missing cost makes profit unavailable, not the observed purchase cohort.
+  // Retain only an explicitly partial source with exact, dated order membership.
+  return source.coverage?.exactProfitAvailable === false
+    && source.totals.realRevenue !== null && source.totals.realRevenue !== undefined
+    && Number.isFinite(Number(source.totals.realRevenue)) && Array.isArray(source.orders) && source.orders.length > 0
+    && source.orders.every(row => /^\d{4}-\d{2}-\d{2}$/.test(row.createdDay || '') && row.createdDay.startsWith(source.period.month));
 }
 
 function sourceCounts(source, canonicalOrders = []) {
@@ -328,8 +335,12 @@ function sourceFixedAccrual(source) {
 }
 
 function sourceDays(source, currentDay) {
-  const fixed = sourceFixedAccrual(source); let cumulative = 0;
-  return (source.days || []).map((row) => {
+  const fixed = sourceFixedAccrual(source); let cumulative = 0, cumulativeComplete = true;
+  return (source.days || []).map((input) => {
+    const row = { ...input };
+    if (Number(row.unknownProductCostUnits) > 0) row.productCost = null;
+    if (Number(row.missingReturnCosts) > 0) row.returnCost = null;
+    if (Number(row.missingRevenueOrders) > 0) row.realRevenue = null;
     const dailyRates = sourceCounts({counts:row});
     const fixedCosts = fixed ? round(fixed.get(row.day) || 0, 6) : row.fixedCosts;
     const componentValues = [row.productCost, row.outboundShippingCost, row.codCost, row.outboundFulfillmentCost,
@@ -339,6 +350,7 @@ function sourceDays(source, currentDay) {
     const realRevenue = row.realRevenue === null || row.realRevenue === undefined ? null : number(row.realRevenue);
     const netProfit = totalCosts === null || realRevenue === null ? null : round(realRevenue - totalCosts, 6);
     if (netProfit !== null) cumulative += netProfit;
+    else cumulativeComplete = false;
     return {
       ...row,
       confirmationRatePercent: row.created == null || (row.confirmed ?? row.sent) == null ? null : dailyRates.confirmationRatePercent,
@@ -346,10 +358,10 @@ function sourceDays(source, currentDay) {
       fixedCosts,
       totalCosts,
       netProfit,
-      cumulativeNetProfit: round(cumulative),
+      cumulativeNetProfit: cumulativeComplete ? round(cumulative) : null,
       marginPercent: realRevenue && netProfit !== null ? round(netProfit * 100 / realRevenue) : null,
       roiPercent: totalCosts && netProfit !== null ? round(netProfit * 100 / totalCosts) : null,
-      roas: number(row.metaSpend) ? round(number(realRevenue) / number(row.metaSpend)) : null,
+      roas: realRevenue !== null && number(row.metaSpend) ? round(realRevenue / number(row.metaSpend)) : null,
       quality: complete && realRevenue !== null ? (row.quality || 'COMPLETE') : 'INCOMPLETE',
       closeStatus: row.day === currentDay ? 'CURRENT_PARTIAL' : complete && realRevenue !== null ? 'COHORT_OBSERVED' : 'PENDING',
       closeLabel: row.day === currentDay ? 'Hoy · cohorte parcial' : complete && realRevenue !== null ? 'Estado actual de la cohorte' : 'Datos incompletos'
@@ -410,7 +422,7 @@ function mapAuthoritativeSource(source, month, currentDay, freshness, canonicalO
   const failed = Object.entries(controls).filter(([, value]) => value !== true).map(([key]) => key);
   const current = month === currentDay.slice(0, 7); const lastDay = days.at(-1)?.day || source.period?.until || `${month}-${monthDays(month)}`;
   const pendingDays = current ? Math.max(0, Number(currentDay.slice(-2)) - Number(lastDay.slice(-2))) : 0;
-  const sourceIssues = Array.isArray(source.quality?.issues) ? source.quality.issues : [];
+  const sourceIssues = Array.isArray(source.quality?.issues) ? source.quality.issues.map(issue => typeof issue === 'string' ? issue : issue.message || issue.code || 'SOURCE_INCOMPLETE') : [];
   const issues = [...new Set([...sourceIssues, ...failed.map((key) => `RECONCILIATION:${key}`)])];
   const settled=(source.orders || []).filter(row=>['DELIVERED','FINISHED','RETURNED'].includes(row.status));
   const settlementOrders = settled.length;
@@ -438,14 +450,21 @@ function mapAuthoritativeSource(source, month, currentDay, freshness, canonicalO
       returned: number(source.eventCounts?.returned ?? counts.returned),
       returnedUnits: number(source.eventCounts?.returnedUnits ?? counts.returnedUnits)
     },
-    totals: { ...source.totals }, days,
+    totals: { ...source.totals,
+      ...(days.some(row => Number(row.unknownProductCostUnits) > 0) ? { productCost:null } : {}),
+      ...(days.some(row => Number(row.missingReturnCosts) > 0) ? { returnCost:null,logisticsCost:null } : {}),
+      ...(days.some(row => Number(row.missingRevenueOrders) > 0) ? { realRevenue:null,revenue:null,roas:null } : {}),
+      ...(days.some(row => Number(row.unknownProductCostUnits) > 0 || Number(row.missingReturnCosts) > 0) ? { totalCosts:null } : {}),
+      ...(days.some(row => Number(row.unknownProductCostUnits) > 0 || Number(row.missingReturnCosts) > 0 || Number(row.missingRevenueOrders) > 0)
+        ? { contributionMargin:null,exactNetProfit:null,roiPercent:null,marginPercent:null } : {}) }, days,
     quality: { ...(source.quality || {}), status: issues.length ? 'REVIEW' : 'OK', issues,
       score: Math.max(0, 100 - issues.length * 5) },
     controls, warnings: [...new Set([...(source.warnings || []), ...issues])],
     coverage: { ...(source.coverage || {}), orders: true, meta: source.totals?.metaSpend !== null,
       dropeaBreakdownPercent: breakdownPercent, reconciledOrders,
       settlementOrders, missingSettlementOrders: settlementOrders - reconciledOrders,
-      exactProfitAvailable: source.totals?.exactNetProfit !== null && source.totals?.exactNetProfit !== undefined },
+      exactProfitAvailable: source.totals?.exactNetProfit !== null && source.totals?.exactNetProfit !== undefined
+        && !days.some(row => Number(row.unknownProductCostUnits) > 0 || Number(row.missingReturnCosts) > 0 || Number(row.missingRevenueOrders) > 0) },
     freshness,
     sources: { ...(source.sources || {}), orders: 'Dropea V2 · desglose financiero final por pedido',
       calculation: 'Suma conciliada de pedidos del mes en Dropea' },

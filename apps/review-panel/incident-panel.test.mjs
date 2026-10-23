@@ -28,7 +28,25 @@ test('accepted discount is visible with date and a manual-only queue shortcut',(
  const {context,get,data}=setup(),item=data.items[0];
  item.manual_discount={label:'Descuento aceptado · acción manual',pending:true,accepted_at:'2026-09-22T12:00:00Z'};
  assert.match(text(context.ui.rowIncident(item)),/Descuento aceptado · acción manual/);
- assert.match(text(context.ui.rowIncident(item)),/sin correo automático/);
+ assert.match(text(context.ui.rowIncident(item)),/Comprobar estado del descuento y de soporte/);
  context.ui.renderFilters();const button=all(get('filters')).find(e=>e.tagName==='button'&&e.textContent.startsWith('Descuentos aceptados'));
  button.events.click();assert.equal(context.ui.state.filters.manual_discount,'pending');assert.equal(context.ui.state.filters.scope,'ACTIVE');
+});
+
+test('published reopened-discount evidence remains visible without claiming a new customer reply',()=>{
+ const {context,data}=setup(),item=data.items[0];
+ item.manual_discount={label:'Descuento aceptado',pending:true,accepted_at:'2026-09-19T12:00:00Z'};
+ item.resolution_observation={observed_at:new Date().toISOString(),customer_replied:false,current_owner:'HUMAN',human_review_reason:'ACCEPTED_DISCOUNT_INCIDENT_REOPENED'};
+ const row=context.ui.rowIncident(item);
+ assert.match(text(row),/Incidencia reabierta · descuento pendiente de comprobar/);
+ assert.match(text(row),/No repetir el correo anterior/);
+ assert.match(text(row),/Aceptación registrada en el pedido/);
+ assert.doesNotMatch(text(row),/Necesita tu decisión · el cliente ha respondido/);
+});
+
+test('customer activity from before the current issue is never labelled after opening',()=>{
+ const {context,data}=setup(),item=data.items[0];
+ item.recovery.evidence={customer_interacted:true,message:'Synthetic previous reply',response_at:'2026-09-19T10:00:00Z'};
+ assert.match(text(context.ui.rowIncident(item)),/anterior o simultánea a esta incidencia/);
+ assert.doesNotMatch(text(context.ui.rowIncident(item)),/tras la apertura/);
 });

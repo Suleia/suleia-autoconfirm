@@ -1,4 +1,5 @@
 /* Results-only presentation. Other navigation views retain their existing styles. */
+.results-v2 .rv-quality-note{padding:12px 16px;border:1px solid #edcf91;border-radius:10px;background:#fff8e8;color:#775319;font-size:13px;line-height:1.5}
 .app-shell[data-view="finance"] .workspace{background:#f1f7fa;min-width:0}
 .app-shell[data-view="finance"] .topbar{margin-bottom:8px;padding-bottom:8px;min-height:32px}
 .app-shell[data-view="finance"] .topbar>div:first-child{display:none}

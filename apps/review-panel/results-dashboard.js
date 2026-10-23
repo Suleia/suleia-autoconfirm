@@ -134,6 +134,9 @@ const ResultsV2 = (() => {
     $('finance-hero').replaceChildren(...cards.map(card=>KpiCard(card,data)));
     const sources=data.freshness?.sources||{},blocked=Object.values(sources).some(s=>s?.status!=='OK');
     $('finance-freshness').replaceChildren(SourceStatus('Dropea',sources.dropea),SourceStatus('Meta',sources.meta),SourceStatus('Informe',sources.report,blocked),DataQualityBadge(data));
+    const warning=$('finance-data-warning');
+    warning.hidden=present(t.exactNetProfit);
+    warning.textContent=present(t.exactNetProfit)?'':`Informe parcial: ${(data.warnings||[]).map(w=>typeof w==='string'?w:w.message||w.code).filter(w=>w&&!w.startsWith('RECONCILIATION:')).slice(0,2).join(' ') || 'Faltan componentes para calcular el beneficio completo.'} Se muestran los ingresos, recuentos, días e históricos disponibles. Los importes afectados quedan pendientes de completar.`;
     const selector=node('select','rv-history-select');selector.setAttribute('aria-label','Meses de comparativa');for(const n of [6,9,12]){const option=node('option','',`${n} meses`);option.value=String(n);selector.append(option);}selector.value=String(historyWindow);selector.addEventListener('change',()=>{historyWindow=Number(selector.value);render(data);});
     $('results-v2-charts').replaceChildren(
       ChartCard('Evolución diaria de beneficio neto','Cohorte de compra · beneficio de cada día',timelineChart(data,'profit')),

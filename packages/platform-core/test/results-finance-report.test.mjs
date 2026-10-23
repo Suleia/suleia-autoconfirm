@@ -332,3 +332,36 @@ test('duplicate VAT recognition and missing purchase date fail the per-order aud
   assert.equal(r.controls.sourceSettledCostsReconciled,false);
   assert.equal(r.quality.status,'REVIEW');
 });
+
+test('a partial purchase cohort preserves revenue, daily series and history without inventing missing costs',()=>{
+  const s=auditedPurchaseSource();
+  s.totals={...s.totals,totalCosts:null,exactNetProfit:null,roiPercent:null,marginPercent:null};
+  s.coverage={...s.coverage,exactProfitAvailable:false,productCostPercent:90};
+  s.quality={status:'PARTIAL',issues:[{code:'MISSING_COST',message:'One product cost is missing.'}]};
+  s.days[0].unknownProductCostUnits=1;
+  const previous=auditedPurchaseSource();previous.period.month='2026-08';
+  previous.days=previous.days.map(d=>({...d,day:d.day.replace('2026-09','2026-08')}));
+  previous.orders=previous.orders.map(o=>({...o,createdDay:o.createdDay.replace('2026-09','2026-08')}));
+  const r=buildResultsFinanceReport({month:'2026-09',supplementalReports:[s,previous],now:new Date('2026-09-17T17:00:00Z')});
+  assert.equal(r.temporalModels.pnl,'ORDER_CREATION_COHORT_FINAL_BREAKDOWN');
+  assert.equal(r.totals.realRevenue,59.98);
+  assert.equal(r.totals.exactNetProfit,null);
+  assert.equal(r.totals.productCost,null);
+  assert.equal(r.days.length,3);
+  assert.equal(r.days[0].productCost,null);
+  assert.equal(r.days[0].totalCosts,null);
+  assert.equal(r.days[0].netProfit,null);
+  assert.equal(r.days[1].netProfit,19.72);
+  assert.equal(r.days[1].cumulativeNetProfit,null);
+  assert.equal(r.history.find(h=>h.month==='2026-08').totals.exactNetProfit,26.19);
+  assert.equal(r.counts.created,3);
+  assert.equal(r.coverage.exactProfitAvailable,false);
+  assert.equal(r.controls.sourceDailyInputsComplete,false);
+  assert.ok(r.warnings.some(w=>String(w).includes('One product cost is missing')));
+});
+
+test('an explicit event-date report never becomes an authoritative purchase cohort',()=>{
+ const s=auditedPurchaseSource();s.temporalModels={pnl:'REALIZED_EVENT_DATE'};
+ const r=buildResultsFinanceReport({month:'2026-09',supplementalReports:[s],now:new Date('2026-09-17T17:00:00Z')});
+ assert.notEqual(r.source,'dropea_order_finance_v4');
+});
