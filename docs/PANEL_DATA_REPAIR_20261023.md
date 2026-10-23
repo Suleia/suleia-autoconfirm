@@ -139,8 +139,23 @@ instead of a second unguarded summary request. A failed read preserves the prior
 consistent display and exposes the error. Incidents retains its own scoped
 summary. Four behavioral regressions were added; the original code failed two,
 and all36 affected panel tests pass after the correction. This follow-up only
-changes app.js and requires a static-panel-only release; API, bot and workers
-must not be restarted. Final follow-up deployment evidence is recorded below.
+changes app.js. It was published as91dfb4761f9a79cbdc67a115b4f645b3147fb4ce
+and passed all56 panel tests in13files on the deployed Linux Node22 image,
+networknone and no production credentials. The static-panel-only release was
+applied at19:17:24UTC /21:17Madrid. Its directory is
+`/opt/suleia-panel-releases/panel-navigation-91dfb47`; the live HTTPS app.js
+hash and no-store policy were verified. API image/environment, bot PID/config
+and every unrelated running container ID remained unchanged. The prior panel
+directory and runtime override are retained privately for reversal.
+
+Final production browser reproduction loaded Ads from a clean page reload,
+then entered Orders without clicking Refresh. Counters immediately matched
+the12-order queue (five with response, seven without). The source queue changed
+normally from13 to12 during the audit; these are observations at different times,
+not an action performed by the verification. Resultados was left on October
+with six visible chart cards and23dailyrows. Private screenshot evidence is in
+`output/panel-repair-20261023/` outside this worktree; no customer screenshots or
+conversations are committed or uploaded to GitHub.
 
 The owner explicitly chose to leave OpenAI pending with a0USD allowance.
 No OpenAI key is installed in production, and no OpenAI calls were made.
