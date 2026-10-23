@@ -70,3 +70,29 @@ Do not deploy Ads V8 or change incident services, Meta, imports, discounts or
 templates. Verify the Render revision/readiness and the exact provider order
 after deployment. Rollback is the prior Render revision plus the prior values
 of those four gates; never replay uncertain provider actions.
+
+## Current-order field parity repair
+
+An exact customer confirmation could start the one-hour wait and then be held
+incorrectly at expiry. The Chatby client recognized `#Pedido`, `Pedido` and
+`ID Pedido`, while the workflow's duplicate parser accepted only field names
+containing `Dropea`. The final check consequently rejected a conversation that
+the client's strict phone/order resolver had already matched. The operational
+note misleadingly reported that the association was no longer exact.
+
+The workflow now imports the existing client accessor instead of maintaining
+another field parser. The accessor is null-safe: a missing strict subscriber
+remains a review hold. This changes no field values, phone matching, delay,
+templates or provider actions. The same exact lookup, later-message checks,
+fresh pending GET, duplicate guard, idempotency and verification remain required.
+Synthetic control-flow regressions cover the three affected aliases, the old
+Dropea field, different orders/phones, absent fields with old confirmation tags
+and contradictory fields. No customer content is used as a fixture.
+
+Validation for the field-parity repair: **575/575 tests**, 60 files, zero skips,
+in isolated Linux Node24.20 with network disabled and no production credentials.
+The new final-flow fixtures failed for the three non-Dropea aliases on the prior
+revision. Windows sandbox temporary-file rename permissions prevented that
+local runner from starting; the release evidence comes from the isolated Linux
+run. Deploy this repair over `0906530`, advancing only the same four existing
+exact-revision gates after their complete regression suite passes.

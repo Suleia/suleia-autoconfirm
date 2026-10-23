@@ -24,6 +24,7 @@ import {
   clearSubscriberOrderConfirmationState,
   chatbyNativeOwnsLifecycleTemplate,
   createSubscriber,
+  dropeaOrderFieldValue as currentSubscriberOrderId,
   findSubscriberByPhone,
   findSubscriberForOrderRobust as findSubscriberForOrder,
   findSubscribersByPhone,
@@ -1548,23 +1549,6 @@ async function simulationOverrideResult(order, store) {
   }
 
   return null;
-}
-
-function currentSubscriberOrderId(subscriber) {
-  const fields = subscriber?.user_fields || [];
-  const field = fields.find((item) => {
-    const name = normalizeText(item.name);
-    return name.includes('dropea')
-      && (
-        name.includes('numero')
-        || name.includes('n mero')
-        || name.includes('nã')
-        || name.includes('num')
-        || name.includes('order')
-        || name.includes('pedido')
-      );
-  });
-  return field?.value ? String(field.value) : null;
 }
 
 function subscriberConfirmationTimestamp(subscriber) {

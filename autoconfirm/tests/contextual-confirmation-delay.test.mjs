@@ -12,6 +12,7 @@ process.env.SUPABASE_ENABLED = 'false';
 process.env.GOOGLE_SHEETS_ENABLED = 'false';
 const { processDelayedConfirmation, scheduleDelayedConfirmation } = await import('../src/workflows/orders.mjs');
 const { findOrder } = await import('../src/storage.mjs');
+const { findSubscriberInIndexForExactOrder } = await import('../src/clients/chatby.mjs');
 after(() => fs.rmSync(temp, { recursive: true, force: true }));
 
 const store = { id: 'fixture', agentDryRun: false, delayedConfirmRealEnabled: true, confirmationDelayHours: 1 };
@@ -59,6 +60,40 @@ test('due text consent uses exact identity, fresh order, fresh chat and postcond
   assert.equal(result.action, 'confirmed_after_delay');
   assert.deepEqual(f.events, ['duplicate', 'identity', 'order', 'messages', 'confirm:900001', 'verify']);
 });
+
+for (const field of ['#Pedido', 'Pedido', 'ID Pedido', 'Dropea: Número']) {
+  test(`final confirmation accepts the same exact order field as the client resolver: ${field}`, async () => {
+    const phone = '34600000001';
+    const subscriber = { user_ns: order.chatbyUserNs, phone, user_fields: [{ name: field, value: 'ES' + order.orderId }] };
+    const index = { byPhone: new Map([[phone.slice(-9), [subscriber]]]) };
+    const f = fixture();
+    f.dependencies.resolveSubscriber = async () => {
+      f.events.push('identity');
+      return findSubscriberInIndexForExactOrder(index, { phone, orderId: order.orderId });
+    };
+    const result = await processDelayedConfirmation(order, store, [incoming('Quiero recibirlo')], f);
+    assert.equal(result.action, 'confirmed_after_delay');
+    assert.deepEqual(f.events, ['duplicate', 'identity', 'order', 'messages', 'confirm:900001', 'verify']);
+  });
+}
+
+for (const invalid of ['different_order', 'different_phone', 'missing_order', 'contradictory_fields']) {
+  test(`order-field parity never bypasses strict identity: ${invalid}`, async () => {
+    const phone = '34600000001';
+    const fields = invalid === 'missing_order' ? [] : [{ name: '#Pedido', value: invalid === 'different_order' ? '900002' : order.orderId }];
+    if (invalid === 'contradictory_fields') fields.unshift({ name: 'Dropea: Número', value: '900002' });
+    const subscriber = { phone, user_fields: fields, labels: [{ name: 'CONFIRMADO' }], tags: [{ name: 'PED-CONFIRMADO' }] };
+    const index = { byPhone: new Map([[phone.slice(-9), [subscriber]]]) };
+    const f = fixture();
+    f.dependencies.resolveSubscriber = async () => {
+      f.events.push('identity');
+      return findSubscriberInIndexForExactOrder(index, { phone: invalid === 'different_phone' ? '34600000002' : phone, orderId: order.orderId });
+    };
+    const result = await processDelayedConfirmation(order, store, [incoming('Quiero recibirlo')], f);
+    assert.equal(result.action, 'confirmation_review_required');
+    assert.deepEqual(f.events, ['duplicate', 'identity']);
+  });
+}
 
 test('a newly arrived cancellation on the final read prevents confirmation', async () => {
   const f = fixture({ fresh: 'Ya no lo quiero' });
