@@ -1,6 +1,6 @@
 # Ads Intelligence V8 — implementación y despliegue
 
-Fecha: 23/10/2026. Integra V6, V7 y el informe ejecutivo V8. El propietario autorizó expresamente desplegar la revisión `20378bd5dd1fddb2ab3aa80bfb0ac07a14845528`, aplicar 059 y activar el informe después de superar las verificaciones. **API, panel, bot y migración están desplegados; el envío diario continúa desactivado mientras se verifica el acceso OAuth y la interfaz real.** Véase el [informe de despliegue](ADS_INTELLIGENCE_V8_DEPLOYMENT_20261023.md). No se han enviado pruebas a personas reales ni ejecutado cambios presupuestarios como parte de este trabajo.
+Fecha: 23/10/2026. Integra V6, V7 y el informe ejecutivo V8. El propietario autorizó el despliegue, 059 y la activación tras las verificaciones. **V8 está desplegado y el informe diario está activado desde las 15:22 de Madrid**, únicamente para el propietario verificado. API/panel usan `867b3e016635c09ca9be69eae62be7c9e3701953`, que corrige dos fallos detectados al validar la primera revisión20378bd; el bot conserva el código20378bd. OAuth, vistas reales y535pruebas verificados. Véase el [informe de despliegue](ADS_INTELLIGENCE_V8_DEPLOYMENT_20261023.md). No se han enviado pruebas a personas reales ni ejecutado cambios presupuestarios como parte de este trabajo. El primer envío diario aún no tiene recibos y no se declara entregado.
 
 ## Estado y componentes reutilizados
 
@@ -102,7 +102,7 @@ La prueba visual `scripts/ads/review-v7-visual-check.mjs` usa Chromium/Chrome ai
 
 La comprobación real se hace en una instancia temporal SHADOW, sin writer, con SQL `default_transaction_read_only=on` y guardia de métodos HTTP GET. No inicia API, scheduler ni consumidor. La evidencia final de ejecución y cualquier limitación actual del proveedor se registra en la PR y el Agent Hub; un resultado simulado no se presenta como una entrega ni cambio real.
 
-Resultados finales:
+Resultados del candidato inicial (la validación del artefacto reparado suma535/535 y figura en el informe de despliegue):
 
 - **531/531 pruebas**, 56 archivos, cero fallos y cero omitidas; Node 22 y PostgreSQL 17 aislado. La comparación de contenedores antes/después confirma que no se reemplazaron servicios productivos.
 - QA visual desktop 1440×1080 y móvil 390×844: 44 peticiones locales, cero errores JavaScript, cero acciones externas. Incluye comparación de dos anuncios, columnas configurables e histórico accesible con Meta fallando.
@@ -135,4 +135,4 @@ Datos sintéticos; no representan el rendimiento de Suleia.
 
 Desactivar primero el flag ejecutivo en API y bot. Restaurar imagen API, montaje de panel y symlink anterior del bot mediante los artefactos registrados. Conservar tablas 059, reservas y recibos para evitar reenvíos al volver a activar. Conservar íntegro el ledger V5.1. El rollback SQL destructivo incluido es solo para un entorno de pruebas o una retirada aprobada tras exportar auditoría; **no** forma parte del rollback operativo habitual.
 
-Estado de ejecución: pasos 1–4 completados; comprobaciones técnicas del paso 5 superadas, pero pendiente su comprobación autenticada de interfaz. El destinatario ya está verificado y configurado. La restricción de navegador de `AGENTS.md` impide completar esa prueba de producción sin la excepción solicitada o una comprobación manual del propietario. La autorización de despliegue y de activación condicionada ya existe; no se pide de nuevo. No se solicita autorización nueva para gasto: el informe no cambia presupuestos y no amplía la autorización LIVE existente.
+Estado de ejecución: pasos1–6 completados. El propietario concedió expresamente la excepción de navegador limitada a OAuth/vistas V8; se completaron login, SSO, enlaces exactos, auditoría individual, comparador, creatividades, histórico, generación manual y desktop/móvil. El scheduler está activado en API/bot, con estado real NOT_DUE, un destinatario y próxima ejecución23/10/2026 a las22:30 Europe/Madrid. El paso7 sigue pendiente de la ventana real y sus cuatro recibos. No se amplía la autorización LIVE existente ni se afirma una entrega anticipada.
