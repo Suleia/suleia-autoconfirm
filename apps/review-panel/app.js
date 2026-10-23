@@ -32,7 +32,7 @@ async function exchangeCode(code, returnedState) {
   if (!response.ok) throw new Error('No se pudo completar el acceso seguro.');
   const payload = await response.json();
   sessionStorage.removeItem('suleia_pkce_verifier'); sessionStorage.removeItem('suleia_oauth_state');
-  sessionStorage.setItem('suleia_access_token', payload.access_token); sessionStorage.setItem('suleia_token_expires_at', String(Date.now() + payload.expires_in * 1000));
+  sessionStorage.removeItem('suleia_refresh_token');storeTokens(payload);
   const analyticsReturn = sessionStorage.getItem('suleia_analytics_return') || '';
   sessionStorage.removeItem('suleia_analytics_return');
   const adsReturn=sessionStorage.getItem('suleia_ads_return')||'';sessionStorage.removeItem('suleia_ads_return');
@@ -40,15 +40,40 @@ async function exchangeCode(code, returnedState) {
 }
 
 function activeToken() { const token = sessionStorage.getItem('suleia_access_token'); const expires = Number(sessionStorage.getItem('suleia_token_expires_at') || 0); return token && expires > Date.now() + 15000 ? token : null; }
+let tokenRefresh=null;
+function storeTokens(payload) {
+ if(typeof payload.access_token!=='string'||!payload.access_token||!Number.isFinite(Number(payload.expires_in))||Number(payload.expires_in)<=0)throw Error('Respuesta de acceso no válida.');
+ sessionStorage.setItem('suleia_access_token',payload.access_token);sessionStorage.setItem('suleia_token_expires_at',String(Date.now()+Number(payload.expires_in)*1000));
+ if(typeof payload.refresh_token==='string'&&payload.refresh_token)sessionStorage.setItem('suleia_refresh_token',payload.refresh_token);
+ state.token=payload.access_token;return state.token;
+}
+async function refreshAccess() {
+ const current=activeToken();if(current){state.token=current;return current;}
+ if(tokenRefresh)return tokenRefresh;
+ const refresh=sessionStorage.getItem('suleia_refresh_token');if(!refresh||!state.config?.oauth?.issuer)return null;
+ tokenRefresh=(async()=>{try{
+  const response=await fetch(`${state.config.oauth.issuer}/protocol/openid-connect/token`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',client_id:state.config.oauth.client_id,refresh_token:refresh})});
+  if(!response.ok)return null;
+  return storeTokens(await response.json());
+ }catch{return null;}finally{tokenRefresh=null;}})();return tokenRefresh;
+}
 async function api(path, { signal, method = 'GET', body } = {}) {
+ if(state.token&&!activeToken()&&!await refreshAccess()){await signOut(false);const e=Error('Tu sesión ha caducado.');e.status=401;throw e;}
  const response=await fetch(`${operationsBase}${path}`,{method,headers:{Authorization:`Bearer ${state.token}`,Accept:'application/json',...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined,signal});
- if(response.status===401||response.status===403){signOut(false);const e=Error('Tu sesión ha caducado.');e.status=response.status;throw e;}
+ if(response.status===401){await signOut(false);const e=Error('Tu sesión ha caducado.');e.status=response.status;throw e;}
+ if(response.status===403){const e=Error('No tienes permisos para esta consulta.');e.status=403;throw e;}
  const payload=await response.json().catch(()=>null);
  if(!response.ok||payload?.ok===false){const e=Error(response.status===429?'Demasiadas actualizaciones seguidas. Espera unos segundos.':'La operación no está disponible temporalmente.');e.status=response.status;e.retryAfterSeconds=Number(response.headers.get('Retry-After'))||2;if(['META_MARKETING_API','POSTGRESQL'].includes(payload?.diagnostic?.source))e.diagnostic=payload.diagnostic;throw e;}
  return payload?.data;
 }
 
-function signOut(remote = true) { sessionStorage.removeItem('suleia_access_token'); sessionStorage.removeItem('suleia_token_expires_at'); state.token = null; $('app').hidden = true; $('login').hidden = false; if (remote && state.config) { const url = new URL(`${state.config.oauth.issuer}/protocol/openid-connect/logout`); url.searchParams.set('client_id', state.config.oauth.client_id); url.searchParams.set('post_logout_redirect_uri', redirectUri()); location.assign(url.toString()); } }
+async function signOut(remote = true) {
+ sessionStorage.removeItem('suleia_access_token');sessionStorage.removeItem('suleia_token_expires_at');sessionStorage.removeItem('suleia_refresh_token');state.token=null;$('app').hidden=true;
+ if(remote&&state.config){const url=new URL(`${state.config.oauth.issuer}/protocol/openid-connect/logout`);url.searchParams.set('client_id',state.config.oauth.client_id);url.searchParams.set('post_logout_redirect_uri',redirectUri());location.assign(url.toString());return;}
+ try{await prepareLogin();showLoginError('Tu sesión ha caducado. Inicia sesión para actualizar los datos.');}
+ catch{showLoginError('No se pudo preparar el acceso seguro. Recarga la página para reintentarlo.');}
+ $('login').hidden=false;
+}
 
 function badge(value) { const v = text(value); const lower = v.toLowerCase(); let tone = 'gray'; if (/ready|pass|exact|verified|delivered|finish|resolved|responded|permitida/.test(lower)) tone = 'green'; else if (/wait|pending|medium|review|active|incidence/.test(lower)) tone = 'amber'; else if (/high|critical|blocked|error|stale|conflict|reject|return|cancel/.test(lower)) tone = 'red'; else if (/human|simulation/.test(lower)) tone = 'purple'; else if (/info|shipping|transit/.test(lower)) tone = 'blue'; return node('span', `badge ${tone}`, v); }
 function summaryCard(label, value, detail, tone = '', onClick = null, active = false) { const card = node(onClick ? 'button' : 'article', `summary-card ${tone} ${onClick ? 'filterable' : ''} ${active ? 'selected' : ''}`.trim()); if (onClick) { card.type = 'button'; card.addEventListener('click', onClick); card.setAttribute('aria-pressed', String(active)); } card.append(node('span', '', label), node('strong', '', text(value, '0')), node('small', '', detail)); return card; }
@@ -1207,12 +1232,14 @@ async function init() {
   const params = new URLSearchParams(location.search); state.token = activeToken();
   if (params.has('error')) { history.replaceState({}, document.title, location.pathname); throw new Error('El proveedor de acceso rechazó el inicio de sesión. Inténtalo de nuevo.'); }
   if (params.has('code')) state.token = await exchangeCode(params.get('code'), params.get('state'));
+  if (!state.token) state.token=await refreshAccess();
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
   $('login').hidden = true; $('app').hidden = false;
   if (state.config.analytics_enabled === false) { const analyticsNav=document.querySelector('[data-view="analytics"]');if(analyticsNav)analyticsNav.hidden=true;if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname); }
   if((location.hash||'').startsWith('#ads'))setView('ads');else if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
-  setInterval(() => {
-    if (document.visibilityState !== 'visible' || !activeToken()) return;
+  setInterval(async () => {
+    if (document.visibilityState !== 'visible') return;
+    if (!activeToken() && !await refreshAccess()) { if (state.token) await signOut(false); return; }
     const financeInterval = Number(state.config.finance_refresh_interval_seconds || 120) * 1000;
     if (state.view === 'finance' && Date.now() - state.financeLoadedAt < financeInterval) return;
     refresh({ background: true });

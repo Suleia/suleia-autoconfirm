@@ -83,3 +83,18 @@ test('table footer uses backend totals and CSV follows selected columns without 
   const option=all(table).find(e=>e.tagName==='label'&&text(e).includes('Publicidad')).children[0];option.checked=false;option.events.change();
   assert.doesNotMatch(h.ResultsV2.csvData(d),/Publicidad/);d.days[0].realRevenue=null;assert.match(h.ResultsV2.csvData(d),/"2026-09-01";"10";""/);
 });
+
+test('a partial month keeps known revenue, charts, history and rows visible with an explicit missing-cost notice',()=>{
+ const h=harness(),d=fixture();d.temporalModels={pnl:'ORDER_CREATION_COHORT_FINAL_BREAKDOWN'};
+ d.totals={...d.totals,productCost:null,totalCosts:null,exactNetProfit:null,roiPercent:null,marginPercent:null};
+ d.days.push({...d.days[0],day:'2026-09-02',netProfit:null,totalCosts:null});
+ d.coverage.exactProfitAvailable=false;d.quality={status:'REVIEW',issues:['MISSING_COST']};
+ d.warnings=['4 unidades entregadas no tienen un coste válido.'];h.state.finance=d;h.renderResultsFinance();
+ assert.match(text(h.get('finance-hero').children[0]),/No disponible/);
+ assert.match(text(h.get('finance-hero').children[1]),/100,00/);
+ assert.equal(h.get('results-v2-charts').children.length,6);
+ assert.equal(h.get('finance-data-warning').hidden,false);
+ assert.match(text(h.get('finance-data-warning')),/4 unidades/);
+ assert.doesNotMatch(text(h.get('finance-data-warning')),/\[object Object\]/);
+ assert.match(text(h.get('finance-daily')),/2026|sept|TOTAL/);
+});

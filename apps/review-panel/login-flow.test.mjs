@@ -129,3 +129,58 @@ test('scheduled Ads refresh preserves an open audit and resumes after close with
  assert.equal(loads,3,'an explicit refresh remains available');
  assert.equal(elements.get('refresh-button').disabled,false);
 });
+
+test('expired API access prepares a working PKCE login while a forbidden view keeps the session',async()=>{
+ for(const status of [401,403]){
+  const elements=new Map(),storage=new Map([['suleia_access_token','synthetic-token'],['suleia_token_expires_at',String(Date.now()+600000)]]);
+  const context={URL,URLSearchParams,TextEncoder,btoa,crypto:webcrypto,Intl,console,setInterval(){},
+   location:{origin:'https://panel.example',pathname:'/operations/',search:'',hash:'#ads?tab=reports'},history:{replaceState(){}},
+   sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},
+   document:{title:'Suleia',getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
+   SuleiaShell:{mount(){},select(){}},AdsIntelligencePanel:{load(){}},
+   fetch:async path=>String(path).endsWith('/api/config')?{ok:true,json:async()=>({oauth:{issuer:'https://panel.example/auth',client_id:'fixture',scope:'openid operations:read'},refresh_interval_seconds:45})}:{status,ok:false,json:async()=>({}),headers:{get:()=>null}}
+  };
+  await vm.runInNewContext(fs.readFileSync(new URL('./app.js',import.meta.url),'utf8'),context);
+  await assert.rejects(vm.runInNewContext("api('/api/operations/ads-intelligence/review')",context));
+  if(status===401){assert.equal(elements.get('app').hidden,true);assert.equal(elements.get('login').hidden,false);assert.match(elements.get('login-button').href,/\/auth\/protocol\/openid-connect\/auth\?/);assert.equal(storage.get('suleia_ads_return'),'#ads?tab=reports');}
+  else {assert.equal(elements.get('app').hidden,false);assert.equal(storage.get('suleia_access_token'),'synthetic-token');}
+ }
+});
+
+test('the ordinary timer exposes session expiry instead of leaving old data silently frozen',async()=>{
+ const elements=new Map(),storage=new Map([['suleia_access_token','synthetic-token'],['suleia_token_expires_at',String(Date.now()+600000)]]);let timer;
+ const context={URL,URLSearchParams,TextEncoder,btoa,crypto:webcrypto,Intl,console,setInterval(fn){timer=fn;},
+  location:{origin:'https://panel.example',pathname:'/operations/',search:'',hash:'#ads'},history:{replaceState(){}},
+  sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},
+  document:{title:'Suleia',getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
+  SuleiaShell:{mount(){},select(){}},AdsIntelligencePanel:{load(){}},
+  fetch:async()=>({ok:true,json:async()=>({oauth:{issuer:'https://panel.example/auth',client_id:'fixture',scope:'openid operations:read'},refresh_interval_seconds:45})})
+ };
+ await vm.runInNewContext(fs.readFileSync(new URL('./app.js',import.meta.url),'utf8'),context);
+ storage.set('suleia_token_expires_at',String(Date.now()-1));await timer();
+ assert.equal(elements.get('app').hidden,true);assert.equal(elements.get('login').hidden,false);
+ assert.equal(elements.get('login-button').textContent,'Iniciar sesión');assert.match(elements.get('login-notice').textContent,/sesión ha caducado/i);
+});
+
+test('OAuth refresh rotates the existing session token once for concurrent reads and fails closed',async()=>{
+ for(const valid of [true,false]){
+  const elements=new Map(),storage=new Map([['suleia_access_token','synthetic-token'],['suleia_token_expires_at',String(Date.now()+600000)],['suleia_refresh_token','synthetic-refresh']]);let refreshes=0,reads=0;
+  const context={URL,URLSearchParams,TextEncoder,btoa,crypto:webcrypto,Intl,console,setInterval(){},
+   location:{origin:'https://panel.example',pathname:'/operations/',search:'',hash:'#ads'},history:{replaceState(){}},
+   sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},
+   document:{title:'Suleia',getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
+   SuleiaShell:{mount(){},select(){}},AdsIntelligencePanel:{load(){}},
+   fetch:async(path,options)=>{
+    if(String(path).endsWith('/api/config'))return {ok:true,json:async()=>({oauth:{issuer:'https://panel.example/auth',client_id:'fixture',scope:'openid operations:read'},refresh_interval_seconds:45})};
+    if(String(path).endsWith('/token')){refreshes++;assert.equal(options.body.get('grant_type'),'refresh_token');await new Promise(setImmediate);return {ok:valid,json:async()=>({access_token:'synthetic-refreshed',expires_in:300,refresh_token:'synthetic-rotated'})};}
+    reads++;assert.equal(options.headers.Authorization,'Bearer synthetic-refreshed');return {ok:true,json:async()=>({data:{ok:true}})};
+   }
+  };
+  await vm.runInNewContext(fs.readFileSync(new URL('./app.js',import.meta.url),'utf8'),context);
+  storage.set('suleia_token_expires_at',String(Date.now()-1));
+  const results=await Promise.allSettled([vm.runInNewContext("api('/api/operations/orders')",context),vm.runInNewContext("api('/api/operations/incidents')",context)]);
+  assert.equal(refreshes,1);
+  if(valid){assert.ok(results.every(r=>r.status==='fulfilled'));assert.equal(reads,2);assert.equal(storage.get('suleia_refresh_token'),'synthetic-rotated');assert.equal(elements.get('app').hidden,false);}
+  else {assert.ok(results.every(r=>r.status==='rejected'));assert.equal(reads,0);assert.equal(storage.has('suleia_refresh_token'),false);assert.equal(elements.get('login-button').textContent,'Iniciar sesión');}
+ }
+});

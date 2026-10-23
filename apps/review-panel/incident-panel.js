@@ -32,7 +32,7 @@ const IncidentPanel=(()=>{
     const result=node('div','ip-result');const label=d.flags.WAITING_CUSTOMER?'Esperando cliente':d.flags.SIMULATION_READY?'Simulación preparada':d.flow==='CUSTOMER_RESPONDED'?'Cliente respondió':d.flow==='LOGISTICS_VALIDATION_REQUIRED'?'Validar logística':d.flow==='RESCHEDULE_REQUESTED'?'Nueva entrega':d.flow==='PICKUP_REQUESTED'?'Recogida en agencia recomendada':d.flags.HUMAN_REVIEW?e.valid_response?'Revisión humana':'Evidencia no concluyente':item.is_active?'Pendiente de revisión':'Histórico';
     result.append(badge(label,tones[d.flow]||'gray'),node('small','',d.flags.SIMULATION_READY?'Lista para simular':d.blocking_reasons?.length||d.flags.HUMAN_REVIEW?'Acción bloqueada':item.is_active?'No ejecutable todavía':'Sin acción vigente'));
     if(acceptance)result.append(badge(acceptance.label,'amber'),node('small','',acceptance.pending?'Pendiente de gestión manual · sin correo automático':'Revisar estado actual antes de actuar'));
-    if(item.execution)result.append(node('small','',`Ejecución: ${item.execution.label}`));
+    if(item.execution)result.append(node('small','',`${item.execution.action_label || 'Última acción'}: ${item.execution.label}`));
     if(item.resolution_observation){
       const o=item.resolution_observation;
       const details=node('details','ip-resolution'),heading=node('summary','','Plan de resolución');details.append(heading);

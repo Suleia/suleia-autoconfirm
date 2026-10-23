@@ -1,5 +1,5 @@
 const ExecutiveReportPanel=(()=>{
- let generation=0;
+ let generation=0,openedReportId=null;
  const button=(label,fn,primary=false)=>{const b=node('button',primary?'ai-primary':'ai-secondary',label);b.type='button';b.addEventListener('click',fn);return b;};
  const plain=s=>String(s||'').replace(/<\/?b>/g,'').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&');
  function messageText(text){const p=node('pre','executive-text');let target=p;for(const token of String(text).split(/(<\/?b>)/)){if(token==='<b>'){const b=node('strong');p.append(b);target=b;}else if(token==='</b>')target=p;else target.append(document.createTextNode(plain(token)));}return p;}
@@ -24,7 +24,7 @@ const ExecutiveReportPanel=(()=>{
   for(const [v,label]of [['hoy','Hoy'],['ayer','Ayer'],...['3','7','14','30','60','90'].map(n=>[n+'d',n+' días completos']),['custom','Personalizado']]){const o=node('option','',label);o.value=v;period.append(o);}
   const from=node('input'),until=node('input');from.type=until.type='date';from.setAttribute('aria-label','Auditoría desde');until.setAttribute('aria-label','Auditoría hasta');from.hidden=until.hidden=true;period.addEventListener('change',()=>from.hidden=until.hidden=period.value!=='custom');
   const active=()=>current===generation&&state.view==='ads'&&root.contains(detail);
-  async function open(id,remaining=40){if(!active())return;try{const r=await api('/api/operations/ads-intelligence/executive/'+id);if(!active())return;reportDetail(detail,r);if(r.state==='PREPARING'&&remaining>0)setTimeout(()=>open(id,remaining-1),5000);}catch{detail.replaceChildren(node('p','ai-error','No se pudo consultar el informe. Reintenta; la auditoría no se enviará por Telegram.'));}}
+  async function open(id,remaining=40){if(!active())return;try{const r=await api('/api/operations/ads-intelligence/executive/'+id);if(!active())return;openedReportId=id;reportDetail(detail,r);if(r.state==='PREPARING'&&remaining>0)setTimeout(()=>open(id,remaining-1),5000);}catch{detail.replaceChildren(node('p','ai-error','No se pudo consultar el informe. Reintenta; la auditoría no se enviará por Telegram.'));}}
   const generate=button('Generar auditoría ahora',async()=>{generate.disabled=true;try{const query=period.value==='custom'?{since:from.value,until:until.value}:{period:period.value};const r=await api('/api/operations/ads-intelligence/executive/generate',{method:'POST',body:{query}});await open(r.id);await history();}catch{detail.replaceChildren(node('p','ai-error','No se pudo preparar la auditoría. Comprueba fechas y permisos.'));}finally{generate.disabled=false;}},true);
   let latest=null,cursor=null;const more=button('Cargar anteriores',()=>history(true));
   async function history(append=false){try{const h=await api('/api/operations/ads-intelligence/executive/history?'+new URLSearchParams({limit:20,...(append&&cursor?{cursor}:{})}));if(!active())return;status.textContent=`Programación: ${h.time} ${h.timezone} · ${h.enabled?'activada':'preparada, sin activar'} · Próxima ejecución: ${new Date(h.nextExecution).toLocaleString('es-ES',{timeZone:'Europe/Madrid'})} · ${h.recipientsCount} destinatarios configurados`;
@@ -32,7 +32,10 @@ const ExecutiveReportPanel=(()=>{
    for(const row of h.entries){const item=node('article','executive-history');item.append(node('strong','',`${date(row.created_at)} · ${row.kind}`),node('span','',`${row.state} · ${row.data_state||'sin corte'}${row.error_code?' · '+row.error_code:''}`),button('Abrir informe',()=>open(row.id)));list.append(item);}
    if(!h.entries.length)list.append(node('p','ai-empty','Todavía no hay informes. Puedes generar una auditoría de lectura.'));cursor=h.nextCursor;more.hidden=!cursor;list.append(more);
   }catch{status.textContent='Historial no disponible. Revisar migración 059 y permisos SQL; no se sustituyen errores por cifras cero.';}}
-  toolbar.append(period,from,until,generate,button('Ver último informe',()=>latest?open(latest):history()),button('Actualizar historial',()=>history()));root.append(status,toolbar,list,detail);await history();const linked=new URLSearchParams((location.hash||'').split('?')[1]||'');if(/^[a-f0-9]{64}$/.test(linked.get('reportId')||'')){await open(linked.get('reportId'));const part={overview:0,diagnosis:1,creatives:2,opportunities:3}[linked.get('section')];if(part!==undefined)detail.querySelector('[data-report-part=\"'+part+'\"]')?.scrollIntoView({block:'start'});}
+  toolbar.append(period,from,until,generate,button('Ver último informe',()=>latest?open(latest):history()),button('Actualizar historial',()=>history()));root.append(status,toolbar,list,detail);await history();
+  const linked=new URLSearchParams((location.hash||'').split('?')[1]||''),linkedId=linked.get('reportId');
+  const initialId=/^[a-f0-9]{64}$/.test(linkedId||'')?linkedId:openedReportId||latest;
+  if(initialId){await open(initialId);const part={overview:0,diagnosis:1,creatives:2,opportunities:3}[linked.get('section')];if(part!==undefined)detail.querySelector('[data-report-part=\"'+part+'\"]')?.scrollIntoView({block:'start'});}
  }
  return {load};
 })();

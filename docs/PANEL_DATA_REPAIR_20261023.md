@@ -1,0 +1,62 @@
+# Panel data repair — 23 October 2026
+
+Owner scope: restore the established panel format and correct available data in
+Results, Ads Intelligence and Incidents; audit every existing section. OpenAI
+Command Center 3.0 remains pending and its approved daily API cap is USD 0.
+
+## Reproduced causes
+
+- The October Render finance source has a verified purchase cohort, 23 daily
+  rows and six months of history, but explicitly withholds exact profit because
+  four delivered units lack a verified product cost. The Operations adapter
+  required a numeric exact profit to accept the entire source. It switched to
+  an event-date calculation; the purchase-cohort UI correctly refused to display
+  that incompatible basis, hiding valid revenue, graphs and history as well.
+- An expired access token froze automatic refresh. A later unauthorized read
+  showed a login screen without preparing its PKCE link. A forbidden resource
+  also incorrectly signed out the whole panel. Both were reproduced separately.
+- The executive report tab initially loaded history without opening its report.
+  Its ordinary refresh discarded the selected report.
+- A minimum 250px human-review card overflowed the narrow Incident result cell.
+  The generic execution label did not identify whether a verified action was a
+  notice, message or actual resolution.
+
+## Repair boundaries
+
+Keep a partial purchase-cohort source only with explicit incomplete coverage,
+observed revenue and exact dated order membership. An explicit event-date source
+cannot be relabelled. Preserve known revenue, counts, complete days and history;
+unknown product/return/revenue inputs leave their affected amounts null. A gap
+also invalidates subsequent cumulative profit. Quality warnings are readable,
+and the missing-cost notice is visible above the original KPI/chart layout.
+No cost, zero, tariff or financial outcome is invented.
+
+Use the existing OAuth refresh grant when the existing login supplies a refresh
+token. Keep and rotate it only in sessionStorage, coalesce concurrent refreshes,
+and clear it on logout/failure. No new scopes, offline access, credentials,
+roles, authentication bypass or server expiry changes. A failed/absent refresh
+prepares normal PKCE login; 403 preserves the authenticated session.
+
+Opening Reports reads the latest or selected persisted report automatically;
+it never generates, sends or changes it. Human-review text stays fully visible
+inside the table, and execution labels name the particular action.
+
+## Validation and deployment
+
+Regression cases first failed for partial-source basis, event-date rejection,
+expired-session login, silent expiry and automatic report opening. Focused
+financial and panel suites pass locally. The broad Windows test run encountered
+loopback EACCES, so it is not release acceptance evidence. The exact artifact
+must pass isolated Linux tests and real read-only view checks before deployment
+is declared verified.
+
+Deploy only the finance read adapter and static panel assets over API867b3e0 /
+panel e231c06, retaining immutable prior artifacts for rollback. No schema,
+bot/poller, provider automation, messages, budget executor/policy, schedule,
+recipient or Meta settings are changed. Preserve all existing credentials and
+effective runtime flags. Deployment and final evidence are recorded below only
+after verification.
+
+Four missing product-cost units are source-data incompleteness, not a reason to
+show fabricated exact profit. This repair does not claim that incident
+automation blocks, provider coverage or Budget Autopilot eligibility are solved.
