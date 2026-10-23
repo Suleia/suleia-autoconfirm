@@ -115,12 +115,35 @@ with32campaignrows and zero external writes:7d source18:38:05UTC,131purchases,
 ROAS3.3360753. Today's incomplete purchase/ROAS aggregate stays unavailable;
 freshness alone never invents a missing metric.
 
-Post-deployment browser verification is **pending personal login**: Chrome
-reached the normal Suleia OAuth form because the old SSO session expired. The
-owner has been asked to sign in; no credential extraction, service account,
-login bypass or automatic real-user test sends were used. The prior read-only
-view observations remain historical. Do not claim full visual verification
-until the repaired version has actually been inspected after login.
+After the owner's personal login, read-only production browser checks at
+20:59–21:14 Madrid verified the repaired Resultados layout, six chart cards,
+23 October daily rows and six history months. September selection separately
+loaded 30 daily rows and its complete reconciled figures (887.57EUR profit,
+9187.15EUR revenue); October was restored. Ads completed a current Meta read
+at21:09:27, showing 32 campaign entities, comparison, metrics and evolution.
+Reports automatically opened the latest persisted manual report with its full
+content and delivery history; no report was generated or sent. Incidents showed
+13 active cases, three observed replies and readable human-review cards inside
+their result cells. The page had no outer horizontal overflow at1521px.
+Automation loaded persisted stages and action evidence; Analytics loaded its
+453-order cohort, map, hourly chart, funnel and tables. Missing coverage remains
+explicit and is not proof of autonomous resolution. Navigation and reads stayed
+authenticated beyond the ordinary five-minute access lifetime, without another
+login; token contents were not inspected.
+
+This final audit reproduced an additional Orders navigation defect: entering
+from another section without a cached global summary showed real rows but zero
+counters until manual refresh. The queue loader now reads summary and rows
+together, with the same abort/request/view guard; refresh uses that same path
+instead of a second unguarded summary request. A failed read preserves the prior
+consistent display and exposes the error. Incidents retains its own scoped
+summary. Four behavioral regressions were added; the original code failed two,
+and all36 affected panel tests pass after the correction. This follow-up only
+changes app.js and requires a static-panel-only release; API, bot and workers
+must not be restarted. Final follow-up deployment evidence is recorded below.
+
+The owner explicitly chose to leave OpenAI pending with a0USD allowance.
+No OpenAI key is installed in production, and no OpenAI calls were made.
 
 Private VPS preparation and test evidence:
 `/root/suleia-panel-repair-20261023/e767d13/`.

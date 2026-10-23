@@ -501,8 +501,12 @@ async function loadQueue() {
   Object.entries(state.filters).forEach(([key, value]) => { if (value) params.set(key, value); });
   try {
     const endpoint = view === 'incidents' ? `/api/operations/incidents/overview?${params}` : `/api/operations/orders?${params}`;
-    const data = await api(endpoint, { signal: state.queueController.signal });
+    const [data, summary] = await Promise.all([
+      api(endpoint, { signal: state.queueController.signal }),
+      view === 'orders' ? api('/api/operations/summary', { signal: state.queueController.signal }) : null,
+    ]);
     if (request !== state.queueRequest || view !== state.view) return;
+    if (view === 'orders') state.summary = summary;
     if (view === 'incidents') { state.summary = { ...(state.summary || {}), incidents: data.summary }; renderSummary(); renderFilters(); }
     if (data.total > 0 && state.offset >= data.total) {
       state.offset = Math.floor((data.total - 1) / state.limit) * state.limit;
@@ -1201,10 +1205,7 @@ async function refresh({ force = false, background = false } = {}) {
     else if (state.view === 'analytics') await OrderIntelligencePanel.load();
     else if (state.view === 'automation') await AutomationPanel.load();
     else if (state.view === 'incidents') await loadQueue();
-    else {
-      const [summary] = await Promise.all([api('/api/operations/summary'), loadQueue()]);
-      state.summary = summary; renderSummary();
-    }
+    else await loadQueue();
   } catch (error) { showNotice(error.message); }
   finally { state.refreshing = false; $('refresh-button').disabled = false; $('refresh-button').textContent = 'Actualizar'; }
 }
