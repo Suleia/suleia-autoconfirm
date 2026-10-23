@@ -149,6 +149,37 @@ test('scheduled proposals reuse the captured learning decision without starting 
  assert.equal(reads,1);
 });
 
+test('manual multi-campaign preparation reads constraints once; confirmation revalidates freshly',async()=>{
+ const f=fixture();let reads=0;f.service.readConstraints=async()=>{reads++;return {verified:true,minimumCents:1500};};
+ const rows=['11','12','13'].map(id=>({...f.c,id}));
+ f.reader.readCampaigns=async()=>rows;f.reader.readDelivery=async()=>rows.map(c=>({campaign_id:c.id,status:'ACTIVE',effective_status:'ACTIVE'}));
+ const actor={user:'1',chat:'1'},p=await f.engine.propose({actor,requestKey:'batch-constraints',text:'Sube 10 € el presupuesto de todas las campañas activas con ROAS superior a 3,8 hoy'});
+ assert.equal(p.items.length,3);assert.equal(reads,1);await f.service.manualAssessment(f.c,3500);assert.equal(reads,2);assert.equal(f.calls(),0);
+});
+
+test('the owner phrasing selects active campaigns with one exact ROAS filter',()=>{
+ const intent=parseAdsIntent('Aumenta el presupuesto 10€ en aquellas campañas con ROAS superior a 3,8');
+ assert.equal(intent.kind,'budget');assert.equal(intent.selector,'ALL_ACTIVE');assert.equal(intent.period,'hoy');assert.equal(intent.value,'10');assert.deepEqual(intent.filter,{operator:'gt',threshold:3.8});
+ assert.equal(parseAdsIntent('Aumenta 10€ en aquellas campañas con ROAS superior a 3,8 o con cinco compras').kind,'clarify');
+});
+
+test('concurrent minimum reads coalesce, failure does not become cached proof',async()=>{
+ const f=fixture();let release,reads=0;f.service.readConstraints=()=>{reads++;return new Promise(resolve=>{release=resolve;});};
+ const a=f.service.constraints(),b=f.service.constraints();assert.equal(reads,1);release({verified:false});assert.deepEqual(await a,await b);
+ const c=f.service.constraints();assert.equal(reads,2);release({verified:true,minimumCents:1500});assert.equal((await c).verified,true);
+});
+
+test('pre-slot warmup coalesces read-only evidence without claiming or writing',async()=>{
+ const f=fixture({time:'09:59'});f.service.now=()=>at('09:59')+30000;let reads=0,release;
+ f.engine.prepareBudgetEvidence=()=>{reads++;return new Promise(resolve=>{release=resolve;});};
+ assert.equal((await f.service.tick()).state,'NO_CURRENT_SLOT');await f.service.tick();assert.equal(reads,1);assert.equal(f.ledger.slots.size,0);assert.equal(f.calls(),0);release();await f.service.warming;
+});
+
+test('LIVE overview highlights an unverified night cap before campaign detail',()=>{
+ const text=formatAutopilot({mode:'LIVE',enabled:true,date:day,observedAt:new Date(at('10:00')).toISOString(),nextReviewAt:new Date(at('11:00')).toISOString(),liveActivation:{stage:'CANARY_PENDING'},campaigns:[],timeline:[],alerts:[{code:'CRITICAL_UNVERIFIED_CAP',slot:'2026-10-21:23:59'}]});
+ assert.match(text,/ALERTA: el techo nocturno no quedó verificado/);
+});
+
 test('two schedulers share a durable slot; interrupted claims are never replayed',async()=>{
  const ledger=new MemoryLedger(),a=fixture({ledger}),b=fixture({ledger});
  const results=await Promise.all([a.service.tick(),b.service.tick()]);assert.equal(results.filter(r=>r.state==='SIMULATED').length,1);assert.equal(ledger.proposals.size,1);

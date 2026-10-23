@@ -8,6 +8,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { createAdsRuntime } from '../../services/meta-ads/runtime.mjs';
 import { adsCommand } from '../../services/meta-ads/command-service.mjs';
+import {adsCommandErrorCode} from '../../services/meta-ads/command-errors.mjs';
 import {verifyAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
 import {reviewAds} from '../../services/meta-ads/monitor.mjs';
 import {createAlgorithmOrdersReader} from '../../services/meta-ads/algorithm-orders.mjs';
@@ -154,7 +155,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         const body=JSON.parse(raw);const data=commandCenter?await commandCenter.command(body):await adsCommand(adsRuntime,body);
         audit({event:'ads_command',action:body.action,outcome:'ok',meta_budget_writes:writesForEnvelope});
         return json(res,200,{ok:true,data,meta_budget_writes:writesForEnvelope});
-      }catch(error){audit({event:'ads_command_failed',outcome:'blocked',meta_budget_writes:writesForEnvelope});return json(res,error.message==='ACTOR_UNAUTHORIZED'?403:503,{ok:false,error:'ads_command_blocked'});}
+      }catch(error){const code=adsCommandErrorCode(error);audit({event:'ads_command_failed',outcome:'blocked',code,meta_budget_writes:writesForEnvelope});return json(res,code==='ACTOR_UNAUTHORIZED'?403:503,{ok:false,error:'ads_command_blocked',code});}
     }
     if (requestUrl.pathname === '/health') {
       return json(res, 200, { ok: true, service: 'suleia-operations-api', run_mode: config.runMode, actions_executed: 0, production_writes: 0 });

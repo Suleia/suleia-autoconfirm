@@ -5,6 +5,28 @@ import {createHmac} from 'node:crypto';
 Object.assign(reasons,{STALE_DATA:'datos históricos desactualizados',INCOMPLETE_EVIDENCE:'historial incompleto',LEARNING_EVIDENCE_NOT_ENABLED:'protección de aprendizaje pendiente de activar',LEARNING_POLICY_CHANGED:'la política de protección ha cambiado',CURRENT_DAY_HISTORY_UNAVAILABLE:'historial de hoy sin verificar',INSUFFICIENT_MULTIDAY_SAMPLE:'muestra multidiaria insuficiente',VERIFIED_ECONOMICS_MISSING:'margen cobrado sin verificar',RECENT_SIGNIFICANT_CHANGE:'modificación reciente: mantener en observación',VOLATILITY_OR_INCOMPLETE_HISTORY:'resultados variables o historia incompleta',EXTERNAL_BUDGET_NOT_RECONCILED:'cambio externo pendiente de conciliar',DAILY_CHANGE_LIMIT:'límite diario de cambios alcanzado',LEARNING_ACTIVE:'aprendizaje activo'});
 const money=c=>Number.isFinite(c)?`${(c/100).toFixed(2)} €`:'no disponible';
 Object.assign(reasons,{CAMPAIGN_COOLDOWN:'ya hubo un cambio en las últimas 24 horas',AGGREGATE_DAILY_LIMIT:'supera el aumento agregado diario autorizado',ACCUMULATION_POLICY_NOT_CONFIGURED:'faltan límites de acumulación autorizados',LIVE_CANARY_ONLY:'campaña fuera del ámbito autorizado'});
+Object.assign(reasons,{MIN_THREE_PURCHASES:'menos de tres compras válidas',META_MINIMUM_NOT_VERIFIED:'mínimo de Meta sin verificar',META_MINIMUM_CONFLICT:'objetivo inferior al mínimo de Meta',LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE:'protecciones históricas aún no disponibles',CAMPAIGN_AGE_UNKNOWN_OR_YOUNG:'campaña demasiado reciente o edad sin verificar',CONVERSIONS_ALREADY_USED:'faltan tres compras nuevas desde la última subida',GLOBAL_EXPOSURE_LIMIT:'supera el techo global autorizado',LIVE_REVIEW_REQUIRED:'operación pendiente de revisión',CANARY_VERIFICATION_PENDING:'primer cambio real pendiente de verificar'});
+export const ADS_BRIDGE_TIMEOUT_MS=45000;
+const diagnosticCodes=new Set(['ACTOR_UNAUTHORIZED','ACCOUNT_NOT_ELIGIBLE','ACCOUNT_BUDGET_BUSY','META_REPORT_PREPARING_OR_UNAVAILABLE','ADS_REPORT_BUSY','ADS_REPORT_TIMEOUT','AUTOPILOT_HISTORY_INCOMPLETE','AUTOPILOT_DAY_CHANGED','ADS_ALGORITHM_DISABLED','QUERY_INVALID','REQUEST_INVALID','IDEMPOTENCY_PAYLOAD_CONFLICT','LIVE_NOT_AUTHORIZED','PROPOSAL_NOT_AUTHORIZED','LIVE_CANARY_GUARD_UNAVAILABLE']);
+export function formatAdsError(error){
+  const raw=error?.message,code=diagnosticCodes.has(raw)||/^META_HTTP_(?:401|403|429|500|502|503|504)$/.test(raw||'')||/^ADS_(?:BRIDGE_TIMEOUT|BRIDGE_UNAVAILABLE|SERVICE_\d{3}|SERVICE_FAILED)$/.test(raw||'')?raw:'ADS_COMMAND_FAILED';
+  const messages={ADS_BRIDGE_TIMEOUT:'La consulta ha superado el tiempo de espera. Consulta /historial y /estado antes de repetir una orden: puede haber una propuesta preparada o una ejecución pendiente de verificar.',ACCOUNT_BUDGET_BUSY:'Hay otra operación de presupuesto en curso. Consulta /historial antes de iniciar otra.',META_REPORT_PREPARING_OR_UNAVAILABLE:'El informe actualizado aún no está disponible. Vuelve a consultar en unos minutos.',ADS_REPORT_BUSY:'Hay una lectura de Meta en curso. Vuelve a consultar en unos minutos.',ACTOR_UNAUTHORIZED:'Esta cuenta o este chat no están autorizados para esta operación.',AUTOPILOT_HISTORY_INCOMPLETE:'El historial de presupuestos está incompleto; el ejecutor queda bloqueado hasta revisarlo.'};
+  return {code,text:messages[code]||`No se ha podido completar la operación (${code}). Consulta /historial y /estado antes de repetir cambios. Los resultados inciertos no se reenvían automáticamente.`};
+}
+function formatBudgetProposal(p){
+  const eligible=p.items.filter(i=>!i.reasons.length),blocked=p.items.filter(i=>i.reasons.length);
+  const label=s=>String(s||'').replace(/[\r\n\u0000-\u001f]/g,' ').slice(0,90);
+  const heading=[`Propuesta ${p.id} · ${p.state} · ${p.mode}`,`Solicitud: ${label(p.request)}`,`Periodo: ${p.intent.period||'presupuesto actual'} · Europe/Madrid`,`Caduca: ${new Date(p.expiresAt).toISOString()}`,`${eligible.length} elegibles · ${blocked.length} bloqueadas.`];
+  const row=i=>`${label(i.name)} · ID ${i.campaignId}\n${money(i.before)} → ${money(i.after)}/día · ROAS ${i.metric?.roas??'N/D'} · compras ${i.metric?.purchases??'N/D'} · gasto ${money(i.metric?.spend==null?null:i.metric.spend*100)}\n${i.result?`${i.result.state}: ${(i.result.reasons||[]).map(r=>reasons[r]||r).join('; ')}`:i.reasons.length?`Bloqueada: ${i.reasons.slice(0,2).map(r=>reasons[r]||r).join('; ')}${i.reasons.length>2?` (+${i.reasons.length-2} controles)`:''}`:'Elegible; requiere tu confirmación.'}`;
+  const footer=[`Impacto de elegibles: ${money(eligible.reduce((s,i)=>s+i.after-i.before,0))}/día de presupuesto configurado.`,...new Set(eligible.flatMap(i=>i.learning?.warnings||[])),p.mode==='LIVE'?'Solo CONFIRMAR ejecuta los cambios elegibles, con una nueva validación y lectura posterior de Meta.':'SIMULATION/SHADOW no modifican Meta.','Un resultado incierto requiere revisión y no se reenvía automáticamente.'];
+  let text=[...heading,...eligible.map(row),...footer].join('\n\n');
+  // Never present a confirmation after silently truncating eligible changes.
+  if(text.length>3600)return {text:`Propuesta ${p.id}: demasiadas campañas para mostrar todos los cambios de forma completa. Solicita una propuesta por ID de campaña. Consulta /historial antes de repetir.`,markup:undefined};
+  let shown=0;for(const i of blocked){const line=row(i);if(text.length+line.length+100>3900)break;text+='\n\n'+line;shown++;}
+  if(shown<blocked.length)text+=`\n\nSe muestran ${shown}/${blocked.length} bloqueadas; consulta el motivo por ID de campaña.`;
+  if(!eligible.length&&p.state==='PENDING')text+='\n\nNinguna campaña cumple los controles; no hay cambios que confirmar.';
+  return {text,...(p.state==='PENDING'&&eligible.length?{markup:{inline_keyboard:[[{text:'CONFIRMAR',callback_data:`confirm:${p.id}`},{text:'CANCELAR',callback_data:`cancel:${p.id}`}]]}}:{})};
+}
 export function signAdsBridge(secret,timestamp,body){return createHmac('sha256',createHmac('sha256',secret).update('suleia:ads-bridge:v3').digest()).update(`${timestamp}.${body}`).digest('hex');}
 export function formatAdsResult(data,options={}) {
   if(data.autopilot)return {text:(data.text||'Budget Autopilot: informe actualizado no disponible.').slice(0,3900),autopilot:data.autopilot,cycleText:data.cycleText,cycleKey:data.cycleKey,navigation:[{label:'Campañas de hoy',request:{action:'analyze',query:{period:'hoy',level:'campaign'}}}]};
@@ -15,12 +37,7 @@ export function formatAdsResult(data,options={}) {
   const p=data.proposal;
   if(p){
     if(p.question)return {text:p.question};
-    const text=[`Propuesta ${p.id} · ${p.state} · ${p.mode}`,`Solicitud: ${p.request}`,`Caduca: ${new Date(p.expiresAt).toISOString()}`,`Periodo: ${p.intent.period||'presupuesto actual'} · Europe/Madrid`,
-      ...p.items.map(i=>`${i.name} · ID ${i.campaignId}\n${money(i.before)} → ${money(i.after)}/día\nROAS ${i.metric?.roas??'no disponible'} · Gasto ${money(i.metric?.spend===null?null:i.metric?.spend*100)} · Compras ${i.metric?.purchases??'no disponibles'}\n${i.result?`${i.result.state}: ${(i.result.reasons||[]).map(r=>reasons[r]||r).join('; ')}`:i.reasons.length?`Bloqueada: ${i.reasons.map(r=>reasons[r]||r).join('; ')}`:'Elegible; requiere confirmación'}`),
-      `Impacto de elegibles: ${money(p.items.filter(i=>!i.reasons.length).reduce((sum,i)=>sum+i.after-i.before,0))}/día.`,
-      ...new Set(p.items.flatMap(i=>i.learning?.warnings||[])),
-      p.mode==='LIVE'?'Escritura real únicamente al confirmar. Los resultados VERIFIED están comprobados en Meta. Un resultado incierto no se reenvía.':'SIMULATION/SHADOW no modifican Meta. Un resultado incierto nunca se reenvía automáticamente.'].join('\n\n');
-    return {text,...(p.state==='PENDING'?{markup:{inline_keyboard:[[{text:'CONFIRMAR',callback_data:`confirm:${p.id}`},{text:'CANCELAR',callback_data:`cancel:${p.id}`}]]}}:{})};
+    return formatBudgetProposal(p);
   }
   if(data.analysis){const a=data.analysis;return {text:[`Meta Ads · ${a.range.since} → ${a.range.until} · Europe/Madrid${a.range.partial?' · periodo en curso':''}`,`Fuente Meta · ${a.contract} · consulta ${a.observedAt}`,
     ...a.facts.map(f=>`${f.name} · ID ${f.entityId}\nGasto ${money(f.spend===null?null:f.spend*100)} · Compras ${f.purchases??'no disponibles'} · ROAS ${f.roas??'no disponible'}\nCTR enlace ${f.linkCtr??'no disponible'} · CPC enlace ${money(f.linkCpc===null?null:f.linkCpc*100)}\n${f.diagnoses.map(d=>`${d.code} · ${d.confidence}: ${d.probableCause}. ${d.recommendedAction}`).join('\n')||'Sin señal concluyente con la muestra y referencia disponibles.'}`),
@@ -35,8 +52,9 @@ export function createAdsGateway(config,fetchImpl=fetch){
   async function request(body,options={}){
     const serialized=JSON.stringify(body),timestamp=String(Date.now());
     const headers=config.adsApiToken?{Authorization:`Bearer ${config.adsApiToken}`}:{'X-Suleia-Ads-Timestamp':timestamp,'X-Suleia-Ads-Signature':signAdsBridge(config.botToken,timestamp,serialized)};
-    const r=await fetchImpl(url,{method:'POST',redirect:'error',headers:{...headers,'Content-Type':'application/json'},body:serialized,signal:AbortSignal.timeout(12000)});
-    if(!r.ok)throw Error(`ADS_SERVICE_${r.status}`);
+    let r;try{r=await fetchImpl(url,{method:'POST',redirect:'error',headers:{...headers,'Content-Type':'application/json'},body:serialized,signal:AbortSignal.timeout(ADS_BRIDGE_TIMEOUT_MS)});}
+    catch(error){throw Error(['TimeoutError','AbortError'].includes(error.name)?'ADS_BRIDGE_TIMEOUT':'ADS_BRIDGE_UNAVAILABLE');}
+    if(!r.ok){const data=await r.json().catch(()=>null);throw Error(diagnosticCodes.has(data?.code)||/^META_HTTP_(?:401|403|429|500|502|503|504)$/.test(data?.code||'')?data.code:`ADS_SERVICE_${r.status}`);}
     const result=await r.json();if(!result.ok)throw Error('ADS_SERVICE_FAILED');
     const formatted=formatAdsResult(result.data,options);
     if(formatted.artifact){const files=await renderArtifact(formatted.artifact);const pdf=formatted.format==='pdf';formatted.media={data:pdf?files.pdf:files.png,filename:pdf?'suleia-informe.pdf':'suleia-productos.png',mime:pdf?'application/pdf':'image/png',caption:formatted.text};delete formatted.artifact;}

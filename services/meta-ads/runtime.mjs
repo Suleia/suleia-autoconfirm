@@ -106,6 +106,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     return fixed?ownBudgetGuardAssessment({assessment:result,campaign,events:report.guardEvents,history:await ledger.autopilotHistory(engine.accountId,Date.now(),72*3600000),config:autopilotConfig,now:Date.now()}):result;
   };
   autopilotConfig.legacy={...engine.policy};
+  if(autopilotConfig.enabled&&consolidatedPolicy(autopilotConfig))engine.prepareBudgetEvidence=()=>runtime.budgetGuards();
   if(autopilotConfig.enabled)engine.policy.maxBudgetCents=Math.min(engine.policy.maxBudgetCents||7000,7000);
   if(autopilotConfig.enabled&&consolidatedPolicy(autopilotConfig))engine.policy.minPurchases=autopilotConfig.policy.minPurchases;
   runtime.autopilot=new BudgetAutopilot({engine,ledger,config:autopilotConfig});

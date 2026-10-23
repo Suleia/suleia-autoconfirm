@@ -16,7 +16,7 @@ export function parseAdsIntent(input) {
     if (filter) {
       let remainder = text.replace(change[0],'').replace(amount[0],'').replace(filter[0],'').replace(periodMatch?.[0]||'\u0000','');
       const exact=/\b(?:de|a) (\d+)\b/.exec(remainder);if(exact)remainder=remainder.replace(exact[0],' de campanas ');
-      if (!/^(?:\s|el|presupuesto|de|a|las|todas|campanas|activas|que|tengan|un|con)+$/.test(remainder)) return {kind:'clarify',question:'No he podido delimitar el filtro. Indica todas las campañas activas y un único criterio de ROAS.'};
+      if (!/^(?:\s|el|presupuesto|de|a|en|las|aquellas|todas|campanas|activas|que|tengan|un|con)+$/.test(remainder)) return {kind:'clarify',question:'No he podido delimitar el filtro. Indica todas las campañas activas y un único criterio de ROAS.'};
       return {kind:'budget',mode,value:amount[1].replace(',','.'),unit:['%','por ciento'].includes(amount[2])?'percent':'money',selector:exact?exact[1]:'ALL_ACTIVE',period:period||'hoy',filter:{operator:['superior a','mayor que'].includes(filter[1])?'gt':'lt',threshold:Number(filter[2].replace(',','.'))}};
     }
     let selector = text.slice(change[0].length).replace(/ diarios$/,'').replace(amount[0],'').replace(/^(?: el presupuesto de | el presupuesto | un | a | de )/,'').trim();
