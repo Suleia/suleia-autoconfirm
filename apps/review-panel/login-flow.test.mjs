@@ -101,3 +101,31 @@ test('full authenticated startup preserves Ads report and campaign links before 
   assert.deepEqual(loaded,[hash]);assert.equal(location.hash,hash);assert.equal(elements.get('app').hidden,false);
  }
 });
+
+test('scheduled Ads refresh preserves an open audit and resumes after close without suppressing explicit refresh',async()=>{
+ const script=fs.readFileSync(new URL('./app.js',import.meta.url),'utf8');
+ const elements=new Map(),storage=new Map([['suleia_access_token','synthetic-token'],['suleia_token_expires_at',String(Date.now()+600000)]]);
+ const location={origin:'https://panel.example',pathname:'/operations/',search:'',hash:'#ads?tab=diagnosis'};
+ const audit={tagName:'DIALOG',open:true},ads=element();ads.children=[];
+ ads.querySelector=selector=>selector==='dialog[open]'?ads.children.find(child=>child.tagName==='DIALOG'&&child.open)||null:null;
+ elements.set('ads-view',ads);let scheduled,loads=0;
+ const context={URL,URLSearchParams,TextEncoder,btoa,crypto:webcrypto,location,Intl,console,
+  setInterval(fn){scheduled=fn;},history:{replaceState(){}},
+  sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},
+  document:{title:'Suleia',getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
+  SuleiaShell:{mount(){},select(){}},AdsIntelligencePanel:{load(){loads++;ads.children=[];}},
+  fetch:async()=>({ok:true,json:async()=>({refresh_interval_seconds:45})})
+ };
+ await vm.runInNewContext(script,context);assert.equal(loads,1);assert.equal(typeof scheduled,'function');
+ ads.children.push(audit);
+ for(let i=0;i<2;i++){scheduled();await new Promise(setImmediate);}
+ assert.equal(loads,1,'ordinary timer ticks must not reload the view under a modal');
+ assert.equal(ads.children[0],audit,'the same open audit remains attached');
+ assert.equal(elements.get('refresh-button').disabled,false);
+ audit.open=false;scheduled();await new Promise(setImmediate);
+ assert.equal(loads,2,'the next ordinary tick resumes refresh after close');
+ audit.open=true;ads.children.push(audit);
+ await vm.runInNewContext('refresh({force:true})',context);
+ assert.equal(loads,3,'an explicit refresh remains available');
+ assert.equal(elements.get('refresh-button').disabled,false);
+});
