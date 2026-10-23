@@ -15,12 +15,13 @@ const IncidentPanel=(()=>{
     customer.append(node('span','ip-avatar',name==='Cliente no disponible'?'?':name.split(/\s+/).slice(0,2).map(s=>s[0]).join('').toUpperCase()),copy(name));
     const evidence=node('div',`ip-evidence ${e.valid_response?'green':e.customer_interacted?'blue':'gray'}`);
     const message=e.message || e.action_label;
-    const acceptance=item.manual_discount;
+    const acceptance=item.manual_discount,discountReviewReason=item.resolution_observation?.human_review_reason;
+    const discountReview=['ACCEPTED_DISCOUNT_INCIDENT_REOPENED','ACCEPTED_DISCOUNT_SUPPORT_RECONCILIATION_REQUIRED'].includes(discountReviewReason);
     const evidenceTitle=e.message_type==='IMAGE' && e.customer_interacted?'Imagen recibida':message?message:e.valid_response?'Evidencia verificada':e.no_action_verified?'Sin evidencia':'Chatby no verificable';
     const evidenceDetail=message?(e.message_type==='BUTTON'?'Botón / acción':e.valid_response?'Respuesta verificada':'Respuesta no concluyente'):e.no_action_verified?'Ninguna acción realizada':e.reason==='INCIDENT_NOTIFICATION_NOT_OBSERVED'?'Aviso de esta incidencia no verificado':'Lectura de conversación no verificable';
     if(e.message_type==='IMAGE' && e.customer_interacted)evidence.append(icon('package','gray'));
     const evidenceText=copy(evidenceTitle,evidenceDetail);evidenceText.title=message||evidenceDetail;
-    if(e.customer_interacted && e.response_at)evidenceText.append(node('small','ip-date',`Chatby · ${incidentDate(e.response_at)} · tras la apertura`));
+    if(e.customer_interacted && e.response_at)evidenceText.append(node('small','ip-date',`Chatby · ${incidentDate(e.response_at)} · ${Date.parse(e.response_at)>Date.parse(item.created_at)?'tras la apertura':Date.parse(e.response_at)<=Date.parse(item.created_at)?'anterior o simultánea a esta incidencia':'relación temporal por verificar'}`));
     if(acceptance){evidenceText.append(badge(acceptance.label,'amber'),node('small','ip-date',`Aceptación · ${incidentDate(acceptance.accepted_at)}`));}
     evidence.append(evidenceText,node('span','ip-chevron','›'));
     const action=node('div','ip-action'),stale=d.action==='Actualizar evidencia';
@@ -31,13 +32,13 @@ const IncidentPanel=(()=>{
     const timerBox=node('div',`ip-timer ${timerTone}`);timerBox.append(icon('clock',timerTone),copy(timer.state==='ACTIVE'?recoveryDuration(timer.remaining_seconds):timer.state==='EXPIRED'?'Plazo vencido':'Plazo no verificable',timer.deadline?incidentDate(timer.deadline):'Sin temporizador confirmado'));
     const result=node('div','ip-result');const label=d.flags.WAITING_CUSTOMER?'Esperando cliente':d.flags.SIMULATION_READY?'Simulación preparada':d.flow==='CUSTOMER_RESPONDED'?'Cliente respondió':d.flow==='LOGISTICS_VALIDATION_REQUIRED'?'Validar logística':d.flow==='RESCHEDULE_REQUESTED'?'Nueva entrega':d.flow==='PICKUP_REQUESTED'?'Recogida en agencia recomendada':d.flags.HUMAN_REVIEW?e.valid_response?'Revisión humana':'Evidencia no concluyente':item.is_active?'Pendiente de revisión':'Histórico';
     result.append(badge(label,tones[d.flow]||'gray'),node('small','',d.flags.SIMULATION_READY?'Lista para simular':d.blocking_reasons?.length||d.flags.HUMAN_REVIEW?'Acción bloqueada':item.is_active?'No ejecutable todavía':'Sin acción vigente'));
-    if(acceptance)result.append(badge(acceptance.label,'amber'),node('small','',acceptance.pending?'Pendiente de gestión manual · sin correo automático':'Revisar estado actual antes de actuar'));
+    if(acceptance)result.append(badge(acceptance.label,'amber'),node('small','',discountReview?'Revisar el correo anterior y el importe contra reembolso':acceptance.pending?'Comprobar estado del descuento y de soporte':'Revisar estado actual antes de actuar'));
     if(item.execution)result.append(node('small','',`${item.execution.action_label || 'Última acción'}: ${item.execution.label}`));
     if(item.resolution_observation){
       const o=item.resolution_observation;
       const details=node('details','ip-resolution'),heading=node('summary','','Plan de resolución');details.append(heading);
       const current=Date.now()-Date.parse(o.observed_at)<45*60000&&Date.parse(o.observed_at)<=Date.now()&&!(Date.parse(item.latest_private_customer_message_at)>Date.parse(o.observed_at))&&item.is_active===true;
-      if(item.is_active===true && o.customer_replied && o.verification_status!=='VERIFIED' && (o.current_owner==='HUMAN'||o.human_review_reason)){
+      if(item.is_active===true && (o.customer_replied||discountReview) && o.verification_status!=='VERIFIED' && (o.current_owner==='HUMAN'||o.human_review_reason)){
         const reason=o.human_review_reason||o.capability_blocker||'REVIEW_REQUIRED';
         const explanations={
           CUSTOMER_RESPONSE_REQUIRES_REVIEW:['La respuesta no permite identificar una instrucción segura.','Revisar el mensaje y decidir la gestión o la aclaración necesaria.'],
@@ -49,14 +50,18 @@ const IncidentPanel=(()=>{
           CAPABILITY_RESERVED_OR_UNCERTAIN:['Hay una ejecución anterior pendiente de comprobar.','Verificar Dropea antes de repetir cualquier acción.'],
           CAPABILITY_NOT_ALLOWED:['Dropea no permite la acción solicitada.','Revisar las opciones disponibles con el transportista.'],
           DISCOUNT_ECONOMIC_MUTATION_CONTRACT_UNAVAILABLE:['El descuento aceptado no tiene aplicación económica verificada.','Comprobar el importe contra reembolso con soporte.'],
-          INTENT_CHANGED_AFTER_ACTION_RECONCILE:['El cliente cambió su respuesta después de una gestión.','Comprobar qué se ejecutó antes de atender la nueva instrucción.']
+          INTENT_CHANGED_AFTER_ACTION_RECONCILE:['El cliente cambió su respuesta después de una gestión.','Comprobar qué se ejecutó antes de atender la nueva instrucción.'],
+          ACCEPTED_DISCOUNT_INCIDENT_REOPENED:['El correo a soporte y la solución anteriores corresponden a otra incidencia de este pedido. La nueva incidencia sigue pendiente.','Validar la instrucción actual del cliente y comprobar el importe contra reembolso antes de resolverla. No repetir el correo anterior; el descuento no consta aplicado por ese envío.'],
+          ACCEPTED_DISCOUNT_SUPPORT_RECONCILIATION_REQUIRED:['Hay una aceptación de descuento registrada en el pedido, pero falta conciliar la gestión de soporte con la incidencia actual.','Revisar si el correo y la solución anteriores pertenecen a otra incidencia, validar la instrucción actual del cliente y comprobar el importe contra reembolso. No repetir el correo mientras se comprueba la gestión anterior.']
         };
         const [why,next]=explanations[reason]||['No hay una solución automática validada con la evidencia disponible.','Revisar el mensaje y el bloqueo; verificar cualquier gestión anterior antes de actuar.'];
         const alert=node('div','ip-human-review');alert.setAttribute('role','note');
-        alert.append(node('strong','','Necesita tu decisión · el cliente ha respondido'),node('p','',`Motivo: ${why}`),node('p','',`Qué falta: ${next}`),node('small','',`Respuesta: ${incidentDate(o.customer_event_at||e.response_at)} · Revisión: ${incidentDate(o.observed_at)}`),node('small','',current?'Evidencia vigente':'Actualizar evidencia antes de decidir'),node('small','',`Referencia: ${reason}`));
+        const heading=discountReview?reason==='ACCEPTED_DISCOUNT_INCIDENT_REOPENED'?'Incidencia reabierta · descuento pendiente de comprobar':'Descuento aceptado · conciliación de soporte pendiente':'Necesita tu decisión · el cliente ha respondido';
+        const eventLabel=discountReview?'Aceptación registrada en el pedido':'Respuesta',eventAt=discountReview?acceptance?.accepted_at||o.customer_event_at:o.customer_event_at||e.response_at;
+        alert.append(node('strong','',heading),node('p','',`Motivo: ${why}`),node('p','',`Qué falta: ${next}`),node('small','',`${eventLabel}: ${incidentDate(eventAt)} · Revisión: ${incidentDate(o.observed_at)}`),node('small','',current?'Evidencia vigente':'Actualizar evidencia antes de decidir'),node('small','',`Referencia: ${reason}`));
         result.prepend?result.prepend(alert):result.append(alert);
       }
-      for(const [label,value] of [['Observación',current?'Vigente':'Actualizar evidencia'],['Cliente respondió',o.customer_replied?'Sí':'No verificado'],['Intención',(o.customer_intents||[]).join(' + ')],['Plan',(o.resolution_plan?.steps||[]).map(s=>`${s.action} [${s.status}]`).join(' → ')],['Siguiente acción',o.next_best_action||(o.explicit_wait_until?'WAIT':'HUMAN_REVIEW')],['Responsable',o.current_owner],['Esperando a',o.timer_state?.waiting_for],['Límite',o.timer_state?.deadline?incidentDate(o.timer_state.deadline):'—'],['Ejecución',o.execution_status],['Verificación',o.verification_status],['Resultado logístico',o.logistics_outcome],['Bloqueo',o.human_review_reason||o.capability_blocker||'Ninguno observado']])details.append(node('small','',`${label}: ${value||'—'}`));
+      for(const [label,value] of [['Observación',current?'Vigente':'Actualizar evidencia'],[discountReview?'Respuesta de esta incidencia':'Cliente respondió',discountReview?'Comprobar instrucción actual; la aceptación registrada pertenece al pedido':o.customer_replied?'Sí':'No verificado'],['Intención',(o.customer_intents||[]).join(' + ')],['Plan',(o.resolution_plan?.steps||[]).map(s=>`${s.action} [${s.status}]`).join(' → ')],['Siguiente acción',o.next_best_action||(o.explicit_wait_until?'WAIT':'HUMAN_REVIEW')],['Responsable',o.current_owner],['Esperando a',o.timer_state?.waiting_for],['Límite',o.timer_state?.deadline?incidentDate(o.timer_state.deadline):'—'],['Ejecución',o.execution_status],['Verificación',o.verification_status],['Resultado logístico',o.logistics_outcome],['Bloqueo',o.human_review_reason||o.capability_blocker||'Ninguno observado']])details.append(node('small','',`${label}: ${value||'—'}`));
       details.addEventListener('click',event=>event.stopPropagation());details.addEventListener('keydown',event=>event.stopPropagation());result.append(details);
     }
     const priority=badge(`P${d.priority}`,`priority-${d.priority}`);priority.title=d.priority_reason;

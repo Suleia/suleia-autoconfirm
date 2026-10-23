@@ -31,6 +31,12 @@ also invalidates subsequent cumulative profit. Quality warnings are readable,
 and the missing-cost notice is visible above the original KPI/chart layout.
 No cost, zero, tariff or financial outcome is invented.
 
+The immutable-release preflight detected a newer published incident JS baseline
+(normalized SHA256 f0f69d3232b3b3ccae8b442ec6dccc2e695e76c4067465e147ba024b8e47f3d2).
+Preserve and incorporate its reopened-discount reconciliation notices and actual
+before/after-opening response timestamps; do not overwrite them with the older
+V8 branch file. Added regressions cover both existing production corrections.
+
 Use the existing OAuth refresh grant when the existing login supplies a refresh
 token. Keep and rotate it only in sessionStorage, coalesce concurrent refreshes,
 and clear it on logout/failure. No new scopes, offline access, credentials,
