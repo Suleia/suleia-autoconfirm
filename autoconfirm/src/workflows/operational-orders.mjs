@@ -4,14 +4,13 @@ import { readJson, writeJson } from '../lib/files.mjs';
 import { listDropeaOrdersByStatus } from '../clients/dropea.mjs';
 import {
   findSubscriberInIndexByPhone,
-  findSubscriberInIndexForOrder,
-  getChatMessages,
-  loadSubscriberIndex,
-  subscriberConfirmsOrderRobust
+  findSubscriberInIndexForExactOrder,
+  getIncidentChatMessages,
+  loadSubscriberIndex
 } from '../clients/chatby.mjs';
 import { loadState, saveState } from '../storage.mjs';
 import { syncOperationalOrdersCacheToSupabase } from '../db/supabase-store.mjs';
-import { customerConversationIntentForOrder } from './orders.mjs';
+import { customerConversationIntentForOrder, subscriberConfirmationIsCurrent } from './orders.mjs';
 
 const config = getAppConfig();
 const cachePath = path.join(config.dataDir, 'dashboard', 'operational-orders-cache.json');
@@ -26,7 +25,7 @@ function normalize(value) {
 
 function messageContent(message = {}) {
   const raw = message.raw || message;
-  return [
+  return [...new Set([
     message.content,
     message.message,
     message.text,
@@ -40,7 +39,7 @@ function messageContent(message = {}) {
     raw.payload?.title,
     raw.payload?.body,
     raw.title
-  ].filter(Boolean).join(' ');
+  ].filter(Boolean))].join(' ');
 }
 
 function isCustomerMessage(message = {}) {
@@ -80,7 +79,7 @@ function messageDate(message = {}) {
 function messagesForCurrentOrder(messages = [], createdAt) {
   const created = createdAt ? new Date(createdAt).getTime() : Number.NaN;
   if (!Number.isFinite(created)) return messages;
-  const threshold = created - (15 * 60 * 1000);
+  const threshold = created;
   return messages.filter((message) => {
     const timestamp = messageDate(message);
     if (!timestamp) return true;
@@ -132,7 +131,7 @@ async function mapWithConcurrency(items, concurrency, worker) {
   return output;
 }
 
-export function classifyCustomerMessages(messages = []) {
+export function classifyCustomerMessages(messages = [], order = {}) {
   const customerMessages = messages.filter(isCustomerMessage);
   const orderedCustomerMessages = [...customerMessages].sort((left, right) => {
     const leftAt = new Date(messageDate(left) || 0).getTime();
@@ -163,7 +162,7 @@ export function classifyCustomerMessages(messages = []) {
     content: messageContent(message),
     raw: message.raw || message
   }));
-  const intent = customerConversationIntentForOrder(governedMessages, {});
+  const intent = customerConversationIntentForOrder(governedMessages, order);
 
   if (intent?.intent === 'ADDRESS_CHANGE') {
     return {
@@ -216,11 +215,12 @@ export function classifyCustomerMessages(messages = []) {
     agentAction: 'manual_review',
     agentIntent: 'UNCLEAR',
     agentConfidence: 68,
-    agentReason: 'El cliente respondio, pero la intencion no es concluyente.',
+    agentReason: intent?.reason || 'El cliente respondio, pero la intencion no es concluyente.',
+    confirmationBlocked: Boolean(intent),
     customerMessages: customerMessages.length,
     lastCustomerMessage,
-    customerActionLabel: 'Cliente respondio',
-    customerActionDetail: lastCustomerMessage || 'Hay respuesta, pero no basta para actuar automaticamente.'
+    customerActionLabel: intent ? 'Revisar antes de confirmar' : 'Cliente respondio',
+    customerActionDetail: intent?.reason || lastCustomerMessage || 'Hay respuesta, pero no basta para actuar automaticamente.'
   };
 }
 
@@ -305,17 +305,16 @@ export async function enrichPendingOrder(
   }
 
   try {
-    subscriber = findSubscriberInIndexForOrder(subscriberIndex, {
+    subscriber = findSubscriberInIndexForExactOrder(subscriberIndex, {
       phone: order.customerPhone,
-      orderId: order.orderId,
-      allowConfirmedPhoneFallback: false
+      orderId: order.orderId
     });
     conversationSubscriber = subscriber || findSubscriberInIndexByPhone(subscriberIndex, {
       phone: order.customerPhone
     });
     chatbyUserNs = conversationSubscriber?.user_ns || conversationSubscriber?.userNs || conversationSubscriber?.ns || null;
     if (chatbyUserNs && !messagesByUserNs.has(chatbyUserNs)) {
-      messagesByUserNs.set(chatbyUserNs, getChatMessages(chatbyUserNs));
+      messagesByUserNs.set(chatbyUserNs, getIncidentChatMessages(chatbyUserNs));
     }
     messages = chatbyUserNs ? await messagesByUserNs.get(chatbyUserNs) : [];
     const currentMessages = messagesForCurrentOrder(
@@ -324,7 +323,19 @@ export async function enrichPendingOrder(
     );
     // Only the subscriber matched to this order can confirm the current order.
     // The phone fallback is used exclusively to inspect prior-order history.
-    signal = subscriberConfirmsOrderRobust(subscriber)
+    const classified = classifyCustomerMessages(currentMessages, order);
+    if (!subscriber && classified.signal === 'CONFIRM') {
+      classified.signal = 'UNCLEAR';
+      classified.agentIntent = 'UNCLEAR';
+      classified.agentAction = 'manual_review';
+      classified.confirmationBlocked = true;
+      classified.agentReason = 'La respuesta no esta vinculada exactamente a este pedido; requiere revision.';
+      classified.customerActionLabel = 'Revisar vinculacion del pedido';
+      classified.customerActionDetail = classified.agentReason;
+    }
+    signal = !classified.confirmationBlocked
+      && ['NO_RESPONSE', 'UNCLEAR'].includes(classified.signal)
+      && subscriberConfirmationIsCurrent(subscriber, order)
       ? {
           signal: 'CONFIRM',
           status: 'PENDING',
@@ -339,7 +350,7 @@ export async function enrichPendingOrder(
           customerActionLabel: 'Confirmado en Chatby',
           customerActionDetail: 'Chatby tiene etiqueta/estado/campo de confirmacion para este cliente.'
         }
-      : classifyCustomerMessages(currentMessages);
+      : classified;
     chatbyStatus = chatbyUserNs ? 'Chatby revisado' : 'Sin conversacion localizada';
   } catch (error) {
     chatbyError = error instanceof Error ? error.message : String(error);

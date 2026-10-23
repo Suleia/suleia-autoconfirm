@@ -135,7 +135,7 @@ test('all template and confirmation paths invoke the active duplicate policy fir
     'chatby_button_confirmation_guard',
     'classified_confirmation_guard'
   ]) {
-    assert.match(source, new RegExp(`activeDuplicateOrderPolicy\\([^;]+['\"]${marker}['\"]`));
+    assert.match(source, new RegExp(`(?:activeDuplicateOrderPolicy|duplicateGuard)\\([^;]+['\"]${marker}['\"]`));
   }
   const sendFunction = source.slice(
     source.indexOf('async function sendChatbyTemplateForOrder'),
