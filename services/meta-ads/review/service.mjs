@@ -4,10 +4,11 @@ import {reviewWindow,comparisonWindow} from './periods.mjs';
 import {REVIEW_POLICY,AUDIT_PROFILES} from './policy.mjs';
 import {parseReviewQuestion,formatReview} from './queries.mjs';
 import {experimentDesign,experimentResult,reviewAlerts} from './experiments.mjs';
+import {createGrowthService} from './growth-service.mjs';
 
 // Uses the runtime's canonical snapshot/cache and its one existing Meta reader.
 // This module receives no budget writer, scheduler or messaging transport.
-export function createReviewService({snapshot,extras,ledger,productMappings=[],readCommerce=null,maxCampaigns=5,panelUrl=null,budgetPolicy=null,optionalWaitMs=7000,now=()=>Date.now()}){
+export function createReviewService({snapshot,extras,ledger,productMappings=[],readCommerce=null,readGrowthGoals=null,maxCampaigns=5,panelUrl=null,budgetPolicy=null,optionalWaitMs=7000,now=()=>Date.now()}){
  if(!Number.isInteger(maxCampaigns)||maxCampaigns<2||maxCampaigns>10)throw Error('REVIEW_CONFIGURATION_INVALID');
  if(panelUrl){try{const u=new URL(panelUrl);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash)throw Error();panelUrl=u.href;}catch{throw Error('REVIEW_PANEL_URL_INVALID');}}
  const policy={...REVIEW_POLICY,maxCampaigns};
@@ -39,12 +40,32 @@ export function createReviewService({snapshot,extras,ledger,productMappings=[],r
   return value;
 
  }
+ const growth=createGrowthService({report,ledger,readGoals:readGrowthGoals,now});
  async function history({cursor=null,limit=25}={}){return ledger.reviewHistory({cursor,limit});}
  async function alertsFor(value){const candidates=reviewAlerts(value,[],now());const history=(await Promise.all(candidates.alerts.map(a=>ledger.latestReviewAlert(a.key)))).filter(Boolean);return reviewAlerts(value,history,now());}
- return {policy,report,history,parse:parseReviewQuestion,profiles:AUDIT_PROFILES,
+ return {policy,report,history,growth:growth.get,parse:parseReviewQuestion,profiles:AUDIT_PROFILES,
   async answer(text,query={}){const intent=parseReviewQuestion(text);if(!intent)throw Error('REVIEW_QUESTION_INVALID');const value=await report({...intent,...query});if(value.clarification)return {text:value.clarification,externalWrites:0};return {review:value,text:formatReview(value,intent),deepLink:panelUrl?`${panelUrl}#ads?review=v7&campaignId=${encodeURIComponent(value.campaignAudit?.campaignId||query.campaignId||'')}&period=${encodeURIComponent(intent.period)}&tab=${intent.focus==='comparison'?'comparator':'diagnosis'}`:null,externalWrites:0};},
   async record({kind,reference='ACCOUNT',query={},input={},principal,expectedDigest=null}){
-   if(!['REVIEW','DECISION','EXPERIMENT','EXPERIMENT_RESULT','ALERT_OBSERVATION'].includes(kind)||typeof principal!=='string'||!principal||principal.length>160||typeof reference!=='string'||reference.length>160||(kind==='REVIEW'&&reference!=='ACCOUNT'))throw Error('QUERY_INVALID');
+   if(!['REVIEW','DECISION','EXPERIMENT','EXPERIMENT_RESULT','ALERT_OBSERVATION','GROWTH_REVIEW','GROWTH_DECISION','GROWTH_OUTCOME'].includes(kind)||typeof principal!=='string'||!principal||principal.length>160||typeof reference!=='string'||reference.length>160||(kind==='REVIEW'&&reference!=='ACCOUNT'))throw Error('QUERY_INVALID');
+   if(kind.startsWith('GROWTH_')){
+    const value=await growth.get(query);
+    if(value.freshness!=='FRESH'||value.temporalStatus!=='CURRENT_CONTEXT'||!expectedDigest||value.evidenceDigest!==expectedDigest)throw Error('REVIEW_EVIDENCE_CHANGED');
+    if(kind==='GROWTH_OUTCOME'){
+     if(!/^[a-f0-9]{64}$/.test(reference))throw Error('QUERY_INVALID');
+     const original=await ledger.reviewById(reference),body=original?.body;
+     if(!body||!['GROWTH_REVIEW','GROWTH_DECISION'].includes(body.kind)||Date.parse(value.observedAt)<=Date.parse(body.observedAt))throw Error('REVIEW_OUTCOME_NOT_LATER');
+     const decision=[...value.decisions.campaigns,...value.decisions.adsets,...value.decisions.ads].find(d=>d.key===body.reference);
+     if(!decision)throw Error('REVIEW_DECISION_INVALID');
+     return ledger.appendReviewRecord({kind,reference,principal,evidenceDigest:value.evidenceDigest,observedAt:value.observedAt,
+      record:{entityReference:body.reference,originalRecordId:reference,originalEvidenceDigest:body.evidenceDigest,originalObservedAt:body.observedAt,ruleVersion:value.version,
+       decision,before:body.record.decision.evidence,after:decision.evidence,execution:'OBSERVATION_ONLY',actionExecuted:null,verifiedOutcome:null,causal:false,
+       limitation:'Evolución observada en ventanas etiquetadas. No acredita ejecución ni atribuye el resultado a una intervención; la evidencia original permanece intacta.'}});
+    }
+    const decision=[...value.decisions.campaigns,...value.decisions.adsets,...value.decisions.ads].find(d=>d.key===reference);
+    if(!decision||kind==='GROWTH_DECISION'&&(['DATOS_INSUFICIENTES','INACTIVA'].includes(decision.status)||!['OBSERVE','KEEP','DISMISSED'].includes(input.verdict)))throw Error('REVIEW_DECISION_INVALID');
+    return ledger.appendReviewRecord({kind,reference,principal,evidenceDigest:value.evidenceDigest,observedAt:value.observedAt,
+     record:{ruleVersion:value.version,decision,verdict:kind==='GROWTH_DECISION'?input.verdict:null,selectedRange:value.selectedRange,execution:'REVIEW_ONLY',actionExecuted:null,verifiedOutcome:null}});
+   }
    const value=await report(query);if(value.clarification||value.freshness!=='FRESH')throw Error('REVIEW_EVIDENCE_UNAVAILABLE');
    if(expectedDigest!==null&&expectedDigest!==value.evidenceDigest)throw Error('REVIEW_EVIDENCE_CHANGED');
    let record;

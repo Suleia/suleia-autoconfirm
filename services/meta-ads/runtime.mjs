@@ -20,7 +20,7 @@ import {shiftDay} from './review/periods.mjs';
 import {createReportCache,reportDependencyError} from './report-cache.mjs';
 import {aggregateCommerce} from './review/commerce.mjs';
 
-export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrders=null,readOperations=null,reportRead=readReport,reportWaitMs=4000}) {
+export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrders=null,readOperations=null,readGrowthGoals=null,reportRead=readReport,reportWaitMs=4000}) {
   if(env.ADS_INTELLIGENCE_READ_ENABLED!=='true')return null;
   const autopilotConfig=loadAutopilotConfig(env);
   const mode=autopilotConfig.enabled?autopilotConfig.mode:env.ADS_INTELLIGENCE_MODE||'SIMULATION',writes=env.ADS_INTELLIGENCE_WRITES_ENABLED==='true';
@@ -136,7 +136,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   runtime.reviewEnabled=env.ADS_REVIEW_V8_ENABLED==='true'||env.ADS_REVIEW_V7_ENABLED==='true'||env.ADS_REVIEW_V6_ENABLED==='true';
   runtime.review=runtime.reviewEnabled?createReviewService({snapshot,extras:reviewExtras,ledger,productMappings,
     readCommerce:ordersReader?range=>cachedEvidence(`commerce:${range.since}:${range.until}`,async()=>aggregateCommerce(await ordersReader(range),{range,shop:env.SHOPIFY_DOMAIN||env.SHOPIFY_SHOP,observedAt:new Date().toISOString()}),120000):null,
-    budgetPolicy:{version:autopilotConfig.policy.version,policy:autopilotConfig.policy,approved:autopilotConfig.approved},maxCampaigns:Number(env.ADS_REVIEW_MAX_CAMPAIGNS||5),panelUrl:env.ADS_REVIEW_PANEL_URL||null}):null;
+    readGrowthGoals,budgetPolicy:{version:autopilotConfig.policy.version,policy:autopilotConfig.policy,approved:autopilotConfig.approved},maxCampaigns:Number(env.ADS_REVIEW_MAX_CAMPAIGNS||5),panelUrl:env.ADS_REVIEW_PANEL_URL||null}):null;
   runtime.executive=runtime.review?createExecutiveService({review:runtime.review,ledger:new ExecutiveLedger(pool),accountId:engine.accountId,panelUrl:env.ADS_REVIEW_PANEL_URL||null,
     enabled:env.ADS_EXECUTIVE_DAILY_ENABLED==='true'&&!reportReadOnly,recipients:String(env.ADS_EXECUTIVE_RECIPIENT_IDS||'').split(',').map(x=>x.trim()).filter(Boolean),
     readBudget:()=>readExecutiveBudget({ledger,accountId:engine.accountId,mode:engine.mode,config:autopilotConfig})}):null;

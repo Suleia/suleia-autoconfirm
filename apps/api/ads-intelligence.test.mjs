@@ -5,6 +5,10 @@ import {createOperationsServer,loadOperationsConfig} from './server.mjs';
 import {signAdsBridge} from '../../services/meta-ads/bridge-auth.mjs';
 import {ReportReadError} from '../../services/meta-ads/report-cache.mjs';
 const token='test-only-bridge-credential-0000000000000000000';
+test('V10 growth retains OAuth, GET-only and preparing semantics; UI cannot acquire budget authority',async()=>{
+ let ready=false,writes=0;const runtime={engine:{mode:'LIVE'},review:{growth:async()=>{if(!ready)throw new ReportReadError({id:'growth-fixture',source:'META_MARKETING_API',state:'PREPARING',code:'ADS_REPORT_PREPARING',retryable:true,retryAfterSeconds:3});return {version:'suleia-growth-v10.0',metaWrites:0};},record:async x=>{assert.equal(x.principal,'test');writes++;return {execution:'REVIEW_ONLY'};}}};
+ await fixture(async base=>{const path=base+'/api/operations/ads-intelligence/review/growth';assert.equal((await fetch(path)).status,401);assert.equal((await fetch(path,{method:'POST',headers:{Authorization:'Bearer read-test'}})).status,405);let r=await fetch(path,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,202);assert.equal(r.headers.get('Retry-After'),'3');ready=true;r=await fetch(path,{headers:{Authorization:'Bearer read-test'}});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);r=await fetch(base+'/api/operations/ads-intelligence/review/records',{method:'POST',headers:{Authorization:'Bearer read-test'},body:JSON.stringify({kind:'GROWTH_DECISION',principal:'forged',actor:{user:'1',chat:'1'}})});assert.equal(r.status,200);assert.equal((await r.json()).meta_budget_writes,0);assert.equal(writes,1);},runtime);
+});
 test('cold read returns authenticated 202 with retry guidance; Meta credential failure is 503, not a user sign-out',async()=>{
  const diagnostic={source:'META_MARKETING_API',id:'fixture-error-id',state:'PREPARING',code:'ADS_REPORT_PREPARING',retryable:true,retryAfterSeconds:2};
  const runtime={engine:{mode:'SHADOW'},overview:async()=>{throw new ReportReadError(diagnostic);}};
