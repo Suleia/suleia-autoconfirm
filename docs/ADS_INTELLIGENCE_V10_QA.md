@@ -106,9 +106,9 @@ azules/verdes/violetas, tipografía oscura, jerarquía de cuatro KPIs y líneas
 basadas en datos. Se añaden los controles de cobertura y N/D necesarios; las
 cifras de la imagen de referencia no se copian como datos reales.
 
-## Qué no acredita esta aceptación
+## Qué no acredita la aceptación de desarrollo
 
-No acredita despliegue V10, compras causadas por anuncios, deduplicación Pixel/
+La aceptación aislada anterior no acredita despliegue V10, compras causadas por anuncios, deduplicación Pixel/
 CAPI, EMQ, margen/CPA confirmado por campaña, presupuesto sostenible o una
 modificación presupuestaria real. La conexión comercial solo acredita los
 agregados y la limitación de duplicidad descritos en la auditoría. Ninguna
@@ -116,4 +116,98 @@ revisión ni smoke de V10 ha enviado mensajes a clientes o soporte.
 
 Los artefactos, la comprobación de cambios concurrentes, los backups privados
 frescos y el rollback para una futura aprobación se describen en el
-[plan de despliegue](ADS_INTELLIGENCE_V10.md#artefactos-y-despliegue-pendiente-de-aprobación).
+[plan de despliegue](ADS_INTELLIGENCE_V10.md#artefactos-y-procedimiento-de-despliegue).
+
+## Comprobación de producción autorizada · 24 de octubre de 2026
+
+El propietario aprobó posteriormente el despliegue y una excepción limitada a
+la comprobación visual de V10 en producción. No se reutilizó la autorización
+local como permiso implícito. La sesión personal, inicialmente en espera según
+el usuario, terminó de volver a Pedidos con datos; no se cambiaron autenticación,
+credenciales o roles ni se inspeccionaron cookies/tokens.
+
+API7224c11 saludable a20:50:15UTC. La verificación a20:51:41UTC contrastó21hashes
+de runtime, nueve recursos publicados HTTP200/no-store, salud pública y versión
+interna exacta. Growth/journal/finance/incidents respondieron401 sin OAuth.
+El verificador inicial suponía incorrectamente pública `/operations/version`;
+el proxy la trata como recurso estático404. Solo se corrigió ese smoke privado
+para usar `/version` dentro del contenedor; no se cambió el proxy ni el producto.
+
+| Comprobación real | Evidencia |
+|---|---|
+| Shell seis módulos | Pedidos, Incidencias, Automatización, Resultados, Centro de datos y Ads cargaron con la navegación común |
+| Pedidos | 16 pendientes y resumen cargados; no se ejecutó ninguna acción de pedido |
+| Incidencias | 15 pendientes,13revisión humana,2simulación; estados/filas/formato cargados, con avisos de frescura conservados |
+| Automatización | 3workflowsLIVE y protecciones/cobertura visibles; no se confunde ese indicador con resolución autónoma general |
+| Resultados octubre | Tarjetas, gráficas, histórico diario y TOTAL DEL MES presentes;33/33controles, coste de producto426.90EUR conservado |
+| Fuente financiera observada | Ingresos6063.01, costes6921.08, beneficio provisional-858.07EUR, Meta3733.33; corte de fuente19:57UTC, aviso de datos atrasados. No se forzó una nueva generación |
+| Centro de datos | Periodo25sep–24oct,484pedidos, filtros/productos y datos cargados |
+| Visión general V10 | 18KPIs, gráfico/embudo, objetivo55/40, calidad de medición y tabla presentes |
+| Campaña filtrada | CollaL12,17–23oct: gasto207.12,25compras, ROAS3.49, CPA8.28,601landing,66ATC,63checkout; gráfico y ratios basados en estos eventos |
+| Objetivos comerciales | Primera lectura28/21/22; posterior29/23/24 al avanzar la fuente. Cohorte madura374/293 y NOT_ASSESSED permanecieron explícitos |
+| Drawer campaña | NIDA_L1Copia:44.42EUR,7compras,ROAS5.69, periodos3/7/14/30etiquetados, anuncios propios e historial consultados |
+| Conjuntos | Filtro de nivel cargó seis conjuntos de CollaL12, con métricas y estado de muestra propios |
+| Drawer conjunto/anuncio | Conjunto120258145914780212 y su anuncio120258145914730212:102.63EUR,17compras,ROAS4.81,39ATC,37checkout; periodos e historial de presupuesto separados, sin atribuir causalidad. La ausencia de miniatura se declara |
+| Informes | Programación22:30Madrid activada, siguiente25oct22:30, un destinatario; cinco informes históricos visibles, sin generar/enviar otro |
+| Historial/escrituras | No se guardó observación, decisión o propuesta de prueba ni se envió un informe extraordinario |
+
+Las consultas nuevas mostraron202 y preparación mientras reutilizaban el lector
+canónico; campaña, conjunto y anuncio terminaron de cargar sin otra sesión de
+autenticación. Los cambios de selector aplican su consulta automáticamente; no
+se reinterpreta un botón transitorio ausente durante la carga como fallo del producto.
+
+La cobertura agregada de eventos Meta es parcial: al incluir entidades con
+eventos ausentes, compras/ROAS/CPA globales aparecenN/D. Una campaña con cobertura
+sí muestra sus cifras. No se imputan ceros ni se oculta el aviso de histórico:
+la última lectura canónica observada fue20:50:45UTC y las decisiones dependientes
+de frescura se bloquearon después. Esta acta no acredita frescura continua de
+Meta, Pixel/CAPI/EMQ ni atribución por pedido. No se realizaron escrituras Meta.
+
+Los19hashes presupuestarios, entorno de políticas, botPID/config, tarifas,
+contenedores ajenos y archivos estáticos fuera del overlay se mantuvieron.
+Render d175378 saludable y V5.1LIVE autorizado. Ocho partesSENT de dos días, un
+destinatario; las cuatro de hoy se completaron antes del despliegue y no se
+reenviaron. El último slotCOMPLETE20:45UTC no prueba una escritura presupuestaria.
+Backups, autorizaciones y recibos completos permanecen privados en
+`/root/suleia-ads-v10-deploy-20261024/7224c11/`. Las capturas productivas se guardan
+solo en el workspace privado; las imágenes del repositorio siguen siendoDEMO.
+
+### Resultado parcial del primer slot posterior
+
+El slot23:00Madrid terminóFAILED antes de propuesta, con cero propuestas u
+operaciones nuevas y cero pendientesUNKNOWN/EXECUTING. La auditoría posterior
+identificó `META_RATE_LIMITED`: `readDelivery()` devolvióHTTP400/17/2446079;
+cuenta y campañas respondían. Se detuvo el diagnóstico antes de leer Insights.
+La vista de Presupuestos informó que no podía verificar datos actuales. No se
+reintentó el slot ni se afirmó ejecución/cero gasto a partir del recibo genérico
+`externalWrites=null`. El despliegue y la UI están verificados en el alcance
+anterior; **no se acredita funcionamiento continuo del automatismo durante ese
+límite del proveedor**. La cuota no se sortea con otro token/lector, un reset,
+una relajación de guardas ni una restauración que provocase más lecturas frías.
+
+### Corrección del gráfico detectada en producción
+
+El SVG de evolución contenía sus trazados, pero el estilo legado `#ads-view svg`
+lo reducía a19×19px. Se corrigió la especificidad de gráfico, sparklines e iconos
+solo dentro de V10. Las62pruebas de panel pasaron sin omisiones; la validación
+aislada1264anterior sigue describiendo el candidato original. No se presenta
+esa suite anterior como una repetición sobre el CSS posterior.
+
+Commitb048ad5, montaje `/opt/suleia-panel-releases/ads-growth-svg-b048ad5`, publicado
+21:13:24UTC. API7224c11/PID de contenedor sin cambios, bot/entorno y19hashes de
+presupuesto iguales; resto de estáticos y contenedores sin cambios. El servidor
+publicó el CSS con su hash normalizado6baf7481…19073. No se cambió la API para
+corregir un tamaño de gráfico ni se reactivó una revisión fallida.
+
+Después de recargar el CSS publicado, el SVG real pasó de19×19 a567.56×186.69px,
+con seis trazados, y las sparklines recuperaron su tamaño previsto. Capturas
+privadas `output/ads-intelligence-v10/production-v10.png` y
+`production-v10-chart.png`: indicadores, líneas actual/anterior con huecos y
+embudo de CollaL12 visibles. Consola sin erroresJavaScript. No se subieron estas
+capturas con métricas reales al repositorio.
+
+Cierre de solo lectura21:15:59UTC: API saludable, bot activo,19hashes/flags sin
+cambios, montaje estático nuevo correcto, Render d175378 saludable y8SENT sin
+reenvíos. El siguiente slot normal23:15Madrid también terminóFAILED; no fue un
+reintento del23:00. Por tanto, el despliegue visual está comprobado y el límite
+del proveedor continúa pendiente; no se declara el automatismo reparado.

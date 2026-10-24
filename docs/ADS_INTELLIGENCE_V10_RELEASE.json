@@ -211,8 +211,8 @@
       "sha256": "b9fa422385e99d3c2b8f089783736b6d454f776ff81154281466730fbf26eb7c"
     }
   ],
-  "deploymentApproved": false,
-  "deployed": false,
+  "deploymentApproved": true,
+  "deployed": true,
   "migration": null,
   "newSecrets": false,
   "newScheduler": false,
@@ -244,5 +244,69 @@
     "runtimeFilesMatchingAcceptedSource": 21,
     "network": "none",
     "productionCredentialsSupplied": false
+  },
+  "deployment": {
+    "at": "2026-10-24T20:50:15.163084Z",
+    "revision": "7224c11fad4a5557732da7c935ff3bef5d2c0f35",
+    "image": "suleia-ads-growth:7224c11",
+    "imageId": "sha256:a02a3618de627d5dd9631e8e5a8f8e8bc505e57d09f1a82c9636d266a7f165aa",
+    "panel": "/opt/suleia-panel-releases/ads-growth-svg-b048ad5",
+    "verifiedAt": "2026-10-24T20:51:41.511128Z",
+    "runtimeFilesVerified": 21,
+    "servedFilesVerified": 9,
+    "protectedBudgetFilesUnchanged": 19,
+    "policyEnvironmentUnchanged": true,
+    "botPidAndConfigUnchanged": true,
+    "financialRatesUnchanged": true,
+    "unrelatedContainersAndStaticUnchanged": true,
+    "oauthPreserved": true,
+    "publicHealthVerified": true,
+    "internalVersionVerified": true,
+    "migration": null,
+    "metaOrCustomerActionsByRelease": 0,
+    "auditDirectory": "/root/suleia-ads-v10-deploy-20261024/7224c11/",
+    "telegramTestOrReplaySent": false,
+    "postDeploymentValidation": "PARTIAL_PROVIDER_RATE_LIMIT",
+    "limitations": {
+      "slot": "2026-10-24:23:00",
+      "slotState": "FAILED",
+      "beforeProposal": true,
+      "newProposals": 0,
+      "newOperations": 0,
+      "unresolvedOperations": 0,
+      "diagnostic": "META_RATE_LIMITED",
+      "httpStatus": 400,
+      "providerCode": 17,
+      "providerSubcode": 2446079,
+      "failingRead": "readDelivery",
+      "slotReplayed": false,
+      "continuousBudgetOperationVerified": false,
+      "nextNormalSlot": "2026-10-24:23:15",
+      "nextNormalSlotState": "FAILED"
+    },
+    "staticFollowup": {
+      "at": "2026-10-24T21:13:24.486346Z",
+      "revision": "b048ad5fcead1995939c8004744171a9beccfb98",
+      "path": "apps/review-panel/ads-growth-v10.css",
+      "normalizedSha256": "6baf7481ffbc6e3d85e95bbd2923f442ab067751a08439f9f7b49bae26719073",
+      "basePanel": "/opt/suleia-panel-releases/ads-growth-7224c11",
+      "panelTests": {
+        "passed": 62,
+        "failed": 0,
+        "skipped": 0
+      },
+      "apiContainerAndEnvironmentUnchanged": true,
+      "botUnchanged": true,
+      "protectedBudgetHashesUnchanged": 19,
+      "otherRuntimeAndStaticUnchanged": true,
+      "auditDirectory": "/root/suleia-ads-v10-deploy-20261024/7224c11/static-b048ad5/",
+      "visualVerified": {
+        "width": 567.5625,
+        "height": 186.6875,
+        "pathCount": 6,
+        "jsConsoleErrors": 0
+      }
+    },
+    "limitsReadbackAt": "2026-10-24T21:15:59.944290Z"
   }
 }

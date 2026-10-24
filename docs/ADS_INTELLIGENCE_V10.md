@@ -1,6 +1,6 @@
 # Ads Intelligence V10 · Meta Growth Intelligence
 
-Estado: **candidato de desarrollo, sin despliegue ni autorización de despliegue**.
+Estado: **desplegado con autorización del propietario; validación operativa parcial por límite de Meta**.
 Fecha de auditoría: 24 de octubre de 2026. Rama: `codex/ads-intelligence-v10`.
 Base compatible: `4d16c9f`, que conserva la reparación financiera de PR145/146.
 
@@ -10,7 +10,7 @@ Base compatible: `4d16c9f`, que conserva la reparación financiera de PR145/146.
 |---|---|---|
 | V8, PR141 | PR abierta; funciones ya desplegadas mediante overlays protegidos | Se reutilizan el servicio de revisión, OAuth, caché canónica, informes y ledger |
 | V9, PR144 | Abierta/borrador en `2432808`; implementación preliminar sin despliegue | Se reconcilia únicamente su diff respecto a `09af1f6` y se amplía el mismo `buildDailyDecisions` |
-| V10 | Desarrollo y QA local/aislado | No se cambia el runtime productivo |
+| V10 | API y panel activos en `7224c11` | Overlay exacto de 21 archivos; conserva la base financiera |
 | V5.1 | LIVE autorizado previamente | Los 19 archivos protegidos son idénticos en servidor y candidato |
 | OpenAI | Pendiente, 0 USD | Sin llamadas, claves, proveedores nuevos ni cambio de modelo |
 
@@ -193,7 +193,10 @@ servicio real de revisión con fixtures, simula un login local y nunca se incluy
 en los artefactos productivos. No crea una ruta de autenticación de prueba en
 la API productiva. Las pruebas de OAuth real conservan sus validadores y roles.
 
-## Artefactos y despliegue pendiente de aprobación
+## Artefactos y procedimiento de despliegue
+
+El procedimiento siguiente se preparó antes de la aprobación. El acta de
+ejecución al final de esta sección lo sustituye como estado actual.
 
 `tools/package-ads-growth-v10.py` prepara dos overlays y un manifiesto con hashes
 anteriores/nuevos, revisión, base productiva, los 19 hashes protegidos y rollback.
@@ -204,7 +207,7 @@ migración, permiso SQL adicional, secreto, destinatario o tarea programada.
 Artefactos ya preparados para el commit de implementación
 `7224c11fad4a5557732da7c935ff3bef5d2c0f35`: **21 archivos de runtime**, con los
 19 archivos protegidos contrastados. [Manifiesto revisable](ADS_INTELLIGENCE_V10_RELEASE.json)
-conserva `deploymentApproved=false` y `deployed=false`. Archivos privados locales:
+registra la aprobación posterior y el despliegue verificado. Archivos privados locales:
 `output/ads-intelligence-v10/release-7224c11/`.
 
 - API SHA256: `2f64b9a1131f03c9889f572ba64132b41f6dcaa8884ce002a9e8d2c1b6b023c8`.
@@ -212,9 +215,8 @@ conserva `deploymentApproved=false` y `deployed=false`. Archivos privados locale
 - Base de imagen inmutable auditada:
   `sha256:e58ec45e33d65a137c906f6568f75b10ad2818b85b070c7d1a21ef399da0b3a8`.
 
-El empaquetador se ejecutó y verificó satisfactoriamente; no se construyó ni
-arrancó una nueva imagen productiva. Una entrega posterior debe verificar también
-este ID de base antes de construir, además de los hashes anteriores del manifiesto.
+El empaquetador se ejecutó y verificó satisfactoriamente. Antes de desplegar se
+contrastó este ID de base, además de los hashes anteriores del manifiesto.
 
 Tras aprobación específica del propietario:
 
@@ -223,8 +225,8 @@ Tras aprobación específica del propietario:
    la base o un hash anterior del manifiesto, detener y reconciliar el overlay.
 2. Tomar un backup privado nuevo del manifiesto runtime y montajes, conservar la
    imagen actual por digest y el directorio estático anterior. No publicar env ni
-   secretos. Los artefactos anteriores ya permanecen retenidos por el despliegue
-   financiero; no se afirma haber tomado un backup nuevo de producción en V10.
+   secretos. Mantener separados los backups nuevos de V10 y los anteriores del
+   despliegue financiero para no confundir sus respectivos puntos de retorno.
 3. Construir la imagen candidata desde la base auditada, sin red/pull, aplicar
    únicamente archivos API del manifiesto y una nueva carpeta estática inmutable.
    No cambiar variables de LIVE, gastos, políticas, token o cron.
@@ -247,7 +249,101 @@ SQL down; el journal append-only y sus observaciones se conservan. Verificar
 OAuth, finanzas, salud, bot y los 19 hashes después de la reversión. Nunca borrar
 claims o marcas SENT/UNKNOWN como forma de recuperar el servicio.
 
-Pendiente para producción: aprobación de este candidato y comprobación de datos
-frescos sobre la base que exista entonces. La disponibilidad de Pixel/CAPI,
-atribución por pedido y margen seguirá explícitamente limitada hasta contar con
-evidencia y permisos específicos; no es un bloqueo oculto ni una cifra inventada.
+### Ejecución autorizada · 24 de octubre de 2026
+
+El propietario aprobó expresamente el despliegue de PR147 y la comprobación
+visual de V10 en producción. Agent Hub se releyó y se publicó la intervención
+antes de actuar. Se conservaron backups nuevos privados, runtime, imagen y
+montaje estático anteriores. No hubo cambios concurrentes sobre la base.
+
+A las **20:50:15 UTC (22:50 Madrid)** se activó la implementación
+`7224c11fad4a5557732da7c935ff3bef5d2c0f35`, imagen
+`suleia-ads-growth:7224c11`, ID
+`sha256:a02a3618de627d5dd9631e8e5a8f8e8bc505e57d09f1a82c9636d266a7f165aa`,
+panel `/opt/suleia-panel-releases/ads-growth-7224c11`. El lock existente y la
+comprobación de operaciones ejecutándose/inciertas bloquearon el cambio durante
+la ventana de las 22:45; se aplicó fuera de esa ventana, con todos los controles
+en verde. No se limpió ninguna reserva ni se repitió una operación.
+
+Comprobación de las **20:51:41 UTC**: API saludable, 21 hashes desplegados
+correctos; nueve recursos públicos HTTP200 y `Cache-Control: no-store` con
+hashes exactos; growth/journal/finanzas/incidencias devuelven401 sin OAuth.
+`/operations/version` es una ruta estática inexistente, no un endpoint público
+de la API: el primer intento del verificador falló por ese supuesto. Se corrigió
+solo el verificador privado para leer `/version` dentro del contenedor y
+`/operations/health` por HTTPS. No se expuso una nueva ruta ni se cambió OAuth.
+
+Los 19 hashes de presupuesto, entorno de políticas, PID/configuración del bot,
+IDs de contenedores ajenos, tarifas financieras y archivos estáticos fuera del
+overlay permanecieron iguales. No se ejecutó migración ni se cambió Render,
+bot, token, destinatario, horarios o configuración financiera.
+
+A las **20:53:13 UTC**, V5.1 seguía `LIVE` autorizado; Render `d175378` saludable,
+bot activo y un destinatario aprobado. El informe de hoy ya se había enviado
+completo antes del cambio: cuatro partes, última `SENT` a las20:33:33UTC. Los
+ocho `SENT` acumulados de dos días no aumentaron al desplegar. El último slot
+COMPLETE era el de20:45UTC; ese estado no acredita una modificación presupuestaria.
+
+Auditoría privada y rollback: `/root/suleia-ads-v10-deploy-20261024/7224c11/`.
+Conserva `runtime-before.private.json`, `panel-before.private.tar.gz`, manifiesto,
+autorización, `applied.json` y `http-proof.json`; la imagen anterior tiene además
+el alias `suleia-v10-rollback:finance-f72bf2c`. Reconciliar antes cualquier cambio
+posterior y restaurar solo API/montaje en una ventana inactiva. No restaurar env
+SHADOW, borrar histórico o deshacer la reparación financiera.
+
+La sesión personal terminó de volver al panel tras el aviso de espera del
+usuario; no se cambiaron credenciales ni permisos. La lectura real muestra
+objetivos28/21/22, cohorte374/293 y sus límites, y análisis detallado de campaña.
+La cobertura Meta sigue parcial: algunos eventos faltan y los totales de
+compras/ROAS/CPA quedan N/D; no se convierten eventos ausentes en ceros. Las
+decisiones que requieren más evidencia o frescura permanecen bloqueadas.
+Pixel/CAPI, atribución por pedido y margen mantienen los límites documentados.
+
+### Limitación encontrada en la comprobación posterior
+
+A21:01:58UTC se observó el primer slot posterior al despliegue,23:00Madrid,
+en `FAILED` (`AUTOPILOT_REVIEW_FAILED`), iniciado21:00:13 y terminado21:00:18UTC.
+Fallo previo a propuesta: `proposalId=null`, cero propuestas/operaciones nuevas
+desde el despliegue y cero operaciones `UNKNOWN`/`EXECUTING`. El recibo genérico
+conserva `externalWrites=null`; no se cambia a cero para aparentar una validación.
+Los slots22:30/22:45 anteriores estabanCOMPLETE, ambos con cero escrituras.
+
+La comprobación puntual, secuencial y soloGET con el cliente existente obtuvo
+cuenta activaEUR/Madrid y32campañas; `readDelivery()` fue rechazado por Meta con
+HTTP400, código17, subcódigo2446079, `META_RATE_LIMITED`. Se detuvo al primer
+rechazo: no se inició la lectura diagnóstica de Insights ni otro consumidor o
+programador. La API de Presupuestos tampoco pudo acreditar su lectura actual.
+Esto identifica una limitación real de consultas del proveedor; no prueba por
+sí solo la contribución causal del despliegue o de otros consumidores a la cuota.
+
+No se reintentó el slot, no se limpió el claim y no se relajó la política ni la
+frescura. La API/panel quedan desplegados y saludables, pero **la operación
+presupuestaria continua no queda verificada** mientras persista esa limitación.
+La documentación/Agent Hub deben conservar este resultado parcial; una revisión
+futura debe usar el programador existente y datos nuevos, nunca repetir23:00.
+
+### Corrección visual posterior · b048ad5
+
+La inspección de producción encontró que la regla antigua `#ads-view svg`
+prevalecía sobre los SVG nuevos: el gráfico tenía trazados reales, pero medía
+19×19px. Se corrigieron seis reglas CSS únicamente en
+`apps/review-panel/ads-growth-v10.css`, con selectores V10 más específicos para
+gráfico, sparklines e iconos. No se tocaron otras secciones ni datos o lecturas.
+
+Commit `b048ad5fcead1995939c8004744171a9beccfb98`;62/62pruebas existentes del panel,
+cero fallos/omisiones. A**21:13:24UTC** se publicó el nuevo montaje inmutable
+`/opt/suleia-panel-releases/ads-growth-svg-b048ad5`. CSS normalizadoSHA256
+`6baf7481ffbc6e3d85e95bbd2923f442ab067751a08439f9f7b49bae26719073`.
+Solo se recreó `review-panel`: mismo contenedor/API7224c11, entorno, bot y
+19hashes protegidos; todos los demás archivos y contenedores iguales. La
+corrección estática no interrumpe el ejecutor ni provoca una nueva lectura fría
+de la API. Backup y recibo independientes en `static-b048ad5/`, dentro del
+directorio privado V10 anterior. Reversión: restaurar solo el montaje
+`ads-growth-7224c11`; no reiniciar API ni reejecutar un slot por una corrección CSS.
+
+Verificación visual posterior: el gráfico pasó de19×19 a567.56×186.69px, con sus
+seis trazados, comparación y huecos visibles; sparklines restauradas. Consola
+sin erroresJavaScript y capturas privadas de indicadores/gráfico/embudo guardadas.
+Al cierre21:15:59UTC se mantenían API/bot saludables y configuración protegida,
+pero el slot normal23:15Madrid también estabaFAILED. La limitación presupuestaria
+continúa pendiente; el despliegue visual correcto no se presenta como su reparación.

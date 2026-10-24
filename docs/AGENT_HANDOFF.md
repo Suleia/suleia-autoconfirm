@@ -1,5 +1,59 @@
 # Suleia agent handoff
 
+## 2026-10-24 · Ads Intelligence V10 owner-approved deployment
+
+The owner subsequently approved PR147 deployment and a narrow production V10
+browser verification. At20:50:15UTC the exact21-file overlay7224c11fad4a5557732da7c935ff3bef5d2c0f35
+became healthy, image suleia-ads-growth:7224c11 (a02a3618…), static mount
+/opt/suleia-panel-releases/ads-growth-7224c11. The earlier development-only entry
+below is historical. All21runtime hashes and9served hashes verified; public
+health200, growth/journal/finance/incidents401 without OAuth. Public version URL
+is not routed; verifier reads the existing internal /version instead. No auth
+policy changes or production code repair was required for that verifier error.
+
+Fresh private backups/authorization/applied/http evidence reside at
+/root/suleia-ads-v10-deploy-20261024/7224c11/. Rollback retains finance-f72bf2c
+image and finance-cogs-a2f2f4f static, never an older SHADOW runtime. Existing
+deployment lock, idle-slot and pending/uncertain-operation gates passed.
+All19protected hashes, policy env, botPID/config, unrelated containerIDs, financial
+tariffs and unrelated static hashes remained unchanged. Render d175378 healthy;
+V5.1 remains owner-authorizedLIVE, OpenAI0USD, one Telegram recipient/scheduler.
+Today's report already had4SENT before deployment; no test/replay report sent.
+No migration, new SQL grants, customer/provider/Meta writes by this release.
+
+Personal OAuth returned to the loaded panel after the owner's reported wait;
+credentials/permissions unchanged. Production overview/goal
+and campaign/adset/ad drawers read real data. Meta aggregate purchase-event coverage remains incomplete, with
+N/D and evidence/freshness guards visible; do not replace absent events with zero
+or claim Pixel/CAPI/order attribution verified. See ADS_INTELLIGENCE_V10.md and
+ADS_INTELLIGENCE_V10_QA.md for exact execution/UI scope and limits.
+
+POST-DEPLOY LIMIT:23:00Madrid slot FAILED at21:00:18UTC before proposal. Zero new
+proposals/operations since deployment, zero UNKNOWN/EXECUTING. A sequentialGET-only
+diagnostic of the existing client found account/campaign metadata working but
+readDelivery rejected by MetaHTTP400/code17/subcode2446079 META_RATE_LIMITED;
+diagnostic stopped before Insights. Budget view cannot verify current data.
+Do not claim continuous Autopilot success from enabledLIVE or healthyAPI. Rate
+limit contribution by this deployment versus other consumers is not established.
+No slot replay, claim reset, policy relaxation or token/consumer replacement.
+
+Next: reconcile the next normal scheduled slot with fresh provider evidence after
+the rate limit clears; preserve the failed23:00claim and all V5.1 protections.
+
+STATIC FOLLOW-UP:b048ad5 fixes legacy #ads-view svg overriding V10 chart/sparkline
+dimensions to19px.62/62existing panel tests passed; published21:13:24UTC at
+/opt/suleia-panel-releases/ads-growth-svg-b048ad5, CSS normalized SHA2566baf7481…19073.
+Only review-panel recreated; APIcontainer/revision/env, bot,19protected hashes,
+other containers/static files unchanged. Private scoped backup/receipt is in
+static-b048ad5/ under the V10 directory. Roll back only that static mount if
+needed; do not restart the API or replay a financial slot for CSS.
+
+Visual readback confirms567.56×186.69 chart (previously19×19), six actual paths,
+visible sparklines/funnel and zeroJSconsole errors. Private screenshots retained.
+At21:15:59UTC API/bot/Render remained healthy and8SENT unchanged, but the next
+normal23:15Madrid slot also FAILED. V10 deployment/UI are verified; continuous
+budget automation is not. Preserve this unresolved provider-limit finding.
+
 ## 2026-10-24 · Ads Intelligence V10 development candidate
 
 Owner requested development, testing and a reviewable release candidate only;
