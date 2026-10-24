@@ -108,6 +108,12 @@ export function createOperationsServer({ config, repository, authenticate, finan
     const task = (async () => {
       const startedAt = Date.now(); let supplementalReports = [];
       if (financeReportClient) {
+        try {
+          if(repository.productCostConfiguration && financeReportClient.syncProductCosts){
+            const configuration=await repository.productCostConfiguration();
+            await financeReportClient.syncProductCosts(configuration.rates);
+          }
+        }catch(error){audit({event:'finance_product_cost_sync_pending',outcome:'degraded',external_actions:0});}
         try { supplementalReports = await financeReportClient.getMonthlyBundle(params.get('month') || new Date().toISOString().slice(0, 7)); }
         catch (error) {
           audit({ event: 'finance_supplemental_read_failed', outcome: 'degraded', error_code: error?.message || 'UNKNOWN', external_actions: 0 });
@@ -143,7 +149,9 @@ export function createOperationsServer({ config, repository, authenticate, finan
     const feedbackMatch = requestUrl.pathname.match(/^\/api\/operations\/incidents\/([^/]+)\/feedback$/);
     const fixedExpenseCreate = requestUrl.pathname === '/api/operations/finance/fixed-expenses';
     const fixedExpenseUpdate = requestUrl.pathname.match(/^\/api\/operations\/finance\/fixed-expenses\/([^/]+)$/);
-    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate || adsProposal || adsAlgorithmJournal || adsReviewRecord || adsExecutiveGenerate)) || (req.method === 'PATCH' && (fixedExpenseUpdate || adsProposal));
+    const productCostPath=requestUrl.pathname==='/api/operations/finance/product-costs';
+    const productCostUpdate=requestUrl.pathname.match(/^\/api\/operations\/finance\/product-costs\/([a-f0-9-]{36})$/i);
+    const internalWrite = (req.method === 'POST' && (feedbackMatch || fixedExpenseCreate || productCostPath || adsProposal || adsAlgorithmJournal || adsReviewRecord || adsExecutiveGenerate)) || (req.method === 'PATCH' && (fixedExpenseUpdate || productCostUpdate || adsProposal));
     if (req.method !== 'GET' && !internalWrite && !(adsBridge && req.method === 'POST')) return json(res, 405, { ok: false, error: 'method_not_allowed' });
     if (!allowRequest(req)) return json(res, 429, { ok: false, error: 'rate_limited' });
     if(adsBridge){
@@ -207,7 +215,20 @@ export function createOperationsServer({ config, repository, authenticate, finan
     }
     try {
       let data;
-      if(requestUrl.pathname.startsWith('/api/operations/ads-intelligence/executive')){
+      if(productCostPath || productCostUpdate){
+        if(req.method==='GET'&&productCostPath)data=await repository.productCostConfiguration();
+        else if(req.method==='POST'&&productCostPath||req.method==='PATCH'&&productCostUpdate){
+          data=await repository.saveProductCostRate(productCostUpdate?productCostUpdate[1]:null,await jsonBody(req,4096),principal.principal_hash);
+          financeCache.clear();
+          let refresh={state:'PENDING'};
+          if(financeReportClient?.syncProductCosts)try{
+            const configuration=await repository.productCostConfiguration();
+            refresh={state:'QUEUED',...(await financeReportClient.syncProductCosts(configuration.rates))};
+          }catch{refresh={state:'SYNC_PENDING'};}
+          audit({event:'finance_product_cost_saved',rate_id:data.rate_id,principal_hash:principal.principal_hash,outcome:'saved',external_actions:0});
+          return json(res,productCostUpdate?200:201,{ok:true,data:{...data,refresh},external_actions:0,internal_configuration_writes:1});
+        }else return json(res,405,{ok:false,error:'method_not_allowed'});
+      }else if(requestUrl.pathname.startsWith('/api/operations/ads-intelligence/executive')){
         if(!adsRuntime?.executive)return json(res,503,{ok:false,error:'ads_executive_disabled'});
         const path=requestUrl.pathname,query=Object.fromEntries(requestUrl.searchParams);
         if(adsExecutiveGenerate&&req.method==='POST'){
@@ -311,6 +332,8 @@ export function createOperationsServer({ config, repository, authenticate, finan
       return json(res, 200, { ok: true, data, actions_executed: 0, production_writes: 0,
         meta_budget_writes: 0, external_actions: 0 });
     } catch (error) {
+      if(/^FINANCE_PRODUCT_COST_|^INVALID_PRODUCT_COST_RATE/.test(error.message||''))return json(res,400,{ok:false,error:error.message});
+      if(error.status===409||/^PRODUCT_COST_RATE_(CHANGED|OVERLAP|EXISTS_USE_UPDATE|NOT_FOUND)$/.test(error.message||''))return json(res,409,{ok:false,error:'product_cost_conflict_reload'});
       if(error instanceof ReportReadError){const d=error.diagnostic;res.setHeader('Retry-After',String(d.retryAfterSeconds));audit({event:'ads_report_status',path:requestUrl.pathname,code:d.code,error_id:d.id,source:d.source,state:d.state,latency_ms:d.latencyMs,cache:d.cache});return json(res,error.status,{ok:false,error:d.code,diagnostic:d,meta_budget_writes:0,external_actions:0});}
       if (error?.status === 400 || error?.status === 413 || error?.message === 'QUERY_INVALID' || error?.code === 'INVALID_FEEDBACK' || error?.code === 'INVALID_FIXED_EXPENSE') {
         return json(res, error.status || 400, { ok: false, error: error.message || 'invalid_feedback' });

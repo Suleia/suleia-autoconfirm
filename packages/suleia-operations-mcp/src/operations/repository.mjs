@@ -2,6 +2,7 @@ import { rejectedMetrics } from '../../../platform-core/src/incident/rejected-pr
 import { evaluateSourceFreshness } from '../../../platform-core/src/operational-truth/freshness.mjs';
 import { buildResultsFinanceReport } from '../../../platform-core/src/finance/results-report.mjs';
 import { privateIncidentDisplay, privateIncidentMessages, privateOrderDisplay } from './private-display.mjs';
+import {normalizeProductCostRates} from '../../../../autoconfirm/src/finance-product-cost-policy.mjs';
 import { incidentInsight } from './incident-insight.mjs';
 import { buildRecoveryOverview, recoveryProjection, recoveryTimeline, recoveryMessageValidity } from '../../../platform-core/src/incident/recovery-center.mjs';
 import { buildIncidentDashboard, dashboardProjection, dashboardScopeCounts } from '../../../platform-core/src/incident/dashboard.mjs';
@@ -364,6 +365,34 @@ export class OperationsRepository {
       orders: { ...(orders.rows[0] || {}), ...(orderFlow.rows[0] || {}) },
       incidents: incidents.rows[0] || {}, protections: protections.rows[0] || {}, connectors
     };
+  }
+
+  async productCostConfiguration() {
+    const [rates,findings]=await Promise.all([
+      this.pool.query(`SELECT r.*,r.updated_at::text AS version,
+        (SELECT coalesce(max(revision),0)::text FROM economics.finance_product_cost_audit) AS snapshot_revision,
+        (SELECT max(p->>'name') FROM read_models.operations_finance_order_inputs o
+          CROSS JOIN LATERAL jsonb_array_elements(o.product_summary->'products') p
+          WHERE o.store_id=r.store_id AND p->>'product_id'=r.product_id AND p->>'variant_id'=r.variant_id) AS product_name
+        FROM economics.finance_cost_rates r WHERE r.cost_type='PRODUCT_COGS' AND r.store_id='16088' ORDER BY r.product_id,r.variant_id,r.effective_from`),
+      this.pool.query('SELECT * FROM read_models.finance_product_cogs_missing ORDER BY first_seen,product_id,variant_id')
+    ]);
+    return {rates:rates.rows.map(row=>({...row,effective_from:dateOnly(row.effective_from),effective_to:dateOnly(row.effective_to)})),
+      findings:findings.rows,revision:rates.rows[0]?.snapshot_revision||'0',source:'CANONICAL_OPERATIONS_FINANCE_COST_RATES',external_writes:0};
+  }
+
+  async saveProductCostRate(id,input,principalHash) {
+    if(id!==null&&!/^[a-f0-9-]{36}$/i.test(String(id)))throw Object.assign(Error('invalid_product_cost_rate'),{status:400});
+    if(typeof principalHash!=='string'||principalHash.length<8||principalHash.length>256)throw Object.assign(Error('invalid_product_cost_principal'),{status:400});
+    const [rate]=normalizeProductCostRates([{...input,store_id:'16088',cost_type:'PRODUCT_COGS',currency:'EUR',source:'OWNER_VERIFIED_PRODUCT_COST'}]);
+    if(id&&(!input.version||Number.isNaN(Date.parse(input.version))))throw Object.assign(Error('product_cost_version_required'),{status:409});
+    const client=await this.pool.connect();
+    try{
+      await client.query('BEGIN READ WRITE');
+      const result=await client.query(`SELECT economics.save_product_cogs_rate($1::uuid,$2,$3,$4,$5::numeric,$6::date,$7::date,$8,$9::timestamptz) AS rate`,
+        [id,rate.store_id,rate.product_id,rate.variant_id,rate.amount,rate.effective_from,rate.effective_to,principalHash,input.version||null]);
+      await client.query('COMMIT');return {...result.rows[0].rate,external_writes:0};
+    }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}
   }
 
   async financialSummary(searchParams, supplementalReports = []) {

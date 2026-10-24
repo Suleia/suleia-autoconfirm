@@ -1,4 +1,5 @@
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+import {normalizeProductCostRates,productCostRateVersion} from '../../autoconfirm/src/finance-product-cost-policy.mjs';
 
 function nextMonth(month) {
   const [year, value] = month.split('-').map(Number);
@@ -70,6 +71,9 @@ function safeReport(report) {
     sources: report.sources || {},
     definitions: report.definitions || {},
     costTraceability: report.costTraceability || {},
+    productCostFindings: Array.isArray(report.productCostFindings) ? report.productCostFindings : [],
+    productCostCoverage: report.productCostCoverage || null,
+    productCostVersion: report.productCostVersion || null,
     expenseLedger: Array.isArray(report.expenseLedger) ? report.expenseLedger : [],
     // The Operations engine needs the final per-order Dropea breakdown to
     // reconcile event-date P&L. Keep only a strict finance whitelist: no
@@ -142,6 +146,12 @@ export class FinanceReportClient {
     const payload = await this.request(`/api/finance?month=${encodeURIComponent(month)}`);
     if (!payload?.finance) throw Object.assign(new Error('finance_report_not_ready'), { status: 503 });
     const report = safeReport(payload.finance);
+    const relevantRate=this.productCostRates?.some(rate=>rate.effective_from<=`${month}-31`&&(!rate.effective_to||rate.effective_to>=`${month}-01`));
+    if(relevantRate&&this.productCostVersion!==report.productCostVersion){
+      report.costConfiguration={status:'RECALCULATING',expectedVersion:this.productCostVersion,sourceVersion:report.productCostVersion};
+      report.warnings=[...report.warnings,'Recálculo pendiente con la tarifa de producto actualizada; se muestra el último informe disponible.'];
+      report.quality={...report.quality,status:'PARTIAL'};
+    }
     this.cache.set(month, { at: this.now(), report });
     await this.refreshIfStale(report, month);
     return report;
@@ -168,6 +178,17 @@ export class FinanceReportClient {
     const months = selected.availableMonths.slice(0, 12);
     const rest = await Promise.all(months.filter((candidate) => candidate !== month).map((candidate) => this.getMonthly(candidate)));
     return [selected, ...rest];
+  }
+
+  async syncProductCosts(rows) {
+    const rates=normalizeProductCostRates(rows.filter(row=>row.source==='OWNER_VERIFIED_PRODUCT_COST'));
+    const version=productCostRateVersion(rates);
+    const revision=String(rows[0]?.snapshot_revision||'0');
+    if(this.productCostVersion===version&&this.productCostRevision===revision)return {changed:false,version};
+    const payload=await this.request('/api/finance-product-costs/snapshot',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({rates,version,revision})});
+    if(!payload?.ok||payload.result?.version!==version)throw Error('finance_product_cost_sync_failed');
+    this.productCostVersion=version;this.productCostRevision=revision;this.productCostRates=rates;this.cache.clear();
+    return payload.result;
   }
 
   async addExpense(input = {}) {

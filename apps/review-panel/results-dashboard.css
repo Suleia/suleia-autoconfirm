@@ -81,3 +81,11 @@
 @media(max-width:1100px){.results-v2 #finance-hero{grid-template-columns:repeat(3,minmax(0,1fr))}.results-v2-charts{grid-template-columns:repeat(2,minmax(0,1fr))}.rv-kpi-value{font-size:23px}.rv-kpi-label{font-size:11px}.rv-kpi{grid-template-columns:30px minmax(0,1fr)}.rv-sparkline{width:60px}}
 @media(max-width:760px){.results-v2-charts{grid-template-columns:1fr}.results-v2 .finance-toolbar{flex-direction:column}.results-v2 .finance-month-control{width:100%;min-width:0}.rv-chart-svg{max-height:270px}.rv-ring{width:145px;height:145px}.rv-ring>.stacked{width:99px;height:99px}.rv-state-legend dt{font-size:11px}.rv-status-chart{min-height:180px}}
 @media(max-width:520px){.results-v2 #finance-hero{grid-template-columns:repeat(2,minmax(0,1fr))}.rv-kpi{grid-template-columns:24px minmax(0,1fr)}.rv-kpi-value{font-size:20px}.rv-kpi-label{font-size:10px}.rv-sparkline{width:35px}.rv-source{flex:1;min-width:140px}.rv-metric-tooltip>p{width:180px}}
+/* Product cost configuration is confined to the financial view. */
+.product-costs-panel summary{cursor:pointer;font-weight:700;padding:8px 0;color:var(--text,#13314a)}
+.product-costs-panel .panel-heading{margin-top:16px;gap:16px;flex-wrap:wrap}
+.product-costs-panel table{min-width:900px;width:100%;border-collapse:collapse}
+.product-costs-panel th,.product-costs-panel td{padding:12px;text-align:left;border-bottom:1px solid #e2e8f0;overflow-wrap:anywhere}
+.product-cost-feedback{font-size:14px;color:#526b81;margin-top:14px}
+.product-cost-coverage{border:1px solid #edd399;background:#fff9eb;border-radius:12px;padding:16px;margin-bottom:18px;overflow-wrap:anywhere}
+.product-cost-coverage p{margin:8px 0 4px}

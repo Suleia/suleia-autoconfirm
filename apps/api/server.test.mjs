@@ -11,6 +11,21 @@ const config = loadOperationsConfig({
   rateLimitPerMinute: 60, privateDataKey: 'fixture-private-key-that-is-longer-than-thirty-two-characters'
 });
 
+test('product tariff endpoints require existing auth, audit the principal and preserve external-action isolation',async(t)=>{
+ let saved=0,synced=0;
+ const repository={productCostConfiguration:async()=>({rates:[],findings:[]}),saveProductCostRate:async(id,body,principal)=>{
+  assert.equal(principal,'fixture-principal-hash');assert.equal(body.amount,0.87);saved++;return {rate_id:id||'11111111-1111-4111-8111-111111111111'};
+ }};
+ const server=createOperationsServer({config,repository,authenticate:async req=>{if(req.headers.authorization!=='Bearer fixture')throw Error('unauthorized');return {principal_hash:'fixture-principal-hash'};},financeReportClient:{syncProductCosts:async()=>{synced++;return {changed:true};}}});
+ server.listen(0,'127.0.0.1');await once(server,'listening');t.after(()=>server.close());const root=`http://127.0.0.1:${server.address().port}/api/operations/finance/product-costs`;
+ assert.equal((await fetch(root,{method:'POST',body:'{}'})).status,401);assert.equal(saved,0);
+ const headers={Authorization:'Bearer fixture','Content-Type':'application/json'};
+ assert.equal((await fetch(root,{headers})).status,200);
+ const response=await fetch(root,{method:'POST',headers,body:JSON.stringify({amount:0.87})});assert.equal(response.status,201);
+ const data=await response.json();assert.equal(data.external_actions,0);assert.equal(data.internal_configuration_writes,1);assert.equal(saved,1);assert.equal(synced,1);
+ assert.equal((await fetch(root,{method:'DELETE',headers})).status,405);
+});
+
 test('Operations API exposes only authenticated GET reads and zero-action envelopes', async (t) => {
   const repository = {
     summary: async () => ({ orders: { total: 0 }, incidents: { pending: 0 }, connectors: [] }),

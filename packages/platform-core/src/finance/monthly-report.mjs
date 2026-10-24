@@ -236,12 +236,17 @@ function exactOrderCost(order, rates, type, day, dimensions) {
 }
 
 function productCostWithSource(order, rates, day, dimensions, returned) {
+  const products = normalizedProducts(order);
+  if(!returned&&products.length){
+    const ownerRates=products.map(product=>rateFor(rates,'PRODUCT_COGS',day,{...product,...dimensions}));
+    if(ownerRates.every(rate=>rate?.source==='OWNER_VERIFIED_PRODUCT_COST'))return {
+      cents:products.reduce((sum,product,index)=>sum+cents(ownerRates[index].amount)*product.quantity,0),source:'OWNER_VERIFIED_PRODUCT_COST'};
+  }
   const actual = supplementalCost(order, 'PRODUCT_COGS');
-  if (actual !== null) return { cents: actual, source: 'DROPEA_FINAL' };
+  if (actual !== null && (actual>0||returned)) return { cents: actual, source: 'DROPEA_FINAL' };
   // Returned orders do not consume COGS merely because an item exists. Only
   // a real provider charge may put product cost on a return settlement.
   if (returned) return { cents: 0, source: 'NO_PRODUCT_CHARGE_ON_RETURN' };
-  const products = normalizedProducts(order);
   if (!products.length) return { cents: null, source: 'MISSING_ORDER_ITEMS' };
   let total = 0; const sources = new Set();
   for (const product of products) {

@@ -53,6 +53,14 @@ test('missing data differs from zero and event-date fallback cannot appear as co
   h.state.finance={...d,temporalModels:{pnl:'REALIZED_EVENT_DATE'}};h.renderResultsFinance();
   assert.equal(h.get('finance-hero').children[0].children[2].textContent,'No disponible');assert.match(text(h.get('results-v2-charts')),/Serie no disponible/);
 });
+
+test('the cost distribution preserves unknown product cost separately from a confirmed zero',()=>{
+ const h=harness(),d=fixture();d.totals.productCost=null;d.totals.totalCosts=null;h.state.finance=d;h.renderResultsFinance();
+ let product=h.get('finance-costs').children[0].children[1].children[0];
+ assert.match(text(product),/Producto.*No disponible/);assert.doesNotMatch(text(product),/0,00/);
+ d.totals.productCost=0;d.totals.totalCosts=70;h.renderResultsFinance();
+ product=h.get('finance-costs').children[0].children[1].children[0];assert.match(text(product),/Producto.*0,00/);
+});
 test('source freshness and missing coverage never claim reconciled data',()=>{
   const {ResultsV2:v}=harness(),d=fixture();d.period.current=false;
   assert.match(text(v.DataQualityBadge(d)),/CONCILIADO/);

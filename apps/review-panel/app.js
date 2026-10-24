@@ -1063,12 +1063,14 @@ function monthlyReturnRateChart(data) {
   ],'red'),node('p','return-rate-description',`${number(returned)} devueltos de ${number(sent)} enviados · pedidos comprados en este mes`));return root;
 }
 function costBreakdown(totals, currency) {
-  const logistics = ['outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost', 'dropeaAdjustmentsCost'].reduce((sum, key) => sum + Number(totals[key] || 0), 0);
-  const fixed = ['fixedCosts', 'oneOffCosts', 'otherCosts'].reduce((sum, key) => sum + Number(totals[key] || 0), 0);
-  const rows = [['Producto', Number(totals.productCost || 0), 'product'], ['Logística', logistics, 'logistics'], ['Publicidad Meta', Number(totals.metaSpend || 0), 'advertising'], ['Fijos y puntuales', fixed, 'fixed']];
-  const total = Number(totals.totalCosts || rows.reduce((sum, item) => sum + item[1], 0)); const root = node('div', 'cost-breakdown'); const track = node('div', 'cost-breakdown-track');
-  rows.forEach(([label, value, tone]) => { const segment = node('span', tone); segment.style.width = `${total ? value * 100 / total : 0}%`; segment.title = `${label}: ${money(value, currency)}`; track.append(segment); });
-  const legend = node('div', 'cost-breakdown-legend'); rows.forEach(([label, value, tone]) => { const item = node('div'); const labelBox = node('span'); labelBox.append(node('i', tone), document.createTextNode(label)); item.append(labelBox, node('strong', '', money(value, currency)), node('small', '', total ? percentNumber(value * 100 / total) : '0 %')); legend.append(item); });
+  const present=value=>value!==null&&value!==undefined&&Number.isFinite(Number(value));
+  const sum=keys=>keys.every(key=>present(totals[key]))?keys.reduce((n,key)=>n+Number(totals[key]),0):null;
+  const logistics=sum(['outboundShippingCost','outboundFulfillmentCost','codCost','returnCost','dropeaAdjustmentsCost']);
+  const fixed=sum(['fixedCosts','oneOffCosts','otherCosts']);
+  const rows=[['Producto',totals.productCost,'product'],['Logística',logistics,'logistics'],['Publicidad Meta',totals.metaSpend,'advertising'],['Fijos y puntuales',fixed,'fixed']];
+  const total=present(totals.totalCosts)?Number(totals.totalCosts):null,root=node('div','cost-breakdown'),track=node('div','cost-breakdown-track');
+  rows.forEach(([label,value,tone])=>{if(!present(value)||!present(total))return;const segment=node('span',tone);segment.style.width=`${total?value*100/total:0}%`;segment.title=`${label}: ${money(value,currency)}`;track.append(segment);});
+  const legend=node('div','cost-breakdown-legend');rows.forEach(([label,value,tone])=>{const item=node('div'),labelBox=node('span');labelBox.append(node('i',tone),document.createTextNode(label));item.append(labelBox,node('strong','',money(value,currency)),node('small','',present(total)&&present(value)?total?percentNumber(value*100/total):'0 %':'—'));legend.append(item);});
   root.append(track, legend); return root;
 }
 function operationalSummary(counts) {
@@ -1127,6 +1129,7 @@ function renderResultsFinance() {
   const wrongBasis=sourceData.temporalModels?.pnl==='REALIZED_EVENT_DATE';
   const data=wrongBasis?{...sourceData,days:[],history:[],totals:Object.fromEntries(Object.keys(sourceData.totals||{}).map(k=>[k,null])),quality:{status:'REVIEW',issues:['PURCHASE_COHORT_UNAVAILABLE']},controls:{...sourceData.controls,purchaseCohortAvailable:false},warnings:['Informe por fecha de compra no disponible. No se sustituyen sus importes por liquidaciones de otros meses.']}:sourceData;
   const totals = data.totals || {}; const counts = data.counts || {}; const currency = data.currency || 'EUR';
+  if(typeof ProductCostsPanel!=='undefined')ProductCostsPanel.coverage(data);
   $('last-sync').textContent = date(data.generatedAt); const current = data.period?.current;
   const closedThrough = data.accounting?.closedThrough; const pendingDays = number(data.accounting?.pendingDays);
   const accountingLabel = current

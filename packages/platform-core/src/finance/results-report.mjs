@@ -474,6 +474,8 @@ function mapAuthoritativeSource(source, month, currentDay, freshness, canonicalO
       vat: 'IVA y recargo aplicables obtenidos de los gastos finales de cada pedido de Dropea; incluidos en los costes, no añadidos de nuevo. Ajustes / IVA también contiene otros cargos o ajustes reales.',
       period: 'Pedidos creados en el mes, valorados con su estado y desglose financiero final verificado' },
     costTraceability: source.costTraceability || {}, expenseLedger: source.expenseLedger || [],
+    productCostFindings: source.productCostFindings || [], productCostCoverage: source.productCostCoverage || null,
+    productCostVersion: source.productCostVersion || null, costConfiguration: source.costConfiguration || null,
     generatedAt: source.generatedAt || new Date().toISOString(), currency: source.currency || 'EUR',
     source: 'dropea_order_finance_v4', productionWrites: 0
   };
