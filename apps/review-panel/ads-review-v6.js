@@ -40,13 +40,14 @@ const CampaignReviewPanel=(()=>{
   (async()=>{try{
     const history=await api('/api/operations/ads-intelligence/executive/history?limit=12');
     if(!root.contains(wrap))return;
-    const entry=(history.entries||[]).find(e=>e.state==='READY'||e.state==='DELIVERED');
+    const eligible=(history.entries||[]).filter(e=>e.state==='READY'||e.state==='DELIVERED');
+    const entry=eligible.find(e=>e.kind==='DAILY')||eligible[0];
     if(!entry){note.textContent='Aún no hay un informe diario listo. Consulta Informes y revisiones para generar una auditoría.';return;}
     const detail=await api('/api/operations/ads-intelligence/executive/'+entry.id);
     if(!root.contains(wrap))return;
     wrap.replaceChildren();
     if(!detail.body?.dailyDecisions){wrap.append(node('p','ai-footnote','Este informe es anterior al motor diario de decisiones V9. Las nuevas revisiones incluirán el análisis compacto.'));return;}
-    wrap.append(node('p','ai-footnote',`Último análisis guardado: ${detail.body.targetDate||'fecha desconocida'} · observación ${detail.body.observedAt||'N/D'}. No equivale a una lectura nueva.`));
+    wrap.append(node('p','ai-footnote',`Último análisis ${entry.kind==='DAILY'?'diario':'manual'} guardado: ${detail.body.targetDate||'fecha desconocida'} · observación ${detail.body.observedAt||'N/D'}. No equivale a una lectura nueva.`));
     ExecutiveReportPanel.renderDecisions(wrap,detail.body.dailyDecisions);
     wrap.append(button('Ver informe completo e historial',()=>CampaignReviewPanel.navigate('reports'),true));
   }catch{
