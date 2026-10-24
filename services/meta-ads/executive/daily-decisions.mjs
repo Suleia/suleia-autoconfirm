@@ -73,18 +73,20 @@ function assess(r,{level,month=null,today=null,adsetName=null,threshold=3.8,sour
  return {...common,status:'DATOS_INSUFICIENTES',why:`Muestra 7d: ${fmt(r.spend,' €')} de gasto, ${fmt(r.purchases)} compras y ${fmt(days)} días con filas. No se autoriza juicio de eficiencia.`,next:'Esperar más evidencia o reconciliar los eventos; no pausar por un día aislado.'};
 }
 
-export function buildDailyDecisions({today=null,week=null,month=null,ads=null,budget=null}={}){
+export function buildDailyDecisions({today=null,week=null,month=null,adsets=null,ads=null,budget=null}={}){
  const ready=week?.freshness==='FRESH'&&week?.range?.partial===false&&month?.freshness==='FRESH'&&month?.range?.partial===false&&ads?.freshness==='FRESH'&&ads?.range?.partial===false
   &&week?.contract===month?.contract&&week?.contract===ads?.contract;
  const monthly=new Map((month?.rows||[]).map(r=>[r.entityId,r]));
  const current=new Map((today?.rows||[]).map(r=>[r.entityId,r]));
  const campaigns=(week?.rows||[]).map(r=>assess(r,{level:'campaign',month:monthly.get(r.entityId),today:current.get(r.entityId),sourceReady:ready}));
  const adsetNames=new Map((ads?.inventory?.adset||[]).map(r=>[String(r.id),r.name]));
+ const adsetsReady=ready&&adsets?.freshness==='FRESH'&&adsets?.range?.partial===false&&adsets?.contract===week.contract;
+ const adsetRows=(adsets?.rows||[]).map(r=>assess(r,{level:'adset',adsetName:r.name,sourceReady:adsetsReady}));
  const adRows=(ads?.rows||[]).map(r=>assess(r,{level:'ad',adsetName:adsetNames.get(String(r.adsetId)),sourceReady:ready}));
  const order=['REVISAR_PAUSA','REVISAR_REDUCCION','MEJORAR_CONVERSION','MEJORAR_CREATIVIDAD','CANDIDATA_ESCALAR','INVESTIGAR','PROTEGER','MANTENER_VIGILAR','DATOS_INSUFICIENTES','INACTIVA'];
  const sort=(a,b)=>order.indexOf(a.status)-order.indexOf(b.status)||((b.evidence.week?.spend||0)-(a.evidence.week?.spend||0));
- campaigns.sort(sort);adRows.sort(sort);
- const candidates=[...campaigns,...adRows].filter(r=>!['DATOS_INSUFICIENTES','INACTIVA','MANTENER_VIGILAR','PROTEGER'].includes(r.status)).sort(sort);
+ campaigns.sort(sort);adsetRows.sort(sort);adRows.sort(sort);
+ const candidates=[...campaigns,...adsetRows,...adRows].filter(r=>!['DATOS_INSUFICIENTES','INACTIVA','MANTENER_VIGILAR','PROTEGER'].includes(r.status)).sort(sort);
  const status=!ready?'INSUFFICIENT':today?.freshness==='FRESH'?'READY':'HISTORICAL_ONLY';
- return {version:'suleia-daily-decisions-v9.0',status,generatedFrom:{today:today?.observedAt||null,week:week?.range||null,month:month?.range||null,ads:ads?.range||null,contract:week?.contract||null,timezone:'Europe/Madrid',budgetMode:budget?.mode||'UNKNOWN'},goal:{targetOrdersPerDay:55,targetConfirmedPerDay:40,note:'Objetivos de negocio; ROAS atribuido no implica beneficio ni confirmado en Dropea.'},summary:{campaigns:campaigns.length,ads:adRows.length,requiresReview:candidates.length,proposalOnly:true},topActions:candidates.slice(0,5),campaigns,ads:adRows,limits:['Ninguna clasificación ejecuta Meta ni autoriza cambios presupuestarios.','El día en curso es provisional y no sirve por sí solo para pausar.','No hay atribución fiable campaña → pedido confirmado/entregado; beneficio real desconocido.','Una señal de embudo puede deberse a medición; verificar Pixel/CAPI.','Las recomendaciones se validan con las reglas y confirmaciones existentes de V5.1.'],externalWrites:0,metaWrites:0};
+ return {version:'suleia-daily-decisions-v9.0',status,generatedFrom:{today:today?.observedAt||null,week:week?.range||null,month:month?.range||null,ads:ads?.range||null,contract:week?.contract||null,timezone:'Europe/Madrid',budgetMode:budget?.mode||'UNKNOWN'},goal:{targetOrdersPerDay:55,targetConfirmedPerDay:40,note:'Objetivos de negocio; ROAS atribuido no implica beneficio ni confirmado en Dropea.'},summary:{campaigns:campaigns.length,adsets:adsetRows.length,ads:adRows.length,requiresReview:candidates.length,proposalOnly:true},topActions:candidates.slice(0,5),campaigns,adsets:adsetRows,ads:adRows,limits:['Ninguna clasificación ejecuta Meta ni autoriza cambios presupuestarios.','El día en curso es provisional y no sirve por sí solo para pausar.','No hay atribución fiable campaña → pedido confirmado/entregado; beneficio real desconocido.','Una señal de embudo puede deberse a medición; verificar Pixel/CAPI.','Las recomendaciones se validan con las reglas y confirmaciones existentes de V5.1.'],externalWrites:0,metaWrites:0};
 }
