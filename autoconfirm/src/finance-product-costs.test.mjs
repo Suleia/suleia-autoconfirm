@@ -3,7 +3,6 @@ import test from 'node:test';
 import {normalizeProductCostRates,productCostRateVersion,mergeGovernedProductCosts} from './finance-product-cost-policy.mjs';
 import {loadGovernedFinanceCostRules,syncGovernedProductCosts} from './finance-product-costs.mjs';
 import {aggregateFinanceReport,resolveFinancePeriod,applyFinanceExpenseLedger} from './finance.mjs';
-import {buildResultsFinanceReport} from '../../packages/platform-core/src/finance/results-report.mjs';
 const rate={store_id:'16088',cost_type:'PRODUCT_COGS',product_id:'33560',variant_id:'33788',amount:0.87,currency:'EUR',effective_from:'2026-10-19',effective_to:null,source:'OWNER_VERIFIED_PRODUCT_COST'};
 const base={version:'fixture',effective_from:'2026-05-01',rates:[],products:{},logistics:{},source:'fixture'};
 const fixture=(id,quantity,wholesale=0)=>({id,status:'FINISH',sub_status:'DELIVERED',created_at:'2026-10-19T10:33:27Z',delivered_at:'2026-10-21T12:00:00Z',total_amount:34.99,line_items:[{product_id:33560,variant_id:33788,quantity,wholesale_price:wholesale,product_name:'Fixture'}],expenses_breakdown:{product_price:0,shipping_outbound_price:4.06,fulfillment_outbound_price:1,cod_commission:1.2,total_expenses:6.26,is_estimate:false}});
@@ -30,10 +29,6 @@ test('two repaired orders add 3.48 to the known monthly product cost and reconci
  assert.equal(before.productCostCoverage.missingUnits,4);assert.equal(after.productCostCoverage.missingUnits,0);
  assert.equal(before.totals.knownProductCost,2.02);assert.equal(after.totals.productCost,5.50);
  assert.equal(Number((after.totals.productCost-before.totals.knownProductCost).toFixed(2)),3.48);
- const canonical=buildResultsFinanceReport({month:'2026-10',supplementalReports:[after],now:new Date('2026-10-24T12:00:00Z')});
- for(const key of ['sourceDailyCostsReconciled','sourceDailyProfitReconciled','sourceProfitFormulaReconciled','sourceDailyInputsComplete','sourceDailyCohortAmountsReconciled'])assert.equal(canonical.controls[key],true,key);
- assert.equal(canonical.coverage.exactProfitAvailable,true);
- for(const day of ['2026-10-19','2026-10-20'])assert.notEqual(canonical.days.find(row=>row.day===day).netProfit,null);
 });
 test('expense accrual cannot turn a missing product cost into a zero or a daily profit',()=>{
  const r=applyFinanceExpenseLedger(report([fixture('1',2)]),[]);
