@@ -201,6 +201,21 @@ Requiere un commit intencional y el acta de producción auditada. No conecta ni
 despliega. Excluye fixtures, harness de login, tests y credenciales. No se precisa
 migración, permiso SQL adicional, secreto, destinatario o tarea programada.
 
+Artefactos ya preparados para el commit de implementación
+`7224c11fad4a5557732da7c935ff3bef5d2c0f35`: **21 archivos de runtime**, con los
+19 archivos protegidos contrastados. [Manifiesto revisable](ADS_INTELLIGENCE_V10_RELEASE.json)
+conserva `deploymentApproved=false` y `deployed=false`. Archivos privados locales:
+`output/ads-intelligence-v10/release-7224c11/`.
+
+- API SHA256: `2f64b9a1131f03c9889f572ba64132b41f6dcaa8884ce002a9e8d2c1b6b023c8`.
+- Panel SHA256: `8bf1b98e691e48c6daf88b7482d33ee5aa36e5e75faf92b4a53a070c5f572092`.
+- Base de imagen inmutable auditada:
+  `sha256:e58ec45e33d65a137c906f6568f75b10ad2818b85b070c7d1a21ef399da0b3a8`.
+
+El empaquetador se ejecutó y verificó satisfactoriamente; no se construyó ni
+arrancó una nueva imagen productiva. Una entrega posterior debe verificar también
+este ID de base antes de construir, además de los hashes anteriores del manifiesto.
+
 Tras aprobación específica del propietario:
 
 1. Releer Agent Hub y detectar trabajo concurrente. Verificar revisión/imagen,

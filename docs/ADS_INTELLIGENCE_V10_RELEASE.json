@@ -1,0 +1,248 @@
+{
+  "version": "suleia-growth-v10.0",
+  "revision": "7224c11fad4a5557732da7c935ff3bef5d2c0f35",
+  "apiBase": "suleia-finance-cogs:f72bf2c",
+  "apiBaseImageId": "sha256:e58ec45e33d65a137c906f6568f75b10ad2818b85b070c7d1a21ef399da0b3a8",
+  "apiBaseRevision": "f72bf2cac58812d84b62a571853ed17b66e3f174",
+  "panelBase": "/opt/suleia-panel-releases/finance-cogs-a2f2f4f",
+  "files": [
+    {
+      "path": "apps/api/server.mjs",
+      "surface": "api",
+      "before": "ddc296ce38bc861f846953186eadea03e9f6afc824db35cf619db0cf4c29e29b",
+      "after": "ed45de12c914389a8f936c6bca229603a86e1a688e940d9be29cb1b6dbf5f3cc"
+    },
+    {
+      "path": "packages/suleia-operations-mcp/src/operations/repository.mjs",
+      "surface": "api",
+      "before": "318e5643c449905607d34130bf60aea66f82c03824003504da430eb9e280355e",
+      "after": "90e05225e23f875c14f8a037fe178c704f6eecaf5c6ca189e5a4044dbe1dbc22"
+    },
+    {
+      "path": "services/meta-ads/runtime.mjs",
+      "surface": "api",
+      "before": "4441d2700d5658abfe17ce622936d92f7b86f3da352d58584653fb1e4fbdce07",
+      "after": "ec236c7d4e0c4d0d0cd927f562949152e8fd6c6a660db46886bf43a7f6a835f4"
+    },
+    {
+      "path": "services/meta-ads/review/service.mjs",
+      "surface": "api",
+      "before": "c319c7238c9c8184801a786b526461410962f50f641ed41fe058d7627f2b4850",
+      "after": "9ca7b165360c16fcedff3ec303ebcdae12e0443f0c72312f013eff0cbdb83faf"
+    },
+    {
+      "path": "services/meta-ads/review/growth-funnel.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "10c4de79b0c87ffc250fb7f0fb2de41bb3c12558b66b6fb0e623928947c98160"
+    },
+    {
+      "path": "services/meta-ads/review/growth-goals.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "3b518c60ce304b72fa92ab68eda38f2501093292e0e2553b70363bce208584b9"
+    },
+    {
+      "path": "services/meta-ads/review/growth-periods.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "122821cbcaff9fd9f8d953d3f8e7716ebe3c3c4ed109958a6a5b1f67025d50c2"
+    },
+    {
+      "path": "services/meta-ads/review/growth-service.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "f4fb07afe2c841a6300a260b6b92c90c02c921a034496456e49d1655506ab951"
+    },
+    {
+      "path": "services/meta-ads/review/growth-trend.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "b3432e639b6b0e79a1c94dd273ce3b3578f47d9328e14401331d14b7977cb557"
+    },
+    {
+      "path": "services/meta-ads/executive/daily-decisions.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "ffee5175b160f7e089a4f357f828b84475f3f8ba51a0b239df413edc9e8526f7"
+    },
+    {
+      "path": "services/meta-ads/executive/report.mjs",
+      "surface": "api",
+      "before": "424ae97c1589b5395ea14f32cb2c36606c44501f72e429436fe4f9acece7ae7b",
+      "after": "77b3e8bbeb59c4a4451409af5e6139c477222e0624400f22a47bb40019c88d5f"
+    },
+    {
+      "path": "services/meta-ads/executive/service.mjs",
+      "surface": "api",
+      "before": "a807dc5541e867e78b723b7a430d84a7281a3589ca1507a5b448a08a372d6b88",
+      "after": "64921ed9957147f0124d9fcb4c0ed7d7749f756b170192358c6eb235637afcc4"
+    },
+    {
+      "path": "apps/review-panel/index.html",
+      "surface": "panel",
+      "before": "b7ed39912fde7f016bbf3cf1e13f88a01ba47a77307eae901d03d29990b3b350",
+      "after": "7cc8a7aff358179ff94ceb9cd652c0842d1fb788b7c6b6e591b24debc8b753d2"
+    },
+    {
+      "path": "apps/review-panel/app.js",
+      "surface": "panel",
+      "before": "6a324c40040ac04698c5db9d6c2eb8de672a7d17f628fcc3fb8383eb3ffd6c32",
+      "after": "74f9b6cd37e6e697a3c154e4dce237207facaa13e00119cd4391e059da40e241"
+    },
+    {
+      "path": "apps/review-panel/budget-autopilot-v5.js",
+      "surface": "panel",
+      "before": "b2d82947d518013d88f167d0ffc3c5ff8ffcc8e785a5cea5d92a2af90f1ad4a8",
+      "after": "e2a9744c6a9a901e7e55083ce18c67d164336d1f6a8c2bfe13c4f564d383978e"
+    },
+    {
+      "path": "apps/review-panel/ads-review-v6.js",
+      "surface": "panel",
+      "before": "a59a0dfddfdb2edafe1bbb38e3d304e8bc7237e7d56a2b5cfb5008b3d1a8354a",
+      "after": "75bf342df461e93480021f5f230535d06fcb2a034f3e4e068ef536d9f5a52b83"
+    },
+    {
+      "path": "apps/review-panel/ads-executive-v8.js",
+      "surface": "panel",
+      "before": "3a02c3b7cfff19aa64bf0e9a83adb5b30af0e23472fda054d1e353f4218ad548",
+      "after": "b9fdbff155444c46cb0d867d8d9feab16c85c8918460735b1e4f5ad92710bd61"
+    },
+    {
+      "path": "apps/review-panel/ads-daily-decisions-v9.css",
+      "surface": "panel",
+      "before": null,
+      "after": "80f8ec58a64cb47ea515f6b67de382a0747d54b875cd8b59912a3a2cec7bea37"
+    },
+    {
+      "path": "apps/review-panel/ads-growth-v10.js",
+      "surface": "panel",
+      "before": null,
+      "after": "2d66d76bf0c4285fcdcd4960c0afbc3fd27be5e97fb242fbd1ab64686b20bdf7"
+    },
+    {
+      "path": "apps/review-panel/ads-growth-drawer-v10.js",
+      "surface": "panel",
+      "before": null,
+      "after": "274f55356e810328a6d51e7ff230576a4b262bf8800aa377ca841ddadc087455"
+    },
+    {
+      "path": "apps/review-panel/ads-growth-v10.css",
+      "surface": "panel",
+      "before": null,
+      "after": "272e13aaa9aec7565f772156ebe98a43775a10ae616df5f5e345c692364bd158"
+    }
+  ],
+  "protected": [
+    {
+      "path": "services/meta-ads/autopilot/environment.example",
+      "sha256": "42214d3ca6ff73a9f4d90a16c100a81c883342a3a077f7ab2881d9a10b2e7f39"
+    },
+    {
+      "path": "services/meta-ads/autopilot/learning.mjs",
+      "sha256": "77b0d63c6efe030f20bc0a15c91c293f598d3a9852512e102ef8b641e386d16e"
+    },
+    {
+      "path": "services/meta-ads/autopilot/policy.mjs",
+      "sha256": "860852c7ccb6b23f14a603d2c6d3f28feca05784cae8d26a3d18aab56d814c34"
+    },
+    {
+      "path": "services/meta-ads/autopilot/queries.mjs",
+      "sha256": "28d860d239b54d2932f0a28108ab7266995e8d7b2f42266e7bc96d3422c20844"
+    },
+    {
+      "path": "services/meta-ads/autopilot/schedule.mjs",
+      "sha256": "a63143ca0fddd67303e207c31dfc18fcdbd9852765f24df3dfc45918358c9336"
+    },
+    {
+      "path": "services/meta-ads/autopilot/service.mjs",
+      "sha256": "d696952c4aa5d0830262e332ea1f7f63fbad5c12c68bad62dd1be07c39f0b6af"
+    },
+    {
+      "path": "services/meta-ads/autopilot/validate-minimums.mjs",
+      "sha256": "982e238365fbb94f880c16cd17c772591ffb518d0d47870944513d71604a6f50"
+    },
+    {
+      "path": "services/meta-ads/budget/backtest.mjs",
+      "sha256": "c15598febef1b9de9d008220a6acdc2afe6c76c0be33d8324060ded445a5e328"
+    },
+    {
+      "path": "services/meta-ads/budget/config.mjs",
+      "sha256": "c7111464c086d826f90ba46d71494d1580e52dfb2ba7a8ede3208deced859e76"
+    },
+    {
+      "path": "services/meta-ads/budget/normalizer.mjs",
+      "sha256": "90be86ee81c55ef15773b5bd8ca97650a1ca3170e407e7cb5767c934560e881d"
+    },
+    {
+      "path": "services/meta-ads/budget/policy.mjs",
+      "sha256": "f7dc45a9267fe77e64fe5699ed6517512ce2faf66690d8c0543c4ac33669c0e1"
+    },
+    {
+      "path": "services/meta-ads/budget/repository.mjs",
+      "sha256": "23dd34f6aa2152da354da33eff1eb81133e7f26d617deb6abdf995684a950b38"
+    },
+    {
+      "path": "services/meta-ads/budget/service.mjs",
+      "sha256": "7feeff66da75a8e03ba295325c31f691b1e256174df85628d1b06abe1d1e2941"
+    },
+    {
+      "path": "services/meta-ads/budget/shadow-cycle.mjs",
+      "sha256": "a10bc06ea0b848844aa24473bfee4beea1aba8f9558502f1d0561e1ae843f2bf"
+    },
+    {
+      "path": "services/meta-ads/budget/write-gate.mjs",
+      "sha256": "01e4b8b2905ea3006dba260a7768439ec749e711f901be21afa1cc8aaad3a9b0"
+    },
+    {
+      "path": "services/meta-ads/budget/writer.mjs",
+      "sha256": "a013eb942eba5404b4d8eda6fe06db9d7c20cda21190e6e0487f5d722abf0ee1"
+    },
+    {
+      "path": "services/meta-ads/intelligence.mjs",
+      "sha256": "2f170c431a766086e29a302858e447fbf54c54ce18ce13b1a10b3300ca77ead0"
+    },
+    {
+      "path": "services/meta-ads/executor-transport.mjs",
+      "sha256": "67b559b712248e49678bb93dd53d50630911e6c8ac0b8521bfe9c1d420815c0b"
+    },
+    {
+      "path": "services/meta-ads/bridge-auth.mjs",
+      "sha256": "b9fa422385e99d3c2b8f089783736b6d454f776ff81154281466730fbf26eb7c"
+    }
+  ],
+  "deploymentApproved": false,
+  "deployed": false,
+  "migration": null,
+  "newSecrets": false,
+  "newScheduler": false,
+  "newRecipient": false,
+  "openaiBudgetUsd": 0,
+  "preserve": [
+    "V5.1 flags/executor/monetary policy",
+    "OAuth roles",
+    "Telegram token/consumer/22:30 Madrid schedule/delivery ledger",
+    "financial COGS repair",
+    "orders/incidents/Shopify/Dropea"
+  ],
+  "rollback": {
+    "image": "suleia-finance-cogs:f72bf2c",
+    "panel": "/opt/suleia-panel-releases/finance-cogs-a2f2f4f",
+    "database": "No schema migration; preserve append-only review history"
+  },
+  "artifacts": {
+    "ads-growth-v10-api.tar.gz": "2f64b9a1131f03c9889f572ba64132b41f6dcaa8884ce002a9e8d2c1b6b023c8",
+    "ads-growth-v10-panel.tar.gz": "8bf1b98e691e48c6daf88b7482d33ee5aa36e5e75faf92b4a53a070c5f572092"
+  },
+  "acceptance": {
+    "tests": 1264,
+    "passed": 1264,
+    "failed": 0,
+    "skipped": 0,
+    "files": 137,
+    "sourceArchiveSha256": "4ff539e4e1ded28116c4a0bb958bf9064b6e64767072d74fdd45154c8daea630",
+    "runtimeFilesMatchingAcceptedSource": 21,
+    "network": "none",
+    "productionCredentialsSupplied": false
+  }
+}
