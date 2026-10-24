@@ -11,7 +11,7 @@ const ExecutiveReportPanel=(()=>{
   heading.append(label,node('span','daily-brain-state',brief.status==='READY'?'Lectura actual':brief.status==='HISTORICAL_ONLY'?'Histórico verificado':'Datos insuficientes'));
   box.append(heading,node('p','ai-footnote','Propuestas de revisión basadas en hasta 7 y 30 días completos. No se desactiva ninguna campaña ni se modifican presupuestos desde esta vista.'));
   const stats=node('div','daily-brain-stats');
-  for(const [name,value] of [['Campañas analizadas',brief.summary?.campaigns??0],['Anuncios analizados',brief.summary?.ads??0],['Señales para revisar',brief.summary?.requiresReview??0]]){const item=node('div','daily-brain-stat');item.append(node('small','',name),node('strong','',String(value)));stats.append(item);}
+  for(const [name,value] of [['Campañas analizadas',brief.summary?.campaigns??0],['Conjuntos / anuncios',String(brief.summary?.adsets??0)+' / '+String(brief.summary?.ads??0)],['Señales para revisar',brief.summary?.requiresReview??0]]){const item=node('div','daily-brain-stat');item.append(node('small','',name),node('strong','',String(value)));stats.append(item);}
   box.append(stats);
   const title={REVISAR_PAUSA:'Revisar posible pausa',REVISAR_REDUCCION:'Revisar reducción',CANDIDATA_ESCALAR:'Potencial de escalado',PROTEGER:'Proteger',MEJORAR_CONVERSION:'Mejorar conversión',MEJORAR_CREATIVIDAD:'Revisar creatividad',INVESTIGAR:'Investigar',MANTENER_VIGILAR:'Mantener y vigilar',DATOS_INSUFICIENTES:'Sin evidencia suficiente',INACTIVA:'Inactiva'};
   const important=node('div','daily-brain-priorities');
@@ -22,7 +22,7 @@ const ExecutiveReportPanel=(()=>{
   for(const r of actions.slice(0,5)){
    const item=node('article','daily-brain-item'),top=node('div','daily-brain-item-top');
    top.append(node('strong','',r.name),node('span','daily-brain-badge daily-brain-'+String(r.status||'').toLowerCase(),title[r.status]||r.status));
-   item.append(top,node('p','daily-brain-context',r.level==='ad'?'Anuncio · '+(r.adsetName||'Conjunto no identificado'):'Campaña'),
+   item.append(top,node('p','daily-brain-context',r.level==='ad'?'Anuncio · '+(r.adsetName||'Conjunto no identificado'):r.level==='adset'?'Conjunto de anuncios':'Campaña'),
     node('p','',r.why),node('p','daily-brain-next',r.next));
    const ev=r.evidence?.week||{};
    const detail=node('p','daily-brain-metrics',`7 días · Gasto ${ev.spend==null?'N/D':Number(ev.spend).toLocaleString('es-ES',{style:'currency',currency:'EUR'})} · Compras ${ev.purchases??'N/D'} · CPA ${ev.cpa==null?'N/D':Number(ev.cpa).toLocaleString('es-ES',{style:'currency',currency:'EUR'})} · ROAS ${ev.roas??'N/D'} · Carritos ${ev.addToCart??'N/D'}`);
@@ -33,7 +33,7 @@ const ExecutiveReportPanel=(()=>{
   }
   box.append(important);
   const all=node('details','daily-brain-all');all.append(node('summary','','Todas las campañas y creatividades · clasificación y evidencia'));
-  for(const [label,items] of [['Campañas',brief.campaigns||[]],['Anuncios',brief.ads||[]]]){
+  for(const [label,items] of [['Campañas',brief.campaigns||[]],['Conjuntos',brief.adsets||[]],['Anuncios',brief.ads||[]]]){
    all.append(node('h4','',label));
    const wrap=node('div','rv-table-wrap'),table=node('table','ai-table rv-table'),thead=node('thead'),tr=node('tr');
    for(const h of ['Entidad','Decisión','Gasto 7d','Compras','CPA','ROAS','Carritos'])tr.append(node('th','',h));
