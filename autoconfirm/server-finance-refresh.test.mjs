@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import vm from 'node:vm';
+import {resolveFinancePeriod} from './src/finance.mjs';
 
 const source = fs.readFileSync(new URL('./server.mjs', import.meta.url), 'utf8');
 
@@ -18,5 +20,14 @@ test('finance snapshots can refresh autonomously and remain explicitly disableab
 test('the dashboard polls a background refresh while continuing to show the stored snapshot', () => {
   const dashboard = fs.readFileSync(new URL('./dashboard/main.js', import.meta.url), 'utf8');
   assert.match(dashboard, /if \(payload\.refreshing\)[^]*setTimeout\(\(\) => loadFinanceReport\(\), 5000\)/);
+});
+
+test('a tariff change during an existing refresh queues exactly one follow-up using the current rates',async()=>{
+ const tasks=[];let releases=[];const context={Map,Set,Promise,process:{env:{}},resolveFinancePeriod,setTimeout:fn=>fn(),console:{log(){},error(){}},buildFinanceReport:async({month})=>{tasks.push(month);await new Promise(resolve=>releases.push(resolve));return {period:{month}};}};
+ const start=source.indexOf('const financeRefreshInFlight = new Map();'),end=source.indexOf('\nconst server = http.createServer',start);
+ vm.runInNewContext(source.slice(start,end)+'\nglobalThis.queue=queueFinanceReportRefresh;',context);
+ context.queue('2026-10');await new Promise(setImmediate);assert.deepEqual(tasks,['2026-10']);
+ context.queue('2026-10',{afterCurrent:true});context.queue('2026-10',{afterCurrent:true});releases.shift()();await new Promise(setImmediate);
+ assert.deepEqual(tasks,['2026-10','2026-10']);releases.shift()();await new Promise(setImmediate);assert.equal(tasks.length,2);
 });
 

@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { getCampaignInsights } from './clients/meta.mjs';
 import { getClosedFinanceActual } from './finance-actuals.mjs';
 import { loadFinanceCostRules, loadFinanceExpenses } from './finance-data.mjs';
+import { loadGovernedFinanceCostRules } from './finance-product-costs.mjs';
 import { isSupabaseEnabled, selectRows, upsertRows } from './clients/supabase.mjs';
 
 const ZONE = 'Europe/Madrid';
@@ -420,11 +421,11 @@ function finalizeDay(row, metaAvailable) {
     day: row.day, created: row.created, confirmed: row.confirmed, rejected: row.rejected, sent: row.sent,
     inTransit: row.inTransit, delivered: row.delivered, deliveredUnits: row.deliveredUnits, returned: row.returned,
     returnedUnits: row.returnedUnits, incidentOrders: row.incidentOrders, incidents: row.incidents,
-    estimatedRevenue: euros(row.estimatedRevenue), realRevenue: euros(revenue), productCost: euros(row.product),
+    estimatedRevenue: euros(row.estimatedRevenue), realRevenue: euros(revenue), productCost: row.missingProductUnits ? null : euros(row.product), knownProductCost: euros(row.product),
     outboundShippingCost: euros(row.shipping), codCost: euros(row.cod), outboundFulfillmentCost: euros(row.fulfillment),
     returnCost: euros(row.returns), dropeaAdjustmentsCost: euros(row.dropeaAdjustments), logisticsCost: euros(logistics), metaSpend: metaAvailable ? euros(row.ads) : null,
     fixedCosts: euros(row.fixed), oneOffCosts: euros(row.oneOff), otherCosts: euros(row.other), totalCosts: euros(totalCosts),
-    contributionMargin: revenue === null ? null : euros(revenue - row.product - logistics), netProfit: euros(net), marginPercent: pct(net, revenue),
+    contributionMargin: revenue === null || row.missingProductUnits ? null : euros(revenue - row.product - logistics), netProfit: euros(net), marginPercent: pct(net, revenue),
     roiPercent: pct(net, totalCosts), roas: row.ads && revenue !== null ? Math.round(revenue * 100 / row.ads) / 100 : null,
     unknownProductCostUnits: row.missingProductUnits, missingReturnCosts: row.missingReturnCosts, missingRevenueOrders: row.missingRevenueOrders
   };
@@ -437,7 +438,8 @@ function sumCents(days, field) {
 function aggregateTotals(days, counts, metaAvailable) {
   const revenueComplete = !days.some((day) => day.missingRevenueOrders);
   const revenue = revenueComplete ? sumCents(days, 'realRevenue') : null;
-  const product = sumCents(days, 'productCost');
+  const product = days.reduce((sum,day)=>sum+(moneyToCents(day.knownProductCost===undefined?day.productCost:day.knownProductCost)||0),0);
+  const productComplete = !days.some(day => day.unknownProductCostUnits);
   const shipping = sumCents(days, 'outboundShippingCost');
   const cod = sumCents(days, 'codCost');
   const fulfillment = sumCents(days, 'outboundFulfillmentCost');
@@ -454,10 +456,10 @@ function aggregateTotals(days, counts, metaAvailable) {
   const total = complete ? product + logistics + ads + fixed + oneOff + other : null;
   const net = total === null || revenue === null ? null : revenue - total;
   return {
-    realRevenue: euros(revenue), revenue: euros(revenue), productCost: euros(product), outboundShippingCost: euros(shipping),
+    realRevenue: euros(revenue), revenue: euros(revenue), productCost: productComplete ? euros(product) : null, knownProductCost: euros(product), outboundShippingCost: euros(shipping),
     codCost: euros(cod), outboundFulfillmentCost: euros(fulfillment), returnCost: euros(returns), dropeaAdjustmentsCost: euros(dropeaAdjustments), logisticsCost: euros(logistics),
     metaSpend: metaAvailable ? euros(ads) : null, fixedCosts: euros(fixed), oneOffCosts: euros(oneOff), otherCosts: euros(other),
-    totalCosts: euros(total), contributionMargin: revenue === null ? null : euros(revenue - product - logistics), exactNetProfit: euros(net),
+    totalCosts: euros(total), contributionMargin: revenue === null || !productComplete ? null : euros(revenue - product - logistics), exactNetProfit: euros(net),
     roiPercent: pct(net, total), marginPercent: pct(net, revenue), roas: ads ? Math.round(revenue * 100 / ads) / 100 : null,
     estimatedCpa: metaAvailable && confirmedEvents ? euros(Math.round(ads / confirmedEvents)) : null,
     realCpa: metaAvailable && deliveredEvents ? euros(Math.round(ads / deliveredEvents)) : null
@@ -527,6 +529,15 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     });
   };
 
+  const productCostGaps = new Map(), missingOrderProductUnits = new Map();
+  const recordProductCostGap = (item, quantity, order, day) => {
+    const key=productKey(item),old=productCostGaps.get(key)||{code:'PRODUCT_COGS_MISSING',category:'PRODUCT_COST_MISSING',
+      product_id:String(item.product_id??''),variant_id:String(item.variant_id??''),sku:String(item.sku||''),name:itemLabel(item),units:0,
+      order_ids:new Set(),days:new Set(),first_seen:order.created_at,last_seen:order.created_at,pending_cost:null,status:'OPEN'};
+    old.units+=quantity;old.order_ids.add(String(order.id));old.days.add(day);
+    if(order.created_at<old.first_seen)old.first_seen=order.created_at;if(order.created_at>old.last_seen)old.last_seen=order.created_at;
+    productCostGaps.set(key,old);missingOrderProductUnits.set(String(order.id),(missingOrderProductUnits.get(String(order.id))||0)+quantity);
+  };
   for (const order of uniqueOrders) {
     const orderId = String(order.id);
     const createdDay = inPeriod(order.created_at, period);
@@ -600,12 +611,14 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
         product.deliveredUnits += quantity;
         product.deliveredOrderIds.add(orderId);
         if (revenue !== null) product.revenue += revenueShares[index] || 0;
-        const cost = useActualProduct
+        const governed=productRate(item,rules,deliveredDay);
+        const ownerOverride=governed?.source==='OWNER_VERIFIED_PRODUCT_COST';
+        const cost = useActualProduct && !ownerOverride
           ? { cents: actualProductShares[index] || 0, source: breakdownSource(order).source, type: breakdownSource(order).type }
           : skuCost(item, rules, deliveredDay);
-        if (cost.cents === null) { day.missingProductUnits += quantity; product.unknownCostUnits += quantity; }
+        if (cost.cents === null) { day.missingProductUnits += quantity; product.unknownCostUnits += quantity; recordProductCostGap(item,quantity,order,deliveredDay); }
         else {
-          const total = useActualProduct ? cost.cents : cost.cents * quantity;
+          const total = useActualProduct && !ownerOverride ? cost.cents : cost.cents * quantity;
           if (recordCharge({ orderId, day: deliveredDay, costType: 'PRODUCT_COGS', cents: total, source: cost.source, sourceType: cost.type, field: 'product', detail: `line-${index}` })) product.productCost += total;
         }
       });
@@ -709,10 +722,10 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       productId: row.productId, variantId: row.variantId, sku: row.sku, name: row.name,
       units: row.deliveredUnits, deliveredUnits: row.deliveredUnits, returnedUnits: row.returnedUnits,
       deliveredOrders: row.deliveredOrderIds.size, sentOrders: row.sentOrderIds.size, returnedOrders: row.returnedOrderIds.size,
-      revenue: euros(row.revenue), productCost: euros(row.productCost), logisticsCost: euros(logistics), returnCost: euros(row.returns), dropeaAdjustmentsCost: euros(row.dropeaAdjustments),
-      attributedAdSpend: null, totalCostBeforeAds: euros(totalCost), margin: row.unknownCostUnits ? null : euros(profitBeforeAds),
-      profit: row.unknownCostUnits ? null : euros(profitBeforeAds), marginPercent: row.revenue ? pct(profitBeforeAds, row.revenue) : null,
-      roiPercent: totalCost ? pct(profitBeforeAds, totalCost) : null, returnRatePercent: pct(row.returnedOrderIds.size, row.sentOrderIds.size), unknownCostUnits: row.unknownCostUnits
+      revenue: euros(row.revenue), productCost: row.unknownCostUnits ? null : euros(row.productCost), knownProductCost: euros(row.productCost), logisticsCost: euros(logistics), returnCost: euros(row.returns), dropeaAdjustmentsCost: euros(row.dropeaAdjustments),
+      attributedAdSpend: null, totalCostBeforeAds: row.unknownCostUnits ? null : euros(totalCost), knownCostBeforeAds: euros(totalCost), margin: row.unknownCostUnits ? null : euros(profitBeforeAds),
+      profit: row.unknownCostUnits ? null : euros(profitBeforeAds), marginPercent: !row.unknownCostUnits && row.revenue ? pct(profitBeforeAds, row.revenue) : null,
+      roiPercent: !row.unknownCostUnits && totalCost ? pct(profitBeforeAds, totalCost) : null, returnRatePercent: pct(row.returnedOrderIds.size, row.sentOrderIds.size), unknownCostUnits: row.unknownCostUnits
     };
   }).sort((a, b) => b.revenue - a.revenue);
   const dailyRevenue = sumCents(days, 'realRevenue'); const dailyCosts = sumCents(days, 'totalCosts');
@@ -727,6 +740,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     const charges = [...chargeLedger.values()].filter((charge) => charge.orderId === String(order.id));
     const byField = (field) => charges.filter((charge) => charge.field === field).reduce((sum, charge) => sum + charge.amountCents, 0);
     const totalCost = charges.reduce((sum, charge) => sum + charge.amountCents, 0);
+    const unknownProductUnits=missingOrderProductUnits.get(String(order.id))||0;
     const revenue = category === 'delivered' ? finalAmount(order) : null;
     const breakdown = dropeaExpenseBreakdown(order);
     return {
@@ -739,15 +753,15 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
       orderAmount: euros(finalAmount(order)),
       realizedRevenue: euros(revenue),
       dropeaExpenses: settled ? euros(breakdown?.total ?? null) : null,
-      productCost: euros(byField('product')),
+      productCost: unknownProductUnits ? null : euros(byField('product')), knownProductCost: euros(byField('product')), unknownProductCostUnits: unknownProductUnits,
       outboundShippingCost: euros(byField('shipping')),
       outboundFulfillmentCost: euros(byField('fulfillment')),
       codCost: euros(byField('cod')),
       returnCost: euros(byField('returns')),
       dropeaAdjustmentsCost: euros(byField('dropeaAdjustments')),
-      recognizedCost: euros(totalCost),
+      recognizedCost: unknownProductUnits ? null : euros(totalCost),
       dropeaOrderProfit: category === 'delivered' && breakdown ? euros((finalAmount(order) || 0) - breakdown.total) : null,
-      contributionAfterProduct: category === 'delivered' && revenue !== null ? euros(revenue - totalCost) : (category === 'returned' ? euros(-totalCost) : null),
+      contributionAfterProduct: unknownProductUnits ? null : category === 'delivered' && revenue !== null ? euros(revenue - totalCost) : (category === 'returned' ? euros(-totalCost) : null),
       breakdownStatus: !settled ? 'NOT_SETTLED' : (breakdown?.final ? 'DROPEA_FINAL' : (breakdown ? 'DROPEA_ESTIMATE' : 'FALLBACK')),
       calculatedAt: breakdown?.value?.calculated_at || null
     };
@@ -756,6 +770,8 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   return {
     period, status: period.current ? 'provisional' : 'reconstructed', statusLabel: period.current ? 'MTD · cohorte actual' : 'Mes cerrado · cohorte Dropea',
     counts, totals, days, products: productRows, orders: orderRows, drilldowns,
+    productCostFindings:[...productCostGaps.values()].map(row=>({...row,order_ids:[...row.order_ids].sort(),days:[...row.days].sort()})),
+    productCostCoverage:{knownAmount:totals.knownProductCost,missingUnits,missingOrders:missingOrderProductUnits.size,status:missingUnits?'PROFIT_PARTIAL':'COMPLETE'},
     eventCounts: {
       shipped: counts.sent,
       delivered: counts.delivered,
@@ -769,7 +785,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     controls: { fullPeriodBoundary: true, dailyRevenueReconciled: totals.realRevenue === null || moneyToCents(totals.realRevenue) === dailyRevenue, dailyCostsReconciled: totals.totalCosts === null || moneyToCents(totals.totalCosts) === dailyCosts, profitReconciled: totals.exactNetProfit === null || moneyToCents(totals.exactNetProfit) === moneyToCents(totals.realRevenue) - moneyToCents(totals.totalCosts), expensesReconciled: true, costsReconciled: true, productRevenueReconciled: totals.realRevenue === null || productRevenue === moneyToCents(totals.realRevenue), productReturnCostsReconciled: productReturnCosts === moneyToCents(totals.returnCost), costLedgerUnique: duplicateChargesBlocked === 0, noReturnRejectionOverlap: true },
     costLedger: { chargeCount: chargeLedger.size, duplicateChargesBlocked, sourceCounts: chargeSources, identity: 'order_id + cost_type + line_identity' },
     eventCoverage: { missingTimestamps: missingEventTimestamps },
-    costTraceability: { product: { primary: 'Dropea expenses_breakdown.product_price cuando es mayor que cero', fallback: 'Tarifa empresarial versionada por product_id + variant_id', tariffVersion: rules.version, effectiveDate: rules.effective_from }, logistics: { primary: 'Dropea expenses_breakdown definitivo por pedido', fallback: rules.source, tariffVersion: rules.version, effectiveDate: rules.effective_from }, return: { primary: 'shipping_refused_price + fulfillment_refused_price del pedido', basis: 'PER_RETURNED_ORDER', fallbackAmount: 5.26, fallback: 'BUSINESS_VERIFIED_DROPEA_RATE', tariffVersion: rules.version, effectiveDate: rules.effective_from }, expenses: [...new Set(expenses.map((expense) => expense.source))] },
+    costTraceability: { product: { primary: 'PRODUCT_COGS confirmado por el propietario', fallback: 'Coste final positivo del proveedor; después wholesale_price positivo o tarifa empresarial histórica aplicable', tariffVersion: rules.version, effectiveDate: rules.effective_from }, logistics: { primary: 'Dropea expenses_breakdown definitivo por pedido', fallback: rules.source, tariffVersion: rules.version, effectiveDate: rules.effective_from }, return: { primary: 'shipping_refused_price + fulfillment_refused_price del pedido', basis: 'PER_RETURNED_ORDER', fallbackAmount: 5.26, fallback: 'BUSINESS_VERIFIED_DROPEA_RATE', tariffVersion: rules.version, effectiveDate: rules.effective_from }, expenses: [...new Set(expenses.map((expense) => expense.source))] },
     expenseLedger: expenses.map((expense) => {
       const applied = [...allocateExpenses(period, [expense]).values()].reduce((sum, row) => sum + row.fixed + row.oneOff + row.other, 0);
       return { id: expense.id, name: expense.name, category: expense.category || 'Otros', type: expense.type, amount: euros(Number(expense.amount_cents) || 0), appliedAmount: euros(applied), startDate: expense.start_date || null, endDate: expense.end_date || null, date: expense.date || null, source: expense.source || 'ledger' };
@@ -786,7 +802,8 @@ export function applyFinanceExpenseLedger(report, expenses = loadFinanceExpenses
     const revenue = moneyToCents(day.realRevenue);
     const variable = ['productCost', 'outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost', 'dropeaAdjustmentsCost', 'metaSpend']
       .reduce((sum, field) => sum + (moneyToCents(day[field]) || 0), 0);
-    const total = next.coverage?.meta === false ? null : variable + allocation.fixed + allocation.oneOff + allocation.other;
+    const total = next.coverage?.meta === false || day.productCost === null || day.unknownProductCostUnits || day.missingReturnCosts
+      ? null : variable + allocation.fixed + allocation.oneOff + allocation.other;
     const net = total === null || revenue === null ? null : revenue - total;
     const logistics = ['outboundShippingCost', 'outboundFulfillmentCost', 'codCost', 'returnCost', 'dropeaAdjustmentsCost']
       .reduce((sum, field) => sum + (moneyToCents(day[field]) || 0), 0);
@@ -934,7 +951,8 @@ export async function loadFinanceSourceData({ env = process.env, months, now = n
   return loadSources({ env, clientFactory, configLoader, periods });
 }
 
-export async function buildFinanceReport({ month, force = false, leanRefresh = false, env = process.env, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs, metaLoader = getCampaignInsights, rules = loadFinanceCostRules(), expenses = loadFinanceExpenses(), sourceData = null } = {}) {
+export async function buildFinanceReport({ month, force = false, leanRefresh = false, env = process.env, now = new Date(), clientFactory = createDropeaV2IncidentClient, configLoader = loadDropeaV2IncidentStoreConfigs, metaLoader = getCampaignInsights, rules = null, expenses = loadFinanceExpenses(), sourceData = null } = {}) {
+  rules ||= await loadGovernedFinanceCostRules();
   const period = resolveFinancePeriod(month, { now });
   const cached = cache.get(period.month);
   if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.report;
@@ -954,6 +972,7 @@ export async function buildFinanceReport({ month, force = false, leanRefresh = f
   const metaRows = metaResult.status === 'fulfilled' ? metaResult.value : [];
   const build = (target) => applyClosed(aggregateFinanceReport({ orders: source.orders, issues: source.issues, metaRows, period: target, rules, expenses, metaAvailable: metaResult.status === 'fulfilled' }), getClosedFinanceActual(target.month));
   const report = build(period);
+  report.productCostVersion=rules.governedProductCostVersion||null;
   if (leanRefresh) {
     const storedHistory = new Map((await Promise.all(historyMonths
       .filter((value) => value !== period.month)
