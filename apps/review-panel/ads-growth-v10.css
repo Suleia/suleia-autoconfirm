@@ -24,6 +24,12 @@
 .gi-secondary-kpis .gi-kpi{display:block;padding:12px 11px 29px;min-height:115px;border-radius:12px}.gi-secondary-kpis .gi-icon{width:27px;height:27px;position:absolute;right:10px;top:10px}.gi-secondary-kpis .gi-icon svg{width:18px;height:18px}
 .gi-secondary-kpis .gi-label{padding-right:30px;min-height:28px;font-size:10px}.gi-secondary-kpis .gi-value{font-size:20px;letter-spacing:-.4px}.gi-secondary-kpis .gi-change{font-size:9px;max-width:75%}.gi-secondary-kpis .gi-kpi>.gi-spark{width:44px;height:21px}.gi-secondary-kpis .gi-kpi-state{left:11px;font-size:7px}
 .gi-visual-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;align-items:stretch;margin:18px 0}.gi-visual-grid>div{min-width:0}.gi-visual-grid .rv-card,.gi-visual-grid .gi-card{height:100%;margin:0}
+/* Override the legacy #ads-view svg icon size only for V10 visualizations. */
+#ads-view.growth-v10 .gi-trend-chart>svg{display:block;width:100%;height:auto;min-height:160px}
+#ads-view.growth-v10 .gi-kpi>.gi-spark{width:63px;height:28px}
+#ads-view.growth-v10 .gi-secondary-kpis .gi-kpi>.gi-spark{width:44px;height:21px}
+#ads-view.growth-v10 .gi-icon svg{width:23px;height:23px}
+#ads-view.growth-v10 .gi-secondary-kpis .gi-icon svg{width:18px;height:18px}
 .gi-card{background:white;border:1px solid var(--gi-border,#e4edf8);border-radius:16px;padding:20px;margin:18px 0;min-width:0;box-shadow:0 5px 24px #183d6b05}.gi-card h3{font-size:16px;letter-spacing:-.25px;margin:0 0 8px;color:#17365d}.gi-card h4{font-size:15px;line-height:1.4;margin:8px 0;color:#15345c}
 .gi-muted{font-size:11px;color:var(--gi-muted,#6c82a1);line-height:1.65}.gi-loading,.gi-empty{padding:20px;border-radius:12px;background:#edf6fd;color:#5b789c;font-size:13px}
 .gi-warning{border:1px solid #f1d7a5;background:#fff8e9;color:#93631a;border-radius:10px;padding:14px;line-height:1.6;font-size:12px}
