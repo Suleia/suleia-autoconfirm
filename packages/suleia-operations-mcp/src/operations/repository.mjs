@@ -367,6 +367,34 @@ export class OperationsRepository {
     };
   }
 
+  async adsGrowthGoals(at=new Date()) {
+    const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'}).format(at);
+    const shift=n=>new Date(Date.parse(today+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
+    const since=shift(-35),until=shift(-8);
+    const [days,progress]=await Promise.all([
+      this.pool.query(`SELECT (created_at_utc AT TIME ZONE 'Europe/Madrid')::date::text AS day,
+        count(*)::int AS orders,count(*) FILTER(WHERE confirmed_at_utc IS NOT NULL AND confirmed_at_utc<=$3)::int AS confirmed,
+        count(*) FILTER(WHERE duplicate_status='NOT_ASSESSED')::int AS duplicate_unassessed,max(updated_at) AS observed_at
+        FROM read_models.operations_finance_order_inputs WHERE store_id='16088'
+        AND created_at_utc>=($1::date::timestamp AT TIME ZONE 'Europe/Madrid')
+        AND created_at_utc<(($2::date+1)::timestamp AT TIME ZONE 'Europe/Madrid')
+        AND coalesce(test_order,false)=false AND coalesce(duplicate_status,'NOT_ASSESSED') NOT IN ('DUPLICATE_ACTIVE_ORDER','DUPLICATE','EXCLUDED')
+        GROUP BY (created_at_utc AT TIME ZONE 'Europe/Madrid')::date ORDER BY day`,[since,until,at.toISOString()]),
+      this.pool.query(`SELECT
+        count(*) FILTER(WHERE (created_at_utc AT TIME ZONE 'Europe/Madrid')::date=$1::date)::int AS orders,
+        count(*) FILTER(WHERE (created_at_utc AT TIME ZONE 'Europe/Madrid')::date=$1::date AND confirmed_at_utc IS NOT NULL AND confirmed_at_utc<=$2)::int AS confirmed_from_today_cohort,
+        count(*) FILTER(WHERE (confirmed_at_utc AT TIME ZONE 'Europe/Madrid')::date=$1::date AND confirmed_at_utc<=$2)::int AS confirmation_events_today,
+        max(updated_at) AS observed_at FROM read_models.operations_finance_order_inputs WHERE store_id='16088'
+        AND created_at_utc<=$2
+        AND coalesce(test_order,false)=false AND coalesce(duplicate_status,'NOT_ASSESSED') NOT IN ('DUPLICATE_ACTIVE_ORDER','DUPLICATE','EXCLUDED')`,[today,at.toISOString()])
+    ]);
+    const current=progress.rows[0];
+    return {observedAt:current?.observed_at||null,matureRange:{since,until},matureDays:days.rows.map(r=>({day:r.day,orders:r.orders,confirmed:r.confirmed})),
+      duplicateAssessment:days.rows.some(r=>r.duplicate_unassessed>0)?'NOT_ASSESSED':'SOURCE_ASSESSED',
+      today:{day:today,orders:current?.orders??null,confirmedFromTodayCohort:current?.confirmed_from_today_cohort??null,confirmationEventsToday:current?.confirmation_events_today??null,
+        note:'Pedidos por fecha de compra Madrid; confirmaciones de la cohorte de hoy separadas de eventos de confirmación de cohortes anteriores.'},externalWrites:0};
+  }
+
   async productCostConfiguration() {
     const [rates,findings]=await Promise.all([
       this.pool.query(`SELECT r.*,r.updated_at::text AS version,

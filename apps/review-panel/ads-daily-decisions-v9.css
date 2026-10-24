@@ -1,0 +1,27 @@
+/* Ads Intelligence V9: compact daily recommendations, isolated from shared app shell. */
+#ads-view .daily-brain{background:linear-gradient(160deg,#fff,#f8f9ff);border:1px solid #e0e7f0;border-radius:16px;padding:20px;margin:18px 0}
+#ads-view .daily-brain-heading,#ads-view .daily-brain-item-top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+#ads-view .daily-brain-heading h3{margin:4px 0;font-size:21px;color:#122842}
+#ads-view .daily-brain-state{font-size:11px;background:#eef2f8;border-radius:100px;padding:6px 10px;color:#334760;font-weight:700}
+#ads-view .daily-brain-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:16px 0 20px}
+#ads-view .daily-brain-stat{background:#fff;border:1px solid #e5ebf4;border-radius:11px;padding:13px;display:flex;flex-direction:column;gap:5px}
+#ads-view .daily-brain-stat small{font-size:11px;color:#6c7487}
+#ads-view .daily-brain-stat strong{font-size:24px;color:#263657}
+#ads-view .daily-brain-priorities{display:grid;gap:10px}
+#ads-view .daily-brain-priorities h4{margin:0;font-size:15px}
+#ads-view .daily-brain-item{background:#fff;border:1px solid #e2e8f2;border-radius:12px;padding:14px;min-width:0}
+#ads-view .daily-brain-item-top strong{font-size:14px;color:#182c43;overflow-wrap:anywhere}
+#ads-view .daily-brain-item p{font-size:12px;line-height:1.5;margin:7px 0}
+#ads-view .daily-brain-context{color:#67778d}
+#ads-view .daily-brain-next{font-weight:600;color:#40536e}
+#ads-view .daily-brain-metrics{font-variant-numeric:tabular-nums;color:#525f75;overflow-wrap:anywhere}
+#ads-view .daily-brain-badge{padding:5px 9px;font-size:11px;font-weight:700;background:#f1f3f8;color:#4d5769;border-radius:100px}
+#ads-view .daily-brain-revisar_pausa,#ads-view .daily-brain-revisar_reduccion{background:#fff0ed;color:#a6372a}
+#ads-view .daily-brain-candidata_escalar,#ads-view .daily-brain-proteger{background:#e6f7ee;color:#15724a}
+#ads-view .daily-brain-mejorar_conversion,#ads-view .daily-brain-mejorar_creatividad,#ads-view .daily-brain-investigar{background:#fff4de;color:#926219}
+#ads-view .daily-brain-item button{margin-top:4px}
+#ads-view .daily-brain-all{margin-top:18px;border-top:1px solid #e3e7ef;padding-top:14px}
+#ads-view .daily-brain-all summary{cursor:pointer;font-size:13px;color:#34466a;font-weight:650}
+#ads-view .daily-brain-all h4{font-size:14px;margin:16px 0 8px}
+#ads-view .daily-brain-all table{width:100%}
+@media(max-width:600px){#ads-view .daily-brain{padding:13px}#ads-view .daily-brain-stats{gap:6px}#ads-view .daily-brain-stat{padding:9px}#ads-view .daily-brain-stat strong{font-size:19px}#ads-view .daily-brain-item{padding:11px}#ads-view .daily-brain-item-top{align-items:start}}

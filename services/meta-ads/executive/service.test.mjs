@@ -3,6 +3,9 @@ import {createExecutiveService} from './service.mjs';
 import {analyzeReview} from '../review/analyze.mjs';
 import {fixtureDataset,fixtureExtras,FIXTURE_NOW} from '../review/fixtures.mjs';
 const actor={user:'1',chat:'1'};
+test('V10 optional growth failure preserves deterministic four-part delivery across October DST',async()=>{
+ const f=fixture();f.options.recipients=['1'];f.options.review.growth=async()=>{throw Error('OPTIONAL_HISTORY_UNAVAILABLE');};f.setTime('2026-10-25T21:30:00Z');const s=createExecutiveService(f.options);await Promise.all([s.prepare({kind:'DAILY'}),s.prepare({kind:'DAILY'})]);await s.pending();assert.equal(f.rows.size,1);const row=[...f.rows.values()][0];assert.equal(row.body.messages.length,4);assert.equal(row.body.metaWrites,0);assert.ok(row.body.failures.includes('GROWTH_OPTIONAL_UNAVAILABLE'));for(let i=0;i<4;i++){const part=(await s.command({operation:'due',actor})).executive;assert.equal(part.part,i);await s.command({operation:'finish',actor,id:part.id,part:i,claim:part.claim,state:'SENT',messageId:100+i});}assert.equal((await s.command({operation:'due',actor})).executive.state,'DELIVERED');assert.equal(f.parts.size,4);assert.equal(f.writes,0);
+});
 function fixture(){
  let at=Date.parse('2026-10-21T20:30:00Z'),reads=0,writes=0;
  const rows=new Map(),parts=new Map(),events=[];

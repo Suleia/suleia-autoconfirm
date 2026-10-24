@@ -1,5 +1,25 @@
 # Suleia agent handoff
 
+## 2026-10-24 · Ads Intelligence V10 development candidate
+
+Owner requested development, testing and a reviewable release candidate only;
+deployment requires separate approval. V9-only diff is reconciled on compatible
+finance base4d16c9f; V10 reuses V8 review, the canonical reader/cache, journal,
+OAuth, V9 decision function and existing four-part Telegram report. No second
+consumer/scheduler or paid OpenAI activation. Live API remains f72bf2c, panel
+finance-cogs-a2f2f4f, Render d175378;19 protected budget hashes match both runtime
+and candidate. V5.1 remains the separately authorized LIVE policy. Do not deploy
+this branch wholesale to Render or switch that executor to SHADOW.
+
+Final isolated Linux Node22/PostgreSQL17 run passed1264/1264 tests in137 files,
+zero skips, with no network or production credentials. Three-level drawer,
+KPI/funnel/decisions, private cohort aggregates, immutable observations/outcomes,
+responsive local screenshots and release/rollback gates are documented in
+`ADS_INTELLIGENCE_V10.md` and `ADS_INTELLIGENCE_V10_QA.md`. Screenshots are clearly
+synthetic; real cohort duplicate assessment is NOT_ASSESSED. Pixel/CAPI/EMQ,
+campaign-to-confirmed-order attribution and sustainable CPA remain unverified.
+Next: owner reviews the candidate PR and artifacts before any production action.
+
 Updated: 2026-07-25
 
 ## Purpose

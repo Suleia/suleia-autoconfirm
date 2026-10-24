@@ -248,6 +248,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
           return json(res,200,{ok:true,data,meta_budget_writes:0,external_actions:0,internal_configuration_writes:1});
         }
         if(path.endsWith('/records'))data=await adsRuntime.review.history(query);
+        else if(path.endsWith('/growth'))data=await adsRuntime.review.growth(query);
         else if(path.endsWith('/query'))data=await adsRuntime.review.answer(query.question,query);
         else if(path.endsWith('/alerts'))data=await adsRuntime.review.alerts(query);
         else if(path.endsWith('/audit'))data=await adsRuntime.review.audit(query.profile);
@@ -357,7 +358,7 @@ export async function startOperationsServer() {
     }
     const shopifyConfig={shopifyDomain:process.env.SHOPIFY_DOMAIN||process.env.SHOPIFY_SHOP,shopifyAdminAccessToken:process.env.SHOPIFY_ADMIN_ACCESS_TOKEN||process.env.SHOPIFY_ACCESS_TOKEN,shopifyClientId:process.env.SHOPIFY_CLIENT_ID,shopifyClientSecret:process.env.SHOPIFY_CLIENT_SECRET};
     const readOrders=process.env.ADS_ALGORITHM_SHOPIFY_READ_ENABLED==='true'?createAlgorithmOrdersReader({authenticatedRead:createShopifyReadAuth(shopifyConfig)}):null;
-    adsRuntime=createAdsRuntime({pool:adsPool||repository.pool,readOrders});
+    adsRuntime=createAdsRuntime({pool:adsPool||repository.pool,readOrders,readGrowthGoals:()=>repository.adsGrowthGoals()});
   }
   const authenticate = createOperationsAuth({
     issuer: config.oauthIssuer,
