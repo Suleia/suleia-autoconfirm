@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {buildDailyDecisions} from './daily-decisions.mjs';
 export const EXECUTIVE_VERSION='suleia-executive-v8.0';
 export const contentHash=x=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');
 const finite=Number.isFinite;
@@ -14,7 +15,7 @@ function links(panelUrl,reportId){
  return [['VER PANEL COMPLETO','overview'],['VER CAMPAÑAS','diagnosis'],['VER ANUNCIOS','creatives'],['VER RECOMENDACIONES','opportunities'],['REVISAR PROPUESTAS','budgets']].map(([text,tab])=>({text,url:reportId&&tab!=='budgets'?`${url.href}#ads?tab=reports&reportId=${reportId}&section=${tab}`:`${url.href}#ads?review=v7&tab=${tab}&period=hoy`}));
 }
 function pick(report,key){return report?.freshness==='FRESH'?[...new Set((report.rankings||[]).flatMap(g=>g[key]||[]).map(r=>r.entityId))].map(id=>report.rows.find(r=>r.entityId===id)).filter(Boolean):[];}
-export function buildExecutive({today=null,week=null,month=null,ads=null,budget=null,failures=[],targetDate,generatedAt,kind='DAILY',panelUrl=null,reportId=null}){
+export function buildExecutive({today=null,week=null,month=null,adsets=null,ads=null,budget=null,failures=[],targetDate,generatedAt,kind='DAILY',panelUrl=null,reportId=null}){
  const current=today?.freshness==='FRESH',observedAt=today?.observedAt||null;
  const partial=!current||today?.totals?.purchases==null||today?.totals?.roas==null||today?.rows?.some(r=>r.sample?.state==='MEASUREMENT_BLOCKED')||[week,month,ads].some(r=>!r||r.freshness!=='FRESH')||Boolean(today?.warnings?.some(x=>/AMBIGUOUS|UNAVAILABLE|MISSING/.test(x)));
  const dataState=!current?'INSUFFICIENT':partial?'PARTIAL':'UPDATED';
@@ -22,7 +23,8 @@ export function buildExecutive({today=null,week=null,month=null,ads=null,budget=
  const priorities=(source?.recommendations||[]).filter(r=>r.evidence&&r.entityId).slice(0,3);
  const top=pick(week,'best').slice(0,3),worst=[...new Map([...pick(week,'worst'),...pick(month,'worst')].map(r=>[r.entityId,r])).values()].slice(0,3),potential=pick(week,'potential').slice(0,3),recoverable=pick(week,'recoverable').slice(0,3);
  const topAds=pick(ads,'best').slice(0,3),badAds=pick(ads,'worst').slice(0,3);
- const evidence={today,week,month,ads,budget},digest=contentHash(evidence),date=targetDate.split('-').reverse().join('/');
+ const evidence={today,week,month,adsets,ads,budget},digest=contentHash(evidence),date=targetDate.split('-').reverse().join('/');
+ const dailyDecisions=buildDailyDecisions({today,week,month,adsets,ads,budget});
  const states={UPDATED:'actualizado (día en curso)',PARTIAL:'parcial',INSUFFICIENT:'insuficiente'};
  const header=`<b>SULEIA COMMAND CENTER</b>\n<b>INFORME EJECUTIVO META ADS</b>\nFecha: ${date}\nHora de corte objetivo: ${kind==='DAILY'?'22:30':'auditoría manual'} · Europe/Madrid\nEstado de datos: ${states[dataState]}\nObservación real: ${label(observedAt)}\n${kind==='DAILY'?'Meta ofrece acumulados al observar: el corte exacto de las 22:30 no está acreditado si la consulta termina después.':'Auditoría de lectura; no programa ni envía el informe diario.'}`;
  const daily=today?.totals;
@@ -48,5 +50,5 @@ export function buildExecutive({today=null,week=null,month=null,ads=null,budget=
  const messages=groups.map(parts=>{const value=parts.join('\n\n');if(value.length>3950)throw Error('EXECUTIVE_PRESENTATION_TOO_LONG');return value;});
  const buttons=links(panelUrl,reportId),markup=buttons.length?{inline_keyboard:buttons.map(b=>[b])}:null;
  return {version:EXECUTIVE_VERSION,targetDate,kind,generatedAt,observedAt,dataState,cut:{target:'22:30',timezone:'Europe/Madrid',exact:false,observedAt,note:'Provider daily totals are as observed; no fabricated half-hour attribution cut.'},evidenceDigest:digest,ruleVersion:source?.version||null,
-  priorities,topCampaigns:top.map(r=>r.entityId),problemCampaigns:worst.map(r=>r.entityId),topAds:topAds.map(r=>r.entityId),problemAds:badAds.map(r=>r.entityId),evidence,failures,messages:messages.map((text,part)=>({part,text,parseMode:'HTML',hash:contentHash(text),...(part===messages.length-1&&markup?{markup}:{})})),externalWrites:0,metaWrites:0};
+  priorities,dailyDecisions,topCampaigns:top.map(r=>r.entityId),problemCampaigns:worst.map(r=>r.entityId),topAds:topAds.map(r=>r.entityId),problemAds:badAds.map(r=>r.entityId),evidence,failures,messages:messages.map((text,part)=>({part,text,parseMode:'HTML',hash:contentHash(text),...(part===messages.length-1&&markup?{markup}:{})})),externalWrites:0,metaWrites:0};
 }

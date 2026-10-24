@@ -30,10 +30,11 @@ export function createExecutiveService({review,ledger,accountId,readBudget=null,
    const today=await get('CURRENT',{...query,period:query.period||'hoy',level:'campaign'});
    const week=await get('WEEK',{period:'7d',level:'campaign'});
    const ads=week?await get('ADS',{period:'7d',level:'ad'}):null;
+   const adsets=week?await get('ADSETS',{period:'7d',level:'adset'}):null;
    const month=await get('MONTH',{period:'30d',level:'campaign'});
    let budget=null;try{budget=readBudget?await readBudget():null;}catch{failures.push('BUDGET_AUDIT_UNAVAILABLE');}
    const valid=r=>r&&now()-Date.parse(r.observedAt)>=120000?{...r,freshness:'STALE',recommendations:[],rankings:[]}:r;
-   const body=buildExecutive({today:valid(today),week:valid(week),ads:valid(ads),month:valid(month),budget,failures,targetDate:day,kind,generatedAt:new Date(now()).toISOString(),panelUrl,reportId:id});
+   const body=buildExecutive({today:valid(today),week:valid(week),ads:valid(ads),adsets:valid(adsets),month:valid(month),budget,failures,targetDate:day,kind,generatedAt:new Date(now()).toISOString(),panelUrl,reportId:id});
    await ledger.complete(id,lease,body);
   }catch{await ledger.fail(id,lease);}finally{jobs.delete(id);}
  }
