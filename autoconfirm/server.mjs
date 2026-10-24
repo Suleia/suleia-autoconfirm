@@ -25,8 +25,9 @@ import { runUnansweredCancellationSweep } from './src/workflows/unanswered-cance
 import { syncPendingIncidents } from './src/workflows/incidents.mjs';
 import { syncOperationalOrders } from './src/workflows/operational-orders.mjs';
 import { buildDashboard, requestBusinessManagerReport, saveAgentChat, saveAgentFeedback, saveFinanceSettings, saveIncidentFeedback } from './src/dashboard.mjs';
-import { applyFinanceExpenseLedger, buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot } from './src/finance.mjs';
+import { applyFinanceExpenseLedger, buildFinanceReport, loadFinanceSnapshot, loadStoredMetaSpend, saveFinanceSnapshot, clearFinanceCache, resolveFinancePeriod } from './src/finance.mjs';
 import { addFinanceExpense, loadFinanceExpenseLedger, removeFinanceExpense } from './src/finance-expenses.mjs';
+import { syncGovernedProductCosts } from './src/finance-product-costs.mjs';
 import { getTelegramMe, setTelegramWebhook } from './src/clients/telegram.mjs';
 import { checkChatbyConnection, getChatbyRetryAfterMs } from './src/clients/chatby.mjs';
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
@@ -522,6 +523,7 @@ function queueDashboardBackgroundRefresh() {
 }
 
 const financeRefreshInFlight = new Map();
+const financeCostRefreshPending = new Set();
 const financeBackgroundRefreshEnabled = process.env.FINANCE_BACKGROUND_REFRESH_ENABLED !== 'false';
 
 function financeSnapshotNeedsRefresh(finance, now = Date.now()) {
@@ -537,9 +539,16 @@ function financeSnapshotNeedsRefresh(finance, now = Date.now()) {
   return now - generatedAt >= maximumAgeMs;
 }
 
-function queueFinanceReportRefresh(month) {
-  const key = String(month || 'current');
-  if (financeRefreshInFlight.has(key)) return false;
+function queueFinanceReportRefresh(month, {afterCurrent=false}={}) {
+  month=resolveFinancePeriod(month).month;
+  const key = month;
+  if (financeRefreshInFlight.has(key)) {
+    if(afterCurrent&&!financeCostRefreshPending.has(key)){
+      financeCostRefreshPending.add(key);
+      financeRefreshInFlight.get(key).then(()=>{financeCostRefreshPending.delete(key);queueFinanceReportRefresh(month);});
+    }
+    return afterCurrent;
+  }
   const job = new Promise((resolve) => setTimeout(resolve, 250))
     .then(() => buildFinanceReport({ month, force: true, leanRefresh: true }))
     .then((report) => console.log(`Finance report refreshed (${report.period.month}).`))
@@ -717,6 +726,21 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, { ok: true, removed });
     }
 
+    if (req.method === 'POST' && url.pathname === '/api/finance-product-costs/snapshot') {
+      if (!requireDashboardAuth(req, res)) return;
+      const result=await syncGovernedProductCosts(await readBody(req));
+      const queued=[];
+      if(result.changed){
+        clearFinanceCache();
+        const current=resolveFinancePeriod(undefined).month;
+        for(let month=result.affectedFrom?.slice(0,7);month&&month<=current;){
+          if(queueFinanceReportRefresh(month,{afterCurrent:true}))queued.push(month);
+          const [year,value]=month.split('-').map(Number);month=new Date(Date.UTC(year,value,1)).toISOString().slice(0,7);
+        }
+      }
+      return sendJson(res,200,{ok:true,result:{...result,queued}});
+    }
+
     if (req.method === 'GET' && url.pathname === '/api/finance') {
       if (!requireDashboardAuth(req, res)) return;
       const month = url.searchParams.get('month') || undefined;
@@ -735,7 +759,7 @@ const server = http.createServer(async (req, res) => {
         finance,
         pending: !finance,
         stale,
-        refreshing: queued || financeRefreshInFlight.has(String(month || 'current'))
+        refreshing: queued || financeRefreshInFlight.has(resolveFinancePeriod(month).month)
       });
     }
 

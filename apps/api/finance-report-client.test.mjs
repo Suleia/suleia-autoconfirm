@@ -2,6 +2,30 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { FinanceReportClient, createFinanceReportClient } from './finance-report-client.mjs';
+import {productCostRateVersion} from '../../autoconfirm/src/finance-product-cost-policy.mjs';
+
+test('canonical owner product costs sync only after authentication and invalidate cached reports once',async()=>{
+ const rates=[{store_id:'16088',cost_type:'PRODUCT_COGS',product_id:'33560',variant_id:'33788',amount:'0.8700',currency:'EUR',source:'OWNER_VERIFIED_PRODUCT_COST',effective_from:'2026-10-19',effective_to:null}],calls=[];
+ const client=new FinanceReportClient({baseUrl:'https://finance.example.test',password:'fixture',fetchImpl:async(url,options)=>{
+  calls.push({url,options});
+  if(url.endsWith('/api/dashboard-login'))return new Response(null,{status:303,headers:{'set-cookie':'suleia_dashboard=fixture; Path=/'}});
+  assert.match(url,/\/api\/finance-product-costs\/snapshot$/);assert.equal(options.headers.cookie,'suleia_dashboard=fixture');
+  const body=JSON.parse(options.body);assert.equal(body.rates.length,1);assert.equal(body.rates[0].amount,0.87);assert.equal(body.version,productCostRateVersion(rates));
+  return Response.json({ok:true,result:{changed:true,version:body.version,affectedFrom:'2026-10-19'}});
+ }});
+ client.cache.set('2026-10',{old:true});await client.syncProductCosts(rates);assert.equal(client.cache.size,0);
+ await client.syncProductCosts(rates);assert.equal(calls.length,2);
+});
+
+test('a cost revision mismatch stays explicit while earlier unaffected months remain readable',async()=>{
+ const client=new FinanceReportClient({baseUrl:'https://finance.example.test',password:'fixture',fetchImpl:async url=>{
+  if(url.endsWith('/api/dashboard-login'))return new Response(null,{status:303,headers:{'set-cookie':'suleia_dashboard=fixture; Path=/'}});
+  const month=new URL(url).searchParams.get('month');return Response.json({finance:{period:{month,current:false},totals:{productCost:10},days:[],history:[]}});
+ }});
+ client.productCostVersion='new-version';client.productCostRates=[{effective_from:'2026-10-19',effective_to:null}];
+ const october=await client.getMonthly('2026-10');assert.equal(october.costConfiguration.status,'RECALCULATING');assert.match(october.warnings.join(' '),/Recálculo pendiente/);
+ const september=await client.getMonthly('2026-09');assert.equal(september.costConfiguration,undefined);assert.equal(september.totals.productCost,10);
+});
 
 test('finance client authenticates once and keeps only the sanitized per-order finance breakdown', async () => {
   const calls = [];
