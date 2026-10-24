@@ -78,5 +78,5 @@ const ExecutiveReportPanel=(()=>{
   }catch{status.textContent='Historial no disponible. Revisar migración 059 y permisos SQL; no se sustituyen errores por cifras cero.';}}
   toolbar.append(period,from,until,generate,button('Ver último informe',()=>latest?open(latest):history()),button('Actualizar historial',()=>history()));root.append(status,toolbar,list,detail);await history();const linked=new URLSearchParams((location.hash||'').split('?')[1]||'');if(/^[a-f0-9]{64}$/.test(linked.get('reportId')||'')){await open(linked.get('reportId'));const part={overview:0,diagnosis:1,creatives:2,opportunities:3}[linked.get('section')];if(part!==undefined)detail.querySelector('[data-report-part=\"'+part+'\"]')?.scrollIntoView({block:'start'});}
  }
- return {load};
+ return {load,renderDecisions:dailyDecisionBrief};
 })();
