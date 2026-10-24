@@ -1,4 +1,5 @@
 import {createHash} from 'node:crypto';
+import {buildDailyDecisions} from './daily-decisions.mjs';
 export const EXECUTIVE_VERSION='suleia-executive-v8.0';
 export const contentHash=x=>createHash('sha256').update(typeof x==='string'?x:JSON.stringify(x)).digest('hex');
 const finite=Number.isFinite;
@@ -23,6 +24,7 @@ export function buildExecutive({today=null,week=null,month=null,ads=null,budget=
  const top=pick(week,'best').slice(0,3),worst=[...new Map([...pick(week,'worst'),...pick(month,'worst')].map(r=>[r.entityId,r])).values()].slice(0,3),potential=pick(week,'potential').slice(0,3),recoverable=pick(week,'recoverable').slice(0,3);
  const topAds=pick(ads,'best').slice(0,3),badAds=pick(ads,'worst').slice(0,3);
  const evidence={today,week,month,ads,budget},digest=contentHash(evidence),date=targetDate.split('-').reverse().join('/');
+ const dailyDecisions=buildDailyDecisions({today,week,month,ads,budget});
  const states={UPDATED:'actualizado (día en curso)',PARTIAL:'parcial',INSUFFICIENT:'insuficiente'};
  const header=`<b>SULEIA COMMAND CENTER</b>\n<b>INFORME EJECUTIVO META ADS</b>\nFecha: ${date}\nHora de corte objetivo: ${kind==='DAILY'?'22:30':'auditoría manual'} · Europe/Madrid\nEstado de datos: ${states[dataState]}\nObservación real: ${label(observedAt)}\n${kind==='DAILY'?'Meta ofrece acumulados al observar: el corte exacto de las 22:30 no está acreditado si la consulta termina después.':'Auditoría de lectura; no programa ni envía el informe diario.'}`;
  const daily=today?.totals;
@@ -48,5 +50,5 @@ export function buildExecutive({today=null,week=null,month=null,ads=null,budget=
  const messages=groups.map(parts=>{const value=parts.join('\n\n');if(value.length>3950)throw Error('EXECUTIVE_PRESENTATION_TOO_LONG');return value;});
  const buttons=links(panelUrl,reportId),markup=buttons.length?{inline_keyboard:buttons.map(b=>[b])}:null;
  return {version:EXECUTIVE_VERSION,targetDate,kind,generatedAt,observedAt,dataState,cut:{target:'22:30',timezone:'Europe/Madrid',exact:false,observedAt,note:'Provider daily totals are as observed; no fabricated half-hour attribution cut.'},evidenceDigest:digest,ruleVersion:source?.version||null,
-  priorities,topCampaigns:top.map(r=>r.entityId),problemCampaigns:worst.map(r=>r.entityId),topAds:topAds.map(r=>r.entityId),problemAds:badAds.map(r=>r.entityId),evidence,failures,messages:messages.map((text,part)=>({part,text,parseMode:'HTML',hash:contentHash(text),...(part===messages.length-1&&markup?{markup}:{})})),externalWrites:0,metaWrites:0};
+  priorities,dailyDecisions,topCampaigns:top.map(r=>r.entityId),problemCampaigns:worst.map(r=>r.entityId),topAds:topAds.map(r=>r.entityId),problemAds:badAds.map(r=>r.entityId),evidence,failures,messages:messages.map((text,part)=>({part,text,parseMode:'HTML',hash:contentHash(text),...(part===messages.length-1&&markup?{markup}:{})})),externalWrites:0,metaWrites:0};
 }
