@@ -42,7 +42,10 @@ def health():
 def stable(S):
  assert critical_files()==S['criticalFiles'],'UNRELATED_AUTOMATION_CHANGED'
  assert one("md5(coalesce(jsonb_agg(to_jsonb(r) ORDER BY rate_id)::text,'[]')) FROM economics.finance_cost_rates r")==S['financeHash'],'FINANCE_CHANGED'
- now=ids();assert all(now.get(k)==v for k,v in S['containers'].items()if k not in [API,PANEL]),'UNRELATED_CONTAINER_CHANGED'
+ # The socket-only QA PostgreSQL is deliberately removed when its passing
+ # receipt is written. It is not a production container to preserve.
+ qa='suleia-address-recovery-qa-pg-'+M['testSourceSha256'][:10]
+ now=ids();assert all(now.get(k)==v for k,v in S['containers'].items()if k not in [API,PANEL,qa]),'UNRELATED_CONTAINER_CHANGED'
  for p,h in S['composeHashes'].items():assert sha(pathlib.Path(p).read_bytes())==h,'PRECEDING_COMPOSE_CHANGED'
  assert sha(pathlib.Path('/etc/systemd/system/suleia-telegram.service').read_bytes())==S['botUnitHash'],'BOT_UNIT_CHANGED'
 def verify(S):
@@ -125,6 +128,7 @@ elif phase=='apply':
  S=json.loads((D/'state.private.json').read_text());assert not(D/'applied.json').exists()
  T=json.loads(pathlib.Path(M['testReceipt']).read_text());assert T['exit']==0 and T['sourceSha256']==M['testSourceSha256']and '# fail 0'in T['summary']and'# skipped 0'in T['summary'],'TESTS_NOT_PASSED'
  stable(S);quiet();assert inspect(API)['Image']==M['baseImageId']and BOT.resolve()==pathlib.Path(S['previousBot'])and sha(BENV.read_bytes())==S['botEnvHash'],'BASE_CHANGED'
+ shutil.copyfile(__file__,D/'deploy.py')
  backup=run(['docker','exec',DB,'pg_dump','-U','suleia_admin','-d','suleia_staging','--data-only','--table=economics.ads_operations','--table=economics.ads_proposals','--table=economics.ads_events','--table=economics.ads_autopilot_slots','--table=economics.ads_circuit']);(D/'ledger-before.private.sql').write_bytes(backup)
  if M.get('applyMigration',True):sql((D/'source/migrations/061_meta_autopilot_v6_night_guard.sql').read_text(),False)
  else:assert one("count(*) FROM pg_indexes WHERE schemaname='economics' AND indexname='ads_operations_one_night_per_campaign_day'")=='1','EXISTING_NIGHT_GUARD_REQUIRED'
