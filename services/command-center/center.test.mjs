@@ -138,3 +138,12 @@ test('compact questions use the shared reader, audit and existing authorization 
  await f.c.command({action:'meta-summary',query:{force:true},actor:{user:'1',chat:'1'}});assert.equal(f.reads,2);
  await assert.rejects(f.c.command({action:'meta-summary',actor:{user:'2',chat:'1'}}),/ACTOR_UNAUTHORIZED/);assert.equal(f.reads,2);
 });
+
+test('incident day queries apply scoped permissions, audit and coalesce reads without writes',async()=>{
+ const f=fixture({roles:{'1':'operator','2':'analyst'}});let reads=0;
+ f.repository.pool={query:async()=>{reads++;await new Promise(r=>setTimeout(r,5));return {rows:[{created:2,period_pending:1,pending_now:5,unidentified:0,health:[]}]};}};
+ const responses=await Promise.all([f.request('Cuántas incidencias hay hoy'),f.request('Incidencias de hoy')]);assert.equal(reads,1);assert.match(responses[0].text,/registradas: 2/);assert.match(responses[0].text,/todos los días: 5/);
+ assert.equal(f.history[0].evidence.tool,'incidents');assert.equal(f.proposals,0);assert.equal(f.confirmations,0);
+ await assert.rejects(f.request('Incidencias de hoy','2'),/ACTOR_UNAUTHORIZED/);assert.equal(reads,1);
+ assert.match((await f.request('Incidencias de la semana pasada')).text,/fechas|semana natural/);
+});
