@@ -1,5 +1,6 @@
 import {adsCommand} from '../meta-ads/command-service.mjs';
 import {parseMetaSummary,readMetaSummary} from './meta-summary.mjs';
+import {parseIncidentPeriod,readIncidentSummary,formatIncidentSummary} from './incident-summary.mjs';
 import {parseAutopilotQuery} from '../meta-ads/autopilot/queries.mjs';
 import {orderSummaryIntent,OrderSummaryReader,readOrderSummary} from './order-summary.mjs';
 import {parseOrderRequest,parsePeriodText,resolvePeriod} from './periods.mjs';
@@ -32,7 +33,7 @@ export function parseBusiness(input,context=null,now=Date.now()) {
  if(/historial de decisiones|mis decisiones/.test(text))return {tool:'history'};
  if(/^registra (?:la )?decision (aceptar|rechazar|observar) ([a-f0-9]{64})$/.test(text)){const m=text.match(/(aceptar|rechazar|observar) ([a-f0-9]{64})$/);return {tool:'decision',verdict:m[1],reference:m[2]};}
  if(/trendtrack|competencia|competidor/.test(text))return {tool:'commercial'};
- if(/incidencias?/.test(text))return {tool:'incidents'};
+ if(/incidencias?/.test(text)){const request=parseIncidentPeriod(input,now);return request?.question?{tool:'clarify',question:request.question}:{tool:'incidents',...(request||{})};}
  const orderRequest=parseOrderRequest(input,now);if(orderRequest)return orderRequest.question?{tool:'clarify',question:orderRequest.question}:{tool:'orders',summary:orderRequest.view,period:orderRequest.period};
  if(/pedido/.test(text)){const ids=[...text.matchAll(/#?\b(?:ES)?\d{3,12}\b/gi)];return ids.length===1?{tool:'orders',id:ids[0][0].replace(/^#/,'').toUpperCase()}:{tool:'clarify',question:'Indica un único ID exacto de Dropea (por ejemplo ES1234567). La cola no contiene todos los pedidos de Shopify.'};}
  if(/beneficio|rentabilidad|finanzas|resultado financiero/.test(text))return {tool:'finance',product:/producto|nida|collagum|seoul/.test(text),month:/\b(20\d{2}-\d{2})\b/.exec(text)?.[1]||null};
@@ -166,6 +167,9 @@ export class CommandCenter {
      const found=await this.repository.orderDetail(intent.id),o=found?.order;
      evidence=o?{id:label(o.dropea_order_id||o.canonical_order_id),state:label(o.lifecycle_status||o.status),observedAt:iso(o.source_updated_at),freshness:freshness(o.source_updated_at,this.now())}:null;
      text=evidence?`Pedido ${evidence.id}: ${evidence.state}. Fuente: copia operativa Dropea · ${evidence.observedAt||'fecha no verificable'} · ${evidence.freshness}.`:'Pedido no encontrado por ID exacto en la copia operativa. No significa que no exista en Shopify.';
+   }else if(intent.tool==='incidents'&&intent.period){
+     evidence=await this.read('incidents:'+JSON.stringify(intent.period),()=>readIncidentSummary(this.repository.pool,intent.period,this.now()));
+     text=formatIncidentSummary(evidence);
    }else if(intent.tool==='finance'){
      evidence=await this.finance(intent.month);
      text=`Finanzas · ${evidence.month||'mes actual'}\nBeneficio contable: ${money(evidence.totals?.netProfit)}\nCobertura: ${evidence.coverage}. Fuente: informe financiero del panel.\nActualización: ${evidence.observedAt||'sin fecha verificable'} · ${evidence.freshness}.\n${evidence.limitations.join('\n')}${intent.product?'\nNo hay atribución completa para ordenar productos por beneficio.':''}`;
