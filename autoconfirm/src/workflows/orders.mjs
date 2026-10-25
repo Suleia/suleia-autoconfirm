@@ -412,13 +412,33 @@ function isAfterCutoff(order, cutoffIso) {
   return createdAt >= cutoff;
 }
 
-function normalizeChatMessages(messages) {
+// Reminder replies use the ordinary confirmation workflow. Chatby can expose
+// their visible text only in payload; an opaque callback is never consent.
+// Keep the existing top-level representation unchanged for older messages.
+export function normalizeChatMessages(messages) {
   if (!Array.isArray(messages)) return [];
-  return messages.map((message) => ({
-    role: String(message.role || message.sender || message.direction || 'message').toLowerCase(),
-    content: message.content || message.message || message.text || message.button_text || message.buttonText || '',
-    raw: message
-  }));
+  return messages.map((message) => {
+    const normalized = {
+      role: String(message.role || message.sender || message.direction || 'message').toLowerCase(),
+      content: message.content || message.message || message.text || message.button_text || message.buttonText || '',
+      raw: message
+    };
+    if (String(normalized.content || '').trim()) return normalized;
+    const direction = normalizeText(message.direction || message.type);
+    const sender = normalizeText(message.sender || message.sender_type || message.role);
+    if (!isCustomerMessage(normalized) || message.is_echo === true || message.isEcho === true
+      || message.from_me === true || message.fromMe === true
+      || ['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system'].includes(direction)
+      || ['out', 'outbound', 'sent', 'bot', 'agent', 'admin', 'system'].includes(sender)) return normalized;
+    const kind = normalizeText(message.msg_type || message.message_type || message.messageType);
+    const payload = message.payload;
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return normalized;
+    const values = ['postback', 'quick_reply', 'button', 'button_reply'].includes(kind)
+      ? [payload.title, payload.text]
+      : ['text', 'message', ''].includes(kind) ? [payload.text, payload.body] : [];
+    normalized.content = [...new Set(values.filter(value => typeof value === 'string' && value.trim()))].join(' ');
+    return normalized;
+  });
 }
 
 function normalizeText(value) {
