@@ -78,7 +78,11 @@ def verify(S):
 phase=sys.argv[1];lock=open('/run/lock/suleia-budget-v51-deploy.lock','w');fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
 if phase=='stage':
  assert not(D/'state.private.json').exists()and not R.exists(),'ALREADY_STAGED_RECONCILE'
- assert not ENV.exists()and not WORKER.exists(),'RECOVERY_ALREADY_INSTALLED_RECONCILE'
+ if ENV.exists()or WORKER.exists():
+  assert ENV.exists()and (WORKER/'current').is_symlink(),'PARTIAL_RECOVERY_INSTALL_RECONCILE'
+  previous=(WORKER/'current').resolve();prior=pathlib.Path('/root/suleia-address-import-recovery-deploy')/previous.name[:7]
+  assert previous.is_relative_to(WORKER/'releases')and (prior/'rollback-triggered').is_file(),'RECOVERY_ALREADY_INSTALLED_RECONCILE'
+  assert subprocess.run(['systemctl','is-enabled',UNIT+'.path'],capture_output=True,text=True).stdout.strip()=='disabled','RECOVERY_NOT_ROLLED_BACK'
  api=inspect(API);panel=inspect(PANEL);protected()
  assert api['Image']==M['baseImageId']and api['Config']['Image']==M['baseImage'],'API_BASE_CHANGED'
  oldPanel=next(pathlib.Path(m['Source'])for m in panel['Mounts']if m['Destination']=='/usr/share/nginx/html');assert str(oldPanel)==M['panelBase'],'PANEL_BASE_CHANGED'
@@ -108,11 +112,15 @@ elif phase=='apply':
   for f in M['workerFiles']:
    dest=pathlib.Path(S['worker'])/f['path'];dest.parent.mkdir(parents=True,exist_ok=True,mode=0o755);shutil.copyfile(D/'source'/f['path'],dest);dest.chmod(0o644)
   for p in [WORKER,WORKER/'releases',pathlib.Path(S['worker']),*pathlib.Path(S['worker']).rglob('*')]:p.chmod(0o755 if p.is_dir()else 0o644)
-  (WORKER/'current').symlink_to(pathlib.Path(S['worker']))
-  for p,mode in [(STATE,0o700),(PUBLIC,0o755)]:p.mkdir(mode=mode);shutil.chown(p,user='suleiaops',group='suleiaops');p.chmod(mode)
-  ENV.write_text('ADDRESS_RECOVERY_PRIVATE_KEY='+secrets.token_urlsafe(48)+'\nADDRESS_RECOVERY_SHOP=vcnby0-h1.myshopify.com\nADDRESS_RECOVERY_STORE_ID=16088\n');ENV.chmod(0o600)
+  link=WORKER/('current-next-'+short);link.symlink_to(pathlib.Path(S['worker']));os.replace(link,WORKER/'current')
+  for p,mode in [(STATE,0o700),(PUBLIC,0o755)]:p.mkdir(mode=mode,exist_ok=True);shutil.chown(p,user='suleiaops',group='suleiaops');p.chmod(mode)
+  if not ENV.exists():ENV.write_text('ADDRESS_RECOVERY_PRIVATE_KEY='+secrets.token_urlsafe(48)+'\nADDRESS_RECOVERY_SHOP=vcnby0-h1.myshopify.com\nADDRESS_RECOVERY_STORE_ID=16088\n')
+  ENV.chmod(0o600)
   for ext in ['service','path']:
-   dest=pathlib.Path('/etc/systemd/system')/(UNIT+'.'+ext);assert not dest.exists();shutil.copyfile(D/'source'/'infrastructure/vps'/dest.name,dest);dest.chmod(0o644)
+   dest=pathlib.Path('/etc/systemd/system')/(UNIT+'.'+ext);new=D/'source'/'infrastructure/vps'/dest.name
+   if dest.exists():assert sha(dest.read_bytes())==sha(new.read_bytes()),'SHADOW_UNIT_CHANGED_RECONCILE'
+   else:shutil.copyfile(new,dest)
+   dest.chmod(0o644)
   run(['systemctl','daemon-reload']);run(['systemctl','start',UNIT+'.service'])
   R.write_text(json.dumps(S['override']));R.chmod(0o600)
   quiet();run(compose(S)+['up','-d','--no-deps','--no-build','--pull','never','api','review-panel']);health()

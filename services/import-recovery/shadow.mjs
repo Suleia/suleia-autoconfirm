@@ -40,7 +40,7 @@ export async function observeFailures({auditDir,stateDir,projectionDir=null,shop
     return report;
   }finally{store.close();}
 }
-if(process.argv[1]&&fileURLToPath(import.meta.url)===path.resolve(process.argv[1])){
+if(process.argv[1]&&fileURLToPath(import.meta.url)===await fs.realpath(process.argv[1]).catch(()=>null)){
   process.umask(0o077);
   // Deliberately no network adapters, credentials, global config or importer import.
   globalThis.fetch=()=>{throw Error('SHADOW_NETWORK_FORBIDDEN');};

@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';import {tmpdir} from 'node:os';import {join} from 'node:path';
 import {recoveryOverviewReader} from './panel-reader.mjs';import {observeFailures} from './shadow.mjs';
 import {createOperationsServer,loadOperationsConfig} from '../../apps/api/server.mjs';
+import {spawnSync} from 'node:child_process';
 
 class Element{constructor(tag){this.tag=tag;this.children=[];this.events={};this.textContent='';this.value='';}append(...v){this.children.push(...v);}replaceChildren(...v){this.children=v;}addEventListener(k,v){this.events[k]=v;}}
 const content=e=>e.textContent+' '+e.children.map(content).join(' ');
@@ -21,6 +22,14 @@ test('SHADOW consumes only correlated persisted failures, is idempotent and proj
 });
 test('SHADOW binary rejects all write flags even if the general engine would allow a phase',async()=>{
  await assert.rejects(observeFailures({env:{ADDRESS_IMPORT_RECOVERY_ENABLED:'true',ADDRESS_RECOVERY_SHOPIFY_WRITE:'true'}}),/SHADOW_ENTRYPOINT_REJECTS_WRITES/);
+});
+test('deployed SHADOW starts through its current directory symlink and writes its verified report',t=>{
+ const dir=fs.mkdtempSync(join(tmpdir(),'suleia-shadow-entry-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const real=join(dir,'release'),alias=join(dir,'current'),audit=join(dir,'audit'),state=join(dir,'state');
+ fs.mkdirSync(real);for(const name of ['shadow.mjs','store.mjs','policy.mjs','engine.mjs','intake.mjs'])fs.copyFileSync(new URL('./'+name,import.meta.url),join(real,name));
+ fs.symlinkSync(real,alias,process.platform==='win32'?'junction':'dir');fs.mkdirSync(audit);fs.writeFileSync(join(audit,'actions.jsonl'),'');fs.writeFileSync(join(audit,'provider-rejections.jsonl'),'');
+ const p=spawnSync(process.execPath,[join(alias,'shadow.mjs')],{encoding:'utf8',env:{...process.env,ADDRESS_IMPORT_RECOVERY_ENABLED:'true',ADDRESS_RECOVERY_SHOPIFY_WRITE:'false',ADDRESS_RECOVERY_CHATBY_SEND:'false',ADDRESS_RECOVERY_DROPEA_IMPORT:'false',ADDRESS_RECOVERY_AUDIT_DIR:audit,ADDRESS_RECOVERY_STATE_DIR:state,ADDRESS_RECOVERY_SHOP:'fixture.myshopify.com',ADDRESS_RECOVERY_STORE_ID:'10',ADDRESS_RECOVERY_PRIVATE_KEY:'fixture-key-no-production-use-1234567'}});
+ assert.equal(p.status,0,p.stderr);assert.equal(JSON.parse(p.stdout).mode,'SHADOW');assert.equal(JSON.parse(fs.readFileSync(join(state,'overview.json'))).externalActions,0);
 });
 test('new panel data shares OAuth and rejects anonymous reads or POSTs; existing queues remain unchanged',async t=>{
  const repository={summary:async()=>({orders:{pending:7}}),listOrders:async()=>({items:[],total:0})};
