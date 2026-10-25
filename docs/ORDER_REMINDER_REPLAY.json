@@ -17,15 +17,16 @@
   "templateOrFlowChanges": 0,
   "laterClassifierCorrection": "Non-pending cancelled/rejected/error orders are classified separately from confirmed/fulfilment orders; this does not make them eligible.",
   "testEvidence": {
-    "runtime": "Node22 isolated Docker",
-    "sourceArchiveSha256": "84ae2be4919076af8585257fc09ed38fba2f61700afcf6100c3a05a7eb7042c1",
-    "testFiles": 66,
-    "passed": 689,
+    "passed": 692,
     "failed": 0,
     "skipped": 0,
+    "files": 66,
+    "sourceArchiveSha256": "1c8f1b37218643187155af3d049d93268b8e18d44b72c95cfdc8aeca78a338db",
+    "changedFilesMatchingPassingArchive": 12,
+    "privateReceipt": "/var/tmp/suleia-order-reminder-qa/1c8f1b372186-mount/result.json",
+    "runtime": "Node22 isolated Docker",
     "network": "none",
-    "productionCredentialsSupplied": false,
-    "privateReceipt": "/var/tmp/suleia-order-reminder-qa/84ae2be49190-mount/result.json"
+    "productionCredentialsSupplied": false
   },
-  "deployment": "LIVE5f0c545 verified five messages; independent coalesced reminder job tested689/689 to remove whole-workflow queue delays, pending narrow LIVE update"
+  "deployment": "LIVE_VERIFIED; see ORDER_REMINDER_DEPLOYMENT.json for exact runtime, genuine canary, natural cycles and independently verified messages"
 }

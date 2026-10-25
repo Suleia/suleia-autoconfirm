@@ -1,269 +1,146 @@
-# Order confirmation reminder, two hours after purchase
+# Order confirmation reminder · two hours after purchase
 
-This is an additive message lane. It never confirms, cancels, discounts, changes
-an address, edits a Chatby flow, or writes a different template's delivery row.
-The existing initial/prepared/incident senders and timers remain owners of their
-current work. The Render implementation derives from actual live d175378, not
-the historical worker tree in the VPS panel branch.
+An isolated additional message for a real, still-pending order. It never confirms,
+cancels, discounts, changes addresses or edits Chatby flows, fields or tags. The
+initial, prepared and incident senders retain their existing owners and timers.
 
-## Verified template and ownership
+## Verified contract and sender
 
-Chatby catalogue, 25 October 2026 15:54 UTC: exactly one approved UTILITY template
-`dropea_pedido_reminder_v1`, locale `es_ES`, Chatby1472493 / Meta1344752647520812.
-Four BODY parameters, in order: COD amount, address, city, postcode. The existing
-two quick replies keep their exact callback routes. Runtime verifies approval,
-IDs, semantic component hash and callback hash before each assigning attempt.
-Examples from the catalogue are excluded from fixtures and semantic hashing;
-they are not message content or customer/order evidence.
+The Chatby catalogue was read on 25 October 2026 at 15:54 UTC. Exactly one
+`dropea_pedido_reminder_v1` / `es_ES` is APPROVED, category UTILITY, Chatby ID
+1472493 and Meta ID1344752647520812. Its four BODY parameters are, in order:
+COD amount, street/address line2, city and postcode. The existing quick-reply
+routes remain unchanged. Runtime rechecks approval, IDs, components and routes.
 
-Semantic components SHA256:
+Semantic component SHA256:
 `aedc6d5323134e060b06332a0ce67e47dacad3c53efb2f0f2c636347d1f165fc`.
 Callback SHA256:
 `a1747e6a5ddee303e8ef3de475ce56d65a1f4a0cc8853b9c5ee6dd4fc457d8c9`.
-Original complete catalogue-component digest, including its examples:
-`6a0c5ac01aed86df99cec9f9a750b9e778993bf3241ec7e600f0faebec7f43d8`.
+Provider examples are excluded from semantic hashing and repository fixtures.
 
-The API exposes the names of Confirmaciones Reminder1/2, not their enabled
-conditions. The owner explicitly confirmed both native reminders are disabled
-in reply4148e11e4f95437484f4628f28a6172e. No native flow was edited. Exclusive new
-owner: `ORDER_CONFIRMATION_REMINDER_OWNER=render_order_reminder`. Its attestation
-is independent of all existing ownership flags. Generic sendWhatsappTemplate
-rejects this exact new template; only the dedicated sender can dispatch it.
+The owner explicitly confirmed native Confirmaciones Reminder1/2 are disabled
+(reply4148e11e4f95437484f4628f28a6172e); their API exposes names, not conditions.
+No native flow was changed. The sole new owner is
+`ORDER_CONFIRMATION_REMINDER_OWNER=render_order_reminder`. The generic sender
+rejects this exact template; only the dedicated reminder sender can dispatch it.
 
-## Eligibility and evidence
+## Eligibility
 
-Canonical identity is `dropea:<verified-store-id>:<numeric-order-id>`. The anchor
-is the fresh provider's external purchase timestamp, or provider created_at only
-when no external purchase timestamp exists. Local ingestion, update and initial
-delivery times are never substituted. Zone-less/invalid/future clocks block.
-Internal timestamps are UTC; reporting uses Europe/Madrid, including DST.
+The canonical identity is `dropea:<verified-store-id>:<numeric-order-id>`.
+Due time is canonical purchase +2hours: fresh provider external_created_at, or
+provider created_at only when the external purchase timestamp is absent.
+Invalid, future or zone-less clocks block. Ingestion, update, poll and initial
+message times are never substituted. UTC is internal; reports use Europe/Madrid.
 
-Only exact current ES COD pending orders can qualify. Active issues are read
-with the existing read-only V2 client, bounded to300 pending issues and no retry
-loop. Address/missing-data/import-recovery markers block; Shopify-only records
-without a canonical Dropea order are excluded. No address resolver/geocoder runs.
-Each order is freshly re-read; read failures and incomplete coverage block.
+Every send requires all of the following:
 
-The current subscriber must have an unambiguous exact order field, exact full
-recipient and conversation. There is no phone-only lookup, synthetic order-field
-injection, contact creation, field/tag update or fallback. The initial ledger's
-exact order/conversation, accepted WAMID and timestamp must match the actual
-provider initial-template message after the canonical purchase. A local sent
-flag alone never qualifies.
+- The exact current ES COD order remains PENDING in fresh provider/local reads,
+  with no confirmed_at or active incident/address/missing-data/import workflow.
+- The verified initial `dropea_pedido_nuevo_v1` ledger belongs to this order and
+  conversation; its accepted WAMID and timestamp match the actual provider initial
+  message after purchase. A local sent flag alone cannot qualify.
+- The subscriber has an unambiguous current order field, exact full phone and
+  conversation. There is no phone-only fallback, synthetic binding or contact edit.
+- Complete provider history proves no valid inbound after the verified initial.
+  Every button, text, audio, question or ambiguous input blocks, regardless of
+  intent. Same-second input blocks conservatively; older input does not.
+- No prior reminder or unresolved assigning attempt exists for this order.
+- All four parameters come from this exact fresh order, including current amount,
+  address, city and five-digit postcode. No geocoder/address resolver is called.
 
-Chat history is bounded from purchase, then activity is scoped after the verified
-initial message. Every valid inbound blocks, including buttons, audio, ambiguous
-text and `hola`; intent is irrelevant. Same-second input blocks conservatively.
-Missing timestamps/direction, wrong thread or saturated pagination never prove
-silence. Initial and reminder messages must use their exact provider names.
+Incomplete reads, unknown directions/timestamps, conflicting fields and uncertain
+coverage block sending. Confirmation, cancellation and fulfilment states block.
 
-## Persistence and sending
+## Dispatch, uniqueness and uncertainty
 
-The existing Supabase table's primary key supplies database uniqueness. The new
-logical delivery ledger has its own fenced namespace:
+The existing database primary key supplies uniqueness for the fenced namespace:
 
 `ORDER_REMINDER:<canonical_order_id>:dropea_pedido_reminder_v1`
 
-All writes require that key and exact reminder template; updates also require
-the owning claim UUID and permitted state. No new row is created in the initial,
-prepared, incident or discount logical ledgers. SHADOW and replay never reserve
-a send. Runtime status uses only its own app_state key
-`order_confirmation_reminder_v1`; it does not write the global runtime_state.
+Writes require that key, exact template and claim UUID. Only this logical ledger
+and `app_state.order_confirmation_reminder_v1` are written. Initial, prepared,
+incident, discount, global runtime state and order/timer records are untouched.
 
-After a persistent claim, re-verify the catalogue before actually re-reading the
-order/conversation. A slow catalogue cannot consume the final conversation
-freshness window; old evidence is never relabeled or given a longer limit.
-Persist SENDING
-before the single shared-queue POST. The transport checks owner, flags, canary
-scope, claim, recipient, exact parameters and ten-second freshness again after
-waiting for the queue. It never retries the POST. Only a proven pre-dispatch
-failure with no send start can be reclaimed by a conditional update.
+The sender reserves one bounded30second slot in the existing paced Chatby HTTP
+queue. It re-reads the approved catalogue, subscriber/history and supplier/local
+order before the sole assigning POST. Conversation freshness remains10seconds;
+POST timeout remains12seconds. Old evidence is never relabeled. All nested HTTP
+calls retain shared pacing/cooldown; other callers keep their original branch.
 
-Timeouts, crashes after SENDING and uncertain ledger outcomes stay SEND_UNKNOWN
-or retained SENDING. Subsequent cycles only reconcile. Verification requires one
-accepted WAMID, exact thread/recipient/order, correct template and full rendered
-body hash in provider history. No heuristic retry or alternative template exists.
-The receipt keeps required timestamps, flags, claim, provider ID and outcome;
-addresses and conversation text are not copied into repository evidence.
+Pending-incident coverage is bounded to300 records/3pages. Evidence is reused
+for less than120seconds and renewed in the final guard if a queue wait aged it.
+An incomplete/failed renewal blocks; a newly observed incident prevents dispatch.
 
-## Scheduler, rollout and observability
+SENDING is persisted before POST. A proven pre-POST failure with null send start
+can be reclaimed by a conditional update. A timeout, lost receipt or crash after
+start remains SEND_UNKNOWN/SENDING: later cycles only reconcile provider history,
+never blindly resend. At most20 exact same-store existing reservations are retained
+for reconciliation even after orders leave pending; those entries cannot send.
 
-The existing five-minute background poll tick registers
-`ORDER_CONFIRMATION_REMINDER_SCAN` as an independent named job in the shared
-serialized/coalescing queue. It does not wait for the long background order
-workflow to finish before registering, avoiding a startup tail behind every
-other queued workflow. No new interval/global order poller is created and no
-existing timer/deadline is reset. Existing jobs retain their mutual order.
-The first f25604c natural SHADOW completed17:21:29UTC with2/17 candidates
-evaluated,2eligible,0sends/claims and single sender verified; its16-minute
-startup wait prompted this scheduling-only correction. Production latency of
-the final registration still requires natural observation. Queries use canonical JSON purchase fields, current
-pending state, bounded lookback tied to the actual cancellation policy (48h at
-audit), at most300 candidate rows. Two candidates per natural job rotate fairly;
-an explicit canary is prioritized. Backlog coverage is shown, not hidden.
+Verification requires one accepted WAMID, exact order/thread/recipient, approved
+template, full rendered-body hash and unique history message. Chatby API output
+uses `agent`, native output uses `out`; only those outbound types qualify.
+Receipts retain the required clocks, checks, claim, provider ID, status and reason.
+No customer conversation, phone or address is copied into repository evidence.
 
-1. ORDER_REMINDER_ENABLED=true, ORDER_REMINDER_REAL_SENDS=false, canary off.
-2. Read-only replay, then natural SHADOW; no customer test messages or fake orders.
-3. Explicit ORDER_REMINDER_CANARY_ENABLED=true and one naturally eligible order.
-   General REAL_SENDS remains false. Re-read and verify the sole canary.
-4. Only a durable verified canary for the same content and owner can unlock LIVE.
-5. Observe three consecutive natural cycles, recording verified/unknown/dedupe
-   outcomes. Never manufacture a cycle or a customer action to obtain evidence.
+## Natural scheduler and panel
 
-The private status endpoint accepts existing dashboard authentication or a
-configured existing cron bearer. No new credential or authentication mechanism
-is introduced. The Operations API reuses its existing authenticated Render
-client, projects only contact-free counts/mode/coverage and performs GET only.
-Automation has a separate REMINDER PEDIDO · 2H card, no send controls. Missing or
-stale readings remain labeled; unknown sends are not counted as verified sends.
+The same existing5minute tick invokes `ORDER_CONFIRMATION_REMINDER_SCAN` in one
+independent coalesced job lane using the existing scheduler primitive. An unrelated
+long workflow cannot stall reminder scheduling. No new interval/global poller is
+created; existing jobs, their mutual order and their deadlines remain unchanged.
+There is still only one shared Chatby HTTP queue and one reminder sender.
 
-Initial read-only replay completed16:39UTC:63 recent canonical orders,14 eligible,
-31 recorded confirmations before two hours,39 with post-initial input,21 without
-such input in verified histories,60 verified initials;0 sends/claims/status writes.
-These counts overlap and are observations over a moving cohort, not frozen truth.
-The earlier broad non-pending block included terminal orders; do not describe all
-46 non-pending cases as confirmations. Later runtime classification distinguishes
-confirmed/fulfilment states from cancelled/rejected/error states.
+Candidate reads use canonical purchase timestamps, pending state and the actual
+cancellation lookback:48hours in this deployment, maximum72hours. At most300
+recent rows are read; two candidates rotate per natural job. Exact terminal
+reminder keys are excluded before batching. Coverage is reported explicitly;
+this is not a guarantee that every due order is dispatched at precisely2hours.
+
+Daily counters use unique observed order IDs and Madrid dates. Eligible/successful
+observations survive deduplication; rollover never clears delivery keys. Unknown
+attempts remain visible across subsequent held/reconciliation cycles.
+
+Automation displays a separate **REMINDER PEDIDO · 2H** card. Its read-only API
+reuses existing authenticated Render access and Operations OAuth. Only whitelisted
+mode, freshness, counts, coverage and canary metadata cross that boundary. Missing
+or stale readings are labeled explicitly; there are no send/action buttons.
+
+## Rollout and evidence
+
+The owner-authorized sequence is SHADOW → read-only replay → one naturally
+eligible real canary → verified readback → LIVE → three natural consecutive cycles.
+No fake orders, test customer messages or forced cycles are used.
+
+The original read-only replay evaluated63 recent canonical orders with14 eligible,
+31 recorded confirmations before2hours,39 post-initial inputs,21 verified silent
+histories and60 verified initials;0sends/claims/status writes. Counts overlap and
+represent a moving snapshot. See [replay receipt](ORDER_REMINDER_REPLAY.json).
+
+The genuine canary produced one message18:22:03UTC. The original verifier held
+uncertainty because the provider labeled it `agent`; it did not resend. Independent
+provider reads verified the exact body/recipient/thread/parameters. At18:33:47UTC,
+a send-disabled, claim-disabled metadata reconciliation marked the existing row
+VERIFIED. It used natural:false and preserved the four genuine cycle entries.
+LIVE was enabled only after that durable, independently checked proof.
+
+Current runtime, exact test archives, natural cycles, final message checks,
+preservation checks and captured predecessors are recorded in
+[deployment evidence](ORDER_REMINDER_DEPLOYMENT.json). Worker code derives from
+the actual live d175378 baseline, not the older worker tree in the panel branch.
 
 ## Stop and rollback
 
-Stop this lane by disabling its own ENABLED/REAL_SENDS/CANARY flags. Preserve its
-delivery keys, provider IDs, SENDING/UNKNOWN claims and canary audit. Do not delete
-claims, clear initial/prepared ledgers or restore historical order/timer state.
-Application rollback uses the captured actual preceding Render/VPS revisions and
-retains the current live Meta policies and unrelated service configuration.
-No production rollback has been exercised merely to claim verification.
+Disable only ORDER_REMINDER_ENABLED, ORDER_REMINDER_REAL_SENDS and
+ORDER_REMINDER_CANARY_ENABLED to stop this lane. Preserve its delivery keys,
+provider IDs, claims, uncertainty and canary audit. Never clear a claim or another
+template ledger to force a send.
 
-Official provider read/send contract: [Chatby Automation API](https://app.chatby.io/api).
+Guarded application rollback uses the captured actual Render predecessor and
+matching unchanged-source address regression gates. VPS API/static rollback uses
+its separately captured predecessor and existing deploy lock. Both refuse a
+superseding release/configuration. Restore code only; never restore historical
+customer/order/financial/timer state. Encrypted configuration backups stay in
+trusted local storage. Rollback is prepared, not exercised as a test.
 
-## Canary pre-dispatch hold during rollout
-
-At17:39:40UTC the first natural f25604c canary scan correctly retained
-ES1484550 as PRE_SEND_BLOCKED / REMINDER_FRESH_READ_EXPIRED with
-send_started_at=null. No assigning POST was started, no message was observed
-and its initial-template ledger hash remained identical to the17:13baseline.
-The shared catalogue wait occurred after the final conversation read. The
-correction moves that catalogue read before a real new conversation read;
-the ten-second guard and final order check remain unchanged. An inbound
-arriving during the catalogue wait still blocks, and an old returned timestamp
-still fails. Full corrected regression671/671 passes,0fail/0skip,65files, archive
-a76a7a2b27e93b3a2b02c5edd1f375c8f5cb54a1bffa81205e555d853610c9f8.
-Only a fenced PRE_SEND_BLOCKED row with no send start can be reclaimed.
-No blind retry, alternative template or general LIVE activation is authorized
-by this technical hold. Continue the original owner-authorized rollout only
-after a naturally eligible canary is actually verified.
-
-## Final queue reservation correction
-
-The a3506dd natural canary17:55UTC also correctly stopped before any message
-POST: its conversation was fresh before queueing, then expired while awaiting
-the assigning request. No guard was widened and no uncertain request retried.
-
-The dedicated sender now reserves one bounded slot of the existing Chatby
-queue, then performs real catalogue/subscriber/history reads, fresh supplier/
-local confirmation/workflow checks and a fenced receipt update before its
-sole message POST. The private slot token is usable only during this reservation;
-ordinary existing callers keep the original scheduler and request behavior.
-Every nested HTTP read/POST still respects the same global pacing/cooldown.
-No parallel sender/queue, timer, field/tag write or alternative template exists.
-The reservation expires after30seconds before dispatch; the existing12second
-POST timeout and10second evidence limit remain. Failures before entry or before
-POST explicitly prove notSent; errors after fetch starts retain uncertainty.
-Later jobs are released on success/failure/deadline. A real inbound while waiting
-or a late confirmation/address/import change blocks, rather than relabeling the
-old conversation timestamp.
-
-Final isolated worker regression678/678,0fail/0skip,66files. Archive
-0a8f20ea7b602624b4263953895521ea8c5f88a7017ae8e7707826ba56ec0da2;
-new contention tests exercise the actual shared client queue, final read/POST
-ordering, no interleaving, post failure, quota before entry and bounded expiry.
-All existing template, cancellation, confirmation, incident and discount tests
-remain included. Canary verification and general LIVE still require actual
-provider readback under the original rollout; no test customer was created.
-
-## Actual canary and provider receipt shape
-
-The natural3ba32c6 canary created exactly one real message at18:22:03UTC
-(19:22Madrid), same order1484550, exact approved template/recipient/thread and
-all four parameters. Its461-character body hash exactly matches the fenced
-receipt: cf8016e5e21a1943c331beaa08397a06f681d948ea016017baac531259c263db.
-The provider records API output as `agent`; native initial output uses `out`.
-The original outbound-only verifier conservatively held SEND_UNKNOWN rather
-than retrying. Fresh provider reads at18:24 independently found one accepted
-WAMID, correct identity, exact body/hash and all parameters. No message POST
-was repeated.
-
-The final verifier accepts only these two outbound types, retaining every
-accepted-WAMID, exact template, thread/recipient/order, body and uniqueness gate;
-an inbound with identical fields is rejected. Existing reservations remain in
-a separately bounded reconciliation cohort (at most20, same store/key/contract)
-even if the order leaves pending. They can only be held/reconciled, never used
-to create a new message. Retained unknowns stay visible in later-cycle counters.
-
-At18:33:47UTC one explicitly send-disabled reconciliation using the existing
-service/ports/ledger marked that existing canary VERIFIED and restored its own
-status proof. It forbade every new claim, every non-VERIFIED receipt update and
-every message-send call;0send calls,0newclaims,0external messages. Its
-`natural:false` invocation preserved the four actual natural-cycle entries;
-no cycle was manufactured. Provider ID hash
-38c56e98af432a2661376ebb33dc8078728ffa2a65dbcf086a5e49f5314fbdcc
-is retained as sanitized evidence; the full accepted ID is in the private ledger.
-
-Full final isolated regression683/683,0fail/0skip,66files; archive
-a24ae6bd99a7dff77d3663fdc91571bea86bd93468691315a2b2c987ee33d6e3.
-Includes API-agent reconciliation after confirmation, inbound rejection,
-namespace/store/backlog fencing, no new send from a reconciliation-only candidate
-and persistent uncertainty counters across restart. General LIVE and its three
-natural cycles must still be verified separately from this canary result.
-
-## Terminal deliveries do not occupy dispatch slots
-
-The first actual10e4269 LIVE cycle completed18:53:36UTC: two new naturally
-eligible messages VERIFIED (1483612,1484170),0unknown,0duplicate attempts in that
-cycle. Including the real canary,3messages were verified. It used the existing
-natural scheduler, not a manual scan.
-
-Candidate selection now excludes exact same-store reminder keys already
-VERIFIED/SEND_REJECTED before applying the small dispatch batch. These terminal
-orders cannot repeatedly occupy slots ahead of new due orders. The lookup is
-bounded to the selected at-most300recent orders, one exact template/store,
-with301rows as overflow detection. The separately bounded20retained reservations
-remain read-only reconciliation candidates. No field in another template ledger
-is read as a reminder receipt or changed. No message predicate, callback, time
-limit, transport, owner or other workflow is modified by this selection change.
-Full final regression685/685,0fail/0skip,66files, archive
-350b608c267f152093f6d0d743c1200d83a23beb8418d5c953bcd0c19691412e.
-
-The daily eligible counter retains unique eligible observations after successful
-delivery/deduplication, including migration of existing same-day observations.
-It resets on the Madrid day without clearing any delivery key. This prevents
-a successful message disappearing from its day's eligible total. Final complete
-regression686/686,0fail/0skip,66files; archive
-0cf412390240cd587a5ecdec36fab3ec9b50c0100bb8dcda0a7d7a6e7d40e321.
-Independent18:55UTC audit found all3current messages exactly once, correct
-body/recipient/thread/current order parameters, zero uncertainty, and identical
-other-template ledger hashes for all3orders.
-
-## Isolated job lane on the existing timer
-
-Natural observation of5f0c545 exposed a long delay between completed reminder
-reviews because unrelated complete workflows share the old network-job tail.
-The reminder now reuses the existing scheduler's coalescing primitive for one
-independent named job, invoked by the same existing5minute tick. Existing
-background/incident/discount/cancellation jobs keep their original queue/order,
-flags, deadlines and intervals. No new interval/poller is created.
-
-This is workflow scheduling isolation, not a second provider queue or sender:
-every real Chatby request still uses the single existing paced HTTP queue, with
-the same bounded final-read/POST reservation and persistent per-order fence.
-Only one reminder job can remain pending; failed jobs release their slot and
-can run on the next natural tick. A blocked unrelated workflow cannot prevent
-the reminder from evaluating fresh evidence. The job only reads order/issue/
-conversation data and writes its own reminder receipt/status.
-
-The completed689/689 regression (0fail/0skip,66files) includes actual shared
-client contention/pacing tests and scheduler tests proving independence from a
-blocked unrelated job, one pending scan, disabled flags and next-tick recovery.
-Archive84ae2be4919076af8585257fc09ed38fba2f61700afcf6100c3a05a7eb7042c1.
-At19:43UTC the live ledger contained5VERIFIED,0CLAIMED/SENDING/SEND_UNKNOWN;
-one PRE_SEND_BLOCKED had null send start and was not an uncertain message.
+Provider contract: [Chatby Automation API](https://app.chatby.io/api).
