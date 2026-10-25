@@ -1,10 +1,11 @@
 import {NIGHT_TIMES,isNight,madridTime,instantFor} from './schedule.mjs';
+import {V6_POLICY,V6_PROFILE,isV6,evaluateV6} from './v6-policy.mjs';
 
 export const AUTOPILOT_VERSION='meta-budget-autopilot-v5.1';
 export const AUTOPILOT_LIVE_COMPILED=true; // Owner-approved V5.1 release; complete runtime policy and first-write verification remain mandatory.
 export const AUTOPILOT_POLICY=Object.freeze({version:AUTOPILOT_VERSION,roasThreshold:3.8,increaseCents:1000,decreaseCents:1000,maxBudgetCents:7000,minPurchases:3,maxAgeMs:120000,nightHighCents:2500,nightLowCents:2000});
 const positive=v=>Number.isFinite(v)&&v>0;
-export const consolidatedPolicy=config=>config?.approved?.policyProfile==='V5_1_FIXED_EUR';
+export const consolidatedPolicy=config=>config?.approved?.policyProfile==='V5_1_FIXED_EUR'||isV6(config);
 export function autopilotMetric(metric) {
   if(!metric||!Object.hasOwn(metric,'metaPurchases'))return metric;
   const valid=['VALID','ZERO'].includes(metric.metaPurchaseStatus)&&['VALID','ZERO'].includes(metric.metaPurchaseValueStatus);
@@ -16,22 +17,25 @@ export function loadAutopilotConfig(env={},legacy={}, {liveCompiled=AUTOPILOT_LI
   if(!['SHADOW','SIMULATION'].includes(mode)&&!(mode==='LIVE'&&liveCompiled===true&&env.AUTOPILOT_LIVE_AUTHORIZED==='true'))throw Error('AUTOPILOT_LIVE_NOT_AUTHORIZED');
   if(enabled&&mode!=='LIVE'&&(['META_WRITES_ENABLED','ADS_INTELLIGENCE_WRITES_ENABLED'].some(k=>env[k]!==undefined&&env[k]!=='false')||env.ADS_INTELLIGENCE_MODE==='LIVE'))throw Error('AUTOPILOT_REQUIRES_WRITES_DISABLED');
   if(enabled&&mode==='LIVE'&&(!liveCompiled||env.ADS_INTELLIGENCE_MODE!=='LIVE'||env.ADS_INTELLIGENCE_WRITES_ENABLED!=='true'||env.META_WRITES_ENABLED!=='false'))throw Error('AUTOPILOT_LIVE_NOT_AUTHORIZED');
-  const fixed={ROAS_THRESHOLD:3.8,BUDGET_INCREASE_EUR:10,BUDGET_DECREASE_EUR:10,MAX_DAY_BUDGET_EUR:70,MIN_PURCHASES_TO_INCREASE:3};
-  if(Object.entries(fixed).some(([k,v])=>env[k]!==undefined&&Number(env[k])!==v))throw Error('AUTOPILOT_POLICY_VERSION_REQUIRED');
   const approved=env.AUTOPILOT_APPROVED_POLICY_JSON?JSON.parse(env.AUTOPILOT_APPROVED_POLICY_JSON):{};
+  const v6=isV6({approved}),policy=v6?V6_POLICY:AUTOPILOT_POLICY;
+  const fixed={ROAS_THRESHOLD:3.8,BUDGET_INCREASE_EUR:10,BUDGET_DECREASE_EUR:10,MAX_DAY_BUDGET_EUR:v6?100:70,MIN_PURCHASES_TO_INCREASE:3};
+  if(Object.entries(fixed).some(([k,v])=>env[k]!==undefined&&Number(env[k])!==v))throw Error('AUTOPILOT_POLICY_VERSION_REQUIRED');
   if(Object.keys(approved).length&&!/^[\w:./-]{3,160}$/.test(approved.approvalReference||''))throw Error('AUTOPILOT_POLICY_APPROVAL_REFERENCE_REQUIRED');
-  const allowed=new Set(['approvalReference','minimumBudgetCents','globalExposureCents','globalSpendLimitCents','globalSpendLimitMode','policyProfile','roasReductionMode','incrementalPurchases','reductionMinSpend','reductionMinImpressions','attributionMaturityMinutes']);
+  const allowed=new Set(['approvalReference','minimumBudgetCents','globalExposureCents','globalSpendLimitCents','globalSpendLimitMode','policyProfile','roasReductionMode','incrementalPurchases','reductionMinSpend','reductionMinImpressions','attributionMaturityMinutes','aggregateIncreaseCents','authorizationExpiresAt']);
   if(Object.keys(approved).some(k=>!allowed.has(k)))throw Error('AUTOPILOT_POLICY_INVALID');
-  const text=new Set(['approvalReference','globalSpendLimitMode','policyProfile','roasReductionMode']);
+  const text=new Set(['approvalReference','globalSpendLimitMode','policyProfile','roasReductionMode','authorizationExpiresAt']);
   for(const[k,v]of Object.entries(approved))if(!text.has(k)&&(!positive(v)||!Number.isSafeInteger(v)))throw Error('AUTOPILOT_POLICY_INVALID');
   if(approved.globalSpendLimitMode!==undefined&&!['CAPPED','UNLIMITED_AUTHORIZED'].includes(approved.globalSpendLimitMode))throw Error('AUTOPILOT_POLICY_INVALID');
   if(approved.globalSpendLimitMode==='UNLIMITED_AUTHORIZED'&&approved.globalSpendLimitCents!==undefined)throw Error('AUTOPILOT_POLICY_INVALID');
-  if(approved.policyProfile!==undefined&&!['LEGACY_BOUNDED','V5_1_FIXED_EUR'].includes(approved.policyProfile))throw Error('AUTOPILOT_POLICY_INVALID');
+  if(approved.policyProfile!==undefined&&!['LEGACY_BOUNDED','V5_1_FIXED_EUR',V6_PROFILE].includes(approved.policyProfile))throw Error('AUTOPILOT_POLICY_INVALID');
+  if(approved.authorizationExpiresAt&&(!Number.isFinite(Date.parse(approved.authorizationExpiresAt))||Date.parse(approved.authorizationExpiresAt)<=Date.now()))throw Error('AUTOPILOT_AUTHORIZATION_EXPIRED');
+  if(v6&&(approved.minimumBudgetCents!==1500||approved.globalExposureCents!==100000||approved.incrementalPurchases!==3||!Number.isSafeInteger(approved.aggregateIncreaseCents)||approved.aggregateIncreaseCents<=0||approved.aggregateIncreaseCents>100000||Math.round(Number(env.ADS_MAX_AGGREGATE_INCREASE_EUR)*100)!==approved.aggregateIncreaseCents))throw Error('V6_MONETARY_POLICY_INCOMPLETE');
   if(approved.roasReductionMode!==undefined&&!['ENABLED','BLOCKED'].includes(approved.roasReductionMode))throw Error('AUTOPILOT_POLICY_INVALID');
   const verifiedMinimums=JSON.parse(env.AUTOPILOT_VERIFIED_MINIMUMS_JSON||'[]');
   if(!Array.isArray(verifiedMinimums)||new Set(verifiedMinimums.map(r=>r.campaignId)).size!==verifiedMinimums.length||verifiedMinimums.some(r=>!/^\d+$/.test(r.campaignId)||!/^\d+$/.test(r.accountId)||r.currency!=='EUR'||!Number.isSafeInteger(r.minimumCents)||r.minimumCents<=0||!Number.isFinite(Date.parse(r.verifiedAt))||!Number.isFinite(Date.parse(r.validUntil))||Date.parse(r.validUntil)<=Date.parse(r.verifiedAt)||!/^[\w:./-]{3,160}$/.test(r.reference||'')))throw Error('AUTOPILOT_VERIFIED_MINIMUMS_INVALID');
-  if(mode==='LIVE'&&(!enabled||approved.policyProfile!=='V5_1_FIXED_EUR'||!approved.minimumBudgetCents||approved.minimumBudgetCents>AUTOPILOT_POLICY.nightLowCents||!approved.globalExposureCents||!approved.incrementalPurchases||!(approved.globalSpendLimitMode==='UNLIMITED_AUTHORIZED'||approved.globalSpendLimitMode==='CAPPED'&&approved.globalSpendLimitCents)||!['ENABLED','BLOCKED'].includes(approved.roasReductionMode)||(approved.roasReductionMode==='ENABLED'&&![approved.reductionMinSpend,approved.reductionMinImpressions,approved.attributionMaturityMinutes].every(positive))||verifiedMinimums.length===0))throw Error('AUTOPILOT_LIVE_POLICY_INCOMPLETE');
-  return {enabled,mode,policy:AUTOPILOT_POLICY,approved,verifiedMinimums,legacy,liveCompiled,writesEnabled:mode==='LIVE'&&liveCompiled};
+  if(mode==='LIVE'&&(!enabled||!['V5_1_FIXED_EUR',V6_PROFILE].includes(approved.policyProfile)||!approved.minimumBudgetCents||approved.minimumBudgetCents>2000||!approved.globalExposureCents||!approved.incrementalPurchases||!(approved.globalSpendLimitMode==='UNLIMITED_AUTHORIZED'||approved.globalSpendLimitMode==='CAPPED'&&approved.globalSpendLimitCents)||!['ENABLED','BLOCKED'].includes(approved.roasReductionMode)||(approved.roasReductionMode==='ENABLED'&&![approved.reductionMinSpend,approved.reductionMinImpressions,approved.attributionMaturityMinutes].every(positive))||verifiedMinimums.length===0))throw Error('AUTOPILOT_LIVE_POLICY_INCOMPLETE');
+  return {enabled,mode,policy,approved,verifiedMinimums,legacy,liveCompiled,writesEnabled:mode==='LIVE'&&liveCompiled};
 }
 export function nightTarget(metric,policy=AUTOPILOT_POLICY) {
   const known=['VALID','ZERO'].includes(metric?.metaRoasStatus)&&Number.isFinite(metric?.metaRoas)&&metric?.spend>0&&Number.isSafeInteger(metric?.purchases)&&metric.purchases>=0&&metric.metaRoasPurchaseType===metric.purchaseType&&Boolean(metric.purchaseType);
@@ -47,7 +51,8 @@ export function spendLimitReasons(config,accountSpend,now) {
   if(accountSpend?.complete!==true||!Number.isSafeInteger(accountSpend.spendCents)||accountSpend.spendCents<0||accountSpend.date!==madridTime(now).date||!Number.isFinite(Date.parse(accountSpend.observedAt))||now-Date.parse(accountSpend.observedAt)>config.policy.maxAgeMs||now-Date.parse(accountSpend.observedAt)<-5000)return ['ACCOUNT_SPEND_UNVERIFIED'];
   return !unlimited&&accountSpend.spendCents>=config.approved.globalSpendLimitCents?['ACCOUNT_SPEND_LIMIT_REACHED']:[];
 }
-export function evaluateAutopilot({campaign,metric,slot,now,config,history=[],constraints=null,accountSpend=null}) {
+export function evaluateAutopilot({campaign,metric,slot,now,config,history=[],constraints=null,accountSpend=null,...extra}) {
+  if(isV6(config))return evaluateV6({campaign,metric,slot,now,config,history,constraints,accountSpend,...extra});
   const p=config.policy,before=Number(campaign.daily_budget),reasons=[],warnings=[],local=madridTime(now);
   const applicableMinimum=constraints?.perCampaign?constraints.perCampaign[String(campaign.id)]:constraints;
   const h=campaignHistory(history,String(campaign.id));
@@ -132,9 +137,9 @@ export function manualAutopilotReasons({before,after,metric,now,config,inventory
     if(!config.approved.globalExposureCents)reasons.push('GLOBAL_EXPOSURE_POLICY_NOT_APPROVED');
     else if(inventory){const active=inventory.campaigns.filter(c=>c.effective_status==='ACTIVE');if(active.some(c=>!Number.isSafeInteger(Number(c.daily_budget))||Number(c.daily_budget)<=0))reasons.push('GLOBAL_EXPOSURE_UNVERIFIED');else if(active.reduce((s,c)=>s+Number(c.daily_budget),0)+after-before>config.approved.globalExposureCents)reasons.push('GLOBAL_EXPOSURE_LIMIT');}
   }
-  if(isNight(now)) {
+  if(isNight(now,config.policy.version)) {
     if(after>before)reasons.push('NIGHT_INCREASE_BLOCKED');
-    if(after>nightTarget(metric,config.policy).cents)reasons.push('NIGHT_CAP');
+    if(!isV6(config)&&after>nightTarget(metric,config.policy).cents)reasons.push('NIGHT_CAP');
   }
   return reasons;
 }

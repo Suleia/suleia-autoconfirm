@@ -1,5 +1,9 @@
 # Meta Budget Autopilot V5.1 — activación LIVE autorizada
 
+V6 supersedes this monetary policy when its exact release receipt is active.
+See [META_AUTOPILOT_V6.md](META_AUTOPILOT_V6.md). This V5.1 document remains the
+historical authorization/evidence; never use it to restore obsolete night cuts.
+
 El propietario autorizó el 22 de octubre de 2026 el despliegue, el primer cambio
 real controlado y la ejecución automática posterior. Este documento sustituye
 los requisitos pendientes de la entrega SHADOW de la PR #133. El estado real se

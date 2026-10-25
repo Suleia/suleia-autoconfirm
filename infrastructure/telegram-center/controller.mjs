@@ -3,6 +3,7 @@ import { amount, dateRange, previousRange, reportText, comparisonText } from './
 import { parseSpanish, matchingCampaigns, cleanSelector } from './spanish.mjs';
 import { createAdsGateway,formatAdsError } from './ads-gateway.mjs';
 import {dailySettingsCommand} from './daily-reports.mjs';
+import {assertDailyBudget} from '../../services/meta-ads/budget-cap.mjs';
 
 export const help = [
   'Suleia Command Center · Meta Ads',
@@ -105,6 +106,7 @@ export class Controller {
       const old = Number(row.daily_budget);
       if (!Number.isSafeInteger(old) || old <= 0 || Number(row.lifetime_budget) > 0) throw new Error('La campaña no tiene presupuesto diario propio; puede usar presupuesto por conjunto o total.');
       if (!Number.isSafeInteger(cents) || cents <= 0 || cents === old) throw new Error('Indica un presupuesto positivo diferente del actual.');
+      try{assertDailyBudget(cents);}catch{throw Error('El importe supera el límite diario absoluto de 100 € o no es válido.');}
       if (!this.config.maxBudgetCents || cents > this.config.maxBudgetCents) throw new Error('El importe supera el límite diario configurado o falta configurar ese límite.');
       if (Math.abs(cents - old) / old * 100 > this.config.maxChangePercent + 1e-8) throw new Error(`Cambio superior al límite de ${this.config.maxChangePercent}% por propuesta.`);
       changes = { daily_budget: String(cents) };
@@ -202,6 +204,7 @@ export class Controller {
     if (p.kind === 'budget') {
       const account = await this.api.account();
       const cents = Number(p.changes.daily_budget), old = Number(current.daily_budget);
+      assertDailyBudget(cents);
       if (account.currency !== 'EUR' || !this.config.maxBudgetCents || cents > this.config.maxBudgetCents || Math.abs(cents - old) / old * 100 > this.config.maxChangePercent + 1e-8) throw new Error('La propuesta ya no cumple los límites actuales.');
     }
     if (this.now() > p.expiresAt) { p.state = 'EXPIRED'; this.store.save(); return 'La propuesta ha caducado durante la comprobación. Solicita una nueva.'; }

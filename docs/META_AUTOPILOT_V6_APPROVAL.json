@@ -1,0 +1,24 @@
+{
+  "authorizationSource": "Owner's V6 request and explicit chat approval on 2026-10-25",
+  "approvalReference": "chat:2026-10-25:meta-autopilot-v6:aggregate-360",
+  "policyProfile": "V6_FIXED_EUR",
+  "minimumBudgetCents": 1500,
+  "globalExposureCents": 100000,
+  "globalSpendLimitMode": "UNLIMITED_AUTHORIZED",
+  "aggregateIncreaseCents": 36000,
+  "incrementalPurchases": 3,
+  "roasReductionMode": "ENABLED",
+  "reductionMinSpend": 15,
+  "reductionMinImpressions": 1000,
+  "attributionMaturityMinutes": 120,
+  "reviewedInventory": {
+    "activeCampaigns": 9,
+    "observedConfiguredBudgetCents": 28767,
+    "fourIncreasesPerCampaignMaximumCents": 36000,
+    "configuredAfterThoseIncreasesCents": 64767
+  },
+  "previousAggregateIncreaseCents": 3000,
+  "campaignTargetMaximumCents": 10000,
+  "observedSpendIsNotConfiguredBudget": true,
+  "financialCanaryVerifiedByThisApproval": false
+}

@@ -1,5 +1,36 @@
 # Suleia agent handoff
 
+## 2026-10-25 · Meta Autopilot V6 candidate, owner-approved deployment
+
+Owner's V6 document authorizes implementation and deployment; the owner separately
+approved +360 EUR/day aggregate increases shared by scheduler/manual commands.
+Policy receipt: docs/META_AUTOPILOT_V6_APPROVAL.json. Exact100 EUR/campaign ceiling,
+1000global,15minimum,08observe/no restore,10/12/16/18scale,12/16/18day cuts maximum25%
+of08baseline,one22:30−30% independent of ROAS. No progressive20/25 EUR night caps.
+
+Existing runtime base verified as address-import-recovery2868d39 with V11/BI;
+before audit612BLOCKED and0VERIFIED, no canary. Root causes included7000-cent runtime
+clamp and weekly/age vetoes. New diagnostics preserve provider numeric codes and
+phase; old11:00 generic failure cannot be retrospectively assigned a provider cause.
+Migration061 reuses operation ledger with immutable per-campaign/day night claim.
+Same canonical reader/queue/executor/locks/canary/bot, legacy writes stay off.
+Financial quota reservation delays optional reports without failing four-part
+executive delivery. Existing identities/recipients/auth/logistics/finance untouched.
+
+Isolated Node22/PG17 regression1408/1408,0fails,0skips,148files, source
+aef9ffad4c0f5cfdac970cda9ace21ffb52bce0cb82a171d0dd1bf096a215c4e.
+New strict SQL test proves unresolved previous-night operations also block the
+following night. No production credentials/network supplied to the tests.
+Deployment/canary evidence must be added after execution; this entry is not proof
+of a live financial change. Do not force or replay a window to manufacture one.
+
+Coverage: no verified production conversion-time/campaign event stream currently
+proves3new post-change purchases. Later increases block explicitly; first daily
+increase can use3today. Missing08base/trend blocks day cuts; deployment after08
+does not synthesize a base. Night financial eligibility is independent of ROAS.
+Long history/same-hour-yesterday unavailable is disclosed rather than invented.
+Runbook and precise actual-base/ledger-preserving rollback: docs/META_AUTOPILOT_V6.md.
+
 ## 2026-10-25 · Address import recovery, post-failure phase1
 
 Owner's correction implemented in PR150 stacked on BI V2 PR149. Runtime2868d39

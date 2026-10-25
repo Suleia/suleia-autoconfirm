@@ -14,7 +14,9 @@ import {createAlgorithmOrdersReader} from './algorithm-orders.mjs';
 import {createAlgorithmOperationsReader} from './algorithm-operations.mjs';
 import {loadAutopilotConfig,consolidatedPolicy} from './autopilot/policy.mjs';
 import {BudgetAutopilot} from './autopilot/service.mjs';
-import {ownBudgetGuardAssessment} from './autopilot/learning.mjs';
+import {ownBudgetGuardAssessment,v6BudgetGuards} from './autopilot/learning.mjs';
+import {isV6} from './autopilot/v6-policy.mjs';
+import {madridTime} from './autopilot/schedule.mjs';
 import {createReviewService} from './review/service.mjs';
 import {shiftDay} from './review/periods.mjs';
 import {createReportCache,reportDependencyError} from './report-cache.mjs';
@@ -36,7 +38,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   const storedLedger=new AdsLedger(pool);
   const ledger=reportReadOnly?new Proxy(storedLedger,{get(target,key){if(writesBlocked.has(key))return async()=>{throw Error('ADS_REPORT_READ_ONLY');};const value=target[key];return typeof value==='function'?value.bind(target):value;}}):storedLedger;
   const liveCampaignIds=String(env.ADS_LIVE_CANARY_CAMPAIGN_ID||'').split(',').filter(Boolean);
-  const writer=mode==='LIVE'?createMetaBudgetTransport({reader,accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID).replace(/^act_/,''),accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',allowedCampaignIds:liveCampaignIds,accountBudgetsAuthorized:liveAccountBudgets,mode,writesEnabled:writes,validateBeforeWrite:autopilotConfig.enabled&&consolidatedPolicy(autopilotConfig)}):null;
+  const writer=mode==='LIVE'?createMetaBudgetTransport({reader:reader.withPriority(-20),accountId:String(env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID).replace(/^act_/,''),accessToken:env.META_ADS_ACCESS_TOKEN||env.META_ACCESS_TOKEN,apiVersion:env.META_ADS_API_VERSION||env.META_API_VERSION||'v25.0',allowedCampaignIds:liveCampaignIds,accountBudgetsAuthorized:liveAccountBudgets,mode,writesEnabled:writes,validateBeforeWrite:autopilotConfig.enabled&&consolidatedPolicy(autopilotConfig)}):null;
   const engine=new AdsIntelligence({reader,ledger,accountId:env.META_ADS_AD_ACCOUNT_ID||env.META_AD_ACCOUNT_ID,
     allowedActors:String(env.TELEGRAM_ALLOWED_USER_IDS||'').split(',').filter(x=>/^\d+$/.test(x)),mode,writer,
     policy:{maxBudgetCents:env.META_MAX_DAILY_BUDGET_EUR?Math.round(Number(env.META_MAX_DAILY_BUDGET_EUR)*100):null,maxChangePercent:getNumber('META_MAX_BUDGET_CHANGE_PERCENT'),minBudgetCents:1,maxAgeMs:120000,
@@ -115,7 +117,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     const value=assembleReport({...base.dataset,productMappings,selector,filters:{level,campaignId,adsetId,adId}});
     const stale=base.readFailed||Date.now()-Date.parse(value.observedAt)>=120000;
     const budgetCandidates=!autopilotConfig.enabled&&level==='campaign'&&!stale?(value.facts||[]).filter(f=>f.delivery==='ACTIVE'&&f.roasStatus==='VALID'&&f.spend>=engine.policy.minSpend&&f.purchases>=engine.policy.minPurchases&&f.impressions>=engine.policy.minImpressions&&(f.roas>10||f.roas<3)).slice(0,3).map(f=>({campaignId:f.campaignId||f.entityId,name:f.name,direction:f.roas>10?'increase':'decrease',percent:Math.min(10,engine.policy.maxChangePercent),roas:f.roas})):[];
-    if(autopilotConfig.enabled)value.autopilotPolicy={version:autopilotConfig.policy.version,increaseCents:1000,decreaseCents:1000,maxBudgetCents:7000,roasThreshold:3.8};
+    if(autopilotConfig.enabled)value.autopilotPolicy={version:autopilotConfig.policy.version,increaseCents:1000,decreaseCents:1000,maxBudgetCents:autopilotConfig.policy.maxBudgetCents,roasThreshold:3.8};
     let proposals,recommendationProposals;try{[proposals,recommendationProposals]=await Promise.all([ledger.history(),ledger.recommendations()]);}catch(error){throw reportDependencyError(error);}
     return {...value,...(stale?{actions:[],opportunities:[],topAds:[],improveAds:[]}:{}),budgetCandidates,reportReadOnly,proposals,recommendationProposals,cache:{ttlMs:120000,observedAt:value.observedAt,status:stale?'STALE':'FRESH'},diagnostic:base.diagnostic,connection:{source:'META_MARKETING_API',state:stale?'DEGRADED':'CONNECTED',checkedAt:new Date().toISOString(),lastValidAt:value.observedAt,contract:value.contract}};
   },async saveRecommendation({query,actionId,principal,id,state}){
@@ -133,11 +135,12 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     // Explicit, confirmed budget instructions do not assert profitability.
     // Keep the diagnostic abstention and every operational learning protection.
     const result={...assessment,reasons:assessment.reasons.filter(r=>r!=='VERIFIED_ECONOMICS_MISSING'),warnings:assessment.reasons.includes('VERIFIED_ECONOMICS_MISSING')?['Margen y ROAS de equilibrio no acreditados; este cambio no implica rentabilidad.']:[]};
-    return fixed?ownBudgetGuardAssessment({assessment:result,campaign,events:report.guardEvents,history:await ledger.autopilotHistory(engine.accountId,Date.now(),72*3600000),config:autopilotConfig,now:Date.now()}):result;
+    const guarded=fixed?ownBudgetGuardAssessment({assessment:result,campaign,events:report.guardEvents,history:await ledger.autopilotHistory(engine.accountId,Date.now(),72*3600000),config:autopilotConfig,now:Date.now()}):result;
+    return isV6(autopilotConfig)?{...v6BudgetGuards(guarded,report.sources),historical:null,historicalStatus:'LONG_HISTORY_NOT_REQUESTED_IN_CRITICAL_WINDOW'}:guarded;
   };
   autopilotConfig.legacy={...engine.policy};
   if(autopilotConfig.enabled&&consolidatedPolicy(autopilotConfig))engine.prepareBudgetEvidence=()=>runtime.budgetGuards();
-  if(autopilotConfig.enabled)engine.policy.maxBudgetCents=Math.min(engine.policy.maxBudgetCents||7000,7000);
+  if(autopilotConfig.enabled)engine.policy.maxBudgetCents=Math.min(engine.policy.maxBudgetCents||autopilotConfig.policy.maxBudgetCents,autopilotConfig.policy.maxBudgetCents);
   if(autopilotConfig.enabled&&consolidatedPolicy(autopilotConfig))engine.policy.minPurchases=autopilotConfig.policy.minPurchases;
   runtime.autopilot=new BudgetAutopilot({engine,ledger,config:autopilotConfig});
   runtime.reviewEnabled=env.ADS_REVIEW_V8_ENABLED==='true'||env.ADS_REVIEW_V7_ENABLED==='true'||env.ADS_REVIEW_V6_ENABLED==='true';
@@ -145,6 +148,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     readCommerce:ordersReader?range=>cachedEvidence(`commerce:${range.since}:${range.until}`,async()=>aggregateCommerce(await ordersReader(range),{range,shop:env.SHOPIFY_DOMAIN||env.SHOPIFY_SHOP,observedAt:new Date().toISOString()}),120000):null,
     readGrowthGoals,budgetPolicy:{version:autopilotConfig.policy.version,policy:autopilotConfig.policy,approved:autopilotConfig.approved},maxCampaigns:Number(env.ADS_REVIEW_MAX_CAMPAIGNS||5),panelUrl:env.ADS_REVIEW_PANEL_URL||null}):null;
   runtime.executive=runtime.review?createExecutiveService({review:{...runtime.review,report:q=>runtime.review.report(q,{optionalWaitMs:7000})},ledger:new ExecutiveLedger(pool),accountId:engine.accountId,panelUrl:env.ADS_REVIEW_PANEL_URL||null,
+    financialReady:async()=>{if(!isV6(autopilotConfig))return true;if(runtime.autopilot.busy||reader.requestStats().financialReservedUntil)return false;const local=madridTime();if(local.time>='22:30'&&local.time<'22:35')return (await ledger.autopilotSlots(engine.accountId,Date.now())).some(s=>s.slot_key===local.date+':22:30'&&s.state!=='EXECUTING');return true;},
     enabled:env.ADS_EXECUTIVE_DAILY_ENABLED==='true'&&!reportReadOnly,recipients:String(env.ADS_EXECUTIVE_RECIPIENT_IDS||'').split(',').map(x=>x.trim()).filter(Boolean),
     readBudget:()=>readExecutiveBudget({ledger,accountId:engine.accountId,mode:engine.mode,config:autopilotConfig})}):null;
   if(!autopilotConfig.enabled)engine.autopilot=null;

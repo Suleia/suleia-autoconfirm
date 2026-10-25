@@ -4,7 +4,8 @@ import {shiftDay} from '../review/periods.mjs';
 // Never receives engine, capture(), constraints(), a Meta client or writer.
 export async function readExecutiveBudget({ledger,accountId,mode,config,now=Date.now()}){
  const [history,counts,slots]=await Promise.all([ledger.autopilotHistory(accountId,now),ledger.executiveBudgetCounts(accountId,now),ledger.autopilotSlots(accountId,now)]);
- const items=history.flatMap(p=>p.items||[]),blocked=items.filter(i=>i.reasons?.length),local=madridTime(now),next=NIGHT_TIMES.find(t=>t>local.time),nextDate=next?local.date:shiftDay(local.date,1);
+ const times=config.policy.version==='SULEIA_META_AUTOPILOT_V6'?['22:30']:NIGHT_TIMES;
+ const items=history.flatMap(p=>p.items||[]),blocked=items.filter(i=>i.reasons?.length),local=madridTime(now),next=times.find(t=>t>local.time),nextDate=next?local.date:shiftDay(local.date,1);
  const alerts=slots.filter(s=>s.state==='FAILED'||s.state==='EXECUTING'||s.body?.finalCheck?.state==='CRITICAL_UNVERIFIED_CAP').map(s=>({slot:s.slot_key,state:s.body?.finalCheck?.state||s.state}));
  return {mode,enabled:config.enabled,observedAt:new Date(now).toISOString(),verifiedChanges:counts.verifiedChanges,
   blockedCampaigns:new Set(blocked.map(i=>i.campaignId)).size,limits:[...new Set(blocked.flatMap(i=>i.reasons).filter(r=>/LIMIT|MAX_|MIN_/.test(r)))],
