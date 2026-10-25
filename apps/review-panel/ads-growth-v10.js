@@ -1,8 +1,8 @@
 /* Premium presentation over the existing authenticated Campaign Review Agent. */
 const GrowthIntelligencePanel=(()=>{
- const labels={spend:'Gasto',roas:'ROAS atribuido',purchases:'Compras atribuidas',cpa:'CPA atribuido',impressions:'Impresiones',reach:'Alcance',frequency:'Frecuencia',cpm:'CPM',linkCtr:'CTR de enlace',linkCpc:'CPC de enlace',outboundClicks:'Clics salientes',linkClicks:'Clics en enlace',landingPageViews:'Landing views',addToCart:'Carrito',costPerCart:'Coste por carrito',initiateCheckout:'Checkout',costPerCheckout:'Coste por checkout',purchaseValue:'Valor de compras',dailyBudgetCents:'Presupuesto activo observado'};
+ const labels={spend:'Gasto',roas:'ROAS atribuido',purchases:'Compras atribuidas',cpa:'CPA atribuido',impressions:'Impresiones',reach:'Alcance',frequency:'Frecuencia',cpm:'CPM',linkCtr:'CTR de enlace',linkCpc:'CPC de enlace',outboundClicks:'Clics salientes',linkClicks:'Clics en enlace',landingPageViews:'Landing views',addToCart:'Carrito',costPerCart:'Coste por carrito',initiateCheckout:'Checkout',costPerCheckout:'Coste por checkout',purchaseValue:'Valor de compras',dailyBudgetCents:'Presupuesto activo observado',averageOrderValue:'Valor medio de compra (AOV)'};
  const states={CANDIDATA_ESCALAR:'Candidata a escalar',PROTEGER:'Proteger',MANTENER:'Mantener',MANTENER_VIGILAR:'Mantener',MEJORAR_CREATIVIDAD:'Mejorar creatividad',MEJORAR_CONVERSION:'Mejorar conversión',INVESTIGAR:'Investigar',REVISAR_REDUCCION:'Revisar reducción',REVISAR_PAUSA:'Revisar pausa',DATOS_INSUFICIENTES:'Datos insuficientes',INACTIVA:'Inactiva'};
- const moneyKeys=new Set(['spend','cpa','cpm','linkCpc','costPerCart','costPerCheckout','purchaseValue','dailyBudgetCents']);
+ const moneyKeys=new Set(['spend','cpa','cpm','linkCpc','costPerCart','costPerCheckout','purchaseValue','dailyBudgetCents','averageOrderValue']);
  const format=(v,k='')=>v===null||v===undefined||!Number.isFinite(Number(v))?'N/D':new Intl.NumberFormat('es-ES',{maximumFractionDigits:2,...(moneyKeys.has(k)?{style:'currency',currency:'EUR'}:{})}).format(k==='dailyBudgetCents'?v/100:v)+(k==='linkCtr'?' %':k==='roas'?'×':'');
  const e=(tag,cls='',value)=>node(tag,cls,value);
  const button=(label,fn,primary=false)=>{const b=e('button',primary?'gi-button primary':'gi-button',label);b.type='button';b.addEventListener('click',fn);return b;};
@@ -17,34 +17,47 @@ const GrowthIntelligencePanel=(()=>{
   let d='',connected=false;values.forEach((v,i)=>{if(!Number.isFinite(v)){connected=false;return;}d+=`${connected?'L':'M'}${i/Math.max(1,values.length-1)*96+2},${32-(v-min)/span*27} `;connected=true;});
   const p=document.createElementNS(svg.namespaceURI,'path');p.setAttribute('d',d);p.setAttribute('fill','none');p.setAttribute('stroke','currentColor');p.setAttribute('stroke-width','2');svg.append(p);return svg;
  }
- function kpis(root,report){
-  const partial=report.subtotal?.state==='PARTIAL'&&report.subtotal.metrics,totals=partial?{...report.subtotal.metrics,dailyBudgetCents:report.totals.dailyBudgetCents,reach:null,frequency:null}:report.totals;
-  if(partial)root.append(e('p','gi-subtotal',`Subtotal verificado de ${report.subtotal.included} de ${report.subtotal.total} entidades con todos los eventos compatibles. No representa el total de la cuenta; comparación bloqueada.`));
-  const keys=['spend','roas','purchases','cpa','impressions','reach','frequency','cpm','linkCtr','linkCpc','outboundClicks','landingPageViews','addToCart','costPerCart','initiateCheckout','costPerCheckout','purchaseValue','dailyBudgetCents'];
-  const primary=e('div','gi-kpis gi-primary-kpis'),secondary=e('div','gi-kpis gi-secondary-kpis');
+ function dailyPoints(report){
+  const dates=[...new Set(report.rows.flatMap(r=>(r.series||[]).map(d=>d.since)))].sort();
+  return dates.map(day=>{
+   const rows=report.rows.filter(r=>r.source==='META_INSIGHTS').map(r=>(r.series||[]).find(d=>d.since===day));
+   const sum=k=>rows.length&&rows.every(r=>r&&Number.isFinite(r[k]))?rows.reduce((n,r)=>n+r[k],0):null;
+   const metrics={};for(const k of ['spend','purchases','purchaseValue','impressions','linkClicks','outboundClicks','landingPageViews','addToCart','initiateCheckout'])metrics[k]=sum(k);
+   for(const [key,[a,b,scale]]of Object.entries({roas:['purchaseValue','spend',1],cpa:['spend','purchases',1],averageOrderValue:['purchaseValue','purchases',1],linkCtr:['linkClicks','impressions',100],linkCpc:['spend','linkClicks',1],cpm:['spend','impressions',1000],costPerCart:['spend','addToCart',1],costPerCheckout:['spend','initiateCheckout',1]}))metrics[key]=metrics[a]!==null&&metrics[b]>0?metrics[a]/metrics[b]*scale:null;
+   metrics.reach=rows.length===1?rows[0]?.reach??null:null;metrics.frequency=rows.length===1?rows[0]?.frequency??null:null;
+   return {day,metrics};
+  });
+ }
+ function comparisonFor(report,key,value,before,partial=false){
+  const conversion=['roas','cpa','purchases','purchaseValue','averageOrderValue'].includes(key);
+  const compatible=!partial&&report.comparison.comparable&&(!conversion||report.totals.purchaseType===report.previous.purchaseType);
+  return compatible&&Number.isFinite(value)&&Number.isFinite(before)&&before>0?(value-before)/before*100:null;
+ }
+ function changeTone(key,change){const costs=['cpa','linkCpc','costPerCart','costPerCheckout','cpm'].includes(key),benefit=['roas','purchases','linkCtr','purchaseValue','averageOrderValue','linkClicks','impressions','reach','landingPageViews'].includes(key);return change===null||change===0||(!costs&&!benefit)?'neutral':(costs?change<0:change>0)?'favorable':'adverse';}
+ function kpis(root,report,{compact=false}={}){
+  const partial=report.subtotal?.state==='PARTIAL'&&report.subtotal.metrics,totals={...(partial?{...report.subtotal.metrics,dailyBudgetCents:report.totals.dailyBudgetCents,reach:null,frequency:null}:report.totals)},previous={...report.previous};
+  totals.averageOrderValue=Number.isFinite(totals.purchaseValue)&&totals.purchases>0?totals.purchaseValue/totals.purchases:null;
+  previous.averageOrderValue=Number.isFinite(previous.purchaseValue)&&previous.purchases>0?previous.purchaseValue/previous.purchases:null;
+  if(partial)root.append(e('p','gi-subtotal',`Subtotal verificado: ${report.subtotal.included} de ${report.subtotal.total} entidades. Comparación no disponible.`));
+  const keys=compact?['spend','roas','purchases','cpa','linkCtr','linkCpc','reach','purchaseValue','linkClicks','averageOrderValue','impressions','comparison']:['spend','roas','purchases','cpa','impressions','reach','frequency','cpm','linkCtr','linkCpc','outboundClicks','landingPageViews','addToCart','costPerCart','initiateCheckout','costPerCheckout','purchaseValue','dailyBudgetCents'];
+  const primary=e('div',compact?'gi-kpis gi-reference-kpis':'gi-kpis gi-primary-kpis'),secondary=e('div','gi-kpis gi-secondary-kpis'),points=dailyPoints(report);
   keys.forEach((key,index)=>{
-   const card=e('article',`gi-kpi gi-tone-${index%4}`),value=totals[key];
-   const conversion=['roas','cpa','purchases','purchaseValue'].includes(key),compatible=!partial&&report.comparison.comparable&&(!conversion||report.totals.purchaseType===report.previous.purchaseType);
-   const before=compatible?report.previous[key]:null,change=compatible&&Number.isFinite(value)&&Number.isFinite(before)&&before>0?(value-before)/before*100:null;
-   const costs=['cpa','linkCpc','costPerCart','costPerCheckout','cpm'].includes(key),benefit=['roas','purchases','linkCtr','purchaseValue'].includes(key);
-   const good=change!==null&&(costs?change<0:benefit?change>0:null),tone=change===0?'neutral':good===true?'favorable':good===false&&(costs||benefit)?'adverse':'neutral';
-   const copy=e('div','gi-kpi-copy');copy.append(e('span','gi-label',labels[key]),e('strong','gi-value',format(value,key)),e('small','gi-change '+tone,change===null?'Sin comparación válida':`${change>=0?'↑':'↓'} ${format(Math.abs(change))} % · vs. ${format(before,key)}`));
-   card.append(icon(key),copy,spark(report.rows.flatMap(()=>[])));
-   const days=[...new Set(report.rows.flatMap(r=>r.series.map(d=>d.since)))].sort();
-   const series=days.map(day=>{
-    const rows=report.rows.filter(r=>r.source==='META_INSIGHTS').map(r=>r.series.find(d=>d.since===day));
-    if(!rows.length||rows.some(r=>!r))return null;
-    const sum=k=>rows.every(r=>Number.isFinite(r[k]))?rows.reduce((n,r)=>n+r[k],0):null;
-    const ratios={roas:['purchaseValue','spend',1],cpa:['spend','purchases',1],linkCtr:['linkClicks','impressions',100],linkCpc:['spend','linkClicks',1],cpm:['spend','impressions',1000],costPerCart:['spend','addToCart',1],costPerCheckout:['spend','initiateCheckout',1]};
-    if(['reach','frequency','dailyBudgetCents'].includes(key))return null;
-    if(ratios[key]){const [a,b,scale]=ratios[key],num=sum(a),den=sum(b);return num!==null&&den>0?num/den*scale:null;}return sum(key);
-   });
-   card.lastChild.replaceWith(spark(series));
+   const card=e('article',`gi-kpi gi-tone-${index%4}`);card.setAttribute('data-metric',key);
+   if(key==='comparison'){
+    const copy=e('div','gi-period-summary');copy.append(e('strong','','Comparativa de periodo'));
+    for(const metric of ['spend','purchases','roas','cpa']){const delta=comparisonFor(report,metric,totals[metric],previous[metric],partial),row=e('div');row.append(e('span','',labels[metric]),e('strong','gi-change '+changeTone(metric,delta),delta===null?'N/D':`${delta>=0?'↑ +':'↓ −'}${format(Math.abs(delta))} %`));copy.append(row);}
+    card.append(icon('default'),copy);primary.append(card);return;
+   }
+   const value=totals[key],before=previous[key],change=comparisonFor(report,key,value,before,partial),tone=changeTone(key,change);
+   const copy=e('div','gi-kpi-copy');copy.append(e('span','gi-label',labels[key]),e('strong','gi-value',format(value,key)),e('small','gi-change '+tone,change===null?'Sin comparación válida':`${change>=0?'↑ +':'↓ −'}${format(Math.abs(change))} %`));
+   if(change!==null)copy.append(e('small','gi-previous',`vs. ${format(before,key)}`));
+   const mini=spark(points.map(p=>p.metrics[key]));mini.setAttribute('data-series-metric',key);
+   card.append(icon(key==='averageOrderValue'?'purchaseValue':key),copy,mini);
    const coverage=report.totals.coverage?.[key]?.status||(value==null?'UNAVAILABLE':'DERIVED');
-   card.title=`${report.range.since} → ${report.range.until} · ${key==='dailyBudgetCents'?report.budgetObservation?.observedAt||'Presupuesto sin marca temporal':report.observedAt} · ${coverage}${['reach','frequency'].includes(key)?' · audiencias únicas no sumables':''}${key==='dailyBudgetCents'?' · inventario observado, sin revalidación del ejecutor':''}`;
-   card.append(e('small','gi-kpi-state',value==null?(['reach','frequency'].includes(key)?'No sumable · selecciona entidad':'Datos incompletos'):key==='dailyBudgetCents'?'Observado · sin revalidación':partial?'Subtotal parcial':report.freshness!=='FRESH'?'Histórico':report.range.partial?'Provisional':'Actualizado'));
-   (index<4?primary:secondary).append(card);
-  });root.append(primary,secondary);
+   card.title=`${labels[key]} · ${report.range.since} → ${report.range.until} · ${report.observedAt} · ${coverage}${['reach','frequency'].includes(key)?' · audiencias únicas no sumables; selecciona una entidad':''}${key==='averageOrderValue'?' · valor de compras atribuido / compras atribuidas; no equivale al AOV de Shopify':''}${key==='dailyBudgetCents'?' · inventario observado, sin revalidación del ejecutor':''}`;
+   if(!compact||value==null||partial||report.freshness!=='FRESH'||report.range.partial)card.append(e('small','gi-kpi-state',value==null?(['reach','frequency'].includes(key)?'Selecciona una entidad':'No disponible'):partial?'Subtotal parcial':report.freshness!=='FRESH'?'Histórico':report.range.partial?'Provisional':key==='dailyBudgetCents'?'Observado · sin revalidación':'Actualizado'));
+   (compact||index<4?primary:secondary).append(card);
+  });root.append(primary);if(!compact)root.append(secondary);
  }
  function funnel(root,report,onStage){
   const card=section('Embudo de rendimiento','LANDING → CARRITO → CHECKOUT → COMPRA · eventos atribuidos agregados'),grid=e('div','gi-funnel');
@@ -54,35 +67,51 @@ const GrowthIntelligencePanel=(()=>{
    const b=button('',()=>onStage?.(stage.key));b.className='gi-stage '+(stage.state==='DETERIORATED'?'deteriorated':'');b.title=stage.reason||'Ratio agregado, no recorrido único';
    b.append(e('span','',stage.label),e('strong','',format(stage.value)),e('small','',stage.rate==null?'Sin evidencia suficiente':`${format(stage.rate)} % sobre etapa anterior`),e('small','',stage.rateChangePercent==null?'Sin comparación válida':`${format(stage.rateChangePercent)} % de variación del ratio`),e('small','',`Coste ${format(stage.cost,'spend')}`));grid.append(b);
   }
-  card.append(grid,e('p','gi-muted',data?.note||'Esperando validación de denominadores, poblaciones y etapas. No se inventan pérdidas.'));
-  const detail=e('details');detail.append(e('summary','','Impresiones, clics y calidad de etapas'));for(const s of steps)detail.append(e('p','',`${s.label}: ${format(s.value)} · coste ${format(s.cost,'spend')} · ${s.reason||s.state||'observado'}`));card.append(detail);root.append(card);
+  card.append(grid);
+  const detail=e('details');detail.append(e('summary','','Calidad de etapas y denominadores'),e('p','gi-muted',data?.note||'Esperando validación de denominadores, poblaciones y etapas. No se inventan pérdidas.'));for(const s of steps)detail.append(e('p','',`${s.label}: ${format(s.value)} · coste ${format(s.cost,'spend')} · ${s.reason||s.state||'observado'}`));card.append(detail);root.append(card);
  }
  function chart(root,report){
-  const c=section('Evolución del rendimiento','Una métrica por eje · actual y anterior cuando son compatibles'),select=e('select');select.setAttribute('aria-label','Métrica de evolución');
-  for(const key of ['spend','purchases','roas','cpa','addToCart','costPerCart','initiateCheckout','linkCtr','linkCpc']){const option=e('option','',labels[key]);option.value=key;select.append(option);}
-  const graph=e('div','gi-trend-chart');let metric='roas';select.value=metric;
-  function draw(){graph.replaceChildren();const trend=report.growth?.trend;
-   const dates=[...new Set(report.rows.flatMap(r=>r.series.map(d=>d.since)))].sort();
-   const fallback=dates.map(day=>{const rows=report.rows.filter(r=>r.source==='META_INSIGHTS').map(r=>r.series.find(d=>d.since===day));const sum=k=>rows.length&&rows.every(r=>r&&Number.isFinite(r[k]))?rows.reduce((n,r)=>n+r[k],0):null;const ratios={roas:['purchaseValue','spend',1],cpa:['spend','purchases',1],costPerCart:['spend','addToCart',1],linkCtr:['linkClicks','impressions',100],linkCpc:['spend','linkClicks',1]};let value=sum(metric);if(ratios[metric]){const [a,b,m]=ratios[metric],num=sum(a),den=sum(b);value=num!==null&&den>0?num/den*m:null;}return {day,metrics:{[metric]:value}};});
-   const current=trend?.current||fallback,previous=trend?.previous||[],values=[...current,...previous].map(d=>d.metrics?.[metric]).filter(Number.isFinite);
-   if(!values.length){graph.append(e('p','gi-empty','Serie incompleta o preparándose. No se dibujan ceros ficticios.'));return;}
-   const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 760 250');svg.setAttribute('role','img');svg.setAttribute('aria-label','Evolución de '+labels[metric]);
-   const max=Math.max(...values,1),count=Math.max(current.length,previous.length,2),x=i=>48+i/(count-1)*680,y=v=>205-v/max*170;
-   for(let i=0;i<4;i++){const line=document.createElementNS(ns,'path');line.setAttribute('d',`M48 ${35+i*56}H730`);line.setAttribute('stroke','#e8eff8');line.setAttribute('fill','none');svg.append(line);const text=document.createElementNS(ns,'text');text.setAttribute('x','2');text.setAttribute('y',String(39+i*56));text.setAttribute('font-size','10');text.setAttribute('fill','#7991ad');text.textContent=format(max*(1-i/3),metric);svg.append(text);}
-   for(const [rows,color,dashed]of [[previous,'#a2b4d4',true],[current,'#2187f6',false]]){let d='',connected=false;rows.forEach((row,i)=>{const v=row.metrics?.[metric];if(!Number.isFinite(v)){connected=false;return;}d+=`${connected?'L':'M'}${x(i)} ${y(v)} `;connected=true;const dot=document.createElementNS(ns,'circle'),title=document.createElementNS(ns,'title');dot.setAttribute('cx',x(i));dot.setAttribute('cy',y(v));dot.setAttribute('r','3');dot.setAttribute('fill',color);dot.setAttribute('tabindex','0');title.textContent=`${dashed?'Anterior':'Actual'} ${row.day}: ${format(v,metric)}${row.complete===false?' · subtotal parcial '+row.included+'/'+row.total:''}`;dot.append(title);svg.append(dot);});const path=document.createElementNS(ns,'path');path.setAttribute('d',d);path.setAttribute('fill','none');path.setAttribute('stroke',color);path.setAttribute('stroke-width','2.8');if(dashed)path.setAttribute('stroke-dasharray','6 5');svg.append(path);}
-   for(const marker of trend?.markers||[]){const day=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(marker.at));const index=current.findIndex(r=>r.day===day);if(index<0)continue;const p=document.createElementNS(ns,'path'),title=document.createElementNS(ns,'title');p.setAttribute('d',`M${x(index)} 20V210`);p.setAttribute('stroke','#d7aa43');p.setAttribute('stroke-dasharray','3 4');title.textContent=day+' · cambio de presupuesto, contexto sin causalidad acreditada';p.append(title);svg.append(p);}
-   const ticks=e('div','gi-chart-dates');for(const point of current.filter((_,i)=>i===0||i===current.length-1||i===Math.floor(current.length/2)))ticks.append(e('span','',point.day.slice(5)));graph.append(svg,ticks,e('p','gi-muted',`${labels[metric]} · ${report.range.since} → ${report.range.until}. Azul: actual; discontinua: anterior. ${trend?.note||'Esperando el histórico compartido.'}${current.some(p=>p.complete===false)?' Hay subtotales parciales etiquetados; las entidades ausentes no equivalen a cero.':''}`),e('p','gi-muted',trend?.budgetNote||''));
+  const c=section('Evolución del rendimiento'),head=e('div','gi-section-head'),legend=e('div','gi-chart-legend'),graph=e('div','gi-trend-chart');
+  c.classList.add('gi-performance');const active=new Set(['spend','purchases','roas']),colors={spend:'#2387ff',purchases:'#08c49b',roas:'#9147ff'};
+  const select=e('select');select.setAttribute('aria-label','Métrica de evolución');for(const [v,l]of [['combined','Gasto, compras y ROAS'],...['spend','purchases','roas','cpa','addToCart','costPerCart','initiateCheckout','linkCtr','linkCpc'].map(k=>[k,labels[k]])]){const o=e('option','',l);o.value=v;select.append(o);}select.value='combined';
+  function draw(){
+   graph.replaceChildren();const trend=report.growth?.trend,current=trend?.current||dailyPoints(report),previous=trend?.previous||[],metrics=select.value==='combined'?[...active]:[select.value];
+   const values=metrics.flatMap(k=>current.map(d=>d.metrics?.[k])).filter(Number.isFinite);
+   if(!values.length){graph.append(e('p','gi-empty','La serie aún no está disponible. Los indicadores se conservan.'));return;}
+   const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg'),make=(tag,attrs={})=>{const x=document.createElementNS(ns,tag);for(const [k,v]of Object.entries(attrs))x.setAttribute(k,String(v));return x;};
+   svg.setAttribute('viewBox','0 0 760 244');svg.setAttribute('role','img');svg.setAttribute('aria-label','Evolución de '+metrics.map(k=>labels[k]).join(', ')+'; cada métrica tiene su propia escala y unidad');
+   const left=46,right=metrics.length>1?648:706,bottom=207,top=24,count=Math.max(current.length,2),x=i=>left+i/(count-1)*(right-left);
+   for(let i=0;i<5;i++)svg.append(make('path',{d:`M${left} ${top+i*(bottom-top)/4}H${right}`,stroke:'#e8eef8',fill:'none'}));
+   const defs=make('defs');svg.append(defs);
+   metrics.forEach((metric,index)=>{
+    const color=colors[metric]||'#2387ff',max=Math.max(...current.map(p=>p.metrics?.[metric]).filter(Number.isFinite),...((metrics.length===1&&report.comparison.comparable)?previous.map(p=>p.metrics?.[metric]).filter(Number.isFinite):[]),1)*1.08,y=v=>bottom-v/max*(bottom-top);
+    const axisX=index===0?left-7:right+10+(index-1)*52;
+    const axisLabel=make('text',{x:axisX,y:12,fill:color,'font-size':9,'text-anchor':index===0?'end':'start'});axisLabel.textContent=metric==='spend'?'Gasto (€)':metric==='purchases'?'Compras':metric==='roas'?'ROAS (×)':labels[metric];svg.append(axisLabel);
+    for(let i=0;i<5;i++){const t=make('text',{x:axisX,y:top+i*(bottom-top)/4+3,fill:color,'font-size':9,'text-anchor':index===0?'end':'start'});const v=max*(1-i/4);t.textContent=metric==='roas'?format(v,'roas'):metric==='purchases'?format(Math.round(v)):format(v);svg.append(t);}
+    const gradient=make('linearGradient',{id:`gi-chart-fill-${metric}`,x1:0,y1:0,x2:0,y2:1});gradient.append(make('stop',{offset:'0%','stop-color':color,'stop-opacity':'.18'}),make('stop',{offset:'100%','stop-color':color,'stop-opacity':'.01'}));defs.append(gradient);
+    const drawRows=(rows,dashed)=>{
+     let path='',segment=[],segments=[];rows.forEach((row,i)=>{const value=row.metrics?.[metric];if(!Number.isFinite(value)){if(segment.length)segments.push(segment);segment=[];return;}segment.push([x(i),y(value)]);const dot=make('circle',{cx:x(i),cy:y(value),r:3,fill:color,tabindex:0}),title=make('title');title.textContent=`${dashed?'Anterior':'Actual'} ${row.day}: ${format(value,metric)}${row.complete===false?' · subtotal parcial '+row.included+'/'+row.total:''}`;dot.append(title);svg.append(dot);});if(segment.length)segments.push(segment);
+     for(const points of segments){path+=points.map(([a,b],i)=>`${i?'L':'M'}${a} ${b}`).join(' ')+' ';if(!dashed&&points.length>1)svg.append(make('path',{d:`M${points[0][0]} ${bottom}L${points.map(p=>p.join(' ')).join('L')}L${points.at(-1)[0]} ${bottom}Z`,fill:`url(#gi-chart-fill-${metric})`,'data-area-metric':metric}));}
+     const line=make('path',{d:path,fill:'none',stroke:color,'stroke-width':2.5,'stroke-linejoin':'round','data-metric':metric});if(dashed)line.setAttribute('stroke-dasharray','5 4');svg.append(line);
+    };
+    if(metrics.length===1&&report.comparison.comparable)drawRows(previous,true);drawRows(current,false);
+   });
+   for(const [i,row]of current.entries()){if(current.length>14&&i%Math.ceil(current.length/7)&&i!==current.length-1)continue;const t=make('text',{x:x(i),y:232,'font-size':9,fill:'#8090aa','text-anchor':'middle'});t.textContent=row.day.slice(5).split('-').reverse().join('/');svg.append(t);}
+   graph.append(svg);if(current.some(p=>p.complete===false))graph.append(e('p','gi-chart-note','Serie parcial: consulta la cobertura de cada punto.'));
+   const note=e('small','gi-chart-note',metrics.length>1?'Escalas independientes: € · compras · ROAS. Pasa por los puntos para ver los valores.':'Azul: periodo actual · línea discontinua: periodo anterior comparable.');graph.append(note);
   }
-  select.addEventListener('change',()=>{metric=select.value;draw();});c.append(select,graph);draw();root.append(c);
+  for(const key of ['spend','purchases','roas']){const b=button((key==='spend'?'Gasto (€)':key==='purchases'?'Compras':'ROAS'),()=>{if(active.has(key)&&active.size===1)return;active.has(key)?active.delete(key):active.add(key);b.setAttribute('aria-pressed',String(active.has(key)));select.value='combined';draw();});b.setAttribute('aria-pressed','true');b.style?.setProperty?.('--series-color',colors[key]);legend.append(b);}
+  head.append(legend,select);select.addEventListener('change',draw);c.append(head,graph);draw();root.append(c);
  }
  function decisionCard(item,context){
-  const card=e('article','gi-decision '+item.status.toLowerCase());card.append(e('span','gi-pill',states[item.status]||item.status),e('h4','',item.name),e('p','gi-muted',`${item.level==='campaign'?'Campaña':item.level==='adset'?'Conjunto':'Anuncio'}${item.adsetName?' · '+item.adsetName:''} · prioridad ${item.priority??'N/D'} · confianza ${item.confidence==='MEDIUM'?'media':'baja'}`),e('p','',item.why));
-  const m=item.evidence?.week||{},metrics=e('div','gi-decision-metrics');for(const key of ['spend','purchases','roas','cpa','addToCart'])metrics.append(e('span','',`${labels[key]} ${format(m[key],key)}`));
-  const range=item.evidence?.ranges?.week||context?.selectedRange;card.append(metrics,e('small','gi-muted',range?`${range.since} → ${range.until} · histórico completo`:'Periodo no acreditado'),button('VER ANÁLISIS',()=>GrowthAnalysisDrawer.open(item.id,item.level,context?.query||{}),true));return card;
+  const tone=item.status==='CANDIDATA_ESCALAR'?'scale':['MANTENER','MANTENER_VIGILAR','PROTEGER'].includes(item.status)?'keep':['REVISAR_REDUCCION','REVISAR_PAUSA'].includes(item.status)?'reduce':'review';
+  const card=e('article','gi-decision '+item.status.toLowerCase()+' gi-decision-'+tone),head=e('div','gi-decision-head');head.append(icon(tone==='scale'?'roas':tone==='reduce'?'cpa':'default'),e('span','gi-pill',states[item.status]||item.status));card.append(head,e('h4','',item.name));
+  const why=e('p','gi-decision-why',item.why);why.title=item.why;card.append(why);card.title=`${item.level==='campaign'?'Campaña':item.level==='adset'?'Conjunto':'Anuncio'} · confianza ${item.confidence==='MEDIUM'?'media':'baja'} · ${context?.historyAnchor||''}`;
+  card.append(button('Ver análisis →',()=>GrowthAnalysisDrawer.open(item.id,item.level,context?.query||{})));return card;
  }
- function decisions(root,value,query){const card=section('CEREBRO META · DECISIONES DEL DÍA','Qué mantener, qué mejorar y dónde invertir mejor, según rendimiento e histórico.');
-  card.append(e('p','gi-muted',`Decisiones: ${value.historyAnchor} · ${value.temporalStatus==='HISTORICAL_CONTEXT'?'contexto histórico, sin acciones actuales':'contexto actual'} · reglas ${value.version} · supervisión V5.1`));
-  const grid=e('div','gi-decisions');for(const item of value.decisions.topActions)grid.append(decisionCard(item,{...value,query}));
+ function decisions(root,value,query){const card=section('Cerebro Meta · Decisiones del día','Recomendaciones basadas en datos, oportunidades y señales contrastadas.');card.classList.add('gi-brain-card');
+  card.title=`Decisiones: ${value.historyAnchor} · ${value.temporalStatus==='HISTORICAL_CONTEXT'?'contexto histórico, sin acciones actuales':'contexto actual'} · reglas ${value.version}`;
+  const grid=e('div','gi-decisions'),shown=new Set();for(const item of [...value.decisions.topActions,...value.decisions.campaigns]){const key=item.level+':'+item.id;if(shown.has(key))continue;shown.add(key);grid.append(decisionCard(item,{...value,query}));if(shown.size===4)break;}
   if(!value.decisions.topActions.length)grid.append(e('p','gi-empty',value.progress?.pending?'Preparando la evidencia histórica para las recomendaciones.':'Sin evidencia suficiente para priorizar intervenciones. Se conserva la información disponible.'));
   card.append(grid);const all=e('details','gi-all-decisions');all.append(e('summary','','VER TODAS LAS RECOMENDACIONES'));
   const table=e('div','gi-entity-list');for(const item of [...value.decisions.campaigns,...value.decisions.adsets,...value.decisions.ads]){const row=e('article');row.append(e('strong','',item.name),e('span','',states[item.status]||item.status),button('Ver análisis',()=>GrowthAnalysisDrawer.open(item.id,item.level,query)));table.append(row);}all.append(table);card.append(all);root.append(card);
@@ -100,12 +129,12 @@ const GrowthIntelligencePanel=(()=>{
   if(value.measurement.issues.length){const groups=new Map();for(const i of value.measurement.issues)groups.set(i.code,(groups.get(i.code)||0)+1);c.append(e('p','gi-warning',`${value.measurement.issues.length} señales de medición en las entidades consultadas. Comprueba su cobertura antes de decidir.`));const details=e('details','gi-technical');details.append(e('summary','','Ver señales y referencias técnicas'));for(const [code,count]of groups)details.append(e('p','',`${code}: ${count}`));for(const i of value.measurement.issues)details.append(e('small','',`${i.code} · ${i.entityId}`));c.append(details);}root.append(c);
  }
  function dashboard(root,report,query,hooks){
-  root.classList.add('growth-v10');kpis(root,report);
+  root.classList.add('growth-v10','gi-reference');kpis(root,report,{compact:true});
   const visual=e('div','gi-visual-grid'),funnelRoot=e('div'),trendRoot=e('div');hooks.chart(trendRoot);visual.append(trendRoot,funnelRoot);root.append(visual);
   funnel(funnelRoot,report,key=>hooks.stage(key));
   const brain=e('div','gi-growth-area');brain.append(e('p','gi-loading','Preparando histórico y decisiones con el lector compartido…'));root.append(brain);
   const controller=new AbortController();
-  let previewRendered=false;const apply=value=>{if(!root.contains(brain))return;if(value.progress?.pending&&previewRendered)return;previewRendered=Boolean(value.progress?.pending);report.growth=value;brain.replaceChildren();funnelRoot.replaceChildren();trendRoot.replaceChildren();chart(trendRoot,report);funnel(funnelRoot,report,key=>hooks.stage(key));decisions(brain,value,query);goal(brain,value);measurement(brain,value);if(value.progress?.pending||value.failures?.length)brain.prepend(e('p','gi-loading',value.progress?.pending?'Histórico en preparación; el resumen y el embudo ya están disponibles.':'Parte del histórico no está disponible; se conservan los datos verificados.'));
+  let previewRendered=false;const apply=value=>{if(!root.contains(brain))return;if(value.progress?.pending&&previewRendered)return;previewRendered=Boolean(value.progress?.pending);report.growth=value;brain.replaceChildren();funnelRoot.replaceChildren();trendRoot.replaceChildren();chart(trendRoot,report);funnel(funnelRoot,report,key=>hooks.stage(key));decisions(brain,value,query);const more=e('details','gi-more-insights');more.append(e('summary','','Métricas adicionales, objetivos y calidad de medición'));kpis(more,report);goal(more,value);measurement(more,value);brain.append(more);if(value.progress?.pending||value.failures?.length)brain.prepend(e('p','gi-loading',value.progress?.pending?'Histórico en preparación; el resumen y el embudo ya están disponibles.':'Parte del histórico no está disponible; se conservan los datos verificados.'));
   };
   AdsReportClient.load('/api/operations/ads-intelligence/review/growth?'+new URLSearchParams(contextQuery(query)),{signal:controller.signal,onProgress:apply,onStatus:d=>{if(root.contains(brain)&&!previewRendered)brain.replaceChildren(e('p','gi-loading','El histórico sigue preparándose; los indicadores disponibles permanecen visibles.'));}})
     .then(value=>{apply(value);if(!root.contains(brain))return;if(value.clientWaitExpired||value.failures?.length)brain.append(button('Reintentar histórico',async()=>{previewRendered=false;try{apply(await AdsReportClient.load('/api/operations/ads-intelligence/review/growth?'+new URLSearchParams({...contextQuery(query),retry:'true'}),{signal:controller.signal,onProgress:apply}));}catch{brain.prepend(e('p','gi-warning','El bloque histórico sigue sin estar disponible.'));}}));
@@ -113,5 +142,5 @@ const GrowthIntelligencePanel=(()=>{
    }).catch(error=>{if(error.name!=='AbortError'&&root.contains(brain))brain.replaceChildren(e('p','gi-warning','El análisis histórico no está disponible. Los indicadores y etapas disponibles se conservan; reintenta Actualizar.'));});
   return ()=>controller.abort();
  }
- return {dashboard,kpis,chart,format,labels,states,button,section,spark,funnel,decisionCard,contextQuery,icon};
+ return {dashboard,kpis,chart,dailyPoints,format,labels,states,button,section,spark,funnel,decisionCard,contextQuery,icon};
 })();
