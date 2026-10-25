@@ -1,5 +1,46 @@
 # Suleia agent handoff
 
+## 2026-10-25 · Business Intelligence V2 deployed
+
+Owner requested the existing data section's BI V2 redesign and approved the
+fresh reconciled cut instead of freezing screenshot487/373. Runtime debef0f is
+live in API/MCP/materializer and the panel, PR149 stacked on PR148. Final isolated
+Node22/PostgreSQL17 run:1307passed/0failed/0skipped in144files, archive
+bf93172ccb7ebf094e3aa93490ec6d663a494ba248e867acfe8f87f13734cdf3.
+The exact MCP image additionally passed6/6 asUID100; all three images import as
+UID100.17component overlays verified;19budget files, operational environment,
+botPID/config, financial rates and unrelated production containerIDs preserved.
+No schema/grant, finance formula, logistics/budget policy or external action.
+
+Applied12:08:31UTC; post-check12:15UTC reconciles493orders,377confirmed/sent,
+212delivered,75returned,147incident orders,6732.79EUR realized revenue,
+-1225.76EUR exact global recognized net profit; missing costs0, province unknown0,
+financial order delta0. Maturity92/228/173. Twelve live read-role MCP contracts
+fit50KiB (maximum46583bytes); warm SDK p95ms overview495,geography68,hour92,
+patterns160. This measures the read-role SDK path, not an HTTP SLA. Six financial
+months reconcile; private fact read and operational/analytics writes remain denied.
+
+Chrome local DEMO1440/820/390 and all six production views checked; BI7KPIs,
+52province paths/168heatcells and no raw sample codes/overflow; Finance36SVG,
+Ads38SVG/populated, orders18rows, incidents10rows, automation loaded; zeroJS
+errors. Personal OAuth completed after a wait. Production screenshot capture
+repeatedly timed out; committed screenshots are DEMO only. No auth policy changed.
+An initial packaging attempt rolled back safely; final images enforce readable
+COPY permissions and pass unprivileged startup checks. The public verifier was
+corrected to existing /operations/health and /operations/api/... prefixes;
+no production route was changed to satisfy it.
+
+Private captured baselines/compose/env/backups/receipts are under
+/root/suleia-business-intelligence-v2-deploy-20261025/debef0f/; historical failed
+attempts remain separate. Rollback restores captured V11 API/static and original
+MCP/materializer, not historical SHADOW. Materializer4 only transactionally
+regroups existing analytics JSON cells/precomputes; source operational tables
+unchanged. See BUSINESS_INTELLIGENCE_V2.md and deployment.md/.json.
+Do not treat this BI release as a budget/incident automation repair or apply the
+separate V6 proposal silently. Preserve canonical denominators, exact finance,
+mature comparisons and existing writer/canary controls in subsequent work.
+
+
 ## 2026-10-24 · Ads Intelligence V10 owner-approved deployment
 
 The owner subsequently approved PR147 deployment and a narrow production V10

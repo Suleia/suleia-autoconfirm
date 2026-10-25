@@ -76,9 +76,14 @@ exact finance scope, ambiguous legacy stages, structured crosses, dense MCP
 payload size, SQL coalescing, retained cuts and UI interactions.
 The isolated Linux/Node22/PostgreSQL17 suite passed1307/1307 across144files,
 zero skips, with networknone and no production credentials. Receipt source
-archive75e1e7be28316fcd10c54eb8b6a11117a91f6b5df46f757853fbdcddc3af4dd3
-preceded the final single-rounding UI correction, which passed focused tests;
-the final release receipt records its exact tested archive separately.
+archivebf93172ccb7ebf094e3aa93490ec6d663a494ba248e867acfe8f87f13734cdf3
+covers the final runtime debef0f, including single-rounding and current/mature
+drilldown fixes. The exact MCP image also passes6/6 contract tests as its normal
+UID100, without network or secrets. All three image entry modules import asUID100.
+An initial packaging attempt failed before activation because copied directories
+were not readable to the application user. Automatic rollback restored healthy
+original services; no business action occurred. Candidate imports now verify
+explicit COPY directory permissions before any service update.
 
 The warm CPU-only2000-order benchmark includes JSON serialization,3warmups and
 20samples. On this Windows run, V11→V2 p95ms: overview92.98→210.60,

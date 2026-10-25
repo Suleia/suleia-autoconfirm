@@ -1,0 +1,384 @@
+{
+  "runtimeCommit": "debef0f88f0b2f7c889a81155f51be5710efb058",
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/149",
+  "deployed": true,
+  "deployedAt": "2026-10-25T12:14:52.289643+00:00",
+  "finalIsolatedSuite": {
+    "pass": 1307,
+    "fail": 0,
+    "skip": 0,
+    "files": 144,
+    "sourceArchiveSha256": "bf93172ccb7ebf094e3aa93490ec6d663a494ba248e867acfe8f87f13734cdf3",
+    "network": "none",
+    "productionCredentials": false
+  },
+  "sourceFiles": [
+    {
+      "service": "api",
+      "base": "suleia-operations-v11:3333429",
+      "baseId": "sha256:c7b5dcab1e1f948e054c8dfa1eeb7f549d379381f71dd53122d9c9803757b59b",
+      "image": "suleia-bi-v2-api:debef0f",
+      "files": [
+        {
+          "path": "packages/platform-core/src/analytics/order-intelligence.mjs",
+          "before": "f64c4024873df034e595521cd30034e7eb17e5957e31e3f28d535ecf3a5c881b",
+          "after": "3f7d4aaccc785477846aaf411116184550286596172b03bd193c9f27f0f0f1f9"
+        },
+        {
+          "path": "packages/platform-core/src/analytics/report.mjs",
+          "before": "c9e7ec374577fe0b7db18f3c4207ce3c43db0d59d974c0ae57b5d3e00c52fdb2",
+          "after": "078ba4514ecd6eaee1539d09daaa290013f961157a758439587a655c286a5649"
+        },
+        {
+          "path": "packages/platform-core/src/analytics/business-v2.mjs",
+          "before": null,
+          "after": "a27d6da5b046bee17f03dc5e0460e1f3c5da849dae0af8ff04fadd431fe3152f"
+        },
+        {
+          "path": "packages/suleia-operations-mcp/src/analytics/read-service.mjs",
+          "before": "9abada1c724cd84a9de0ef2a58d94c0b7b9754963a71686395e5795f03c85430",
+          "after": "e6dcf8b1385c1cffed43e23be60354eb3f03994ad516ed480442c24547958d35"
+        }
+      ],
+      "archive": "release-api.tar.gz",
+      "sha256": "83faa803be388c7056f1f34435b7a3afd9b0aa1dc0455077c26c05accde3e0c0"
+    },
+    {
+      "service": "mcp-server",
+      "base": "suleia-stabilization-mcp-server:8502182e87d0f9941bc0d2814e69743d5644ecd0",
+      "baseId": "sha256:427d06ddf3eff695b74b8561b50163a0acb1067014cc5ad13d7645eadb39f7ec",
+      "image": "suleia-bi-v2-mcp-server:debef0f",
+      "files": [
+        {
+          "path": "packages/platform-core/src/analytics/order-intelligence.mjs",
+          "before": "f64c4024873df034e595521cd30034e7eb17e5957e31e3f28d535ecf3a5c881b",
+          "after": "3f7d4aaccc785477846aaf411116184550286596172b03bd193c9f27f0f0f1f9"
+        },
+        {
+          "path": "packages/platform-core/src/analytics/report.mjs",
+          "before": "c9e7ec374577fe0b7db18f3c4207ce3c43db0d59d974c0ae57b5d3e00c52fdb2",
+          "after": "078ba4514ecd6eaee1539d09daaa290013f961157a758439587a655c286a5649"
+        },
+        {
+          "path": "packages/platform-core/src/analytics/business-v2.mjs",
+          "before": null,
+          "after": "a27d6da5b046bee17f03dc5e0460e1f3c5da849dae0af8ff04fadd431fe3152f"
+        },
+        {
+          "path": "packages/suleia-operations-mcp/src/analytics/read-service.mjs",
+          "before": "9abada1c724cd84a9de0ef2a58d94c0b7b9754963a71686395e5795f03c85430",
+          "after": "e6dcf8b1385c1cffed43e23be60354eb3f03994ad516ed480442c24547958d35"
+        },
+        {
+          "path": "packages/suleia-operations-mcp/src/mcp/server.mjs",
+          "before": "255b1fa80ed82fd9228f27d4615bc0fba2fb9461ad67ac8386862ea89113b415",
+          "after": "fb061c2277b77dc722d0b69e8ce3ecf677d7d2cb4cd4f9f859648c57bc5e5777"
+        }
+      ],
+      "archive": "release-mcp-server.tar.gz",
+      "sha256": "529ae70c0f4db2a6fd173a0653ce752a8507db822db6e8e44fb85e4313c3f7b2"
+    },
+    {
+      "service": "analytics-materializer",
+      "base": "suleia-order-intelligence:7d701365723507969b32ff0601b01f4fdc7dc615",
+      "baseId": "sha256:7ec3cb75c1ecad59f6a456b8d72a79f23a2da4f45f11bdd750c94059a38b508e",
+      "image": "suleia-bi-v2-analytics-materializer:debef0f",
+      "files": [
+        {
+          "path": "packages/platform-core/src/analytics/order-intelligence.mjs",
+          "before": "f64c4024873df034e595521cd30034e7eb17e5957e31e3f28d535ecf3a5c881b",
+          "after": "3f7d4aaccc785477846aaf411116184550286596172b03bd193c9f27f0f0f1f9"
+        },
+        {
+          "path": "packages/platform-core/src/analytics/report.mjs",
+          "before": "c9e7ec374577fe0b7db18f3c4207ce3c43db0d59d974c0ae57b5d3e00c52fdb2",
+          "after": "078ba4514ecd6eaee1539d09daaa290013f961157a758439587a655c286a5649"
+        },
+        {
+          "path": "packages/platform-core/src/analytics/business-v2.mjs",
+          "before": null,
+          "after": "a27d6da5b046bee17f03dc5e0460e1f3c5da849dae0af8ff04fadd431fe3152f"
+        },
+        {
+          "path": "packages/suleia-operations-mcp/src/analytics/materialize.mjs",
+          "before": "7fc5c859e5a7284f03dba74fcf80b23ec9d6aa5eaff3649b938dbc16b37b1645",
+          "after": "479be264e05d29f32776ada68a72d95bd23ef6a1cb4bf772729f6829e5f9f0d3"
+        }
+      ],
+      "archive": "release-analytics-materializer.tar.gz",
+      "sha256": "ad18ff34665a79d755f0a1bbe0f8e95d0ec6b0e24a82d17ea8f278d499e08a4d"
+    },
+    {
+      "service": "panel",
+      "base": null,
+      "baseId": null,
+      "image": null,
+      "files": [
+        {
+          "path": "apps/review-panel/app.js",
+          "before": "d0815a614ece9cfb565e2b5fc217f6f57575f38864dc36c10310b9f294c506ab",
+          "after": "11abe5e7867cce0efbeffde99a4a56a6b2148f338753b32c93a277188e727e68"
+        },
+        {
+          "path": "apps/review-panel/index.html",
+          "before": "ff46ed462c89b23ad9b0b178698c3fb8c704a189087acc76d51bd0c71f8a0773",
+          "after": "0597168e5203bdd3b671e469d45a139dd9f3280251d28e2bbf07a2fde6fce4d7"
+        },
+        {
+          "path": "apps/review-panel/order-intelligence-v2.js",
+          "before": null,
+          "after": "c86a123e4cec33633268b4ffb13ecc50d956ce0031ab936b511b388fa6a9c764"
+        },
+        {
+          "path": "apps/review-panel/order-intelligence-v2.css",
+          "before": null,
+          "after": "568e96955456fa3a6ccbfd7c962860c65d4ebebe42b37a21fe09aa36d7d43e78"
+        }
+      ],
+      "archive": "release-panel.tar.gz",
+      "sha256": "8fba9d3ac96be2521cc78818bb47e2e30190226b099b1ad2eaf0261d3c137bd8"
+    }
+  ],
+  "protectedBudgetFiles": [
+    {
+      "path": "services/meta-ads/autopilot/environment.example",
+      "sha256": "42214d3ca6ff73a9f4d90a16c100a81c883342a3a077f7ab2881d9a10b2e7f39"
+    },
+    {
+      "path": "services/meta-ads/autopilot/learning.mjs",
+      "sha256": "77b0d63c6efe030f20bc0a15c91c293f598d3a9852512e102ef8b641e386d16e"
+    },
+    {
+      "path": "services/meta-ads/autopilot/policy.mjs",
+      "sha256": "860852c7ccb6b23f14a603d2c6d3f28feca05784cae8d26a3d18aab56d814c34"
+    },
+    {
+      "path": "services/meta-ads/autopilot/queries.mjs",
+      "sha256": "28d860d239b54d2932f0a28108ab7266995e8d7b2f42266e7bc96d3422c20844"
+    },
+    {
+      "path": "services/meta-ads/autopilot/schedule.mjs",
+      "sha256": "a63143ca0fddd67303e207c31dfc18fcdbd9852765f24df3dfc45918358c9336"
+    },
+    {
+      "path": "services/meta-ads/autopilot/service.mjs",
+      "sha256": "d696952c4aa5d0830262e332ea1f7f63fbad5c12c68bad62dd1be07c39f0b6af"
+    },
+    {
+      "path": "services/meta-ads/autopilot/validate-minimums.mjs",
+      "sha256": "982e238365fbb94f880c16cd17c772591ffb518d0d47870944513d71604a6f50"
+    },
+    {
+      "path": "services/meta-ads/budget/backtest.mjs",
+      "sha256": "c15598febef1b9de9d008220a6acdc2afe6c76c0be33d8324060ded445a5e328"
+    },
+    {
+      "path": "services/meta-ads/budget/config.mjs",
+      "sha256": "c7111464c086d826f90ba46d71494d1580e52dfb2ba7a8ede3208deced859e76"
+    },
+    {
+      "path": "services/meta-ads/budget/normalizer.mjs",
+      "sha256": "90be86ee81c55ef15773b5bd8ca97650a1ca3170e407e7cb5767c934560e881d"
+    },
+    {
+      "path": "services/meta-ads/budget/policy.mjs",
+      "sha256": "f7dc45a9267fe77e64fe5699ed6517512ce2faf66690d8c0543c4ac33669c0e1"
+    },
+    {
+      "path": "services/meta-ads/budget/repository.mjs",
+      "sha256": "23dd34f6aa2152da354da33eff1eb81133e7f26d617deb6abdf995684a950b38"
+    },
+    {
+      "path": "services/meta-ads/budget/service.mjs",
+      "sha256": "7feeff66da75a8e03ba295325c31f691b1e256174df85628d1b06abe1d1e2941"
+    },
+    {
+      "path": "services/meta-ads/budget/shadow-cycle.mjs",
+      "sha256": "a10bc06ea0b848844aa24473bfee4beea1aba8f9558502f1d0561e1ae843f2bf"
+    },
+    {
+      "path": "services/meta-ads/budget/write-gate.mjs",
+      "sha256": "01e4b8b2905ea3006dba260a7768439ec749e711f901be21afa1cc8aaad3a9b0"
+    },
+    {
+      "path": "services/meta-ads/budget/writer.mjs",
+      "sha256": "a013eb942eba5404b4d8eda6fe06db9d7c20cda21190e6e0487f5d722abf0ee1"
+    },
+    {
+      "path": "services/meta-ads/intelligence.mjs",
+      "sha256": "2f170c431a766086e29a302858e447fbf54c54ce18ce13b1a10b3300ca77ead0"
+    },
+    {
+      "path": "services/meta-ads/executor-transport.mjs",
+      "sha256": "67b559b712248e49678bb93dd53d50630911e6c8ac0b8521bfe9c1d420815c0b"
+    },
+    {
+      "path": "services/meta-ads/bridge-auth.mjs",
+      "sha256": "b9fa422385e99d3c2b8f089783736b6d454f776ff81154281466730fbf26eb7c"
+    }
+  ],
+  "production": {
+    "at": "2026-10-25T12:15:11.586431+00:00",
+    "release": {
+      "at": "2026-10-25T12:14:52.289643+00:00",
+      "revision": "debef0f88f0b2f7c889a81155f51be5710efb058",
+      "healthy": true,
+      "verifiedOverlayFiles": 17,
+      "protectedFiles": 19,
+      "botAndEnvironmentPreserved": true,
+      "financialRatesPreserved": true,
+      "unrelatedContainersPreserved": true,
+      "migration": null,
+      "grantsChanged": false,
+      "externalActionsByRelease": 0,
+      "panel": "/opt/suleia-panel-releases/business-intelligence-v2-debef0f",
+      "images": {
+        "api": {
+          "tag": "suleia-bi-v2-api:debef0f",
+          "id": "sha256:61e9b2ed8d3f699d75e0cebd33fafbc3d0cacd6acef2d6ede1fd9321c90b4c07",
+          "baseId": "sha256:c7b5dcab1e1f948e054c8dfa1eeb7f549d379381f71dd53122d9c9803757b59b",
+          "smoke": {
+            "uid": 100,
+            "imported": true
+          }
+        },
+        "mcp-server": {
+          "tag": "suleia-bi-v2-mcp-server:debef0f",
+          "id": "sha256:402a2c159893e71e2089bb7bc780844fe0f26d212bb6b3dfbb1852afa13ee89f",
+          "baseId": "sha256:427d06ddf3eff695b74b8561b50163a0acb1067014cc5ad13d7645eadb39f7ec",
+          "smoke": {
+            "uid": 100,
+            "imported": true
+          }
+        },
+        "analytics-materializer": {
+          "tag": "suleia-bi-v2-analytics-materializer:debef0f",
+          "id": "sha256:248272e28da20becb9faa54654de41fc311397ea254f4d018d08d9d5e55e5831",
+          "baseId": "sha256:7ec3cb75c1ecad59f6a456b8d72a79f23a2da4f45f11bdd750c94059a38b508e",
+          "smoke": {
+            "uid": 100,
+            "imported": true
+          }
+        }
+      }
+    },
+    "period": {
+      "to": "2026-10-25",
+      "from": "2026-09-26"
+    },
+    "cut": {
+      "sent": 377,
+      "orders": 493,
+      "returned": 75,
+      "confirmed": 377,
+      "delivered": 212,
+      "incident_orders": 147
+    },
+    "financeOrders": 493,
+    "realizedRevenue": 6732.79,
+    "exactNetProfit": -1225.76,
+    "missingCosts": 0,
+    "unknownProvince": 0,
+    "maturity": {
+      "mature": 92,
+      "maturing": 228,
+      "immature": 173
+    },
+    "financialReconciliationDelta": 0,
+    "runtime": {
+      "rows": 2207,
+      "version": 4,
+      "last_error": null,
+      "source_updated_at": "2026-10-25T12:08:29.034Z",
+      "finance_updated_at": "2026-10-25T11:57:50.829Z",
+      "analytics_updated_at": "2026-10-25T12:13:22.668Z"
+    },
+    "mcp": {
+      "contracts": 12,
+      "maxResponseBytes": 46583,
+      "latency": {
+        "get_order_intelligence_overview": {
+          "p50_ms": 97,
+          "p95_ms": 495
+        },
+        "get_geographic_performance": {
+          "p50_ms": 10,
+          "p95_ms": 68
+        },
+        "get_detected_patterns": {
+          "p50_ms": 18,
+          "p95_ms": 160
+        }
+      },
+      "permissions": {
+        "operational_write": false,
+        "private_fact_read": false,
+        "analytics_write": false
+      },
+      "monthlyReconciliations": 6,
+      "businessActions": 0
+    },
+    "http": [
+      {
+        "path": "/operations/health",
+        "status": 200,
+        "sha256": "404909467907943308ac18b4b68eb23263df4b1ea23212a688fb007738b2a63c"
+      },
+      {
+        "path": "/operations/",
+        "status": 200,
+        "sha256": "0597168e5203bdd3b671e469d45a139dd9f3280251d28e2bbf07a2fde6fce4d7"
+      },
+      {
+        "path": "/operations/order-intelligence-v2.js?v=2",
+        "status": 200,
+        "sha256": "c86a123e4cec33633268b4ffb13ecc50d956ce0031ab936b511b388fa6a9c764"
+      },
+      {
+        "path": "/operations/order-intelligence-v2.css?v=2",
+        "status": 200,
+        "sha256": "568e96955456fa3a6ccbfd7c962860c65d4ebebe42b37a21fe09aa36d7d43e78"
+      },
+      {
+        "path": "/operations/app.js?v=12",
+        "status": 200,
+        "sha256": "11abe5e7867cce0efbeffde99a4a56a6b2148f338753b32c93a277188e727e68"
+      },
+      {
+        "path": "/operations/api/operations/analytics",
+        "status": 401,
+        "sha256": null
+      },
+      {
+        "path": "/operations/api/operations/finance",
+        "status": 401,
+        "sha256": null
+      },
+      {
+        "path": "/operations/api/operations/incidents/overview",
+        "status": 401,
+        "sha256": null
+      }
+    ]
+  },
+  "hourlyMcpWarmP95Ms": 92,
+  "browser": {
+    "localDemoViewports": [
+      1440,
+      820,
+      390
+    ],
+    "productionViewsRead": [
+      "orders",
+      "incidents",
+      "automation",
+      "finance",
+      "ads",
+      "analytics"
+    ],
+    "jsErrors": 0,
+    "personalOAuthCompletedAfterWait": true,
+    "productionScreenshot": "Timed out; only DEMO screenshots are committed",
+    "customerOrFinancialActions": 0
+  }
+}
