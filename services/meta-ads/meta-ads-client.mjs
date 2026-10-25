@@ -1,6 +1,8 @@
 import { collectPaginated, createReadOnlyTransport } from '../../packages/platform-core/src/read-only-transport.mjs';
 import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 import {parseMetaCurrencyCents} from './meta-money.mjs';
+import {AsyncLocalStorage} from 'node:async_hooks';
+import {createMetaReadScheduler} from './request-scheduler.mjs';
 
 const GRAPH_HOST = 'graph.facebook.com';
 const CAMPAIGN_FIELDS = 'id,account_id,name,status,effective_status,daily_budget,lifetime_budget,budget_remaining';
@@ -45,7 +47,10 @@ export function createMetaAdsReadClient({
   timeoutMs = 15_000,
   maxRetries = 2,
   maxPages = 100,
-  fetchImpl = globalThis.fetch
+  fetchImpl = globalThis.fetch,
+  scheduler = createMetaReadScheduler(),
+  random = Math.random,
+  waitImpl = ms=>new Promise(resolve=>setTimeout(resolve,ms))
 }) {
   if (!accessToken || !accountId || !apiVersion) throw new MetaAdsReadError('Incomplete Meta read configuration', 'META_CONFIG_MISSING');
   const base = new URL(`https://${GRAPH_HOST}/${apiVersion}/`);
@@ -53,12 +58,14 @@ export function createMetaAdsReadClient({
     fetchImpl,
     allowedHosts: [GRAPH_HOST],
     timeoutMs,
-    maxRetries
+    // Rate errors must reach the shared gate before any second request.
+    maxRetries: 0
   });
   let readCount = 0;
-  let active=0,usage=null;const waiting=[];
+  let usage=null;const context=new AsyncLocalStorage();
 
   async function getJson(pathOrUrl, parameters = {}) {
+    if(context.getStore()?.deadlineAt<Date.now())throw new MetaAdsReadError('Analysis read deadline exceeded','META_TIMEOUT');
     const target = /^https:\/\//.test(pathOrUrl) ? new URL(pathOrUrl) : new URL(pathOrUrl.replace(/^\//, ''), base);
     if (target.protocol !== 'https:' || target.hostname !== GRAPH_HOST || !target.pathname.startsWith(`/${apiVersion}/`)) {
       throw new MetaAdsReadError('Meta request target is not allowlisted', 'META_TARGET_BLOCKED');
@@ -69,11 +76,12 @@ export function createMetaAdsReadClient({
     for (const [key, value] of Object.entries(parameters)) {
       if (value !== null && value !== undefined) target.searchParams.set(key, String(value));
     }
-    if(active>=2)await new Promise(resolve=>waiting.push(resolve));else active++;
-    let response;try{response = await transport(target, {
+    for(let attempt=0;;attempt++)try{return await scheduler.schedule(async()=>{
+    const response = await transport(target, {
       method: 'GET',
       headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` }
-    });}finally{const next=waiting.shift();if(next)next();else active--;}
+    });
+    const hints=scheduler.observe(response.headers);
     const header=response.headers?.get?.('x-ad-account-usage');
     if(header)try{const parsed=JSON.parse(header);usage={accIdUtilPct:Number(parsed.acc_id_util_pct)||0};}catch{}
     readCount += 1;
@@ -84,13 +92,19 @@ export function createMetaAdsReadClient({
       failure.providerCode=Number.isInteger(payload?.error?.code)?payload.error.code:null;
       failure.providerSubcode=Number.isInteger(payload?.error?.error_subcode)?payload.error.error_subcode:null;
       failure.transient=payload?.error?.is_transient===true;
-      if(response.status===400&&failure.providerCode===17)failure.code='META_RATE_LIMITED';
+      if(response.status===429||response.status===400&&([4,17,32,613,80000,80001,80002,80003,80004,80005,80006,80008,80009,80014].includes(failure.providerCode)))failure.code='META_RATE_LIMITED';
+      failure.retryAfterSeconds=Math.max(1,Math.ceil(hints.retryAfterMs/1000));failure.regainMs=hints.regainMs;
       throw failure;
     }
     const payload = await response.json();
     if (payload?.error) throw new MetaAdsReadError('Meta returned an API error', 'META_API_ERROR', response.status);
     if (!payload || typeof payload !== 'object') throw new MetaAdsReadError('Meta returned an invalid payload', 'META_PAYLOAD_INVALID');
     return payload;
+    },{priority:context.getStore()?.priority??0});}catch(error){
+      const transient=['META_HTTP_500','META_HTTP_502','META_HTTP_503','META_HTTP_504'].includes(error.code)||['AbortError','TimeoutError','TypeError'].includes(error.name);
+      if(!transient||attempt>=maxRetries)throw error;
+      await waitImpl(Math.max((error.retryAfterSeconds||0)*1000,Math.min(5000,250*2**attempt)+Math.floor(random()*150)));
+    }
   }
 
   async function paginated(path, parameters) {
@@ -104,7 +118,7 @@ export function createMetaAdsReadClient({
     });
   }
 
-  return Object.freeze({
+  const client=Object.freeze({
     configuredAccountId:String(accountId).replace(/^act_/,''),
     async readAdRankings({since,until}) {
       if(!/^\d{4}-\d{2}-\d{2}$/.test(since)||!/^\d{4}-\d{2}-\d{2}$/.test(until)||since>until||Date.parse(until)-Date.parse(since)>30*86400000)throw new MetaAdsReadError('Invalid ranking period','META_PERIOD_INVALID');
@@ -148,6 +162,11 @@ export function createMetaAdsReadClient({
       return result.items;
     },
     usage(){return usage;},
+    requestStats(){return scheduler.status();},
+    withPriority(priority=10){
+      if(![0,10,20].includes(priority))throw new MetaAdsReadError('Invalid read priority','META_PRIORITY_INVALID');
+      return new Proxy(Object.create(null),{get(_target,key){const value=client[key];return typeof value==='function'&&key!=='withPriority'? (...args)=>context.run({priority,deadlineAt:Date.now()+45000},()=>value.apply(client,args)):value;}});
+    },
     async readCampaigns() {
       const result = await paginated(`act_${accountId}/campaigns`, { fields: CAMPAIGN_FIELDS, limit: 100 });
       if (!result.complete) throw new MetaAdsReadError('Incomplete campaign inventory', 'META_PAGINATION_INCOMPLETE');
@@ -261,4 +280,5 @@ export function createMetaAdsReadClient({
       return readCount;
     }
   });
+  return client;
 }

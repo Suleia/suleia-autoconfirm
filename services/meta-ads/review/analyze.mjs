@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {aggregate,delta} from '../report.mjs';
+import {aggregate,delta,verifiedSubtotal} from '../report.mjs';
 import {CONTRACT,ratio,normalizeInsight} from '../metrics.mjs';
 import {productLink} from '../product-links.mjs';
 import {REVIEW_VERSION,REVIEW_POLICY,KNOWLEDGE,AUDIT_PROFILES} from './policy.mjs';
@@ -111,7 +111,7 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
   const before=priorMap.get(f.entityId)||null,same=comparison.comparable&&f.contract===before?.contract&&f.purchaseType===before?.purchaseType;
   const quality=sample(f,dataset.daily[level]||[],range,policy,now,metadata);
   const evidenceContext={comparison:{...comparison,comparable:same},policy,quality,commerce:commercial,range,baselineRange,observedAt:dataset.observedAt,daily:dataset.daily[level]||[],metadata};
-  return {...f,name:safe(f.name),campaignName:safe(c?.name||dataset.entities.campaign.find(c=>String(c.id)===f.campaignId)?.name),prior:before,objective:c?.objective||null,optimizationGoal:a?.optimization_goal||null,delivery:e?.effective_status||'UNKNOWN',dailyBudgetCents:e?.daily_budget?Number(e.daily_budget):null,product:productLink(f.campaignId,productMappings,now),creative:e?.creative||null,launchedAt:metadata.created_time||null,lastChangedAt:metadata.updated_time||null,creativeFormat:metadata.creative?.object_type||'UNAVAILABLE',sample:quality,comparable:same,
+  return {...f,name:safe(f.name),campaignName:safe(c?.name||dataset.entities.campaign.find(c=>String(c.id)===f.campaignId)?.name),prior:before,objective:c?.objective||null,optimizationGoal:a?.optimization_goal||null,delivery:e?.effective_status||'UNKNOWN',dailyBudgetCents:e?.daily_budget?Number(e.daily_budget):null,product:productLink(f.campaignId,productMappings,now),creative:extras.creatives?.find(x=>String(x.id)===f.entityId)?.creative||e?.creative||null,launchedAt:metadata.created_time||null,lastChangedAt:metadata.updated_time||null,creativeFormat:metadata.creative?.object_type||'UNAVAILABLE',sample:quality,comparable:same,
    diagnoses:diagnoses(f,before,evidenceContext),decomposition:decompose(f,before,same),profit:null,series:(dataset.daily[level]||[]).filter(x=>x.entityId===f.entityId).toSorted((a,b)=>a.since.localeCompare(b.since)),
    outliers:robustOutliers((dataset.daily[level]||[]).filter(x=>x.entityId===f.entityId).toSorted((a,b)=>a.since.localeCompare(b.since)).map(x=>x.spend))};
  });
@@ -121,7 +121,7 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
  // Reach/frequency are valid at one provider scope over the whole range. They
  // are neither summed across audiences nor averaged across daily rows.
  for(const [target,items]of [[totals,actual],[before,priorSelected]]){target.reach=items.length===1?items[0].reach:null;target.frequency=items.length===1?items[0].frequency:null;}
- const budgetRows=rows.filter(r=>r.delivery==='ACTIVE');totals.dailyBudgetCents=level==='campaign'&&budgetRows.every(r=>Number.isSafeInteger(r.dailyBudgetCents))?budgetRows.reduce((n,r)=>n+r.dailyBudgetCents,0):null;
+ const budgetRows=rows.filter(r=>r.delivery==='ACTIVE');totals.dailyBudgetCents=level==='campaign'&&rows.length>0&&rows.every(r=>r.delivery!=='UNKNOWN')&&dataset.budgetObservation?.state!=='UNAVAILABLE'&&budgetRows.every(r=>Number.isSafeInteger(r.dailyBudgetCents))?budgetRows.reduce((n,r)=>n+r.dailyBudgetCents,0):null;
  before.dailyBudgetCents=null;
  const conversionCompatible=comparison.comparable&&totals.purchaseType===before.purchaseType;
  const recommendations=rows.flatMap(f=>f.diagnoses).toSorted((a,b)=>a.priority-b.priority||a.entityId.localeCompare(b.entityId));
@@ -129,7 +129,7 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
  const coverage={requested:range,firstObservedDay:(dataset.daily[level]||[]).map(f=>f.since).toSorted()[0]||null,lastObservedDay:(dataset.daily[level]||[]).map(f=>f.since).toSorted().at(-1)||null,daysWithRows:new Set((dataset.daily[level]||[]).map(f=>f.since)).size,
   note:'Complete API pagination is not proof of historical event coverage. Days/entities without Insights remain unknown; unique reach is not summed across days.'};
  const observedAt=dataset.observedAt,stale=dataset.readFailed||now-Date.parse(observedAt)>=120000;
- const report={version:REVIEW_VERSION,experienceVersion:7,agent:'Suleia Campaign Review Agent',reviewExecution:'RECOMMENDATION_ONLY',budgetMode:dataset.mode||'UNKNOWN',account:dataset.account,observedAt,timezone:'Europe/Madrid',contract:CONTRACT,range,baselineRange,comparison,level,selection:ids,totals,previous:before,
+ const report={version:REVIEW_VERSION,experienceVersion:11,agent:'Suleia Campaign Review Agent',reviewExecution:'RECOMMENDATION_ONLY',budgetMode:dataset.mode||'UNKNOWN',account:dataset.account,observedAt,timezone:'Europe/Madrid',contract:CONTRACT,range,baselineRange,comparison,level,selection:ids,totals,previous:before,budgetObservation:dataset.budgetObservation||{state:'OBSERVED_NOT_EXECUTOR_VERIFIED',observedAt},
   changes:Object.fromEntries(['spend','impressions','reach','frequency','linkClicks','landingPageViews','addToCart','initiateCheckout','purchaseValue','purchases','cpa','roas','linkCtr','linkCpc','cpm'].map(k=>[k,(comparison.comparable&&(!['purchases','cpa','roas'].includes(k)||conversionCompatible))?delta(totals[k],before[k]):null])),
   rows,recommendations:stale?[]:recommendations,rankings:stale?[]:ranking(rows),commerce:commercial,coverage,warnings:[...new Set([...warnings,...(stale?['STALE_REPORT']:[])])],freshness:stale?'STALE':'FRESH',
   inventory:Object.fromEntries(['campaign','adset','ad'].map(l=>[l,(dataset.entities[l]||[]).map(e=>({id:String(e.id),name:safe(e.name),campaignId:l==='campaign'?String(e.id):String(e.campaign_id),adsetId:e.adset_id?String(e.adset_id):null,status:e.effective_status||'UNKNOWN'}))])),
@@ -137,6 +137,7 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
   hourly:equivalentHourlyTraffic((extras.hourly||[]).filter(h=>selected.some(f=>f.campaignId===String(h.campaign_id))),range,now),breakdowns:extras.breakdowns||{},videos:extras.videos||[],knowledge:KNOWLEDGE,policy,auditProfiles:AUDIT_PROFILES,
   statisticalStatus:'EXPLORATORY_OBSERVATIONAL',multipleTesting:{status:'NO_SIGNIFICANCE_CLAIMS',method:'BY available only for justified supplied tests; nonunique event aggregates are not independent binary trials.'},
   limits:['Meta attributed ROAS does not establish settled profit or incrementality.','No campaign is paused, scaled or changed by this review agent.','V5.1 approvals, locks, limits and schedules remain in the existing executor.'],externalWrites:0};
+ report.subtotal=verifiedSubtotal(actual);
  report.evidenceDigest=digest({range,baselineRange,observedAt,level,selection:ids,rows:rows.map(r=>[r.entityId,r.spend,r.purchases,r.purchaseValue]),commerce:commercial});
  report.summary=[`Gasto ${money(totals.spend)} · Compras atribuidas ${totals.purchases??'N/D'} · CPA ${money(totals.cpa)} · ROAS ${totals.roas?.toFixed(2)??'N/D'}`,`${recommendations.length} hipótesis para revisar. Beneficio por campaña no acreditado.`,range.partial?'Día en curso: comparación de conversiones con ayer bloqueada.':'Periodos completos; las conversiones recientes pueden revisarse.'];
  return report;

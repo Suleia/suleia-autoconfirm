@@ -1200,7 +1200,7 @@ async function loadResultsFinance({ force = false, background = false } = {}) {
 }
 async function refresh({ force = false, background = false } = {}) {
   // Keep the dated audit snapshot and its controls intact until the reader closes it.
-  if (background && state.view === 'ads' && ($('ads-view').querySelector('dialog[open]') || document.querySelector('dialog.gi-drawer[open]'))) return;
+  if (background && state.view === 'ads' && ($('ads-view').querySelector('dialog[open]') || document.querySelector('dialog.gi-drawer[open]') || $('ads-view').querySelector('details[open]') || (document.activeElement?.matches?.('input,textarea,select') && $('ads-view').contains(document.activeElement)))) return;
   if (state.refreshing) return; state.refreshing = true; $('refresh-button').disabled = true; $('refresh-button').textContent = 'Actualizando…';
   try {
     if (state.view === 'finance') await loadResultsFinance({ force, background });

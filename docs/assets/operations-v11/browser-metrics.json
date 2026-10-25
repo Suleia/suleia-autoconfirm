@@ -1,0 +1,8 @@
+{
+  "scenario": "DEMO localhost",
+  "ttfbMs": 8,
+  "lcpMs": 388,
+  "cls": 0.0452,
+  "apiRequests": 15,
+  "apiP95Ms": 55
+}
