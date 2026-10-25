@@ -13,6 +13,26 @@ async function sha256(value) { const bytes = await crypto.subtle.digest('SHA-256
 function redirectUri() { return `${location.origin}${location.pathname}`; }
 
 function showLoginError(message) { const notice = $('login-notice'); notice.textContent = message; notice.hidden = !message; }
+function consumeOAuthCallback() {
+  const url = new URL(`${location.origin}${location.pathname}${location.search}${location.hash || ''}`);
+  const params = new URLSearchParams(url.search);
+  if (params.has('code') || params.has('error')) {
+    for (const key of ['code', 'state', 'session_state', 'iss', 'error', 'error_description']) url.searchParams.delete(key);
+    // Codes are single-use. A reload must start a new authorization instead of
+    // submitting an already-consumed code again after an interrupted response.
+    history.replaceState({}, document.title, url.pathname + url.search + url.hash);
+  }
+  return params;
+}
+async function withAccessDeadline(operation) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try { return await operation(controller.signal); }
+  catch (error) {
+    if (controller.signal.aborted) throw new Error('El acceso ha tardado demasiado. Pulsa Iniciar sesión para iniciar una autorización nueva.');
+    throw error;
+  } finally { clearTimeout(timer); }
+}
 async function prepareLogin() {
   if ((location.hash || '').startsWith('#ads')) sessionStorage.setItem('suleia_ads_return',location.hash);
   if ((location.hash || '').startsWith('#analytics')) sessionStorage.setItem('suleia_analytics_return', location.hash);
@@ -28,11 +48,14 @@ async function prepareLogin() {
 async function exchangeCode(code, returnedState) {
   const expected = sessionStorage.getItem('suleia_oauth_state'); const verifier = sessionStorage.getItem('suleia_pkce_verifier');
   if (!expected || expected !== returnedState || !verifier) throw new Error('La validación de acceso no coincide.');
-  const response = await fetch(`${state.config.oauth.issuer}/protocol/openid-connect/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', client_id: state.config.oauth.client_id, code, redirect_uri: redirectUri(), code_verifier: verifier }) });
-  if (!response.ok) throw new Error('No se pudo completar el acceso seguro.');
-  const payload = await response.json();
+  const payload = await withAccessDeadline(async signal => {
+    const response = await fetch(`${state.config.oauth.issuer}/protocol/openid-connect/token`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ grant_type: 'authorization_code', client_id: state.config.oauth.client_id, code, redirect_uri: redirectUri(), code_verifier: verifier }), signal });
+    if (!response.ok) throw new Error('No se pudo completar el acceso seguro. Pulsa Iniciar sesión para obtener una autorización nueva.');
+    return response.json();
+  });
+  storeTokens(payload);
   sessionStorage.removeItem('suleia_pkce_verifier'); sessionStorage.removeItem('suleia_oauth_state');
-  sessionStorage.removeItem('suleia_refresh_token');storeTokens(payload);
+  if (!payload.refresh_token) sessionStorage.removeItem('suleia_refresh_token');
   const analyticsReturn = sessionStorage.getItem('suleia_analytics_return') || '';
   sessionStorage.removeItem('suleia_analytics_return');
   const adsReturn=sessionStorage.getItem('suleia_ads_return')||'';sessionStorage.removeItem('suleia_ads_return');
@@ -52,9 +75,11 @@ async function refreshAccess() {
  if(tokenRefresh)return tokenRefresh;
  const refresh=sessionStorage.getItem('suleia_refresh_token');if(!refresh||!state.config?.oauth?.issuer)return null;
  tokenRefresh=(async()=>{try{
-  const response=await fetch(`${state.config.oauth.issuer}/protocol/openid-connect/token`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',client_id:state.config.oauth.client_id,refresh_token:refresh})});
-  if(!response.ok)return null;
-  return storeTokens(await response.json());
+  return await withAccessDeadline(async signal=>{
+   const response=await fetch(`${state.config.oauth.issuer}/protocol/openid-connect/token`,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({grant_type:'refresh_token',client_id:state.config.oauth.client_id,refresh_token:refresh}),signal});
+   if(!response.ok){if([400,401].includes(response.status))sessionStorage.removeItem('suleia_refresh_token');return null;}
+   return storeTokens(await response.json());
+  });
  }catch{return null;}finally{tokenRefresh=null;}})();return tokenRefresh;
 }
 async function api(path, { signal, method = 'GET', body } = {}) {
@@ -1244,8 +1269,11 @@ function setView(view) {
 }
 
 async function init() {
-  state.config = await fetch(`${operationsBase}/api/config`).then((response) => { if (!response.ok) throw new Error('Configuración privada no disponible.'); return response.json(); });
-  const params = new URLSearchParams(location.search); state.token = activeToken();
+  const params = consumeOAuthCallback();
+  $('login').hidden = false;
+  $('login-button').textContent = params.has('code') ? 'Completando acceso seguro…' : 'Preparando acceso seguro…';
+  state.config = await withAccessDeadline(async signal => { const response = await fetch(`${operationsBase}/api/config`, { signal }); if (!response.ok) throw new Error('Configuración privada no disponible.'); return response.json(); });
+  state.token = activeToken();
   if (params.has('error')) { history.replaceState({}, document.title, location.pathname); throw new Error('El proveedor de acceso rechazó el inicio de sesión. Inténtalo de nuevo.'); }
   if (params.has('code')) state.token = await exchangeCode(params.get('code'), params.get('state'));
   if (!state.token) state.token=await refreshAccess();
