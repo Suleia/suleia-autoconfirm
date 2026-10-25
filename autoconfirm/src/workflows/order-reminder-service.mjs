@@ -49,13 +49,15 @@ export function createOrderReminderService({ports,config,now=Date.now}){
   // No POST has started. A failed final read is explicitly different from an
   // uncertain message send. Only this pre-send state can ever be reclaimed.
   try{
+   // Catalogue waits share the provider queue with existing workflows. Read it
+   // before the final conversation so it cannot age that evidence afterwards.
+   const finalTemplate=await ports.readTemplate();
+   if(!approvedReminder(finalTemplate))throw Object.assign(Error(),{code:'REMINDER_TEMPLATE_CONTRACT_CHANGED'});
    const fresh=await ports.readContext(order);
    decision=evaluateReminder(fresh,{now:now(),lookbackHours:config.lookbackHours});
    if(decision.state!=='ELIGIBLE'||decision.initialTemplateSentAt!==receipt.initial_template_sent_at||reminderHash(decision.initialMessageId)!==receipt.initial_message_hash){
     await ports.delivery.finish(key,claimId,'PRE_SEND_BLOCKED',{...receipt,send_status:'PRE_SEND_BLOCKED',block_reason:decision.reason});return decision;
    }
-   const finalTemplate=await ports.readTemplate();
-   if(!approvedReminder(finalTemplate))throw Object.assign(Error(),{code:'REMINDER_TEMPLATE_CONTRACT_CHANGED'});
    if(!await ports.verifyFreshOrder(fresh.order))throw Object.assign(Error(),{code:'REMINDER_ORDER_CHANGED_BEFORE_SEND'});
    if(!Number.isFinite(Date.parse(fresh.checkedAt))||now()-Date.parse(fresh.checkedAt)>10000||Date.parse(fresh.checkedAt)>now())throw Object.assign(Error(),{code:'REMINDER_FRESH_READ_EXPIRED'});
    const params=reminderParameters(fresh.order);

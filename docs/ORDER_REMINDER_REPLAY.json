@@ -18,14 +18,14 @@
   "laterClassifierCorrection": "Non-pending cancelled/rejected/error orders are classified separately from confirmed/fulfilment orders; this does not make them eligible.",
   "testEvidence": {
     "runtime": "Node22 isolated Docker",
-    "sourceArchiveSha256": "3d5ad13690a1265d330aaf93cffd5798906f8cda66e31758429f3d296d1a90a4",
+    "sourceArchiveSha256": "a76a7a2b27e93b3a2b02c5edd1f375c8f5cb54a1bffa81205e555d853610c9f8",
     "testFiles": 65,
-    "passed": 669,
+    "passed": 671,
     "failed": 0,
     "skipped": 0,
     "network": "none",
     "productionCredentialsSupplied": false,
-    "privateReceipt": "/var/tmp/suleia-order-reminder-qa/3d5ad13690a1-mount/result.json"
+    "privateReceipt": "/var/tmp/suleia-order-reminder-qa/a76a7a2b27e9-mount/result.json"
   },
-  "deployment": "Initial SHADOW/canary f25604c; final independently registered job candidate tested, not yet deployed at this receipt"
+  "deployment": "f25604c canary blocked before POST by expired read; corrected catalogue/read ordering candidate tested, no LIVE at this receipt"
 }

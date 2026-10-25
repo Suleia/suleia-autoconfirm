@@ -70,7 +70,10 @@ prepared, incident or discount logical ledgers. SHADOW and replay never reserve
 a send. Runtime status uses only its own app_state key
 `order_confirmation_reminder_v1`; it does not write the global runtime_state.
 
-After a persistent claim, read order/conversation/template again. Persist SENDING
+After a persistent claim, re-verify the catalogue before actually re-reading the
+order/conversation. A slow catalogue cannot consume the final conversation
+freshness window; old evidence is never relabeled or given a longer limit.
+Persist SENDING
 before the single shared-queue POST. The transport checks owner, flags, canary
 scope, claim, recipient, exact parameters and ten-second freshness again after
 waiting for the queue. It never retries the POST. Only a proven pre-dispatch
@@ -132,3 +135,20 @@ retains the current live Meta policies and unrelated service configuration.
 No production rollback has been exercised merely to claim verification.
 
 Official provider read/send contract: [Chatby Automation API](https://app.chatby.io/api).
+
+## Canary pre-dispatch hold during rollout
+
+At17:39:40UTC the first natural f25604c canary scan correctly retained
+ES1484550 as PRE_SEND_BLOCKED / REMINDER_FRESH_READ_EXPIRED with
+send_started_at=null. No assigning POST was started, no message was observed
+and its initial-template ledger hash remained identical to the17:13baseline.
+The shared catalogue wait occurred after the final conversation read. The
+correction moves that catalogue read before a real new conversation read;
+the ten-second guard and final order check remain unchanged. An inbound
+arriving during the catalogue wait still blocks, and an old returned timestamp
+still fails. Full corrected regression671/671 passes,0fail/0skip,65files, archive
+a76a7a2b27e93b3a2b02c5edd1f375c8f5cb54a1bffa81205e555d853610c9f8.
+Only a fenced PRE_SEND_BLOCKED row with no send start can be reclaimed.
+No blind retry, alternative template or general LIVE activation is authorized
+by this technical hold. Continue the original owner-authorized rollout only
+after a naturally eligible canary is actually verified.
