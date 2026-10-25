@@ -32,5 +32,11 @@ restarts API/static only and preserves every preceding Compose file. Rollback
 refuses a superseding release/environment; it restores code only, never ledger,
 customer state, timers, policy or flags. Rollback is prepared, not exercised.
 
-Worker rollout is separate in PR152. A deployed card does not prove a natural
-cycle, verified message or LIVE. See its runtime receipt for actual progress.
+Worker rollout in PR152 is now LIVE_VERIFIED. The final independent audit
+verified 8 actual reminders exactly once with correct order, recipient, body and
+parameters; zero unresolved attempts. Three consecutive natural cycles from the
+current worker process are recorded in its ORDER_REMINDER_DEPLOYMENT.json. The
+actual existing authenticated card reader returns LIVE/FRESH. No browser was used
+for this verification; source/asset, DOM tests, API and authenticated machine
+reads provide the evidence. See ORDER_REMINDER_PANEL_DEPLOYMENT.json for the
+final preservation and access checks.

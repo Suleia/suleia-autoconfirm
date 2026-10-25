@@ -30,8 +30,28 @@
     "existingAutomationEndpointAnonymous": 401
   },
   "authenticatedRenderClientReadVerified": true,
-  "workerRolloutAtThisReceipt": "SHADOW; natural cycle/canary/LIVE not yet verified",
+  "workerRolloutAtThisReceipt": "LIVE_VERIFIED",
   "schemaChanges": 0,
   "newCredentials": 0,
-  "privateRollbackDirectory": "/root/suleia-order-reminder-panel-deploy/79a2746/"
+  "privateRollbackDirectory": "/root/suleia-order-reminder-panel-deploy/79a2746/",
+  "finalPreservationVerification": {
+    "at": "2026-10-25T20:05:17.025117+00:00",
+    "revision": "79a27466f68a51194145d9adc4973cbe06a5614e",
+    "healthy": true,
+    "imageId": "sha256:f4f0d3ab87542205be479e762681675822dde1a65832db6e8576f2b90fcd0176",
+    "apiSourceFilesVerified": 385,
+    "staticFilesVerified": 48,
+    "applicationChanges": 3,
+    "botPidPreserved": true,
+    "allOtherApiEnvironmentPreserved": true,
+    "unrelatedContainersAutomationsFinancePreserved": true,
+    "customerOrBudgetWrites": 0,
+    "panel": "/opt/suleia-panel-releases/order-reminder-79a2746"
+  },
+  "finalReadOnlyChecksAtUtc": "2026-10-25T20:25:57.486160+00:00",
+  "workerRuntime": "42a17a18c7d9bcfda44e9b6056a86c25e45cfb84",
+  "verifiedMessages": 8,
+  "currentRuntimeNaturalCyclesVerified": 3,
+  "readerFreshness": "FRESH",
+  "workerEvidence": "PR152 docs/ORDER_REMINDER_DEPLOYMENT.json"
 }
