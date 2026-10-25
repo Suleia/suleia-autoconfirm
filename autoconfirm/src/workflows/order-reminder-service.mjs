@@ -11,7 +11,7 @@ export function verifyReminderReadback(context,receipt){
  if(!historyComplete||!subscriber||confirmationOrderField(subscriber)!==numericId(receipt.dropea_order_id)
   ||reminderHash(exactPhone(subscriber.phone||subscriber.user_id))!==receipt.recipient_hash
   ||reminderHash(String(subscriber.user_ns))!==receipt.conversation_hash)return null;
- const matches=messages.filter(m=>m.type==='out'&&String(m.mid||'').startsWith('wamid.')
+ const matches=messages.filter(m=>['out','agent'].includes(m.type)&&String(m.mid||'').startsWith('wamid.')
   &&providerTemplate(m)===REMINDER_TEMPLATE&&String(m.user_ns)===String(subscriber.user_ns)
   &&messageAt(m)>=Math.floor(Date.parse(receipt.send_started_at)/1000)*1000
   &&(!receipt.provider_message_id||m.mid===receipt.provider_message_id)
@@ -117,7 +117,7 @@ export function createOrderReminderService({ports,config,now=Date.now}){
    if(!replay&&config.canaryEnabled){const selected=ordered.find(x=>String(x.orderId)===config.canaryOrderId);if(selected)candidates=[selected,...candidates.filter(x=>x.orderId!==selected.orderId)].slice(0,config.batchSize||2);}
    for(const order of candidates){
     const canary=config.canaryEnabled&&String(order.orderId)===config.canaryOrderId;
-    const allowSend=senderReady()&&((config.realSends&&liveReady)||(!config.realSends&&canary));
+    const allowSend=!order.reconciliationOnly&&senderReady()&&((config.realSends&&liveReady)||(!config.realSends&&canary));
     let decision;
     try{decision=await process(order,{replay,allowSend});}catch(error){decision={state:'CHATBY_NOT_VERIFIABLE',reason:safeCode(error)};}
     results.push({canonicalOrderId:order.canonicalOrderId,orderId:String(order.orderId),...decision});
@@ -138,5 +138,5 @@ export function createOrderReminderService({ports,config,now=Date.now}){
 }
 export function countResults(rows){
  const count=state=>rows.filter(x=>x.state===state).length;
- return {reminder_candidates:rows.length,reminder_not_due:count('NOT_DUE'),reminder_customer_responded:count('CUSTOMER_RESPONDED'),reminder_already_confirmed:count('ALREADY_CONFIRMED'),reminder_initial_missing:count('INITIAL_TEMPLATE_NOT_VERIFIED'),reminder_blocked_incident:count('INCIDENT_ACTIVE'),reminder_sent:count('VERIFIED'),reminder_verified:count('VERIFIED'),reminder_send_unknown:count('SEND_UNKNOWN'),reminder_duplicate_prevented:count('REMINDER_ALREADY_SENT'),eligible:count('ELIGIBLE')};
+ return {reminder_candidates:rows.length,reminder_not_due:count('NOT_DUE'),reminder_customer_responded:count('CUSTOMER_RESPONDED'),reminder_already_confirmed:count('ALREADY_CONFIRMED'),reminder_initial_missing:count('INITIAL_TEMPLATE_NOT_VERIFIED'),reminder_blocked_incident:count('INCIDENT_ACTIVE'),reminder_sent:count('VERIFIED'),reminder_verified:count('VERIFIED'),reminder_send_unknown:rows.filter(x=>x.state==='SEND_UNKNOWN'||['SEND_UNKNOWN','CLAIM_REQUIRES_RECONCILIATION','DIFFERENT_DELIVERY_CONTRACT_REQUIRES_REVIEW'].includes(x.reason)).length,reminder_duplicate_prevented:count('REMINDER_ALREADY_SENT'),eligible:count('ELIGIBLE')};
 }

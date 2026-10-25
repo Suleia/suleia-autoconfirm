@@ -4,9 +4,21 @@ import {getDropeaV2OrderById} from '../clients/dropea-v2-orders.mjs';
 import {createDropeaV2IncidentClient,loadDropeaV2IncidentStoreConfigs} from '../clients/dropea-v2-incidents.mjs';
 import {getOrderReminderTemplate,getOrderReminderSubscriber,getOrderReminderMessages,sendOrderConfirmationReminder,getChatbyRetryAfterMs} from '../clients/chatby.mjs';
 import {createOrderReminderService} from './order-reminder-service.mjs';
-import {INITIAL_TEMPLATE,REMINDER_TEMPLATE,REMINDER_TIMER,REMINDER_OWNER,numericId,purchaseAnchor,reminderHash,reminderParameters,exactPhone} from './order-reminder-policy.mjs';
+import {INITIAL_TEMPLATE,REMINDER_TEMPLATE,REMINDER_TIMER,REMINDER_OWNER,numericId,purchaseAnchor,reminderHash,reminderParameters,exactPhone,reminderKey} from './order-reminder-policy.mjs';
 
 export const REMINDER_STATUS_KEY='order_confirmation_reminder_v1';
+export function includeReminderReconciliation(orders,retained,providerStoreId){
+ if(retained.length>20)throw Error('REMINDER_RECONCILIATION_COVERAGE_INCOMPLETE');
+ const result=new Map(orders.map(o=>[String(o.orderId),o]));
+ for(const row of retained){
+  const id=numericId(row.order_id),canonical=`dropea:${providerStoreId}:${id}`;
+  if(!id||row.template_key!==reminderKey(canonical)||row.raw?.canonical_order_id!==canonical||!['CLAIMED','SENDING','SEND_UNKNOWN'].includes(row.status))throw Error('REMINDER_RECONCILIATION_IDENTITY_UNVERIFIED');
+  // Only existing reservations are added. process() reconciles/holds these
+  // before eligibility; this cannot create a send for a terminal old order.
+  if(!result.has(id))result.set(id,{orderId:id,canonicalOrderId:canonical,reconciliationOnly:true});
+ }
+ return [...result.values()];
+}
 export function loadReminderConfig(env=process.env){
  const cancellation=Number(env.UNANSWERED_CANCEL_AFTER_HOURS||36);
  const lookbackHours=Math.min(72,cancellation);
@@ -59,7 +71,11 @@ export function createReminderPorts({env=process.env,app=getAppConfig(),request=
     all.push(...rows);
     if(rows.length<100){complete=true;break;}
    }
-   const orders=all.filter(row=>numericId(row.order_id)&&row.raw?.raw?.source==='DROPEA_PUBLIC_API_V2').map(row=>({orderId:String(row.order_id),canonicalOrderId:`dropea:${store.store_id}:${row.order_id}`,local:row}));
+   let orders=all.filter(row=>numericId(row.order_id)&&row.raw?.raw?.source==='DROPEA_PUBLIC_API_V2').map(row=>({orderId:String(row.order_id),canonicalOrderId:`dropea:${store.store_id}:${row.order_id}`,local:row}));
+   if(!replay){
+    const retained=await db('template_delivery_ledger',{select:'template_key,order_id,status,raw',store_id:'eq.'+app.defaultStore.id,template_name:'eq.'+REMINDER_TEMPLATE,status:'in.(CLAIMED,SENDING,SEND_UNKNOWN)',limit:21});
+    orders=includeReminderReconciliation(orders,retained,store.store_id);
+   }
    issueIndex=null;
    if(orders.length){
     const client=createDropeaV2IncidentClient({token:store.token,market:store.market,maxReadRetries:0,timeoutMs:8000});

@@ -180,3 +180,38 @@ ordering, no interleaving, post failure, quota before entry and bounded expiry.
 All existing template, cancellation, confirmation, incident and discount tests
 remain included. Canary verification and general LIVE still require actual
 provider readback under the original rollout; no test customer was created.
+
+## Actual canary and provider receipt shape
+
+The natural3ba32c6 canary created exactly one real message at18:22:03UTC
+(19:22Madrid), same order1484550, exact approved template/recipient/thread and
+all four parameters. Its461-character body hash exactly matches the fenced
+receipt: cf8016e5e21a1943c331beaa08397a06f681d948ea016017baac531259c263db.
+The provider records API output as `agent`; native initial output uses `out`.
+The original outbound-only verifier conservatively held SEND_UNKNOWN rather
+than retrying. Fresh provider reads at18:24 independently found one accepted
+WAMID, correct identity, exact body/hash and all parameters. No message POST
+was repeated.
+
+The final verifier accepts only these two outbound types, retaining every
+accepted-WAMID, exact template, thread/recipient/order, body and uniqueness gate;
+an inbound with identical fields is rejected. Existing reservations remain in
+a separately bounded reconciliation cohort (at most20, same store/key/contract)
+even if the order leaves pending. They can only be held/reconciled, never used
+to create a new message. Retained unknowns stay visible in later-cycle counters.
+
+At18:33:47UTC one explicitly send-disabled reconciliation using the existing
+service/ports/ledger marked that existing canary VERIFIED and restored its own
+status proof. It forbade every new claim, every non-VERIFIED receipt update and
+every message-send call;0send calls,0newclaims,0external messages. Its
+`natural:false` invocation preserved the four actual natural-cycle entries;
+no cycle was manufactured. Provider ID hash
+38c56e98af432a2661376ebb33dc8078728ffa2a65dbcf086a5e49f5314fbdcc
+is retained as sanitized evidence; the full accepted ID is in the private ledger.
+
+Full final isolated regression683/683,0fail/0skip,66files; archive
+a24ae6bd99a7dff77d3663fdc91571bea86bd93468691315a2b2c987ee33d6e3.
+Includes API-agent reconciliation after confirmation, inbound rejection,
+namespace/store/backlog fencing, no new send from a reconciliation-only candidate
+and persistent uncertainty counters across restart. General LIVE and its three
+natural cycles must still be verified separately from this canary result.
