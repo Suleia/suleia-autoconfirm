@@ -57,6 +57,7 @@ def verify(S):
   if p not in changed:assert sha((pathlib.Path(panel)/p).read_bytes())==h,'UNRELATED_STATIC_CHANGED'
  assert BOT.resolve()==pathlib.Path(S['bot']),'BOT_RELEASE_CHANGED'
  for f in M['botFiles']:assert sha((pathlib.Path(S['bot'])/pathlib.Path(f['path']).name).read_bytes())==f['after'],'BOT_FILE_MISMATCH'
+ for name,h in S['botPreservedHashes'].items():assert sha((pathlib.Path(S['bot'])/name).read_bytes())==h,'UNRELATED_BOT_CODE_CHANGED'
  assert sha(BENV.read_bytes())==S['newBotEnvHash'],'BOT_ENV_CHANGED'
  assert run(['systemctl','is-active','suleia-telegram.service']).decode().strip()=='active','BOT_INACTIVE'
  assert one("count(*) FROM pg_indexes WHERE schemaname='economics' AND indexname='ads_operations_one_night_per_campaign_day'")=='1','NIGHT_GUARD_MISSING'
@@ -96,7 +97,15 @@ if phase=='stage':
  live=json.loads(run(safe+[M['image'],'--input-type=module','-e',code]));assert live['mode']=='LIVE'and live['aggregate']==36000 and live['version']=='SULEIA_META_AUTOPILOT_V6'
  shutil.copytree(priorPanel,S['panel'])
  for f in M['panelFiles']:shutil.copyfile(source/f['path'],pathlib.Path(S['panel'])/pathlib.Path(f['path']).name)
- newBot=pathlib.Path(S['bot']);shutil.copytree(previousBot,newBot)
+ newBot=pathlib.Path(S['bot']);newBot.mkdir(parents=True,mode=0o755)
+ # Copy code only. Never make a release-local env, offset, conversation or
+ # private data file publicly readable while preparing a code release.
+ changedBot={pathlib.Path(f['path']).name for f in M['botFiles']}
+ S['botPreservedHashes']={}
+ for file in previousBot.iterdir():
+  if file.is_file()and file.suffix in ['.mjs','.py']and not file.name.endswith('.test.mjs'):
+   shutil.copyfile(file,newBot/file.name)
+   if file.name not in changedBot:S['botPreservedHashes'][file.name]=sha(file.read_bytes())
  newBot.parent.parent.parent.chmod(0o755)
  for f in M['botFiles']:shutil.copyfile(source/f['path'],newBot/pathlib.Path(f['path']).name)
  cap=newBot.parent.parent/'services/meta-ads/budget-cap.mjs';cap.parent.mkdir(parents=True);shutil.copyfile(source/'services/meta-ads/budget-cap.mjs',cap)
