@@ -11,6 +11,7 @@ import {findVerifiedTemplateDelivery,messageTimestamp,isCustomerInteraction} fro
 import {INCIDENT_DISCOUNT_TEMPLATE_NAME} from './incident-discount-template.mjs';
 import {rejectedIntent} from './recipient-rejected-policy.mjs';
 import {inspectPriorOrderReturn} from './incident-order-return-guard.mjs';
+import {addressMessageText} from './address-response-policy.mjs';
 
 let running=false,lastRun=null,lastStatus=null;
 export function acceptedSupportStatus(env=process.env){
@@ -38,12 +39,21 @@ export async function readCandidate(incident,env=process.env){
  const inbound=messages.filter(isCustomerInteraction);if(inbound.some(m=>!Number.isFinite(messageTimestamp(m))||messageTimestamp(m)>Date.now()+60000))throw Error('MESSAGE_TIME_INVALID');
  const acceptance=inbound.filter(m=>messageTimestamp(m)>Date.parse(delivered.sentAt)).sort((a,b)=>messageTimestamp(b)-messageTimestamp(a))[0];
  const prior=await inspectPriorOrderReturn(incident);if(prior.blocked)throw Error('PRIOR_RETURN_UNVERIFIED');
+ let returnRecovery=null;
+ if(prior.verified){
+  const previous=await readDropeaV2ReturnIssueState({orderId:incident.orderId,incidenceId:prior.priorIncidenceId});
+  const raw=previous.issue?.raw||previous.issue;
+  if(String(raw?.id)!==String(prior.priorIncidenceId)||String(raw?.order_id)!==String(order.orderId)
+    ||String(raw?.owner_id)!==String(issue.owner_id)||raw.status!=='RESOLVED'||raw.resolution_status!=='RETURN_REQUESTED')throw Error('PRIOR_RETURN_UNVERIFIED');
+  returnRecovery={verified:true,issueId:String(raw.id),issueAt:raw.created_at,requestedAt:raw.resolution_changed_at,
+   sameShipment:Boolean(issue.tracking_number&&raw.tracking_number&&issue.tracking_number===raw.tracking_number)};
+ }
  return {orderId:order.orderId,issueId:String(issue.id),ownerId:String(issue.owner_id),exactOrder:true,readVerified:true,
   customerName:subscriber.name||[subscriber.first_name,subscriber.last_name].filter(Boolean).join(' '),conversationId:subscriber.user_ns,
   phone:phone(order.customerPhone),conversationPhone:phone(subscriber.phone||subscriber.user_id),issueStatus:issue.status,active:issue.is_active,allowed:issue.allowed_resolution_options,
-  priorReturn:prior.verified,pickupArranged:Boolean(issue.pickup_point)||/recoger en agencia|recogida en agencia/i.test([issue.resolution_note,issue.initial_carrier_description].filter(Boolean).join(' ')),
+  priorReturn:prior.verified,returnRecovery,orderStatus:order.raw?.status,orderSubStatus:order.raw?.sub_status,pickupArranged:Boolean(issue.pickup_point)||/recoger en agencia|recogida en agencia/i.test([issue.resolution_note,issue.initial_carrier_description].filter(Boolean).join(' ')),
   issueAt:issue.created_at,offerAt:delivered.sentAt,acceptedAt:acceptance?new Date(messageTimestamp(acceptance)).toISOString():null,
-  intent:rejectedIntent(acceptance?.content||acceptance?.text,{offerVerified:true}).intent,offerVerified:true,offerMessageId:offerMessage?.id,acceptanceMessageId:acceptance?.id,
+  intent:rejectedIntent(addressMessageText(acceptance),{offerVerified:true}).intent,offerVerified:true,offerMessageId:offerMessage?.id,acceptanceMessageId:acceptance?.id,
   originalAmount:offer.raw.originalAmount,offeredAmount:offer.raw.finalAmount,currentAmount:order.orderAmount,currency:order.currencyCode};
 }
 export async function runAcceptedSupportCycle({env=process.env}={}){

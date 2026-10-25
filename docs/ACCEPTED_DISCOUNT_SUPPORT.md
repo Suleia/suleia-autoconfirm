@@ -23,6 +23,23 @@ The server reports `acceptedDiscountSupport.enabled`, `ready`, `missing`, `lastR
 
 The scheduler checks every 15 minutes. Existing emails, persisted claims and uncertain writes require operator reconciliation. The worker does not automatically migrate or replay historical acceptances. Solution verification confirms the exact issue/order and provider status; the provider's read contract may not expose the literal submitted note. Reconcile COD changes separately with support/provider evidence.
 
+The dedicated VPS scheduler runs the existing support lane every 30 minutes.
+An explicit acceptance after a verified return request may request carrier
+recovery only when a fresh pending incident on the exact same tracking number
+is still ERROR/DELIVERY_EXCEPTION, exposes PROVIDE_SOLUTION, and the acceptance
+postdates the reopened incident. The original offer must be verified between
+the prior incident's creation and its return request. The one-hour settling
+period, unchanged original amount, exact five-euro reduction, fresh rereads,
+screenshots, persistent per-order claim and sent-mail verification still apply.
+The email and note explicitly request feasibility and confirmation of stopping
+the return; they do not assert that the return or collectable amount changed.
+Delivered, returning, cancelled, changed-shipment, agency and uncertain-return
+cases stay blocked. A previous support receipt is never replayed.
+
+An interrupted delivery solution keeps its journal until both provider state
+and the exact persisted note are verified. Failed detail reads now refresh the
+private report with a bounded reason instead of leaving an old report visible.
+
 ## VPS outcome reconciliation
 
 The existing 30-minute VPS worker now re-reads a previously verified support case instead of reporting `ALREADY_VERIFIED` indefinitely. This observation has no email, solution, claim or financial writer. A different or reopened pending issue remains in human review: an old acceptance cannot authorize a new issue. Later customer corrections, ambiguous replies, uncertain shared claims, association failures and unavailable reads remain visible review reasons.
