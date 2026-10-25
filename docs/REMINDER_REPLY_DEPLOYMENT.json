@@ -1,0 +1,42 @@
+{
+  "revision": "82967745f073c028bca46478da9e18c08909ba13",
+  "prior": "42a17a18c7d9bcfda44e9b6056a86c25e45cfb84",
+  "deployId": "dep-dbf6uvnavr4c73d1naa0",
+  "testSourceSha256": "633a3a72bcb6375c72b05ca558f002812941c591722868404f5167c2c9b5303d",
+  "passedTests": 716,
+  "verifiedAt": "2026-10-25T21:25:29.299Z",
+  "health": {
+    "ok": true,
+    "operational": true,
+    "revision": "82967745f073c028bca46478da9e18c08909ba13",
+    "agentEnabled": true,
+    "agentDryRun": false,
+    "confirmationDelayHours": 1,
+    "delayedConfirmRealEnabled": true,
+    "unansweredCancelAfterHours": 48,
+    "lifecycleOwner": "chatby_native",
+    "lifecycleStatus": "native_delivery_pending",
+    "confirmationReady": true,
+    "orderActionsReady": true
+  },
+  "allOtherEnvironmentPreserved": true,
+  "unchangedAddressGatesFollowTestedRevision": true,
+  "syntheticCustomerTestsOnly": true,
+  "realReplyObserved": {
+    "at": "2026-10-25T21:16:19.065Z",
+    "orderId": "1484196",
+    "reminderVerified": true,
+    "historyComplete": true,
+    "replyCount": 1,
+    "replyToVerifiedReminder": true,
+    "intent": "CONFIRM",
+    "replyAt": "2026-10-25T21:01:20.000Z",
+    "providerStatus": "TRANSIT",
+    "rawStatus": "SHIPPING",
+    "rawSubStatus": "AWAITING_PICKUP",
+    "providerConfirmedAt": "2026-10-25T21:04:58.687Z",
+    "customerOrProviderWrites": 0
+  },
+  "attribution": "The existing provider transition was observed read-only; it is not attributed to this deployment. No confirmation was repeated.",
+  "rollback": "Guarded prior-code deployment and four prior gates; no ledger/order/timer/environment restore."
+}
