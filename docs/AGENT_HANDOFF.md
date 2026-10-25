@@ -1,5 +1,36 @@
 # Suleia agent handoff
 
+## 2026-10-25 · V6 deployed d177539, natural canary observation pending
+
+PR151 application runtime d1775398644966f6be8d118148e63140b5c38787 is LIVE on VPS,
+image456e9e4c...; applied14:50UTC after first rolloutf72637f14:31UTC. Migration061
+retained. Exact owner policy100/campaign,1000global,+360aggregate/24hMadrid,15floor;
+08observe/no restore and once22:30−30% independent of performance. Latest complete
+isolated Node22/PG17 regression1410/1410,0fails/0skips,149files, source
+ea2a60363d0ed4e6176fb361967039f9bf170f2365d71f14346c79bb06ee2dfc.
+Post-rollout audit additionally fixed Algorithm's critical-priority misuse and
+coalesced9simultaneous ownership queries without caching subsequent revalidation.
+Boundary probes reject150EUR at shared engine and >100 at legacy transport even
+with a loose env limit;0HTTPcalls. No production financial change forced.
+
+Health/identity checks: both signed administrators200; unknown/cross-chat403;
+fresh single-process bot lock/SHARED_CONFIRMED_BUDGETS health; anonymous data401;
+public panel/budgetasset200/no-store. Unrelated containers, bot unit/token/admins/
+recipients, importers/address observer/incidents, financial tariffs/auth preserved.
+Latest apply initially stopped on cleanup of the exact isolated QA runner/database;
+Docker die/destroy image/IDs/times match passing test completion and are privately
+attested; production continuity baseline was never weakened or replaced.
+
+At14:50:18UTC no VERIFIED V6 assignment yet; CANARY_PENDING, next16:00Madrid.
+Only a transient read-only SQL observer is watching that natural slot; it never
+calls tick, changes budget, creates another scheduler or invokes Meta. Do not
+force a missed slot. Night22:30verification remains pending until naturally due.
+Strict post-change purchase provenance, real08baseline and recovery-data gaps are
+explicit; no invented clocks, limits or margins. Current deployment/rollback and
+test evidence: docs/META_AUTOPILOT_V6_DEPLOYMENT.json; private actual-base backup
+/root/suleia-meta-v6-deploy/d177539/. Both financial ledgers and night reservations
+must survive rollback; previous actual app is V6f72637f, original baseaddress2868d39.
+
 ## 2026-10-25 · Meta Autopilot V6 candidate, owner-approved deployment
 
 Owner's V6 document authorizes implementation and deployment; the owner separately
