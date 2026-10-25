@@ -39,6 +39,13 @@ export class AdsLedger {
     return {stage:rows.some(r=>['FAILED','UNKNOWN','EXECUTING','RECONCILED'].includes(r.state))?'REVIEW_REQUIRED':rows.some(r=>r.state==='VERIFIED'&&r.body?.externalWrites===1&&r.body?.response?.success===true)?'CANARY_VERIFIED':'CANARY_PENDING'};
   }
   async claimAutopilotSlot(account,slot,at){return (await this.pool.query("INSERT INTO economics.ads_autopilot_slots(account_id,slot_key,state,body,created_at) VALUES($1,$2,'EXECUTING',$3,to_timestamp($4/1000.0)) ON CONFLICT DO NOTHING RETURNING slot_key",[account,slot.key,{slot,externalWrites:0},at])).rowCount===1;}
+  async autopilotBaseline(account,date){
+    const row=(await this.pool.query("SELECT body FROM economics.ads_autopilot_slots WHERE account_id=$1 AND slot_key=$2 AND state='COMPLETE' AND body->>'version'='SULEIA_META_AUTOPILOT_V6'",[account,date+':08:00'])).rows[0];
+    return row?.body?.baseline||null;
+  }
+  async nightReservations(account,date){return (await this.pool.query("SELECT campaign_id,state,body FROM economics.ads_operations WHERE account_id=$1 AND body->>'operationKind'='NIGHT_22_30' AND body->>'nightBusinessDate'=$2",[account,date])).rows;}
+  async minimumReceipts(account,at){return (await this.pool.query("SELECT DISTINCT ON(body->>'campaignId') body FROM economics.ads_algorithm_journal WHERE event_type='OBSERVATION' AND body->>'kind'='BUDGET_MINIMUM_RECEIPT' AND body->>'accountId'=$1 AND (body->>'validUntil')::timestamptz>to_timestamp($2/1000.0) ORDER BY body->>'campaignId',created_at DESC",[account,at])).rows.map(r=>r.body);}
+  async saveMinimumReceipt(receipt){const body={...receipt,kind:'BUDGET_MINIMUM_RECEIPT'},id=createHash('sha256').update(JSON.stringify(body)).digest('hex');await this.pool.query("INSERT INTO economics.ads_algorithm_journal(id,event_type,reference,body) VALUES($1,'OBSERVATION',$2,$3) ON CONFLICT DO NOTHING",[id,'budget-minimum:'+receipt.campaignId,body]);}
   async finishAutopilotSlot(account,key,state,body){await this.pool.query("UPDATE economics.ads_autopilot_slots SET state=$3,body=$4,completed_at=now() WHERE account_id=$1 AND slot_key=$2 AND state='EXECUTING'",[account,key,state,body]);}
   async autopilotSlots(account,now){const start=new Date(Date.parse(businessDayBounds({now:new Date(now)}).utc_start)-10*60000).toISOString();return (await this.pool.query('SELECT slot_key,state,body,created_at,completed_at FROM economics.ads_autopilot_slots WHERE account_id=$1 AND created_at>=$2 ORDER BY created_at DESC LIMIT 50',[account,start])).rows;}
   async autopilotHistory(account,now,lookbackMs=86400000){
@@ -80,7 +87,7 @@ export class AdsLedger {
     if(rows.some(r=>![Number(r.before),Number(r.after)].every(Number.isSafeInteger)||!Number.isFinite(Date.parse(r.updated_at))))throw Error('BUDGET_HISTORY_INVALID');
     return {increaseCents:rows.filter(r=>Date.parse(r.updated_at)>=day||['EXECUTING','UNKNOWN'].includes(r.state)).reduce((sum,r)=>sum+Math.max(0,Number(r.after)-Number(r.before)),0),changedCampaignIds:[...new Set(rows.filter(r=>Date.parse(r.updated_at)>now-cooldownMs||['EXECUTING','UNKNOWN'].includes(r.state)).map(r=>r.campaign_id))]};
   }
-  async algorithmJournal(){return (await this.pool.query("SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version' IS DISTINCT FROM 'suleia-review-v6.0' ORDER BY created_at DESC LIMIT 50")).rows;}
+  async algorithmJournal(){return (await this.pool.query("SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version' IS DISTINCT FROM 'suleia-review-v6.0' AND body->>'kind' IS DISTINCT FROM 'BUDGET_MINIMUM_RECEIPT' ORDER BY created_at DESC LIMIT 50")).rows;}
   async latestReviewAlert(reference){return (await this.pool.query("SELECT id,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version'='suleia-review-v6.0' AND body->>'kind'='ALERT_OBSERVATION' AND body->'record'->>'key'=$1 ORDER BY created_at DESC LIMIT 1",[reference])).rows[0]||null;}
   async appendAlgorithmJournal({eventType,reference,principal,report}){
     const id=createHash('sha256').update(`${report.evidenceDigest}:${eventType}:${reference}:${principal}`).digest('hex');
@@ -149,7 +156,7 @@ export class AdsLedger {
       const tx={
         unresolved:async(account,id)=>(await c.query("SELECT 1 FROM economics.ads_operations WHERE account_id=$1 AND campaign_id=$2 AND state IN ('EXECUTING','UNKNOWN') LIMIT 1",[account,id])).rowCount>0,
         operation:async(id,campaign)=>(await c.query('SELECT state,body FROM economics.ads_operations WHERE proposal_id=$1 AND campaign_id=$2',[id,campaign])).rows[0],
-        claimOperation:async(id,campaign,account)=>(await c.query("INSERT INTO economics.ads_operations(proposal_id,campaign_id,account_id,state,body) VALUES($1,$2,$3,'EXECUTING','{}') ON CONFLICT DO NOTHING RETURNING campaign_id",[id,campaign,account])).rowCount===1,
+        claimOperation:async(id,campaign,account,body={})=>(await c.query("INSERT INTO economics.ads_operations(proposal_id,campaign_id,account_id,state,body) VALUES($1,$2,$3,'EXECUTING',$4) ON CONFLICT DO NOTHING RETURNING campaign_id",[id,campaign,account,body])).rowCount===1,
         record:(id,campaign,result)=>this.record(id,campaign,result,c),
         circuitOpen:async(account,now)=>(await c.query('SELECT 1 FROM economics.ads_circuit WHERE account_id=$1 AND open_until>to_timestamp($2/1000.0)',[account,now])).rowCount>0,
         openCircuit:async(account,until)=>c.query('INSERT INTO economics.ads_circuit(account_id,open_until) VALUES($1,to_timestamp($2/1000.0)) ON CONFLICT(account_id) DO UPDATE SET open_until=EXCLUDED.open_until',[account,until])
@@ -162,7 +169,7 @@ export class AdsLedger {
     await client.query(`WITH changed AS (
       INSERT INTO economics.ads_operations(proposal_id,campaign_id,account_id,state,body)
       SELECT $1,$2,body->>'accountId',$3,$4 FROM economics.ads_proposals WHERE id=$1
-      ON CONFLICT(proposal_id,campaign_id) DO UPDATE SET state=EXCLUDED.state,body=EXCLUDED.body,updated_at=now() RETURNING proposal_id,campaign_id
+      ON CONFLICT(proposal_id,campaign_id) DO UPDATE SET state=EXCLUDED.state,body=economics.ads_operations.body||EXCLUDED.body,updated_at=now() RETURNING proposal_id,campaign_id
     ) INSERT INTO economics.ads_events(proposal_id,campaign_id,body) SELECT proposal_id,campaign_id,$4 FROM changed`,[id,campaign,result.state,result]);
   }
 }

@@ -2,7 +2,7 @@ import {reviewWindow} from '../review/periods.mjs';
 import {contentHash,buildExecutive} from './report.mjs';
 import {dailySlot,nextExecution,localClock} from './schedule.mjs';
 import {setTimeout as pause} from 'node:timers/promises';
-export function createExecutiveService({review,ledger,accountId,readBudget=null,panelUrl=null,enabled=false,recipients=[],now=()=>Date.now(),sleep=pause,generationMs=180000}){
+export function createExecutiveService({review,ledger,accountId,readBudget=null,panelUrl=null,enabled=false,recipients=[],now=()=>Date.now(),sleep=pause,generationMs=180000,financialReady=async()=>true}){
  const account=String(accountId).replace(/^act_/,'');if(!/^\d+$/.test(account))throw Error('ACCOUNT_INVALID');
  if(enabled&&(!panelUrl||!recipients.length))throw Error('EXECUTIVE_CONFIGURATION_INVALID');
  const allowed=new Set(recipients);if(recipients.some(x=>!/^\d+$/.test(x)))throw Error('EXECUTIVE_RECIPIENT_INVALID');
@@ -45,6 +45,7 @@ export function createExecutiveService({review,ledger,accountId,readBudget=null,
   if(!review)throw Error('ADS_REVIEW_DISABLED');
   const slot=dailySlot(now()),day=slot.day;
   if(kind==='DAILY'&&!enabled)throw Error('EXECUTIVE_DISABLED');
+  if(kind==='DAILY'&&slot.due&&!await financialReady())return {state:'FINANCIAL_PRIORITY_WAIT',nextExecution:nextExecution(now()),metaWrites:0};
   if(kind==='DAILY'&&!slot.due){
    if(slot.missed){
     const id=dailyId(day),previous=await ledger.get(id,account);

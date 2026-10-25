@@ -14,3 +14,10 @@ test('Autopilot UI refuses stale success on a failed read and assets are loaded 
  const ctx={node,$:()=>root,api:async()=>{throw Error('unavailable');}};vm.runInNewContext(fs.readFileSync(new URL('./budget-autopilot-v5.js',import.meta.url),'utf8')+';globalThis.panel=BudgetAutopilotPanel;',ctx);await ctx.panel.load();assert.match(content(root),/No se ha podido verificar/);
  const html=fs.readFileSync(new URL('./index.html',import.meta.url),'utf8');assert.equal((html.match(/budget-autopilot-v5\.js/g)||[]).length,1);assert.equal((html.match(/budget-autopilot-v5\.css/g)||[]).length,1);
 });
+
+test('V6 view states the real monetary policy, verification and coverage instead of legacy ceilings',async()=>{
+ const root=new Element(),node=(tag,cls,text)=>{const e=new Element(tag);e.textContent=text??'';return e;};
+ const data={version:'SULEIA_META_AUTOPILOT_V6',mode:'LIVE',enabled:true,writesEnabled:true,policy:{maxBudgetCents:10000},approved:{policyProfile:'V6_FIXED_EUR',minimumBudgetCents:1500,globalExposureCents:100000},legacyLimits:{maxAggregateIncreaseCents:36000},quota:{circuit:'CLOSED',requests:3},observedAt:'2026-10-25T14:00Z',nextReviewAt:'2026-10-25T15:00Z',campaigns:[],timeline:[],slots:[],alerts:[],policyConflicts:[],reviewTimes:['08:00','10:00','12:00','16:00','18:00','22:30'],limitations:['Compras nuevas: procedencia sin acreditar.'],liveActivation:{stage:'CANARY_PENDING'}};
+ const ctx={node,$:()=>root,document:{createElementNS:(_,tag)=>new Element(tag)},Date,Intl,Number,api:async()=>data};vm.runInNewContext(fs.readFileSync(new URL('./budget-autopilot-v5.js',import.meta.url),'utf8')+';globalThis.panel=BudgetAutopilotPanel;',ctx);await ctx.panel.load();
+ const text=content(root);assert.match(text,/CONTROL EN TIEMPO REAL/);assert.match(text,/Máximo 100/);assert.match(text,/360/);assert.match(text,/−30 % independiente del ROAS/);assert.match(text,/Sin restauración matinal/);assert.match(text,/primer cambio elegible debe verificarse/);assert.match(text,/procedencia sin acreditar/);assert.doesNotMatch(text,/Máximo 70|23:59|Techos.*20/);
+});

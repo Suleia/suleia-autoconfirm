@@ -1,0 +1,139 @@
+{
+  "runtimeRevision": "51f15ed38c7696c3b7abbae0c0d961c335bfc45c",
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/151",
+  "branch": "codex/meta-autopilot-v6",
+  "appliedAtUtc": "2026-10-25T15:44:12.725539Z",
+  "image": "suleia-meta-autopilot-v6:51f15ed",
+  "imageId": "sha256:d7e5b2d72b38bbb07b2560bb19357559990274268f37c266ba5091d741f49b70",
+  "overlayArchiveSha256": "1c3b617d0b14b9c553a85276404c3207cd2df9952d4db54c1f89f32fc5fdbd1a",
+  "previousActualImage": "suleia-meta-autopilot-v6:b401be0",
+  "previousActualImageId": "sha256:60715f5989174f2462a8ba44a02825e41d3c2e9144c44178576c77ee1f2784fb",
+  "panelRelease": "/opt/suleia-panel-releases/meta-autopilot-v6-51f15ed",
+  "botRelease": "/opt/suleia-meta-autopilot-releases/51f15ed/infrastructure/telegram-center",
+  "privateBackupAndRollback": "/root/suleia-meta-v6-deploy/51f15ed/",
+  "runtimeOverlay": "/etc/suleia/meta-autopilot-v6-51f15ed-runtime.json",
+  "policy": "SULEIA_META_AUTOPILOT_V6",
+  "mode": "LIVE",
+  "campaignMaximumCents": 10000,
+  "globalConfiguredMaximumCents": 100000,
+  "aggregatePositiveChangesPerMadridDayCents": 36000,
+  "minimumOperatingCents": 1500,
+  "observedSpendLimitMode": "UNLIMITED_AUTHORIZED",
+  "migration": "061_meta_autopilot_v6_night_guard.sql",
+  "configurationChecks": {
+    "shadowAndLiveCompiledWithoutNetwork": true,
+    "nonRootUid": 100,
+    "apiFileHashesVerified": 19,
+    "botFilesUpdated": 6,
+    "panelFilesUpdated": 1,
+    "allDeployedApplicationBytesInPassingTestArchive": true,
+    "existingBotUnitAndAdministratorsPreserved": true,
+    "botSingleProcessLockVerified": true,
+    "botHealth": "SHARED_CONFIRMED_BUDGETS",
+    "administratorBridgeStatuses": [
+      200,
+      200
+    ],
+    "unknownActorStatus": 403,
+    "crossChatStatus": 403,
+    "anonymousBudgetApiStatus": 401,
+    "publicPanelStatus": 200,
+    "publicBudgetAssetStatus": 200,
+    "publicAssetsCacheControl": "no-store",
+    "unrelatedContainersAutomationsAndFinancePreserved": true,
+    "lastOverlayApiFilesVerified": 5,
+    "singleApiProcess": true,
+    "legacyMetaWritesEnabled": false,
+    "schedulerFailuresSinceFinalDeployment": 0,
+    "validCampaignMinimumReceipts": 9,
+    "nativeRuleCountAtFinalCheck": 0,
+    "nightReservationsAtFinalCheck": 0,
+    "monetaryWritesFromSourceDiagnostics": 0,
+    "productionBrowserVisualInspectionPerformed": false
+  },
+  "testEvidence": {
+    "runtime": "Node22/PostgreSQL17 isolated containers",
+    "sourceArchiveSha256": "78b02dee4982f51cfd67cc1e7f279faf84fe745887f96c2473fcc42dbacfa3c8",
+    "testFiles": 149,
+    "passed": 1415,
+    "failed": 0,
+    "skipped": 0,
+    "network": "none",
+    "productionCredentialsSupplied": false,
+    "durationMs": 181955.729424,
+    "privateReceipt": "/var/tmp/suleia-address-recovery-qa-78b02dee49/result.json",
+    "unchangedOrderPerformanceBenchmarkPassed": true,
+    "intermediateAttemptNote": "One intermediate run failed the unchanged order performance benchmark. No order code, benchmark or threshold was changed; the final complete run passed it. No production latency improvement is claimed."
+  },
+  "financialEvidenceAtDeployment": {
+    "observedAtUtc": "2026-10-25T15:45:20.950Z",
+    "activation": "CANARY_PENDING",
+    "verifiedV6Assignments": 0,
+    "unknownOrExecutingOperations": 0,
+    "naturalReviewSlot": "2026-10-25:16:00",
+    "naturalReviewState": "COMPLETE",
+    "naturalExecutionState": "BLOCKED",
+    "naturalProposalId": "fd55f81144bf0676",
+    "naturalBlockedItems": 9,
+    "naturalAssigningPosts": 0,
+    "nextNaturalReviewUtc": "2026-10-25T17:00:00Z",
+    "nextNaturalReviewMadrid": "2026-10-25 18:00",
+    "nightCutUtc": "2026-10-25T21:30:00Z",
+    "nightCutMadrid": "2026-10-25 22:30",
+    "firstEligibleChangeForced": false,
+    "missedSlotReplayed": false,
+    "nightExecutionVerified": false,
+    "naturalReviewReceipt": "docs/META_AUTOPILOT_V6_NATURAL_1600.json",
+    "postDeploymentReceipt": "docs/META_AUTOPILOT_V6_POST_DEPLOYMENT.json"
+  },
+  "coverageLimits": [
+    "No verified campaign-attributed post-change purchase event stream; aggregate deltas cannot unlock later increases.",
+    "No reconstructed 08:00 baseline on deployment day; day decreases remain blocked until a real baseline.",
+    "No claimed same-hour-yesterday conversion comparison or fabricated long-history ranking input.",
+    "Provider, learning, external-conflict and unknown-operation blocks remain enforced."
+  ],
+  "rollback": {
+    "restoreCapturedActualApplicationWithBudgetLaneDisabled": true,
+    "preserveLedgerReservationsAndOffsets": true,
+    "restoreHistoricalFinancialData": false,
+    "dropNightGuardAfterHistory": false,
+    "refuseSupersedingRelease": true
+  },
+  "deploymentHistory": [
+    {
+      "revision": "f72637ff68370285f57e149bd014b9b59bc2b513",
+      "imageId": "sha256:95a918d8b0c523a0e9f82ced0f504ed4b16c81ff2d7f9c11de4d2f4bc5616b95",
+      "appliedAtUtc": "2026-10-25T14:31:05.821200Z",
+      "scope": "19 API / 6 bot / 1 panel; migration061"
+    },
+    {
+      "revision": "d1775398644966f6be8d118148e63140b5c38787",
+      "imageId": "sha256:456e9e4c390772bd1e22eb43e1ac2a70fcc1ca7431e157d969d2c9ef9e477d61",
+      "appliedAtUtc": "2026-10-25T14:50:12.790907Z",
+      "scope": "deep analysis priority20; coalesced fresh ownership SQL; 2-module overlay"
+    },
+    {
+      "revision": "b401be022542151fceeabb8c1d0a04bd0f62660d",
+      "imageId": "sha256:60715f5989174f2462a8ba44a02825e41d3c2e9144c44178576c77ee1f2784fb",
+      "appliedAtUtc": "2026-10-25T15:14:31.724816Z",
+      "scope": "Per-source operational diagnostics and authenticated read-only evidence inspection"
+    },
+    {
+      "revision": "51f15ed38c7696c3b7abbae0c0d961c335bfc45c",
+      "imageId": "sha256:d7e5b2d72b38bbb07b2560bb19357559990274268f37c266ba5091d741f49b70",
+      "appliedAtUtc": "2026-10-25T15:44:12.725539Z",
+      "scope": "Five API dependency files; approved 120-second guard freshness, higher verified minimum retention, private journal projection and zero-write read envelope. Captured bot/static code preserved."
+    }
+  ],
+  "initialActualProductionBase": {
+    "image": "suleia-address-import-recovery:2868d39",
+    "imageId": "sha256:ac40cc50b6e4e23db381b16b4badc9b0988e396bf58b68085bacaaf4e6a9202e"
+  },
+  "additionalIsolatedBoundaryProbes": {
+    "legacyDirectAbove100": "REJECTED",
+    "sharedEngine150WithLooseConfiguredCeiling": "BLOCKED",
+    "httpCalls": 0
+  },
+  "deploymentContinuityNotes": "Apply guard initially stopped on two removed isolated QA containers; Docker die/destroy events at the passing test completion were attested by exact container IDs/image/time. No production baseline was changed. Dedicated private attestation retained.",
+  "independentlyVerifiedAtUtc": "2026-10-25T15:44:44.880431Z"
+}

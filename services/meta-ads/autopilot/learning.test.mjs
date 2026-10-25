@@ -33,3 +33,10 @@ test('ownership history can include 72 hours and rejects an unbounded lookback',
  await ledger.autopilotHistory('9',now,72*3600000);assert.equal(queries[0][1],now-72*3600000);
  await assert.rejects(ledger.autopilotHistory('9',now,73*3600000),/RANGE_INVALID/);
 });
+
+test('failed operational source retains exact numeric provider diagnostics without raw text',async()=>{
+ const error=Object.assign(Error('https://private/?token=secret'),{code:'META_HTTP_400',status:400,providerCode:100,providerSubcode:999});
+ const reader={readAccount:async()=>({id:'9',currency:'EUR',timezone_name:'Europe/Madrid',account_status:1}),readInsights:async()=>[],readAuditDetails:async l=>{if(l==='adset')throw error;return [];},readActivityHistory:async()=>[],readAuditRules:async()=>[]};
+ const e=await captureAlgorithmEvidence({reader,scope:'BUDGET_GUARDS',now});
+ assert.equal(e.sources.entities_adset.status,'UNAVAILABLE');assert.equal(e.entities.adset,null);assert.equal(e.sources.entities_adset.diagnostic.providerCode,100);assert.equal(e.sources.entities_adset.diagnostic.requestPhase,'EVIDENCE_ENTITIES_ADSET');assert.doesNotMatch(JSON.stringify(e.sources),/private|token|secret/);
+});

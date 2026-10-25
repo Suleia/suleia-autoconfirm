@@ -3,19 +3,21 @@ import {answerAlgorithm,answerTechnicalQuestion} from './algorithm.mjs';
 import {prepareMorningBrief} from './morning.mjs';
 import {parseAutopilotQuery,formatAutopilot,formatAutopilotCycle} from './autopilot/queries.mjs';
 import {consolidatedPolicy} from './autopilot/policy.mjs';
+import {isV6} from './autopilot/v6-policy.mjs';
 export async function adsCommand(runtime,body) {
   const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};runtime.engine.authorize(actor);
-  if(body.action==='review'||(body.action==='request'&&runtime.review?.parse(body.text))){
+  if(body.action==='review'||(body.action==='request'&&!parseAutopilotQuery(body.text)&&runtime.review?.parse(body.text))){
     if(!runtime.review)throw Error('ADS_REVIEW_DISABLED');
     return runtime.review.answer(body.text||'Auditoría completa de campañas',body.query||{});
   }
   if(body.action==='autopilot'){
+    if(body.evidence===true){const evidence=await runtime.budgetGuards();return {budgetEvidence:{observedAt:evidence.observedAt,sources:evidence.sources,externalWrites:0}};}
     const report=await runtime.autopilot.overview(),cycle=body.cycleKey?report.slots.find(s=>s.slot_key===body.cycleKey):report.slots[0];
     return {autopilot:report,text:formatAutopilot(report).slice(0,3900),cycleText:cycle?formatAutopilotCycle(report,cycle):null,cycleKey:cycle?.slot_key};
   }
   if(body.action==='inventory')return {inventory:await runtime.engine.inventory()};
   if(body.action==='history')return {history:(await runtime.ledger.history()).filter(p=>p.actor.user===actor.user)};
-  if(body.action==='status'&&runtime.autopilot?.config.enabled&&consolidatedPolicy(runtime.autopilot.config))return {text:`Budget Autopilot V5.1 · ${runtime.engine.mode} · revisiones automáticas por horario de Madrid. Pasos diurnos de 10 EUR; mínimo 3 compras; máximo 70 EUR/campaña. Aumento agregado: ${runtime.engine.policy.maxAggregateIncreaseCents/100} EUR/día; mínimo ${runtime.autopilot.config.approved.minimumBudgetCents/100} EUR y techo global configurado ${runtime.autopilot.config.approved.globalExposureCents/100} EUR. Gasto observado: ${runtime.autopilot.config.approved.globalSpendLimitMode==='UNLIMITED_AUTHORIZED'?'sin límite adicional autorizado':'sujeto al límite aprobado'}. Órdenes manuales con confirmación del actor. Datos, mínimos Meta, aprendizaje y conflictos pueden bloquear cambios.`};
+  if(body.action==='status'&&runtime.autopilot?.config.enabled&&consolidatedPolicy(runtime.autopilot.config))return {text:`Budget Autopilot ${isV6(runtime.autopilot.config)?'V6':'V5.1'} · ${runtime.engine.mode} · revisiones automáticas por horario de Madrid. Pasos diurnos de 10 EUR; mínimo 3 compras; máximo ${runtime.autopilot.config.policy.maxBudgetCents/100} EUR/campaña. Aumento agregado: ${runtime.engine.policy.maxAggregateIncreaseCents/100} EUR/día; mínimo ${runtime.autopilot.config.approved.minimumBudgetCents/100} EUR y techo global configurado ${runtime.autopilot.config.approved.globalExposureCents/100} EUR. Gasto observado: ${runtime.autopilot.config.approved.globalSpendLimitMode==='UNLIMITED_AUTHORIZED'?'sin límite adicional autorizado':'sujeto al límite aprobado'}. ${isV6(runtime.autopilot.config)?'08:00 observar; 10/12/16/18 escalar; 12/16/18 reducir hasta 25 % de la base diaria; 22:30 un solo recorte del 30 %, sin depender del ROAS y sin restaurar por la mañana. ':''}Órdenes manuales con confirmación del actor. Datos, mínimos Meta, aprendizaje y conflictos pueden bloquear cambios.`};
   if(body.action==='status')return {text:`Ads Intelligence · ${runtime.engine.mode} · ${runtime.engine.mode==='LIVE'?'Presupuestos con confirmación humana':'LIVE desactivado'}. Límites: ${runtime.engine.policy.maxBudgetCents/100} EUR/día por campaña y ${runtime.engine.policy.maxChangePercent}% por cambio. Aumento agregado: ${runtime.engine.policy.maxAggregateIncreaseCents/100} EUR/día; intervalo por campaña: ${runtime.engine.policy.campaignCooldownMs/3600000} h. Las protecciones pueden bloquear propuestas; no hay ejecución automática.`};
   if(body.action==='analyze')return {analysis:await runtime.overview(body.query)};
   if(body.action==='request'){

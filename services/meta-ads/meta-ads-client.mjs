@@ -163,8 +163,10 @@ export function createMetaAdsReadClient({
     },
     usage(){return usage;},
     requestStats(){return scheduler.status();},
+    reserveFinancialWindow(until){scheduler.reserveFinancialWindow(until);},
+    financialResponse(headers,error=null){scheduler.observe(headers);if(error)scheduler.recordFailure(error);},
     withPriority(priority=10){
-      if(![0,10,20].includes(priority))throw new MetaAdsReadError('Invalid read priority','META_PRIORITY_INVALID');
+      if(![-20,-10,0,10,20].includes(priority))throw new MetaAdsReadError('Invalid read priority','META_PRIORITY_INVALID');
       return new Proxy(Object.create(null),{get(_target,key){const value=client[key];return typeof value==='function'&&key!=='withPriority'? (...args)=>context.run({priority,deadlineAt:Date.now()+45000},()=>value.apply(client,args)):value;}});
     },
     async readCampaigns() {

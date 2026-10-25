@@ -39,7 +39,7 @@ const request='Sube 10 € el presupuesto de todas las campañas activas que ten
 const actor={user:'1',chat:'1'};
 function fixture(options={}){
   let now=Date.parse('2026-10-21T08:00:00Z'),writes=0;
-  const campaigns=[{id:'11',account_id:'9',name:'Fixture campaign',status:'ACTIVE',effective_status:'ACTIVE',daily_budget:'10000'}];
+  const campaigns=[{id:'11',account_id:'9',name:'Fixture campaign',status:'ACTIVE',effective_status:'ACTIVE',daily_budget:'8000'}];
   const rows=[{campaign_id:'11',campaign_name:'Fixture campaign',date_start:'2026-10-21',date_stop:'2026-10-21',spend:'20',impressions:'2000',actions:[{action_type:'purchase',value:'3'}],action_values:[{action_type:'purchase',value:'120'}]}];
   const rules=[];
   const reader={readAccount:async()=>({id:'act_9',currency:'EUR',timezone_name:'Europe/Madrid',account_status:1}),readCampaigns:async()=>campaigns,readDelivery:async()=>campaigns.map(c=>({campaign_id:c.id,status:'ACTIVE',effective_status:'ACTIVE'})),readRules:async()=>rules,readInsights:async()=>rows,readCampaign:async(id)=>campaigns.find(c=>c.id===id)};
@@ -79,7 +79,7 @@ test('purchase aliases are selected, never added; provider ratios are not truste
   assert.equal(normalizeInsight({},{}).spend,null);
 });
 test('ROAS >5 is eligible; confirmation simulates once with zero mutator calls',async()=>{
-  const f=fixture(),p=await f.propose();assert.deepEqual(p.items[0].reasons,[]);assert.equal(p.items[0].after,11000);
+  const f=fixture(),p=await f.propose();assert.deepEqual(p.items[0].reasons,[]);assert.equal(p.items[0].after,9000);
   const a=await f.engine.confirm({id:p.id,actor});assert.equal(a.items[0].result.state,'SIMULATED');
   await f.engine.confirm({id:p.id,actor});assert.equal(f.writes(),0);
 });
@@ -90,7 +90,7 @@ for(const [name,setup,reason] of [
   ['zero spend',f=>f.rows[0].spend='0','ROAS_ZERO_SPEND'],
   ['insufficient purchases',f=>f.rows[0].actions[0].value='1','INSUFFICIENT_SAMPLE'],
   ['ABO campaign',f=>delete f.campaigns[0].daily_budget,'CAMPAIGN_DAILY_BUDGET_REQUIRED'],
-  ['maximum budget',f=>f.policy.maxBudgetCents=10000,'MAX_BUDGET'],
+  ['maximum budget',f=>f.policy.maxBudgetCents=8500,'MAX_BUDGET'],
   ['automatic rule conflict',f=>f.rules.push({status:'ENABLED'}),'AUTOMATION_CONFLICT'],
   ['sample policy absent',f=>f.policy.minSpend=null,'SAMPLE_POLICY_NOT_CONFIGURED'],
 ])test(name+' blocks a proposal item without mutation',async()=>{const f=fixture();setup(f);const p=await f.propose();assert.ok(p.items[0].reasons.includes(reason));await f.engine.confirm({id:p.id,actor});assert.equal(f.writes(),0);});
@@ -120,7 +120,7 @@ test('executor harness verifies partial results, opens circuit, and never retrie
   const p=await f.propose();const result=await f.engine.confirm({id:p.id,actor});
   assert.equal(result.items[0].result.state,'UNKNOWN');assert.equal(result.items[1].result.state,'BLOCKED');
   await f.engine.confirm({id:p.id,actor});assert.equal(calls,1);
-  f.campaigns[0].daily_budget='11000';await f.engine.reconcile({id:p.id,actor});assert.equal((await f.ledger.get(p.id)).items[0].result.state,'RECONCILED');assert.equal(calls,1);
+  f.campaigns[0].daily_budget='9000';await f.engine.reconcile({id:p.id,actor});assert.equal((await f.ledger.get(p.id)).items[0].result.state,'RECONCILED');assert.equal(calls,1);
 });
 test('future executor harness verifies success with one absolute budget assignment',async()=>{const f=fixture({mode:'LIVE',liveCompiled:true}),p=await f.propose();const r=await f.engine.confirm({id:p.id,actor});assert.equal(r.items[0].result.state,'VERIFIED');assert.equal(f.writes(),1);await f.engine.confirm({id:p.id,actor});assert.equal(f.writes(),1);});
 test('approved account accumulation and cooldown are enforced at proposal and confirmation',async()=>{

@@ -6,9 +6,10 @@ export class AutopilotReports {
     const p=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(this.now()).map(x=>[x.type,x.value]));
     const time=`${p.hour}:${p.minute}`,day=`${p.year}-${p.month}-${p.day}`;
     const minute=Number(p.hour)*60+Number(p.minute);
-    let due=TIMES.find(t=>{const [h,m]=t.split(':').map(Number);return minute>=h*60+m&&minute<=h*60+m+5;});
+    const times=this.config.autopilotPolicyVersion==='SULEIA_META_AUTOPILOT_V6'?['08:00','10:00','12:00','16:00','18:00','22:30']:TIMES;
+    let due=times.find(t=>{const [h,m]=t.split(':').map(Number);return minute>=h*60+m&&minute<=h*60+m+5;});
     let dueDay=day;
-    if(!due&&minute<5){due='23:59';dueDay=new Date(Date.parse(day+'T12:00:00Z')-86400000).toISOString().slice(0,10);}
+    if(!due&&minute<5&&times.includes('23:59')){due='23:59';dueDay=new Date(Date.parse(day+'T12:00:00Z')-86400000).toISOString().slice(0,10);}
     if(!due)return;
     this.busy=true;
     try {

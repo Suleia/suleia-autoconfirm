@@ -3,6 +3,10 @@ import { CONTRACT, normalizeInsight, windowFor } from './metrics.mjs';
 import { budgetAfter, parseAdsIntent } from './intent.mjs';
 import { diagnose } from './diagnostics.mjs';
 import {manualAutopilotReasons,AUTOPILOT_VERSION,autopilotMetric,consolidatedPolicy} from './autopilot/policy.mjs';
+import {V6_VERSION,isV6} from './autopilot/v6-policy.mjs';
+import {budgetDiagnostic} from './autopilot/errors.mjs';
+import {MAX_CAMPAIGN_DAILY_BUDGET_CENTS} from './budget-cap.mjs';
+import {instantFor} from './autopilot/schedule.mjs';
 const hash = x => createHash('sha256').update(JSON.stringify(x)).digest('hex');
 const match = (name, selector) => name.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().includes(selector.toLowerCase());
 export const LIVE_COMPILED = true; // Owner-authorized budget-only release; runtime gates remain mandatory.
@@ -27,10 +31,10 @@ export class AdsIntelligence {
     if (persist&&this.ledger.persistFacts) await this.ledger.persistFacts(facts);
     return {account,range,facts,observedAt,complete:true,contract:CONTRACT};
   }
-  async inventory() {
+  async inventory({financialOnly=false}={}) {
     const observedAt=this.now();
     const today=windowFor('hoy',this.now());
-    const [campaigns,ads,rules,accountSpend]=await Promise.all([this.reader.readCampaigns(),this.reader.readDelivery(),this.reader.readRules(),this.autopilot?.config.enabled&&this.reader.readAccountDaySpend?this.reader.readAccountDaySpend(today):null]);
+    const [campaigns,ads,rules,accountSpend]=await Promise.all([this.reader.readCampaigns(),this.reader.readDelivery(),this.reader.readRules(),!financialOnly&&this.autopilot?.config.enabled&&this.reader.readAccountDaySpend?this.reader.readAccountDaySpend(today):null]);
     return {campaigns,ads,rules,accountSpend,observedAt};
   }
   policyReasons(campaign,metric,intent,inventory) {
@@ -58,7 +62,7 @@ export class AdsIntelligence {
     if(intent.direction&&(intent.direction==='increase'?after<Number(campaign.daily_budget):after>Number(campaign.daily_budget)))reasons.push('DIRECTION_CONFLICT');
     if (!Number.isSafeInteger(p.maxBudgetCents)||!Number.isFinite(p.maxChangePercent)||p.maxChangePercent<=0) reasons.push('LIMIT_POLICY_NOT_CONFIGURED');
     else {
-      if (after>p.maxBudgetCents) reasons.push('MAX_BUDGET');
+      if (after>p.maxBudgetCents||after>MAX_CAMPAIGN_DAILY_BUDGET_CENTS) reasons.push('MAX_BUDGET');
       if (after<(p.minBudgetCents||1)) reasons.push('MIN_BUDGET');
       if (!consolidatedPolicy(this.autopilot?.config)&&Math.abs(after-Number(campaign.daily_budget))*100>Number(campaign.daily_budget)*p.maxChangePercent) reasons.push('MAX_CHANGE_PERCENT');
     }
@@ -66,21 +70,21 @@ export class AdsIntelligence {
     return {after,reasons};
   }
   async proposeScheduled({slot,decisions,evidence,config}) {
-    if(!this.autopilot||(this.mode==='LIVE'&&!config.liveCompiled)||!config.enabled||config.policy.version!==AUTOPILOT_VERSION)throw Error('AUTOPILOT_LIVE_NOT_AUTHORIZED');
-    const requestKey=`${this.accountId}:AUTOPILOT:${AUTOPILOT_VERSION}:${slot.key}`,requestHash=hash({slot:slot.key,version:AUTOPILOT_VERSION});
+    if(!this.autopilot||(this.mode==='LIVE'&&!config.liveCompiled)||!config.enabled||![AUTOPILOT_VERSION,V6_VERSION].includes(config.policy.version))throw Error('AUTOPILOT_LIVE_NOT_AUTHORIZED');
+    const version=config.policy.version,requestKey=`${this.accountId}:AUTOPILOT:${version}:${slot.key}`,requestHash=hash({slot:slot.key,version});
     const prior=await this.ledger.byRequest(requestKey);if(prior)return prior;
     const targets=Object.fromEntries(decisions.map(d=>[d.campaignId,d.after]));
     const intent={kind:'budget',mode:'scheduled',period:'hoy',targets};
     const items=[];
     for(const decision of decisions){
       const c=evidence.inventory.campaigns.find(c=>String(c.id)===decision.campaignId);
-      const base=this.policyReasons(c,decision.metric,intent,evidence.inventory),learning=this.learningAssessment?(evidence.learning?.get(String(c.id))||{reasons:['LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE'],policy:null}):null;
+      const base=this.policyReasons(c,decision.metric,intent,evidence.inventory),learning=isV6(config)&&slot.kind==='NIGHT'?null:this.learningAssessment?(evidence.learning?.get(String(c.id))||{reasons:['LEARNING_EVIDENCE_PREPARING_OR_UNAVAILABLE'],policy:null}):null;
       const reasons=[...new Set([...decision.reasons,...base.reasons,...(learning?.reasons||[]),...(decision.action==='HOLD'?['AUTOPILOT_HOLD']:[])])];
       items.push({...decision,reasons,learning,status:'PENDING'});
     }
     const now=this.now(),proposal={id:hash(requestKey).slice(0,16),requestKey,requestHash,authorizationReference:config.approved.approvalReference,actor:{user:'SYSTEM_AUTOPILOT',chat:'SYSTEM_AUTOPILOT'},origin:'AUTOPILOT',request:`Autopilot ${slot.key}`,intent,
-      accountId:this.accountId,contract:CONTRACT,mode:this.mode,state:'PENDING',createdAt:now,expiresAt:now+300000,policyHash:this.policyDigest(),
-      selectedCount:items.length,inventoryCount:evidence.inventory.campaigns.length,items,autopilot:{slot,version:AUTOPILOT_VERSION,config,observedAt:evidence.snapshot.observedAt}};
+      accountId:this.accountId,contract:CONTRACT,mode:this.mode,state:'PENDING',createdAt:now,expiresAt:isV6(config)?instantFor(slot.date,slot.time)+300000:now+300000,policyHash:this.policyDigest(),
+      selectedCount:items.length,inventoryCount:evidence.inventory.campaigns.length,items,autopilot:{slot,version,config,observedAt:evidence.snapshot.observedAt}};
     return this.ledger.createProposal(proposal);
   }
   async confirmScheduled(id) {
@@ -96,12 +100,12 @@ export class AdsIntelligence {
     if (prior) {if(prior.requestHash!==hash(text))throw Error('IDEMPOTENCY_PAYLOAD_CONFLICT');return prior;}
     const intent=parseAdsIntent(text);
     if (intent.kind!=='budget') return {state:'CLARIFICATION',question:intent.question||'Usa la consulta de análisis para esa petición.'};
-    if(this.autopilot?.config.enabled&&intent.unit==='percent')return {state:'CLARIFICATION',question:'Budget Autopilot V5.1 utiliza importes en euros. Indica el cambio absoluto o el presupuesto final.'};
+    if(this.autopilot?.config.enabled&&intent.unit==='percent')return {state:'CLARIFICATION',question:'Budget Autopilot utiliza importes en euros. Indica el cambio absoluto o el presupuesto final.'};
     const [inventory,snapshot]=await Promise.all([this.inventory(),this.snapshot(intent.period||'hoy')]);
     const selected=intent.selector==='ALL_ACTIVE'?inventory.campaigns.filter(c=>c.status==='ACTIVE'&&c.effective_status==='ACTIVE'):inventory.campaigns.filter(c=>String(c.id)===intent.selector||match(c.name,intent.selector));
     if (intent.selector!=='ALL_ACTIVE'&&selected.length!==1) return {state:'CLARIFICATION',question:selected.length?'Hay varias campañas. Indica el ID exacto.':'No encuentro esa campaña. Indica el ID exacto.'};
     const metrics=new Map(snapshot.facts.map(f=>[f.campaignId,this.autopilot?.config.enabled?autopilotMetric(f):f]));
-    const constraints=this.autopilot?.config.enabled?await this.autopilot.constraints():undefined;
+    const constraints=this.autopilot?.config.enabled?await this.autopilot.constraints({validate:true}):undefined;
     const items=[];
     for(const c of selected){const metric=metrics.get(String(c.id))||null,decision=this.policyReasons(c,metric,intent,inventory),learning=this.learningAssessment?await this.learningAssessment(c):null;
       if(this.autopilot?.config.enabled)decision.reasons.push(...await this.autopilot.manualAssessment(c,decision.after,{constraints}));
@@ -140,17 +144,19 @@ export class AdsIntelligence {
     if (!await this.ledger.claimProposal(id)) return this.ledger.get(id);
     try {
       for (const item of p.items) {
+        if(isV6(this.autopilot?.config)&&trialAttempted)activation=await this.ledger.liveActivation(this.accountId,this.autopilot.config.approved.approvalReference);
         if (item.reasons.length) {await this.ledger.record(id,item.campaignId,{state:'BLOCKED',reasons:item.reasons});continue;}
         if(activation?.stage==='REVIEW_REQUIRED'||activation?.stage==='CANARY_PENDING'&&trialAttempted){await this.ledger.record(id,item.campaignId,{state:'BLOCKED',reasons:[activation.stage==='REVIEW_REQUIRED'?'LIVE_REVIEW_REQUIRED':'CANARY_VERIFICATION_PENDING']});continue;}
         await this.ledger.withCampaignLock(`${this.accountId}:${item.campaignId}`,async tx=>{
           if (await tx.unresolved(this.accountId,item.campaignId)) {await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:['UNRESOLVED_OPERATION']});return;}
           if (await tx.circuitOpen(this.accountId,this.now())) {await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:['CIRCUIT_OPEN']});return;}
-          const [inventory,snapshot]=await Promise.all([this.inventory(),this.snapshot(p.intent.period||'hoy')]);
+          const night=automatic&&isV6(this.autopilot?.config)&&p.autopilot.slot.kind==='NIGHT';
+          const [inventory,snapshot]=await Promise.all([this.inventory({financialOnly:night}),night?Promise.resolve({facts:[]}):this.snapshot(p.intent.period||'hoy')]);
           const c=inventory.campaigns.find(c=>String(c.id)===item.campaignId), rawMetric=snapshot.facts.find(f=>f.campaignId===item.campaignId),metric=this.autopilot?.config.enabled?autopilotMetric(rawMetric):rawMetric;
           const result=c?this.policyReasons(c,metric,p.intent,inventory):{reasons:['CAMPAIGN_MISSING']};
-          if(c&&automatic){const current=await this.autopilot.validate(c,metric,p);result.reasons.push(...current.reasons);if(current.after!==item.after)result.reasons.push('AUTOPILOT_DECISION_CHANGED');}
+          if(c&&automatic){const current=await this.autopilot.validate(c,metric,p,{inventory});result.reasons.push(...current.reasons);if(current.after!==item.after)result.reasons.push('AUTOPILOT_DECISION_CHANGED');}
           if(c&&!automatic&&this.autopilot?.config.enabled)result.reasons.push(...await this.autopilot.manualAssessment(c,result.after));
-          if(c&&this.learningAssessment){const learning=automatic?await this.autopilot.learningAssessment(c):await this.learningAssessment(c);result.reasons.push(...learning.reasons);if(hash(learning.policy)!==hash(item.learning?.policy))result.reasons.push('LEARNING_POLICY_CHANGED');}
+          if(c&&this.learningAssessment&&!night){const learning=automatic?await this.autopilot.learningAssessment(c):await this.learningAssessment(c);result.reasons.push(...learning.reasons);if(hash(learning.policy)!==hash(item.learning?.policy))result.reasons.push('LEARNING_POLICY_CHANGED');}
           if (this.now()>=p.expiresAt||!c||Number(c.daily_budget)!==item.before||result.after!==item.after||result.reasons.length) {await tx.record(id,item.campaignId,{state:'STALE',reasons:this.now()>=p.expiresAt?['EXPIRED']:['REVALIDATION_FAILED',...result.reasons]});return;}
           // Preserve the local business day and reject changed evidence rather
           // than carrying yesterday's selection into a new day.
@@ -161,25 +167,26 @@ export class AdsIntelligence {
           if(cooldown||usage.increaseCents+Math.max(0,item.after-item.before)>this.policy.maxAggregateIncreaseCents){await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:[cooldown?'CAMPAIGN_COOLDOWN':'AGGREGATE_DAILY_LIMIT']});return;}
           // Durable intent must precede the only mutating call. Crash/timeout
           // remains UNKNOWN/EXECUTING and requires read-only reconciliation.
-          if (!await tx.claimOperation(id,item.campaignId,this.accountId)) return;
+          const reservation=night?{operationKind:'NIGHT_22_30',nightBusinessDate:p.autopilot.slot.date,nightBeforeCents:item.before,nightTargetCents:item.after,nightObservedAt:new Date(this.now()).toISOString(),policyVersion:V6_VERSION}:{};
+          if (!await tx.claimOperation(id,item.campaignId,this.accountId,reservation)){await tx.record(id,item.campaignId,{state:'BLOCKED',reasons:['NIGHT_ALREADY_CLAIMED']});return;}
           if(activation?.stage==='CANARY_PENDING')trialAttempted=true;
           try {
             const response=await this.writer.setDailyBudget(item.campaignId,item.after,{expectedBefore:item.before});
-            const after=await this.reader.readCampaign(item.campaignId);
+            const after=await (this.reader.withPriority?.(-20)||this.reader).readCampaign(item.campaignId);
             if (response?.success!==true||String(after.id)!==item.campaignId||String(after.account_id)!==this.accountId||Number(after.daily_budget)!==item.after||Number(after.lifetime_budget)>0) throw Error('READBACK_MISMATCH');
-            await tx.record(id,item.campaignId,{state:'VERIFIED',before:item.before,after:item.after,response:{success:true},verifiedAt:this.now(),externalWrites:1});
+            await tx.record(id,item.campaignId,{state:'VERIFIED',before:item.before,after:item.after,response:{success:true},verifiedAt:this.now(),externalWrites:1,readback:{campaignId:String(after.id),accountId:String(after.account_id),dailyBudgetCents:Number(after.daily_budget),observedAt:new Date(this.now()).toISOString()},effectiveReductionBps:item.before>item.after?Math.round((item.before-item.after)*10000/item.before):0});
           } catch (error) {
-            await tx.record(id,item.campaignId,{state:error.notSent===true?'STALE':error.definitiveRejection===true?'FAILED':'UNKNOWN',reasons:[error.notSent===true?'LAST_MOMENT_REVALIDATION_FAILED':error.definitiveRejection===true?`META_REJECTED_${error.status}`:'PROVIDER_RESULT_UNKNOWN'],before:item.before,after:item.after});
+            await tx.record(id,item.campaignId,{state:error.notSent===true?'STALE':error.definitiveRejection===true?'FAILED':'UNKNOWN',reasons:[error.notSent===true?'LAST_MOMENT_REVALIDATION_FAILED':error.definitiveRejection===true?`META_REJECTED_${error.status}`:'PROVIDER_RESULT_UNKNOWN'],before:item.before,after:item.after,diagnostic:budgetDiagnostic(error,{stage:'EXECUTION',campaignId:item.campaignId,postSent:error.notSent!==true})});
             await tx.openCircuit(this.accountId,this.now()+300000);
           }
         });
       }
       const outcomes=await this.ledger.get(id);
       return this.ledger.finish(id,this.mode==='LIVE'?(outcomes.items.some(i=>!i.result||['UNKNOWN','EXECUTING'].includes(i.result.state))?'REVIEW_REQUIRED':'COMPLETED'):'SIMULATED');
-    } catch {
+    } catch(error) {
       // Do not mask already committed per-campaign outcomes on partial failure.
       const current=await this.ledger.get(id);
-      for(const item of current.items)if(!item.result)await this.ledger.record(id,item.campaignId,{state:'BLOCKED',reasons:['EXECUTION_INTERRUPTED_REVIEW_REQUIRED']});
+      for(const item of current.items)if(!item.result)await this.ledger.record(id,item.campaignId,{state:'BLOCKED',reasons:['EXECUTION_INTERRUPTED_REVIEW_REQUIRED'],diagnostic:budgetDiagnostic(error,{stage:'EXECUTOR'})});
       return this.ledger.finish(id,'REVIEW_REQUIRED');
     }
   }

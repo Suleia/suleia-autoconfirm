@@ -7,7 +7,7 @@ export function retryAfterMs(value,now=Date.now()){
  const seconds=Number(value);return Number.isFinite(seconds)&&seconds>=0?Math.ceil(seconds*1000):Math.max(0,Date.parse(value)-now)||0;
 }
 export function createMetaReadScheduler({now=Date.now,random=Math.random,maxConcurrent=2,maxAnalysisConcurrent=1,maxQueued=64,queueTimeoutMs=30000}={}){
- let active=0,analysis=0,sequence=0,cooldownUntil=0,cooldownCode=null,lastFailure=null,consecutiveRates=0,transientFailures=0,usage=null;
+ let active=0,analysis=0,sequence=0,cooldownUntil=0,cooldownCode=null,lastFailure=null,consecutiveRates=0,transientFailures=0,usage=null,financialUntil=0;
  const queue=[],latencies=[],counts={requests:0,succeeded:0,failed:0,quotaBlocked:0,queueRejected:0,peakConcurrent:0};
  const blocked=()=>cooldownUntil>now()?error(cooldownCode||'META_RATE_LIMITED',Math.max(1,Math.ceil((cooldownUntil-now())/1000)),lastFailure||{}):null;
  function observe(headers){
@@ -30,8 +30,9 @@ export function createMetaReadScheduler({now=Date.now,random=Math.random,maxConc
  function pump(){
   const block=blocked();if(block){for(const q of queue.splice(0)){clearTimeout(q.timer);counts.quotaBlocked++;q.reject(block);}return;}
   queue.sort((a,b)=>a.priority-b.priority||a.sequence-b.sequence);
+  if(financialUntil>now())for(let i=queue.length-1;i>=0;i--)if(queue[i].priority>0){const q=queue.splice(i,1)[0];clearTimeout(q.timer);counts.quotaBlocked++;q.reject(error('META_FINANCIAL_WINDOW_RESERVED',Math.ceil((financialUntil-now())/1000)));}
   while(active<maxConcurrent){
-   const i=queue.findIndex(q=>q.priority===0||analysis<maxAnalysisConcurrent);if(i<0)return;
+   const i=queue.findIndex(q=>q.priority<=0||analysis<maxAnalysisConcurrent);if(i<0)return;
    const q=queue.splice(i,1)[0];clearTimeout(q.timer);active++;if(q.priority>0)analysis++;
    counts.requests++;counts.peakConcurrent=Math.max(counts.peakConcurrent,active);const started=now();
    Promise.resolve().then(q.task).then(value=>{counts.succeeded++;transientFailures=0;consecutiveRates=0;q.resolve(value);},e=>{counts.failed++;recordFailure(e);q.reject(e);}).finally(()=>{
@@ -41,6 +42,7 @@ export function createMetaReadScheduler({now=Date.now,random=Math.random,maxConc
  }
  function schedule(task,{priority=0}={}){
   const block=blocked();if(block){counts.quotaBlocked++;return Promise.reject(block);}
+  if(priority>0&&financialUntil>now()){counts.quotaBlocked++;return Promise.reject(error('META_FINANCIAL_WINDOW_RESERVED',Math.ceil((financialUntil-now())/1000)));}
   const high=usage&&now()-Date.parse(usage.at)<30000&&Math.max(usage.account?.accIdUtilPct||0,usage.app?.call_count||0,usage.app?.total_cputime||0,usage.app?.total_time||0,...usage.business.flatMap(g=>[g.call_count||0,g.total_time||0,g.total_cputime||0]))>=95;
   if(priority>0&&high){counts.quotaBlocked++;return Promise.reject(error('META_QUOTA_RESERVED',Math.max(1,Math.ceil((30000-now()+Date.parse(usage.at))/1000))));}
   if(queue.length>=maxQueued){counts.queueRejected++;return Promise.reject(error('META_QUEUE_FULL',2));}
@@ -50,5 +52,5 @@ export function createMetaReadScheduler({now=Date.now,random=Math.random,maxConc
    queue.push(q);pump();
   });
  }
- return {schedule,observe,status(){const sorted=latencies.toSorted((a,b)=>a-b),p=v=>sorted.length?sorted[Math.min(sorted.length-1,Math.ceil(sorted.length*v)-1)]:null;return {...counts,active,analysisActive:analysis,queued:queue.length,cooldownUntil:cooldownUntil>now()?new Date(cooldownUntil).toISOString():null,circuit:blocked()?'OPEN':'CLOSED',lastFailure,usage,latencyMs:{samples:sorted.length,p50:p(.5),p95:p(.95),p99:p(.99)}};}};
+ return {schedule,observe,recordFailure,reserveFinancialWindow(until){if(Number.isFinite(until)&&until>now()&&until-now()<=300000)financialUntil=Math.max(financialUntil,until);},status(){const sorted=latencies.toSorted((a,b)=>a-b),p=v=>sorted.length?sorted[Math.min(sorted.length-1,Math.ceil(sorted.length*v)-1)]:null;return {...counts,active,analysisActive:analysis,queued:queue.length,cooldownUntil:cooldownUntil>now()?new Date(cooldownUntil).toISOString():null,financialReservedUntil:financialUntil>now()?new Date(financialUntil).toISOString():null,circuit:blocked()?'OPEN':'CLOSED',lastFailure,usage,latencyMs:{samples:sorted.length,p50:p(.5),p95:p(.95),p99:p(.99)}};}};
 }

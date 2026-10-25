@@ -21,6 +21,7 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     await pool.query(fs.readFileSync(new URL('../../migrations/057_command_center.sql',import.meta.url),'utf8'));
     await pool.query(fs.readFileSync(new URL('../../migrations/058_ads_budget_autopilot.sql',import.meta.url),'utf8'));
     await pool.query(fs.readFileSync(new URL('../../migrations/059_ads_executive_reports.sql',import.meta.url),'utf8'));
+    await pool.query(fs.readFileSync(new URL('../../migrations/061_meta_autopilot_v6_night_guard.sql',import.meta.url),'utf8'));
     const ex1=new ExecutiveLedger(pool),ex2=new ExecutiveLedger(pool),reportId='a'.repeat(64),time=Date.now();
     const spec={id:reportId,account:'9',day:'2026-10-21',kind:'DAILY',principal:'scheduler',now:time};
     const leases=await Promise.all([ex1.claim(spec),ex2.claim(spec)]);assert.equal(leases.filter(Boolean).length,1);
@@ -136,7 +137,7 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_operations_readonly','economics.ads_operations','INSERT') AS allowed")).rows[0].allowed,false);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_operations','INSERT') AS allowed")).rows[0].allowed,true);
     assert.equal((await pool.query("SELECT has_table_privilege('suleia_ads_executor','economics.ads_events','UPDATE') AS allowed")).rows[0].allowed,false);
-    let mutations=0;const campaign={id:'22',account_id:'99',name:'Fixture campaign',status:'ACTIVE',effective_status:'ACTIVE',daily_budget:'10000'};
+    let mutations=0;const campaign={id:'22',account_id:'99',name:'Fixture campaign',status:'ACTIVE',effective_status:'ACTIVE',daily_budget:'8000'};
     const reader={readAccount:async()=>({id:'act_99',account_status:1,currency:'EUR',timezone_name:'Europe/Madrid'}),readCampaigns:async()=>[campaign],readRules:async()=>[],readDelivery:async()=>[{campaign_id:'22',status:'ACTIVE',effective_status:'ACTIVE'}],readInsights:async()=>[{campaign_id:'22',campaign_name:'Fixture campaign',date_start:localDay(),date_stop:localDay(),spend:'20',impressions:'2000',actions:[{action_type:'purchase',value:'3'}],action_values:[{action_type:'purchase',value:'120'}]}]};
     const setup={reader,accountId:'99',allowedActors:['1'],mode:'SHADOW',policy:{maxBudgetCents:20000,maxChangePercent:20,minSpend:15,minPurchases:2,minImpressions:500,maxAgeMs:120000},writer:{setDailyBudget:async()=>{mutations++;throw Error('MUTATION_MUST_NOT_RUN');}}};
     const first=new AdsIntelligence({...setup,ledger:a}),second=new AdsIntelligence({...setup,ledger:b}),actor={user:'1',chat:'1'};
@@ -144,5 +145,25 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     await Promise.all([first.confirm({id:proposal.id,actor}),second.confirm({id:proposal.id,actor})]);
     const completed=await b.get(proposal.id);assert.equal(completed.items[0].result.state,'SIMULATED');assert.equal(mutations,0);
     assert.equal((await second.propose({actor,requestKey:'integration:1',text:proposal.request})).id,proposal.id);
+    // Independent releases/processes cannot reserve the same night twice.
+    const night={...p,id:'6666666666666666',requestKey:'night:v6:first',accountId:'777',items:[{campaignId:'77',before:8000,after:5600}]};
+    await a.createProposal(night);await b.createProposal({...night,id:'7777777777777777',requestKey:'night:v6:new-release'});
+    const frozen={operationKind:'NIGHT_22_30',nightBusinessDate:'2026-10-25',nightBeforeCents:8000,nightTargetCents:5600,policyVersion:'SULEIA_META_AUTOPILOT_V6'};
+    const nightClaims=await Promise.all([a.withCampaignLock('night:claim:a',tx=>tx.claimOperation(night.id,'77','777',frozen)),b.withCampaignLock('night:claim:b',tx=>tx.claimOperation('7777777777777777','77','777',frozen))]);
+    assert.equal(nightClaims.filter(Boolean).length,1);
+    const won=nightClaims[0]?night.id:'7777777777777777';await a.record(won,'77',{state:'UNKNOWN',before:8000,after:5600});
+    assert.equal((await b.nightReservations('777','2026-10-25')).length,1);
+    const receipt=(await b.nightReservations('777','2026-10-25'))[0];assert.equal(receipt.body.nightTargetCents,5600);
+    await assert.rejects(pool.query("UPDATE economics.ads_operations SET body=body||'{\"nightTargetCents\":3920}'::jsonb WHERE proposal_id=$1",[won]),/IMMUTABLE_NIGHT_RESERVATION/);
+    await assert.rejects(pool.query(fs.readFileSync(new URL('../../migrations/rollback/061_meta_autopilot_v6_night_guard.down.sql',import.meta.url),'utf8')),/V6_NIGHT_HISTORY/);await pool.query('ROLLBACK');
+    await b.createProposal({...night,id:'8888888888888888',requestKey:'night:v6:next-day'});
+    assert.equal(await b.withCampaignLock('night:next-day-unknown',tx=>tx.claimOperation('8888888888888888','77','777',{...frozen,nightBusinessDate:'2026-10-26',nightBeforeCents:5600,nightTargetCents:3920})),false);
+    // Only an independently verified outcome clears the existing unresolved
+    // operation constraint. The immutable previous-night reservation remains.
+    await a.record(won,'77',{state:'VERIFIED',response:{success:true},before:8000,after:5600,externalWrites:1});
+    assert.equal(await b.withCampaignLock('night:next-day',tx=>tx.claimOperation('8888888888888888','77','777',{...frozen,nightBusinessDate:'2026-10-26',nightBeforeCents:5600,nightTargetCents:3920})),true);
+    await a.saveMinimumReceipt({accountId:'777',campaignId:'77',minimumCents:1500,currency:'EUR',verifiedAt:new Date().toISOString(),validUntil:new Date(Date.now()+3600000).toISOString(),reference:'test:v6:minimum'});
+    assert.equal((await b.minimumReceipts('777',Date.now()))[0].minimumCents,1500);
+    assert.ok(!(await b.algorithmJournal()).some(r=>r.body.kind==='BUDGET_MINIMUM_RECEIPT'));
   }finally{await pool.end();}
 });

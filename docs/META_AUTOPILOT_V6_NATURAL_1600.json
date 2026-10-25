@@ -1,0 +1,33 @@
+{
+  "accountId": "1511337043978680",
+  "policyVersion": "SULEIA_META_AUTOPILOT_V6",
+  "slot": "2026-10-25:16:00",
+  "timezone": "Europe/Madrid",
+  "claimedAtUtc": "2026-10-25T15:00:06.503Z",
+  "completedAtUtc": "2026-10-25T15:00:35.171368Z",
+  "state": "COMPLETE",
+  "executionState": "BLOCKED",
+  "proposalId": "fd55f81144bf0676",
+  "blockedItems": 9,
+  "assigningPosts": 0,
+  "verifiedAssignments": 0,
+  "activation": "CANARY_PENDING",
+  "higherRoasCandidates": [
+    {"campaignId":"120254154816610212","name":"CBO_NIDA L3 17.06.2026","beforeCents":4564,"proposedCents":5564,"observedRoas":9.355949,"purchases":7,"lastObservedActivityUtc":"2026-10-25T07:44:08Z","state":"BLOCKED"},
+    {"campaignId":"120258145914700212","name":"CBO_COLLA_L12 - 03.10.2026","beforeCents":4603,"proposedCents":5603,"observedRoas":5.442831,"purchases":5,"lastObservedActivityUtc":"2026-10-25T10:01:56Z","state":"BLOCKED"},
+    {"campaignId":"120258153733500212","name":"CBO_COLLA_L15 - 03.10.2026","beforeCents":3111,"proposedCents":4111,"observedRoas":4.097066,"purchases":3,"lastObservedActivityUtc":"2026-10-25T14:11:36Z","state":"BLOCKED"}
+  ],
+  "candidateBlockers": ["INCOMPLETE_EVIDENCE","RECENT_SIGNIFICANT_CHANGE","DAILY_CHANGE_LIMIT","INCOMPLETE_OPERATIONAL_EVIDENCE"],
+  "externalAttributionMeaning": "Observed activity has no exact matching own VERIFIED ledger proof; its actor/origin is not invented.",
+  "missingSourceCauseAt1600Persisted": false,
+  "subsequentCanonicalSourceChecks": [
+    {"observedAtUtc":"2026-10-25T15:14:32.805Z","completedAtUtc":"2026-10-25T15:14:40.889Z","operationalSourcesComplete":7,"operationalSourcesUnavailable":0},
+    {"observedAtUtc":"2026-10-25T15:17:19.020Z","completedAtUtc":"2026-10-25T15:17:33.809Z","operationalSourcesComplete":7,"operationalSourcesUnavailable":0}
+  ],
+  "noMissedSlotReplayed": true,
+  "noGuardWaived": true,
+  "noArtificialCanary": true,
+  "nextNaturalReviewMadrid": "2026-10-25 18:00",
+  "nightCutMadrid": "2026-10-25 22:30",
+  "nightExecutionVerified": false
+}

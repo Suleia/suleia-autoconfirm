@@ -1,3 +1,4 @@
+import {assertDailyBudget} from '../../services/meta-ads/budget-cap.mjs';
 export class ApiError extends Error {
   constructor(service, status, code, retryAfter = 0) {
     super(`${service}_HTTP_${status}_CODE_${code || 'UNKNOWN'}`);
@@ -73,6 +74,8 @@ export function createApis(config, fetchImpl = fetch) {
     }),
     // Never retry a mutation: an interrupted response may already have applied.
     mutate: (id, changes) => {
+      if(Object.hasOwn(changes,'daily_budget'))assertDailyBudget(Number(changes.daily_budget));
+      if(Object.hasOwn(changes,'lifetime_budget'))throw Error('LIFETIME_BUDGET_WRITE_DISABLED');
       if (config.writesEnabled !== true) throw new Error('META_WRITES_DISABLED');
       if (!/^\d+$/.test(id)) throw new Error('CAMPAIGN_ID_INVALID');
       return graph(id, changes, 'POST');

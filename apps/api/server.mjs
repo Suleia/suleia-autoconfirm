@@ -17,6 +17,7 @@ import {createShopifyReadAuth} from '../../autoconfirm/src/clients/shopify-read-
 import {CommandCenter} from '../../services/command-center/center.mjs';
 import {CommandLedger} from '../../services/command-center/ledger.mjs';
 import {recoveryOverviewReader} from '../../services/import-recovery/panel-reader.mjs';
+import {budgetDiagnostic} from '../../services/meta-ads/autopilot/errors.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -172,7 +173,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
           if(!adsRuntime.executive)throw Error('EXECUTIVE_DISABLED');
           data=await adsRuntime.executive.command(body);
         }else data=commandCenter?await commandCenter.command(body):await adsCommand(adsRuntime,body);
-        const reviewRead=Boolean(data.executive||data.review||body.action==='review'||(body.action==='request'&&adsRuntime.review?.parse(body.text)));
+        const reviewRead=Boolean(data.executive||data.review||data.autopilot||data.budgetEvidence||body.action==='review'||(body.action==='request'&&adsRuntime.review?.parse(body.text)));
         audit({event:'ads_command',action:body.action,outcome:'ok',meta_budget_writes:reviewRead?0:writesForEnvelope});
         return json(res,200,{ok:true,data,meta_budget_writes:reviewRead?0:writesForEnvelope});
       }catch(error){if(error instanceof ReportReadError){res.setHeader('Retry-After',String(error.diagnostic.retryAfterSeconds));return json(res,error.status,{ok:false,error:error.code,diagnostic:error.diagnostic,meta_budget_writes:0});}const code=adsCommandErrorCode(error);audit({event:'ads_command_failed',outcome:'blocked',code,meta_budget_writes:writesForEnvelope});return json(res,code==='ACTOR_UNAUTHORIZED'?403:503,{ok:false,error:'ads_command_blocked',code});}
@@ -384,7 +385,7 @@ export async function startOperationsServer() {
   let adsReviewBusy=false;
   const adsTimer=adsRuntime&&process.env.ADS_INTELLIGENCE_MONITOR_ENABLED==='true'?setInterval(async()=>{if(adsReviewBusy)return;adsReviewBusy=true;try{await reviewAds({runtime:adsRuntime,enabled:true});}catch{process.stdout.write(JSON.stringify({event:'ads_review_failed',meta_budget_writes:0})+'\n');}finally{adsReviewBusy=false;}},30*60*1000):null;
   adsTimer?.unref();
-  const autopilotTimer=adsRuntime?.autopilot?.config.enabled?setInterval(()=>adsRuntime.autopilot.tick().catch(()=>process.stdout.write(JSON.stringify({event:'autopilot_scheduler_failed',meta_budget_writes:0})+'\n')),15000):null;
+  const autopilotTimer=adsRuntime?.autopilot?.config.enabled?setInterval(()=>adsRuntime.autopilot.tick().catch(error=>process.stdout.write(JSON.stringify({event:'autopilot_scheduler_failed',diagnostic:budgetDiagnostic(error,{stage:'SCHEDULER'}),meta_budget_writes:null})+'\n')),15000):null;
   autopilotTimer?.unref();
   process.on('SIGTERM', async () => { if(adsTimer)clearInterval(adsTimer);if(autopilotTimer)clearInterval(autopilotTimer);server.close(); await repository.close(); if(adsPool)await adsPool.end(); });
   return server;
