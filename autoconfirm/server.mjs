@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {runOrderReminderScan,reminderPublicStatus,reminderHealthStatus} from './src/workflows/order-reminder-runtime.mjs';
 import {acceptedSupportStatus,startAcceptedSupportScheduler} from './src/workflows/accepted-discount-runtime.mjs';
 import {probeAuthorized,probeSupportConnections,probeErrorCode} from './src/clients/discount-support-probe.mjs';
 import {addressRuntimeStatus} from './src/workflows/address-response-policy.mjs';
@@ -387,6 +388,7 @@ function storeSummary({ publicView = false } = {}) {
     lastIncidentReturnReconciliationSummary: state.lastIncidentReturnReconciliationSummary || null,
     incidentAutomationRecovery: incidentAutomationRetry.status(),
     buildRevision: process.env.RENDER_GIT_COMMIT || null,
+    orderConfirmationReminder: reminderHealthStatus(),
     lastOperationalOrdersSyncAt: state.lastOperationalOrdersSyncAt,
     lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
     lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
@@ -576,8 +578,12 @@ function queueFinanceReportRefresh(month, {afterCurrent=false}={}) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-
   try {
+    if(req.method==='GET'&&url.pathname==='/api/order-reminder/status'){
+      res.setHeader('Cache-Control','no-store');
+      if(!isDashboardAuthenticated(req)&&(!config.cronSecret||!isAuthorizedCron(req)))return sendJson(res,401,{ok:false,error:'unauthorized'});
+      return sendJson(res,200,{ok:true,reminder:await reminderPublicStatus()});
+    }
     if (req.method === 'POST' && url.pathname === '/api/discount-support/verify-connections') {
       if (!probeAuthorized(req.headers.authorization, config.cronSecret)) return sendJson(res, 401, {ok:false,error:'unauthorized'});
       res.setHeader('Cache-Control','no-store');
@@ -1344,6 +1350,10 @@ async function runBackgroundPoll() {
   } catch (error) {
     console.error('Background automation error:', error);
   }
+  if(process.env.ORDER_REMINDER_ENABLED==='true')scheduleNetworkJob('ORDER_CONFIRMATION_REMINDER_SCAN',async()=>{
+    const report=await runOrderReminderScan({natural:true});
+    console.log(JSON.stringify({event:'order_reminder_cycle',at:report.at,mode:report.mode,coverage:report.coverage,counts:report.counts,externalWrites:report.externalWrites}));
+  });
 }
 
 function startBackgroundPoller() {

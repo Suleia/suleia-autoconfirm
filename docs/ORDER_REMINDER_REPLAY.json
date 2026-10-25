@@ -1,0 +1,31 @@
+{
+  "phase": "READ_ONLY_REPLAY",
+  "completedAtUtc": "2026-10-25T16:39:56.820Z",
+  "lookbackHours": 48,
+  "canonicalOrdersEvaluated": 63,
+  "allCandidatesEvaluated": true,
+  "wouldReceiveAtObservation": 14,
+  "recordedConfirmationBeforeTwoHours": 31,
+  "customerInputAfterVerifiedInitial": 39,
+  "noInputAfterVerifiedInitial": 21,
+  "verifiedInitialTemplate": 60,
+  "countsAreOverlapping": true,
+  "snapshotNotFrozenEligibility": true,
+  "externalMessages": 0,
+  "sendClaimsCreated": 0,
+  "statusRowsWritten": 0,
+  "templateOrFlowChanges": 0,
+  "laterClassifierCorrection": "Non-pending cancelled/rejected/error orders are classified separately from confirmed/fulfilment orders; this does not make them eligible.",
+  "testEvidence": {
+    "runtime": "Node22 isolated Docker",
+    "sourceArchiveSha256": "d9c598501e82de5a9021e6032a80475574272db07a4fa7acb41174cb94ec1138",
+    "testFiles": 64,
+    "passed": 666,
+    "failed": 0,
+    "skipped": 0,
+    "network": "none",
+    "productionCredentialsSupplied": false,
+    "privateReceipt": "/var/tmp/suleia-order-reminder-qa/d9c598501e82-mount/result.json"
+  },
+  "deployment": "NOT_YET_APPLIED_AT_THIS_RECEIPT"
+}

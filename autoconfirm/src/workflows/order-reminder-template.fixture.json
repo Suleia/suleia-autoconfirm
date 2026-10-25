@@ -1,0 +1,35 @@
+{
+  "id": 1472493,
+  "wa_template_id": "1344752647520812",
+  "name": "dropea_pedido_reminder_v1",
+  "language": "es_ES",
+  "status": "APPROVED",
+  "category": "UTILITY",
+  "components": [
+    {
+      "type": "BODY",
+      "text": "⏰ Necesitamos tu confirmación.\n\n📦 Lo tenemos reservado para ti, pero si no lo enviamos pronto podríamos quedarnos sin stock.\n\n💵 Recuerda que el pago es contra reembolso por *{{1}}*\n\n✅ Echa un vistazo rápido y pulsa *CONFIRMAR MI PEDIDO* si todo está bien:\n\n🏠 Dirección: {{2}}\n🌆 Ciudad: {{3}}\n📮 C.P.: {{4}}\n\nSi necesitas corregir algo, utiliza el botón «CAMBIAR DATOS DE ENVÍO» y lo ajustamos de inmediato.\n\nEsperamos su respuesta 😊"
+    },
+    {
+      "type": "BUTTONS",
+      "buttons": [
+        {
+          "type": "QUICK_REPLY",
+          "text": "CAMBIAR DATOS DE ENVÍO"
+        },
+        {
+          "type": "QUICK_REPLY",
+          "text": "CONFIRMAR MI PEDIDO"
+        }
+      ]
+    }
+  ],
+  "namespace": "offline-fixture-namespace",
+  "default_values": {
+    "lang": "es_ES",
+    "params": {
+      "QUICK_REPLY_1": "f295175n450382889",
+      "QUICK_REPLY_2": "f295175n450382877"
+    }
+  }
+}

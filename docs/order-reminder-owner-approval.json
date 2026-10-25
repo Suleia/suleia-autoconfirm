@@ -1,0 +1,17 @@
+{
+  "owner": "render_order_reminder",
+  "template": "dropea_pedido_reminder_v1",
+  "locale": "es_ES",
+  "chatbyTemplateId": 1472493,
+  "metaTemplateId": "1344752647520812",
+  "statusAtAudit": "APPROVED",
+  "category": "UTILITY",
+  "templateAuditedAtUtc": "2026-10-25T15:54:33.509618Z",
+  "nativeSendersDisabled": true,
+  "nativeStateEvidence": "Explicit human owner confirmation; metadata API does not expose flow enabled conditions",
+  "approvalReference": "chat:2026-10-25:owner-native-reminders-disabled:4148e11e4f95437484f4628f28a6172e",
+  "ownerReply": "No, están desactivados",
+  "existingOwnersChanged": false,
+  "nativeFlowsChanged": false,
+  "rollout": ["SHADOW", "ONE_NATURALLY_ELIGIBLE_CANARY", "LIVE_AFTER_VERIFIED_CANARY", "THREE_NATURAL_CYCLES"]
+}
