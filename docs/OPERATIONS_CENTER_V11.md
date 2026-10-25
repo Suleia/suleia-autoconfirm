@@ -22,6 +22,8 @@ El panel financiero productivo mostró datos poblados, seis meses, 36 SVG y 33 c
 
 Budget Autopilot estaba configurado en LIVE, pero sus cuatro slots del día auditados terminaron BLOCKED, con cero escrituras externas verificadas. Había 36 operaciones BLOCKED y ninguna UNKNOWN/EXECUTING. El canario seguía `CANARY_PENDING`. Entre los motivos registrados estaban aprendizaje, cambios recientes, muestra/histórico insuficientes y ROAS ausente. COMPLETE solo significa que terminó el slot. No equivale a modificar un presupuesto. No se forzó un canario, no se reprodujeron operaciones ni se cambiaron estos controles.
 
+Lectura posterior a la construcción, 25/10 a las 10:19 UTC: API/estáticos y 108/108 archivos siguen en V10. El slot de las 11:00 Madrid terminó FAILED (`AUTOPILOT_REVIEW_FAILED`); conserva `externalWrites:null`. No hay escrituras VERIFIED ni operaciones UNKNOWN/EXECUTING, y el canario sigue pendiente. El catch actual del planificador guarda ese código genérico sin la excepción de origen: **no permite atribuir este fallo nuevo a cuota ni demostrar cero intentos externos**. El estado de lecturas V11 aportará código/subcódigo y cola del cliente compartido cuando se instale; el diagnóstico del nuevo slot sigue pendiente de esa evidencia. No se relajó el ejecutor para ocultarlo.
+
 ## Causas y correcciones
 
 | Problema comprobado en código o UI | Corrección V11 | Límite |

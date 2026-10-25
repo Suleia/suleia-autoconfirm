@@ -1,0 +1,238 @@
+{
+  "version": "suleia-operations-v11.0",
+  "revision": "3333429b7f3718d05136e89acbea56fe89b740ba",
+  "sourceBaseline": "48bc7393c820b5105f5589ceacd5600b193a54c0",
+  "auditAt": "2026-10-25T09:08:59.293577+00:00",
+  "apiBase": "suleia-ads-growth:7224c11",
+  "apiBaseImageId": "sha256:a02a3618de627d5dd9631e8e5a8f8e8bc505e57d09f1a82c9636d266a7f165aa",
+  "apiBaseRevision": "7224c11fad4a5557732da7c935ff3bef5d2c0f35",
+  "panelBase": "/opt/suleia-panel-releases/ads-growth-svg-b048ad5",
+  "files": [
+    {
+      "path": "services/meta-ads/meta-ads-client.mjs",
+      "surface": "api",
+      "before": "8d1be2452d581ecc83f3b24732fdbfc1f32c8ed0f8d5060dc69eb7d33ccd8211",
+      "after": "3992738911a5addbc6934d8e042230185dd951044c71fba49234d258d91abab5"
+    },
+    {
+      "path": "services/meta-ads/report-cache.mjs",
+      "surface": "api",
+      "before": "7a25934d956e4f526789179a18803ed7564b35a7a0e8dbc8bc4a7c8795b19f28",
+      "after": "30e0b9352bce7c3c25ad2e7843ab86bf089bb12b52d13e6770b0a1a8eb5e9348"
+    },
+    {
+      "path": "services/meta-ads/report-reader.mjs",
+      "surface": "api",
+      "before": "489b59b3202441945696f0f3db0356db99614e14b01c1a58cdc55af23adc4057",
+      "after": "6a48c5bd591ea59fbd3afe623f8bfd1318f19f8d549ce7e230b537acc1f0c4d9"
+    },
+    {
+      "path": "services/meta-ads/report.mjs",
+      "surface": "api",
+      "before": "e45697f7cd0fdbf828f8af9fe0cad6a082066f016fd4add4fe4389e307b7fd13",
+      "after": "f1672d683fa224cd84aae179ecb6c7b7126543f5165717a0b1648e34fe47bf6c"
+    },
+    {
+      "path": "services/meta-ads/runtime.mjs",
+      "surface": "api",
+      "before": "ec236c7d4e0c4d0d0cd927f562949152e8fd6c6a660db46886bf43a7f6a835f4",
+      "after": "288dcbc952dcf4cdb3e1fbfa9eef591494006abad8395d334c787746344740ac"
+    },
+    {
+      "path": "services/meta-ads/request-scheduler.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "d86ad0b7ec1193fbb7edb03fca65a6aad7f4b8b86b9e31318324dfa3c0b95a6e"
+    },
+    {
+      "path": "services/meta-ads/stored-report.mjs",
+      "surface": "api",
+      "before": null,
+      "after": "e5e1f39caf6cf75ae3dfd033512ac47e072adaf7da5dfbd9cf4d22a1314b5b30"
+    },
+    {
+      "path": "services/meta-ads/review/analyze.mjs",
+      "surface": "api",
+      "before": "ecda1a0942523b0466c74c5d04526245809e07c6d302ab191a3dbe390ed84c17",
+      "after": "0dcf29bb951509c5d2b9c90bc58fabff0e62e235f4e21d69fb423e747dbd19e3"
+    },
+    {
+      "path": "services/meta-ads/review/service.mjs",
+      "surface": "api",
+      "before": "9ca7b165360c16fcedff3ec303ebcdae12e0443f0c72312f013eff0cbdb83faf",
+      "after": "6f08c88fd773df3301c8ee2244f4206e85e5686c15c61aac9e8fd6b1801e7f72"
+    },
+    {
+      "path": "services/meta-ads/review/growth-service.mjs",
+      "surface": "api",
+      "before": "f4fb07afe2c841a6300a260b6b92c90c02c921a034496456e49d1655506ab951",
+      "after": "36f6867a27be5ea8aecaaa868a6bb5563fcbaee8578ff88ac29849d13a780f20"
+    },
+    {
+      "path": "services/meta-ads/review/growth-trend.mjs",
+      "surface": "api",
+      "before": "b3432e639b6b0e79a1c94dd273ce3b3578f47d9328e14401331d14b7977cb557",
+      "after": "19b1424ef537e1e11ba520dc4c469ded481072855065214dd33561501ad10f91"
+    },
+    {
+      "path": "apps/review-panel/index.html",
+      "surface": "panel",
+      "before": "7cc8a7aff358179ff94ceb9cd652c0842d1fb788b7c6b6e591b24debc8b753d2",
+      "after": "ff46ed462c89b23ad9b0b178698c3fb8c704a189087acc76d51bd0c71f8a0773"
+    },
+    {
+      "path": "apps/review-panel/app.js",
+      "surface": "panel",
+      "before": "74f9b6cd37e6e697a3c154e4dce237207facaa13e00119cd4391e059da40e241",
+      "after": "d0815a614ece9cfb565e2b5fc217f6f57575f38864dc36c10310b9f294c506ab"
+    },
+    {
+      "path": "apps/review-panel/app-shell.css",
+      "surface": "panel",
+      "before": "011b73a40deda12850b91340c6b95c9ee9a6f532fe2813f7cbbe8fecdf073b54",
+      "after": "4936365d0b3942a1d9c7e8149e771ffdc4dbecdcf6af6e54c5142da560a64aef"
+    },
+    {
+      "path": "apps/review-panel/operations-v11.css",
+      "surface": "panel",
+      "before": null,
+      "after": "ace4d22bbe9bed918da47a38481d4d6296e0372a5064b0e7c090c0f92b2912a6"
+    },
+    {
+      "path": "apps/review-panel/ads-report-client.js",
+      "surface": "panel",
+      "before": "b1924b60226c37a77c09687b476192e23df767b650738f74a3345ad5e6681c2e",
+      "after": "b6fae9368cd61254b4d43ea6bd18185a2f695c80af9e29423734bfaa92f759f3"
+    },
+    {
+      "path": "apps/review-panel/ads-review-v6.js",
+      "surface": "panel",
+      "before": "75bf342df461e93480021f5f230535d06fcb2a034f3e4e068ef536d9f5a52b83",
+      "after": "62407a9191dfdeec2fcdf4ac9b2e5b70ee24b172335bcf8482ff796fbe95c31f"
+    },
+    {
+      "path": "apps/review-panel/ads-growth-v10.js",
+      "surface": "panel",
+      "before": "2d66d76bf0c4285fcdcd4960c0afbc3fd27be5e97fb242fbd1ab64686b20bdf7",
+      "after": "998558ab1d27ce647f6d3f08bf3588928cf845ee261f70ff8d5055081a5cd88d"
+    },
+    {
+      "path": "apps/review-panel/ads-growth-v10.css",
+      "surface": "panel",
+      "before": "6baf7481ffbc6e3d85e95bbd2923f442ab067751a08439f9f7b49bae26719073",
+      "after": "4d804b856901080b0f09536ca8ba0ff84c2a6b9683d0099f5343fd3da3b0a643"
+    },
+    {
+      "path": "apps/review-panel/ads-growth-drawer-v10.js",
+      "surface": "panel",
+      "before": "274f55356e810328a6d51e7ff230576a4b262bf8800aa377ca841ddadc087455",
+      "after": "f10a49e24df562711c52171f5dd3a6869d19844a4074789b4d368b69b23bd4d3"
+    }
+  ],
+  "protected": [
+    {
+      "path": "services/meta-ads/autopilot/environment.example",
+      "sha256": "42214d3ca6ff73a9f4d90a16c100a81c883342a3a077f7ab2881d9a10b2e7f39"
+    },
+    {
+      "path": "services/meta-ads/autopilot/learning.mjs",
+      "sha256": "77b0d63c6efe030f20bc0a15c91c293f598d3a9852512e102ef8b641e386d16e"
+    },
+    {
+      "path": "services/meta-ads/autopilot/policy.mjs",
+      "sha256": "860852c7ccb6b23f14a603d2c6d3f28feca05784cae8d26a3d18aab56d814c34"
+    },
+    {
+      "path": "services/meta-ads/autopilot/queries.mjs",
+      "sha256": "28d860d239b54d2932f0a28108ab7266995e8d7b2f42266e7bc96d3422c20844"
+    },
+    {
+      "path": "services/meta-ads/autopilot/schedule.mjs",
+      "sha256": "a63143ca0fddd67303e207c31dfc18fcdbd9852765f24df3dfc45918358c9336"
+    },
+    {
+      "path": "services/meta-ads/autopilot/service.mjs",
+      "sha256": "d696952c4aa5d0830262e332ea1f7f63fbad5c12c68bad62dd1be07c39f0b6af"
+    },
+    {
+      "path": "services/meta-ads/autopilot/validate-minimums.mjs",
+      "sha256": "982e238365fbb94f880c16cd17c772591ffb518d0d47870944513d71604a6f50"
+    },
+    {
+      "path": "services/meta-ads/budget/backtest.mjs",
+      "sha256": "c15598febef1b9de9d008220a6acdc2afe6c76c0be33d8324060ded445a5e328"
+    },
+    {
+      "path": "services/meta-ads/budget/config.mjs",
+      "sha256": "c7111464c086d826f90ba46d71494d1580e52dfb2ba7a8ede3208deced859e76"
+    },
+    {
+      "path": "services/meta-ads/budget/normalizer.mjs",
+      "sha256": "90be86ee81c55ef15773b5bd8ca97650a1ca3170e407e7cb5767c934560e881d"
+    },
+    {
+      "path": "services/meta-ads/budget/policy.mjs",
+      "sha256": "f7dc45a9267fe77e64fe5699ed6517512ce2faf66690d8c0543c4ac33669c0e1"
+    },
+    {
+      "path": "services/meta-ads/budget/repository.mjs",
+      "sha256": "23dd34f6aa2152da354da33eff1eb81133e7f26d617deb6abdf995684a950b38"
+    },
+    {
+      "path": "services/meta-ads/budget/service.mjs",
+      "sha256": "7feeff66da75a8e03ba295325c31f691b1e256174df85628d1b06abe1d1e2941"
+    },
+    {
+      "path": "services/meta-ads/budget/shadow-cycle.mjs",
+      "sha256": "a10bc06ea0b848844aa24473bfee4beea1aba8f9558502f1d0561e1ae843f2bf"
+    },
+    {
+      "path": "services/meta-ads/budget/write-gate.mjs",
+      "sha256": "01e4b8b2905ea3006dba260a7768439ec749e711f901be21afa1cc8aaad3a9b0"
+    },
+    {
+      "path": "services/meta-ads/budget/writer.mjs",
+      "sha256": "a013eb942eba5404b4d8eda6fe06db9d7c20cda21190e6e0487f5d722abf0ee1"
+    },
+    {
+      "path": "services/meta-ads/intelligence.mjs",
+      "sha256": "2f170c431a766086e29a302858e447fbf54c54ce18ce13b1a10b3300ca77ead0"
+    },
+    {
+      "path": "services/meta-ads/executor-transport.mjs",
+      "sha256": "67b559b712248e49678bb93dd53d50630911e6c8ac0b8521bfe9c1d420815c0b"
+    },
+    {
+      "path": "services/meta-ads/bridge-auth.mjs",
+      "sha256": "b9fa422385e99d3c2b8f089783736b6d454f776ff81154281466730fbf26eb7c"
+    }
+  ],
+  "botConfigHash": "389f4fce108b9439d5be78973c3208689d51658527f9ae5c8b2b0c82f610401c",
+  "deploymentApproved": false,
+  "deployed": false,
+  "migration": null,
+  "newSecrets": false,
+  "newMetaClient": false,
+  "newRecipient": false,
+  "newScheduledTask": false,
+  "openaiBudgetUsd": 0,
+  "preserve": [
+    "V5.1 policy, flags, approvals, idempotence and ledgers",
+    "Existing writer with fresh critical GETs",
+    "OAuth/SSO and RBAC",
+    "Telegram consumer/token/22:30 Europe/Madrid delivery",
+    "Render confirmation/incident workers",
+    "Finance source, COGS and cohort rules",
+    "Shopify/Dropea/Chatby automations"
+  ],
+  "rollback": {
+    "image": "suleia-ads-growth:7224c11",
+    "imageId": "sha256:a02a3618de627d5dd9631e8e5a8f8e8bc505e57d09f1a82c9636d266a7f165aa",
+    "panel": "/opt/suleia-panel-releases/ads-growth-svg-b048ad5",
+    "database": "No migration or ledger reset; retain audit records"
+  },
+  "artifacts": {
+    "operations-v11-api.tar.gz": "af5ba8fc1c30007dc83f850b722c1a05a5dcc59751f39736cc56b43e9e034a8b",
+    "operations-v11-panel.tar.gz": "7438517039de56b4375ce14df58992e32d415b2e8ca3dcbcdc3531bde1b395be"
+  }
+}

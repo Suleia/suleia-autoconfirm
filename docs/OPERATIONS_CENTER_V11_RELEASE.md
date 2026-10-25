@@ -18,6 +18,8 @@ python tools/package-operations-v11.py --audit ../output/operations-center-v11/p
 
 El generador exige cambios runtime confirmados en Git y rechaza una base o hash protegido diferente. Los artefactos no incluyen credenciales, variables de entorno, imágenes con datos personales, migraciones ni los harness DEMO. Las capturas sintéticas y las herramientas QA están en Git, fuera de los overlays de producción.
 
+Manifiesto preparado: [OPERATIONS_CENTER_V11_RELEASE.json](OPERATIONS_CENTER_V11_RELEASE.json), código runtime `3333429`. La imagen candidata se construyó y pasó importación/hashes sin red ni credenciales; sigue sin desplegar. Esa construcción no acredita recuperación de cuota productiva ni éxito de la automatización presupuestaria.
+
 ## Preflight tras la aprobación
 
 1. Volver a leer Agent Hub y comprobar que otro agente no está desplegando el mismo subsistema. Confirmar API, image ID, estáticos, 108 archivos y 19 hashes contra el manifiesto; detener ante cualquier diferencia.

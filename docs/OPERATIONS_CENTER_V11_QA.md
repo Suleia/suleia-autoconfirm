@@ -10,6 +10,8 @@ Ejecutado con Node y PostgreSQL de las imágenes existentes en contenedores aisl
 
 La ejecución anterior tuvo un fallo transitorio en la prueba MCP existente de timeout 100 ms frente a operación de 150 ms bajo CPU limitada. No se modificó su código ni se relajó la aserción. La ejecución final completa pasó también esa prueba. Se conservan ambos registros privados en el directorio de trabajo, sin ocultar el intento anterior.
 
+Artefacto runtime `3333429b7f3718d05136e89acbea56fe89b740ba`: overlay de once módulos construido sobre el image ID productivo auditado y probado sin red/credenciales. Import de runtime correcto y 30 hashes verificados dentro de la imagen (once archivos nuevos/modificados y 19 protegidos). La imagen candidata `suleia-operations-v11:3333429`, ID `sha256:c7b5dcab1e1f948e054c8dfa1eeb7f549d379381f71dd53122d9c9803757b59b`, no se conectó al servicio real. [Recibo](assets/operations-v11/overlay-build.json) · [Manifiesto y hashes de ambos paquetes](OPERATIONS_CENTER_V11_RELEASE.json).
+
 Cobertura específica añadida:
 
 - Cola crítica/analítica, prioridad y concurrencia reservada, expiración/overflow, cabeceras saneadas, código 17 y Retry-After, pausa compartida sin bypass por force.
@@ -89,3 +91,5 @@ Las nueve pestañas internas siguen conectadas a sus propietarios y las cubre la
 Se consultaron las seis vistas productivas con OAuth personal: Pedidos 17 filas visibles, Incidencias diez, Automatización seis flujos, Centro de datos nueve SVG, Resultados 36 SVG y 33/33 controles. Ads pasó de PREPARING a datos históricos. Se dejó la pestaña del usuario en su vista financiera original. Cero escrituras/mensajes de prueba; capturas y texto de clientes se mantienen fuera del repositorio.
 
 El candidato resuelve en pruebas las causas del exceso de lecturas, espera/borrado de contenido y fragmentación visual. **La frescura y recuperación de cuota en producción siguen pendientes de desplegar V11 y comprobar una lectura actual real.** La auditoría halló cero modificaciones presupuestarias verificadas y canario pendiente; no se afirma que el automatismo ya esté realizando cambios. El siguiente informe Telegram debe comprobarse en su envío natural, no duplicarlo como smoke. Pixel/CAPI/EMQ, enlace pedido-campaña y beneficio atribuible siguen sin evidencia suficiente.
+
+Cierre 10:19 UTC: tras construir el candidato, producción conserva API7224c11, estáticos b048ad5 y 108/108 hashes. Aparece un nuevo slot FAILED a las 11:00 Madrid con `AUTOPILOT_REVIEW_FAILED` y `externalWrites:null`; su catch no registra la excepción causante. No se atribuye ese fallo al código 17 histórico. Siguen cero eventos VERIFIED, cero operaciones UNKNOWN/EXECUTING y canario pendiente. La imagen candidata no se desplegó ni se reejecutó el slot.
