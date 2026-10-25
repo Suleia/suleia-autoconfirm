@@ -1,6 +1,6 @@
 # V11 — preparación, despliegue y reversión
 
-**Candidato sin desplegar. Requiere autorización humana específica V11.** No sustituir este paso por la autorización anterior de V10. No desplegar el árbol completo del monorepo a Render: contiene referencias históricas que no representan el worker productivo actual.
+**Despliegue V11 aprobado y aplicado el 25/10/2026 a las 10:27 UTC.** [Recibo y verificación](OPERATIONS_CENTER_V11_DEPLOYMENT.md). Se obtuvo autorización separada de V10. El procedimiento siguiente describe el preflight y rollback utilizados; no autoriza repetirlo ni volver a ejecutar operaciones. No desplegar el árbol completo del monorepo a Render: contiene referencias históricas que no representan el worker productivo actual.
 
 ## Artefactos
 
@@ -18,7 +18,7 @@ python tools/package-operations-v11.py --audit ../output/operations-center-v11/p
 
 El generador exige cambios runtime confirmados en Git y rechaza una base o hash protegido diferente. Los artefactos no incluyen credenciales, variables de entorno, imágenes con datos personales, migraciones ni los harness DEMO. Las capturas sintéticas y las herramientas QA están en Git, fuera de los overlays de producción.
 
-Manifiesto preparado: [OPERATIONS_CENTER_V11_RELEASE.json](OPERATIONS_CENTER_V11_RELEASE.json), código runtime `3333429`. La imagen candidata se construyó y pasó importación/hashes sin red ni credenciales; sigue sin desplegar. Esa construcción no acredita recuperación de cuota productiva ni éxito de la automatización presupuestaria.
+Manifiesto de candidato: [OPERATIONS_CENTER_V11_RELEASE.json](OPERATIONS_CENTER_V11_RELEASE.json), código runtime `3333429`. Sus flags `deploymentApproved:false/deployed:false` son el estado inmutable del empaquetado, anterior a la autorización. El [recibo de despliegue](OPERATIONS_CENTER_V11_DEPLOYMENT.json) registra la autorización y aplicación posteriores. La construcción aislada por sí sola no acredita recuperación de cuota productiva ni éxito de la automatización presupuestaria.
 
 ## Preflight tras la aprobación
 

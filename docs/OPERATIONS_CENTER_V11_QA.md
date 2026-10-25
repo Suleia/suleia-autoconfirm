@@ -1,6 +1,6 @@
 # V11 — evidencia de validación
 
-**Candidato local; no desplegado.** Las imágenes de este documento contienen exclusivamente datos DEMO. La consulta productiva fue en lectura; no se publican conversaciones, teléfonos, credenciales ni capturas de clientes.
+**Candidato probado y después desplegado con autorización específica.** [Verificación productiva](OPERATIONS_CENTER_V11_DEPLOYMENT.md). Las imágenes de este documento contienen exclusivamente datos DEMO. La consulta visual productiva fue en lectura; no se publican conversaciones, teléfonos, credenciales ni capturas de clientes. Los apartados de candidato y preflight conservan su contexto temporal; el recibo de despliegue registra el estado final.
 
 ## Regresión final
 
@@ -93,3 +93,5 @@ Se consultaron las seis vistas productivas con OAuth personal: Pedidos 17 filas 
 El candidato resuelve en pruebas las causas del exceso de lecturas, espera/borrado de contenido y fragmentación visual. **La frescura y recuperación de cuota en producción siguen pendientes de desplegar V11 y comprobar una lectura actual real.** La auditoría halló cero modificaciones presupuestarias verificadas y canario pendiente; no se afirma que el automatismo ya esté realizando cambios. El siguiente informe Telegram debe comprobarse en su envío natural, no duplicarlo como smoke. Pixel/CAPI/EMQ, enlace pedido-campaña y beneficio atribuible siguen sin evidencia suficiente.
 
 Cierre 10:19 UTC: tras construir el candidato, producción conserva API7224c11, estáticos b048ad5 y 108/108 hashes. Aparece un nuevo slot FAILED a las 11:00 Madrid con `AUTOPILOT_REVIEW_FAILED` y `externalWrites:null`; su catch no registra la excepción causante. No se atribuye ese fallo al código 17 histórico. Siguen cero eventos VERIFIED, cero operaciones UNKNOWN/EXECUTING y canario pendiente. La imagen candidata no se desplegó ni se reejecutó el slot.
+
+Actualización posterior: el dueño autorizó V11 y se desplegó a las 10:27 UTC. [Verificación productiva final](OPERATIONS_CENTER_V11_DEPLOYMENT.md): 111/111 fuentes, seis vistas, tres niveles de análisis, 33/33 controles financieros y lecturas Meta actuales. El último diagnóstico del recorrido mostró 78 GET, 27 reutilizados, cero trabajos activos/cola y ningún fallo; p50 1.611 ms, p95 4.016 ms y p99 4.503 ms en esa ventana de 78 peticiones. No es un benchmark comparable ni un SLA. La verificación de una escritura presupuestaria y del siguiente informe diario natural sigue pendiente y no se sustituye por un envío/canario forzado.

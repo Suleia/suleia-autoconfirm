@@ -1,6 +1,6 @@
 # Suleia Operations Center V11 — candidato
 
-Estado: implementado para revisión, **sin desplegar**. La autorización actual permite pruebas locales DEMO y lectura del panel productivo. El encargo V11 exige aprobación específica antes de otro despliegue. Evidencia visual, pruebas y mediciones: [QA](OPERATIONS_CENTER_V11_QA.md). Procedimiento: [release y reversión](OPERATIONS_CENTER_V11_RELEASE.md).
+Estado: **desplegado con autorización específica del dueño** el 25/10/2026 a las 10:27 UTC, runtime `3333429`. API y panel verificados; Meta devolvió lecturas actuales y los tres tipos de análisis conservaron identidad y métricas. [Resultado y límites productivos](OPERATIONS_CENTER_V11_DEPLOYMENT.md). Evidencia visual DEMO, pruebas y mediciones: [QA](OPERATIONS_CENTER_V11_QA.md). Procedimiento: [release y reversión](OPERATIONS_CENTER_V11_RELEASE.md).
 
 ## Auditoría del estado real
 
@@ -69,7 +69,7 @@ Las capturas son de la implementación local real con datos sintéticos claramen
 
 ## Integraciones y bloqueos externos pendientes
 
-1. La cuota real de Meta depende también de otros consumidores. La auditoría de V10 había capturado HTTP 400 / código 17 / subcódigo 2446079. Esta revisión no realizó un nuevo barrido de cabeceras contra Meta. V11 clasifica y degrada esos fallos; hace falta verificar su comportamiento productivo tras autorización.
+1. La cuota real de Meta depende también de otros consumidores. La auditoría de V10 había capturado HTTP 400 / código 17 / subcódigo 2446079. No se realizó un barrido adicional de consultas solo para medir cuota. Tras el despliegue autorizado, el lector compartido devolvió datos actuales y su diagnóstico mostró circuito cerrado, cola cero y ningún fallo durante el recorrido. Eso no garantiza disponibilidad futura del proveedor ni acredita por sí solo escrituras presupuestarias.
 2. Insights agregado no acredita `event_id`, deduplicación Pixel/CAPI, EMQ ni trazabilidad de cada compra. No se afirma que la web o el checkout estén rotos por una diferencia entre poblaciones.
 3. La ausencia de una escritura presupuestaria verificada y el canario pendiente siguen documentados; V11 conserva sus barreras y no los resuelve forzando gasto.
 4. El registro MCP actual no ofrece herramientas Ads específicas de lectura. Propuesta mínima pendiente: envoltorios de los GET ya existentes para estado de lecturas, review/growth por fechas/nivel y auditoría de presupuestos. Deben reutilizar sesión/RBAC, límites, caché, saneamiento y cliente existentes. Sin nuevos tokens, escritor Meta, acceso público ni mecanismo paralelo. No se amplían permisos en este candidato.
