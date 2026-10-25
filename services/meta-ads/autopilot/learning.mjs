@@ -32,5 +32,5 @@ export function v6BudgetGuards(assessment,sources){
  const complete=operational.every(k=>sources?.[k]?.status==='COMPLETE');
  const reasons=assessment.reasons.filter(r=>!context.has(r)&&!(r==='INCOMPLETE_EVIDENCE'&&complete));
  if(!complete)reasons.push('INCOMPLETE_OPERATIONAL_EVIDENCE');
- return {...assessment,reasons:[...new Set(reasons)],contextWarnings:assessment.reasons.filter(r=>context.has(r)),policy:{...assessment.policy,budgetPolicyProfile:'V6_FIXED_EUR'}};
+ return {...assessment,reasons:[...new Set(reasons)],sourceDiagnostics:Object.fromEntries([...operational,'daily_campaign'].map(k=>[k,sources?.[k]||{status:'UNAVAILABLE',code:'SOURCE_NOT_CAPTURED'}])),contextWarnings:assessment.reasons.filter(r=>context.has(r)),policy:{...assessment.policy,budgetPolicyProfile:'V6_FIXED_EUR'}};
 }

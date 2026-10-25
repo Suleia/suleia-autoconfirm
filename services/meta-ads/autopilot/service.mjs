@@ -70,6 +70,7 @@ export class BudgetAutopilot {
         if(slot.kind==='NIGHT'&&(evidence.reservations||[]).some(r=>r.campaign_id===String(c.id)))d.reasons.push('NIGHT_ALREADY_CLAIMED');
         const context=evidence.learning?.get(String(c.id)),score=r=>Number.isFinite(r)?Math.max(0,Math.min(1,r/6)):null;
         d.ranking=rankV6({today:score(metric?.metaRoas),recent:score(context?.recent?.roas),historical:score(context?.historical?.roas)});
+        d.sourceDiagnostics=context?.sourceDiagnostics||null;
       }
       return d;
     });

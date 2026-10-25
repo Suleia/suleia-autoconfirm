@@ -1,11 +1,12 @@
 import {windowFor,CONTRACT} from './metrics.mjs';
+import {budgetDiagnostic} from './autopilot/errors.mjs';
 
 // Uses the canonical GET-only client. A failed collection stays unavailable,
 // never an empty successful history. No persistence or notification side effects.
 export async function captureAlgorithmEvidence({reader,now=Date.now(),readOrders=null,readOperations=null,scope='FULL'}) {
   if(!['FULL','BUDGET_GUARDS'].includes(scope))throw Error('EVIDENCE_SCOPE_INVALID');
   const range=windowFor(scope==='BUDGET_GUARDS'?'7d':'30d',now),sources={},evidence={range,contract:CONTRACT,observedAt:new Date(now).toISOString(),sources,scope};
-  async function capture(key,fn){try{evidence[key]=await fn();sources[key]={status:'COMPLETE',observedAt:new Date().toISOString()};}catch(e){evidence[key]=null;sources[key]={status:'UNAVAILABLE',code:/^[A-Z0-9_]+$/.test(e.code||'')?e.code:'SOURCE_READ_FAILED'};}}
+  async function capture(key,fn){try{evidence[key]=await fn();sources[key]={status:'COMPLETE',observedAt:new Date().toISOString()};}catch(e){evidence[key]=null;sources[key]={status:'UNAVAILABLE',code:/^[A-Z0-9_]+$/.test(e.code||'')?e.code:'SOURCE_READ_FAILED',diagnostic:budgetDiagnostic(e,{stage:'EVIDENCE_'+key.toUpperCase()})};}}
   await capture('account',()=>reader.readAccount());
   if(evidence.account&&(evidence.account.currency!=='EUR'||evidence.account.timezone_name!=='Europe/Madrid'||(evidence.account.account_status!==undefined&&evidence.account.account_status!==1)||(reader.configuredAccountId&&String(evidence.account.id).replace(/^act_/,'')!==reader.configuredAccountId)))throw Error('ACCOUNT_NOT_ELIGIBLE');
   evidence.daily={};evidence.entities={};

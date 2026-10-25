@@ -1,5 +1,6 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {createAdsRuntime} from '../runtime.mjs';
+import {adsCommand} from '../command-service.mjs';
 const approved={approvalReference:'test:v6:priority',policyProfile:'V6_FIXED_EUR',minimumBudgetCents:1500,globalExposureCents:100000,aggregateIncreaseCents:36000,incrementalPurchases:3,globalSpendLimitMode:'UNLIMITED_AUTHORIZED',roasReductionMode:'ENABLED',reductionMinSpend:15,reductionMinImpressions:1000,attributionMaturityMinutes:120};
 function fixture(){
  let reads=0,histories=0,release;
@@ -19,4 +20,11 @@ test('nine simultaneous learning decisions share one SQL ownership read; next re
  for(let i=0;i<1000&&f.histories===0;i++)await new Promise(r=>setImmediate(r));
  assert.equal(f.histories,1);f.release();assert.equal((await pending).length,9);
  await f.runtime.engine.learningAssessment(f.campaigns[0]);assert.equal(f.histories,2);
+});
+
+test('existing authenticated Autopilot bridge exposes bounded source diagnostics without another reader or writer',async()=>{
+ let reads=0;const source={entities_adset:{status:'UNAVAILABLE',code:'META_HTTP_400',diagnostic:{providerCode:100}}};
+ const runtime={engine:{authorize(a){if(a.user!=='1'||a.chat!=='1')throw Error('ACTOR_UNAUTHORIZED');}},budgetGuards:async()=>{reads++;return {observedAt:'2026-10-25T15:00Z',sources:source};}};
+ const r=await adsCommand(runtime,{action:'autopilot',evidence:true,actor:{user:'1',chat:'1'}});assert.equal(r.budgetEvidence.sources,source);assert.equal(r.budgetEvidence.externalWrites,0);assert.equal(reads,1);
+ await assert.rejects(adsCommand(runtime,{action:'autopilot',evidence:true,actor:{user:'2',chat:'2'}}),/UNAUTHORIZED/);assert.equal(reads,1);
 });

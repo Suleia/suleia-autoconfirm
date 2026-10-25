@@ -11,6 +11,7 @@ export async function adsCommand(runtime,body) {
     return runtime.review.answer(body.text||'Auditoría completa de campañas',body.query||{});
   }
   if(body.action==='autopilot'){
+    if(body.evidence===true){const evidence=await runtime.budgetGuards();return {budgetEvidence:{observedAt:evidence.observedAt,sources:evidence.sources,externalWrites:0}};}
     const report=await runtime.autopilot.overview(),cycle=body.cycleKey?report.slots.find(s=>s.slot_key===body.cycleKey):report.slots[0];
     return {autopilot:report,text:formatAutopilot(report).slice(0,3900),cycleText:cycle?formatAutopilotCycle(report,cycle):null,cycleKey:cycle?.slot_key};
   }
