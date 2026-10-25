@@ -443,6 +443,10 @@ export function createMcpServer({ service, audit, authContext, config }) {
         product: z.string().max(120).optional(), offer: z.string().max(120).optional(),
         province: z.string().max(20).optional(), outcome: z.string().max(30).optional(),
         maturity: z.enum(['IMMATURE','MATURING','MATURE']).optional(),
+        comparison: z.enum(['previous','month','none']).optional(), mode: z.enum(['current','mature']).optional(),
+        hour: z.string().regex(/^\d{1,2}$/).optional(), weekday: z.string().regex(/^[0-6]$/).optional(),
+        hour_band: z.string().regex(/^\d{1,2}-\d{1,2}$/).optional(), hour_bands: z.string().max(120).optional(),
+        stage: z.enum(['CREATED','CONFIRMED','SENT','DELIVERED','RETURNED','CANCELLED','REJECTED','INCIDENT']).optional(),
         metric: z.string().max(60).optional(), dimension: z.enum(['province','locality','hour','weekday','product','offer','quantity','ticket','confirmation_delay','response_delay','incident']).optional(),
         pattern_type: z.string().max(60).optional(), confidence: z.enum(['INSUFFICIENT_SAMPLE','LOW_CONFIDENCE','NORMAL']).optional(),
         limit: listLimit.optional(), offset: listOffset.optional()
