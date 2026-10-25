@@ -20,11 +20,13 @@ export async function observeFailures({auditDir,stateDir,projectionDir=null,shop
   if(!config.shadow)throw Error('SHADOW_ENTRYPOINT_REJECTS_WRITES');
   if(path.resolve(auditDir)===path.resolve(stateDir))throw Error('RECOVERY_STATE_MUST_BE_ISOLATED');
   const [actions,rejections]=await Promise.all([jsonLines(path.join(auditDir,'actions.jsonl')),jsonLines(path.join(auditDir,'provider-rejections.jsonl'))]);
+  const events=persistedLegacyFailures(actions,rejections,{shop,storeId});
+  if(!events.length)return {available:false,mode:'SHADOW',reason:'NO_PERSISTED_IMPORT_FAILURE',createdThisRun:0,providerRequests:0,externalActions:0};
   await fs.mkdir(stateDir,{recursive:true,mode:0o700});
   const store=new RecoveryStore(path.join(stateDir,'recovery.sqlite'),{privateKey,now});
   try{
     const agent=new AddressRecoveryAgent({store,config,now});
-    const events=persistedLegacyFailures(actions,rejections,{shop,storeId});let created=0;
+    let created=0;
     for(const e of events){const r=agent.ingest(e);if(r.created)created++;}
     const report={...store.overview(),mode:'SHADOW',source:'PERSISTED_IMPORT_FAILURE_AUDIT',createdThisRun:created,
       writes:{shopify:false,chatby:false,dropea:false},providerRequests:0,externalActions:0};

@@ -138,7 +138,8 @@ test('fallback filters reject healthy/imported/resolved/active orders and tag al
 test('persisted intake correlates attempted/rejected order, key, exact code and timestamps only',()=>{
  const attempt={orderId:'123',reference:'#123',idempotencyKey:'k1',at:'2026-10-25T11:59:00Z',result:'attempted'},reject={orderId:'123',reference:'#123',at,result:'provider_rejected',status:'provider_rejected',reason:'POSTAL_CODE_NOT_COVERED'},r={idempotencyKey:'k1',at:'2026-10-25T11:59:30Z',http:400,failure:{type:'ValidationFailure',code:'POSTAL_CODE_NOT_COVERED'}};
  assert.equal(persistedLegacyFailures([attempt,reject],[r],{shop:'fixture',storeId:10}).length,1);
- for(const [aa,rr]of [[[reject],[r]],[[attempt,reject],[{...r,idempotencyKey:'other'}]],[[attempt,{...reject,result:'blocked'}],[r]],[[attempt,reject],[{...r,http:500}]]])assert.equal(persistedLegacyFailures(aa,rr,{shop:'fixture',storeId:10}).length,0);
+ assert.equal(persistedLegacyFailures([attempt],[r],{shop:'fixture',storeId:10}).length,1,'persisted provider failure does not wait for a later result append');
+ for(const [aa,rr]of [[[reject],[r]],[[attempt,reject],[{...r,idempotencyKey:'other'}]],[[attempt,reject],[]],[[attempt,reject],[{...r,http:500}]]])assert.equal(persistedLegacyFailures(aa,rr,{shop:'fixture',storeId:10}).length,0);
 });
 test('staged flags cannot inherit global enabled writers or skip rollout phases',()=>{
  assert.equal(flags({PRODUCTION_WRITES_ENABLED:'true'}).enabled,false);

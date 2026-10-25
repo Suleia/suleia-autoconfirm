@@ -27,9 +27,16 @@ test('deployed SHADOW starts through its current directory symlink and writes it
  const dir=fs.mkdtempSync(join(tmpdir(),'suleia-shadow-entry-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
  const real=join(dir,'release'),alias=join(dir,'current'),audit=join(dir,'audit'),state=join(dir,'state');
  fs.mkdirSync(real);for(const name of ['shadow.mjs','store.mjs','policy.mjs','engine.mjs','intake.mjs'])fs.copyFileSync(new URL('./'+name,import.meta.url),join(real,name));
- fs.symlinkSync(real,alias,process.platform==='win32'?'junction':'dir');fs.mkdirSync(audit);fs.writeFileSync(join(audit,'actions.jsonl'),'');fs.writeFileSync(join(audit,'provider-rejections.jsonl'),'');
+ fs.symlinkSync(real,alias,process.platform==='win32'?'junction':'dir');fs.mkdirSync(audit);
+ fs.writeFileSync(join(audit,'actions.jsonl'),JSON.stringify({result:'attempted',orderId:'123',reference:'#123',idempotencyKey:'k1',at:'2026-10-25T11:00:00Z'})+'\n');
+ fs.writeFileSync(join(audit,'provider-rejections.jsonl'),JSON.stringify({idempotencyKey:'k1',http:400,at:'2026-10-25T11:00:01Z',failure:{type:'ValidationFailure',code:'POSTAL_CODE_NOT_COVERED'}})+'\n');
  const p=spawnSync(process.execPath,[join(alias,'shadow.mjs')],{encoding:'utf8',env:{...process.env,ADDRESS_IMPORT_RECOVERY_ENABLED:'true',ADDRESS_RECOVERY_SHOPIFY_WRITE:'false',ADDRESS_RECOVERY_CHATBY_SEND:'false',ADDRESS_RECOVERY_DROPEA_IMPORT:'false',ADDRESS_RECOVERY_AUDIT_DIR:audit,ADDRESS_RECOVERY_STATE_DIR:state,ADDRESS_RECOVERY_SHOP:'fixture.myshopify.com',ADDRESS_RECOVERY_STORE_ID:'10',ADDRESS_RECOVERY_PRIVATE_KEY:'fixture-key-no-production-use-1234567'}});
  assert.equal(p.status,0,p.stderr);assert.equal(JSON.parse(p.stdout).mode,'SHADOW');assert.equal(JSON.parse(fs.readFileSync(join(state,'overview.json'))).externalActions,0);
+});
+test('healthy report without a persisted failure creates no database, case, projection or directory',async t=>{
+ const dir=fs.mkdtempSync(join(tmpdir(),'suleia-healthy-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));const audit=join(dir,'audit'),state=join(dir,'state');fs.mkdirSync(audit);fs.writeFileSync(join(audit,'actions.jsonl'),JSON.stringify({result:'verified',orderId:'123',at:'2026-10-25T12:00:00Z'})+'\n');fs.writeFileSync(join(audit,'provider-rejections.jsonl'),'');
+ const r=await observeFailures({auditDir:audit,stateDir:state,shop:'fixture.myshopify.com',storeId:10,privateKey:'fixture-key-no-production-use-1234567',env:{ADDRESS_IMPORT_RECOVERY_ENABLED:'true'}});assert.equal(r.reason,'NO_PERSISTED_IMPORT_FAILURE');assert.equal(fs.existsSync(state),false);
+ const unit=fs.readFileSync(new URL('../../infrastructure/vps/suleia-address-import-recovery-shadow.path',import.meta.url),'utf8');assert.match(unit,/PathChanged=.*provider-rejections\.jsonl/);assert.doesNotMatch(unit,/latest\.json|actions\.jsonl/);
 });
 test('new panel data shares OAuth and rejects anonymous reads or POSTs; existing queues remain unchanged',async t=>{
  const repository={summary:async()=>({orders:{pending:7}}),listOrders:async()=>({items:[],total:0})};

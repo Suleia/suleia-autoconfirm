@@ -88,6 +88,7 @@ if phase=='stage':
  oldPanel=next(pathlib.Path(m['Source'])for m in panel['Mounts']if m['Destination']=='/usr/share/nginx/html');assert str(oldPanel)==M['panelBase'],'PANEL_BASE_CHANGED'
  files=api['Config']['Labels']['com.docker.compose.project.config_files'].split(',')
  S={'beforeApi':api,'beforePanel':panel,'composeFiles':files,'composeHashes':{p:sha(pathlib.Path(p).read_bytes())for p in files},'envFile':'/opt/suleia-releases/7d701365723507969b32ff0601b01f4fdc7dc615/.env','containers':ids(),'normal':normal(),'botHash':sha(pathlib.Path('/etc/suleia/telegram.env').read_bytes()),'botPid':run(['systemctl','show','suleia-telegram.service','-p','MainPID','--value']).decode().strip(),'financeRatesHash':sql("md5(coalesce(jsonb_agg(to_jsonb(r) ORDER BY rate_id)::text,'[]')) FROM economics.finance_cost_rates r"),'staticHashes':{str(p.relative_to(oldPanel)):sha(p.read_bytes())for p in oldPanel.rglob('*')if p.is_file()},'panel':'/opt/suleia-panel-releases/address-import-recovery-'+short,'worker':str(WORKER/'releases'/M['revision'])}
+ S['previousWorker']=str((WORKER/'current').resolve())if (WORKER/'current').is_symlink()else None
  source=D/'source';extract(pathlib.Path(M['archive']),source,{f['path']for group in ['apiFiles','panelFiles','workerFiles']for f in M[group]}|{'Dockerfile'},M['archiveSha256'])
  for group in ['apiFiles','panelFiles','workerFiles']:
   for f in M[group]:assert sha((source/f['path']).read_bytes())==f['after']
@@ -118,8 +119,11 @@ elif phase=='apply':
   ENV.chmod(0o600)
   for ext in ['service','path']:
    dest=pathlib.Path('/etc/systemd/system')/(UNIT+'.'+ext);new=D/'source'/'infrastructure/vps'/dest.name
-   if dest.exists():assert sha(dest.read_bytes())==sha(new.read_bytes()),'SHADOW_UNIT_CHANGED_RECONCILE'
-   else:shutil.copyfile(new,dest)
+   if dest.exists():
+    priorWorker=(WORKER/'current').resolve() if not S.get('previousWorker') else pathlib.Path(S['previousWorker'])
+    previousUnit=priorWorker/'infrastructure/vps'/dest.name
+    assert previousUnit.is_file()and sha(dest.read_bytes())==sha(previousUnit.read_bytes()),'SHADOW_UNIT_CHANGED_RECONCILE'
+   shutil.copyfile(new,dest)
    dest.chmod(0o644)
   run(['systemctl','daemon-reload']);run(['systemctl','start',UNIT+'.service'])
   R.write_text(json.dumps(S['override']));R.chmod(0o600)

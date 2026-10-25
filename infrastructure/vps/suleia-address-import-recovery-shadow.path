@@ -2,7 +2,7 @@
 Description=Observe existing persisted import failure audit changes
 
 [Path]
-PathChanged=/var/lib/suleia-shopify-dropea/latest.json
+PathChanged=/var/lib/suleia-shopify-dropea/provider-rejections.jsonl
 Unit=suleia-address-import-recovery-shadow.service
 
 [Install]

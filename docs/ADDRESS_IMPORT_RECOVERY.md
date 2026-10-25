@@ -19,6 +19,7 @@ That older worker's full reconciliation is not duplicated by this service.
 `services/import-recovery/shadow.mjs` consumes **only already persisted audit
 records** from PR117. It correlates an attempted POST to the exact order/reference,
 idempotency key, definitive HTTP400 ValidationFailure and timestamped rejection.
+The rejection record itself is the durable event; no later result append is needed.
 Blocked planning results, absence from Dropea, an order tag, guessed textual
 matches and success are not import-failure evidence. Malformed/truncated logs
 fail closed. Identical payload/code rejections remain one failure generation;
@@ -27,8 +28,10 @@ a new payload/code creates a new generation. Evidence is retained encrypted.
 No normal importer file imports this service. Success creates zero address cases,
 claims, provider reads, corrections or Chatby messages. The SHADOW service has no
 network namespace access, no provider credentials and no live entrypoint. It is
-triggered by the existing audit report file changing, not by another importer or
-full-store polling job. It has its own resource limits, private database and
+triggered only by the provider-rejection file changing, never by a success report,
+not by another importer or
+full-store polling job. If no persisted failure exists, it creates no state directory,
+database, case or projection. It has its own resource limits, private database and
 unprivileged process; it never takes the existing worker's cycle lock.
 
 ## Error governance

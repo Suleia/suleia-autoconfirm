@@ -7,21 +7,21 @@ export function persistedLegacyFailures(actions,rejections,{shop,storeId}) {
   if(!shop||!storeId)throw Error('RECOVERY_SOURCE_SCOPE_REQUIRED');
   const attempts=new Map(),generations=new Map(),events=[];
   for(const a of actions){
-    if(a.result==='attempted'&&a.idempotencyKey&&a.orderId&&a.reference)attempts.set(String(a.orderId),a);
-    if(a.result!=='provider_rejected'||a.status!=='provider_rejected')continue;
-    const attempt=attempts.get(String(a.orderId));
-    if(!attempt||attempt.reference!==a.reference||Date.parse(a.at)<Date.parse(attempt.at))continue;
-    const matches=rejections.filter(r=>r.idempotencyKey===attempt.idempotencyKey&&r.http===400&&r.failure?.type==='ValidationFailure'&&
-      (/^[A-Z0-9_]{1,120}$/.test(r.failure.code||'')?r.failure.code:'PROVIDER_VALIDATION_REJECTED')===a.reason&&
-      Date.parse(r.at)>=Date.parse(attempt.at)&&Date.parse(r.at)<=Date.parse(a.at));
+    if(a.result==='attempted'&&a.idempotencyKey&&a.orderId&&a.reference)attempts.set(a.idempotencyKey,[...(attempts.get(a.idempotencyKey)||[]),a]);
+  }
+  for(const r of rejections){
+    if(r.http!==400||r.failure?.type!=='ValidationFailure'||!Number.isFinite(Date.parse(r.at)))continue;
+    const matches=(attempts.get(r.idempotencyKey)||[]).filter(a=>Date.parse(a.at)<=Date.parse(r.at));
     if(matches.length!==1)continue;
-    const r=matches[0],evidenceId=digest([attempt.idempotencyKey,r.at,a.at,a.orderId,a.reason]);
+    const attempt=matches[0],evidenceId=digest([attempt.idempotencyKey,r.at,attempt.orderId,r.failure.code]);
+    // The rejection itself is the durable failure event. Do not wait for the
+    // later ledger/result append, and never trigger on a successful report.
     const fingerprint=digest([attempt.digest||attempt.idempotencyKey,r.failure.code]);
-    const previous=generations.get(String(a.orderId));
+    const previous=generations.get(String(attempt.orderId));
     const generation=previous?.fingerprint===fingerprint?previous:{fingerprint,id:evidenceId};
-    generations.set(String(a.orderId),generation);
-    events.push({type:EVENT,persisted:true,definitive:true,evidenceId,failureGeneration:generation.id,at:a.at,
-      shopifyOrderId:normalizeId(a.orderId),externalReference:a.reference,shop,storeId,
+    generations.set(String(attempt.orderId),generation);
+    events.push({type:EVENT,persisted:true,definitive:true,evidenceId,failureGeneration:generation.id,at:r.at,
+      shopifyOrderId:normalizeId(attempt.orderId),externalReference:attempt.reference,shop,storeId,
       source:'dropea-public-v2',failureType:'ValidationFailure',code:r.failure.code,httpStatus:r.http,
       originalError:r.failure});
   }
