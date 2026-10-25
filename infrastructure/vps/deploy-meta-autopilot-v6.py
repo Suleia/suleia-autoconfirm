@@ -45,7 +45,8 @@ def stable(S):
  # The socket-only QA PostgreSQL is deliberately removed when its passing
  # receipt is written. It is not a production container to preserve.
  qa='suleia-address-recovery-qa-pg-'+M['testSourceSha256'][:10]
- now=ids();assert all(now.get(k)==v for k,v in S['containers'].items()if k not in [API,PANEL,qa]),'UNRELATED_CONTAINER_CHANGED'
+ verifiedQa={(r['name'],r['id'])for r in S.get('verifiedEphemeralQa',[])if r.get('testSourceSha256')==M['testSourceSha256']and r.get('proof')=='DOCKER_DESTROY_AT_PASSING_TEST_COMPLETION'}
+ now=ids();assert all(now.get(k)==v or(k,v)in verifiedQa for k,v in S['containers'].items()if k not in [API,PANEL,qa]),'UNRELATED_CONTAINER_CHANGED'
  for p,h in S['composeHashes'].items():assert sha(pathlib.Path(p).read_bytes())==h,'PRECEDING_COMPOSE_CHANGED'
  assert sha(pathlib.Path('/etc/systemd/system/suleia-telegram.service').read_bytes())==S['botUnitHash'],'BOT_UNIT_CHANGED'
 def verify(S):
