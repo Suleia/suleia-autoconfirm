@@ -154,6 +154,7 @@ function renderSummary() {
       summaryCard('Incidencias', data?.with_active_issue ?? data?.incidence, 'Seguimiento antes de actuar', 'amber'),
       summaryCard('Bloqueados', Number(data?.reject_signal || 0) + Number(data?.review_signal || 0), 'Rechazo, ambigüedad o falta de evidencia', 'red')
     );
+    if(state.config?.import_recovery_enabled)root.append(ImportRecoveryPanel.card(state.importRecovery,()=>setView('import-recovery')));
   } else {
     for(const kpi of data?.dashboard?.kpis || data?.autopilot?.kpis || []) {
       const card=summaryCard(kpi.label,kpi.count,'Abrir las incidencias de este contador',kpi.key==='RETURNED' || kpi.key==='RETURN_RISK'?'red':kpi.key==='RECOVERABLE_NOW' || kpi.key==='RECOVERED'?'green':'',()=>{
@@ -1207,17 +1208,27 @@ async function refresh({ force = false, background = false } = {}) {
     if (state.view === 'finance') await loadResultsFinance({ force, background });
     else if (state.view === 'ads') await AdsIntelligencePanel.load();
     else if (state.view === 'analytics') await OrderIntelligencePanel.load();
+    else if (state.view === 'import-recovery') await ImportRecoveryPanel.load();
     else if (state.view === 'automation') await AutomationPanel.load();
     else if (state.view === 'incidents') await loadQueue();
     else await loadQueue();
   } catch (error) { showNotice(error.message); }
   finally { state.refreshing = false; $('refresh-button').disabled = false; $('refresh-button').textContent = 'Actualizar'; }
+  // Independent local projection read after the normal queue is rendered.
+  if(state.view==='orders'&&state.config?.import_recovery_enabled)api('/api/operations/import-recovery').then(data=>{state.importRecovery=data;if(state.view==='orders')renderSummary();}).catch(()=>{state.importRecovery=null;});
 }
 function setView(view) {
   state.view = view; state.offset = 0; state.filters = view === 'incidents' ? { scope: 'ACTIVE' } : {}; closeDetail();
   $('app').setAttribute('data-view',view);
   if(view==='incidents'){state.limit=10;$('page-size').value='10';}
   SuleiaShell.select(view);
+  $('import-recovery-view').hidden=view!=='import-recovery';
+  if(view==='import-recovery'){
+    $('view-title').textContent='Import Recovery';
+    for(const id of ['summary','finance-view','queue-card','automation-view','analytics-view','ads-view','recovery-center'])$(id).hidden=true;
+    history.replaceState({},'',location.pathname+'#import-recovery');ImportRecoveryPanel.load();return;
+  }
+  if(location.hash==='#import-recovery')history.replaceState({},'',location.pathname);
   const titles = { orders: 'Pedidos operativos', incidents: 'Panel de incidencias', automation:'Automatización',finance: 'Panel de resultados',analytics:'Centro de datos e información',ads:'Ads Intelligence' }; $('view-title').textContent = titles[view];
   const finance = view === 'finance',automation=view==='automation',analytics=view==='analytics'; $('summary').hidden = finance||automation||analytics; $('finance-view').hidden = !finance; $('queue-card').hidden = finance||automation||analytics;$('automation-view').hidden=!automation;$('analytics-view').hidden=!analytics;
   $('ads-view').hidden=view!=='ads';
@@ -1241,7 +1252,7 @@ async function init() {
   if (!state.token) { await prepareLogin(); showLoginError(''); $('login').hidden = false; $('app').hidden = true; return; }
   $('login').hidden = true; $('app').hidden = false;
   if (state.config.analytics_enabled === false) { const analyticsNav=document.querySelector('[data-view="analytics"]');if(analyticsNav)analyticsNav.hidden=true;if((location.hash||'').startsWith('#analytics'))history.replaceState({},'',location.pathname); }
-  if((location.hash||'').startsWith('#ads'))setView('ads');else if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
+  if(location.hash==='#import-recovery')setView('import-recovery');else if((location.hash||'').startsWith('#ads'))setView('ads');else if((location.hash||'').startsWith('#analytics'))setView('analytics');else if(location.hash==='#automation')setView('automation');else{renderHead();renderFilters();await refresh();}
   setInterval(async () => {
     if (document.visibilityState !== 'visible') return;
     if (!activeToken() && !await refreshAccess()) { if (state.token) await signOut(false); return; }

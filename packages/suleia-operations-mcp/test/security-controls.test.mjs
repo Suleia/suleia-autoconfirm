@@ -85,9 +85,12 @@ test('masks PII in the final response boundary', async () => {
 });
 
 test('fails closed on timeout and oversized output', async () => {
+  let completeSlow;
   const slow = {
     async getOrder() {
-      await new Promise((resolve) => setTimeout(resolve, 150));
+      // A controlled pending operation avoids a CPU-throttled CI pause making
+      // the provider's 150ms timer finish before the guard timer is registered.
+      await new Promise((resolve) => { completeSlow=resolve; });
       return { data: {}, meta: { actions_executed: 0 } };
     }
   };
@@ -98,6 +101,7 @@ test('fails closed on timeout and oversized output', async () => {
   });
   assert.equal(timedOut.isError, true);
   assert.match(timedOut.content[0].text, /TOOL_TIMEOUT/);
+  completeSlow();
   await slowHarness.client.close();
   await slowHarness.server.close();
 

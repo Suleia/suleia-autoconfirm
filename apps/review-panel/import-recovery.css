@@ -1,0 +1,7 @@
+.ir-panel { min-width: 0; padding: clamp(16px, 2vw, 28px); background: #fff; border: 1px solid #dbe6f0; border-radius: 18px; }
+.ir-panel[hidden] { display: none; }
+.ir-panel .summary-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(130px,1fr)); gap: 12px; margin: 20px 0; }
+.ir-case-list { display: grid; gap: 12px; margin-top: 18px; }
+.ir-case { display: grid; grid-template-columns: minmax(100px,1fr) minmax(160px,2fr) minmax(140px,2fr); gap: 10px; padding: 16px; border: 1px solid #e2eaf3; border-radius: 12px; background: #f9fbfe; overflow-wrap: anywhere; }
+.ir-case p { grid-column: 1 / -1; margin: 0; }
+@media(max-width:640px) { .ir-case { grid-template-columns: 1fr; } }

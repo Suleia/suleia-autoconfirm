@@ -1,0 +1,9 @@
+[Unit]
+Description=Observe existing persisted import failure audit changes
+
+[Path]
+PathChanged=/var/lib/suleia-shopify-dropea/latest.json
+Unit=suleia-address-import-recovery-shadow.service
+
+[Install]
+WantedBy=multi-user.target

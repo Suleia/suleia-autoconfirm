@@ -69,7 +69,7 @@ test('Operations Center exposes Pedidos, Incidencias and the professional result
   assert.match(html, /<link rel="stylesheet" href="login\.css\?v=20260808-hidden-fix-a00fe6d">/);
   assert.match(html, /<link rel="stylesheet" href="styles\.css\?v=20261023-v8">/);
   assert.match(loginCss, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
-  assert.match(html, /<script src="app\.js\?v=12" defer><\/script>/);
+  assert.match(html, /<script src="app\.js\?v=13" defer><\/script>/);
   assert.doesNotMatch(html,/id="finance-daily-basis"/);
   assert.match(script,/monthlyReturnRateChart\(data\)/);
   assert.match(script,/daily-result-calendar/);

@@ -16,6 +16,7 @@ import {createAlgorithmOrdersReader} from '../../services/meta-ads/algorithm-ord
 import {createShopifyReadAuth} from '../../autoconfirm/src/clients/shopify-read-auth.mjs';
 import {CommandCenter} from '../../services/command-center/center.mjs';
 import {CommandLedger} from '../../services/command-center/ledger.mjs';
+import {recoveryOverviewReader} from '../../services/import-recovery/panel-reader.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -95,7 +96,7 @@ async function jsonBody(req, maxBytes = 2048, raw = false) {
   catch { throw Object.assign(new Error('invalid_json'), { status: 400 }); }
 }
 
-export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, commandLedger = null, commandRoles = {}, adsBridgeToken = '', adsBridgeSecret = '', audit = () => {} }) {
+export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, commandLedger = null, commandRoles = {}, adsBridgeToken = '', adsBridgeSecret = '', importRecoveryReader = null, audit = () => {} }) {
   const allowRequest = limiter(config.rateLimitPerMinute);
   const financeCache = new Map();
   const financeInFlight = new Map();
@@ -197,6 +198,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         refresh_interval_seconds: 45,
         finance_refresh_interval_seconds: config.financeRefreshIntervalSeconds,
         analytics_enabled: process.env.ORDER_INTELLIGENCE_ENABLED !== 'false',
+        import_recovery_enabled: Boolean(importRecoveryReader),
         command_center_enabled: Boolean(commandCenter),
         ads_review_v6_enabled: Boolean(adsRuntime?.reviewEnabled),
         ads_review_v7_enabled: Boolean(adsRuntime?.reviewEnabled),
@@ -313,6 +315,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
       } else if (requestUrl.pathname === '/api/operations/meta-budget/policy') data = {...publicMetaBudgetPolicy(),...(adsRuntime?.autopilot?.config.enabled?{status:'ARCHIVED_SIMULATION_POLICY',superseded_by:adsRuntime.autopilot.config.policy.version,active_policy:adsRuntime.autopilot.config.policy}:{})};
       else if (requestUrl.pathname === '/api/operations/meta-budget/simulation') data = await repository.metaBudgetSimulation(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/meta-budget/history') data = await repository.metaBudgetHistory(requestUrl.searchParams);
+      else if (requestUrl.pathname === '/api/operations/import-recovery') data = importRecoveryReader ? await importRecoveryReader() : {available:false};
       else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/finance') data = await cachedFinance(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/analytics') data = await repository.orderIntelligence('get_order_intelligence_overview', requestUrl.searchParams);
@@ -371,6 +374,7 @@ export async function startOperationsServer() {
     repository,
     authenticate,
     financeReportClient,
+    importRecoveryReader:process.env.ADDRESS_RECOVERY_PANEL_FILE ? recoveryOverviewReader(process.env.ADDRESS_RECOVERY_PANEL_FILE) : null,
     adsRuntime,commandLedger:process.env.COMMAND_CENTER_ENABLED==='true'&&adsRuntime?new CommandLedger(adsPool||repository.pool):null,
     commandRoles:process.env.COMMAND_CENTER_ROLES_JSON?JSON.parse(process.env.COMMAND_CENTER_ROLES_JSON):{},
     adsBridgeToken:process.env.ADS_INTELLIGENCE_BRIDGE_TOKEN||'',adsBridgeSecret:process.env.TELEGRAM_BOT_TOKEN||'',
