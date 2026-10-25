@@ -17,7 +17,10 @@ message. Definitive 400/401 refresh rejection removes that invalid refresh
 credential. Concurrent refresh coalescing and token rotation are retained.
 
 No issuer/client, scope, redirect allowlist, user role, session duration, PKCE,
-state check, TLS or server security setting is relaxed. The change is two static
-assets only, over the deployed Ads reference release. Tests exercise full
+state check, TLS or server security setting is relaxed. The access fix changes
+two static assets over the deployed Ads reference release. The same follow-up
+refreshes overview sparklines from the completed shared trend (the initial
+report may have no daily rows) and uses an amber historical-freshness indicator.
+It makes no extra report request or freshness override. Tests exercise full
 startup, return links, invalid nonce/missing PKCE, interrupted/rejected exchange,
 body/header timeouts, refresh concurrency/rotation and unauthorized access.

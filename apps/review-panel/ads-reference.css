@@ -9,6 +9,7 @@
 #ads-view.growth-v10 .rv-actions button{font-size:10px;min-height:32px;padding:7px 10px}
 #ads-view.growth-v10 .gi-updated{font-size:9px;max-width:112px;position:relative;padding-left:9px}
 #ads-view.growth-v10 .gi-updated:before{content:'';position:absolute;left:0;top:7px;width:5px;height:5px;border-radius:50%;background:#0dbd90}
+#ads-view.growth-v10 .gi-updated.historical:before{background:#d99a38}
 #ads-view.growth-v10 .rv-tabs{background:#ffffff9c;border:0;border-bottom:1px solid #e3ecf7;border-radius:8px 8px 0 0;gap:0;padding:2px}
 #ads-view.growth-v10 .rv-tabs button{font-size:10px;min-height:32px;padding:7px 10px}
 #ads-view.growth-v10 .rv-controls.gi-reference-controls{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,.8fr) minmax(0,1.15fr) minmax(0,1fr) 108px;align-items:end;gap:9px;padding:0;background:transparent;border:0}
@@ -25,7 +26,7 @@
 #ads-view.growth-v10 .rv-connection{font-size:8px;gap:8px;padding:0;line-height:1.4}
 #ads-view.growth-v10 .rv-connection>span:nth-child(2),#ads-view.growth-v10 .rv-connection>span:last-child{display:none}
 #ads-view.growth-v10 .rv-caution{font-size:8px;padding:5px 8px;max-width:46%;margin:0}
-#ads-view.gi-reference>.gi-reference-kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0}
+#ads-view.gi-reference .gi-reference-kpis{grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0}
 #ads-view.gi-reference .gi-reference-kpis .gi-kpi{min-height:78px;padding:9px 10px;border-radius:10px;gap:9px;display:flex;background:linear-gradient(120deg,#fff,#f7fcff);align-items:flex-start;box-shadow:0 3px 14px #3881c405}
 #ads-view.gi-reference .gi-reference-kpis .gi-icon{position:static;width:31px;height:31px;border-radius:9px}
 #ads-view.gi-reference .gi-reference-kpis .gi-icon svg{width:20px;height:20px}
@@ -155,7 +156,7 @@
 }
 @media(max-width:1150px){#ads-view.gi-reference .gi-reference-kpis .gi-value{font-size:22px}.gi-drawer,.gi-drawer.gi-docked{width:min(540px,100vw)}#ads-view.gi-reference .gi-decisions{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:760px){
- #ads-view.gi-reference>.gi-reference-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+ #ads-view.gi-reference .gi-reference-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
  #ads-view.gi-reference .rv-controls.gi-reference-controls{grid-template-columns:repeat(2,minmax(0,1fr));display:none}
  #ads-view.gi-reference.gi-filters-open .rv-controls.gi-reference-controls{display:grid}
  #ads-view.gi-reference .gi-reference-controls>.gi-advanced-filters{grid-column:1/-1}
