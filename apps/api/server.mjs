@@ -18,6 +18,7 @@ import {CommandCenter} from '../../services/command-center/center.mjs';
 import {CommandLedger} from '../../services/command-center/ledger.mjs';
 import {recoveryOverviewReader} from '../../services/import-recovery/panel-reader.mjs';
 import {budgetDiagnostic} from '../../services/meta-ads/autopilot/errors.mjs';
+import {createOrderReminderReader} from './order-reminder-reader.mjs';
 
 function envBool(name, fallback) {
   const value = process.env[name];
@@ -97,7 +98,7 @@ async function jsonBody(req, maxBytes = 2048, raw = false) {
   catch { throw Object.assign(new Error('invalid_json'), { status: 400 }); }
 }
 
-export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, commandLedger = null, commandRoles = {}, adsBridgeToken = '', adsBridgeSecret = '', importRecoveryReader = null, audit = () => {} }) {
+export function createOperationsServer({ config, repository, authenticate, financeReportClient = null, adsRuntime = null, commandLedger = null, commandRoles = {}, adsBridgeToken = '', adsBridgeSecret = '', importRecoveryReader = null, orderReminderReader = null, audit = () => {} }) {
   const allowRequest = limiter(config.rateLimitPerMinute);
   const financeCache = new Map();
   const financeInFlight = new Map();
@@ -317,6 +318,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
       else if (requestUrl.pathname === '/api/operations/meta-budget/simulation') data = await repository.metaBudgetSimulation(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/meta-budget/history') data = await repository.metaBudgetHistory(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/import-recovery') data = importRecoveryReader ? await importRecoveryReader() : {available:false};
+      else if (requestUrl.pathname === '/api/operations/order-reminder') data = orderReminderReader ? await orderReminderReader() : {available:false,state:'NOT_CONFIGURED'};
       else if (requestUrl.pathname === '/api/operations/summary') data = await repository.summary(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/finance') data = await cachedFinance(requestUrl.searchParams);
       else if (requestUrl.pathname === '/api/operations/analytics') data = await repository.orderIntelligence('get_order_intelligence_overview', requestUrl.searchParams);
@@ -376,6 +378,7 @@ export async function startOperationsServer() {
     authenticate,
     financeReportClient,
     importRecoveryReader:process.env.ADDRESS_RECOVERY_PANEL_FILE ? recoveryOverviewReader(process.env.ADDRESS_RECOVERY_PANEL_FILE) : null,
+    orderReminderReader:createOrderReminderReader({request:financeReportClient?(path,options)=>financeReportClient.request(path,options):null}),
     adsRuntime,commandLedger:process.env.COMMAND_CENTER_ENABLED==='true'&&adsRuntime?new CommandLedger(adsPool||repository.pool):null,
     commandRoles:process.env.COMMAND_CENTER_ROLES_JSON?JSON.parse(process.env.COMMAND_CENTER_ROLES_JSON):{},
     adsBridgeToken:process.env.ADS_INTELLIGENCE_BRIDGE_TOKEN||'',adsBridgeSecret:process.env.TELEGRAM_BOT_TOKEN||'',
