@@ -1,5 +1,54 @@
 # Suleia agent handoff
 
+## 2026-10-25 · Final V6 runtime 51f15ed deployed; natural review BLOCKED
+
+PR151 runtime 51f15ed38c7696c3b7abbae0c0d961c335bfc45c deployed15:44:12UTC,
+independently verified15:44:44UTC. Image d7e5b2d7..., exact predecessor b401be0 /
+60715f59... captured privately at /root/suleia-meta-v6-deploy/51f15ed/.
+Mode LIVE, exact owner-approved100/campaign,1000global,+360aggregate per Madrid
+day shared automatic/manual,15floor. Existing scheduler only; next18:00Madrid,
+night22:30 pending. No morning restore, legacy META_WRITES_ENABLED remainsfalse.
+
+Final complete isolated Node22/PG17 suite1415/1415,0fails/0skips,149files,
+source78b02dee4982f51cfd67cc1e7f279faf84fe745887f96c2473fcc42dbacfa3c8.
+An intermediate unchanged order performance benchmark failed once; the final
+suite passed without changing order code or thresholds. No production latency
+improvement claimed. Final five-file overlay reuses120s approved freshness,
+retains higher verified Meta floors and keeps internal minimum receipts private
+in the diagnosis projection while preserving their immutable SQL audit.
+
+Observed natural16:00Madrid proposal fd55f81144bf0676: slot COMPLETE but execution
+BLOCKED,9blocked,0assigningPOSTs,0VERIFIED. CANARY_PENDING is not financial success.
+No replay, guard waiver or fabricated canary. Historical incomplete source cause
+at16:00 was not persisted and is not reconstructed. Final15:45UTC canonical source
+inspection completes all7operational sources; optional commerce/deep sources are
+NOT_REQUESTED, not failed critical sources. Quota24/24success,0fail, CLOSED.
+
+At15:47UTC9activecampaigns total302.67EUR;0native rules. NIDA L3 now55.64 and
+CollaL12 now56.03, each10EUR above16:00, but no own VERIFIED ledger proof exists.
+Do not claim those externally observed changes as V6 or invent their actor.
+Current candidate guards: unmatched recent/daily activity and, forCollaL12/L15,
+active learning. Fresh incomplete-source guards are cleared; preserved external
+guards must not be waived. No UNKNOWN/EXECUTING financial operation;9valid campaign
+minimum receipts. Later increases still require actual attributed post-change
+event timestamps; aggregate counts do not prove them. Today's08base is absent
+and is not fabricated; day cuts stay blocked until a real baseline.
+
+API healthy; bot active with fresh health/singlePIDlock. Both signed admins200,
+unknown/crosschat403, anonymous data401, public static200/no-store. Existing bot
+unit/token/admins/recipients, V11/BI, finance hashes, normal importer/address
+observer/incidents and unrelated containers preserved. No browser, Render deploy,
+customer message or OpenAI consumption. Application/configuration verified;
+financial canary and natural night cut are still NOT verified.
+
+Receipts: docs/META_AUTOPILOT_V6_DEPLOYMENT.json,
+docs/META_AUTOPILOT_V6_NATURAL_1600.json and
+docs/META_AUTOPILOT_V6_POST_DEPLOYMENT.json. Actual-base rollback is prepared and
+guarded, not exercised against production: disable budget lane, preserve ledger,
+night claims/uncertainty and Telegram offsets; never restore financial history.
+NEXT: inspect the existing18:00 natural review and22:30 night outcome when due;
+accept real assignment only with durable VERIFIED and exact subsequent GET.
+
 ## 2026-10-25 · V6 deployed d177539, natural canary observation pending
 
 PR151 application runtime d1775398644966f6be8d118148e63140b5c38787 is LIVE on VPS,

@@ -1,0 +1,141 @@
+{
+  "runtimeRevision": "51f15ed38c7696c3b7abbae0c0d961c335bfc45c",
+  "accountId": "1511337043978680",
+  "timezone": "Europe/Madrid",
+  "sourceInspectionStartedAtUtc": "2026-10-25T15:45:07.219Z",
+  "sourceInspectionCompletedAtUtc": "2026-10-25T15:45:18.042Z",
+  "completeOperationalSources": [
+    "account",
+    "entities_campaign",
+    "entities_adset",
+    "daily_campaign",
+    "currentActivities",
+    "activities",
+    "rules"
+  ],
+  "optionalSourcesNotRequested": [
+    "orders",
+    "operations",
+    "hourlyTraffic",
+    "rankings"
+  ],
+  "assigningWritesFromInspection": 0,
+  "metaBudgetWritesEnvelope": 0,
+  "live": true,
+  "enabled": true,
+  "writesEnabled": true,
+  "activation": "CANARY_PENDING",
+  "verifiedV6Assignments": 0,
+  "unknownOrExecutingOperations": 0,
+  "nextReviewAtUtc": "2026-10-25T17:00:00Z",
+  "reviewTimesMadrid": [
+    "08:00",
+    "10:00",
+    "12:00",
+    "16:00",
+    "18:00",
+    "22:30"
+  ],
+  "lastCompletedSlot": "2026-10-25:16:00",
+  "lastExecutionState": "BLOCKED",
+  "quota": {
+    "requests": 24,
+    "succeeded": 24,
+    "failed": 0,
+    "quotaBlocked": 0,
+    "queued": 0,
+    "circuit": "CLOSED",
+    "providerBusinessUsage": {
+      "callCountPercent": 1,
+      "cpuTimePercent": 2,
+      "totalTimePercent": 4,
+      "estimatedTimeToRegainAccess": 0
+    }
+  },
+  "freshInventoryAtUtc": "2026-10-25T15:47:22.921451Z",
+  "nativeRuleCount": 0,
+  "activeCampaigns": 9,
+  "activeConfiguredBudgetCents": 30267,
+  "campaigns": [
+    {
+      "campaignId": "120254154816610212",
+      "name": "CBO_NIDA L3 17.06.2026",
+      "currentBudgetCents": 5564,
+      "previewTargetNotSentCents": 6564,
+      "todayRoas": 8.589445,
+      "todayPurchases": 7,
+      "state": "BLOCKED",
+      "reasons": [
+        "RECENT_SIGNIFICANT_CHANGE",
+        "DAILY_CHANGE_LIMIT"
+      ]
+    },
+    {
+      "campaignId": "120258145914700212",
+      "name": "CBO_COLLA_L12 - 03.10.2026",
+      "currentBudgetCents": 5603,
+      "previewTargetNotSentCents": 6603,
+      "todayRoas": 5.158239,
+      "todayPurchases": 5,
+      "state": "BLOCKED",
+      "reasons": [
+        "RECENT_SIGNIFICANT_CHANGE",
+        "DAILY_CHANGE_LIMIT",
+        "LEARNING_ACTIVE"
+      ]
+    },
+    {
+      "campaignId": "120258153733500212",
+      "name": "CBO_COLLA_L15 - 03.10.2026",
+      "currentBudgetCents": 3111,
+      "previewTargetNotSentCents": 4111,
+      "todayRoas": 3.855867,
+      "todayPurchases": 3,
+      "state": "BLOCKED",
+      "reasons": [
+        "RECENT_SIGNIFICANT_CHANGE",
+        "DAILY_CHANGE_LIMIT",
+        "LEARNING_ACTIVE"
+      ]
+    }
+  ],
+  "unattributedBudgetChangesSince1600": [
+    {
+      "campaignId": "120254154816610212",
+      "beforeCents": 4564,
+      "observedCents": 5564
+    },
+    {
+      "campaignId": "120258145914700212",
+      "beforeCents": 4603,
+      "observedCents": 5603
+    }
+  ],
+  "attributionNote": "Fresh Meta budgets increased without a matching own VERIFIED V6 operation. Do not attribute the changes to V6, invent an actor, or treat this GET as post-assignment verification.",
+  "administratorBridgeStatuses": [
+    200,
+    200
+  ],
+  "unknownActorStatus": 403,
+  "crossChatStatus": 403,
+  "bot": {
+    "active": true,
+    "healthOk": true,
+    "mode": "SHARED_CONFIRMED_BUDGETS",
+    "singleProcessLockVerified": true
+  },
+  "historicalAlerts": [
+    "2026-10-25:11:00 AUTOPILOT_REVIEW_FAILED without retained cause",
+    "2026-10-24:23:59 CRITICAL_UNVERIFIED_CAP from prior policy"
+  ],
+  "coverageLimits": [
+    "No verified campaign-attributed post-change purchase event stream; aggregate deltas cannot unlock later increases.",
+    "No reconstructed 08:00 baseline on deployment day; day decreases remain blocked until a real baseline.",
+    "No claimed same-hour-yesterday conversion comparison or fabricated long-history ranking input.",
+    "Provider, learning, external-conflict and unknown-operation blocks remain enforced."
+  ],
+  "nightExecutionVerified": false,
+  "08BaselineReconstructed": false,
+  "noForcedCanary": true,
+  "noMissedReviewReplayed": true
+}
