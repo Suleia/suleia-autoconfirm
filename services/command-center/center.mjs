@@ -1,4 +1,5 @@
 import {adsCommand} from '../meta-ads/command-service.mjs';
+import {parseMetaSummary,readMetaSummary} from './meta-summary.mjs';
 import {parseAutopilotQuery} from '../meta-ads/autopilot/queries.mjs';
 import {orderSummaryIntent,OrderSummaryReader,readOrderSummary} from './order-summary.mjs';
 import {parseOrderRequest,parsePeriodText,resolvePeriod} from './periods.mjs';
@@ -73,6 +74,15 @@ export class CommandCenter {
  async command(body) {
    const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};
    this.ads.engine.authorize(actor);
+   const summaryIntent=body.action==='request'?parseMetaSummary(body.text,this.now()):null;
+   if(body.action==='meta-summary'||summaryIntent){
+     this.authorize(actor,'ads');
+     if(body.action==='request'&&(typeof body.text!=='string'||body.text.length>1000||typeof body.requestKey!=='string'||body.requestKey.length>180))throw Error('QUERY_INVALID');
+     if(summaryIntent?.question)return {text:summaryIntent.question};
+     const metaSummary=await readMetaSummary(this.ads,summaryIntent||body.query||{},this.now());
+     if(body.requestKey)await this.remember(actor,body,'QUERY',{tool:'ads',version:'compact-summary',range:metaSummary.range,observedAt:metaSummary.observedAt});
+     return {metaSummary};
+   }
    if(body.action==='review'||(body.action==='request'&&this.ads.review?.parse(body.text))){
      this.authorize(actor,'ads');
      if(body.action==='request'&&(typeof body.text!=='string'||body.text.length>1000||typeof body.requestKey!=='string'||body.requestKey.length>180))throw Error('QUERY_INVALID');
