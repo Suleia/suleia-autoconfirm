@@ -243,3 +243,27 @@ regression686/686,0fail/0skip,66files; archive
 Independent18:55UTC audit found all3current messages exactly once, correct
 body/recipient/thread/current order parameters, zero uncertainty, and identical
 other-template ledger hashes for all3orders.
+
+## Isolated job lane on the existing timer
+
+Natural observation of5f0c545 exposed a long delay between completed reminder
+reviews because unrelated complete workflows share the old network-job tail.
+The reminder now reuses the existing scheduler's coalescing primitive for one
+independent named job, invoked by the same existing5minute tick. Existing
+background/incident/discount/cancellation jobs keep their original queue/order,
+flags, deadlines and intervals. No new interval/poller is created.
+
+This is workflow scheduling isolation, not a second provider queue or sender:
+every real Chatby request still uses the single existing paced HTTP queue, with
+the same bounded final-read/POST reservation and persistent per-order fence.
+Only one reminder job can remain pending; failed jobs release their slot and
+can run on the next natural tick. A blocked unrelated workflow cannot prevent
+the reminder from evaluating fresh evidence. The job only reads order/issue/
+conversation data and writes its own reminder receipt/status.
+
+The completed689/689 regression (0fail/0skip,66files) includes actual shared
+client contention/pacing tests and scheduler tests proving independence from a
+blocked unrelated job, one pending scan, disabled flags and next-tick recovery.
+Archive84ae2be4919076af8585257fc09ed38fba2f61700afcf6100c3a05a7eb7042c1.
+At19:43UTC the live ledger contained5VERIFIED,0CLAIMED/SENDING/SEND_UNKNOWN;
+one PRE_SEND_BLOCKED had null send start and was not an uncertain message.

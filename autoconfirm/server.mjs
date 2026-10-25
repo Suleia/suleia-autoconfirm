@@ -1,6 +1,6 @@
 import http from 'node:http';
 import {runOrderReminderScan,reminderPublicStatus,reminderHealthStatus} from './src/workflows/order-reminder-runtime.mjs';
-import {queueOrderReminderScan} from './src/workflows/order-reminder-scheduler.mjs';
+import {createOrderReminderJobScheduler} from './src/workflows/order-reminder-scheduler.mjs';
 import {acceptedSupportStatus,startAcceptedSupportScheduler} from './src/workflows/accepted-discount-runtime.mjs';
 import {probeAuthorized,probeSupportConnections,probeErrorCode} from './src/clients/discount-support-probe.mjs';
 import {addressRuntimeStatus} from './src/workflows/address-response-policy.mjs';
@@ -1316,6 +1316,12 @@ function scheduleNetworkJob(name, work) {
   return scheduledNetworkJobs.schedule(name, work).catch(() => null);
 }
 
+const scheduleOrderReminderTick=createOrderReminderJobScheduler({
+  enabled:()=>process.env.ORDER_REMINDER_ENABLED==='true',scan:runOrderReminderScan,
+  onCycle:report=>console.log(JSON.stringify({event:'order_reminder_cycle',at:report.at,mode:report.mode,coverage:report.coverage,counts:report.counts,externalWrites:report.externalWrites})),
+  onError:error=>console.error('Scheduled network job failed (ORDER_CONFIRMATION_REMINDER_SCAN):',error)
+});
+
 const incidentAutomationRetry = createIncidentAutomationRetry({
   getRetryAfterMs: getChatbyRetryAfterMs,
   scheduleRetry: () => scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync)
@@ -1355,9 +1361,7 @@ async function runBackgroundPoll() {
 
 function scheduleBackgroundPollTick(){
   scheduleNetworkJob('background_poll',runBackgroundPoll);
-  queueOrderReminderScan({enabled:process.env.ORDER_REMINDER_ENABLED==='true',schedule:scheduleNetworkJob,scan:runOrderReminderScan,onCycle:report=>{
-    console.log(JSON.stringify({event:'order_reminder_cycle',at:report.at,mode:report.mode,coverage:report.coverage,counts:report.counts,externalWrites:report.externalWrites}));
-  }});
+  scheduleOrderReminderTick();
 }
 
 function startBackgroundPoller() {
