@@ -1,4 +1,6 @@
 import http from 'node:http';
+import {runOrderReminderScan,reminderPublicStatus,reminderHealthStatus} from './src/workflows/order-reminder-runtime.mjs';
+import {createOrderReminderJobScheduler} from './src/workflows/order-reminder-scheduler.mjs';
 import {acceptedSupportStatus,startAcceptedSupportScheduler} from './src/workflows/accepted-discount-runtime.mjs';
 import {probeAuthorized,probeSupportConnections,probeErrorCode} from './src/clients/discount-support-probe.mjs';
 import {addressRuntimeStatus} from './src/workflows/address-response-policy.mjs';
@@ -387,6 +389,7 @@ function storeSummary({ publicView = false } = {}) {
     lastIncidentReturnReconciliationSummary: state.lastIncidentReturnReconciliationSummary || null,
     incidentAutomationRecovery: incidentAutomationRetry.status(),
     buildRevision: process.env.RENDER_GIT_COMMIT || null,
+    orderConfirmationReminder: reminderHealthStatus(),
     lastOperationalOrdersSyncAt: state.lastOperationalOrdersSyncAt,
     lastOperationalOrdersSyncError: state.lastOperationalOrdersSyncError,
     lastOperationalOrdersSyncCount: state.lastOperationalOrdersSyncCount,
@@ -576,8 +579,12 @@ function queueFinanceReportRefresh(month, {afterCurrent=false}={}) {
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
-
   try {
+    if(req.method==='GET'&&url.pathname==='/api/order-reminder/status'){
+      res.setHeader('Cache-Control','no-store');
+      if(!isDashboardAuthenticated(req)&&(!config.cronSecret||!isAuthorizedCron(req)))return sendJson(res,401,{ok:false,error:'unauthorized'});
+      return sendJson(res,200,{ok:true,reminder:await reminderPublicStatus()});
+    }
     if (req.method === 'POST' && url.pathname === '/api/discount-support/verify-connections') {
       if (!probeAuthorized(req.headers.authorization, config.cronSecret)) return sendJson(res, 401, {ok:false,error:'unauthorized'});
       res.setHeader('Cache-Control','no-store');
@@ -1309,6 +1316,12 @@ function scheduleNetworkJob(name, work) {
   return scheduledNetworkJobs.schedule(name, work).catch(() => null);
 }
 
+const scheduleOrderReminderTick=createOrderReminderJobScheduler({
+  enabled:()=>process.env.ORDER_REMINDER_ENABLED==='true',scan:runOrderReminderScan,
+  onCycle:report=>console.log(JSON.stringify({event:'order_reminder_cycle',at:report.at,mode:report.mode,coverage:report.coverage,counts:report.counts,externalWrites:report.externalWrites})),
+  onError:error=>console.error('Scheduled network job failed (ORDER_CONFIRMATION_REMINDER_SCAN):',error)
+});
+
 const incidentAutomationRetry = createIncidentAutomationRetry({
   getRetryAfterMs: getChatbyRetryAfterMs,
   scheduleRetry: () => scheduleNetworkJob('incidents_sync', runScheduledIncidentsSync)
@@ -1346,6 +1359,11 @@ async function runBackgroundPoll() {
   }
 }
 
+function scheduleBackgroundPollTick(){
+  scheduleNetworkJob('background_poll',runBackgroundPoll);
+  scheduleOrderReminderTick();
+}
+
 function startBackgroundPoller() {
   const intervalMinutes = config.defaultStore.autoPollIntervalMinutes || 5;
   if (!(config.defaultStore.autoPollEnabled ?? true)) return;
@@ -1353,9 +1371,9 @@ function startBackgroundPoller() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    scheduleNetworkJob('background_poll', runBackgroundPoll);
+    scheduleBackgroundPollTick();
     pollTimer = setInterval(
-      () => scheduleNetworkJob('background_poll', runBackgroundPoll),
+      scheduleBackgroundPollTick,
       intervalMs
     );
   }, 15000);

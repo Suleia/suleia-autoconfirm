@@ -1,4 +1,5 @@
 import { getAppConfig } from '../config.mjs';
+import {REMINDER_TEMPLATE,REMINDER_OWNER,REMINDER_LOCALE,approvedReminder,exactPhone,confirmationOrderField,numericId} from '../workflows/order-reminder-policy.mjs';
 
 const config = getAppConfig();
 
@@ -99,6 +100,11 @@ function assertRepositoryOwnsTemplate(payload) {
     || payload?.content?.name
     || payload?.content?.template_name;
   const owner = chatbyLifecycleTemplateOwnerFor(name);
+  if (templateSlug(name) === REMINDER_TEMPLATE) {
+    const error = new Error('ORDER_REMINDER_DEDICATED_SENDER_REQUIRED');
+    error.code = 'ORDER_REMINDER_DEDICATED_SENDER_REQUIRED';
+    throw error;
+  }
   if (owner !== 'chatby_native' || !CHATBY_NATIVE_LIFECYCLE_TEMPLATES.has(templateSlug(name))) return;
 
   throw nativeLifecycleOwnershipError();
@@ -183,12 +189,26 @@ async function scheduleRequest(task) {
   }
 }
 
+let activeReminderQueueSlot=null;
+async function inReminderQueueSlot(slot,task){
+  const fail=code=>{throw Object.assign(new Error(code),{code,notSent:true});};
+  if(!slot||slot!==activeReminderQueueSlot)fail('REMINDER_QUEUE_RESERVATION_INVALID');
+  if(rateLimitedUntil>Date.now())fail('CHATBY_RATE_LIMITED');
+  const wait=Math.max(0,nextRequestAt-Date.now());
+  if(Date.now()+wait>=slot.deadline)fail('REMINDER_QUEUE_WINDOW_EXPIRED');
+  if(wait)await sleep(wait);
+  if(Date.now()>=slot.deadline)fail('REMINDER_QUEUE_WINDOW_EXPIRED');
+  try{return await task();}finally{nextRequestAt=Date.now()+adaptiveRequestMinIntervalMs;}
+}
+
 async function request(path, options = {}) {
   if (!config.chatbyToken) throw new Error('Falta CHATBY_TOKEN.');
   const {
     maxAttempts: configuredAttempts,
     timeoutMs: configuredTimeout = 20000,
     retrySafe = false,
+    beforeDispatch = null,
+    reminderQueueSlot = null,
     signal: providedSignal,
     ...requestOptions
   } = options;
@@ -203,7 +223,9 @@ async function request(path, options = {}) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      response = await scheduleRequest(async () => {
+      const dispatch=reminderQueueSlot?task=>inReminderQueueSlot(reminderQueueSlot,task):scheduleRequest;
+      response = await dispatch(async () => {
+        if (beforeDispatch) await beforeDispatch();
         const controller = providedSignal ? null : new AbortController();
         const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
         try {
@@ -559,6 +581,77 @@ export async function getIncidentChatMessages(userNs) {
   const error = new Error('CHATBY_INCIDENT_HISTORY_INCOMPLETE');
   error.code = 'CHATBY_INCIDENT_HISTORY_INCOMPLETE';
   throw error;
+}
+
+// Isolated reminder reads share the existing provider queue. They do not update
+// subscriber fields, tags, bot state, or any lifecycle/incident template ledger.
+export async function getOrderReminderTemplate({reminderQueueSlot=null}={}) {
+  const response=await request('/whatsapp-template/list?'+new URLSearchParams({name:REMINDER_TEMPLATE,limit:'100',page:'1'}),{method:'POST',body:'{}',retrySafe:true,maxAttempts:1,timeoutMs:10000,reminderQueueSlot});
+  const rows=response?.data;
+  if(!Array.isArray(rows)||Number(response.meta?.last_page||1)>1)throw Object.assign(new Error(),{code:'REMINDER_TEMPLATE_CATALOG_INCOMPLETE'});
+  const exact=rows.filter(x=>x.name===REMINDER_TEMPLATE&&x.language===REMINDER_LOCALE);
+  if(exact.length!==1||!approvedReminder(exact[0]))throw Object.assign(new Error(),{code:'REMINDER_TEMPLATE_NOT_APPROVED'});
+  return exact[0];
+}
+export async function getOrderReminderSubscriber(userNs,{reminderQueueSlot=null}={}) {
+  const response=await request('/subscriber/get-info?'+new URLSearchParams({user_ns:String(userNs)}),{method:'GET',maxAttempts:1,timeoutMs:10000,reminderQueueSlot});
+  const subscriber=response?.data;
+  if(!subscriber||String(subscriber.user_ns)!==String(userNs))throw Object.assign(new Error(),{code:'REMINDER_CHATBY_IDENTITY_UNVERIFIED'});
+  return subscriber;
+}
+export async function getOrderReminderMessages(userNs,{sinceMs,now=Date.now(),reminderQueueSlot=null}={}) {
+  if(!Number.isFinite(sinceMs)||sinceMs>now||sinceMs<now-72*3600000)throw Object.assign(new Error(),{code:'REMINDER_HISTORY_SCOPE_INVALID'});
+  const collected=new Map();let end=null;
+  for(let page=0;page<5;page++){
+    const query=new URLSearchParams({user_ns:String(userNs),include_bot:'1',include_system:'1',limit:'100',start_time:String(Math.floor(sinceMs/1000))});
+    if(end!==null)query.set('end_time',String(end));
+    const response=await request('/subscriber/chat-messages?'+query,{method:'GET',maxAttempts:1,timeoutMs:10000,reminderQueueSlot});
+    const rows=response?.data;
+    if(!Array.isArray(rows)||rows.some(x=>!x.mid||String(x.user_ns)!==String(userNs)))throw Object.assign(new Error(),{code:'REMINDER_HISTORY_INVALID'});
+    for(const row of rows)collected.set(row.mid,row);
+    if(rows.length<100)return {messages:[...collected.values()],complete:true};
+    const stamps=rows.map(x=>Number(x.ts));
+    if(stamps.some(x=>!Number.isInteger(x)||x<=0))break;
+    const oldest=Math.min(...stamps);
+    if(end!==null&&oldest>=end)break;
+    end=oldest;
+  }
+  throw Object.assign(new Error(),{code:'REMINDER_HISTORY_INCOMPLETE'});
+}
+export async function sendOrderConfirmationReminder(input) {
+  let {template,params,subscriber,orderId,canonicalOrderId,claimId,checkedAt,expectedRecipient}=input;
+  const fail=code=>{throw Object.assign(new Error(code),{code,notSent:true});};
+  const guard=(checkFresh=true)=>{
+    if(process.env.ORDER_CONFIRMATION_REMINDER_OWNER!==REMINDER_OWNER||process.env.ORDER_REMINDER_NATIVE_SENDERS_DISABLED!=='true'||!process.env.ORDER_REMINDER_OWNER_REFERENCE)fail('REMINDER_SINGLE_SENDER_UNVERIFIED');
+    const live=process.env.ORDER_REMINDER_REAL_SENDS==='true',canary=process.env.ORDER_REMINDER_CANARY_ENABLED==='true'&&String(orderId)===process.env.ORDER_REMINDER_CANARY_ORDER_ID;
+    if(process.env.ORDER_REMINDER_ENABLED!=='true'||(!live&&!canary))fail('REMINDER_REAL_SENDS_DISABLED');
+    if(!approvedReminder(template))fail('REMINDER_TEMPLATE_CONTRACT_CHANGED');
+    if(!/^[a-f0-9-]{36}$/.test(String(claimId))||!String(canonicalOrderId).endsWith(':'+String(orderId)))fail('REMINDER_CLAIM_REQUIRED');
+    if(confirmationOrderField(subscriber)!==numericId(orderId)||!exactPhone(expectedRecipient)||exactPhone(subscriber.phone||subscriber.user_id)!==exactPhone(expectedRecipient))fail('REMINDER_RECIPIENT_UNVERIFIED');
+    if(checkFresh&&(!Number.isFinite(Date.parse(checkedAt))||Date.now()-Date.parse(checkedAt)>10000||Date.parse(checkedAt)>Date.now()))fail('REMINDER_FRESH_READ_EXPIRED');
+    if(Object.keys(params||{}).sort().join('|')!==['BODY_{{1}}','BODY_{{2}}','BODY_{{3}}','BODY_{{4}}'].join('|')||Object.values(params).some(x=>typeof x!=='string'||!x.trim()))fail('REMINDER_PARAMETERS_INVALID');
+  };
+  guard(typeof input.refreshBeforeDispatch!=='function');
+  // One bounded reservation of the existing queue, never a parallel sender.
+  // Nested reads keep the same pacing/cooldown; unrelated callers cannot hold
+  // the private slot token or interleave between this fresh read and POST.
+  let entered=false;
+  return scheduleRequest(async()=>{
+    entered=true;
+    const slot={deadline:Date.now()+30000};let postStarted=false;
+    activeReminderQueueSlot=slot;
+    try{
+      if(typeof input.refreshBeforeDispatch==='function'){
+        const reads={readTemplate:()=>getOrderReminderTemplate({reminderQueueSlot:slot}),getSubscriber:ns=>getOrderReminderSubscriber(ns,{reminderQueueSlot:slot}),getMessages:(ns,options)=>getOrderReminderMessages(ns,{...options,reminderQueueSlot:slot})};
+        const fresh=await input.refreshBeforeDispatch(reads);
+        ({template,params,subscriber,checkedAt,expectedRecipient}=fresh);
+      }
+      guard();
+      const quick=Object.fromEntries(Object.entries(template.default_values.params).filter(([k])=>k.startsWith('QUICK_REPLY_')));
+      return await request('/subscriber/send-whatsapp-template',{method:'POST',maxAttempts:1,timeoutMs:12000,reminderQueueSlot:slot,beforeDispatch:()=>{guard();postStarted=true;},body:JSON.stringify({user_ns:subscriber.user_ns,content:{name:REMINDER_TEMPLATE,lang:REMINDER_LOCALE,namespace:template.namespace,params:{...params,...quick}}})});
+    }catch(error){if(!postStarted)error.notSent=true;throw error;}
+    finally{activeReminderQueueSlot=null;}
+  }).catch(error=>{if(!entered)error.notSent=true;throw error;});
 }
 
 export async function listSubscribers({ page = 1, limit = 100 } = {}) {

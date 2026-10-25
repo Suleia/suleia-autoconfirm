@@ -1,0 +1,221 @@
+{
+  "verifiedAtUtc": "2026-10-25T20:25:57.486160+00:00",
+  "state": "LIVE_VERIFIED",
+  "pullRequests": [
+    152,
+    153
+  ],
+  "worker": {
+    "revision": "42a17a18c7d9bcfda44e9b6056a86c25e45cfb84",
+    "renderDeployId": "dep-dbf61ft9fdbs738uulag",
+    "actualOriginalLiveBase": "d175378d288d33823ced70f8db3b3a806854377e",
+    "actualRollbackPredecessor": "03e0e373e1c2fe3b6387931629e439deffff71e4",
+    "healthyObservedAtUtc": "2026-10-25T20:05:14.019Z",
+    "sameExistingFiveMinuteTick": true,
+    "independentCoalescedJob": "ORDER_CONFIRMATION_REMINDER_SCAN",
+    "newIntervals": 0,
+    "singleSharedChatbyHttpQueue": true,
+    "maxCandidatesPerNaturalJob": 2,
+    "lookbackHours": 48
+  },
+  "ownership": {
+    "owner": "render_order_reminder",
+    "nativeReminderStateEvidence": "Explicit owner attestation: Reminder1/2 disabled; API exposes names, not enabled conditions",
+    "approvalReference": "chat:2026-10-25:owner-native-reminders-disabled:4148e11e4f95437484f4628f28a6172e",
+    "initialAndPreparedOwner": "chatby_native",
+    "incidentOwner": "repository",
+    "otherOwnersChanged": false
+  },
+  "template": {
+    "name": "dropea_pedido_reminder_v1",
+    "locale": "es_ES",
+    "category": "UTILITY",
+    "chatbyId": 1472493,
+    "metaId": "1344752647520812",
+    "semanticComponentHash": "aedc6d5323134e060b06332a0ce67e47dacad3c53efb2f0f2c636347d1f165fc",
+    "callbackHash": "a1747e6a5ddee303e8ef3de475ce56d65a1f4a0cc8853b9c5ee6dd4fc457d8c9",
+    "bodyParameterOrder": [
+      "COD amount",
+      "street plus address line2",
+      "city",
+      "postcode"
+    ],
+    "nativeFlowsEdited": false
+  },
+  "canary": {
+    "orderId": "1484550",
+    "naturallyEligible": true,
+    "actualProviderAcceptedAtUtc": "2026-10-25T18:22:03Z",
+    "verifiedAtUtc": "2026-10-25T18:33:46.898Z",
+    "messageCount": 1,
+    "providerIdHashStableJsonSha256": "38c56e98af432a2661376ebb33dc8078728ffa2a65dbcf086a5e49f5314fbdcc",
+    "exactOrderRecipientThreadBodyAndParameters": true,
+    "initialLedgerUnchanged": true,
+    "providerApiType": "agent",
+    "initialUncertaintyReconciledWithoutResend": true,
+    "reconciliationExternalMessageCalls": 0,
+    "reconciliationNewClaims": 0,
+    "reconciliationNatural": false,
+    "originalFourNaturalCycleEntriesPreserved": true
+  },
+  "naturalCycles": [
+    {
+      "at": "2026-10-25T20:09:12.626Z",
+      "mode": "LIVE",
+      "coverage": {
+        "queried": 12,
+        "evaluated": 2,
+        "allEvaluated": false
+      },
+      "counts": {
+        "reminder_candidates": 2,
+        "reminder_not_due": 0,
+        "reminder_customer_responded": 0,
+        "reminder_already_confirmed": 0,
+        "reminder_initial_missing": 0,
+        "reminder_blocked_incident": 0,
+        "reminder_sent": 1,
+        "reminder_verified": 1,
+        "reminder_send_unknown": 0,
+        "reminder_duplicate_prevented": 0,
+        "eligible": 0
+      },
+      "externalWrites": 1,
+      "observedRuntimeRevision": "42a17a18c7d9bcfda44e9b6056a86c25e45cfb84",
+      "observedAt": "2026-10-25T20:09:56.902Z"
+    },
+    {
+      "at": "2026-10-25T20:14:18.368Z",
+      "mode": "LIVE",
+      "coverage": {
+        "queried": 10,
+        "evaluated": 2,
+        "allEvaluated": false
+      },
+      "counts": {
+        "reminder_candidates": 2,
+        "reminder_not_due": 0,
+        "reminder_customer_responded": 1,
+        "reminder_already_confirmed": 0,
+        "reminder_initial_missing": 0,
+        "reminder_blocked_incident": 0,
+        "reminder_sent": 1,
+        "reminder_verified": 1,
+        "reminder_send_unknown": 0,
+        "reminder_duplicate_prevented": 0,
+        "eligible": 0
+      },
+      "externalWrites": 1,
+      "observedRuntimeRevision": "42a17a18c7d9bcfda44e9b6056a86c25e45cfb84",
+      "observedAt": "2026-10-25T20:14:40.001Z"
+    },
+    {
+      "at": "2026-10-25T20:22:31.674Z",
+      "mode": "LIVE",
+      "coverage": {
+        "queried": 9,
+        "evaluated": 2,
+        "allEvaluated": false
+      },
+      "counts": {
+        "reminder_candidates": 2,
+        "reminder_not_due": 0,
+        "reminder_customer_responded": 1,
+        "reminder_already_confirmed": 0,
+        "reminder_initial_missing": 0,
+        "reminder_blocked_incident": 0,
+        "reminder_sent": 1,
+        "reminder_verified": 1,
+        "reminder_send_unknown": 0,
+        "reminder_duplicate_prevented": 0,
+        "eligible": 0
+      },
+      "externalWrites": 1,
+      "observedRuntimeRevision": "42a17a18c7d9bcfda44e9b6056a86c25e45cfb84",
+      "observedAt": "2026-10-25T20:23:17.476Z"
+    }
+  ],
+  "finalJobErrorLogCheck": {
+    "startUtc": "2026-10-25T20:05:14.019Z",
+    "matchingFailures": 0,
+    "hasMore": false
+  },
+  "independentMessageAudit": {
+    "atUtc": "2026-10-25T20:25:22.540Z",
+    "verifiedMessages": 8,
+    "allExactlyOnceAndCorrect": true,
+    "uniquePersistentKeys": true,
+    "unresolvedAttempts": 0,
+    "preSendBlockedRows": 4,
+    "otherTemplateLedgersWithBeforeAfterBaseline": 7,
+    "allComparedOtherTemplateLedgersUnchanged": true,
+    "ordersWithoutPriorLedgerBaseline": 1,
+    "auditExternalWrites": 0
+  },
+  "tests": {
+    "worker": {
+      "passed": 692,
+      "failed": 0,
+      "skipped": 0,
+      "files": 66,
+      "sourceArchiveSha256": "1c8f1b37218643187155af3d049d93268b8e18d44b72c95cfdc8aeca78a338db",
+      "changedFilesMatchingPassingArchive": 12,
+      "privateReceipt": "/var/tmp/suleia-order-reminder-qa/1c8f1b372186-mount/result.json"
+    },
+    "apiPanel": {
+      "passed": 1419,
+      "failed": 0,
+      "skipped": 0,
+      "files": 150,
+      "sourceArchiveSha256": "65463e47522fe71251090a135c6a93043bce1ca3b78bdaaeb98bb4a590793c48",
+      "unchangedTimingBenchmarkPassedIdenticalSourceRetry": true
+    },
+    "network": "none",
+    "productionCredentialsSupplied": false
+  },
+  "panel": {
+    "runtimeRevision": "79a27466f68a51194145d9adc4973cbe06a5614e",
+    "verificationAtUtc": "2026-10-25T20:05:17.025117+00:00",
+    "apiSourceFilesMatched": 385,
+    "staticFilesMatched": 48,
+    "card": "Automatización → REMINDER PEDIDO · 2H",
+    "readerMode": "LIVE",
+    "readerFreshness": "FRESH",
+    "publicAssetsHttp": 200,
+    "cacheControl": "no-store",
+    "anonymousPrivateRoutesHttp": 401,
+    "existingAuthenticatedRenderClientReadVerified": true,
+    "newCredentials": 0,
+    "schemaMigrations": 0,
+    "visualBrowserVerificationPerformed": false
+  },
+  "preserved": {
+    "confirmationDelayHours": 1,
+    "unansweredCancellationHours": 48,
+    "unrelatedRenderConfiguration": true,
+    "unchangedAddressCodeRegressionRevisionGatesMatchRuntime": true,
+    "botPidEnvironmentTokenAndAdmins": true,
+    "financeRatesAndPolicies": true,
+    "otherContainersTimersImportAndAddressObservers": true,
+    "orderAddressPriceQuantityMutations": 0,
+    "metaOrBudgetActions": 0,
+    "openaiCalls": 0,
+    "chatbyTemplateFlowFieldTagEdits": 0
+  },
+  "rollback": {
+    "preparedNotExercised": true,
+    "scope": "Application/static code only; retain every delivery key, claim, provider ID, order/timer and financial state",
+    "stopFlags": [
+      "ORDER_REMINDER_ENABLED=false",
+      "ORDER_REMINDER_REAL_SENDS=false",
+      "ORDER_REMINDER_CANARY_ENABLED=false"
+    ],
+    "workerPreviousRevision": "03e0e373e1c2fe3b6387931629e439deffff71e4",
+    "matchingPreviousAddressGatesRequired": true,
+    "encryptedConfigurationBackupInTrustedLocalStorage": true,
+    "workerGuardedDriverLocal": "output/order-reminder-20261025/deploy-render-freshness.mjs",
+    "panelPreviousRevision": "51f15ed",
+    "panelRootOnlyStateDirectory": "/root/suleia-order-reminder-panel-deploy/79a2746/",
+    "refuseSupersedingReleaseOrConfiguration": true
+  }
+}
