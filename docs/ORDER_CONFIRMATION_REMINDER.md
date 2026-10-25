@@ -233,3 +233,13 @@ is read as a reminder receipt or changed. No message predicate, callback, time
 limit, transport, owner or other workflow is modified by this selection change.
 Full final regression685/685,0fail/0skip,66files, archive
 350b608c267f152093f6d0d743c1200d83a23beb8418d5c953bcd0c19691412e.
+
+The daily eligible counter retains unique eligible observations after successful
+delivery/deduplication, including migration of existing same-day observations.
+It resets on the Madrid day without clearing any delivery key. This prevents
+a successful message disappearing from its day's eligible total. Final complete
+regression686/686,0fail/0skip,66files; archive
+0cf412390240cd587a5ecdec36fab3ec9b50c0100bb8dcda0a7d7a6e7d40e321.
+Independent18:55UTC audit found all3current messages exactly once, correct
+body/recipient/thread/current order parameters, zero uncertainty, and identical
+other-template ledger hashes for all3orders.
