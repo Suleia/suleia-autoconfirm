@@ -85,9 +85,16 @@ addresses and conversation text are not copied into repository evidence.
 
 ## Scheduler, rollout and observability
 
-The existing background poll queues `ORDER_CONFIRMATION_REMINDER_SCAN` as an
-isolated job. No new interval/global order poller is created and no existing
-timer/deadline is reset. Queries use canonical JSON purchase fields, current
+The existing five-minute background poll tick registers
+`ORDER_CONFIRMATION_REMINDER_SCAN` as an independent named job in the shared
+serialized/coalescing queue. It does not wait for the long background order
+workflow to finish before registering, avoiding a startup tail behind every
+other queued workflow. No new interval/global order poller is created and no
+existing timer/deadline is reset. Existing jobs retain their mutual order.
+The first f25604c natural SHADOW completed17:21:29UTC with2/17 candidates
+evaluated,2eligible,0sends/claims and single sender verified; its16-minute
+startup wait prompted this scheduling-only correction. Production latency of
+the final registration still requires natural observation. Queries use canonical JSON purchase fields, current
 pending state, bounded lookback tied to the actual cancellation policy (48h at
 audit), at most300 candidate rows. Two candidates per natural job rotate fairly;
 an explicit canary is prioritized. Backlog coverage is shown, not hidden.

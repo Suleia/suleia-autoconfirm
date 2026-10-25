@@ -1,5 +1,6 @@
 import http from 'node:http';
 import {runOrderReminderScan,reminderPublicStatus,reminderHealthStatus} from './src/workflows/order-reminder-runtime.mjs';
+import {queueOrderReminderScan} from './src/workflows/order-reminder-scheduler.mjs';
 import {acceptedSupportStatus,startAcceptedSupportScheduler} from './src/workflows/accepted-discount-runtime.mjs';
 import {probeAuthorized,probeSupportConnections,probeErrorCode} from './src/clients/discount-support-probe.mjs';
 import {addressRuntimeStatus} from './src/workflows/address-response-policy.mjs';
@@ -1350,10 +1351,13 @@ async function runBackgroundPoll() {
   } catch (error) {
     console.error('Background automation error:', error);
   }
-  if(process.env.ORDER_REMINDER_ENABLED==='true')scheduleNetworkJob('ORDER_CONFIRMATION_REMINDER_SCAN',async()=>{
-    const report=await runOrderReminderScan({natural:true});
+}
+
+function scheduleBackgroundPollTick(){
+  scheduleNetworkJob('background_poll',runBackgroundPoll);
+  queueOrderReminderScan({enabled:process.env.ORDER_REMINDER_ENABLED==='true',schedule:scheduleNetworkJob,scan:runOrderReminderScan,onCycle:report=>{
     console.log(JSON.stringify({event:'order_reminder_cycle',at:report.at,mode:report.mode,coverage:report.coverage,counts:report.counts,externalWrites:report.externalWrites}));
-  });
+  }});
 }
 
 function startBackgroundPoller() {
@@ -1363,9 +1367,9 @@ function startBackgroundPoller() {
 
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    scheduleNetworkJob('background_poll', runBackgroundPoll);
+    scheduleBackgroundPollTick();
     pollTimer = setInterval(
-      () => scheduleNetworkJob('background_poll', runBackgroundPoll),
+      scheduleBackgroundPollTick,
       intervalMs
     );
   }, 15000);
