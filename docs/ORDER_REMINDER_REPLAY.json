@@ -18,14 +18,14 @@
   "laterClassifierCorrection": "Non-pending cancelled/rejected/error orders are classified separately from confirmed/fulfilment orders; this does not make them eligible.",
   "testEvidence": {
     "runtime": "Node22 isolated Docker",
-    "sourceArchiveSha256": "a24ae6bd99a7dff77d3663fdc91571bea86bd93468691315a2b2c987ee33d6e3",
+    "sourceArchiveSha256": "350b608c267f152093f6d0d743c1200d83a23beb8418d5c953bcd0c19691412e",
     "testFiles": 66,
-    "passed": 683,
+    "passed": 685,
     "failed": 0,
     "skipped": 0,
     "network": "none",
     "productionCredentialsSupplied": false,
-    "privateReceipt": "/var/tmp/suleia-order-reminder-qa/a24ae6bd99a7-mount/result.json"
+    "privateReceipt": "/var/tmp/suleia-order-reminder-qa/350b608c267f-mount/result.json"
   },
-  "deployment": "One real natural canary exists and was reconciled without resending; final agent-output verifier tested; general LIVE still off at this receipt"
+  "deployment": "LIVE10e4269: first natural LIVE cycle18:53:36UTC verified2new messages; terminal-candidate filtering tested685/685, pending narrow LIVE update"
 }

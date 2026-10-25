@@ -7,6 +7,16 @@ import {createOrderReminderService} from './order-reminder-service.mjs';
 import {INITIAL_TEMPLATE,REMINDER_TEMPLATE,REMINDER_TIMER,REMINDER_OWNER,numericId,purchaseAnchor,reminderHash,reminderParameters,exactPhone,reminderKey} from './order-reminder-policy.mjs';
 
 export const REMINDER_STATUS_KEY='order_confirmation_reminder_v1';
+export function excludeTerminalReminders(orders,terminal,providerStoreId){
+ if(terminal.length>300)throw Error('REMINDER_TERMINAL_COVERAGE_INCOMPLETE');
+ const selected=new Set(orders.map(o=>String(o.orderId))),excluded=new Set();
+ for(const row of terminal){
+  const id=numericId(row.order_id),canonical=`dropea:${providerStoreId}:${id}`;
+  if(!id||!selected.has(id)||row.template_key!==reminderKey(canonical)||row.raw?.canonical_order_id!==canonical||!['VERIFIED','SEND_REJECTED'].includes(row.status))throw Error('REMINDER_TERMINAL_IDENTITY_UNVERIFIED');
+  excluded.add(id);
+ }
+ return orders.filter(o=>!excluded.has(String(o.orderId)));
+}
 export function includeReminderReconciliation(orders,retained,providerStoreId){
  if(retained.length>20)throw Error('REMINDER_RECONCILIATION_COVERAGE_INCOMPLETE');
  const result=new Map(orders.map(o=>[String(o.orderId),o]));
@@ -73,7 +83,11 @@ export function createReminderPorts({env=process.env,app=getAppConfig(),request=
    }
    let orders=all.filter(row=>numericId(row.order_id)&&row.raw?.raw?.source==='DROPEA_PUBLIC_API_V2').map(row=>({orderId:String(row.order_id),canonicalOrderId:`dropea:${store.store_id}:${row.order_id}`,local:row}));
    if(!replay){
-    const retained=await db('template_delivery_ledger',{select:'template_key,order_id,status,raw',store_id:'eq.'+app.defaultStore.id,template_name:'eq.'+REMINDER_TEMPLATE,status:'in.(CLAIMED,SENDING,SEND_UNKNOWN)',limit:21});
+    const [terminal,retained]=await Promise.all([
+     orders.length?db('template_delivery_ledger',{select:'template_key,order_id,status,raw',store_id:'eq.'+app.defaultStore.id,template_name:'eq.'+REMINDER_TEMPLATE,order_id:'in.('+orders.map(o=>o.orderId).join(',')+')',status:'in.(VERIFIED,SEND_REJECTED)',limit:301}):Promise.resolve([]),
+     db('template_delivery_ledger',{select:'template_key,order_id,status,raw',store_id:'eq.'+app.defaultStore.id,template_name:'eq.'+REMINDER_TEMPLATE,status:'in.(CLAIMED,SENDING,SEND_UNKNOWN)',limit:21})
+    ]);
+    orders=excludeTerminalReminders(orders,terminal,store.store_id);
     orders=includeReminderReconciliation(orders,retained,store.store_id);
    }
    issueIndex=null;

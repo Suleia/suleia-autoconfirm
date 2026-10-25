@@ -215,3 +215,21 @@ Includes API-agent reconciliation after confirmation, inbound rejection,
 namespace/store/backlog fencing, no new send from a reconciliation-only candidate
 and persistent uncertainty counters across restart. General LIVE and its three
 natural cycles must still be verified separately from this canary result.
+
+## Terminal deliveries do not occupy dispatch slots
+
+The first actual10e4269 LIVE cycle completed18:53:36UTC: two new naturally
+eligible messages VERIFIED (1483612,1484170),0unknown,0duplicate attempts in that
+cycle. Including the real canary,3messages were verified. It used the existing
+natural scheduler, not a manual scan.
+
+Candidate selection now excludes exact same-store reminder keys already
+VERIFIED/SEND_REJECTED before applying the small dispatch batch. These terminal
+orders cannot repeatedly occupy slots ahead of new due orders. The lookup is
+bounded to the selected at-most300recent orders, one exact template/store,
+with301rows as overflow detection. The separately bounded20retained reservations
+remain read-only reconciliation candidates. No field in another template ledger
+is read as a reminder receipt or changed. No message predicate, callback, time
+limit, transport, owner or other workflow is modified by this selection change.
+Full final regression685/685,0fail/0skip,66files, archive
+350b608c267f152093f6d0d743c1200d83a23beb8418d5c953bcd0c19691412e.
