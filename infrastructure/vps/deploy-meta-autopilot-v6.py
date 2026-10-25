@@ -112,10 +112,10 @@ if phase=='stage':
  for root in [pathlib.Path(S['panel']),newBot.parent.parent]:
   for x in [root,*root.rglob('*')]:x.chmod(0o755 if x.is_dir()else 0o644)
  # Import all modified bot modules without starting polling or using tokens.
- unit=pathlib.Path('/etc/systemd/system/suleia-telegram.service').read_text()
- executable=re.search(r'(?m)^ExecStart=(/[^\s]+/node)\s',unit)
- assert executable and pathlib.Path(executable.group(1)).is_file(),'BOT_NODE_EXECUTABLE_UNVERIFIED'
- S['botNode']=executable.group(1)
+ pid=run(['systemctl','show','suleia-telegram.service','-p','MainPID','--value']).decode().strip()
+ assert pid.isdigit()and int(pid)>0,'BOT_PROCESS_NOT_RUNNING'
+ S['botNode']=os.readlink('/proc/'+pid+'/exe')
+ assert pathlib.Path(S['botNode']).is_file()and run([S['botNode'],'-p','process.versions.node']).decode().startswith('22.'),'BOT_NODE_EXECUTABLE_UNVERIFIED'
  run([S['botNode'],'--input-type=module','-e',';'.join("await import('"+str(newBot/pathlib.Path(f['path']).name)+"')"for f in M['botFiles'])])
  text=BENV.read_text();text=re.sub(r'(?m)^AUTOPILOT_REPORT_POLICY_VERSION=.*\n?','',text).rstrip()+'\nAUTOPILOT_REPORT_POLICY_VERSION=SULEIA_META_AUTOPILOT_V6\n';(D/'telegram-new.private.env').write_text(text);S['newBotEnvHash']=sha(text.encode())
  S['override']={'services':{'api':{'image':M['image'],'environment':updates},'review-panel':{'volumes':[S['panel']+':/usr/share/nginx/html:ro']}}}
