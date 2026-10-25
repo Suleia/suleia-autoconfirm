@@ -2,6 +2,7 @@ import {productLink} from './product-links.mjs';
 import { createHash } from 'node:crypto';
 import { CONTRACT, normalizeInsight, ratio, windowFor } from './metrics.mjs';
 import { diagnose } from './diagnostics.mjs';
+import {sourceReadAt} from './report-reader.mjs';
 
 // These are disclosure-backed diagnostic safeguards, NOT authorization to spend.
 export const DIAGNOSTIC_SAMPLE=Object.freeze({minSpend:15,minPurchases:5,minImpressions:1000,minFunnelEvents:30});
@@ -21,6 +22,14 @@ export function aggregate(facts) {
   }
   Object.assign(out,{roas:ratio(out.purchaseValue,out.spend),cpa:ratio(out.spend,out.purchases),linkCtr:ratio(out.linkClicks,out.impressions,100),linkCpc:ratio(out.spend,out.linkClicks),cpm:ratio(out.spend,out.impressions,1000),costPerCart:ratio(out.spend,out.addToCart),costPerCheckout:ratio(out.spend,out.initiateCheckout),purchaseType:scopes.size===1?[...scopes][0]:null});
   return out;
+}
+// A disclosed subtotal uses ONE common cohort for every additive metric and
+// ratio. It never replaces an incomplete account total or combines aliases.
+export function verifiedSubtotal(facts){
+ const eligible=facts.filter(f=>sumKeys.every(k=>Number.isFinite(f[k])&&f[k]>=0)&&f.purchaseType&&f.roasStatus!=='AMBIGUOUS'&&f.quality?.purchase!=='AMBIGUOUS'&&f.quality?.purchaseValue!=='AMBIGUOUS');
+ const scopes=new Set(eligible.map(f=>f.purchaseType));
+ if(!eligible.length||scopes.size!==1)return {state:'UNAVAILABLE',included:0,total:facts.length,metrics:null};
+ return {state:eligible.length===facts.length?'COMPLETE':'PARTIAL',included:eligible.length,total:facts.length,entityIds:eligible.map(f=>f.entityId).sort(),metrics:aggregate(eligible)};
 }
 function evidenceText(d){return Object.entries(d.evidence).map(([k,v])=>`${k}: ${typeof v==='number'?Number(v.toFixed(3)):String(v)}`).join(' · ');}
 const categories={CTR_DECLINE:'ad',CPC_INCREASE:'ad',CPM_INCREASE:'ad',POSSIBLE_FATIGUE:'ad',LANDING_DROP:'web',CART_DROP:'web',CHECKOUT_DROP:'checkout',PURCHASE_DROP:'checkout',ROAS_DECLINE:'efficiency',CPA_ABOVE_BREAK_EVEN:'profit',MEASUREMENT_BLOCKED:'measurement',PURCHASE_DATA_MISSING:'measurement'};
@@ -81,17 +90,21 @@ export function assembleReport({account,range,comparison,observedAt,current,prio
   return {version:3,account:{id:account.id,currency:account.currency,timezone:account.timezone_name},range,comparison:{...comparison,comparable},observedAt,contract:CONTRACT,mode,liveEnabled:false,level:activeLevel,facts:facts[activeLevel],entities:facts,inventory:{campaigns,rules:entities.rules||[]},totals,previous,kpis,series,funnel:makeFunnel(totals,previous,comparable),actions,alertGroups:[...grouped.values()],opportunities,topAds,improveAds,limits:policy,diagnosticPolicy:sample,quick:{working:meaningful.filter(f=>f.stable).map(f=>({name:f.name,roas:f.roas,purchases:f.purchases})),problems:actions.filter(a=>a.category!=='measurement').slice(0,3),priority:actions.slice(0,3),measurement:[`${missing} de ${actual.length} filas con compras o valor ausentes. Ausencia ≠ cero.`,...(range.partial?['Periodo en curso: no se compara con un día completo.']:[]),'Deduplicación Pixel/CAPI (event_id): no verificada.','Beneficio y pedidos por campaña: NO_ATRIBUIDOS.']},quality:{status:missing?'PARTIAL':'SOURCE_COMPLETE',creativeStatus,missingPurchaseRows:missing,insightRows:actual.length,inventoryWithoutInsight:facts[activeLevel].length-actual.length,attribution:'7 días clic + 1 día visualización · fecha de conversión',deduplication:'UNVERIFIED',commercialAttribution:'NO_ATRIBUIDOS',netProfitAvailable:false,notes:['Los totales incluyen solo filas Meta devueltas en este nivel; inventario sin fila no implica cero.','No se suman alcance/frecuencia ni distintos niveles o alias de compra.','Los datos actuales proceden del lector canónico; el histórico Supabase anterior no se mezcla.']},commercial:{metaPurchases:totals.purchases,shopifyOrders:null,confirmed:null,shipped:null,delivered:null,returned:null,cashRevenue:null,productCosts:null,logisticsCosts:null,adSpend:totals.spend,netProfit:null,status:'NO_ATRIBUIDOS'},products:[],filters};
 }
 
-export async function readReport({reader,ledger,accountId,policy,mode,query={},now=Date.now(),maxRangeDays=31}){
+export async function readReport({reader,ledger,accountId,policy,mode,query={},now=Date.now(),maxRangeDays=31,levels=['campaign','adset','ad'],includeExtras=true}){
+  if(!Array.isArray(levels)||!levels.length||levels.some(l=>!['campaign','adset','ad'].includes(l))||new Set(levels).size!==levels.length)throw Error('QUERY_INVALID');
   const account=await reader.readAccount();
   if(String(account.id).replace(/^act_/,'')!==String(accountId).replace(/^act_/,'')||account.currency!=='EUR'||account.timezone_name!=='Europe/Madrid'||account.account_status!==1)throw Error('ACCOUNT_NOT_ELIGIBLE');
   const range=windowFor(query.since?{since:query.since,until:query.until}:query.period||'7d',now,account.timezone_name,maxRangeDays);
   const days=(Date.parse(range.until)-Date.parse(range.since))/86400000+1;
   const comparison={since:new Date(Date.parse(range.since)-days*86400000).toISOString().slice(0,10),until:new Date(Date.parse(range.since)-86400000).toISOString().slice(0,10)};
-  const observedAt=new Date(now).toISOString(),current={},prior={},daily={},entities={};let creativeStatus='AVAILABLE';
-  for(const level of ['campaign','adset','ad']){
+  if(query.force===true)reader.invalidateInsights?.({ranges:[range,comparison],levels});
+  let observedAt=new Date(now).toISOString();const current={campaign:[],adset:[],ad:[]},prior={campaign:[],adset:[],ad:[]},daily={campaign:[],adset:[],ad:[]},entities={campaign:[],adset:[],ad:[]};let creativeStatus=includeExtras?'AVAILABLE':'DEFERRED';
+  for(const level of levels){
     const context={level,accountId:String(accountId).replace(/^act_/,''),contract:CONTRACT,observedAt,complete:true,currency:'EUR',timezone:account.timezone_name};
     // Bounded serial levels; the shared reader also bounds concurrent requests.
     const [rows,before,history]=await Promise.all([reader.readInsights({...range,level,extended:maxRangeDays===90}),reader.readInsights({...comparison,level,extended:maxRangeDays===90}),reader.readInsights({...range,level,daily:true,extended:maxRangeDays===90})]);
+    const oldest=Math.min(now,...[rows,before,history].map(v=>sourceReadAt(v)).filter(v=>Number.isFinite(v)));
+    observedAt=new Date(Math.min(Date.parse(observedAt),oldest)).toISOString();context.observedAt=observedAt;
     const validDate=d=>typeof d==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d;
     const normalized=(rows,range,daily)=>{const facts=rows.map(r=>normalizeInsight(r,context));if(new Set(facts.map(f=>`${f.entityId}:${f.since}:${f.until}`)).size!==facts.length||facts.some(f=>!/^\d+$/.test(f.entityId)||!/^\d+$/.test(f.campaignId)||!validDate(f.since)||!validDate(f.until)||f.since<range.since||f.until>range.until||f.since>f.until||(daily&&f.since!==f.until)))throw Error('INSIGHTS_IDENTITY_INVALID');return facts;};
     current[level]=normalized(rows,range,false);prior[level]=normalized(before,comparison,false);daily[level]=normalized(history,range,true);
@@ -99,8 +112,9 @@ export async function readReport({reader,ledger,accountId,policy,mode,query={},n
     if(ledger?.persistDailySnapshot)await ledger.persistDailySnapshot(daily[level],{...context,...range});
     if(ledger?.persistFacts)await ledger.persistFacts(current[level]);
   }
-  if(reader.readCreatives)try{const creatives=await reader.readCreatives(),map=new Map(creatives.map(c=>[String(c.id),c.creative]));entities.ad=entities.ad.map(a=>({...a,creative:map.get(String(a.id))||null}));}catch{creativeStatus='UNAVAILABLE';}
-  entities.rules=await reader.readRules();
-  const dataset={account,range,comparison,observedAt,current,prior,daily,entities,policy,mode,creativeStatus};
+  if(!levels.includes('campaign'))entities.campaign=await reader.readEntities('campaign');
+  if(includeExtras&&reader.readCreatives)try{const creatives=await reader.readCreatives(),map=new Map(creatives.map(c=>[String(c.id),c.creative]));entities.ad=entities.ad.map(a=>({...a,creative:map.get(String(a.id))||null}));}catch{creativeStatus='UNAVAILABLE';}
+  entities.rules=includeExtras?await reader.readRules():[];
+  const dataset={account,range,comparison,observedAt,current,prior,daily,entities,policy,mode,creativeStatus,loadedLevels:levels,budgetObservation:{state:'OBSERVED_NOT_EXECUTOR_VERIFIED',observedAt:new Date(sourceReadAt(entities.campaign)??now).toISOString()}};
   return {...assembleReport(dataset),dataset};
 }

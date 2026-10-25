@@ -1,0 +1,13 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {createGrowthService} from './growth-service.mjs';
+import {growthFixtureReport,GROWTH_FIXTURE_NOW} from './growth-fixtures.mjs';
+test('slow optional history publishes exact selected summary, no fabricated decision, then finishes one shared job',async()=>{
+ let resume,reads=0;const service=createGrowthService({now:()=>GROWTH_FIXTURE_NOW,waitMs:2,report:async q=>{reads++;if(q.since&&q.since<'2026-10-01')await new Promise(r=>resume=r);return growthFixtureReport(q);}});
+ const q={period:'7d',level:'campaign',campaignId:'101',analysis:'true'},a=await service.get(q);
+ assert.equal(a.progress.pending,true);assert.equal(a.analysis.entity.id,'101');assert.equal(a.analysis.row.spend,196);assert.equal(a.analysis.decision,null);assert.equal(a.metaWrites,0);
+ const b=await service.get(q);assert.equal(b.analysis.row.spend,196);assert.equal(reads,2);resume();await service.pending();const c=await service.get(q);assert.equal(c.progress.pending,false);assert.equal(c.analysis.entity.id,'101');assert.ok(c.analysis.children.every(r=>r.campaignId==='101'));
+});
+test('optional history rate failure preserves selected metrics, marks unavailable and never invents scale eligibility',async()=>{
+ const service=createGrowthService({now:()=>GROWTH_FIXTURE_NOW,report:async q=>{if(q.since)throw Object.assign(Error('META_RATE_LIMITED'),{code:'META_RATE_LIMITED'});return growthFixtureReport(q);}});
+ const r=await service.get({period:'7d',level:'campaign',campaignId:'101',analysis:'true'});assert.equal(r.analysis.row.spend,196);assert.equal(r.progress.blocks.history,'UNAVAILABLE');assert.ok(!r.analysis.decision?.proposalEligible);assert.equal(r.externalWrites,0);
+});

@@ -28,7 +28,7 @@ for(const code of ['META_HTTP_401','META_HTTP_403','META_HTTP_429','INSIGHTS_IDE
 test('failed refresh retains historical cut, no fabricated freshness, then recovers from the same range',async()=>{
  let now=Date.now(),fail=false;const original=now,cache=createReportCache({now:()=>now,waitMs:20,read:async()=>{if(fail)throw Object.assign(Error(),{code:'META_HTTP_429'});return value(now);}});
  await cache.snapshot('range',{},31);now+=121000;fail=true;let r=await cache.snapshot('range',{},31);assert.equal(r.readFailed,true);assert.equal(r.observedAt,new Date(original).toISOString());assert.equal(r.diagnostic.cache,'HISTORICAL');
- fail=false;now+=61000;r=await cache.snapshot('range',{},31);assert.equal(r.readFailed,false);assert.equal(r.observedAt,new Date(now).toISOString());
+ await new Promise(r=>setImmediate(r));fail=false;now+=61000;r=await cache.snapshot('range',{force:true},31);assert.equal(r.readFailed,false);assert.equal(r.observedAt,new Date(now).toISOString());
 });
 test('rate limits enforce cooldown; parallel ranges remain bounded',async()=>{
  let reads=0;const cache=createReportCache({read:async()=>{reads++;throw Object.assign(Error(),{code:'META_HTTP_429'});}});

@@ -1,0 +1,14 @@
+{
+  "revision": "3333429b7f3718d05136e89acbea56fe89b740ba",
+  "candidateImage": "suleia-operations-v11:3333429",
+  "candidateImageId": "sha256:c7b5dcab1e1f948e054c8dfa1eeb7f549d379381f71dd53122d9c9803757b59b",
+  "apiBaseImageId": "sha256:a02a3618de627d5dd9631e8e5a8f8e8bc505e57d09f1a82c9636d266a7f165aa",
+  "network": "none",
+  "productionCredentialsSupplied": false,
+  "runtimeChanged": false,
+  "deployed": false,
+  "smoke": {
+    "imported": true,
+    "verifiedFiles": 30
+  }
+}

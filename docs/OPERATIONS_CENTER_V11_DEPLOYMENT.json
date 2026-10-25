@@ -1,0 +1,229 @@
+{
+  "version": "suleia-operations-v11.0",
+  "authorization": {
+    "approved": true,
+    "reference": "call_7e923c9e840e495a84338378c337e0ab",
+    "scope": "API/static20-file V11 overlay; preserve financial/logistics/Telegram/V5.1 policies"
+  },
+  "deployed": true,
+  "applied": {
+    "at": "2026-10-25T10:27:44.516191+00:00",
+    "revision": "3333429b7f3718d05136e89acbea56fe89b740ba",
+    "apiHealthy": true,
+    "imageId": "sha256:c7b5dcab1e1f948e054c8dfa1eeb7f549d379381f71dd53122d9c9803757b59b",
+    "panel": "/opt/suleia-panel-releases/operations-v11-3333429",
+    "runtimeFilesVerified": 20,
+    "protectedBudgetFilesUnchanged": 19,
+    "policyEnvironmentUnchanged": true,
+    "botPidAndConfigUnchanged": true,
+    "unrelatedContainerIdsUnchanged": true,
+    "financialRatesUnchanged": true,
+    "migration": null,
+    "metaOrCustomerActionsByRelease": 0
+  },
+  "http": {
+    "at": "2026-10-25T10:27:51.978477+00:00",
+    "revision": "3333429b7f3718d05136e89acbea56fe89b740ba",
+    "apiHealthy": true,
+    "imageId": "sha256:c7b5dcab1e1f948e054c8dfa1eeb7f549d379381f71dd53122d9c9803757b59b",
+    "panel": "/opt/suleia-panel-releases/operations-v11-3333429",
+    "runtimeFilesVerified": 20,
+    "protectedBudgetFilesUnchanged": 19,
+    "policyEnvironmentUnchanged": true,
+    "botPidAndConfigUnchanged": true,
+    "unrelatedContainerIdsUnchanged": true,
+    "financialRatesUnchanged": true,
+    "migration": null,
+    "metaOrCustomerActionsByRelease": 0,
+    "servedAssets": [
+      {
+        "name": "index.html",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "app.js",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "app-shell.css",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "operations-v11.css",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-report-client.js",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-review-v6.js",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-growth-v10.js",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-growth-v10.css",
+        "status": 200,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-growth-drawer-v10.js",
+        "status": 200,
+        "cacheControl": "no-store"
+      }
+    ],
+    "unauthenticated": [
+      {
+        "path": "/api/operations/ads-intelligence/review/growth",
+        "status": 401
+      },
+      {
+        "path": "/api/operations/ads-intelligence/review/records",
+        "status": 401
+      },
+      {
+        "path": "/api/operations/finance",
+        "status": 401
+      },
+      {
+        "path": "/api/operations/incidents/overview",
+        "status": 401
+      }
+    ],
+    "publicHealthVerified": true,
+    "internalVersionVerified": true
+  },
+  "sourceAudit": {
+    "at": "2026-10-25T10:39:22.581314+00:00",
+    "sourceFiles": 111,
+    "sourceMatches": 111,
+    "sourceDifferences": []
+  },
+  "browser": {
+    "at": "2026-10-25T10:29:23.166Z",
+    "closedAt": "2026-10-25T10:43:20.126Z",
+    "ordersRows": 18,
+    "incidentsRows": 10,
+    "automationRows": 6,
+    "analyticsCharts": 9,
+    "finance": {
+      "passed": 33,
+      "failed": 0,
+      "charts": 36,
+      "months": 6,
+      "sources": "✓\nDropea\nSincronizado\n25/10/2026, 11:28\n∞\nMeta\nSincronizado\n25/10/2026, 11:14\n▤\nInforme\nPendiente de actualizar\n25/10/2026, 11:14\nDATOS ATRASADOS"
+    },
+    "console": {
+      "javascriptErrors": 0,
+      "resourceErrors": 0
+    },
+    "finalReadHealth": "Fuente: META_MARKETING_API\n\nTrabajos / caché: 0 / 7\n\nCola: 0\n\nCircuito / espera: CLOSED · Sin pausa registrada\n\nPeticiones GET: 78\n\nLatencia p50 / p95 / p99 (ms): 1611 / 4016 / 4503\n\nÚltimo éxito: 2026-10-25T10:41:09.532Z\n\nÚltimo fallo: Sin fallo registrado\n\nGET reutilizados: 27\n\nDiagnóstico del proceso actual; no ejecuta consultas Meta ni acredita decisiones presupuestarias.",
+    "ads": {
+      "kpis": 18,
+      "connection": "Meta · lectura verificada\nAgente: análisis determinista · sin escrituras\nPresupuestos: LIVE\n2026-10-18 → 2026-10-24",
+      "renderedGraphs": [
+        {
+          "height": 265.546875,
+          "paths": 6,
+          "width": 807.265625
+        }
+      ],
+      "campaignRows": 20
+    },
+    "analysisLevels": {
+      "adsetAnalysis": {
+        "hasMetrics": true,
+        "completed": true
+      },
+      "adAnalysis": {
+        "hasMetrics": true,
+        "completed": true
+      }
+    },
+    "campaignAnalysis": {
+      "observed": true,
+      "exactIdentityAndPeriod": true,
+      "metricsAndHistoricalComparisons": true
+    },
+    "financeFinal": {
+      "passed": 33,
+      "failed": 0,
+      "Dropea": "Sincronizado 25/10/2026 11:38 Europe/Madrid",
+      "Meta": "Sincronizado 25/10/2026 11:30 Europe/Madrid",
+      "report": "Sincronizado 25/10/2026 11:30 Europe/Madrid",
+      "quality": "PROVISIONAL MTD hasta 25/10/2026"
+    }
+  },
+  "continuity": {
+    "at": "2026-10-25T10:36:37.312341+00:00",
+    "protectedBudgetHashesMatch": true,
+    "botActive": "active",
+    "botConfigHash": "389f4fce108b9439d5be78973c3208689d51658527f9ae5c8b2b0c82f610401c",
+    "recipientCount": 1,
+    "render": {
+      "revision": "d175378d288d33823ced70f8db3b3a806854377e",
+      "ok": true
+    }
+  },
+  "budgetEvidence": {
+    "latestSlots": [
+      {
+        "key": "2026-10-25:11:00",
+        "code": "AUTOPILOT_REVIEW_FAILED",
+        "state": "FAILED",
+        "executionState": null,
+        "externalWrites": null
+      },
+      {
+        "key": "2026-10-25:10:00",
+        "code": null,
+        "state": "COMPLETE",
+        "executionState": "BLOCKED",
+        "externalWrites": 0
+      },
+      {
+        "key": "2026-10-25:09:00",
+        "code": null,
+        "state": "COMPLETE",
+        "executionState": "BLOCKED",
+        "externalWrites": 0
+      },
+      {
+        "key": "2026-10-25:08:00",
+        "code": null,
+        "state": "COMPLETE",
+        "executionState": "BLOCKED",
+        "externalWrites": 0
+      },
+      {
+        "key": "2026-10-25:07:00",
+        "code": null,
+        "state": "COMPLETE",
+        "executionState": "BLOCKED",
+        "externalWrites": 0
+      }
+    ],
+    "verifiedWritesToday": 0,
+    "unresolvedOperations": 0,
+    "canaryStage": "CANARY_PENDING"
+  },
+  "telegramLastDelivery": [
+    {
+      "count": 8,
+      "state": "SENT",
+      "latest": "2026-10-24T20:33:33.421387+00:00",
+      "recipients": 1
+    }
+  ],
+  "candidateManifest": "OPERATIONS_CENTER_V11_RELEASE.json"
+}

@@ -1,0 +1,932 @@
+{
+  "baseline-benchmark": {
+    "scenario": "DEMO controlled latency; not production p95/TTFB/LCP",
+    "delayMs": 20,
+    "observations": [
+      {
+        "name": "cold_overview",
+        "ms": 527.95,
+        "requests": 19,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_0",
+        "ms": 1.39,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_1",
+        "ms": 0.99,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_2",
+        "ms": 0.8,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_3",
+        "ms": 0.81,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_4",
+        "ms": 1.35,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_5",
+        "ms": 0.67,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_6",
+        "ms": 0.7,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_7",
+        "ms": 0.64,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_8",
+        "ms": 1.26,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_9",
+        "ms": 1.56,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_10",
+        "ms": 1.21,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_11",
+        "ms": 1,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_12",
+        "ms": 0.63,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_13",
+        "ms": 0.94,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_14",
+        "ms": 0.61,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_15",
+        "ms": 0.57,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_16",
+        "ms": 0.7,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_17",
+        "ms": 0.57,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_18",
+        "ms": 0.63,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_19",
+        "ms": 0.8,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "cold_growth",
+        "ms": 449.09,
+        "requests": 21,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_0",
+        "ms": 10.88,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_1",
+        "ms": 5.94,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_2",
+        "ms": 6.13,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_3",
+        "ms": 8.31,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_4",
+        "ms": 5.46,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      }
+    ],
+    "warmMs": {
+      "p50": 0.8,
+      "p95": 1.4,
+      "p99": 1.58
+    },
+    "provider": {
+      "requests": 40,
+      "insights": 28,
+      "maxConcurrent": 2,
+      "mutations": 0,
+      "externalConnections": 0,
+      "at": "2026-10-25T08:14:19.333Z"
+    },
+    "policy": "No budget executor called; no external network, no production credentials"
+  },
+  "baseline-slow-benchmark": {
+    "scenario": "DEMO controlled latency; not production p95/TTFB/LCP",
+    "delayMs": 200,
+    "observations": [
+      {
+        "name": "cold_overview",
+        "ms": 3077.57,
+        "requests": 19,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_0",
+        "ms": 3.17,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_1",
+        "ms": 1.83,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_2",
+        "ms": 1.43,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_3",
+        "ms": 2.2,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_4",
+        "ms": 3.31,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_5",
+        "ms": 1.72,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_6",
+        "ms": 1.85,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_7",
+        "ms": 1.63,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_8",
+        "ms": 1.42,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_9",
+        "ms": 1.46,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_10",
+        "ms": 1.24,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_11",
+        "ms": 1.9,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_12",
+        "ms": 1.53,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_13",
+        "ms": 1.95,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_14",
+        "ms": 1.49,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_15",
+        "ms": 1.68,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_16",
+        "ms": 2.29,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_17",
+        "ms": 1.36,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_18",
+        "ms": 1.47,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "warm_19",
+        "ms": 2.07,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": null
+      },
+      {
+        "name": "cold_growth",
+        "ms": 3040.75,
+        "requests": 21,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_0",
+        "ms": 20.38,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_1",
+        "ms": 18.37,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_2",
+        "ms": 11.7,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_3",
+        "ms": 12.6,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      },
+      {
+        "name": "entity_4",
+        "ms": 16.39,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": null
+      }
+    ],
+    "warmMs": {
+      "p50": 1.69,
+      "p95": 3.18,
+      "p99": 3.33
+    },
+    "provider": {
+      "requests": 40,
+      "insights": 28,
+      "maxConcurrent": 2,
+      "mutations": 0,
+      "externalConnections": 0,
+      "at": "2026-10-25T08:15:30.632Z"
+    },
+    "policy": "No budget executor called; no external network, no production credentials"
+  },
+  "after-benchmark": {
+    "scenario": "DEMO controlled latency; not production p95/TTFB/LCP",
+    "delayMs": 20,
+    "observations": [
+      {
+        "name": "cold_overview",
+        "ms": 168.5,
+        "requests": 6,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "optional_metadata_settle",
+        "ms": 77.52,
+        "requests": 2
+      },
+      {
+        "name": "warm_0",
+        "ms": 2.1,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_1",
+        "ms": 1.2,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_2",
+        "ms": 0.96,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_3",
+        "ms": 0.8,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_4",
+        "ms": 0.7,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_5",
+        "ms": 0.7,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_6",
+        "ms": 0.87,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_7",
+        "ms": 0.75,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_8",
+        "ms": 0.79,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_9",
+        "ms": 0.64,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_10",
+        "ms": 0.73,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_11",
+        "ms": 0.86,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_12",
+        "ms": 1.23,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_13",
+        "ms": 0.79,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_14",
+        "ms": 0.52,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_15",
+        "ms": 0.51,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_16",
+        "ms": 0.59,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_17",
+        "ms": 1.18,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_18",
+        "ms": 1.11,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_19",
+        "ms": 0.84,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "cold_growth",
+        "ms": 183.4,
+        "requests": 6,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_0",
+        "ms": 153.46,
+        "requests": 5,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_1",
+        "ms": 5.11,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_2",
+        "ms": 4.67,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_3",
+        "ms": 6.72,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_4",
+        "ms": 4.44,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      }
+    ],
+    "warmMs": {
+      "p50": 0.81,
+      "p95": 1.23,
+      "p99": 2.12
+    },
+    "provider": {
+      "requests": 19,
+      "insights": 12,
+      "maxConcurrent": 1,
+      "mutations": 0,
+      "externalConnections": 0,
+      "at": "2026-10-25T09:46:57.831Z"
+    },
+    "policy": "No budget executor called; no external network, no production credentials"
+  },
+  "after-slow-benchmark": {
+    "scenario": "DEMO controlled latency; not production p95/TTFB/LCP",
+    "delayMs": 200,
+    "observations": [
+      {
+        "name": "cold_overview",
+        "ms": 1088.96,
+        "requests": 6,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "optional_metadata_settle",
+        "ms": 620.84,
+        "requests": 2
+      },
+      {
+        "name": "warm_0",
+        "ms": 2.43,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_1",
+        "ms": 1.98,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_2",
+        "ms": 0.92,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_3",
+        "ms": 0.88,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_4",
+        "ms": 0.79,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_5",
+        "ms": 0.61,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_6",
+        "ms": 0.67,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_7",
+        "ms": 0.69,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_8",
+        "ms": 0.69,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_9",
+        "ms": 0.6,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_10",
+        "ms": 0.6,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_11",
+        "ms": 0.65,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_12",
+        "ms": 1.17,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_13",
+        "ms": 0.86,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_14",
+        "ms": 0.55,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_15",
+        "ms": 0.51,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_16",
+        "ms": 0.61,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_17",
+        "ms": 0.5,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_18",
+        "ms": 0.51,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "warm_19",
+        "ms": 0.67,
+        "requests": 0,
+        "scope": "campaign",
+        "rows": 5,
+        "partial": false
+      },
+      {
+        "name": "cold_growth",
+        "ms": 1272.46,
+        "requests": 6,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_0",
+        "ms": 1076.1,
+        "requests": 5,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_1",
+        "ms": 7.88,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_2",
+        "ms": 6.45,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_3",
+        "ms": 9.56,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      },
+      {
+        "name": "entity_4",
+        "ms": 7.15,
+        "requests": 0,
+        "scope": "campaign",
+        "partial": false
+      }
+    ],
+    "warmMs": {
+      "p50": 0.67,
+      "p95": 1.99,
+      "p99": 2.45
+    },
+    "provider": {
+      "requests": 19,
+      "insights": 12,
+      "maxConcurrent": 1,
+      "mutations": 0,
+      "externalConnections": 0,
+      "at": "2026-10-25T09:47:02.113Z"
+    },
+    "policy": "No budget executor called; no external network, no production credentials"
+  }
+}

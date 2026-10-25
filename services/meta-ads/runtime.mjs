@@ -19,6 +19,7 @@ import {createReviewService} from './review/service.mjs';
 import {shiftDay} from './review/periods.mjs';
 import {createReportCache,reportDependencyError} from './report-cache.mjs';
 import {aggregateCommerce} from './review/commerce.mjs';
+import {readStoredReport} from './stored-report.mjs';
 
 export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrders=null,readOperations=null,readGrowthGoals=null,reportRead=readReport,reportWaitMs=4000}) {
   if(env.ADS_INTELLIGENCE_READ_ENABLED!=='true')return null;
@@ -48,11 +49,12 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   if(env.ADS_LEARNING_POLICY_JSON){const configured=JSON.parse(env.ADS_LEARNING_POLICY_JSON);if(!configured.version||!/^meta-learning-v4\.[a-zA-Z0-9.-]+$/.test(configured.version))throw Error('LEARNING_POLICY_VERSION_REQUIRED');for(const k of Object.keys(configured))if(!(k in learningPolicy))throw Error('LEARNING_POLICY_INVALID');for(const[k,v]of Object.entries(configured))if(k!=='version'&&(!Number.isFinite(v)||v<=0))throw Error('LEARNING_POLICY_INVALID');Object.assign(learningPolicy,configured);}
   const ordersReader=readOrders||(env.ADS_ALGORITHM_SHOPIFY_READ_ENABLED==='true'?createAlgorithmOrdersReader({env,fetchImpl}):null);
   const operationsReader=readOperations||(env.ADS_ALGORITHM_OPERATIONS_READ_ENABLED==='true'?createAlgorithmOperationsReader({pool,hashKey:env.MIGRATION_HASH_KEY}):null);
-  const sharedReportReader=reportReader(reader);
-  const reports=createReportCache({read:(query,maxRangeDays)=>reportRead({reader:sharedReportReader,ledger:reportReadOnly?null:ledger,accountId:engine.accountId,policy:engine.policy,mode,query,maxRangeDays}),waitMs:reportWaitMs,maxAgeMs:engine.policy.maxAgeMs});
+  const sharedReportReader=reportReader(reader.withPriority(10));
+  const reports=createReportCache({restore:(query,maxRangeDays)=>readStoredReport({pool,accountId:engine.accountId,query,maxRangeDays,mode}),read:(query,maxRangeDays)=>reportRead({reader:sharedReportReader,ledger:reportReadOnly?null:ledger,accountId:engine.accountId,policy:engine.policy,mode,query,maxRangeDays,...(query.level?{levels:[query.level],includeExtras:false}:{})}),waitMs:reportWaitMs,maxAgeMs:engine.policy.maxAgeMs});
   async function snapshot(query={},maxRangeDays=31){
     const range=windowFor(query.since?{since:query.since,until:query.until}:query.period||'7d',Date.now(),'Europe/Madrid',maxRangeDays);
-    return reports.snapshot(`${range.since}:${range.until}`,query,maxRangeDays);
+    if(query.level&&!['campaign','adset','ad'].includes(query.level))throw Error('QUERY_INVALID');
+    return reports.snapshot(`${range.since}:${range.until}:${query.level||'all'}`,query,maxRangeDays);
   }
   const reviewCache=new Map(),reviewTasks=new Map();
   async function cachedEvidence(key,fn,ttl=600000){
@@ -63,20 +65,25 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     }
     return reviewTasks.get(key);
   }
-  async function reviewExtras(range,query){
-    const tasks=[['metadata',()=>cachedEvidence('metadata',async()=>Object.fromEntries(await Promise.all(['campaign','adset','ad'].map(async l=>[l,await reader.readAuditDetails(l)]))))],
-      ['activities',()=>cachedEvidence(`activities:${range.since}:${range.until}`,()=>reader.readActivityHistory({since:Date.parse(range.until)-Date.parse(range.since)>30*86400000?shiftDay(range.until,-30):range.since,until:range.until}))]];
-    if(range.partial)tasks.push(['hourly',()=>cachedEvidence(`hourly:${range.until}`,()=>reader.readHourlyTraffic({since:shiftDay(range.until,-1),until:range.until}),120000)]);
+  async function reviewExtras(range,query,{waitMs=0}={}){
+    const tasks=['campaign','adset','ad'].map(level=>['metadata_'+level,()=>cachedEvidence('metadata:'+level,()=>sharedReportReader.readAuditDetails(level))]);
+    if(query.level==='ad')tasks.push(['creatives',()=>cachedEvidence('creatives',()=>sharedReportReader.readCreatives())]);
     if(query.detail==='true'||query.detail===true){
-      tasks.push(['videos',()=>cachedEvidence(`videos:${range.since}:${range.until}`,()=>reader.readReviewVideos(range))]);
-      for(const kind of ['device','placement','country'])tasks.push([kind,()=>cachedEvidence(`${kind}:${range.since}:${range.until}`,()=>reader.readReviewBreakdown({...range,kind}))]);
+      tasks.push(['activities',()=>cachedEvidence(`activities:${range.since}:${range.until}`,()=>sharedReportReader.readActivityHistory({since:Date.parse(range.until)-Date.parse(range.since)>30*86400000?shiftDay(range.until,-30):range.since,until:range.until}))]);
+      if(range.partial)tasks.push(['hourly',()=>cachedEvidence(`hourly:${range.until}`,()=>sharedReportReader.readHourlyTraffic({since:shiftDay(range.until,-1),until:range.until}),120000)]);
+      tasks.push(['videos',()=>cachedEvidence(`videos:${range.since}:${range.until}`,()=>sharedReportReader.readReviewVideos(range))]);
+      for(const kind of ['device','placement','country'])tasks.push([kind,()=>cachedEvidence(`${kind}:${range.since}:${range.until}`,()=>sharedReportReader.readReviewBreakdown({...range,kind}))]);
     }
-    const results=await Promise.allSettled(tasks.map(([,fn])=>fn())),out={unavailable:[],breakdowns:{}};
-    results.forEach((r,i)=>{const key=tasks[i][0];if(r.status==='fulfilled'){if(['device','placement','country'].includes(key))out.breakdowns[key]=r.value;else out[key]=r.value;}else out.unavailable.push(`META_${key.toUpperCase()}_UNAVAILABLE`);});
+    const out={unavailable:[],metadata:{},breakdowns:{}},pending=new Set(tasks.map(([key])=>key));
+    const work=Promise.all(tasks.map(async([key,fn])=>{try{const value=await fn();if(key.startsWith('metadata_'))out.metadata[key.slice(9)]=value;else if(['device','placement','country'].includes(key))out.breakdowns[key]=value;else out[key]=value;}catch{out.unavailable.push(`META_${key.toUpperCase()}_UNAVAILABLE`);}finally{pending.delete(key);}}));
+    let timer;try{await Promise.race([work,new Promise(resolve=>{timer=setTimeout(resolve,waitMs);})]);}finally{clearTimeout(timer);}
+    // Return the completed blocks without waiting for unrelated evidence. The
+    // remaining tasks populate the same bounded cache for the next request.
+    for(const key of pending)out.unavailable.push(`META_${key.toUpperCase()}_PREPARING`);
     if(Date.parse(range.until)-Date.parse(range.since)>30*86400000)out.unavailable.push('ACTIVITY_HISTORY_LIMITED_TO_LAST_31_DAYS');
-    return out;
+    return structuredClone(out);
   }
-  const runtime={engine,ledger,reportReadOnly,reportStatus:()=>({...reports.status(),contract:CONTRACT,budgetMode:engine.mode,externalWrites:0}),algorithmEnabled:env.ADS_ALGORITHM_ENABLED==='true',async budgetGuards(){
+  const runtime={engine,ledger,reportReadOnly,reportStatus:()=>({...reports.status(),requests:reader.requestStats(),reportCache:sharedReportReader.cacheStatus(),contract:CONTRACT,budgetMode:engine.mode,externalWrites:0}),algorithmEnabled:env.ADS_ALGORITHM_ENABLED==='true',async budgetGuards(){
     if(env.ADS_ALGORITHM_ENABLED!=='true')throw Error('ADS_ALGORITHM_DISABLED');
     if(budgetGuardCache&&Date.now()-Date.parse(budgetGuardCache.observedAt)<60000)return budgetGuardCache;
     if(!budgetGuardTask)budgetGuardTask=captureAlgorithmEvidence({reader,scope:'BUDGET_GUARDS'}).then(e=>{
@@ -137,7 +144,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   runtime.review=runtime.reviewEnabled?createReviewService({snapshot,extras:reviewExtras,ledger,productMappings,
     readCommerce:ordersReader?range=>cachedEvidence(`commerce:${range.since}:${range.until}`,async()=>aggregateCommerce(await ordersReader(range),{range,shop:env.SHOPIFY_DOMAIN||env.SHOPIFY_SHOP,observedAt:new Date().toISOString()}),120000):null,
     readGrowthGoals,budgetPolicy:{version:autopilotConfig.policy.version,policy:autopilotConfig.policy,approved:autopilotConfig.approved},maxCampaigns:Number(env.ADS_REVIEW_MAX_CAMPAIGNS||5),panelUrl:env.ADS_REVIEW_PANEL_URL||null}):null;
-  runtime.executive=runtime.review?createExecutiveService({review:runtime.review,ledger:new ExecutiveLedger(pool),accountId:engine.accountId,panelUrl:env.ADS_REVIEW_PANEL_URL||null,
+  runtime.executive=runtime.review?createExecutiveService({review:{...runtime.review,report:q=>runtime.review.report(q,{optionalWaitMs:7000})},ledger:new ExecutiveLedger(pool),accountId:engine.accountId,panelUrl:env.ADS_REVIEW_PANEL_URL||null,
     enabled:env.ADS_EXECUTIVE_DAILY_ENABLED==='true'&&!reportReadOnly,recipients:String(env.ADS_EXECUTIVE_RECIPIENT_IDS||'').split(',').map(x=>x.trim()).filter(Boolean),
     readBudget:()=>readExecutiveBudget({ledger,accountId:engine.accountId,mode:engine.mode,config:autopilotConfig})}):null;
   if(!autopilotConfig.enabled)engine.autopilot=null;

@@ -8,16 +8,17 @@ import {createGrowthService} from './growth-service.mjs';
 
 // Uses the runtime's canonical snapshot/cache and its one existing Meta reader.
 // This module receives no budget writer, scheduler or messaging transport.
-export function createReviewService({snapshot,extras,ledger,productMappings=[],readCommerce=null,readGrowthGoals=null,maxCampaigns=5,panelUrl=null,budgetPolicy=null,optionalWaitMs=7000,now=()=>Date.now()}){
+export function createReviewService({snapshot,extras,ledger,productMappings=[],readCommerce=null,readGrowthGoals=null,maxCampaigns=5,panelUrl=null,budgetPolicy=null,optionalWaitMs=0,now=()=>Date.now()}){
  if(!Number.isInteger(maxCampaigns)||maxCampaigns<2||maxCampaigns>10)throw Error('REVIEW_CONFIGURATION_INVALID');
  if(panelUrl){try{const u=new URL(panelUrl);if(u.protocol!=='https:'||u.username||u.password||u.search||u.hash)throw Error();panelUrl=u.href;}catch{throw Error('REVIEW_PANEL_URL_INVALID');}}
  const policy={...REVIEW_POLICY,maxCampaigns};
  const ensure=()=>{if(!snapshot||!extras)throw Error('ADS_REVIEW_DISABLED');};
- async function report(query={}){
+ async function report(query={},options={}){
   ensure();const range=reviewWindow(query,now()),comparison=comparisonWindow(range,query,now());
-  const base=await snapshot({...range,force:query.force===true||query.force==='true'},90);
+  const scope=query.level?{level:query.level}:{};
+  const base=await snapshot({...range,...scope,force:query.force===true||query.force==='true'},90);
   let baseline=null;
-  if(comparison.since!==base.dataset.comparison.since||comparison.until!==base.dataset.comparison.until){const b=await snapshot(comparison,90);baseline={...b.dataset,readFailed:b.readFailed};}
+  if(comparison.since!==base.dataset.comparison.since||comparison.until!==base.dataset.comparison.until){const b=await snapshot({...comparison,...scope},90);baseline={...b.dataset,readFailed:b.readFailed};}
   let data={...base.dataset,readFailed:base.readFailed||baseline?.readFailed};
   if(query.selector){
    const s=String(query.selector).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s/g,'');
@@ -25,17 +26,20 @@ export function createReviewService({snapshot,extras,ledger,productMappings=[],r
    if(matches.length!==1)return {clarification:'Indica un único ID de campaña: el nombre coincide con varias campañas o ninguna.'};
    query={...query,campaignId:String(matches[0].id)};
   }
-  let timer;const tasks=Promise.allSettled([extras(range,query),readCommerce?readCommerce(range):Promise.resolve(null)]);
-  let results;try{results=await Promise.race([tasks,new Promise(resolve=>{timer=setTimeout(()=>resolve(null),optionalWaitMs);})]);}finally{clearTimeout(timer);}
-  const evidence=results?.[0]?.status==='fulfilled'?results[0].value:{unavailable:[results?'META_OPTIONAL_EVIDENCE_UNAVAILABLE':'META_OPTIONAL_EVIDENCE_PREPARING']};
-  if(results?.[1]?.status==='rejected')evidence.unavailable=[...(evidence.unavailable||[]),'COMMERCE_UNAVAILABLE'];
-  const options={dataset:data,baseline,query,extras:evidence,commerce:results?.[1]?.status==='fulfilled'?results[1].value:null,productMappings,policy,now:now()};
-  const value=analyzeReview(options);value.diagnostic=base.diagnostic;
+  const waitMs=Math.min(7000,Math.max(0,options.optionalWaitMs??((query.detail==='true'||query.detail===true)?1000:optionalWaitMs)));
+  let timer;const results=[null,null];
+  const collect=(task,i)=>Promise.resolve().then(task).then(value=>{results[i]={status:'fulfilled',value};},()=>{results[i]={status:'rejected'};});
+  const tasks=Promise.all([collect(()=>extras(range,query,{waitMs:Math.max(0,waitMs-10)}),0),collect(()=>readCommerce?readCommerce(range):null,1)]);
+  try{await Promise.race([tasks,new Promise(resolve=>{timer=setTimeout(resolve,waitMs);})]);}finally{clearTimeout(timer);}
+  const evidence=results[0]?.status==='fulfilled'?results[0].value:{unavailable:[results[0]?'META_OPTIONAL_EVIDENCE_UNAVAILABLE':'META_OPTIONAL_EVIDENCE_PREPARING']};
+  if(results[1]?.status==='rejected')evidence.unavailable=[...(evidence.unavailable||[]),'COMMERCE_UNAVAILABLE'];
+  const analysisOptions={dataset:data,baseline,query,extras:evidence,commerce:results[1]?.status==='fulfilled'?results[1].value:null,productMappings,policy,now:now()};
+  const value=analyzeReview(analysisOptions);value.diagnostic=base.diagnostic;
   if(value.level==='campaign'&&value.rows.length===1&&(query.audit==='true'||query.audit===true||query.selector||query.campaignId||String(query.campaignIds||'').split(',').filter(Boolean).length===1)){
-   const id=value.rows[0].entityId,ads=analyzeReview({...options,query:{...query,level:'ad',campaignId:id}});
+   const id=value.rows[0].entityId,ads=analyzeReview({...analysisOptions,query:{...query,level:'ad',campaignId:id}});
    let history={entries:[],nextCursor:null,status:'UNAVAILABLE'};
    if(ledger?.autopilotAudit)try{history={...await ledger.autopilotAudit(String(value.account.id).replace(/^act_/,''),{campaignId:id,limit:25}),status:'AVAILABLE'};}catch{}
-   value.campaignAudit=campaignAudit({report:value,ads,history});value.campaignAudit.budgetControls={policy:budgetPolicy,state:"NOT_AUTHORIZED_BY_REVIEW",note:"El periodo histórico seleccionado no acredita los requisitos intradiarios de V5.1. Consultar Presupuestos para la decisión actual del ejecutor, sin omitir aprendizaje, muestra, cambios externos ni verificaciones."};
+   value.campaignAudit=campaignAudit({report:value,ads,history});if(data.loadedLevels&&!data.loadedLevels.includes('ad'))value.campaignAudit.childCoverage={state:'DEFERRED',reason:'USE_ENTITY_ANALYSIS'};value.campaignAudit.budgetControls={policy:budgetPolicy,state:"NOT_AUTHORIZED_BY_REVIEW",note:"El periodo histórico seleccionado no acredita los requisitos intradiarios de V5.1. Consultar Presupuestos para la decisión actual del ejecutor, sin omitir aprendizaje, muestra, cambios externos ni verificaciones."};
   }
   return value;
 

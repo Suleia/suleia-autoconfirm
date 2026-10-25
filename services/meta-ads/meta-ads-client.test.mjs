@@ -27,6 +27,12 @@ function client(fetchImpl) {
     maxRetries: 0
   });
 }
+
+test('reporting facade shares the same quota gate and does not cache a critical read',async()=>{
+ let calls=0;const api=client(async()=>{calls++;return response({id:'123',currency:'EUR'});}),view=api.withPriority(10);
+ assert.equal((await view.readAccount()).id,'123');await api.readAccount();assert.equal(calls,2);
+ assert.equal(view.requestStats().requests,api.requestStats().requests);assert.throws(()=>api.withPriority(999),/priority/);
+});
 test('account daily spending and category minimums are GET-only and identity bound',async()=>{
  const calls=[],api=client(async(url,options)=>{calls.push({url:new URL(url),options});return response(new URL(url).pathname.endsWith('/minimum_budgets')?{data:[{currency:'EUR',min_daily_budget_imp:90}]}:{data:[{account_id:'123',date_start:'2026-10-22',date_stop:'2026-10-22',spend:'20.22'}]});});
  const spend=await api.readAccountDaySpend({since:'2026-10-22',until:'2026-10-22'});assert.equal(spend.spendCents,2022);assert.equal(spend.complete,true);assert.equal((await api.readMinimumBudgets())[0].currency,'EUR');assert.ok(calls.every(c=>c.options.method==='GET'&&!c.options.body));assert.equal(calls[0].url.searchParams.get('level'),'account');
