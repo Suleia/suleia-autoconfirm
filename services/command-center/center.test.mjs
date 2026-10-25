@@ -131,3 +131,10 @@ test('finance freshness is visible and stale reports become executive priorities
  assert.match((await f.request('Consulta finanzas')).text,/STALE/);
  const r=await f.request('Informe ejecutivo');assert.ok(r.executive.priorities.some(a=>a.source==='FINANCE'&&a.code==='STALE'));
 });
+
+test('compact questions use the shared reader, audit and existing authorization without proposals',async()=>{
+ const f=fixture();f.ads.engine.accountId='9';Object.assign(f.report,{account:{id:'act_9',currency:'EUR',timezone:'Europe/Madrid'},contract:'meta-v2:7d_click+1d_view:conversion:website-first:v1',level:'campaign',range:{since:'2026-10-21',until:'2026-10-21'},cache:{status:'FRESH'},facts:[],quality:{status:'SOURCE_COMPLETE',missingPurchaseRows:0}});
+ const r=await f.request('¿Cómo van las campañas?');assert.equal(r.metaSummary.totals.spend,50);assert.equal(f.history[0].evidence.version,'compact-summary');assert.equal(f.proposals,0);assert.equal(f.confirmations,0);
+ await f.c.command({action:'meta-summary',query:{force:true},actor:{user:'1',chat:'1'}});assert.equal(f.reads,2);
+ await assert.rejects(f.c.command({action:'meta-summary',actor:{user:'2',chat:'1'}}),/ACTOR_UNAUTHORIZED/);assert.equal(f.reads,2);
+});

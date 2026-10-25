@@ -1,4 +1,5 @@
 import {compactMeta,compactOrders} from './compact-reports.mjs';
+import {formatMetaSummary} from './meta-summary.mjs';
 import {renderArtifact} from './artifacts.mjs';
 const reasons={MAX_BUDGET:'supera el presupuesto máximo',MAX_CHANGE_PERCENT:'supera el porcentaje de cambio permitido',MIN_BUDGET:'inferior al mínimo permitido',CAMPAIGN_INACTIVE:'campaña inactiva',NO_ELIGIBLE_AD:'sin anuncio activo elegible',CAMPAIGN_DAILY_BUDGET_REQUIRED:'el presupuesto no es diario a nivel campaña',AUTOMATION_CONFLICT:'posible conflicto con regla automática',SAMPLE_POLICY_NOT_CONFIGURED:'mínimos de muestra pendientes de configurar',INSUFFICIENT_SAMPLE:'muestra insuficiente',ROAS_FILTER_NOT_MET:'no cumple el filtro de ROAS',ROAS_MISSING:'ROAS ausente',ROAS_AMBIGUOUS:'ROAS ambiguo',ROAS_ZERO_SPEND:'gasto cero',METRIC_CHANGED:'las métricas han cambiado; prepara una propuesta nueva',REVALIDATION_FAILED:'la revalidación ha rechazado el cambio',EXPIRED:'confirmación caducada',PROVIDER_RESULT_UNKNOWN:'resultado incierto; requiere reconciliación sin reenvío',UNRESOLVED_OPERATION:'hay una operación sin reconciliar',CIRCUIT_OPEN:'ejecutor temporalmente bloqueado por errores'};
 import {createHmac} from 'node:crypto';
@@ -29,6 +30,7 @@ function formatBudgetProposal(p){
 }
 export function signAdsBridge(secret,timestamp,body){return createHmac('sha256',createHmac('sha256',secret).update('suleia:ads-bridge:v3').digest()).update(`${timestamp}.${body}`).digest('hex');}
 export function formatAdsResult(data,options={}) {
+  if(data.metaSummary)return formatMetaSummary(data.metaSummary,options);
   if(data.review)return {text:[data.text,data.deepLink?`Abrir Ads Intelligence: ${data.deepLink}`:null].filter(Boolean).join('\n\n').slice(0,3900)};
   if(data.autopilot)return {text:(data.text||'Budget Autopilot: informe actualizado no disponible.').slice(0,3900),autopilot:data.autopilot,cycleText:data.cycleText,cycleKey:data.cycleKey,navigation:[{label:'Campañas de hoy',request:{action:'analyze',query:{period:'hoy',level:'campaign'}}}]};
   if(data.report)return {text:`Informe Suleia · ${data.report.period.label}${data.report.period.partial?' · provisional':''}`,artifact:{kind:'report',report:data.report},format:data.format};
@@ -63,7 +65,7 @@ export function createAdsGateway(config,fetchImpl=fetch){
     return formatted;
   }
   return {async executive(body,actor){return request({action:'executive-report',...body,actor},{executive:true});},async prepareBudget(body,actor,key){return request({...body,actor,requestKey:`telegram:prepare:${key}`});},async read(body,actor,options={}) {
-    if(!['analyze','orders-summary','daily-report','autopilot'].includes(body.action))throw Error('READ_ACTION_INVALID');
+    if(!['analyze','orders-summary','daily-report','autopilot','meta-summary'].includes(body.action))throw Error('READ_ACTION_INVALID');
     return request({...body,actor},options);
   },async handle(text,actor,updateId){
     if(config.commandCenterEnabled){
