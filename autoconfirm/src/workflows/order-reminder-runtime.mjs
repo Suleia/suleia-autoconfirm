@@ -7,6 +7,20 @@ import {createOrderReminderService} from './order-reminder-service.mjs';
 import {INITIAL_TEMPLATE,REMINDER_TEMPLATE,REMINDER_TIMER,REMINDER_OWNER,numericId,purchaseAnchor,reminderHash,reminderParameters,exactPhone,reminderKey} from './order-reminder-policy.mjs';
 
 export const REMINDER_STATUS_KEY='order_confirmation_reminder_v1';
+export function createReminderIssueIndex({read,now=Date.now}){
+ let value=null;
+ return {
+  clear(){value=null;},
+  async get(){
+   if(value&&now()-value.at<120000)return value;
+   value=null;
+   const at=now(),issues=await read();
+   if(!issues.complete||now()-at>=120000)throw Error('REMINDER_ISSUE_READ_INCOMPLETE');
+   value={at,ids:new Set(issues.items.map(x=>String(x.order_id)))};
+   return value;
+  }
+ };
+}
 export function excludeTerminalReminders(orders,terminal,providerStoreId){
  if(terminal.length>300)throw Error('REMINDER_TERMINAL_COVERAGE_INCOMPLETE');
  const selected=new Set(orders.map(o=>String(o.orderId))),excluded=new Set();
@@ -64,8 +78,11 @@ export function createReminderDeliveryStore({request=supabaseRequest,storeId='su
  };
 }
 export function createReminderPorts({env=process.env,app=getAppConfig(),request=supabaseRequest,orderRead=getDropeaV2OrderById}={}){
- let issueIndex=null;
  const stores=()=>{const values=loadDropeaV2IncidentStoreConfigs(env);if(values.length!==1||values[0].market!=='ES')throw Error('REMINDER_STORE_SCOPE_UNVERIFIED');return values[0];};
+ const issues=createReminderIssueIndex({read:async()=>{
+  const store=stores(),client=createDropeaV2IncidentClient({token:store.token,market:store.market,maxReadRetries:0,timeoutMs:8000});
+  return client.listAll('listIssues',{only_pending_to_resolve:true},{maxPages:3,maxRecords:300,requestedLimit:100});
+ }});
  const db=async(table,query)=>{
   const rows=await request('/rest/v1/'+table,{query:{select:'*',...query},timeoutMs:10000});
   if(!Array.isArray(rows))throw Error('REMINDER_DATABASE_READ_UNVERIFIED');return rows;
@@ -90,13 +107,8 @@ export function createReminderPorts({env=process.env,app=getAppConfig(),request=
     orders=excludeTerminalReminders(orders,terminal,store.store_id);
     orders=includeReminderReconciliation(orders,retained,store.store_id);
    }
-   issueIndex=null;
-   if(orders.length){
-    const client=createDropeaV2IncidentClient({token:store.token,market:store.market,maxReadRetries:0,timeoutMs:8000});
-    const issues=await client.listAll('listIssues',{only_pending_to_resolve:true},{maxPages:3,maxRecords:300,requestedLimit:100});
-    if(!issues.complete)throw Error('REMINDER_ISSUE_READ_INCOMPLETE');
-    issueIndex={at:Date.now(),ids:new Set(issues.items.map(x=>String(x.order_id)))};
-   }
+   issues.clear();
+   if(orders.length)await issues.get();
    return {orders,complete};
   },
   async readContext(candidate){
@@ -110,7 +122,7 @@ export function createReminderPorts({env=process.env,app=getAppConfig(),request=
    const accepted=initial.filter(x=>['sent','already_seen','verified'].includes(String(x.status).toLowerCase())&&x.raw?.provider_message_id);
    const initialLedger=accepted.length===1?accepted[0]:null;
    const userNs=local.chatby_user_ns||initialLedger?.chatby_user_ns;
-   if(!issueIndex||Date.now()-issueIndex.at>=120000){const client=createDropeaV2IncidentClient({token:store.token,market:store.market,maxReadRetries:0,timeoutMs:8000});const issues=await client.listAll('listIssues',{only_pending_to_resolve:true},{maxPages:3,maxRecords:300,requestedLimit:100});if(!issues.complete)throw Error('REMINDER_ISSUE_READ_INCOMPLETE');issueIndex={at:Date.now(),ids:new Set(issues.items.map(x=>String(x.order_id)))};}
+   const issueIndex=await issues.get();
    const workflow={verified:true,incidentActive:issueIndex.ids.has(String(candidate.orderId)),addressPending:local.status==='PENDING_ADDRESS_CHANGE'||local.raw?.addressPending===true||local.raw?.raw?.addressPending===true,importRecovery:local.raw?.importRecoveryPending===true||local.raw?.raw?.importRecoveryPending===true};
    if(!userNs)return {order,workflow,initialLedger,historyComplete:false,messages:[],subscriber:null};
    const subscriber=await getOrderReminderSubscriber(userNs);
@@ -124,7 +136,10 @@ export function createReminderPorts({env=process.env,app=getAppConfig(),request=
    if(!fresh||String(fresh.orderId)!==String(expected.orderId)||String(fresh.raw?.store_id)!==store.store_id||fresh.status!=='PENDING'||fresh.raw?.status!=='PENDING'||fresh.raw?.sub_status!=='PENDING'||fresh.raw?.confirmed_at||purchaseAnchor(fresh)!==purchaseAnchor(expected)||exactPhone(fresh.customerPhone)!==exactPhone(expected.customerPhone))return false;
    const local=await db('orders',{select:'order_id,status,confirmed_at,raw',order_id:'eq.'+expected.orderId,store_id:'eq.'+app.defaultStore.id,limit:2});
    if(local.length!==1||local[0].confirmed_at||local[0].status==='PENDING_ADDRESS_CHANGE'||local[0].raw?.addressPending===true||local[0].raw?.raw?.addressPending===true||local[0].raw?.importRecoveryPending===true||local[0].raw?.raw?.importRecoveryPending===true)return false;
-   return Boolean(issueIndex&&Date.now()-issueIndex.at<120000&&!issueIndex.ids.has(String(expected.orderId))&&reminderHash(reminderParameters(fresh))===reminderHash(reminderParameters(expected)));
+   // Chatby may have queued the dispatch after readContext(). Renew expired
+   // issue evidence here instead of mistaking its age for an order change.
+   const issueIndex=await issues.get();
+   return Boolean(!issueIndex.ids.has(String(expected.orderId))&&reminderHash(reminderParameters(fresh))===reminderHash(reminderParameters(expected)));
   },
   readTemplate:getOrderReminderTemplate,
   send:sendOrderConfirmationReminder,

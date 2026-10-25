@@ -3,6 +3,26 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 process.env.SUPABASE_ENABLED='false';
 const {createReminderDeliveryStore,loadReminderConfig,REMINDER_STATUS_KEY}=await import('./order-reminder-runtime.mjs');
+const {createReminderIssueIndex}=await import('./order-reminder-runtime.mjs');
+test('expired issue evidence after a queue wait is renewed and sees new incidents',async()=>{
+ let time=0,reads=0;
+ const index=createReminderIssueIndex({now:()=>time,read:async()=>({complete:true,items:++reads===1?[]:[{order_id:101}]})});
+ assert.equal((await index.get()).ids.has('101'),false);
+ time=119999;assert.equal((await index.get()).ids.has('101'),false);assert.equal(reads,1);
+ time=120000;assert.equal((await index.get()).ids.has('101'),true);assert.equal(reads,2);
+});
+test('incomplete or failed issue refresh cannot reuse stale absence evidence',async()=>{
+ let time=0,mode='ok';
+ const index=createReminderIssueIndex({now:()=>time,read:async()=>{if(mode==='error')throw Error('unavailable');return {complete:mode==='ok',items:[]};}});
+ await index.get();time=120000;mode='incomplete';await assert.rejects(index.get(),/READ_INCOMPLETE/);
+ mode='error';await assert.rejects(index.get(),/unavailable/);
+ mode='ok';assert.equal((await index.get()).ids.size,0);
+});
+test('issue index cannot relabel a slow paginated read as fresh',async()=>{
+ let time=0;
+ const index=createReminderIssueIndex({now:()=>time,read:async()=>{time+=120000;return {complete:true,items:[]};}});
+ await assert.rejects(index.get(),/READ_INCOMPLETE/);
+});
 test('reminder uses its own exact primary key and cannot modify other template rows',async()=>{
  const calls=[],key='ORDER_REMINDER:dropea:16088:101:dropea_pedido_reminder_v1';
  const store=createReminderDeliveryStore({request:async(path,options)=>{calls.push({path,...options});return [{raw:{claim_id:'claim'},status:options.body?.status||'CLAIMED'}];}});
