@@ -152,3 +152,31 @@ Only a fenced PRE_SEND_BLOCKED row with no send start can be reclaimed.
 No blind retry, alternative template or general LIVE activation is authorized
 by this technical hold. Continue the original owner-authorized rollout only
 after a naturally eligible canary is actually verified.
+
+## Final queue reservation correction
+
+The a3506dd natural canary17:55UTC also correctly stopped before any message
+POST: its conversation was fresh before queueing, then expired while awaiting
+the assigning request. No guard was widened and no uncertain request retried.
+
+The dedicated sender now reserves one bounded slot of the existing Chatby
+queue, then performs real catalogue/subscriber/history reads, fresh supplier/
+local confirmation/workflow checks and a fenced receipt update before its
+sole message POST. The private slot token is usable only during this reservation;
+ordinary existing callers keep the original scheduler and request behavior.
+Every nested HTTP read/POST still respects the same global pacing/cooldown.
+No parallel sender/queue, timer, field/tag write or alternative template exists.
+The reservation expires after30seconds before dispatch; the existing12second
+POST timeout and10second evidence limit remain. Failures before entry or before
+POST explicitly prove notSent; errors after fetch starts retain uncertainty.
+Later jobs are released on success/failure/deadline. A real inbound while waiting
+or a late confirmation/address/import change blocks, rather than relabeling the
+old conversation timestamp.
+
+Final isolated worker regression678/678,0fail/0skip,66files. Archive
+0a8f20ea7b602624b4263953895521ea8c5f88a7017ae8e7707826ba56ec0da2;
+new contention tests exercise the actual shared client queue, final read/POST
+ordering, no interleaving, post failure, quota before entry and bounded expiry.
+All existing template, cancellation, confirmation, incident and discount tests
+remain included. Canary verification and general LIVE still require actual
+provider readback under the original rollout; no test customer was created.

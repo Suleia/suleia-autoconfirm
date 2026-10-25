@@ -1,5 +1,5 @@
 import {randomUUID} from 'node:crypto';
-import {REMINDER_TEMPLATE,REMINDER_LOCALE,REMINDER_OWNER,REMINDER_COMPONENT_HASH,reminderKey,reminderHash,approvedReminder,evaluateReminder,initialProof,reminderParameters,providerTemplate,messageAt,exactPhone,confirmationOrderField,numericId} from './order-reminder-policy.mjs';
+import {REMINDER_TEMPLATE,REMINDER_LOCALE,REMINDER_OWNER,REMINDER_COMPONENT_HASH,reminderKey,reminderHash,approvedReminder,evaluateReminder,initialProof,reminderParameters,providerTemplate,messageAt,exactPhone,confirmationOrderField,numericId,purchaseAnchor} from './order-reminder-policy.mjs';
 
 const safeCode=error=>/^[A-Z][A-Z0-9_]{2,90}$/.test(error?.code||'')?error.code:'REMINDER_DEPENDENCY_UNAVAILABLE';
 export function renderedReminder(template,params){
@@ -66,12 +66,27 @@ export function createOrderReminderService({ports,config,now=Date.now}){
    if(!await ports.delivery.finish(key,claimId,'SENDING',receipt))throw Object.assign(Error(),{code:'REMINDER_SEND_RESERVATION_UNVERIFIED'});
    // Exactly one provider POST. The shared Chatby transport owns its queue and
    // never retries this call. Persisted SENDING also survives a lost receipt.
+   let dispatchBlocked=null;
    try{
-    const sent=await ports.send({template:finalTemplate,params,subscriber:fresh.subscriber,orderId:String(order.orderId),canonicalOrderId:order.canonicalOrderId,claimId,checkedAt:receipt.eligibility_checked_at,expectedRecipient:fresh.order.customerPhone});
+    const refreshBeforeDispatch=async reads=>{
+     const currentTemplate=await reads.readTemplate();
+     if(!approvedReminder(currentTemplate))throw Object.assign(Error(),{code:'REMINDER_TEMPLATE_CONTRACT_CHANGED'});
+     const subscriber=await reads.getSubscriber(fresh.subscriber.user_ns);
+     const history=await reads.getMessages(fresh.subscriber.user_ns,{sinceMs:purchaseAnchor(fresh.order)});
+     const checked={...fresh,subscriber,messages:history.messages,historyComplete:history.complete,checkedAt:new Date(now()).toISOString()};
+     const finalDecision=evaluateReminder(checked,{now:now(),lookbackHours:config.lookbackHours});
+     if(finalDecision.state!=='ELIGIBLE'||finalDecision.initialTemplateSentAt!==receipt.initial_template_sent_at||reminderHash(finalDecision.initialMessageId)!==receipt.initial_message_hash){dispatchBlocked=finalDecision;throw Object.assign(Error(),{code:'REMINDER_ELIGIBILITY_CHANGED'});}
+     if(!await ports.verifyFreshOrder(fresh.order))throw Object.assign(Error(),{code:'REMINDER_ORDER_CHANGED_BEFORE_SEND'});
+     if(now()-Date.parse(checked.checkedAt)>10000)throw Object.assign(Error(),{code:'REMINDER_FRESH_READ_EXPIRED'});
+     Object.assign(receipt,{eligibility_checked_at:checked.checkedAt,send_started_at:new Date(now()).toISOString()});
+     if(!await ports.delivery.finish(key,claimId,'SENDING',receipt))throw Object.assign(Error(),{code:'REMINDER_SEND_RESERVATION_UNVERIFIED'});
+     return {template:currentTemplate,params,subscriber,checkedAt:receipt.eligibility_checked_at,expectedRecipient:fresh.order.customerPhone};
+    };
+    const sent=await ports.send({template:finalTemplate,params,subscriber:fresh.subscriber,orderId:String(order.orderId),canonicalOrderId:order.canonicalOrderId,claimId,checkedAt:receipt.eligibility_checked_at,expectedRecipient:fresh.order.customerPhone,refreshBeforeDispatch});
     const mid=sent?.data?.mid||sent?.mid||null;
     if(typeof mid==='string'&&mid.startsWith('wamid.'))receipt.provider_message_id=mid;
    }catch(error){
-    if(error.notSent===true){receipt.send_started_at=null;receipt.send_status='PRE_SEND_BLOCKED';receipt.block_reason=safeCode(error);await ports.delivery.finish(key,claimId,'PRE_SEND_BLOCKED',receipt);return {state:'PRE_SEND_BLOCKED',reason:receipt.block_reason};}
+    if(error.notSent===true){receipt.send_started_at=null;receipt.send_status='PRE_SEND_BLOCKED';receipt.block_reason=safeCode(error);await ports.delivery.finish(key,claimId,'PRE_SEND_BLOCKED',receipt);return dispatchBlocked||{state:'PRE_SEND_BLOCKED',reason:receipt.block_reason};}
     receipt.send_status='SEND_UNKNOWN';receipt.block_reason=safeCode(error);
     await ports.delivery.finish(key,claimId,'SEND_UNKNOWN',receipt);
    }
