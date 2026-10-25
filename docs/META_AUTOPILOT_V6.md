@@ -60,6 +60,14 @@ defers optional analyses. The executive report waits without claiming or failing
 its four-part delivery while the financial lane is reserved. No token rotation,
 quota bypass, second reader, scheduler or assigning transport was introduced.
 
+Post-deployment audit found the optional full Algorithm analysis still using the
+critical lane. Its proxy now uses priority20 on the same client and does not cache
+temporary financial-reservation/quota failures as a successful ten-minute result.
+Simultaneous campaign ownership checks share one pending SQL query; the promise
+is cleared on completion so the next financial revalidation always reads freshly.
+Runtime regression tests instrument zero provider calls for a deep analysis in a
+reserved window and one shared ownership query for nine concurrent decisions.
+
 ## Durable financial safety
 
 The same account/campaign advisory locks, PostgreSQL operation ledger and canary

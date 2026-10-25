@@ -43,7 +43,10 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     allowedActors:String(env.TELEGRAM_ALLOWED_USER_IDS||'').split(',').filter(x=>/^\d+$/.test(x)),mode,writer,
     policy:{maxBudgetCents:env.META_MAX_DAILY_BUDGET_EUR?Math.round(Number(env.META_MAX_DAILY_BUDGET_EUR)*100):null,maxChangePercent:getNumber('META_MAX_BUDGET_CHANGE_PERCENT'),minBudgetCents:1,maxAgeMs:120000,
       minSpend:getNumber('ADS_MIN_SPEND_EUR'),minPurchases:getNumber('ADS_MIN_PURCHASES'),minImpressions:getNumber('ADS_MIN_IMPRESSIONS'),minFunnelEvents:getNumber('ADS_MIN_FUNNEL_EVENTS'),liveCampaignIds,liveAccountBudgets,maxAggregateIncreaseCents:Number.isFinite(getNumber('ADS_MAX_AGGREGATE_INCREASE_EUR'))?Math.round(getNumber('ADS_MAX_AGGREGATE_INCREASE_EUR')*100):null,campaignCooldownMs:(getNumber('ADS_CAMPAIGN_COOLDOWN_HOURS')||24)*3600000}});
-  let algorithmCache=null,algorithmTask=null,budgetGuardCache=null,budgetGuardTask=null;
+  let algorithmCache=null,algorithmTask=null,budgetGuardCache=null,budgetGuardTask=null,budgetOwnershipTask=null;
+  // Coalesce simultaneous ownership queries only. Revalidation after a write
+  // always creates a new query; no stale financial history cache is introduced.
+  const ownershipHistory=()=>budgetOwnershipTask||(budgetOwnershipTask=ledger.autopilotHistory(engine.accountId,Date.now(),72*3600000).finally(()=>{budgetOwnershipTask=null;}));
   const productMappings=JSON.parse(env.ADS_VERIFIED_PRODUCT_LINKS_JSON||'[]');
   if(!Array.isArray(productMappings))throw Error('PRODUCT_LINKS_INVALID');
   const learningPolicy={...ALGORITHM_POLICY};
@@ -95,7 +98,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   },async algorithm(){
     if(env.ADS_ALGORITHM_ENABLED!=='true')throw Error('ADS_ALGORITHM_DISABLED');
     if(algorithmCache&&Date.now()-algorithmCache.at<10*60_000)return algorithmCache.report;
-    if(!algorithmTask)algorithmTask=captureAlgorithmEvidence({reader,readOrders:ordersReader,readOperations:operationsReader}).then(e=>{e.orders=traceOrders(e.orders,e.entities);const report={...buildAlgorithmReport(e,{policy:learningPolicy}),reportReadOnly};algorithmCache={at:Date.now(),report};return report;}).finally(()=>{algorithmTask=null;});
+    if(!algorithmTask)algorithmTask=captureAlgorithmEvidence({reader:reader.withPriority(20),readOrders:ordersReader,readOperations:operationsReader}).then(e=>{const deferred=Object.values(e.sources).find(s=>['META_FINANCIAL_WINDOW_RESERVED','META_RATE_LIMITED','META_QUOTA_RESERVED'].includes(s.code));if(deferred)throw Object.assign(Error(deferred.code),{code:deferred.code});e.orders=traceOrders(e.orders,e.entities);const report={...buildAlgorithmReport(e,{policy:learningPolicy}),reportReadOnly};algorithmCache={at:Date.now(),report};return report;}).finally(()=>{algorithmTask=null;});
     // Cold reads can span many Graph pages. Keep a coalesced task, do not launch
     // a second job when Telegram retries after a bounded response.
     return algorithmTask;
@@ -135,7 +138,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     // Explicit, confirmed budget instructions do not assert profitability.
     // Keep the diagnostic abstention and every operational learning protection.
     const result={...assessment,reasons:assessment.reasons.filter(r=>r!=='VERIFIED_ECONOMICS_MISSING'),warnings:assessment.reasons.includes('VERIFIED_ECONOMICS_MISSING')?['Margen y ROAS de equilibrio no acreditados; este cambio no implica rentabilidad.']:[]};
-    const guarded=fixed?ownBudgetGuardAssessment({assessment:result,campaign,events:report.guardEvents,history:await ledger.autopilotHistory(engine.accountId,Date.now(),72*3600000),config:autopilotConfig,now:Date.now()}):result;
+    const guarded=fixed?ownBudgetGuardAssessment({assessment:result,campaign,events:report.guardEvents,history:await ownershipHistory(),config:autopilotConfig,now:Date.now()}):result;
     return isV6(autopilotConfig)?{...v6BudgetGuards(guarded,report.sources),historical:null,historicalStatus:'LONG_HISTORY_NOT_REQUESTED_IN_CRITICAL_WINDOW'}:guarded;
   };
   autopilotConfig.legacy={...engine.policy};

@@ -10,7 +10,7 @@ os.umask(0o077)
 M=json.loads(pathlib.Path(sys.argv[2]).read_text());short=M['revision'][:7]
 D=pathlib.Path('/root/suleia-meta-v6-deploy')/short;D.mkdir(parents=True,exist_ok=True,mode=0o700)
 API='suleia-operations-staging-api-1';PANEL='suleia-operations-staging-review-panel-1';DB='suleia-operations-staging-postgres-1'
-R=pathlib.Path('/etc/suleia/meta-autopilot-v6-runtime.json');BOT=pathlib.Path('/opt/suleia-telegram');BENV=pathlib.Path('/etc/suleia/telegram.env')
+R=pathlib.Path(M.get('runtimeOverride','/etc/suleia/meta-autopilot-v6-runtime.json'));BOT=pathlib.Path('/opt/suleia-telegram');BENV=pathlib.Path('/etc/suleia/telegram.env')
 def run(args,body=None):
  p=subprocess.run(args,input=body,capture_output=True)
  if p.returncode:(D/'error.private.log').write_bytes(p.stdout+b'\n'+p.stderr);raise RuntimeError('DEPLOY_COMMAND_FAILED_PRIVATE_LOG')
@@ -126,7 +126,8 @@ elif phase=='apply':
  T=json.loads(pathlib.Path(M['testReceipt']).read_text());assert T['exit']==0 and T['sourceSha256']==M['testSourceSha256']and '# fail 0'in T['summary']and'# skipped 0'in T['summary'],'TESTS_NOT_PASSED'
  stable(S);quiet();assert inspect(API)['Image']==M['baseImageId']and BOT.resolve()==pathlib.Path(S['previousBot'])and sha(BENV.read_bytes())==S['botEnvHash'],'BASE_CHANGED'
  backup=run(['docker','exec',DB,'pg_dump','-U','suleia_admin','-d','suleia_staging','--data-only','--table=economics.ads_operations','--table=economics.ads_proposals','--table=economics.ads_events','--table=economics.ads_autopilot_slots','--table=economics.ads_circuit']);(D/'ledger-before.private.sql').write_bytes(backup)
- sql((D/'source/migrations/061_meta_autopilot_v6_night_guard.sql').read_text(),False)
+ if M.get('applyMigration',True):sql((D/'source/migrations/061_meta_autopilot_v6_night_guard.sql').read_text(),False)
+ else:assert one("count(*) FROM pg_indexes WHERE schemaname='economics' AND indexname='ads_operations_one_night_per_campaign_day'")=='1','EXISTING_NIGHT_GUARD_REQUIRED'
  try:
   R.write_text(json.dumps(S['override']));R.chmod(0o600)
   run(['systemctl','stop','suleia-telegram.service'])
