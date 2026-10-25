@@ -90,7 +90,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   }
   const runtime={engine,ledger,reportReadOnly,reportStatus:()=>({...reports.status(),requests:reader.requestStats(),reportCache:sharedReportReader.cacheStatus(),contract:CONTRACT,budgetMode:engine.mode,externalWrites:0}),algorithmEnabled:env.ADS_ALGORITHM_ENABLED==='true',async budgetGuards(){
     if(env.ADS_ALGORITHM_ENABLED!=='true')throw Error('ADS_ALGORITHM_DISABLED');
-    if(budgetGuardCache&&Date.now()-Date.parse(budgetGuardCache.observedAt)<60000)return budgetGuardCache;
+    if(budgetGuardCache&&Date.now()-Date.parse(budgetGuardCache.observedAt)<(isV6(autopilotConfig)?engine.policy.maxAgeMs:60000))return budgetGuardCache;
     if(!budgetGuardTask)budgetGuardTask=captureAlgorithmEvidence({reader,scope:'BUDGET_GUARDS'}).then(e=>{
       budgetGuardCache={...buildAlgorithmReport(e,{policy:learningPolicy}),guardEvents:normalizeBudgetActivities([...(e.currentActivities||[]),...(e.activities||[])],e.entities)};return budgetGuardCache;
     }).finally(()=>{budgetGuardTask=null;});

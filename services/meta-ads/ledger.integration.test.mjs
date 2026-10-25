@@ -164,5 +164,6 @@ test('isolated PostgreSQL enforces persistence, idempotency, locks and least pri
     assert.equal(await b.withCampaignLock('night:next-day',tx=>tx.claimOperation('8888888888888888','77','777',{...frozen,nightBusinessDate:'2026-10-26',nightBeforeCents:5600,nightTargetCents:3920})),true);
     await a.saveMinimumReceipt({accountId:'777',campaignId:'77',minimumCents:1500,currency:'EUR',verifiedAt:new Date().toISOString(),validUntil:new Date(Date.now()+3600000).toISOString(),reference:'test:v6:minimum'});
     assert.equal((await b.minimumReceipts('777',Date.now()))[0].minimumCents,1500);
+    assert.ok(!(await b.algorithmJournal()).some(r=>r.body.kind==='BUDGET_MINIMUM_RECEIPT'));
   }finally{await pool.end();}
 });

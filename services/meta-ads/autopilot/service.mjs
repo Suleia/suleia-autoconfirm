@@ -37,7 +37,7 @@ export class BudgetAutopilot {
       if((validate||!isV6(this.config))&&this.config.mode==='LIVE'&&consolidatedPolicy(this.config)&&this.engine.writer?.validateDailyBudget){
         const campaigns=await this.engine.reader.readCampaigns();
         for(const c of campaigns.filter(c=>c.status==='ACTIVE'&&c.effective_status==='ACTIVE'&&Number.isSafeInteger(Number(c.daily_budget))&&Number(c.daily_budget)>0)){
-          if(perCampaign[String(c.id)]?.minimumCents===this.config.approved.minimumBudgetCents)continue;
+          if(perCampaign[String(c.id)]?.minimumCents>=this.config.approved.minimumBudgetCents)continue;
           try {
             await this.engine.writer.validateDailyBudget(String(c.id),this.config.approved.minimumBudgetCents,{expectedBefore:Number(c.daily_budget)});
             const at=this.now(),receipt={accountId:this.engine.accountId,campaignId:String(c.id),currency:'EUR',minimumCents:this.config.approved.minimumBudgetCents,reference:this.config.approved.approvalReference,verifiedAt:new Date(at).toISOString(),validUntil:new Date(at+86400000).toISOString()};

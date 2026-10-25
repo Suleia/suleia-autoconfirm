@@ -28,3 +28,10 @@ test('existing authenticated Autopilot bridge exposes bounded source diagnostics
  const r=await adsCommand(runtime,{action:'autopilot',evidence:true,actor:{user:'1',chat:'1'}});assert.equal(r.budgetEvidence.sources,source);assert.equal(r.budgetEvidence.externalWrites,0);assert.equal(reads,1);
  await assert.rejects(adsCommand(runtime,{action:'autopilot',evidence:true,actor:{user:'2',chat:'2'}}),/UNAUTHORIZED/);assert.equal(reads,1);
 });
+
+test('V6 guard warmup uses the same 120-second approved freshness bound and refreshes after expiry',async t=>{
+ let now=Date.parse('2026-10-25T14:59:15Z');t.mock.method(Date,'now',()=>now);const f=fixture();
+ const first=await f.runtime.budgetGuards(),reads=f.reads;now+=61000;
+ assert.equal(await f.runtime.budgetGuards(),first);assert.equal(f.reads,reads);
+ now+=60000;assert.notEqual(await f.runtime.budgetGuards(),first);assert.ok(f.reads>reads);
+});

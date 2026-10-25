@@ -68,6 +68,24 @@ is cleared on completion so the next financial revalidation always reads freshly
 Runtime regression tests instrument zero provider calls for a deep analysis in a
 reserved window and one shared ownership query for nine concurrent decisions.
 
+V6 guard reuse is bounded by the same120-second freshness limit as the existing
+executor, rather than an unrelated60-second reload boundary during45-second
+warmup plus minimum validation. Expired evidence still triggers a fresh read.
+Higher still-valid campaign-verified Meta minima are retained instead of being
+overwritten by a new15EUR probe. Internal minimum receipts stay in the immutable
+journal but are excluded from the public diagnosis-history projection; no audit
+row is deleted. Signed Autopilot source-diagnostic reads explicitly report zero
+monetary writes, even while the budget executor is LIVE.
+
+The first natural V6 review,25October16:00Madrid, claimed15:00:06.503UTC and
+completed15:00:35.171UTC, proposal fd55f81144bf0676. Nine items were BLOCKED and
+zero assignments were sent. NIDA L3, CollaL12 and CollaL15 met today's ROAS/count
+thresholds but had recent unowned activity/daily external-change guards plus an
+incomplete operational capture. The16:00record predates per-source diagnostics;
+its missing-source cause cannot be invented retrospectively. Two subsequent
+canonical captures at15:14 and15:17UTC completed all seven operational sources.
+No missed review was replayed and no guard was waived to manufacture a canary.
+
 ## Durable financial safety
 
 The same account/campaign advisory locks, PostgreSQL operation ledger and canary

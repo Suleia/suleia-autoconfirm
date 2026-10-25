@@ -142,3 +142,10 @@ test('V6 bot queries are ledger-backed and never turn monitoring into a budget i
  assert.equal(parseAutopilotQuery('Sube 10 € a NIDA'),null);
  const s=formatAutopilot({version:V6_VERSION,mode:'LIVE',enabled:true,policy:V6_POLICY,date:day,observedAt:new Date(at('10:00')).toISOString(),nextReviewAt:new Date(at('12:00')).toISOString(),campaigns:[],timeline:[],slots:[],alerts:[]},{kind:'count'});assert.match(s,/0 cambios propios VERIFIED/);assert.match(s,/100/);assert.doesNotMatch(s,/máximo 70/);
 });
+
+test('a fresh higher campaign-verified Meta floor is retained instead of being overwritten by a 15 EUR probe',async()=>{
+ let validations=0;const now=at('16:00'),cfg=config();cfg.verifiedMinimums=[{accountId:'9',campaignId:'11',currency:'EUR',minimumCents:2500,reference:'test:verified-higher-floor',verifiedAt:new Date(now-1000).toISOString(),validUntil:new Date(now+3600000).toISOString()}];
+ const engine={accountId:'9',reader:{readCampaigns:async()=>[campaign(6000)]},writer:{validateDailyBudget:async()=>{validations++;throw Error('MUST_NOT_REPLACE_VERIFIED_HIGHER_FLOOR');}}};
+ const service=new BudgetAutopilot({engine,ledger:{minimumReceipts:async()=>[]},config:cfg,now:()=>now});
+ const constraints=await service.constraints({validate:true});assert.equal(constraints.perCampaign['11'].verified,true);assert.equal(constraints.perCampaign['11'].minimumCents,2500);assert.equal(validations,0);
+});

@@ -87,7 +87,7 @@ export class AdsLedger {
     if(rows.some(r=>![Number(r.before),Number(r.after)].every(Number.isSafeInteger)||!Number.isFinite(Date.parse(r.updated_at))))throw Error('BUDGET_HISTORY_INVALID');
     return {increaseCents:rows.filter(r=>Date.parse(r.updated_at)>=day||['EXECUTING','UNKNOWN'].includes(r.state)).reduce((sum,r)=>sum+Math.max(0,Number(r.after)-Number(r.before)),0),changedCampaignIds:[...new Set(rows.filter(r=>Date.parse(r.updated_at)>now-cooldownMs||['EXECUTING','UNKNOWN'].includes(r.state)).map(r=>r.campaign_id))]};
   }
-  async algorithmJournal(){return (await this.pool.query("SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version' IS DISTINCT FROM 'suleia-review-v6.0' ORDER BY created_at DESC LIMIT 50")).rows;}
+  async algorithmJournal(){return (await this.pool.query("SELECT id,event_type,reference,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version' IS DISTINCT FROM 'suleia-review-v6.0' AND body->>'kind' IS DISTINCT FROM 'BUDGET_MINIMUM_RECEIPT' ORDER BY created_at DESC LIMIT 50")).rows;}
   async latestReviewAlert(reference){return (await this.pool.query("SELECT id,body,created_at FROM economics.ads_algorithm_journal WHERE body->>'version'='suleia-review-v6.0' AND body->>'kind'='ALERT_OBSERVATION' AND body->'record'->>'key'=$1 ORDER BY created_at DESC LIMIT 1",[reference])).rows[0]||null;}
   async appendAlgorithmJournal({eventType,reference,principal,report}){
     const id=createHash('sha256').update(`${report.evidenceDigest}:${eventType}:${reference}:${principal}`).digest('hex');
