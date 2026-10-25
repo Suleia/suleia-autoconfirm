@@ -1,5 +1,35 @@
 # Suleia agent handoff
 
+## 2026-10-25 · Address import recovery, post-failure phase1
+
+Owner's correction implemented in PR150 stacked on BI V2 PR149. Runtime2868d39
+deployed13:24UTC and independently verified13:26UTC. Only SHADOW is active:
+persisted definitive provider failures trigger the isolated observer; healthy
+imports/reports do not trigger it or create recovery state. No normal importer,
+retry, ledger, configuration or timer changes.3observed address cases,1non-address;
+zero corrections/messages/imports/effect claims/provider requests. Second local
+observation creates0cases, metrics/logs stable. Exact real provider-code mapping;
+coverage does not prove a bad CP and cannot justify substitution.
+
+Dedicated encrypted SQLite/per-order uniqueness, private network/resource limits,
+optional OAuth contact-free projection and separate Import Recovery card/view.
+Final isolated Node22/PG17 suite1381/1381,0skips,147files, source
+e758338ed5eed38c47f0513443b79f5c777b9146db2b85d834f1958611e53a2e,
+including28original importer and46new tests. An initial symlink startup failure
+automatically reverted to BI V2; actual symlink/healthy-no-state regressions now
+pass.19budget hashes, bot, finance, MCP/materializer and unrelated containers
+preserved; no Render deployment or external actions. HTTPS/static200, anonymous
+data401, UID100 projection read verified. No browser used in this release.
+
+Live resolver, exact-order Chatby/shared ledger/reply parsing, existing import
+builder/reservation/native retry coordination are still unconnected. Phase2/3/4
+remain off; do not claim automatic address recovery is live. Next: prove these
+ports and a contact-preserving exact-order canary before enabling any write phase.
+Full evidence/rollback: docs/ADDRESS_IMPORT_RECOVERY.md and
+docs/ADDRESS_IMPORT_RECOVERY_DEPLOYMENT.md/.json. Private actual-BI-base rollback
+at /root/suleia-address-import-recovery-deploy/2868d39/. Never clear claims or
+restore historical SHADOW budget configuration.
+
 ## 2026-10-25 · Business Intelligence V2 deployed
 
 Owner requested the existing data section's BI V2 redesign and approved the

@@ -13,4 +13,6 @@ private-runtime/
 *.dump
 *.sha256
 node_modules/
+/output/
+__pycache__/
 autoconfirm-sync.log
