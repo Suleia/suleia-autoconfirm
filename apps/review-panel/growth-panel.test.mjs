@@ -42,3 +42,10 @@ test('combined plot keeps three independently labelled units and does not bridge
  assert.equal(lines.length,3);for(const line of lines){assert.equal((line.d.match(/M/g)||[]).length,2);assert.equal(line.d.includes('L'),false);}
  assert.match(text(root),/Gasto \(€\)/);assert.match(text(root),/Compras/);assert.match(text(root),/ROAS \(×\)/);
 });
+
+test('overview sparklines use the completed shared trend even when initial report rows have no daily series',()=>{
+ const c=fixture(),r=report(),root=new E('div');r.growth={trend:{current:[{day:'2026-10-17',metrics:{spend:20,purchases:2,purchaseValue:40}},{day:'2026-10-18',metrics:{spend:30,purchases:3,purchaseValue:90}}]}};
+ c.ui.kpis(root,r,{compact:true});const cards=tree(root).filter(e=>e.tagName==='article');
+ for(const key of ['spend','purchases','averageOrderValue']){const card=cards.find(x=>x['data-metric']===key);assert.ok(tree(card).some(x=>x.tagName==='path'&&x.d?.includes('L')));}
+ assert.equal(tree(cards.find(x=>x['data-metric']==='reach')).some(x=>x.tagName==='path'&&x.d?.includes('L')),false);
+});
