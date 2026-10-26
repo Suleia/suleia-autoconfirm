@@ -28,6 +28,11 @@ function client(fetchImpl) {
   });
 }
 
+test('account reporting requests native unique metrics with the same attribution and GET queue',async()=>{
+ let calls=0;const api=client(async(url,options)=>{calls++;const u=new URL(url);assert.equal(options.method,'GET');assert.equal(u.searchParams.get('level'),'account');assert.equal(u.searchParams.get('time_increment'),'1');assert.match(u.searchParams.get('fields'),/account_id/);assert.doesNotMatch(u.searchParams.get('fields'),/campaign_id|adset_id/);assert.equal(u.searchParams.get('action_report_time'),'conversion');assert.equal(u.searchParams.get('action_attribution_windows'),'["7d_click","1d_view"]');return response({data:[]});});
+ await api.withPriority(10).readAccountInsights({since:'2026-10-19',until:'2026-10-25',daily:true});assert.equal(calls,1);
+});
+
 test('reporting facade shares the same quota gate and does not cache a critical read',async()=>{
  let calls=0;const api=client(async()=>{calls++;return response({id:'123',currency:'EUR'});}),view=api.withPriority(10);
  assert.equal((await view.readAccount()).id,'123');await api.readAccount();assert.equal(calls,2);

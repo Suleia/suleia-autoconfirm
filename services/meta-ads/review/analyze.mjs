@@ -118,9 +118,11 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
  // Campaign optimization context must be homogeneous among its adsets to rank.
  for(const f of rows)if(level==='campaign'){const goals=new Set((extras.metadata?.adset||[]).filter(a=>String(a.campaign_id)===f.campaignId).map(a=>a.optimization_goal).filter(Boolean));f.optimizationGoal=goals.size===1?[...goals][0]:null;}
  const actual=selected.filter(f=>f.source==='META_INSIGHTS'),totals=aggregate(actual),priorSelected=previous.filter(accepts),before=aggregate(priorSelected);
+ const accountScope=level==='campaign'&&!ids.length&&!['campaignId','adsetId','adId','productId'].some(k=>query[k])&&dataset.accountEvidence?.state==='AVAILABLE';
+ if(accountScope)for(const [target,fact]of [[totals,dataset.accountEvidence.current],[before,dataset.accountEvidence.previous]]){for(const [key,value]of Object.entries(fact))if(!['coverage','source','level','entityId','name','since','until'].includes(key))target[key]=value;target.scope='PROVIDER_ACCOUNT';for(const key of Object.keys(target.coverage))target.coverage[key]={known:Number.isFinite(fact[key])?1:0,total:1,status:Number.isFinite(fact[key])?'COMPLETE':'UNAVAILABLE',scope:'PROVIDER_ACCOUNT'};}
  // Reach/frequency are valid at one provider scope over the whole range. They
  // are neither summed across audiences nor averaged across daily rows.
- for(const [target,items]of [[totals,actual],[before,priorSelected]]){target.reach=items.length===1?items[0].reach:null;target.frequency=items.length===1?items[0].frequency:null;}
+ for(const [target,items]of [[totals,actual],[before,priorSelected]]){if(!accountScope){target.reach=items.length===1?items[0].reach:null;target.frequency=items.length===1?items[0].frequency:null;}}
  const budgetRows=rows.filter(r=>r.delivery==='ACTIVE');totals.dailyBudgetCents=level==='campaign'&&rows.length>0&&rows.every(r=>r.delivery!=='UNKNOWN')&&dataset.budgetObservation?.state!=='UNAVAILABLE'&&budgetRows.every(r=>Number.isSafeInteger(r.dailyBudgetCents))?budgetRows.reduce((n,r)=>n+r.dailyBudgetCents,0):null;
  before.dailyBudgetCents=null;
  const conversionCompatible=comparison.comparable&&totals.purchaseType===before.purchaseType;
@@ -137,7 +139,8 @@ export function analyzeReview({dataset,baseline=null,query={},extras={},commerce
   hourly:equivalentHourlyTraffic((extras.hourly||[]).filter(h=>selected.some(f=>f.campaignId===String(h.campaign_id))),range,now),breakdowns:extras.breakdowns||{},videos:extras.videos||[],knowledge:KNOWLEDGE,policy,auditProfiles:AUDIT_PROFILES,
   statisticalStatus:'EXPLORATORY_OBSERVATIONAL',multipleTesting:{status:'NO_SIGNIFICANCE_CLAIMS',method:'BY available only for justified supplied tests; nonunique event aggregates are not independent binary trials.'},
   limits:['Meta attributed ROAS does not establish settled profit or incrementality.','No campaign is paused, scaled or changed by this review agent.','V5.1 approvals, locks, limits and schedules remain in the existing executor.'],externalWrites:0};
- report.subtotal=verifiedSubtotal(actual);
+ report.subtotal=accountScope?{state:'ACCOUNT_SCOPE',included:actual.length,total:actual.length,metrics:null}:verifiedSubtotal(actual);
+ if(accountScope)report.accountSeries={current:dataset.accountEvidence.daily,previous:dataset.accountEvidence.priorDaily,source:'META_ACCOUNT_INSIGHTS',contract:CONTRACT};
  report.evidenceDigest=digest({range,baselineRange,observedAt,level,selection:ids,rows:rows.map(r=>[r.entityId,r.spend,r.purchases,r.purchaseValue]),commerce:commercial});
  report.summary=[`Gasto ${money(totals.spend)} · Compras atribuidas ${totals.purchases??'N/D'} · CPA ${money(totals.cpa)} · ROAS ${totals.roas?.toFixed(2)??'N/D'}`,`${recommendations.length} hipótesis para revisar. Beneficio por campaña no acreditado.`,range.partial?'Día en curso: comparación de conversiones con ayer bloqueada.':'Periodos completos; las conversiones recientes pueden revisarse.'];
  return report;
