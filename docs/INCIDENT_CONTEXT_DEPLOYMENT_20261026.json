@@ -1,0 +1,100 @@
+{
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/161",
+  "runtimeRevision": "3a44ccee72d34e4524b9429bda931e38be0f8762",
+  "image": "suleia-incident-browser:3a44cce",
+  "imageId": "sha256:d8d0792ea00cabef2c43dcb402b0004af10f81679bbe885c50998a3d77f42b00",
+  "sourceArchiveSha256": "babef5264ab4b235c7db515b79485f13ff53ce943d9f162f49a4ca1ed2c89f19",
+  "initialRuntimeRevision": "0825d85dda31856a77fbd8b2fe373a7f01f5c766",
+  "originalPredecessor": "fa0d057182afaecafbb41bf205dcbe8abf07b631",
+  "runtimeFilesVerified": 4,
+  "tests": {
+    "matchingSource": {"passed": 403, "failed": 0, "skipped": 0, "files": 46},
+    "exactImage": {"passed": 205, "failed": 0, "skipped": 0, "files": 25},
+    "groupsOverlap": true,
+    "network": "none",
+    "productionCredentials": false,
+    "postgres17Concurrency": {"contenders": 2, "successfulReservationAdvances": 1, "remainingRows": 1},
+    "privateOfflineReplayCases": 5,
+    "privateReplayExternalActions": 0
+  },
+  "firstNaturalCycle": {
+    "startedAt": "2026-10-26T15:29:16.949Z",
+    "completedAt": "2026-10-26T15:34:16.162Z",
+    "observedDeliveryCases": 17,
+    "newVerifiedSolutions": 2,
+    "newVerifiedClarifications": 2,
+    "reviewCount": 0,
+    "supportStatus": "WAITING_ELIGIBLE_CASE"
+  },
+  "finalNaturalCycle": {
+    "startedAt": "2026-10-26T15:36:24.405Z",
+    "completedAt": "2026-10-26T15:38:50.214Z",
+    "healthObservedAt": "2026-10-26T15:39:24.428Z",
+    "mode": "AUTO",
+    "readiness": "READY",
+    "observedDeliveryCases": 14,
+    "repeatedSolutions": 0,
+    "repeatedMessages": 0,
+    "supportStatus": "WAITING_ELIGIBLE_CASE"
+  },
+  "realSolutions": [
+    {
+      "orderId": "1480490",
+      "issueId": "1373816",
+      "providerStatus": "RESOLVED",
+      "providerResolution": "SOLUTION_PROVIDED",
+      "providerChangedAt": "2026-10-26T15:31:56.513Z",
+      "verifiedAt": "2026-10-26T15:32:01.085Z",
+      "requestedDate": "2026-10-27",
+      "requestedWindow": "morning",
+      "callBeforeArrival": true,
+      "exactSavedNoteVerified": true,
+      "savedNoteObservedAt": "2026-10-26T15:32:00.138Z"
+    },
+    {
+      "orderId": "1468590",
+      "issueId": "1372455",
+      "providerStatus": "RESOLVED",
+      "providerResolution": "SOLUTION_PROVIDED",
+      "providerChangedAt": "2026-10-26T15:33:42.475Z",
+      "verifiedAt": "2026-10-26T15:33:46.067Z",
+      "requestedDate": "2026-10-27",
+      "requestedWindow": "morning",
+      "exactSavedNoteVerified": true,
+      "savedNoteObservedAt": "2026-10-26T15:33:45.759Z",
+      "originalPreparationAttemptAt": "2026-10-26T08:36:46.719Z",
+      "originalFailedBeforeSaveAt": "2026-10-26T08:37:23.143Z",
+      "originalCycleCompletedAt": "2026-10-26T08:38:35.721Z",
+      "originalSaveAttempted": false,
+      "samePersistentReservationRetained": true
+    }
+  ],
+  "realClarifications": [
+    {"orderId": "1480652", "issueId": "1373826", "sentAt": "2026-10-26T15:31:08.972Z", "exactProviderMessageCount": 1, "exactContentVerified": true, "reason": "PAYMENT_OR_PRICE_NEEDS_CONFIRMATION"},
+    {"orderId": "1478218", "issueId": "1372948", "sentAt": "2026-10-26T15:32:54.367Z", "exactProviderMessageCount": 1, "exactContentVerified": true, "requestedDatePreserved": "2026-10-30", "reason": "PAYMENT_OR_PRICE_NEEDS_CONFIRMATION"}
+  ],
+  "pickupCase": {"orderId": "1475164", "issueId": "1369822", "status": "PICKUP_REQUIRES_VERIFIED_AGENCY", "missing": "VERIFIED_AGENCY_AVAILABILITY", "newGenericDeliveryQuestionSent": false},
+  "preservation": {
+    "sameEnvironment": true,
+    "samePrivateConnections": true,
+    "sameStateAndSessions": true,
+    "otherContainerIdsUnchangedAtEachDeployment": true,
+    "newScheduler": false,
+    "existingIntervalMinutes": 30,
+    "existingMode": "AUTO",
+    "settlingHours": 1,
+    "renderDeployment": false,
+    "templateOrFlowChanges": 0,
+    "metaBudgetActions": 0,
+    "openAiUsageUsd": 0,
+    "acceptedDiscountSupportChanged": false,
+    "orderConfirmationPolicyChanged": false
+  },
+  "rollback": {"prepared": true, "executed": false, "codeOnly": true, "persistentStateRestore": false},
+  "limitations": [
+    "A verified solution establishes a saved delivery instruction, not physical delivery or guaranteed delivery time.",
+    "An office pickup remains blocked until carrier availability is verified.",
+    "A payday statement does not establish that cash is available; customer confirmation is requested.",
+    "A greeting or courtesy cannot renew an old instruction. Expired preferences, later cancellations, address/telephone changes, prior returns and uncertain writes retain their guards."
+  ]
+}
