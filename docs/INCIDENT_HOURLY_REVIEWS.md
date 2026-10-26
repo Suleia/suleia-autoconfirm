@@ -6,12 +6,20 @@ weekends. No second cron, sender or Codex heartbeat is created; the old desktop
 retry monitor remains paused. The notification controller keeps its separate
 existing delivery-observation schedule.
 
-Only `schedule.mjs` changes in the worker runtime. Its busy guard still prevents
+The cadence change is in `schedule.mjs`. Its busy guard still prevents
 overlapping runs. The25minute watchdog stays unchanged; readiness freshness is
 derived from the interval plus that watchdog and5minutes of grace, now90minutes.
 An overdue or failed cycle, absent session or uncertain write still fails closed.
 No customer intent, price, confirmation, discount, return, retry, idempotency or
 provider policy changes accompany the cadence adjustment.
+
+The first restart exposed a blank dedicated Chatby account view. The existing
+idle session probe now waits for its visible search control, reloads that same
+account view at most once if absent, and checks the control again. It never
+logs in, reads credentials, touches the composer or navigates another account.
+A URL containing the account id alone no longer counts as an authenticated
+Chatby view. A persistent blank page, login redirect or wrong account fails
+closed. The live status and capture checks retain their separate checks.
 
 Real verification case ES1478167 / issue1373299 was already resolved by this
 worker before the current request: provider SOLUTION_PROVIDED at26October18:08UTC,
