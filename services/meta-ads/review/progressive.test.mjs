@@ -11,3 +11,9 @@ test('optional history rate failure preserves selected metrics, marks unavailabl
  const service=createGrowthService({now:()=>GROWTH_FIXTURE_NOW,report:async q=>{if(q.since)throw Object.assign(Error('META_RATE_LIMITED'),{code:'META_RATE_LIMITED'});return growthFixtureReport(q);}});
  const r=await service.get({period:'7d',level:'campaign',campaignId:'101',analysis:'true'});assert.equal(r.analysis.row.spend,196);assert.equal(r.progress.blocks.history,'UNAVAILABLE');assert.ok(!r.analysis.decision?.proposalEligible);assert.equal(r.externalWrites,0);
 });
+
+test('a successful historical preview waits for its existing fresh history before caching final decisions',async()=>{
+ let histories=0;const service=createGrowthService({now:()=>GROWTH_FIXTURE_NOW,waitMs:2,report:async q=>{const r=growthFixtureReport(q);if(q.since&&histories++===0){r.freshness='STALE';r.diagnostic={state:'PREPARING'};}return r;}});
+ await service.get({period:'7d',level:'campaign'});await service.pending();const value=await service.get({period:'7d',level:'campaign'});
+ assert.equal(histories,2);assert.equal(value.progress.pending,false);assert.equal(value.progress.blocks.history,'READY');assert.ok(value.decisions.campaigns.some(c=>c.status!=='DATOS_INSUFICIENTES'));assert.equal(value.metaWrites,0);
+});

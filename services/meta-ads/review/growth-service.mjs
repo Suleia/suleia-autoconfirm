@@ -15,10 +15,10 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
  const cache=new Map(),jobs=new Map();
  async function optionalReport(query,options){
   const deadline=now()+45000;
-  for(let attempt=0;;attempt++){try{return await report(query,options);}catch(error){if(error.diagnostic?.state!=='PREPARING'||attempt>=7||now()>=deadline)throw error;await new Promise(resolve=>setTimeout(resolve,1000));}}
+  for(let attempt=0;;attempt++){try{const value=await report(query,options);if(value.freshness!=='FRESH'&&value.diagnostic?.state==='PREPARING'&&attempt<7&&now()<deadline){await new Promise(resolve=>setTimeout(resolve,1000));continue;}return value;}catch(error){if(error.diagnostic?.state!=='PREPARING'||attempt>=7||now()>=deadline)throw error;await new Promise(resolve=>setTimeout(resolve,1000));}}
  }
  async function generate(query,publish){
-  const selected=await report(query),today=localDay(now());
+  const selected=await optionalReport(query),today=localDay(now());
   const anchor=selected.range.partial?shiftDay(today,-1):selected.range.until;
   const range={since:shiftDay(anchor,-29),until:anchor};
   const filters=Object.fromEntries(['campaignId','campaignIds','adsetId','adId','productId'].filter(k=>query[k]).map(k=>[k,query[k]]));
