@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {ensureChatbyView} from './chatby-view.mjs';
 
 async function runProbe(context){
  let inspection;
@@ -37,12 +38,12 @@ async function runProbe(context){
   }
   let targetVisible=false;
   try{
-   if(name==='chatby')await page.getByPlaceholder('Buscar',{exact:true}).filter({visible:true}).waitFor({timeout:30000});
+   if(name==='chatby')await ensureChatbyView(page);
    else await page.getByText(new RegExp(orderId)).first().waitFor({timeout:30000});
    targetVisible=true;
   }catch{/* Preserve diagnostic state without treating a missing row as logout. */}
   const text=await page.locator('body').innerText();
-  report.sites[name]={url:page.url(),authError,targetVisible,authenticated:!new URL(page.url()).pathname.includes('login'),
+  report.sites[name]={url:page.url(),authError,targetVisible,authenticated:!new URL(page.url()).pathname.includes('login')&&(name!=='chatby'||targetVisible),
    accountVerified:name==='chatby'?page.url().includes('/accounts/298087'):text.replace(/\s/g,'').includes('17431'),
    text,rows:name==='dropea'?await page.getByText(new RegExp(orderId)).evaluateAll(es=>es.map(e=>(e.closest('tr')||e.parentElement.parentElement.parentElement).outerHTML)):[],controls:await page.locator('input,button,[role="combobox"]').evaluateAll(es=>es.map(e=>({tag:e.tagName,role:e.getAttribute('role'),type:e.getAttribute('type'),placeholder:e.getAttribute('placeholder'),text:e.innerText,aria:e.getAttribute('aria-label')})))};
   await fs.writeFile('/evidence/session-probe.json',JSON.stringify(report));

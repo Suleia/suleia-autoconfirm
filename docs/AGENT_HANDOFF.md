@@ -1,6 +1,38 @@
 # Suleia agent handoff
 
-Updated: 2026-07-25
+Updated: 2026-10-26
+
+## Verified hourly incident review — 26 October 2026
+
+PR #164 deploys the existing dedicated VPS incident worker at revision
+`34fb85d7aff23f4cd4304fc56f51ffd1d8b9480b`. The owner requested hourly
+autonomous reviews. The interval is now 60 minutes; startup, overlap guard,
+25 minute watchdog, current-order evidence, cancellation checks and claims
+remain intact. No extra scheduler, sender or Codex heartbeat was created.
+
+The post-restart blank Chatby view exposed during verification is handled by
+one bounded reload of the same dedicated account view in its idle probe.
+Visible search readiness is required; an account URL alone is insufficient.
+No login credentials, messages, templates, discounts or policy changes.
+
+At 19:36:28 UTC both dedicated sessions were valid and health was AUTO/READY.
+The new cycle completed at 19:36:03 UTC, reviewing eight delivery-reply cases
+with zero new solutions/messages. Next run: 20:34:58 UTC, exactly one hour
+after the last trigger. All seven cumulative runtime files matched their
+manifests; environment, connections and unrelated containers were unchanged.
+
+ES1478167 / issue 1373299 had already been resolved autonomously at 18:08 UTC
+(19:08 Europe/Madrid), before this request. A fresh provider and ledger read
+at 19:36:55 UTC independently verified the persisted note, 28 October afternoon
+and the exact 16:00–19:00 preference. No solution was replayed; inactive old
+issue 1371614 was ignored. Saved instructions do not prove physical delivery.
+
+Validation: 408 source tests and 210 exact-image tests passed (overlapping
+groups), zero failures/skips, without network or production credentials.
+The guarded idle code-only rollback is prepared. Full sanitized receipt:
+`docs/INCIDENT_HOURLY_DEPLOYMENT_20261026.json`.
+Next: let the existing worker perform its hourly reviews; investigate only
+new errors or cases requiring a human decision, preserving all claims/state.
 
 ## Purpose
 
