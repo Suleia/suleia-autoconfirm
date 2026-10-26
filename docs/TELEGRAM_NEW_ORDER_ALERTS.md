@@ -14,4 +14,13 @@ Pruebas Linux/Node22:522 en total,519 aprobadas,0 fallos,3 omisiones de módulos
 
 Base productiva verificada: API `suleia-telegram-incidents:525dc69`, bot `7f4e7e2`. Publicación apilada sobre `codex/telegram-dropea-incidents`. Despliegue con bloqueo compartido y recuperación a esas versiones; conservar las nuevas tablas y sus recibos al revertir. Añadir únicamente `TELEGRAM_ORDER_ALERTS_ENABLED=true` al entorno del bot y activar la suscripción de la identidad verificada después del despliegue. El primer mensaje será una confirmación de activación, no un pedido ficticio.
 
-El recibo final de activación/despliegue se documentará tras comprobar el servicio. Agent Hub leído hasta comentario559; ningún mensaje enviado a otros agentes.
+Desplegado el26/10/2026 a las01:13 Europe/Madrid: runtime8db9c6485c5843269ff15306f89a7c9d2fcf4959, PR160, imagen suleia-telegram-order-alerts:8db9c64. Migración062 aplicada. API/bot saludables, único PID/bloqueo del consumidor. Se verificaron105módulos API protegidos y16módulos del bot; entorno API/política financiera, panel y contenedores ajenos permanecen intactos. El único cambio de entorno del bot es TELEGRAM_ORDER_ALERTS_ENABLED=true.
+
+Activación a las01:13:58 Madrid únicamente para la identidad privada previamente verificada de @Juanmartos. Otros administradores:0suscripciones activas. Usuarios desconocidos/chat ajeno rechazados. Telegram confirmó el mensaje de activación233 con notificación solicitada; no es un pedido ficticio y no acredita que el teléfono haya mostrado el push.
+
+Verificación natural01:14:58: un destinatario activo, ciclo del emisor posterior a la activación saludable/IDLE,0avisos históricos,0entregas inciertas. Todavía no había un primer pedido nuevo elegible tras activación; su futura entrega no se presenta como ya comprobada. No se creó ningún pedido ni se forzó una alerta de pedido de prueba.
+
+Recuperación privada conservada en /root/suleia-telegram-order-alerts-deploy/8db9c64: imagen anterior525dc69, bot anterior7f4e7e2 y entorno anterior. Mantener las tablas062 y los recibos al revertir; nunca reabrir claims inciertos ni restaurar offsets. Agent Hub leído hasta comentario559; ningún mensaje enviado a otros agentes.
+
+
+Handoff preparado: FROM Codex; STATUS verified; SCOPE alertas Telegram de nuevos pedidos, PR160; EVIDENCE519pruebas aprobadas, activación exclusiva y confirmación Telegram233, ciclo real saludable; NEXT observar el primer pedido natural mediante el emisor existente, sin pruebas con pedidos reales.
