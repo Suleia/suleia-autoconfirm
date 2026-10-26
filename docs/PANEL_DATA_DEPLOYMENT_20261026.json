@@ -1,0 +1,403 @@
+{
+  "recordedAt": "2026-10-26T18:25:17.989018+00:00",
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/162",
+  "scope": "reporting and presentation only",
+  "runtime": {
+    "at": "2026-10-26T18:13:49.980303+00:00",
+    "revision": "141283d269de6a6529cdfe860eabef9569041a59",
+    "apiImage": "suleia-panel-data:141283d",
+    "apiImageId": "sha256:fe14c221013b474d083550184df55b7f0d2ffd3db82c1df935c9c9580d67b895",
+    "panel": "/opt/suleia-panel-releases/data-141283d",
+    "filesVerified": 2,
+    "policyFinanceBotAndOtherContainersPreserved": true,
+    "environmentPreserved": true,
+    "customerOrBudgetWritesByDeployment": 0
+  },
+  "staticOverlays": [
+    {
+      "at": "2026-10-26T18:19:24.458645+00:00",
+      "revision": "dabfc7afbfca7413eb94a0433f19373e242d6701",
+      "apiImage": "suleia-panel-data:141283d",
+      "apiAndAllOtherContainersPreserved": true,
+      "botPidPreserved": true,
+      "panel": "/opt/suleia-panel-releases/data-dabfc7a",
+      "filesChanged": [
+        "ads-growth-v10.js"
+      ],
+      "publicHashVerified": true,
+      "customerOrBudgetWrites": 0
+    },
+    {
+      "at": "2026-10-26T18:22:46.832308+00:00",
+      "revision": "dc714f641910120822242d2e0493a3f33a752c89",
+      "apiImage": "suleia-panel-data:141283d",
+      "apiAndAllOtherContainersPreserved": true,
+      "botPidPreserved": true,
+      "panel": "/opt/suleia-panel-releases/data-dc714f6",
+      "filesChanged": [
+        "ads-growth-drawer-v10.js"
+      ],
+      "publicHashVerified": true,
+      "customerOrBudgetWrites": 0
+    }
+  ],
+  "verification": {
+    "at": "2026-10-26T18:23:49.142968+00:00",
+    "cumulativeFilesVerified": 17,
+    "staticMount": "/opt/suleia-panel-releases/data-dc714f6",
+    "assets": [
+      {
+        "name": "ads-algorithm-v4.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-growth-drawer-v10.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-growth-v10.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-report-client.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-review-v6.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "app.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      }
+    ],
+    "private": [
+      {
+        "path": "ads-intelligence/review",
+        "anonymousStatus": 401
+      },
+      {
+        "path": "ads-intelligence/algorithm",
+        "anonymousStatus": 401
+      },
+      {
+        "path": "finance",
+        "anonymousStatus": 401
+      }
+    ]
+  },
+  "tests": {
+    "isolatedRuntime": {
+      "exit": 0,
+      "files": 150,
+      "sourceSha256": "78b4926b2b537c1c3782ef7de7b828afe8c1dbf805a484eebfacecf7484b0e3f",
+      "network": "none",
+      "productionCredentialsSupplied": false,
+      "productionRuntimeChanged": false,
+      "summary": [
+        "# tests 1418",
+        "# pass 1418",
+        "# fail 0",
+        "# skipped 0",
+        "# duration_ms 173708.780067"
+      ],
+      "failures": [],
+      "artifactPath": "/var/tmp/suleia-ads-reference-qa-78b4926b2b-idle-host-cpu2"
+    },
+    "finalStatic": {
+      "tests": 85,
+      "passed": 85,
+      "failed": 0,
+      "overlapWithRuntimeSuite": true
+    },
+    "localBrowser": {
+      "at": "2026-10-26T18:21:47.102Z",
+      "checks": [
+        "drawer labels current partial-day evidence separately from the selected historical period",
+        "desktop twelve metrics, four real decisions, nonmodal pane, no overlap",
+        "docked default analysis permits automatic data refresh",
+        "expanded evidence still defers background refresh",
+        "chart legend toggles real independent series",
+        "custom comparison uses explicit dates",
+        "campaign filter reloads scoped metrics and pane",
+        "close and explicit reopen",
+        "campaign cart column visible by default",
+        "budget tab closes analysis without a budget action",
+        "shared navigation orders",
+        "shared navigation incidents",
+        "shared navigation automation",
+        "shared navigation finance",
+        "shared navigation analytics",
+        "shared navigation ads",
+        "mobile contained grid and explicit modal analysis",
+        "native account reach and impressions remain visible over a partial campaign inventory",
+        "historical evidence remains labelled and cannot prepare a current proposal"
+      ],
+      "errors": [],
+      "outside": [],
+      "writes": [],
+      "productionUsed": false,
+      "sourceFiles": {
+        "apps/review-panel/app.js": "c074d72910e7b3daeb70294463deef4a2095d0be37160da4ce4dd3288a000d0e",
+        "apps/review-panel/ads-review-v6.js": "1fffdb472b9edec609e68bd0445dbdfa500bc195492b09f6edeb176dcd8e6d78",
+        "apps/review-panel/ads-growth-v10.js": "803c28dfa0b488870bf65ddf8fffd812a6c026d1574242d48ca82033d32d5d02",
+        "apps/review-panel/ads-growth-drawer-v10.js": "7ae3829e0c76efaa2727bda5eee42436fc2834a9f78a5919270c379c4d24cdb8",
+        "apps/review-panel/ads-report-client.js": "99abdb33bf760baa368931fc9234d78c28f07a07c44154257046514a12f61ba6",
+        "apps/review-panel/ads-algorithm-v4.js": "0ba7efd5a66a931d7ef48ccc2ee2e0ebc8e28d0f7df02937f51f3f35c51d5d98"
+      }
+    },
+    "benchmarkNote": "An unchanged financial wall-clock benchmark failed in a one-CPU capped run; the same exact source and unchanged <3000ms criterion passed in the final two-CPU isolated run. Production CPU allocation and finance source were not modified. No production financial speed claim."
+  },
+  "meta": {
+    "observedAt": "2026-10-26T18:13:58.158Z",
+    "freshness": "FRESH",
+    "range": {
+      "since": "2026-10-19",
+      "until": "2026-10-25",
+      "partial": false
+    },
+    "totals": {
+      "spend": 1784,
+      "purchases": 168,
+      "roas": 3.0511883408071747,
+      "addToCart": 498,
+      "reach": 51497,
+      "linkClicks": 5909,
+      "scope": "PROVIDER_ACCOUNT"
+    },
+    "previous": {
+      "spend": 791.2,
+      "purchases": 101,
+      "addToCart": 279,
+      "reach": 30618,
+      "scope": "PROVIDER_ACCOUNT"
+    },
+    "nativeDays": [
+      {
+        "day": "2026-10-19",
+        "purchases": 21,
+        "addToCart": 70,
+        "spend": 194.01,
+        "roas": 3.684294623988454
+      },
+      {
+        "day": "2026-10-20",
+        "purchases": 18,
+        "addToCart": 50,
+        "spend": 185.52,
+        "roas": 3.0175722294092284
+      },
+      {
+        "day": "2026-10-21",
+        "purchases": 27,
+        "addToCart": 83,
+        "spend": 252.39,
+        "roas": 3.5846507389357742
+      },
+      {
+        "day": "2026-10-22",
+        "purchases": 16,
+        "addToCart": 59,
+        "spend": 252.13,
+        "roas": 1.843652084242256
+      },
+      {
+        "day": "2026-10-23",
+        "purchases": 25,
+        "addToCart": 68,
+        "spend": 264.32,
+        "roas": 3.0446050242130753
+      },
+      {
+        "day": "2026-10-24",
+        "purchases": 26,
+        "addToCart": 78,
+        "spend": 275.64,
+        "roas": 3.1009287476418517
+      },
+      {
+        "day": "2026-10-25",
+        "purchases": 35,
+        "addToCart": 90,
+        "spend": 359.99,
+        "roas": 3.165782382843968
+      }
+    ],
+    "campaigns": [
+      {
+        "entityId": "120251971167940212",
+        "name": "CBO_NIDA L1 23.05.2026",
+        "purchases": 21,
+        "addToCart": 92,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120254154816610212",
+        "name": "CBO_NIDA L3 17.06.2026",
+        "purchases": 32,
+        "addToCart": 75,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120258145914700212",
+        "name": "CBO_COLLA_L12 - 03.10.2026",
+        "purchases": 20,
+        "addToCart": 57,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120258153733500212",
+        "name": "CBO_COLLA_L15 - 03.10.2026",
+        "purchases": 16,
+        "addToCart": 50,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120258514636480212",
+        "name": "CBO_COLLA_L13 - 18.10.2026",
+        "purchases": 19,
+        "addToCart": 47,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120258531826710212",
+        "name": "CBO_COLLA_L16 - 19.10.2026",
+        "purchases": 24,
+        "addToCart": 55,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120258537516470212",
+        "name": "CBO_SEOUL_L1 - 19.10.2026",
+        "purchases": 17,
+        "addToCart": 41,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120258590356800212",
+        "name": "CBO_SEOUL_L2 - 21.10.2026",
+        "purchases": 15,
+        "addToCart": 61,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      },
+      {
+        "entityId": "120258618432220212",
+        "name": "CBO_COLLA_L17 - 22.10.2026",
+        "purchases": 4,
+        "addToCart": 20,
+        "objective": "OUTCOME_SALES",
+        "optimizationGoal": "OFFSITE_CONVERSIONS"
+      }
+    ]
+  },
+  "finance": {
+    "observedAt": "2026-10-26T18:14:21.541Z",
+    "sourceGeneratedAt": "2026-10-26T18:09:26.244Z",
+    "period": {
+      "month": "2026-10",
+      "since": "2026-10-01",
+      "until": "2026-10-26",
+      "daysInMonth": 31,
+      "elapsedDays": 26,
+      "fromTimestamp": "2026-09-30T22:00:00.000Z",
+      "toTimestamp": "2026-10-26T22:59:59.999Z",
+      "current": true,
+      "timeZone": "Europe/Madrid"
+    },
+    "sourceOrders": 485,
+    "uniqueSourceOrders": 485,
+    "breakdowns": {
+      "NOT_SETTLED": 218,
+      "DROPEA_FINAL": 267
+    },
+    "perOrderCostComponents": {
+      "productCost": 442.91,
+      "shipping": 1521.61,
+      "fulfillment": 368,
+      "cod": 237.6,
+      "returns": 352.38,
+      "adjustments": 357.46
+    },
+    "recognizedOrderCosts": 3279.96,
+    "totals": {
+      "realRevenue": 6302.93,
+      "revenue": 6302.93,
+      "productCost": 442.91,
+      "knownProductCost": 442.91,
+      "outboundShippingCost": 1521.61,
+      "codCost": 237.6,
+      "outboundFulfillmentCost": 368,
+      "returnCost": 352.38,
+      "dropeaAdjustmentsCost": 357.46,
+      "logisticsCost": 2837.05,
+      "metaSpend": 4303.57,
+      "fixedCosts": 176.39,
+      "oneOffCosts": 0,
+      "otherCosts": 0,
+      "totalCosts": 7759.92,
+      "contributionMargin": 3022.97,
+      "exactNetProfit": -1456.99,
+      "roiPercent": -18.78,
+      "marginPercent": -23.12,
+      "roas": 1.46,
+      "estimatedCpa": 11.69,
+      "realCpa": 21.74
+    },
+    "provisional": true,
+    "bankSettlementVerified": false,
+    "zeroIncidentSourceCountIsNotProofOfNoOperationalIncidents": true
+  },
+  "productionVisual": {
+    "authenticatedLoginRecoveredThroughExistingSSO": true,
+    "adsSevenCalendarDays": true,
+    "cartTotalAndCampaignColumnVisible": true,
+    "nativeAccountReachVisible": 51497,
+    "fourDistinctRecommendationsAndCompletedHistory": true,
+    "financialTotalsMatchAudit": true,
+    "financialSvgElements": 36,
+    "algorithmPreviouslyVerifiedOnIdenticalCurrentAlgorithmCode": {
+      "headings": 10
+    },
+    "noHorizontalOverflow": true
+  },
+  "preserved": [
+    "Meta policy and executor",
+    "finance formulas and tariffs",
+    "other PC Telegram alerts",
+    "bot token, admins, process and environment",
+    "incident and import owners",
+    "all non-target containers"
+  ],
+  "actions": {
+    "customerMessages": 0,
+    "budgetWrites": 0,
+    "openaiCalls": 0,
+    "newTimers": 0
+  },
+  "rollback": {
+    "staticNewest": "sudo -n python3 /root/suleia-panel-static-dc714f6/deploy.py rollback",
+    "staticPrevious": "sudo -n python3 /root/suleia-panel-static-dabfc7a/deploy.py rollback",
+    "apiAndMainPanel": "sudo -n python3 /root/suleia-panel-data-release-141283d/deploy.py rollback",
+    "order": "reverse chronological, with actual-source/container guards; never restore ledger or business state"
+  }
+}

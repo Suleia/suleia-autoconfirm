@@ -1,5 +1,51 @@
 # Suleia agent handoff
 
+## 2026-10-26 · Ads completeness and financial reconciliation verified (PR162)
+
+Final API reporting overlay141283d is healthy, image fe14c221..., retaining the
+actual Telegram-alert base8db9c64. Main static141283d plus presentation-only
+overlays dabfc7a and dc714f6 are live at data-dc714f6. All17 cumulative file hashes
+and6 public assets match; private review/Algorithm/finance reject anonymous401.
+Legacy SULEIA_BUILD_REVISION remains unchanged and is not runtime proof.
+
+Native account totals and7 daily points19–25Oct reconcile:1784EUR,168purchases,
+498add-to-cart events,51497unique reach. Cart column is visible per campaign;
+the nine campaign counts sum498. Missing campaign events become reporting-only
+zeros solely with exact independent account conservation. Partial campaign
+inventory no longer replaces verified native totals. Filtered unique reach is
+never summed. Current partial-day drawer comparison is explicitly labelled.
+
+Stale successful previews continue the same shared read. Optional history waits
+beyond the premature8s cutoff; four distinct recommendations and completed
+analysis are visible. Default docked analysis permits background refresh while
+modals, expanded evidence and filter editing remain protected. Algorithm reuses
+canonical reads and avoids unused daily deep scans; its panel response is bounded,
+while the existing financial-window reservation and critical executor remain.
+
+Full exact runtime Node22/PG17:1418/1418,150files,network none,no production creds,
+source78b4926b2b537c1c3782ef7de7b828afe8c1dbf805a484eebfacecf7484b0e3f.
+Final presentation:85/85 panel tests and19 desktop/mobile DEMO checks. Groups
+overlap. Unchanged finance wall-clock benchmark failed in capped1CPU runs, passed
+unchanged in the final2CPU isolated run; no production financial-speed claim.
+
+Finance source18:09:26UTC, independently checked18:14:21UTC:485unique orders,
+267settled final breakdowns,198delivered,69returned. Per-order costs3279.96 plus
+Meta4303.57 plus fixed176.39=7759.92; delivered revenue6302.93 and provisional
+net-1456.99. Personal UI matches these numbers with graphs/table restored. Transit
+costs precede delivery revenue; this is not final profit or bank settlement proof.
+Finance's zero incident count is not evidence of zero operational incidents.
+
+Existing SSO sign-in was recovered and personally authenticated Ads/Results were
+verified. Environment, finance formulas/tariffs, Meta policy/executor/ledgers,
+bot/admins/token/PID, other-PC alerts, incidents/imports and unrelated containers
+preserved. No customer message, budget write, OpenAI call or new timer.
+
+Receipt: docs/PANEL_DATA_DEPLOYMENT_20261026.json; rationale and audit:
+docs/PANEL_DATA_COMPLETENESS_20261026.md. Persistent guarded code-only rollback
+must reverse dc714f6 static, dabfc7a static, then141283d before earlier overlays;
+never restore business state. NEXT: use the existing panel refresh/read ownership;
+retain genuine missing-source/low-sample diagnostics without invented values.
+
 ## 2026-10-25 · Final V6 runtime 51f15ed deployed; natural review BLOCKED
 
 PR151 runtime 51f15ed38c7696c3b7abbae0c0d961c335bfc45c deployed15:44:12UTC,

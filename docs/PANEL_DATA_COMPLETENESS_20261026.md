@@ -21,6 +21,11 @@ changes only. No campaign mutation, financial policy change, message or new time
 - Add-to-cart events are visible in the twelve-card overview, campaign table by
   default, sort control and detailed period comparison. They count attributed
   events, not unique people, SKUs or product units.
+- A partial campaign inventory cannot replace verified native account totals in
+  the KPI renderer. This preserves native reach and current/prior comparisons;
+  genuinely partial filtered populations retain their subtotal and unknown reach.
+  The drawer explicitly labels today's partial cut rather than calling it simply
+  “Period”, avoiding confusion with the chosen historical range.
 - The default docked analysis no longer prevents periodic data refresh. Modal
   analysis, expanded evidence and active filter editing still defer refresh.
 - Successful stale previews now continue their existing refresh. Polls remove
@@ -77,3 +82,15 @@ actual API image (including the other PC's Telegram alert changes) and actual
 static directory. Check hashes before switching, preserve environment, bot,
 ledgers and unrelated container IDs, avoid financial review windows, and retain
 a code-only rollback. Never restore financial/incident state during rollback.
+
+Final deployment and independent public-file checks passed. Runtime141283d and
+static dc714f6 are recorded in `PANEL_DATA_DEPLOYMENT_20261026.json`, including
+1418 isolated runtime tests,85 final presentation tests (overlapping) and19 local
+desktop/mobile checks. The unchanged financial benchmark required a rerun with
+two test CPUs; neither its threshold nor production CPU allocation was changed.
+
+The later source cut18:09:26UTC has485unique orders,198delivered and69returned.
+Independent order cost sum3279.96 plus Meta4303.57 and fixed176.39 reconciles to
+7759.92 costs. Delivered revenue6302.93 yields provisional profit-1456.99.
+This replaces the earlier snapshot only as a newer cut, not a formula change.
+Actual authenticated Results shows the same figures and its charts/table.
