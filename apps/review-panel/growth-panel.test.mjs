@@ -36,6 +36,15 @@ test('mini-series use weighted ratios and retain missing entity/day gaps and non
  assert.equal(points[0].metrics.averageOrderValue,40);assert.equal(points[0].metrics.reach,null);
  assert.equal(points[1].metrics.spend,null);assert.equal(points[1].metrics.roas,null);
 });
+
+test('verified native account totals outrank a partial campaign subtotal without inventing filtered reach',()=>{
+ const c=fixture(),r=report();r.totals={...r.totals,scope:'PROVIDER_ACCOUNT',reach:51497,impressions:121530,addToCart:498};r.previous.reach=30618;
+ r.subtotal={state:'PARTIAL',included:9,total:10,metrics:{...r.totals,scope:undefined,reach:null,impressions:121531}};
+ const root=new E('div');c.ui.kpis(root,r,{compact:true});let cards=tree(root).filter(e=>e.tagName==='article');
+ assert.match(text(cards.find(x=>x['data-metric']==='reach')),/51\.497/);assert.match(text(cards.find(x=>x['data-metric']==='impressions')),/121\.530/);assert.doesNotMatch(text(root),/Subtotal verificado/);
+ delete r.totals.scope;const filtered=new E('div');c.ui.kpis(filtered,r,{compact:true});cards=tree(filtered).filter(e=>e.tagName==='article');
+ assert.match(text(cards.find(x=>x['data-metric']==='reach')),/N\/D/);assert.match(text(filtered),/Subtotal verificado/);
+});
 test('combined plot keeps three independently labelled units and does not bridge missing observations',()=>{
  const c=fixture(),root=new E('div'),r=report();r.growth={trend:{current:[{day:'2026-10-17',metrics:{spend:10,purchases:2,roas:3}},{day:'2026-10-18',metrics:{}},{day:'2026-10-19',metrics:{spend:20,purchases:3,roas:4}}],previous:[]}};
  c.ui.chart(root,r);const lines=tree(root).filter(e=>e.tagName==='path'&&e['data-metric']);

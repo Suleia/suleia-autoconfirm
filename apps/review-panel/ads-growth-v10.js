@@ -36,7 +36,7 @@ const GrowthIntelligencePanel=(()=>{
  }
  function changeTone(key,change){const costs=['cpa','linkCpc','costPerCart','costPerCheckout','cpm'].includes(key),benefit=['roas','purchases','linkCtr','purchaseValue','averageOrderValue','linkClicks','impressions','reach','landingPageViews'].includes(key);return change===null||change===0||(!costs&&!benefit)?'neutral':(costs?change<0:change>0)?'favorable':'adverse';}
  function kpis(root,report,{compact=false}={}){
-  const partial=report.subtotal?.state==='PARTIAL'&&report.subtotal.metrics,totals={...(partial?{...report.subtotal.metrics,dailyBudgetCents:report.totals.dailyBudgetCents,reach:null,frequency:null}:report.totals)},previous={...report.previous};
+  const partial=report.totals.scope!=='PROVIDER_ACCOUNT'&&report.subtotal?.state==='PARTIAL'&&report.subtotal.metrics,totals={...(partial?{...report.subtotal.metrics,dailyBudgetCents:report.totals.dailyBudgetCents,reach:null,frequency:null}:report.totals)},previous={...report.previous};
   totals.averageOrderValue=Number.isFinite(totals.purchaseValue)&&totals.purchases>0?totals.purchaseValue/totals.purchases:null;
   previous.averageOrderValue=Number.isFinite(previous.purchaseValue)&&previous.purchases>0?previous.purchaseValue/previous.purchases:null;
   if(partial)root.append(e('p','gi-subtotal',`Subtotal verificado: ${report.subtotal.included} de ${report.subtotal.total} entidades. Comparación no disponible.`));
