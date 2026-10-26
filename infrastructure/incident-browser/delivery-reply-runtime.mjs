@@ -3,6 +3,7 @@ import {deliveryReplyPlan} from './delivery-reply-policy.mjs';
 import {executeDeliveryReply,verifiedDeliverySolution,verifiedDeliverySolutionState,solutionNoteHash} from './delivery-reply-executor.mjs';
 import {loadProviderEnv} from './worker.mjs';
 import {readEvidenceDetail} from './dropea-ui.mjs';
+import {recoverPreSaveClaim} from './pre-save-claim-recovery.mjs';
 
 const stateFile='/state/delivery-reply-inflight.json';
 const issueKey=p=>({storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea'});
@@ -45,7 +46,7 @@ async function updateControl(patch){
 // ledgers and never owns address, discount, return or confirmation workflows.
 export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60000}={}){
  await loadProviderEnv();
- const {selectRows,upsertRows}=await import('../../autoconfirm/src/clients/supabase.mjs');
+ const {selectRows,upsertRows,updateRows}=await import('../../autoconfirm/src/clients/supabase.mjs');
  const {getIncidentChatMessages,loadSubscriberIndex,findSubscriberInIndexForExactOrder,sendTextMessage}=await import('../../autoconfirm/src/clients/chatby.mjs');
  const {readDropeaV2ReturnIssueState}=await import('../../autoconfirm/src/clients/dropea-v2-incidents.mjs');
  const {executeDropeaV2Resolution}=await import('../../autoconfirm/src/clients/dropea-v2-issue-actions.mjs');
@@ -53,6 +54,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
  const {inspectPriorOrderReturn}=await import('../../autoconfirm/src/workflows/incident-order-return-guard.mjs');
  const {extractWamid,messageTimestamp}=await import('../../autoconfirm/src/workflows/incident-discount-policy.mjs');
  const started=Date.now(),report={at:new Date().toISOString(),mode:'OBSERVE_ONLY',solutions:0,messages:0,cases:[]};
+ const preparationRecoveries=new Map();
  const control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
  const canWrite=['AUTO','AUTO_CANARY'].includes(control.mode)&&['AUTO','AUTO_CANARY'].includes(control.deliveryReplyMode);
  report.mode=canWrite?control.deliveryReplyMode:'OBSERVE_ONLY';
@@ -70,7 +72,8 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
  const finish=async(status,p,attemptedAt=new Date().toISOString())=>{
   const r=await finishTemplateDelivery({...issueKey(p),status,attemptedAt,sentAt:status==='verified'?new Date().toISOString():null,
    raw:{owner:'vps_delivery_reply',reason:p.reason,orderId:p.orderId,issueId:p.issueId,contextHash:p.hash,
-    messageId:p.messageId,note:p.note,date:p.date,time_window:p.time_window,status,customerIntent:p.customer_intent||null,waitingForOrder:p.waiting_for_order===true,deliveryAttemptDeniedByCustomer:p.delivery_attempt_denied_by_customer===true,logisticsStatus:status==='verified'?'AWAITING_NEW_DELIVERY':null,commerciallyClosed:false}});
+    messageId:p.messageId,note:p.note,date:p.date,time_window:p.time_window,status,customerIntent:p.customer_intent||null,waitingForOrder:p.waiting_for_order===true,deliveryAttemptDeniedByCustomer:p.delivery_attempt_denied_by_customer===true,logisticsStatus:status==='verified'?'AWAITING_NEW_DELIVERY':null,commerciallyClosed:false,
+    ...(preparationRecoveries.has(p.issueId)?{preSaveRecovery:preparationRecoveries.get(p.issueId)}:{})}});
   if(r?.skipped)throw Error('DELIVERY_REPLY_DURABLE_JOURNAL_REQUIRED');
  };
  // Reconcile an interrupted POST using reads only, before admitting any other
@@ -123,11 +126,11 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    // Preliminary pure classification avoids full subscriber scans for silence.
    const scoped={...incident,chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER'};
    let plan=deliveryReplyPlan({incident:scoped,...current,messages});
-   if(!plan.eligible){report.cases.push({...item,status:'BLOCKED',reason:plan.reason});continue;}
+   if(!plan.eligible){report.cases.push({...item,status:'BLOCKED',reason:plan.reason,...(plan.context?{context:plan.context}:{})});continue;}
    if(!await association(current.order,messages)){report.cases.push({...item,status:'BLOCKED',reason:'FRESH_EXACT_ORDER_ASSOCIATION_REQUIRED'});continue;}
    const prior=await inspectPriorOrderReturn(incident);
    if(prior.verified||prior.blocked){report.cases.push({...item,status:'BLOCKED',reason:'PRIOR_RETURN_GUARD'});continue;}
-   const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null,providerRawType:raw.type,customerIntent:plan.customer_intent||null,waitingForOrder:plan.waiting_for_order===true,deliveryAttemptDeniedByCustomer:plan.delivery_attempt_denied_by_customer===true,nextBestAction:plan.next_best_action||null};
+   const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null,providerRawType:raw.type,customerIntent:plan.customer_intent||null,waitingForOrder:plan.waiting_for_order===true,deliveryAttemptDeniedByCustomer:plan.delivery_attempt_denied_by_customer===true,nextBestAction:plan.next_best_action||null,...(plan.context?{context:plan.context}:{})};
    if(!canWrite||(control.deliveryReplyMode==='AUTO_CANARY'&&(admitted||control.deliveryReplyCanaryOrderId&&String(control.deliveryReplyCanaryOrderId)!==plan.orderId))){report.cases.push(observed);continue;}
    let attemptedAt=null;
    const revalidate=async()=>{
@@ -140,7 +143,20 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    const result=await executeDeliveryReply(plan,{
     revalidate,readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:finishTemplateDelivery,send:sendTextMessage,
     waitForReadback:()=>new Promise(resolve=>setTimeout(resolve,1500)),
-    claimSolution:p=>claimTemplateDelivery(issueKey(p)),finishSolution:(s,p,a)=>finish(s,p,a||attemptedAt||new Date().toISOString()),
+    claimSolution:async p=>{
+     const claim=await claimTemplateDelivery(issueKey(p));if(claim.acquired||!claim.persistent)return claim;
+     const recovered=await recoverPreSaveClaim(p,claim.existing,{
+      readEvidence:async()=>{
+       const audit=await fs.readFile('/state/retry-audit.jsonl','utf8');if(audit.length>1024*1024)throw Error('AUDIT_LIMIT');
+       const cycles=JSON.parse(await fs.readFile('/state/cycle-history.json','utf8'));if(!Array.isArray(cycles)||cycles.length>200)throw Error('CYCLE_LIMIT');
+       let journalPresent=false;for(const name of ['retry-inflight.json','retry-reconcile.json','delivery-reply-inflight.json'])try{await fs.access('/state/'+name);journalPresent=true;}catch(e){if(e.code!=='ENOENT')throw e;}
+       return {events:audit.trim().split(/\r?\n/).filter(Boolean).map(s=>JSON.parse(s)),cycles,journalPresent};
+      },
+      compareAndSet:(values,query)=>updateRows('template_delivery_ledger',values,{query,returning:'representation'})
+     });
+     if(recovered.acquired)preparationRecoveries.set(p.issueId,recovered.proof);
+     return recovered;
+    },finishSolution:(s,p,a)=>finish(s,p,a||attemptedAt||new Date().toISOString()),
     journal:async(p,at)=>{attemptedAt=at;await fs.writeFile('/state/delivery-reply-inflight.tmp',JSON.stringify({plan:p,attemptedAt:at}),{mode:0o600});await fs.rename('/state/delivery-reply-inflight.tmp',stateFile);},
     clearJournal:()=>fs.unlink(stateFile),
     writeSolution:p=>executeDropeaV2Resolution(p.issueId,'PROVIDE_SOLUTION',{note:p.note},{idempotencyNonce:p.hash}),
