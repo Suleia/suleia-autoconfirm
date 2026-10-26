@@ -1,0 +1,220 @@
+{
+  "recordedAt": "2026-10-26T18:59:44.886162+00:00",
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/163",
+  "runtimeRevision": "ea94913105d47bdd4006a6cd1d23c5b0be929705",
+  "runtimeFiles": {
+    "services/recipient-absent-native-gate.mjs": "8b6c05e6a7e4a596acb6f3dd03fcb3eaf13c3c883ecdb2dcc3de870e27811ac5",
+    "services/recipient-absent-native-verification.mjs": "c307fa5d6551fc71e9de41fc3365c08851d731ead9c15dba15aa6cea4ffe3867",
+    "services/recipient-absent-template-delivery.mjs": "366f929b12c6e3a230a4f0be879cabc917f3cadcd836dc47cc5326e5f68d51cd",
+    "services/second-absence-notice.mjs": "7a948b186a3869575242ff1d5828f0eb2082bdeeb35e2f36fbc89e101fd9eaad"
+  },
+  "actualBaselineFileHashes": {
+    "services/recipient-absent-native-gate.mjs": "7a5b61d329b63eaf0e355682036f2097dcdd83cc005b8dcb5a35a289e02ca30e",
+    "services/recipient-absent-native-verification.mjs": "d0425a4e8e06826ad0ce77ed58837a16cd160fa13ae8e55ed6c7bccc2c98ff15",
+    "services/recipient-absent-template-delivery.mjs": "ac7b1d71c78cfa5d8a50640d808260f2155e079e01902b79b989f28ef6823607",
+    "services/second-absence-notice.mjs": "6e98d4326ac25763755a49c76de1d0d79b4509d134d9ed9d38bbc68b52494b36"
+  },
+  "baselineLineEndingsOnlyDifferenceVerified": true,
+  "tests": {
+    "revision": "ea94913105d47bdd4006a6cd1d23c5b0be929705",
+    "image": "suleia-absence-per-attempt:ea94913",
+    "imageId": "sha256:40963cb67b87e7ce8fef988f29b658b14c3c4c96694af794517b313e1ad89c97",
+    "sourceSha256": "543b1f276e936cd9aea5392c448a4ce2534d28819761244284ea5d814c7f477a",
+    "unit": [
+      "# tests 279",
+      "# pass 279",
+      "# fail 0",
+      "# skipped 0"
+    ],
+    "postgres": [
+      "# tests 1",
+      "# pass 1",
+      "# fail 0",
+      "# skipped 0"
+    ],
+    "exit": 0,
+    "network": "none",
+    "productionCredentialsSupplied": false,
+    "productionChanged": false
+  },
+  "localFocusedTests": 279,
+  "discountCompatibility": {
+    "syntheticOneVsFourV3NoticesSameFirstClock": true,
+    "originalDeadlineAndEligibilityUnchanged": true
+  },
+  "deployment": {
+    "revision": "ea94913105d47bdd4006a6cd1d23c5b0be929705",
+    "image": "suleia-absence-per-attempt:ea94913",
+    "imageId": "sha256:40963cb67b87e7ce8fef988f29b658b14c3c4c96694af794517b313e1ad89c97",
+    "oldId": "914f03ef551efccfbae60cdc9f4760f200639b4294c2d6ab4667baf770851694",
+    "newId": "67a19dc4a966191d277cb9c385508e0cf35e923f8df6baabb1a9f26c950cb05e",
+    "enabled": true,
+    "stage": "VERIFIED",
+    "healthy": true,
+    "environmentPreserved": true,
+    "sandboxPreserved": true,
+    "networksPreserved": true,
+    "originalTimersRetained": true,
+    "unrelatedContainersPreserved": true,
+    "verifiedAt": "2026-10-26T18:52:03.530894+00:00",
+    "runtimeFilesVerified": 4,
+    "tests": {
+      "unit": 279,
+      "postgres": 1
+    }
+  },
+  "case": {
+    "orderId": "ES1476535",
+    "currentIssueId": "1373739",
+    "template": {
+      "name": "dropea_ausente_v3",
+      "language": "es_ES",
+      "id": "1552419",
+      "bodyButtonsAndReplyDestinationsUnchanged": true
+    },
+    "initialSend": {
+      "at": "2026-10-26T18:53:50.469Z",
+      "orderId": "1476535",
+      "issueId": "1373739",
+      "execution": {
+        "checked": 1,
+        "status": "ACKNOWLEDGED"
+      },
+      "verification": {
+        "verified": false,
+        "reason": "SECOND_NOTICE_PROVIDER_ID_REQUIRED",
+        "notificationAt": null,
+        "providerIdPresent": false,
+        "newTimer": false
+      },
+      "receipt": {
+        "status": "CLAIMED",
+        "notificationAt": null,
+        "verifiedAt": null,
+        "stage": "REPEATED_ABSENCE",
+        "sequence": 3,
+        "providerIdPresent": false
+      },
+      "path": "existing selector and executor, focused to the explicitly requested current issue; no separate sender or replay"
+    },
+    "independentReceipt": {
+      "at": "2026-10-26T18:55:36.748Z",
+      "orderId": "1476535",
+      "issueId": "1373739",
+      "execution": {
+        "status": "ALREADY_CLAIMED_NO_POST"
+      },
+      "verification": {
+        "verified": true,
+        "reason": null,
+        "notificationAt": "2026-10-26T18:53:49.000Z",
+        "providerIdPresent": true,
+        "newTimer": false
+      },
+      "receipt": {
+        "status": "VERIFIED",
+        "notificationAt": "2026-10-26T18:53:49.000Z",
+        "verifiedAt": "2026-10-26T18:55:36.715Z",
+        "stage": "REPEATED_ABSENCE",
+        "sequence": 3,
+        "providerIdPresent": true
+      },
+      "path": "existing selector and executor, focused to the explicitly requested current issue; no separate sender or replay"
+    },
+    "postconditions": {
+      "control": {
+        "status": "LIVE",
+        "enabled": true,
+        "revision": "ea94913105d47bdd4006a6cd1d23c5b0be929705",
+        "breaker": null
+      },
+      "notices": [
+        {
+          "issueId": "1369048",
+          "status": "VERIFIED",
+          "stage": "INITIAL",
+          "sequence": null,
+          "at": "2026-10-22T12:41:50+00:00",
+          "verifiedAt": "2026-10-22T12:43:27.218733+00:00",
+          "hasProviderId": true
+        },
+        {
+          "issueId": "1369829",
+          "status": "VERIFIED",
+          "stage": "SECOND_ABSENCE",
+          "sequence": null,
+          "at": "2026-10-22T21:29:05+00:00",
+          "verifiedAt": "2026-10-22T21:34:18.239682+00:00",
+          "hasProviderId": true
+        },
+        {
+          "issueId": "1373739",
+          "status": "VERIFIED",
+          "stage": "REPEATED_ABSENCE",
+          "sequence": 3,
+          "at": "2026-10-26T18:53:49+00:00",
+          "verifiedAt": "2026-10-26T18:55:36.715773+00:00",
+          "hasProviderId": true
+        }
+      ],
+      "newIssueTimers": 0,
+      "duplicateIssueClaims": 0,
+      "originalTimersRetained": true,
+      "environmentPreserved": true,
+      "healthy": true,
+      "image": "suleia-absence-per-attempt:ea94913",
+      "imageId": "sha256:40963cb67b87e7ce8fef988f29b658b14c3c4c96694af794517b313e1ad89c97",
+      "unrelatedContainersPreserved": true,
+      "runtimeFilesVerified": true,
+      "at": "2026-10-26T18:58:19.949889+00:00"
+    },
+    "solutionOwner": {
+      "at": "2026-10-26T18:56:39.092Z",
+      "orderId": "1476535",
+      "issueId": "1373739",
+      "cacheAt": "2026-10-26T18:34:46.411+00:00",
+      "worker": {
+        "at": "2026-10-26T18:56:25.763Z",
+        "mode": "AUTO",
+        "readiness": "READY",
+        "executionEnabled": true,
+        "schedule": {
+          "intervalMinutes": 30,
+          "lastTriggeredAt": "2026-10-26T18:36:24.416Z",
+          "nextRunAt": "2026-10-26T19:06:24.416Z"
+        }
+      },
+      "provider": {
+        "status": "PENDING",
+        "active": true,
+        "resolution": null
+      },
+      "plan": {
+        "eligible": false,
+        "reason": "NO_CURRENT_DELIVERY_REPLY"
+      },
+      "actionsExecuted": 0
+    },
+    "previousRequestedDate": "2026-10-23",
+    "previousRequestedWindow": "AFTERNOON",
+    "resolutionStatus": "AWAITING_CURRENT_CUSTOMER_CHOICE",
+    "physicalDeliveryClaimed": false
+  },
+  "policy": {
+    "evidenceFlag": "repeated_absence_notice_authorized",
+    "newNoticePerDistinctLaterCorroboratedCurrentFailure": true,
+    "singleExistingController": true,
+    "intervalSeconds": 120,
+    "newTimers": 0,
+    "uncertainResendAllowed": false,
+    "newSender": false,
+    "templateOrFlowEdited": false,
+    "confirmationsAndDiscountPolicyChanged": false
+  },
+  "rollback": {
+    "command": "sudo -n python3 /root/suleia-absence-per-attempt-ea94913/disable.py",
+    "preparedAndSyntaxChecked": true,
+    "compatibleVerifierMustRemain": true,
+    "ledgerOrBusinessStateRestored": false
+  }
+}

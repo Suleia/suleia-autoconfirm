@@ -15,10 +15,10 @@ export function verifyNativeAbsentNotice(claim,history,now=new Date()){
   const m=matches[0];
   if(!m || !m.message_id || String(m.template_id)!=='1552419' || Date.parse(m.at)>+now
     || !Number.isFinite(Date.parse(m.at)) || m.delivery_failed===true)return {verified:false,reason:'NOTICE_NOT_OBSERVED'};
-  if(claim.outcome?.notice_stage==='SECOND_ABSENCE' && !String(m.provider_message_id || '').startsWith('wamid.'))
+  if(['SECOND_ABSENCE','REPEATED_ABSENCE'].includes(claim.outcome?.notice_stage) && !String(m.provider_message_id || '').startsWith('wamid.'))
     return {verified:false,reason:'SECOND_NOTICE_PROVIDER_ID_REQUIRED'};
   return {verified:true,message_id:String(m.message_id),provider_message_id:m.provider_message_id || null,
-    notification_at:new Date(m.at).toISOString(),timer:claim.outcome?.notice_stage==='SECOND_ABSENCE'?null:{timer_id:randomUUID(),message_id:String(m.message_id),
+    notification_at:new Date(m.at).toISOString(),timer:['SECOND_ABSENCE','REPEATED_ABSENCE'].includes(claim.outcome?.notice_stage)?null:{timer_id:randomUUID(),message_id:String(m.message_id),
       policy_version:'RECIPIENT_ABSENT_POLICY_V1',timer_type:'CUSTOMER_INITIAL_RESPONSE_48H',
       started_at:new Date(m.at).toISOString(),due_at:new Date(Date.parse(m.at)+48*3600000).toISOString()}};
 }
@@ -29,7 +29,7 @@ export async function reconcileNativeAbsentNotice({pool,claimId,readHistory,now=
   const found=(await pool.query('SELECT * FROM operations.recipient_absent_native_notifications WHERE claim_id=$1',[claimId])).rows[0];
   if(!found)return {verified:false,reason:'CLAIM_NOT_FOUND'};
   const next=(await pool.query(`SELECT claimed_at FROM operations.recipient_absent_native_notifications
-    WHERE canonical_order_id=$1 AND outcome->>'notice_stage'='SECOND_ABSENCE'
+    WHERE canonical_order_id=$1 AND outcome->>'notice_stage' IN ('SECOND_ABSENCE','REPEATED_ABSENCE')
       AND outcome->>'previous_claim_id'=$2 AND claimed_at>$3 ORDER BY claimed_at LIMIT 1`,
     [found.canonical_order_id,String(found.claim_id),found.claimed_at])).rows[0];
   found.next_authorized_claim_at=next?.claimed_at || null;
@@ -49,7 +49,7 @@ export async function reconcileNativeAbsentNotice({pool,claimId,readHistory,now=
       await client.query("UPDATE operations.recipient_absent_resolution_control SET circuit_breaker_reason=$1,circuit_breaker_at=now() WHERE workflow='RECIPIENT_ABSENT'",[result.reason]);
     }
     if(result.verified && (current.status!=='VERIFIED'
-      || (current.outcome?.notice_stage==='SECOND_ABSENCE' && !current.outcome?.provider_message_id))){
+      || (['SECOND_ABSENCE','REPEATED_ABSENCE'].includes(current.outcome?.notice_stage) && !current.outcome?.provider_message_id))){
       await client.query("UPDATE operations.recipient_absent_native_notifications SET status='SENT',message_id=$2,notification_at=$3,outcome=coalesce(outcome,'{}'::jsonb)||$4::jsonb WHERE claim_id=$1",
         [claimId,result.message_id,result.notification_at,JSON.stringify({provider_message_id:result.provider_message_id})]);
       const t=result.timer;

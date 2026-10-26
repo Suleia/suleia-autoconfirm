@@ -31,10 +31,19 @@ export function nativeAbsentEligibility(input,control,now=new Date()){
     && validDate(input.second_notice.previous_notification_at)
     && Date.parse(input.second_notice.previous_notification_at)<Date.parse(input.issue_created_at)
     && input.absence_classification==='SECOND_ABSENCE' && input.order_notification_count===1;
+  const repeatedNotice=control.evidence?.repeated_absence_notice_authorized===true
+    && input.notice_stage==='REPEATED_ABSENCE' && input.second_notice?.previous_claim_id
+    && input.second_notice.previous_issue_id!==input.canonical_issue_id
+    && validDate(input.second_notice.previous_notification_at)
+    && Date.parse(input.second_notice.previous_notification_at)<Date.parse(input.issue_created_at)
+    && Number.isInteger(input.order_notification_count) && input.order_notification_count>=2
+    && input.second_notice.previous_count===input.order_notification_count
+    && input.notice_sequence===input.order_notification_count+1
+    && input.absence_classification==='SECOND_ABSENCE';
   const contactRecovery=control.evidence?.notification_recovery_authorized===true
     && control.evidence?.notification_owner==='CONTROLLER_TEMPLATE_API'
     && ['FIRST_ABSENCE','SECOND_ABSENCE','ABSENCE_ATTEMPT_UNKNOWN'].includes(input.absence_classification)
-    && input.contact_cause==='RECIPIENT_ABSENT' && (input.order_notification_count===0 || secondNotice)
+    && input.contact_cause==='RECIPIENT_ABSENT' && (input.order_notification_count===0 || secondNotice || repeatedNotice)
     && input.customer_activity_after_issue===false && input.order_in_incidence===true;
   if(control.evidence?.notification_owner==='CONTROLLER_TEMPLATE_API' && !contactRecovery)return 'CONTACT_RECOVERY_EVIDENCE_REQUIRED';
   if(input.absence_classification!=='FIRST_ABSENCE' && !secondCanary && !contactRecovery)return 'SECOND_OR_UNKNOWN_REQUIRES_POLICY_REVIEW';
@@ -80,11 +89,21 @@ export function createNativeAbsentLedger(pool){
             AND EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications WHERE canonical_order_id=$3
               AND claim_id=$8::uuid AND status='VERIFIED' AND canonical_issue_id<>$1
               AND coalesce(outcome->>'notice_stage','INITIAL')='INITIAL'))
+          OR ($7::text='REPEATED_ABSENCE' AND $9::int>=2
+            AND (SELECT evidence->>'repeated_absence_notice_authorized' FROM operations.recipient_absent_native_control WHERE workflow='RECIPIENT_ABSENT')='true'
+            AND (SELECT count(*) FROM operations.recipient_absent_native_notifications WHERE canonical_order_id=$3)=$9::int
+            AND NOT EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications WHERE canonical_order_id=$3 AND status<>'VERIFIED')
+            AND EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications n WHERE n.canonical_order_id=$3
+              AND n.claim_id=$8::uuid AND n.status='VERIFIED' AND n.canonical_issue_id<>$1 AND n.conversation_id=$4
+              AND n.notification_at<$10::timestamptz
+              AND n.claim_id=(SELECT claim_id FROM operations.recipient_absent_native_notifications WHERE canonical_order_id=$3 ORDER BY claimed_at DESC,claim_id DESC LIMIT 1)
+              AND n.outcome->>'notice_stage' IN ('SECOND_ABSENCE','REPEATED_ABSENCE')))
           ON CONFLICT DO NOTHING RETURNING claim_id`,
           [a.canonical_issue_id,a.template_version,a.canonical_order_id,a.conversation_id,a.claim_id,
-            JSON.stringify({notice_stage:a.notice_stage || 'INITIAL',absence_classification:a.absence_classification,
+            JSON.stringify({notice_stage:a.notice_stage || 'INITIAL',notice_sequence:a.notice_sequence || (a.notice_stage==='SECOND_ABSENCE'?2:1),absence_classification:a.absence_classification,
               ...(a.second_notice?{previous_claim_id:a.second_notice.previous_claim_id}: {})}),
-            a.notice_stage || 'INITIAL',a.second_notice?.previous_claim_id || null])).rowCount===1;},
+            a.notice_stage || 'INITIAL',a.second_notice?.previous_claim_id || null,
+            a.second_notice?.previous_count || 0,a.issue_created_at || null])).rowCount===1;},
         async reserveCanary(id){await client.query("UPDATE operations.recipient_absent_native_control SET canary_issue_id=$1 WHERE workflow='RECIPIENT_ABSENT'",[id]);}
       });
       await client.query('COMMIT');return result;
