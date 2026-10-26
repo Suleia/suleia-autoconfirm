@@ -40,6 +40,16 @@ An interrupted delivery solution keeps its journal until both provider state
 and the exact persisted note are verified. Failed detail reads now refresh the
 private report with a bounded reason instead of leaving an old report visible.
 
+After a support email is verified, an uncertain solution is reconciled from
+the original operation ID, sent-mail/attachment bytes, fresh exact customer
+evidence and provider state. A definitive carrier rejection is displayed as
+SUPPORT_SENT_PROVIDER_REJECTED with its bounded provider code and the expected
+amount; it does not mean the incident is solved or COD is applied. No email or
+solution is retried. A completed operation can update its original receipts
+only after independent provider verification. Private receipts retain the
+immutable original support plan for that readback; contacts never enter the
+public feedback projection.
+
 ## VPS outcome reconciliation
 
 The existing 30-minute VPS worker now re-reads a previously verified support case instead of reporting `ALREADY_VERIFIED` indefinitely. This observation has no email, solution, claim or financial writer. A different or reopened pending issue remains in human review: an old acceptance cannot authorize a new issue. Later customer corrections, ambiguous replies, uncertain shared claims, association failures and unavailable reads remain visible review reasons.

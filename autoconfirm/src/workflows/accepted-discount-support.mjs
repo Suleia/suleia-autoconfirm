@@ -76,7 +76,7 @@ export async function runAcceptedDiscount(incident, deps, options) {
   const attachmentHashes=evidence.attachments.map(a=>({filename:a.filename,sha256:crypto.createHash('sha256').update(a.bytes).digest('hex')}));
   const audit={workflow:SUPPORT_WORKFLOW,orderId:plan.orderId,issueId:plan.issueId,phone:plan.phone,acceptedAt:plan.acceptedAt,
     acceptanceMessageId:plan.acceptanceMessageId,originalCents:plan.originalCents,finalCents:plan.finalCents,snapshot:plan.snapshot,attachmentHashes,requestedAt:new Date().toISOString(),
-    ...(plan.returnRecovery?{returnRecovery:plan.returnRecovery,carrierRecoveryPending:true}:{})};
+    supportPlan:plan,...(plan.returnRecovery?{returnRecovery:plan.returnRecovery,carrierRecoveryPending:true}:{})};
   const save=(status,extra={})=>deps.save(plan,status,{...audit,phase,mailId,...extra});
   try {
     const beforeMail=await fresh();

@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {loadProviderEnv} from './worker.mjs';
 import {captureRetryEvidence} from './capture.mjs';
-import {runAcceptedDiscount} from '../../autoconfirm/src/workflows/accepted-discount-support.mjs';
+import {runAcceptedDiscount,acceptedDiscountPlan} from '../../autoconfirm/src/workflows/accepted-discount-support.mjs';
 import {readCandidate} from '../../autoconfirm/src/workflows/accepted-discount-runtime.mjs';
 import {createSupportGmail} from '../../autoconfirm/src/clients/discount-support-gmail.mjs';
 import {getIncidentChatMessages,loadSubscriberIndex,findSubscriberInIndexForExactOrder} from '../../autoconfirm/src/clients/chatby.mjs';
@@ -13,6 +13,7 @@ import {executeDropeaV2Resolution,loadDropeaV2IssueActionStoreConfigs,readDropea
 import {readDropeaV2ReturnIssueState} from '../../autoconfirm/src/clients/dropea-v2-incidents.mjs';
 import {verifyDropeaResolution,buildDropeaResolutionBody} from '../../autoconfirm/src/clients/dropea-v2-resolution-contract.mjs';
 import {reconcileVerifiedSupport,selectSupportCandidates,sameSpanishSupportPhone,supportCaseKey as caseKey,SUPPORT_FEEDBACK_KEY,supportFeedbackProjection} from './support-reconciliation.mjs';
+import {reconcilePendingSupport} from './support-pending-reconciliation.mjs';
 
 export async function supportCycle({enabled,checkMail,readCases,execute}){
  if(!enabled)return {status:'DISABLED',checked:0,results:[]};
@@ -76,7 +77,37 @@ export async function runVpsSupportCycle(context){
      messages:sameConversation?await getIncidentChatMessages(subscriber.user_ns):[]};
    }
   },{ownerId:env.DISCOUNT_SUPPORT_DROPSHIPPER_ID});
-  if(known)return {currentIssueId:String(incident.incidenceId),status:'RECONCILIATION_REQUIRED',reason:'SUPPORT_CLAIM_UNCERTAIN',needsHumanReview:true,discountApplied:false};
+  if(known)return reconcilePendingSupport(incident,known,{
+   readPlan:async(i,receipt)=>{
+    const candidate=await readCandidate(i,env);
+    return {candidate,plan:receipt.raw?.supportPlan||acceptedDiscountPlan(candidate,{activationAt:env.DISCOUNT_SUPPORT_ACTIVATION_AT})};
+   },
+   verifyMail:async(id,p,hashes)=>{
+    if(!Array.isArray(hashes)||hashes.length!==2)return false;
+    const attachments=[];
+    for(const [label,messageId]of [['oferta',p.offerMessageId],['aceptacion',p.acceptanceMessageId]]){
+     if(!/^[1-9]\d*$/.test(messageId))return false;
+     const filename=`ES${p.orderId}-${label}.png`,expected=hashes.find(h=>h.filename===filename);
+     const bytes=await fs.readFile(`/evidence/retry-${p.orderId}-${messageId}.png`);
+     if(createHash('sha256').update(bytes).digest('hex')!==expected?.sha256)return false;
+     attachments.push({filename,mimeType:'image/png',bytes});
+    }
+    return mail.verify(id,p,attachments);
+   },
+   readOperation:p=>readDropeaV2IssueOperation(p.issueId,'accepted-support-'+p.key,{env}),
+   verifySolution:async p=>verifyDropeaResolution(await readDropeaV2ReturnIssueState({orderId:p.orderId,incidenceId:p.issueId},{includeOrder:true}),
+    {issueId:p.issueId,orderId:p.orderId,action:'PROVIDE_SOLUTION',body:buildDropeaResolutionBody('PROVIDE_SOLUTION',{note:p.solution})}),
+   finishVerified:async(p,receipt)=>{
+    const shared={storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea'};
+    const row=await getTemplateDelivery(shared);
+    if(!row||row.raw?.owner!=='accepted_discount_support_v1'||String(row.raw?.issueId)!==p.issueId)throw Error('SHARED_CLAIM_UNVERIFIED');
+    const verifiedAt=new Date().toISOString();
+    const a=await finishTemplateDelivery({...shared,status:'verified',attemptedAt:row.attempted_at,sentAt:verifiedAt,
+     raw:{...row.raw,verified:true,reconciledWithoutResend:true}});if(a?.skipped)throw Error('SHARED_RECEIPT_WRITE_FAILED');
+    const b=await finishTemplateDelivery({...args(p),status:'verified',attemptedAt:receipt.attempted_at,sentAt:verifiedAt,
+     raw:{...receipt.raw,phase:'SOLUTION_VERIFIED',verifiedAt,discountApplied:false,reconciledWithoutResend:true}});if(b?.skipped)throw Error('SUPPORT_RECEIPT_WRITE_FAILED');
+   }
+  });
   if(incident.incidentDiscountResponseStatus!=='DISCOUNT_ACCEPTED')return {status:'NOT_APPLICABLE',discountApplied:false};
   return {currentIssueId:String(incident.incidenceId),...await runAcceptedDiscount(incident,{
   ready:()=>true,read:async i=>{
