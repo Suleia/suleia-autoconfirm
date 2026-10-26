@@ -147,3 +147,10 @@ test('incident day queries apply scoped permissions, audit and coalesce reads wi
  await assert.rejects(f.request('Incidencias de hoy','2'),/ACTOR_UNAUTHORIZED/);assert.equal(reads,1);
  assert.match((await f.request('Incidencias de la semana pasada')).text,/fechas|semana natural/);
 });
+
+test('order alert settings and delivery operations retain order permission and actor binding',async()=>{
+ const f=fixture({roles:{'1':'operator','2':'analyst'}});const calls=[];f.c.orderAlerts={command:async(user,b)=>{calls.push({user,operation:b.operation});return{text:'OK'};}};
+ await f.request('Activa las alertas de pedidos');assert.deepEqual(calls,[{user:'1',operation:'enable'}]);
+ await assert.rejects(f.request('Activa las alertas de pedidos','2'),/ACTOR_UNAUTHORIZED/);
+ await assert.rejects(f.c.command({action:'order-alerts',operation:'due',actor:{user:'1',chat:'2'}}),/ACTOR_UNAUTHORIZED/);assert.equal(calls.length,1);assert.equal(f.proposals,0);
+});

@@ -60,11 +60,13 @@ export function createAdsGateway(config,fetchImpl=fetch){
     const result=await r.json().catch(()=>null);
     if(!r.ok||result?.ok!==true){const code=result?.diagnostic?.code||result?.code;throw Error(diagnosticCodes.has(code)||/^META_HTTP_(?:400|401|403|429|500|502|503|504)$/.test(code||'')?code:r.ok?'ADS_SERVICE_FAILED':`ADS_SERVICE_${r.status}`);}
     if(options.executive===true){if(!result.data.executive)throw Error('EXECUTIVE_CONTRACT_INVALID');return result.data.executive;}
+    if(options.orderAlerts===true){if(!result.data.orderAlert)throw Error('ORDER_ALERT_CONTRACT_INVALID');return result.data.orderAlert;}
+    if(result.data.orderAlert)return {text:result.data.orderAlert.text||'Consulta de alertas sin resultados.'};
     const formatted=formatAdsResult(result.data,options);
     if(formatted.artifact){const files=await renderArtifact(formatted.artifact);const pdf=formatted.format==='pdf';formatted.media={data:pdf?files.pdf:files.png,filename:pdf?'suleia-informe.pdf':'suleia-productos.png',mime:pdf?'application/pdf':'image/png',caption:formatted.text};delete formatted.artifact;}
     return formatted;
   }
-  return {async executive(body,actor){return request({action:'executive-report',...body,actor},{executive:true});},async prepareBudget(body,actor,key){return request({...body,actor,requestKey:`telegram:prepare:${key}`});},async read(body,actor,options={}) {
+  return {async orderAlerts(body,actor){return request({...body,action:'order-alerts',actor},{orderAlerts:true});},async executive(body,actor){return request({action:'executive-report',...body,actor},{executive:true});},async prepareBudget(body,actor,key){return request({...body,actor,requestKey:`telegram:prepare:${key}`});},async read(body,actor,options={}) {
     if(!['analyze','orders-summary','daily-report','autopilot','meta-summary'].includes(body.action))throw Error('READ_ACTION_INVALID');
     return request({...body,actor},options);
   },async handle(text,actor,updateId){
