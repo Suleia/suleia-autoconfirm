@@ -63,6 +63,14 @@ Before proposing or changing anything, read:
   independently. At most two absent notices per order; no third notice,
   uncertain resend or timer renewal. All other lifecycle templates keep their
   existing once-per-order rule.
+  Owner-authorized update (2026-10-26): ES1476535 and equivalent future cases
+  may receive one further v3 notice for each distinct later current primary
+  failed-delivery absence, even after two earlier notices. This replaces the
+  two-notice ceiling only for this workflow. Require a fresh corroborated
+  failure, a complete independently verified predecessor chain and fresh
+  exact-order conversation, preserve contrary intent/uncertainty guards, and
+  atomically bind each successor to the latest receipt. Never resend for an
+  update of the same issue, invent a delivery slot or renew an earlier timer.
 
 ## Collaboration protocol
 

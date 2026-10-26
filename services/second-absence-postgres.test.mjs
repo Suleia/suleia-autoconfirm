@@ -10,17 +10,18 @@ test('real PostgreSQL serializes initial/second/third stages and preserves indep
   for(const role of ['suleia_ingestion','suleia_operations_readonly','suleia_mcp_readonly','suleia_backup'])await pool.query(`CREATE ROLE ${role}`);
   await pool.query('CREATE SCHEMA operations');await pool.query(await fs.readFile(new URL('../migrations/045_absent_native_notification_gate.sql',import.meta.url),'utf8'));
   const ledger=createNativeAbsentLedger(pool);
-  const claim=async(issue,stage='INITIAL',prior=null)=>ledger.transaction(async store=>{await store.controlForUpdate();
+  const claim=async(issue,stage='INITIAL',prior=null,previous_count=0)=>ledger.transaction(async store=>{await store.controlForUpdate();
    const {randomUUID}=await import('node:crypto');const claim_id=randomUUID();
    return await store.claim({canonical_issue_id:issue,canonical_order_id:'order',conversation_id:'conversation',claim_id,
-    template_version:'dropea_ausente_v3',notice_stage:stage,second_notice:prior?{previous_claim_id:prior}:null})?claim_id:null;});
+    template_version:'dropea_ausente_v3',notice_stage:stage,notice_sequence:stage==='REPEATED_ABSENCE'?previous_count+1:stage==='SECOND_ABSENCE'?2:1,
+    issue_created_at:'2026-10-26T12:00:00Z',second_notice:prior?{previous_claim_id:prior,previous_count}:null})?claim_id:null;});
   const initial=(await Promise.all(Array.from({length:20},()=>claim('initial')))).filter(Boolean);
   assert.equal(initial.length,1);
   assert.equal(await claim('second','SECOND_ABSENCE',initial[0]),null,'unverified predecessor blocks');
   await pool.query("UPDATE operations.recipient_absent_native_notifications SET claimed_at='2026-10-21T10:00:00Z'");
   const first={direction:'OUTBOUND',at:'2026-10-21T10:01:00Z',message_id:'first',provider_message_id:'wamid.first',template_name:'dropea_ausente_v3',template_id:'1552419'};
   const history={complete:true,conversation_id:'conversation',messages:[first]};
-  const verify=id=>reconcileNativeAbsentNotice({pool,claimId:id,readHistory:async()=>history,now:()=>new Date('2026-10-23T12:00:00Z')});
+  const verify=id=>reconcileNativeAbsentNotice({pool,claimId:id,readHistory:async()=>history,now:()=>new Date('2026-10-27T12:00:00Z')});
   assert.equal((await verify(initial[0])).verified,true);
   const timerBefore=(await pool.query('SELECT * FROM operations.recipient_absent_native_timers')).rows;
   const seconds=(await Promise.all(Array.from({length:20},(_,i)=>claim('second-'+i,'SECOND_ABSENCE',initial[0])))).filter(Boolean);
@@ -38,5 +39,23 @@ test('real PostgreSQL serializes initial/second/third stages and preserves indep
   assert.deepEqual(rows.map(r=>r.outcome.notice_stage),['INITIAL','SECOND_ABSENCE']);
   assert.equal(rows[1].outcome.previous_claim_id,initial[0]);
   assert.equal(rows[1].outcome.provider_message_id,'wamid.second');
+  assert.equal(await claim('later','REPEATED_ABSENCE',seconds[0],2),null,'repeat flag defaults off even inside the atomic claim');
+  await pool.query(`UPDATE operations.recipient_absent_native_control SET evidence=evidence||'{"repeated_absence_notice_authorized":true}'::jsonb`);
+  assert.equal(await claim('later','REPEATED_ABSENCE',initial[0],2),null,'an obsolete predecessor cannot fork the chain');
+  const thirds=(await Promise.all(Array.from({length:20},(_,i)=>claim('later-'+i,'REPEATED_ABSENCE',seconds[0],2)))).filter(Boolean);
+  assert.equal(thirds.length,1,'concurrent new issue identities reserve only one successor to the current predecessor');
+  assert.equal(await claim('next','REPEATED_ABSENCE',thirds[0],3),null,'uncertain predecessor blocks the next attempt');
+  await pool.query("UPDATE operations.recipient_absent_native_notifications SET claimed_at='2026-10-23T10:00:00Z' WHERE claim_id=$1",[thirds[0]]);
+  history.messages.push({...first,message_id:'third',provider_message_id:'wamid.third',at:'2026-10-23T10:01:00Z'});
+  for(const id of [initial[0],seconds[0],thirds[0]])assert.equal((await verify(id)).verified,true,'each authorized successor bounds all earlier observations');
+  assert.equal(await claim('duplicate','REPEATED_ABSENCE',seconds[0],2),null,'same predecessor/count cannot advance twice after verification');
+  const fourth=await claim('new-fourth','REPEATED_ABSENCE',thirds[0],3);assert.ok(fourth);
+  assert.equal(await claim('new-fourth','REPEATED_ABSENCE',thirds[0],3),null,'same issue is never resent');
+  await pool.query("UPDATE operations.recipient_absent_native_notifications SET claimed_at='2026-10-24T10:00:00Z' WHERE claim_id=$1",[fourth]);
+  history.messages.push({...first,message_id:'fourth',provider_message_id:'wamid.fourth',at:'2026-10-24T10:01:00Z'});
+  for(const id of [initial[0],seconds[0],thirds[0],fourth])assert.equal((await verify(id)).verified,true);
+  assert.deepEqual((await pool.query('SELECT * FROM operations.recipient_absent_native_timers')).rows,timerBefore,'all later notices preserve the one original timer');
+  const chain=(await pool.query('SELECT status,outcome FROM operations.recipient_absent_native_notifications ORDER BY claimed_at')).rows;
+  assert.deepEqual(chain.map(r=>r.outcome.notice_sequence),[1,2,3,4]);assert.ok(chain.every(r=>r.status==='VERIFIED'));
  }finally{await db.close();}
 });

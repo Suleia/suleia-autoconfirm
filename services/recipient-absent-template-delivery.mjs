@@ -1,13 +1,14 @@
 import {authorizeNativeAbsent,nativeAbsentControlReady,nativeAbsentEligibility} from './recipient-absent-native-gate.mjs';
 import {classifyAbsenceAttempt,classifyAbsentCause} from '../packages/platform-core/src/incident/absent-evidence.mjs';
 import {ABSENT_TEMPLATE_BODY,ABSENT_TEMPLATE_BUTTONS} from '../packages/platform-core/src/incident/absent-template.mjs';
-import {secondAbsenceNoticeEvidence} from './second-absence-notice.mjs';
+import {secondAbsenceNoticeEvidence,repeatedAbsenceNoticeEvidence} from './second-absence-notice.mjs';
 
 export function absentContactInput(fresh){
   const {issue,order,chatby}=fresh;
-  const secondNotice=secondAbsenceNoticeEvidence(fresh);
+  const repeatedNotice=repeatedAbsenceNoticeEvidence(fresh),secondNotice=secondAbsenceNoticeEvidence(fresh);
   return {canonical_issue_id:issue.canonical_issue_id,canonical_order_id:issue.canonical_order_id,
-    notice_stage:secondNotice?'SECOND_ABSENCE':'INITIAL',second_notice:secondNotice,
+    notice_stage:repeatedNotice?'REPEATED_ABSENCE':secondNotice?'SECOND_ABSENCE':'INITIAL',second_notice:repeatedNotice || secondNotice,
+    notice_sequence:repeatedNotice?.notice_sequence || (secondNotice?2:1),
     conversation_id:chatby.conversation_id,exact_identity_verified:order.identity_status==='EXACT' && chatby.verified===true,
     type:issue.type,status:issue.status,is_active:issue.is_active,decision_currentness:fresh.decision_currentness,
     return_in_progress:fresh.return_in_progress,absence_classification:classifyAbsenceAttempt({issue}).status,
@@ -44,10 +45,11 @@ export async function deliverAbsentTemplate({candidate,readFresh,ledger,readTemp
   // Only the new second-notice lane adds a post-claim direct reread. An inbound
   // reply, completed delivery, changed issue or lost proof consumes the claim.
   let finalInput=input;
-  if(input.notice_stage==='SECOND_ABSENCE'){
+  if(['SECOND_ABSENCE','REPEATED_ABSENCE'].includes(input.notice_stage)){
     try{finalInput=absentContactInput(await readFresh(candidate.canonical_issue_id));}
     catch{await persistOutcome(claim.claim_id,'BLOCKED_BEFORE_POST');return {status:'BLOCKED',reason:'SECOND_NOTICE_FINAL_READ_REQUIRED'};}
-    if(finalInput.notice_stage!=='SECOND_ABSENCE' || finalInput.second_notice?.previous_claim_id!==input.second_notice.previous_claim_id
+    if(finalInput.notice_stage!==input.notice_stage || finalInput.notice_sequence!==input.notice_sequence
+      || finalInput.second_notice?.previous_claim_id!==input.second_notice.previous_claim_id
       || finalInput.canonical_issue_id!==input.canonical_issue_id || finalInput.conversation_id!==input.conversation_id){
       await persistOutcome(claim.claim_id,'BLOCKED_BEFORE_POST');return {status:'BLOCKED',reason:'SECOND_NOTICE_EVIDENCE_CHANGED'};
     }
@@ -85,10 +87,12 @@ export function createAbsentTemplateDelivery({pool,readFresh,ledger,token,fetchI
         AND NOT EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications n WHERE n.canonical_issue_id=i.canonical_issue_id)
         AND (NOT EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications n WHERE n.canonical_order_id=i.canonical_order_id)
           OR ($3::boolean AND (SELECT count(*) FROM operations.recipient_absent_native_notifications n WHERE n.canonical_order_id=i.canonical_order_id)=1
-            AND EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications n WHERE n.canonical_order_id=i.canonical_order_id AND n.status='VERIFIED')))
+            AND EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications n WHERE n.canonical_order_id=i.canonical_order_id AND n.status='VERIFIED'))
+          OR ($4::boolean AND (SELECT count(*) FROM operations.recipient_absent_native_notifications n WHERE n.canonical_order_id=i.canonical_order_id)>=2
+            AND NOT EXISTS(SELECT 1 FROM operations.recipient_absent_native_notifications n WHERE n.canonical_order_id=i.canonical_order_id AND n.status<>'VERIFIED')))
         AND ($2::text IS NULL OR i.canonical_issue_id=$2) ORDER BY i.created_at`,
         [control.recipient_absent_template_cutover_at,control.status==='CANARY'?control.canary_issue_id:null,
-          control.evidence?.second_absence_notice_authorized===true])).rows;
+          control.evidence?.second_absence_notice_authorized===true,control.evidence?.repeated_absence_notice_authorized===true])).rows;
       if(!rows.length)return {checked:0};
       const candidate=rows[cursor++ % rows.length];
       const result=await deliverAbsentTemplate({candidate,readFresh,ledger,
