@@ -40,7 +40,7 @@ const GrowthIntelligencePanel=(()=>{
   totals.averageOrderValue=Number.isFinite(totals.purchaseValue)&&totals.purchases>0?totals.purchaseValue/totals.purchases:null;
   previous.averageOrderValue=Number.isFinite(previous.purchaseValue)&&previous.purchases>0?previous.purchaseValue/previous.purchases:null;
   if(partial)root.append(e('p','gi-subtotal',`Subtotal verificado: ${report.subtotal.included} de ${report.subtotal.total} entidades. Comparación no disponible.`));
-  const keys=compact?['spend','roas','purchases','cpa','linkCtr','linkCpc','reach','purchaseValue','addToCart','averageOrderValue','impressions','comparison']:['spend','roas','purchases','cpa','impressions','reach','frequency','cpm','linkCtr','linkCpc','outboundClicks','landingPageViews','addToCart','costPerCart','initiateCheckout','costPerCheckout','purchaseValue','dailyBudgetCents'];
+  const keys=compact?['spend','roas','purchases','cpa','linkCtr','linkCpc','reach','purchaseValue','linkClicks','averageOrderValue','impressions','addToCart']:['spend','roas','purchases','cpa','impressions','reach','frequency','cpm','linkCtr','linkCpc','outboundClicks','landingPageViews','addToCart','costPerCart','initiateCheckout','costPerCheckout','purchaseValue','dailyBudgetCents'];
   const primary=e('div',compact?'gi-kpis gi-reference-kpis':'gi-kpis gi-primary-kpis'),secondary=e('div','gi-kpis gi-secondary-kpis'),points=(report.growth?.trend?.current||dailyPoints(report)).map(p=>({...p,metrics:{...p.metrics,averageOrderValue:Number.isFinite(p.metrics?.purchaseValue)&&p.metrics?.purchases>0?p.metrics.purchaseValue/p.metrics.purchases:null}}));
   keys.forEach((key,index)=>{
    const card=e('article',`gi-kpi gi-tone-${index%4}`);card.setAttribute('data-metric',key);
