@@ -25,6 +25,7 @@ export function loadConfig(env = process.env) {
   return {
     executiveReportsEnabled:env.ADS_EXECUTIVE_DAILY_ENABLED==='true',executiveRecipientIds,
     dailyReportsEnabled:env.COMMAND_CENTER_DAILY_REPORT_ENABLED==='true',
+    orderAlertsEnabled:env.TELEGRAM_ORDER_ALERTS_ENABLED==='true',
     autopilotReportsEnabled:env.AUTOPILOT_TELEGRAM_REPORTS_ENABLED==='true',
     autopilotPolicyVersion:env.AUTOPILOT_REPORT_POLICY_VERSION||'meta-budget-autopilot-v5.1',
     sharedBudgetWritesEnabled:adsEnabled&&env.COMMAND_CENTER_BUDGET_WRITES_ENABLED==='true',

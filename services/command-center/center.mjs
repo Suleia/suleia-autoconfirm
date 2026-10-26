@@ -1,6 +1,7 @@
 import {adsCommand} from '../meta-ads/command-service.mjs';
 import {parseMetaSummary,readMetaSummary} from './meta-summary.mjs';
 import {parseIncidentPeriod,readIncidentSummary,formatIncidentSummary} from './incident-summary.mjs';
+import {OrderAlerts,orderAlertIntent} from './order-alerts.mjs';
 import {parseAutopilotQuery} from '../meta-ads/autopilot/queries.mjs';
 import {orderSummaryIntent,OrderSummaryReader,readOrderSummary} from './order-summary.mjs';
 import {parseOrderRequest,parsePeriodText,resolvePeriod} from './periods.mjs';
@@ -51,6 +52,7 @@ export function parseBusiness(input,context=null,now=Date.now()) {
 export class CommandCenter {
  constructor({ads,repository,readFinance,ledger,roles={},now=()=>Date.now(),orderReader=null}) {
    Object.assign(this,{ads,repository,readFinance,ledger,roles,now});this.inflight=new Map();
+   this.orderAlerts=new OrderAlerts({readPool:repository.pool,writePool:ledger.pool,now});
    this.orderReader=orderReader||new OrderSummaryReader({read:(n,spec)=>readOrderSummary(repository.pool,n,spec),now});
  }
  authorize(actor,capability) {
@@ -75,6 +77,12 @@ export class CommandCenter {
  async command(body) {
    const actor={user:String(body.actor?.user||''),chat:String(body.actor?.chat||'')};
    this.ads.engine.authorize(actor);
+   const alertIntent=body.action==='request'?orderAlertIntent(body.text):null;
+   if(body.action==='order-alerts'||alertIntent){
+     this.authorize(actor,'orders');
+     if(body.action==='request'&&(typeof body.text!=='string'||body.text.length>1000||typeof body.requestKey!=='string'||body.requestKey.length>180))throw Error('QUERY_INVALID');
+     return {orderAlert:await this.orderAlerts.command(actor.user,alertIntent?{operation:alertIntent}:body)};
+   }
    const summaryIntent=body.action==='request'?parseMetaSummary(body.text,this.now()):null;
    if(body.action==='meta-summary'||summaryIntent){
      this.authorize(actor,'ads');
