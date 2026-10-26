@@ -12,7 +12,7 @@ export function reportReader(reader,{now=()=>Date.now(),ttlMs=60000,maxEntries=9
   const value=reader[key];if(typeof value!=='function')return value;
   if(!methods.has(key))return value.bind(reader);
   return async(...args)=>{
-   const canonical=['readInsights','readAccountInsights'].includes(key)&&args[0]?.since?[{since:args[0].since,until:args[0].until,level:args[0].level,daily:Boolean(args[0].daily),extended:Boolean(args[0].extended)}]:args;
+   const canonical=['readInsights','readAccountInsights'].includes(key)&&args[0]?.since?[{since:args[0].since,until:args[0].until,level:args[0].level,daily:Boolean(args[0].daily),extended:Date.parse(args[0].until)-Date.parse(args[0].since)>31*86400000&&Boolean(args[0].extended)}]:args;
    const id=key+':'+JSON.stringify(canonical),entry=cache.get(id),ttl=['readInsights','readAccountInsights'].includes(key)?ttlMs:Math.max(ttlMs,300000);
    if(entry&&now()-entry.at<ttl){hits++;return entry.value;}
    if(jobs.has(id)){coalesced++;return jobs.get(id);}

@@ -97,7 +97,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     return budgetGuardTask;
   },async algorithm({bounded=false}={}){
     if(env.ADS_ALGORITHM_ENABLED!=='true')throw Error('ADS_ALGORITHM_DISABLED');
-    if(algorithmCache&&Date.now()-algorithmCache.at<(Object.values(algorithmCache.report.sources).some(s=>s.status!=='COMPLETE')?30000:10*60_000))return algorithmCache.report;
+    if(algorithmCache&&Date.now()-algorithmCache.at<(Object.values(algorithmCache.report.sources).some(s=>s.status!=='COMPLETE'&&s.status!=='NOT_REQUESTED'&&!s.code?.endsWith('_NOT_CONFIGURED'))?30000:10*60_000))return algorithmCache.report;
     if(!algorithmTask)algorithmTask=captureAlgorithmEvidence({reader:sharedReportReader,readOrders:ordersReader,readOperations:operationsReader}).then(e=>{const financial=Object.values(e.sources).find(s=>s.code==='META_FINANCIAL_WINDOW_RESERVED');if(financial)throw Object.assign(Error(financial.code),{code:financial.code});e.orders=traceOrders(e.orders,e.entities);const report={...buildAlgorithmReport(e,{policy:learningPolicy}),reportReadOnly};algorithmCache={at:Date.now(),report};return report;}).finally(()=>{algorithmTask=null;});
     // Cold reads can span many Graph pages. Keep a coalesced task, do not launch
     // a second job when Telegram retries after a bounded response.
