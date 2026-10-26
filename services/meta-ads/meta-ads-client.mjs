@@ -221,11 +221,12 @@ export function createMetaAdsReadClient({
       const result=await paginated(`act_${accountId}/insights`,{level:'ad',fields:'ad_id,video_play_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p100_watched_actions,video_thruplay_watched_actions,video_avg_time_watched_actions',time_range:JSON.stringify({since,until}),action_attribution_windows:JSON.stringify(['7d_click','1d_view']),action_report_time:'conversion',limit:100});
       if(!result.complete)throw new MetaAdsReadError('Incomplete review video evidence','META_PAGINATION_INCOMPLETE');return result.items;
     },
+    async readAccountInsights(query) { return this.readInsights({...query,level:'account'}); },
     async readInsights({ since, until, level = 'campaign', daily = false, extended = false }) {
       const valid = (day) => /^\d{4}-\d{2}-\d{2}$/.test(day) && !Number.isNaN(Date.parse(day)) && new Date(day).toISOString().slice(0, 10) === day;
-      if (!valid(since) || !valid(until) || since > until || Date.parse(until) - Date.parse(since) > (extended===true?89:31) * 86400000 || !['campaign', 'adset', 'ad'].includes(level)) throw new MetaAdsReadError('Invalid insight period or level', 'META_PERIOD_INVALID');
+      if (!valid(since) || !valid(until) || since > until || Date.parse(until) - Date.parse(since) > (extended===true?89:31) * 86400000 || !['account', 'campaign', 'adset', 'ad'].includes(level)) throw new MetaAdsReadError('Invalid insight period or level', 'META_PERIOD_INVALID');
       const result = await paginated(`act_${accountId}/insights`, {
-        level, fields: ['campaign_id','campaign_name', ...(level !== 'campaign' ? ['adset_id','adset_name'] : []), ...(level === 'ad' ? ['ad_id','ad_name'] : []),
+        level, fields: [...(level==='account'?['account_id','account_name']:['campaign_id','campaign_name']), ...(['adset','ad'].includes(level) ? ['adset_id','adset_name'] : []), ...(level === 'ad' ? ['ad_id','ad_name'] : []),
           'date_start','date_stop','spend','impressions','reach','frequency','cpm','clicks','inline_link_clicks','inline_link_click_ctr','cost_per_inline_link_click','outbound_clicks','outbound_clicks_ctr','actions','action_values','purchase_roas'].join(','),
         time_range: JSON.stringify({ since, until }), ...(daily ? { time_increment: 1 } : {}),
         // One explicit reporting contract for all consumers. Never mix this with

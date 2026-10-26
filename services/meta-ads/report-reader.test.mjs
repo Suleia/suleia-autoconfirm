@@ -22,3 +22,9 @@ test('equivalent provider date contracts reuse one GET despite object order and 
  await r.readInsights({level:'campaign',until:'2026-10-23',since:'2026-10-17',extended:true,daily:false});assert.equal(reads,1);
  await r.readInsights({since:'2026-10-17',until:'2026-10-23',level:'campaign',extended:true,daily:true});assert.equal(reads,2);
 });
+
+test('the optional extended range validator does not duplicate identical short provider requests',async()=>{
+ let calls=0;const view=reportReader({readInsights:async()=>{calls++;return [];}});
+ await view.readInsights({since:'2026-09-26',until:'2026-10-25',level:'campaign',daily:true,extended:true});await view.readInsights({since:'2026-09-26',until:'2026-10-25',level:'campaign',daily:true,extended:false});assert.equal(calls,1);
+ await view.readInsights({since:'2026-08-01',until:'2026-10-25',level:'campaign',daily:true,extended:true});await view.readInsights({since:'2026-08-01',until:'2026-10-25',level:'campaign',daily:true,extended:false});assert.equal(calls,3);
+});

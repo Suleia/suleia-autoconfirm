@@ -7,7 +7,7 @@ test('five parallel entity filters share one canonical selected-level read, neve
  const graph=createV11GraphFixture({delayMs:5}),r=createAdsRuntime({env,pool,fetchImpl:graph.fetchImpl});
  const values=await Promise.all(Array.from({length:5},(_,i)=>r.review.report({period:'7d',level:'campaign',campaignId:String(101+i)})));
  assert.deepEqual(values.map(v=>v.rows[0].entityId),['101','102','103','104','105']);assert.ok(values.every(v=>v.rows.length===1));
- assert.equal(graph.calls.filter(c=>c.path.endsWith('/insights')).length,3);assert.equal(graph.stats().mutations,0);assert.equal(graph.stats().externalConnections,0);
+ const insights=graph.calls.filter(c=>c.path.endsWith('/insights'));assert.equal(insights.filter(c=>c.level==='campaign').length,3);assert.equal(insights.filter(c=>c.level==='account').length,4);assert.equal(new Set(insights.map(c=>JSON.stringify([c.level,c.range,c.daily]))).size,7);assert.equal(graph.stats().mutations,0);assert.equal(graph.stats().externalConnections,0);
 });
 test('provider code17 pauses all report scopes and force cannot bypass the account quota gate',async()=>{
  const graph=createV11GraphFixture({delayMs:1,rateLimit:true}),r=createAdsRuntime({env,pool,fetchImpl:graph.fetchImpl});
