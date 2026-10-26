@@ -21,9 +21,12 @@ changes only. No campaign mutation, financial policy change, message or new time
 - Add-to-cart events are visible in the twelve-card overview, campaign table by
   default, sort control and detailed period comparison. They count attributed
   events, not unique people, SKUs or product units.
+- The default docked analysis no longer prevents periodic data refresh. Modal
+  analysis, expanded evidence and active filter editing still defer refresh.
 - Successful stale previews now continue their existing refresh. Polls remove
   force/retry, so completing a job cannot create an endless forced-refresh loop.
-- Optional history waits for its existing coalesced preparation, publishes the
+- Optional history waits for its existing coalesced preparation, including
+  successful historical previews beyond the original eight-second cutoff, publishes the
   summary before children finish, and retains partial results. Metadata reads
   are limited to the needed levels. Algorithm reads reuse reporting GETs and
   return a bounded preparation diagnostic; optional failures do not erase all

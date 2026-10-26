@@ -15,7 +15,7 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
  const cache=new Map(),jobs=new Map();
  async function optionalReport(query,options){
   const deadline=now()+45000;
-  for(let attempt=0;;attempt++){try{const value=await report(query,options);if(value.freshness!=='FRESH'&&value.diagnostic?.state==='PREPARING'&&attempt<7&&now()<deadline){await new Promise(resolve=>setTimeout(resolve,1000));continue;}return value;}catch(error){if(error.diagnostic?.state!=='PREPARING'||attempt>=7||now()>=deadline)throw error;await new Promise(resolve=>setTimeout(resolve,1000));}}
+  for(let attempt=0;;attempt++){try{const value=await report(query,options);if(value.freshness!=='FRESH'&&value.diagnostic?.state==='PREPARING'&&attempt<30&&now()<deadline){await new Promise(resolve=>setTimeout(resolve,1000));continue;}return value;}catch(error){if(error.diagnostic?.state!=='PREPARING'||attempt>=30||now()>=deadline)throw error;await new Promise(resolve=>setTimeout(resolve,1000));}}
  }
  async function generate(query,publish){
   const selected=await optionalReport(query),today=localDay(now());
@@ -41,6 +41,7 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
    try{byLevel[level]=selected.level===level&&selected.range.since===range.since&&selected.range.until===range.until?selected:await optionalReport({...filters,...range,level},{optionalWaitMs:7000});}
    catch(error){byLevel[level]=null;failures.push('HISTORY_'+level.toUpperCase()+'_UNAVAILABLE');}
   }
+  for(const [level,r]of Object.entries(byLevel))if(r&&r.freshness!=='FRESH')failures.push('HISTORY_'+level.toUpperCase()+'_HISTORICAL');
   let current=null;
   if(anchor===shiftDay(today,-1)&&selected.level==='campaign')try{current=selected.range.since===today?selected:await report({...filters,period:'hoy',level:'campaign'});}catch{failures.push('TODAY_UNAVAILABLE');}
   for(const r of Object.values(byLevel))for(const row of r?.rows||[])row.sample={...row.sample,contextVerified:Boolean(row.objective&&row.optimizationGoal)};
@@ -94,7 +95,7 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
   const key=JSON.stringify(Object.entries(query).filter(([k])=>k!=='retry').sort(([a],[b])=>a.localeCompare(b)));let entry=cache.get(key);
   if(query.retry==='true'&&!jobs.has(key)){cache.delete(key);entry=null;}
   const preparing=code=>new ReportReadError({id:hash(['growth',key]),source:'META_MARKETING_API',state:'PREPARING',code,connection:'READING',retryable:true,retryAfterSeconds:3,checkedAt:new Date(now()).toISOString(),cache:entry?'HISTORICAL':'EMPTY'});
-  if(entry&&now()-entry.at<(entry.value.freshness==='FRESH'?120000:5000))return entry.value;
+  if(entry&&now()-entry.at<(entry.value.freshness==='FRESH'&&!entry.value.failures?.length?120000:5000))return entry.value;
   if(!jobs.has(key)){
    if(jobs.size>=2)throw preparing('ADS_REPORT_BUSY');
    const job={preview:null,task:null};

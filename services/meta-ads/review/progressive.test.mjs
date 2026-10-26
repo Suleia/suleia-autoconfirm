@@ -17,3 +17,8 @@ test('a successful historical preview waits for its existing fresh history befor
  await service.get({period:'7d',level:'campaign'});await service.pending();const value=await service.get({period:'7d',level:'campaign'});
  assert.equal(histories,2);assert.equal(value.progress.pending,false);assert.equal(value.progress.blocks.history,'READY');assert.ok(value.decisions.campaigns.some(c=>c.status!=='DATOS_INSUFICIENTES'));assert.equal(value.metaWrites,0);
 });
+
+test('a slow successful historical preview is not accepted as final after the old eight-second cut',async()=>{
+ let histories=0;const service=createGrowthService({now:()=>GROWTH_FIXTURE_NOW,waitMs:1,report:async q=>{const r=growthFixtureReport(q);if(q.since&&histories++<8){r.freshness='STALE';r.diagnostic={state:'PREPARING'};}return r;}});
+ await service.get({period:'7d',level:'campaign'});await service.pending();const value=await service.get({period:'7d',level:'campaign'});assert.equal(histories,9);assert.equal(value.progress.pending,false);assert.ok(value.decisions.campaigns.some(c=>c.status!=='DATOS_INSUFICIENTES'));assert.equal(value.failures.length,0);
+});
