@@ -1,0 +1,84 @@
+{
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/157",
+  "runtimeRevision": "fa0d057182afaecafbb41bf205dcbe8abf07b631",
+  "image": "suleia-incident-browser:fa0d057",
+  "imageId": "sha256:842841fba20f84582525c8b0dd356f3dafccad5c8e8a657c37275c03c00f9fe0",
+  "sourceArchiveSha256": "43e301331aeccd3987a2fff3412aba7ac9b8657b78f61bb2719ae030cb0074a4",
+  "predecessor": "suleia-incident-browser:18cf99a",
+  "originalPredecessor": "suleia-incident-browser:167e859",
+  "tests": {
+    "matchingSource": {"passed": 388, "failed": 0, "skipped": 0, "files": 44},
+    "exactImage": {"passed": 190, "failed": 0, "skipped": 0, "files": 23},
+    "groupsOverlap": true,
+    "network": "none",
+    "productionCredentialsSupplied": false,
+    "initialHarnessIssue": "Six failures resulted from mounting newer Render-only tests over an older private worker bundle; matching-source and exact-image suites were separated without changing those tests or unrelated runtime modules."
+  },
+  "preservation": {
+    "sameEnvironmentMap": true,
+    "samePrivateConnections": true,
+    "sameStateAndSessions": true,
+    "pendingJournalsPreserved": true,
+    "otherContainersIdenticalAtFinalDeployment": true,
+    "renderSupportSenderEnabled": false,
+    "vpsSupportSenderEnabled": true,
+    "newSchedulerOrCodexAutomation": false,
+    "existingIntervalMinutes": 30,
+    "financialBudgetActionsByThisChange": 0,
+    "templateOrFlowChanges": 0
+  },
+  "naturalFinalCycle": {
+    "startedAt": "2026-10-26T05:35:58.530Z",
+    "completedAt": "2026-10-26T05:37:58.133Z",
+    "health": "AUTO_READY",
+    "deliveryCasesObserved": 13,
+    "newDeliverySolutions": 0,
+    "newCustomerMessages": 0,
+    "supportCasesChecked": 1,
+    "supportObservation": "SUPPORT_SENT_PROVIDER_REJECTED",
+    "feedbackPersistedAt": "2026-10-26T05:37:58.082Z"
+  },
+  "realSupportCase": {
+    "orderId": "1473771",
+    "issueId": "1372618",
+    "originalAmountCents": 2499,
+    "discountCents": 500,
+    "requestedCollectableAmountCents": 1999,
+    "genuineAttachmentsVerified": 2,
+    "matchingSentMessages": 1,
+    "sentAt": "2026-10-25T22:20:39.000Z",
+    "mailHeadersBodyAndAttachmentBytesVerified": true,
+    "supportRepliedAsOf": "2026-10-26T05:36:18.592Z",
+    "supportReplyObserved": false,
+    "originalProviderOperationStatus": "failed",
+    "providerErrorCode": "GLS_INCIDENCE_ALREADY_SOLVED",
+    "providerIssueStillPending": true,
+    "solutionVerified": false,
+    "discountApplied": false,
+    "carrierCodApplied": null,
+    "repeatSendOrResolveDuringReconciliation": false
+  },
+  "previousSolutionReconciledWithoutResend": {
+    "orderId": "1476535",
+    "issueId": "1371043",
+    "providerStatus": "RESOLVED",
+    "providerResolution": "SOLUTION_PROVIDED",
+    "originalProviderChangeAt": "2026-10-23T12:19:19.350Z",
+    "receiptReconciledAt": "2026-10-25T22:18:49.998Z",
+    "freshProviderReadAt": "2026-10-26T05:38:19.794Z",
+    "newSolutionPost": false
+  },
+  "rollback": {
+    "prepared": true,
+    "executed": false,
+    "applicationOnly": true,
+    "restorePersistentStateOrClaims": false,
+    "refuseSupersedingReleaseOrConfiguration": true
+  },
+  "limitations": [
+    "The support email requests stopping the prior return if feasible; it does not establish carrier recovery or a changed COD.",
+    "Dropea rejected the solution; no repeated API action or fabricated resolved status is allowed.",
+    "Other overnight container changes were observed between the original and morning snapshots and are not attributed to this intervention. All other container IDs matched immediately around the final worker deployment.",
+    "Meta V6 stabilization remains a separate task; this incident change is not a budget deployment or financial canary."
+  ]
+}
