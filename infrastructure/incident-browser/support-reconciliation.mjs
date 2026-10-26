@@ -104,7 +104,8 @@ export async function reconcileVerifiedSupport(incident,receipt,deps,{now=Date.n
 
 const fields=['orderId','currentIssueId','supportIssueId','checkedAt','status','reason','supportVerified','needsHumanReview','reopened',
  'orderAmountStatus','orderDiscountApplied','currentAmountCents','expectedAmountCents','currency','discountApplied','carrierCodApplied',
- 'customerResponseStatus','customerResponseAt','customerResponseAfterCurrentIssue','currentIssueStatus','sharedActionStatus'];
+ 'customerResponseStatus','customerResponseAt','customerResponseAfterCurrentIssue','currentIssueStatus','sharedActionStatus',
+ 'emailVerified','providerSolutionVerified','providerErrorCode'];
 export function supportFeedbackProjection(result){
  return Object.fromEntries(fields.filter(k=>result[k]!==undefined).map(k=>[k,result[k]]));
 }

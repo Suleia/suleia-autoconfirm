@@ -14,10 +14,20 @@ export function moneyCents(value) {
 export function acceptedDiscountPlan(s, {now = Date.now(), activationAt} = {}) {
   const deny = reason => ({eligible:false, reason});
   if (!id(s.orderId) || !id(s.issueId) || !id(s.ownerId) || !s.exactOrder || !s.readVerified) return deny('EXACT_ORDER_REQUIRED');
-  if (s.issueStatus !== 'PENDING' || !s.active || !s.allowed?.includes('PROVIDE_SOLUTION') || s.priorReturn || s.pickupArranged) return deny('ISSUE_NOT_AVAILABLE');
+  if (s.issueStatus !== 'PENDING' || !s.active || !s.allowed?.includes('PROVIDE_SOLUTION') || s.pickupArranged) return deny('ISSUE_NOT_AVAILABLE');
   if (!/^\+34[6789]\d{8}$/.test(s.phone || '') || s.phone !== s.conversationPhone) return deny('PHONE_MISMATCH');
   const offerAt = Date.parse(s.offerAt), acceptedAt = Date.parse(s.acceptedAt), issueAt = Date.parse(s.issueAt), activation = Date.parse(activationAt);
-  if (![offerAt,acceptedAt,issueAt,activation,now].every(Number.isFinite) || offerAt < issueAt || acceptedAt <= offerAt || acceptedAt > now || acceptedAt < activation) return deny('CURRENT_OFFER_TIMING_REQUIRED');
+  const recovery=s.priorReturn===true?s.returnRecovery:null;
+  if (s.priorReturn && (!recovery || recovery.verified!==true || recovery.sameShipment!==true
+      || !id(recovery.issueId) || String(recovery.issueId)===String(s.issueId)
+      || s.orderStatus!=='ERROR' || s.orderSubStatus!=='DELIVERY_EXCEPTION'
+      || ![recovery.issueAt,recovery.requestedAt].every(v=>Number.isFinite(Date.parse(v)))
+      || offerAt<Date.parse(recovery.issueAt) || offerAt>Date.parse(recovery.requestedAt)
+      || issueAt<Date.parse(recovery.requestedAt) || acceptedAt<issueAt)) return deny('PRIOR_RETURN_RECOVERY_NOT_VERIFIED');
+  // An explicit new acceptance may recover the same offer after a carrier
+  // reopens the shipment. This requests support intervention; it never cancels
+  // a return or changes COD directly, and is not permission to replay a retry.
+  if (![offerAt,acceptedAt,issueAt,activation,now].every(Number.isFinite) || (!recovery && offerAt < issueAt) || acceptedAt <= offerAt || acceptedAt > now || acceptedAt < activation) return deny('CURRENT_OFFER_TIMING_REQUIRED');
   if (s.intent !== 'ACCEPTS_DISCOUNT' || !s.offerVerified || !s.offerMessageId || !s.acceptanceMessageId) return deny('VERIFIED_ACCEPTANCE_REQUIRED');
   // A new cancellation/correction within the hour must prevent execution.
   if (now - acceptedAt < 3600000) return deny('WAIT_ONE_HOUR');
@@ -26,12 +36,13 @@ export function acceptedDiscountPlan(s, {now = Date.now(), activationAt} = {}) {
   if (current !== original) return deny(current === offered ? 'ALREADY_DISCOUNTED_RECONCILE' : 'CURRENT_AMOUNT_CHANGED');
   const amount = (offered / 100).toFixed(2).replace('.', ',');
   const identity = {orderId:String(s.orderId), issueId:String(s.issueId), ownerId:String(s.ownerId), phone:s.phone, conversationId:s.conversationId,customerName:s.customerName,
-    offerMessageId:String(s.offerMessageId), acceptanceMessageId:String(s.acceptanceMessageId), acceptedAt:s.acceptedAt, offerAt:s.offerAt, originalCents:original, finalCents:offered};
+    offerMessageId:String(s.offerMessageId), acceptanceMessageId:String(s.acceptanceMessageId), acceptedAt:s.acceptedAt, offerAt:s.offerAt, originalCents:original, finalCents:offered,
+    ...(recovery?{returnRecovery:{issueId:String(recovery.issueId),issueAt:recovery.issueAt,requestedAt:recovery.requestedAt}}:{})};
   const key = hash([SUPPORT_WORKFLOW, identity.orderId]); // One recovery per order, including reopened issues.
   return {...identity, eligible:true, key, snapshot:hash(identity), discountApplied:false,
     email:{to:SUPPORT_TO,subject:`Aplicar descuento en pedido ES${s.orderId}`,
-      text:`Hola, soy el ID dropshipper ${s.ownerId}. Quiero aplicar un descuento en el pedido ES${s.orderId} e id incidencia ${s.issueId}. Se le aplica descuento de 5€. Importe total a cobrar: ${amount}€.\n\nAdjuntamos las capturas de Chatby de la oferta y aceptación. Teléfono: ${s.phone}. Aceptación: ${s.acceptedAt} (UTC).`},
-    solution:`Realizar entrega y cobrar al cliente ${amount}€. Llamar a ${s.phone.slice(3)} antes de entregar.`};
+      text:`Hola, soy el ID dropshipper ${s.ownerId}. Quiero aplicar un descuento en el pedido ES${s.orderId} e id incidencia ${s.issueId}. Se le aplica descuento de 5€. Importe total a cobrar: ${amount}€.${recovery?`\n\nEl cliente ha aceptado después de solicitarse la devolución en la incidencia ${recovery.issueId}. El mismo envío tiene una nueva incidencia abierta. Por favor, comprobad si aún puede detenerse la devolución y realizarse la entrega con el importe indicado; confirmad la recuperación y el importe a cobrar. No damos por anulada la devolución ni por cambiado el cobro hasta vuestra confirmación.`:''}\n\nAdjuntamos las capturas de Chatby de la oferta y aceptación. Teléfono: ${s.phone}. Aceptación: ${s.acceptedAt} (UTC).`},
+    solution:recovery?`El cliente acepta el descuento de 5€ y quiere el pedido. Importe a cobrar: ${amount}€. Existe devolución solicitada: comprobar si puede detenerse y realizar la entrega; confirmar viabilidad e importe. Llamar a ${s.phone.slice(3)} antes de entregar.`:`Realizar entrega y cobrar al cliente ${amount}€. Llamar a ${s.phone.slice(3)} antes de entregar.`};
 }
 export function validateSupportEvidence(plan, evidence, now = Date.now()) {
   if (!evidence || evidence.source !== 'CHATBY_BROWSER_SCREENSHOT' || evidence.snapshot !== plan.snapshot
@@ -64,7 +75,8 @@ export async function runAcceptedDiscount(incident, deps, options) {
   let phase='CLAIMED', mailId=null;
   const attachmentHashes=evidence.attachments.map(a=>({filename:a.filename,sha256:crypto.createHash('sha256').update(a.bytes).digest('hex')}));
   const audit={workflow:SUPPORT_WORKFLOW,orderId:plan.orderId,issueId:plan.issueId,phone:plan.phone,acceptedAt:plan.acceptedAt,
-    acceptanceMessageId:plan.acceptanceMessageId,originalCents:plan.originalCents,finalCents:plan.finalCents,snapshot:plan.snapshot,attachmentHashes,requestedAt:new Date().toISOString()};
+    acceptanceMessageId:plan.acceptanceMessageId,originalCents:plan.originalCents,finalCents:plan.finalCents,snapshot:plan.snapshot,attachmentHashes,requestedAt:new Date().toISOString(),
+    supportPlan:plan,...(plan.returnRecovery?{returnRecovery:plan.returnRecovery,carrierRecoveryPending:true}:{})};
   const save=(status,extra={})=>deps.save(plan,status,{...audit,phase,mailId,...extra});
   try {
     const beforeMail=await fresh();

@@ -62,3 +62,32 @@ test('durable prior claim across reopened issue or restart requires reconciliati
 test('concurrent workers claim once and never send twice',async()=>{
  const f=fixture();await Promise.all([runAcceptedDiscount({},f.deps,options),runAcceptedDiscount({},f.deps,options)]);assert.equal(f.events.filter(x=>x==='send').length,1);
 });
+
+const recovery={...input,priorReturn:true,orderStatus:'ERROR',orderSubStatus:'DELIVERY_EXCEPTION',issueAt:'2026-10-08T10:45:00Z',
+ returnRecovery:{verified:true,sameShipment:true,issueId:'234566',issueAt:'2026-10-07T10:00:00Z',requestedAt:'2026-10-08T10:30:00Z'}};
+test('late explicit acceptance of the same shipment requests recovery without asserting the return is stopped',()=>{
+ const p=acceptedDiscountPlan(recovery,options);assert.equal(p.eligible,true);assert.equal(p.finalCents,2499);
+ assert.match(p.email.text,/después de solicitarse la devolución/);assert.match(p.email.text,/No damos por anulada/);
+ assert.match(p.solution,/comprobar si puede detenerse/);assert.match(p.solution,/24,99€/);assert.equal(p.discountApplied,false);
+ assert.equal(p.key,acceptedDiscountPlan(input,options).key);
+});
+test('return recovery cannot reuse stale acceptance, other shipments, unverified returns or terminal orders',()=>{
+ for(const patch of [{returnRecovery:null},{returnRecovery:{...recovery.returnRecovery,verified:false}},
+ {returnRecovery:{...recovery.returnRecovery,sameShipment:false}}, {returnRecovery:{...recovery.returnRecovery,issueId:recovery.issueId}},
+ {returnRecovery:{...recovery.returnRecovery,issueAt:'2026-10-08T10:15:00Z'}}, {returnRecovery:{...recovery.returnRecovery,requestedAt:'2026-10-08T09:30:00Z'}},
+ {returnRecovery:{...recovery.returnRecovery,requestedAt:'invalid'}},{issueAt:'2026-10-08T10:15:00Z'},
+ {acceptedAt:'2026-10-08T10:40:00Z'}, {orderStatus:'FINISH'},{orderStatus:'RETURN_IN_PROGRESS'},{orderStatus:'CANCELLED'},
+ {orderSubStatus:'RETURNING'},{active:false},{allowed:[]},{pickupArranged:true},{intent:'REQUESTS_RETURN'},
+ {currentAmount:24.99},{offeredAmount:20},{acceptedAt:'2026-10-08T13:30:00Z'}]){
+  assert.equal(acceptedDiscountPlan({...recovery,...patch},options).eligible,false,JSON.stringify(patch));
+ }
+});
+test('verified recovery uses the same email-first fenced workflow and records pending carrier recovery',async()=>{
+ const f=fixture({read:async()=>recovery}),r=await runAcceptedDiscount({},f.deps,options);
+ assert.equal(r.status,'SUPPORT_SENT_SOLUTION_VERIFIED');assert.equal(f.saved.at(-1).raw.carrierRecoveryPending,true);
+ assert.ok(f.events.indexOf('verifyMail')<f.events.indexOf('solve'));assert.equal(f.saved.at(-1).raw.returnRecovery.issueId,'234566');
+});
+test('a return or shipment change during capture prevents email and solution',async()=>{
+ let reads=0;const f=fixture({read:async()=>++reads===1?recovery:{...recovery,returnRecovery:{...recovery.returnRecovery,sameShipment:false}}});
+ assert.equal((await runAcceptedDiscount({},f.deps,options)).status,'CUSTOMER_OR_ORDER_CHANGED');assert.equal(f.events.includes('send'),false);
+});

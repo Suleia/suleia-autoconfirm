@@ -7,13 +7,14 @@ import {readEvidenceDetail} from './dropea-ui.mjs';
 const stateFile='/state/delivery-reply-inflight.json';
 const issueKey=p=>({storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea'});
 export async function readPersistedDetailProof(context,plan,{read=readEvidenceDetail,write=fs.writeFile}={}){
- const {page,dialog}=await read(context,plan);
+ let view;try{view=await read(context,plan);}catch{throw Error('PERSISTED_DETAIL_READ_FAILED');}
+ const {page,dialog}=view;
  // The dialog becomes visible before its asynchronous detail payload arrives.
  // Wait for the expected persisted text, then read the live locator, not the
  // earlier snapshot returned while the modal was loading.
  const named=page.getByRole('dialog',{name:'Detalle de Incidencia',exact:true});
- await named.waitFor({state:'visible',timeout:15000});
- await dialog.getByText(plan.note,{exact:false}).waitFor({state:'visible',timeout:15000});
+ try{await named.waitFor({state:'visible',timeout:15000});}catch{throw Error('PERSISTED_DETAIL_DIALOG_NOT_OBSERVED');}
+ try{await dialog.getByText(plan.note,{exact:false}).waitFor({state:'visible',timeout:15000});}catch{throw Error('PERSISTED_NOTE_NOT_OBSERVED');}
  const text=await dialog.innerText(),normalized=s=>String(s||'').replace(/\s+/g,' ').trim();
  if(await named.count()!==1||!text.includes('ES'+plan.orderId)||!normalized(text).includes(normalized(plan.note)))return null;
  const proof={provider:'DROPEA_PERSISTED_DETAIL',verified:true,orderId:plan.orderId,issueId:plan.issueId,
@@ -22,6 +23,17 @@ export async function readPersistedDetailProof(context,plan,{read=readEvidenceDe
  await write(`/evidence/verified-solution-${plan.orderId}-${plan.issueId}.json`,JSON.stringify(proof),{mode:0o600});
  await dialog.getByText('Cerrar',{exact:true}).click();
  return proof;
+}
+export async function reconcileDeliveryReply(pending,{read,verify,finish,clear}){
+ try{
+  const current=await read(pending.plan);
+  if(!await verify(pending.plan,pending.attemptedAt,current))return {verified:false,reason:'PERSISTED_SOLUTION_NOT_VERIFIED'};
+  await finish('verified',pending.plan,pending.attemptedAt);await clear();
+  return {verified:true};
+ }catch(e){
+  const allowed=new Set(['PERSISTED_DETAIL_READ_FAILED','PERSISTED_DETAIL_DIALOG_NOT_OBSERVED','PERSISTED_NOTE_NOT_OBSERVED']);
+  return {verified:false,reason:allowed.has(e.message)?e.message:'SOLUTION_RECONCILIATION_READ_FAILED'};
+ }
 }
 async function updateControl(patch){
  const old=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
@@ -65,15 +77,23 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
  // new solution. Preserve the shared claim on every uncertain outcome.
  let pending=null;try{pending=JSON.parse(await fs.readFile(stateFile,'utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
  if(pending){
-  const current=await readDropeaV2ReturnIssueState({orderId:pending.plan.orderId,incidenceId:pending.plan.issueId},{includeOrder:true});
-  if(await verifyPersisted(pending.plan,pending.attemptedAt,current)){
-   await finish('verified',pending.plan,pending.attemptedAt);await fs.unlink(stateFile);
+  const reconciliation=await reconcileDeliveryReply(pending,{
+   read:p=>readDropeaV2ReturnIssueState({orderId:p.orderId,incidenceId:p.issueId},{includeOrder:true}),
+   verify:verifyPersisted,finish,clear:()=>fs.unlink(stateFile)
+  });
+  if(reconciliation.verified){
    if(canWrite&&control.deliveryReplyMode==='AUTO_CANARY'){
     await updateControl({deliveryReplyMode:'AUTO',deliveryReplyCanary:{verified:true,orderId:pending.plan.orderId,at:new Date().toISOString()}});
     control.deliveryReplyMode='AUTO';report.mode='AUTO';
    }
    report.reconciled=1;
-  }else{report.status='RECONCILIATION_REQUIRED';return report;}
+  }else{
+   report.status='RECONCILIATION_REQUIRED';report.completedAt=new Date().toISOString();
+   report.cases.push({orderId:pending.plan.orderId,issueId:pending.plan.issueId,status:'RECONCILE',reason:reconciliation.reason,solutionAttempted:false});
+   await fs.writeFile('/state/delivery-reply-report.tmp',JSON.stringify(report),{mode:0o600});await fs.rename('/state/delivery-reply-report.tmp','/state/delivery-reply-report.json');
+   await upsertRows('app_state',{key:'vps_incident_delivery_replies_v1',value:report,updated_at:report.completedAt},{onConflict:'key',timeoutMs:10000});
+   return {mode:report.mode,status:report.status,reason:reconciliation.reason,observed:1,solutions:0,messages:0,review:1};
+  }
  }
  const cached=(await selectRows('app_state',{query:{key:'eq.incidents_cache',select:'value,updated_at'},limit:1}))[0];
  if(!Array.isArray(cached?.value?.incidents)||!Number.isFinite(Date.parse(cached.updated_at))||Date.now()-Date.parse(cached.updated_at)>3600000)throw Error('CURRENT_INCIDENT_CACHE_REQUIRED');
