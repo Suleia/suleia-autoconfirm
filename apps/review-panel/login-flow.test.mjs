@@ -108,12 +108,12 @@ test('scheduled Ads refresh preserves an open audit and resumes after close with
  const elements=new Map(),storage=new Map([['suleia_access_token','synthetic-token'],['suleia_token_expires_at',String(Date.now()+600000)]]);
  const location={origin:'https://panel.example',pathname:'/operations/',search:'',hash:'#ads?tab=diagnosis'};
  const audit={tagName:'DIALOG',open:true},ads=element();ads.children=[];
- ads.querySelector=selector=>selector==='dialog[open]'?ads.children.find(child=>child.tagName==='DIALOG'&&child.open)||null:null;
+ ads.querySelector=selector=>selector.startsWith('dialog[open]')?ads.children.find(child=>child.tagName==='DIALOG'&&child.open&&(!selector.includes(':not(.gi-docked)')||!child.docked))||null:null;
  elements.set('ads-view',ads);let scheduled,loads=0,bodyDrawer=null;
  const context={URL,AbortController,setTimeout,clearTimeout,URLSearchParams,TextEncoder,btoa,crypto:webcrypto,location,Intl,console,
   setInterval(fn){scheduled=fn;},history:{replaceState(){}},
   sessionStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},
-  document:{title:'Suleia',getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelector:selector=>selector==='dialog.gi-drawer[open]'&&bodyDrawer?.open?bodyDrawer:null,querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
+  document:{title:'Suleia',getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},querySelector:selector=>selector.startsWith('dialog.gi-drawer[open]')&&bodyDrawer?.open&&(!bodyDrawer.docked||bodyDrawer.evidenceOpen)?bodyDrawer:null,querySelectorAll:()=>[],addEventListener(){},visibilityState:'visible'},
   SuleiaShell:{mount(){},select(){}},AdsIntelligencePanel:{load(){loads++;ads.children=[];}},
   fetch:async()=>({ok:true,json:async()=>({refresh_interval_seconds:45})})
  };
@@ -131,6 +131,8 @@ test('scheduled Ads refresh preserves an open audit and resumes after close with
  assert.equal(elements.get('refresh-button').disabled,false);
  bodyDrawer={open:true};scheduled();await new Promise(setImmediate);assert.equal(loads,3,'V10 body-mounted drawer also protects the current view');
  bodyDrawer.open=false;scheduled();await new Promise(setImmediate);assert.equal(loads,4,'ordinary refresh resumes after the V10 drawer closes');
+ bodyDrawer={open:true,docked:true};scheduled();await new Promise(setImmediate);assert.equal(loads,5,'default docked analysis permits ordinary live refresh');
+ bodyDrawer.evidenceOpen=true;scheduled();await new Promise(setImmediate);assert.equal(loads,5,'expanded docked evidence preserves the dated audit');
 });
 
 test('expired API access prepares a working PKCE login while a forbidden view keeps the session',async()=>{
