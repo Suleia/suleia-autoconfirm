@@ -61,6 +61,8 @@ test('new courtesy cannot resurrect a cancellation or an expired date',()=>{
  const cancelled=add(fixture('No quiero el pedido'),'Gracias');assert.equal(deliveryReplyPlan(cancelled).eligible,false);
  const old=fixture('Mañana por la tarde');old.messages[0].ts=Date.parse('2026-10-24T10:00:00Z')/1000;old.incident.incidenceDate='2026-10-24T08:00:00Z';
  add(old,'Hola','2026-10-26T12:00:00Z');assert.notEqual(deliveryReplyPlan(old).kind,'SOLUTION');
+ const recurring=fixture('Cualquier día por la tarde');recurring.messages[0].ts=Date.parse('2026-10-24T10:00:00Z')/1000;recurring.incident.incidenceDate='2026-10-24T08:00:00Z';
+ add(recurring,'Hola','2026-10-26T12:00:00Z');assert.equal(deliveryReplyPlan(recurring).kind,'CLARIFY');assert.equal(deliveryReplyPlan(recurring).reason,'EARLIER_PREFERENCE_REQUIRES_RENEWAL');
 });
 test('the owner acknowledgement remains exact and a later cancellation or address change prevents action',()=>{
  const p=deliveryReplyPlan(fixture('No han intentado entregar y sigo esperando'));assert.equal(p.acknowledgement,NON_DELIVERY_ACK);
