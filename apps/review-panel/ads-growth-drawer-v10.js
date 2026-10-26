@@ -16,7 +16,7 @@ const GrowthAnalysisDrawer=(()=>{
     cell.append(e('small',delta===null?'':(key==='cpa'?delta<0:delta>0)?'favorable':'adverse',delta===null?'Sin base comparable':`${delta>=0?'↑ +':'↓ −'}${number(Math.abs(delta))} %`));grid.append(cell);
    }
   }
-  for(const item of items){const b=ui().button(item.label||'Periodo',()=>{tabs.querySelectorAll?.('button').forEach(x=>x.setAttribute('aria-current',x===b?'page':'false'));show(item);});b.setAttribute('aria-current',item===items[0]?'page':'false');b.title=item.range?`${item.range.since} → ${item.range.until}`:'Sin periodo';tabs.append(b);}
+  for(const item of items){const b=ui().button(item.label||(item.key==='today'?'Hoy · parcial':'Periodo'),()=>{tabs.querySelectorAll?.('button').forEach(x=>x.setAttribute('aria-current',x===b?'page':'false'));show(item);});b.setAttribute('aria-current',item===items[0]?'page':'false');b.title=item.range?`${item.range.since} → ${item.range.until}`:'Sin periodo';tabs.append(b);}
   c.append(tabs,grid);if(items.length)show(items[0]);else c.append(e('p','gi-muted','Comparación aún no disponible.'));root.append(c);
  }
  function findings(root,analysis){
