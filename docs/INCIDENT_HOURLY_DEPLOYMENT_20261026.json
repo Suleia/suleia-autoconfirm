@@ -1,0 +1,110 @@
+{
+  "verifiedAt": "2026-10-26T19:36:55.796Z",
+  "sourceRevision": "34fb85d7aff23f4cd4304fc56f51ffd1d8b9480b",
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/164",
+  "testArchiveSha256": "079448c5f05a527e4f96968829ed91b244db447a92418cc8c163dda732ffd6ae",
+  "tests": {
+    "source": {
+      "passed": 408,
+      "files": 47
+    },
+    "exactImage": {
+      "passed": 210,
+      "files": 26
+    },
+    "note": "Groups overlap. No network or production credentials; zero failures/skips."
+  },
+  "runtime": {
+    "image": "suleia-incident-browser:34fb85d",
+    "imageId": "sha256:f2b6835e3609e2248b9f71d75cb17795fb2f7b7af9a930cace2a9a73db6f608d",
+    "verifiedRuntimeFiles": 7,
+    "sameEnvironment": true,
+    "sameConnections": true,
+    "otherContainersUnchanged": true,
+    "sessionsVerified": true,
+    "guardedRollbackPrepared": true,
+    "healthAt": "2026-10-26T19:36:28.975Z",
+    "readiness": "READY",
+    "mode": "AUTO",
+    "schedule": {
+      "intervalMinutes": 60,
+      "lastTriggeredAt": "2026-10-26T19:34:58.957Z",
+      "nextRunAt": "2026-10-26T20:34:58.957Z"
+    },
+    "progress": {
+      "startedAt": "2026-10-26T19:34:58.957Z",
+      "completedAt": "2026-10-26T19:36:03.440Z",
+      "state": "IDLE"
+    },
+    "cycles": [
+      {
+        "startedAt": "2026-10-26T19:06:24.421Z",
+        "completedAt": "2026-10-26T19:07:34.811Z",
+        "deliveryReplies": {
+          "mode": "AUTO",
+          "observed": 9,
+          "solutions": 0,
+          "messages": 0,
+          "review": 0
+        },
+        "supportStatus": "WAITING_ELIGIBLE_CASE"
+      },
+      {
+        "startedAt": "2026-10-26T19:25:41.221Z",
+        "completedAt": "2026-10-26T19:26:51.719Z",
+        "deliveryReplies": {
+          "mode": "AUTO",
+          "observed": 9,
+          "solutions": 0,
+          "messages": 0,
+          "review": 0
+        },
+        "supportStatus": "WAITING_ELIGIBLE_CASE"
+      },
+      {
+        "startedAt": "2026-10-26T19:34:58.957Z",
+        "completedAt": "2026-10-26T19:36:03.368Z",
+        "deliveryReplies": {
+          "mode": "AUTO",
+          "observed": 8,
+          "solutions": 0,
+          "messages": 0,
+          "review": 0
+        },
+        "supportStatus": "WAITING_ELIGIBLE_CASE"
+      }
+    ]
+  },
+  "case": {
+    "orderId": "1478167",
+    "verifiedAt": "2026-10-26T19:36:55.796Z",
+    "issue": {
+      "issueId": "1373299",
+      "provider": {
+        "status": "RESOLVED",
+        "active": true,
+        "resolution": "SOLUTION_PROVIDED",
+        "changedAt": "2026-10-26T18:08:19.201Z",
+        "allowed": []
+      },
+      "ledger": {
+        "status": "verified",
+        "attemptedAt": "2026-10-26T18:08:19.065+00:00",
+        "sentAt": "2026-10-26T18:08:23.584+00:00",
+        "date": "2026-10-28",
+        "window": "afternoon",
+        "owner": "vps_delivery_reply",
+        "exact16to19Preserved": true
+      },
+      "exactPersistedNoteVerified": true,
+      "proofAt": "2026-10-26T18:08:22.813Z"
+    },
+    "inactiveIssueIgnored": "1371614",
+    "actionsExecutedDuringAudit": 0,
+    "physicalDeliveryVerified": false
+  },
+  "rollback": {
+    "script": "/root/suleia-context-34fb85d/rollback.py",
+    "scope": "Code only, idle/no pending journal; preserve all persistent business state."
+  }
+}
