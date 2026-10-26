@@ -32,3 +32,12 @@ test('account read validates exact identity and ranges and makes failed optional
 });
 
 test('ambiguous provider events never become an inferred zero',()=>{const rows=[fact('1',{purchases:2,purchaseValue:60,purchaseType:account.purchaseType}),fact('2',{roasStatus:'AMBIGUOUS',quality:{purchase:'AMBIGUOUS'}})];assert.equal(reconcileReportingEvents(rows,account)[1].purchases,null);});
+
+test('a custom comparison uses its own native account range, never the default previous period',()=>{
+ const dataset=growthFixtureDataset({since:'2026-10-19',until:'2026-10-25',partial:false}),baseline=growthFixtureDataset({since:'2026-10-05',until:'2026-10-11',partial:false});
+ const native={...account,since:dataset.range.since,until:dataset.range.until,addToCart:88};
+ dataset.accountEvidence={state:'AVAILABLE',current:native,previous:{...native,addToCart:300},daily:[],priorDaily:[]};
+ baseline.accountEvidence={state:'AVAILABLE',current:{...native,since:baseline.range.since,until:baseline.range.until,addToCart:33},daily:[],priorDaily:[]};
+ const out=analyzeReview({dataset,baseline,now:GROWTH_FIXTURE_NOW});assert.equal(out.previous.addToCart,33);assert.equal(out.baselineRange.since,'2026-10-05');assert.equal(out.changes.addToCart,(88-33)/33*100);
+ baseline.accountEvidence={state:'UNAVAILABLE'};const missing=analyzeReview({dataset,baseline,now:GROWTH_FIXTURE_NOW});assert.notEqual(missing.previous.addToCart,300);assert.equal(missing.accountSeries.previous,null);
+});
