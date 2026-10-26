@@ -1,5 +1,52 @@
 # Suleia agent handoff
 
+## 2026-10-26 · Renewed-absence notices deployed and real send verified (PR163)
+
+The owner explicitly requested the approved es_ES dropea_ausente_v3 for the
+new ES1476535 absence and future equivalents. Existing controller d64bb5b was
+healthy but intentionally capped each order at two notices. Current issue1373739
+is a distinct later active/current provider failure; the two22October notices
+remain independently VERIFIED. Latest earlier delivery selection was23October
+afternoon and cannot authorize today's reschedule.
+
+Runtime ea94913105d47bdd4006a6cd1d23c5b0be929705 is LIVE and healthy, image40963cb6...
+on the same recipient-absent-live-controller. Four overlaid module hashes match
+the tested artifact. New repeated_absence_notice_authorized evidence flag enables
+only later successors. Initial/second controls, body/buttons/native destinations,
+configuration/sandbox/networks, other services, timers and discounts are preserved.
+Each successor requires the complete verified predecessor chain, fresh exact-order
+conversation and distinct later primary failed-attempt issue. Atomic latest/count
+reservation and post-claim reread retain duplicate/uncertainty/contrary-intent guards.
+Notice sequence is not a fabricated carrier attempt number. No new scheduler.
+
+Tests:279 focused Linux/Node22 regressions and one isolated PostgreSQL17 integration
+test pass with no production credentials/network. The latter races20 competitors,
+rejects uncertain/obsolete predecessors, verifies third/fourth notices and all
+earlier bounded receipts, and retains the exact initial timer. Separate synthetic
+one-vs-four v3 check retains the original first-notice discount clock. Actual base
+hash comparison identified only CRLF/LF differences, verified before rollout.
+
+ES1476535/1373739: one bounded invocation of the identical existing selector and
+executor, with no independent sender or bypass, received ACKNOWLEDGED. Independent
+Chatby history subsequently supplied the definitive WhatsApp WAMID: sent26October
+18:53:49UTC, receipt VERIFIED18:55:36.715UTC. Recheck returned ALREADY_CLAIMED_NO_POST.
+All three order receipts remain VERIFIED; zero duplicate issue/template claims,
+zero timers for the new issue, every original timer retained. No physical delivery
+or incident solution claimed from the message alone.
+
+Existing solution worker remains AUTO/READY with its30minute schedule. Fresh
+18:56UTC read shows current issue PENDING/active and NO_CURRENT_DELIVERY_REPLY:
+await a new date/window, then let that owner apply the normal settling/freshness
+and cancellation checks before supplying the solution. Do not reuse23October or
+replay the solution already saved for the distinct older issue1371043.
+
+Receipt: docs/ABSENCE_NOTICE_PER_ATTEMPT_DEPLOYMENT_20261026.json; rule/rollback:
+docs/ABSENCE_NOTICE_PER_ATTEMPT.md. Root-owned disable.py is installed and syntax
+checked: disable only the new flag, preserve all claims and the compatible verifier;
+do not restore old database state or an observer that cannot distinguish successors.
+NEXT: existing controller and solution worker continue naturally; independently
+verify any new current customer selection and never resend an uncertain claim.
+
 Updated: 2026-07-25
 
 ## Purpose

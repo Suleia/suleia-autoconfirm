@@ -40,3 +40,18 @@ is required. Enable the evidence flag only after exact artifact and concurrency
 tests and a fresh no-action preview. Rollback disables only this flag and keeps
 all claims, receipts and the compatible verifier. Do not restore old database
 state or a verifier that cannot recognize an authorized repeated successor.
+
+Production verification: runtime `ea94913` is healthy with this flag enabled;
+279 focused regressions and one isolated PostgreSQL17 concurrency/receipt/timer
+test pass. ES1476535 received one v3 for issue1373739 at26October18:53:49UTC,
+independently VERIFIED from its definitive WhatsApp WAMID at18:55:36UTC. A later
+check consumed the same existing claim without another POST. All earlier receipts
+and original timers remain; no new timer was created. The original source used
+CRLF in three modules; normalized equality with the Git baseline was proven before
+switching the exact tested four-file overlay. Full receipt is in
+`ABSENCE_NOTICE_PER_ATTEMPT_DEPLOYMENT_20261026.json`.
+
+The current issue still awaits a new customer selection. The existing30minute
+solution worker is AUTO/READY and fresh review returns NO_CURRENT_DELIVERY_REPLY;
+the earlier23October afternoon choice is expired. Sending a template is not
+equivalent to resolving the issue or confirming physical delivery.
