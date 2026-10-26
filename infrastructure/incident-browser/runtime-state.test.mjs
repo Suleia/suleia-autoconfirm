@@ -1,13 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {runtimeReadiness,executionFailure,logisticsOutcome} from './runtime-state.mjs';
+import {CYCLE_FRESHNESS_MS} from './schedule.mjs';
 test('configured automation is not reported ready with stale reads, missing sessions or uncertain save',()=>{
  const now=Date.now(),input={now,control:{mode:'AUTO'},cycle:{completedAt:new Date(now).toISOString()},sites:{chatby:{session:'UI_PRESENT_REQUIRES_IDENTITY_VERIFICATION'},dropea:{session:'UI_PRESENT_REQUIRES_IDENTITY_VERIFICATION'}}};
  assert.equal(runtimeReadiness(input).executionEnabled,true);
  assert.equal(runtimeReadiness({...input,reconcile:true}).executionEnabled,false);
  assert.equal(runtimeReadiness({...input,sites:{}}).executionEnabled,false);
- assert.equal(runtimeReadiness({...input,cycle:{at:new Date(now-54*60000).toISOString()}}).executionEnabled,true);
- assert.equal(runtimeReadiness({...input,cycle:{at:new Date(now-60*60000).toISOString()}}).readiness,'WAITING_FRESH_CYCLE');
+ assert.equal(CYCLE_FRESHNESS_MS,90*60000);
+ assert.equal(runtimeReadiness({...input,cycle:{at:new Date(now-CYCLE_FRESHNESS_MS+1).toISOString()}}).executionEnabled,true);
+ assert.equal(runtimeReadiness({...input,cycle:{at:new Date(now-CYCLE_FRESHNESS_MS).toISOString()}}).readiness,'WAITING_FRESH_CYCLE');
  assert.equal(runtimeReadiness({...input,cycle:{...input.cycle,error:'FAILED'}}).readiness,'CYCLE_FAILED');
 });
 test('a screenshot error before saving does not become an uncertain provider mutation',()=>{
