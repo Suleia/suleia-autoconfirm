@@ -12,4 +12,12 @@ Exact current-template backup is saved outside Git under `shopify-theme-work/col
 
 Preflight: official Shopify Theme Check passes the generated Liquid and complete candidate JSON against fresh section/locale context. JSON parsing and exact object/byte checks prove only this block changes. An isolated local preview verifies loaded portraits, overlap and no overflow at375/390/430/768/1440CSSpixels; block height56px mobile,62px desktop. No other Shopify theme was edited for preview.
 
-Production writer freshly compares the full target template and shared snippet, journals before a single request, writes only the target file, and verifies via fresh GraphQL reads. No write retries. Concurrent edits abort; failed verification restores only the unchanged original/candidate file under exact guards. Final public checks/receipt follow execution.
+Production writer freshly compares the full target template and shared snippet, journals before a single request, writes only the target file, and verifies via fresh GraphQL reads. No write retries. Concurrent edits abort; failed verification restores only the unchanged original/candidate file under exact guards.
+
+Deployed and GraphQL-verified at2026-10-27T20:06:48UTC (21:06Madrid). Final template MD5 `0b0b758898104f0c54610a3630b7ce5d`. A complete post-deployment manifest proves exactly1file changed and378files remain byte-identical, including the global social snippet, pack selector, SEOUL and NIDA templates, cart/checkout files and global configuration. JSON semantic and prefix/suffix checks prove all other CollaGum blocks/order/settings remain identical.
+
+Anonymous public HTML identifies MAIN198240600396 and all3exact portrait URLs with the illustrative label and no counter/verification claims. Real browser checks pass for loaded images, overlap and block fit at375/390/430/768/1440CSSpx; console errors0. Pack text/photo/amount/default selection/width/height match the pre-change reference exactly at375and1440px. An initial JSON-string comparison differed only because object keys were ordered differently; explicit card-field comparisons pass.
+
+At768px, the unchanged pack selector extends to846px while this new social block fits within425–700px. This is outside the social block and the owner explicitly forbids pack-selector changes, so it was not altered. No page-overflow claim is made for that tablet width. Mobile375/390/430and desktop1440have no page overflow.
+
+Final evidence: `shopify/collagum-social-20261027/final-receipt.json`; local mobile/desktop/detail screenshots under the backup/evidence folder. The temporary loopback preview server was stopped. No whole theme published, no other theme edited, no images generated, no orders/cart operations/messages/campaign actions.
