@@ -1,0 +1,45 @@
+{% doc %}
+  NIDA-only presentation for the existing quantity-breaks selector.
+  @param {string} part - header, details, price-details, or trust
+  @param {number} [pack] - Pack number, 1 to 3
+  @param {number} [pack_price] - Existing selector total in cents
+  @param {number} [saving] - Existing selector saving in cents
+{% enddoc %}
+{% if product.handle == 'crema-nida' %}
+  {% case part %}
+    {% when 'header' %}
+      {{ 'nida-premium.css' | asset_url | stylesheet_tag }}
+      <div class="nida-premium-header">
+        <span class="nida-premium-eyebrow">SULEIA · CUIDADO FACIAL</span>
+        <h1>NIDA <span>Cuidado avanzado para una piel más sana, hidratada y luminosa.</span></h1>
+        <div class="nida-premium-benefits">
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M12 3S5.5 10.2 5.5 15a6.5 6.5 0 0 0 13 0C18.5 10.2 12 3 12 3Z"/><path d="M9 15a3 3 0 0 0 3 3" stroke-linecap="round"/></svg>Hidratación profunda</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6L12 3Z"/></svg>Mejora la apariencia de la piel</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg>Calma y protege</span>
+          <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" stroke-linecap="round"/></svg>Cuidado facial diario</span>
+        </div>
+      </div>
+    {% when 'details' %}
+      <ul class="nida-premium-details">
+        {% case pack %}
+          {% when 1 %}
+            <li>Hidratación diaria</li><li>Ayuda a mantener la piel suave</li><li>Textura ligera y agradable</li>
+          {% when 2 %}
+            <li>Doble cantidad para tu rutina</li><li>Ideal para uso continuado</li><li>Más cuidado por menos precio</li>
+          {% when 3 %}
+            <li>El menor precio por unidad</li><li>Mayor duración de tu rutina</li><li>Ideal para compartir o reservar</li>
+        {% endcase %}
+      </ul>
+    {% when 'price-details' %}
+      {% assign divisor = pack | times: 1.0 %}
+      {% assign unit_price = pack_price | divided_by: divisor | round %}
+      <span class="nida-premium-saving">Ahorras {{ saving | money_without_currency }} €</span>
+      <span class="nida-premium-unit">{{ unit_price | money_without_currency }} € / unidad</span>
+    {% when 'trust' %}
+      <div class="nida-premium-trust">
+        <a href="/policies/shipping-policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M2 5h13v12H2zM15 9h4l3 4v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg><span><strong>ENVÍO GRATIS</strong><small>Península · 24/48 h laborables</small></span></a>
+        <a href="/policies/shipping-policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m3 7 9-4 9 4v10l-9 4-9-4V7Zm0 0 9 4 9-4M12 11v10M8 5l9 4"/></svg><span><strong>PAGA AL RECIBIR</strong><small>Pago contra reembolso</small></span></a>
+        <a href="/policies/refund-policy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6" stroke-linecap="round" stroke-linejoin="round"/></svg><span><strong>GARANTÍA 30 DÍAS</strong><small>Consulta las condiciones</small></span></a>
+      </div>
+  {% endcase %}
+{% endif %}

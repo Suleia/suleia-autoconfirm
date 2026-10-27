@@ -1,0 +1,43 @@
+{
+  "liquidTemplateAndBaseValidation": {
+    "success": true,
+    "responses": [
+      {
+        "result": "inform",
+        "resultDetail": "snippets/quantity-breaks.liquid passed all checks (with non-error findings):\nWARNING [line 603, col 1]: Liquid complexity is 206, which exceeds the maximum of 120. The decision at line 603 pushed it over the limit. Consider simplifying conditional logic, or moving self-contained decision logic into snippets with the render tag.",
+        "artifactId": "nida-premium-staging-20261027",
+        "artifactRevision": 3
+      },
+      {
+        "result": "success",
+        "resultDetail": "snippets/nida-premium-ui.liquid passed all checks.",
+        "artifactId": "nida-premium-staging-20261027",
+        "artifactRevision": 3
+      },
+      {
+        "result": "success",
+        "resultDetail": "assets/nida-premium.css passed all checks.",
+        "artifactId": "nida-premium-staging-20261027",
+        "artifactRevision": 3
+      },
+      {
+        "result": "success",
+        "resultDetail": "templates/product.parches_glp.json passed all checks.",
+        "artifactId": "nida-premium-staging-20261027",
+        "artifactRevision": 3
+      }
+    ]
+  },
+  "finalCssValidation": {
+    "success": true,
+    "responses": [
+      {
+        "result": "success",
+        "resultDetail": "nida-premium.css passed all checks.",
+        "artifactId": "nida-premium-staging-20261027",
+        "artifactRevision": 6
+      }
+    ]
+  },
+  "sourceRangeSchemaChecked": true
+}
