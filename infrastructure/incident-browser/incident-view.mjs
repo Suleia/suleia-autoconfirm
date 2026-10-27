@@ -8,13 +8,19 @@ const incidentUrl=url=>url.origin===origin&&url.pathname.endsWith('/incidences')
 export async function clearIncidentDateFilter(page){
  const before=new URL(page.url());
  if(!incidentUrl(before))throw Error('INCIDENT_VIEW_REQUIRED');
- if(!dated(before))return {cleared:false};
  const date=page.getByPlaceholder('Fecha',{exact:true});
+ const dates=await date.count();
+ if(dates===0&&!dated(before))return {cleared:false};
+ if(dates!==1)throw Error('INCIDENT_DATE_FILTER_UNVERIFIED');
+ // Angular retains the old URL until the next search is submitted. The live
+ // form is authoritative here; an already empty date must not clear a
+ // different filter or wait forever for a navigation that has not happened.
+ if(!(await date.inputValue()).trim())return {cleared:false};
  const remove=page.getByRole('button',{name:'Quitar filtro',exact:true}).filter({visible:true});
- if(await date.count()!==1||await remove.count()!==1)throw Error('INCIDENT_DATE_FILTER_UNVERIFIED');
+ if(await remove.count()!==1)throw Error('INCIDENT_DATE_FILTER_UNVERIFIED');
  await remove.click();
- await page.waitForURL(url=>incidentUrl(url)&&url.pathname===before.pathname&&!dated(url),{timeout:15000});
+ await remove.waitFor({state:'hidden',timeout:15000});
  const after=new URL(page.url());
- if(!incidentUrl(after)||after.pathname!==before.pathname||dated(after))throw Error('INCIDENT_DATE_FILTER_NOT_CLEARED');
+ if(!incidentUrl(after)||after.pathname!==before.pathname||(await date.inputValue()).trim())throw Error('INCIDENT_DATE_FILTER_NOT_CLEARED');
  return {cleared:true};
 }

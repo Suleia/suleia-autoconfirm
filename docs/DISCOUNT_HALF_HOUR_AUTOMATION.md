@@ -22,7 +22,9 @@ failures expose only bounded reasons and the human-review requirement.
 The dedicated Dropea view retained a range ending 26 October and hid a current
 27 October issue. Before exact order/issue lookup, clear only the uniquely
 observed date-filter control in that authenticated incident view, then verify
-both date parameters were removed. Missing/ambiguous controls, unrelated
+the date input is empty and its filter chip disappeared. Angular can retain
+the previous URL until the next search is submitted; do not wait for that
+navigation before submitting the exact-order search. Missing/ambiguous controls, unrelated
 origins/routes and unchanged filters fail closed. Exact issue/order/phone
 checks still apply. The read-only probe uses the same repair.
 

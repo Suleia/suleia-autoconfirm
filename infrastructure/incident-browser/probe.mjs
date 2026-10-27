@@ -33,7 +33,11 @@ async function runProbe(context){
     const draft=page.getByRole('dialog',{name:'Aportar solución',exact:true});
     if(await draft.count()===1)await draft.getByText('Cancelar',{exact:true}).click();
     await page.getByText('Todas',{exact:true}).click();
+    const filterObservation=async()=>({at:new Date().toISOString(),url:page.url(),dateValue:await page.getByPlaceholder('Fecha',{exact:true}).inputValue(),removeCount:await page.getByRole('button',{name:'Quitar filtro',exact:true}).filter({visible:true}).count()});
+    const beforeFilter=await filterObservation();
+    await fs.writeFile('/evidence/incident-filter-probe.json',JSON.stringify({before:beforeFilter}));
     await clearIncidentDateFilter(page);
+    await fs.writeFile('/evidence/incident-filter-probe.json',JSON.stringify({before:beforeFilter,after:await filterObservation()}));
     const search=page.getByPlaceholder('Buscar...',{exact:true});
     await search.fill(orderId);await search.press('Enter');
    }
