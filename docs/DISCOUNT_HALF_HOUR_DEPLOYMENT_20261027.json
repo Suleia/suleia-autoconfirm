@@ -1,0 +1,168 @@
+{
+  "verifiedAt": "2026-10-27T17:50:58.934Z",
+  "sourceRevision": "3ad9a8faede48eed231a631746619a5cf51db14f",
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/165",
+  "sourceArchiveSha256": "06830ac1615cd88a77f662c81cfcbcc1827b8f17718a782bcfa3f122cdd5b53f",
+  "tests": {
+    "source": {
+      "passed": 415,
+      "files": 48
+    },
+    "exactImage": {
+      "passed": 217,
+      "files": 27
+    },
+    "note": "Groups overlap; zero failures/skips, no network or production credentials."
+  },
+  "runtime": {
+    "at": "2026-10-27T17:51:50.299Z",
+    "image": "suleia-incident-browser:3ad9a8f",
+    "imageId": "sha256:f4b4d9dc8007b940854f32df23d28a2da260c23a1d493794929917b623a7d93a",
+    "verifiedRuntimeFiles": 11,
+    "sameEnvironment": true,
+    "sameConnections": true,
+    "otherContainersUnchanged": true,
+    "guardedCodeOnlyRollback": true,
+    "readiness": "READY",
+    "sites": {
+      "chatby": {
+        "session": "UI_PRESENT_REQUIRES_IDENTITY_VERIFICATION"
+      },
+      "dropea": {
+        "session": "UI_PRESENT_REQUIRES_IDENTITY_VERIFICATION"
+      }
+    },
+    "schedule": {
+      "intervalMinutes": 30,
+      "lastTriggeredAt": "2026-10-27T17:38:50.179Z",
+      "nextRunAt": "2026-10-27T18:08:50.179Z"
+    },
+    "cycle": {
+      "startedAt": "2026-10-27T17:38:50.180Z",
+      "completedAt": "2026-10-27T17:44:19.843Z",
+      "error": null,
+      "deliveryReplies": {
+        "mode": "AUTO",
+        "observed": 29,
+        "solutions": 1,
+        "messages": 1,
+        "review": 0
+      },
+      "acceptedDiscountSupport": {
+        "status": "COMPLETED",
+        "checked": 1,
+        "results": [
+          {
+            "orderId": "1477822",
+            "currentIssueId": "1373114",
+            "supportIssueId": "1373114",
+            "checkedAt": "2026-10-27T17:44:10.369Z",
+            "status": "SUPPORT_RECONCILIATION_REVIEW_REQUIRED",
+            "reason": "ORDER_AMOUNT_CHANGE_PENDING",
+            "supportVerified": true,
+            "needsHumanReview": true,
+            "reopened": false,
+            "orderAmountStatus": "ORDER_AMOUNT_CHANGE_PENDING",
+            "orderDiscountApplied": false,
+            "currentAmountCents": 3499,
+            "expectedAmountCents": 2999,
+            "currency": "EUR",
+            "discountApplied": false,
+            "carrierCodApplied": null,
+            "customerResponseStatus": "ORIGINAL_ACCEPTANCE",
+            "customerResponseAt": "2026-10-27T16:30:24.000Z",
+            "customerResponseAfterCurrentIssue": true,
+            "currentIssueStatus": "RESOLVED",
+            "sharedActionStatus": "VERIFIED"
+          }
+        ]
+      }
+    },
+    "journalsClearedAfterVerification": true
+  },
+  "discountCase": {
+    "at": "2026-10-27T17:44:30.825Z",
+    "orderId": "1477822",
+    "issueId": "1373114",
+    "support": {
+      "status": "verified",
+      "phase": "SOLUTION_VERIFIED",
+      "attemptedAt": "2026-10-27T17:34:42.815+00:00",
+      "verifiedAt": "2026-10-27T17:35:08.391+00:00",
+      "originalCents": 3499,
+      "finalCents": 2999,
+      "mailRecorded": true
+    },
+    "shared": {
+      "status": "verified",
+      "owner": "accepted_discount_support_v1"
+    },
+    "provider": {
+      "status": "RESOLVED",
+      "resolution": "SOLUTION_PROVIDED",
+      "changedAt": "2026-10-27T17:35:07.402Z",
+      "orderAmount": 34.99,
+      "currency": "EUR"
+    },
+    "actionsExecuted": 0,
+    "solutionNote": {
+      "hash": "a3ee0d1061cfe8783c836cb19b6ee09c63f352aae08596059ac24b68d8277b0f",
+      "explicitDiscount": true,
+      "explicitOriginal": true,
+      "explicitFinal": true
+    },
+    "mailBodyAndAttachmentBytesVerified": true,
+    "attachmentCount": 2,
+    "operation": {
+      "status": "completed",
+      "errorCode": null
+    },
+    "persistedNote": {
+      "provider": "DROPEA_PERSISTED_DETAIL",
+      "verified": true,
+      "orderId": "1477822",
+      "issueId": "1373114",
+      "noteHash": "a3ee0d1061cfe8783c836cb19b6ee09c63f352aae08596059ac24b68d8277b0f",
+      "observedAt": "2026-10-27T17:50:58.934Z",
+      "explicitOriginal": true,
+      "explicitDiscount": true,
+      "explicitFinal": true,
+      "actionsExecuted": 0,
+      "originalProbeRestored": true
+    },
+    "mail": {
+      "matchingSentMessages": 1,
+      "paginated": false,
+      "sentAt": "2026-10-27T17:34:55.000Z",
+      "to": "soporte@dropea.com",
+      "genuineAttachmentCount": 2,
+      "exactBodyAndAttachmentBytesVerified": true
+    },
+    "orderAmountDiscountApplied": false,
+    "physicalDeliveryVerified": false
+  },
+  "reconciledJournal": {
+    "orderId": "1485722",
+    "issueId": "1375009",
+    "originalAttemptedAt": "2026-10-27T11:38:18.050Z",
+    "providerChangedAt": "2026-10-27T11:38:18.182Z",
+    "reconciledAt": "2026-10-27T17:40:52.438Z",
+    "exactPersistedNoteVerified": true,
+    "replayed": false
+  },
+  "historicalVerifiedCasesNotResent": [
+    "1459938",
+    "1457181",
+    "1459392"
+  ],
+  "carrierRecoveryRejectedCase": {
+    "orderId": "1473771",
+    "supportTicket": "314692",
+    "state": "RETURN_CANNOT_BE_STOPPED",
+    "replayed": false
+  },
+  "rollback": {
+    "script": "/root/suleia-context-3ad9a8f/rollback.py",
+    "scope": "Guarded idle code-only; preserve all claims, receipts and business state."
+  }
+}

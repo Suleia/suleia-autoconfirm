@@ -1,6 +1,51 @@
 # Suleia agent handoff
 
-Updated: 2026-10-26
+Updated: 2026-10-27
+
+## Verified half-hour discount/incident workflow — 27 October 2026
+
+The owner explicitly superseded the hourly cadence with 30 minute reviews.
+PR #165 is deployed on the existing dedicated VPS worker at source
+`3ad9a8faede48eed231a631746619a5cf51db14f`, image `3ad9a8f`. No new sender,
+timer, template/flow or Codex heartbeat. The 25 minute watchdog/overlap guard
+remain; readiness freshness is 60 minutes. One-hour acceptance settling and
+all identity/offer/amount/cancellation/return/claim checks remain unchanged.
+
+ES1477822 / issue1373114: the existing startup cycle sent one support email
+at 17:34:55 UTC, with two genuine offer/acceptance images. Independent mailbox
+body/attachment-byte verification passed. Provider operation completed and
+the issue became RESOLVED/SOLUTION_PROVIDED at 17:35:07 UTC. Shared/support
+receipts are verified. Exact saved-detail read at 17:50:58 UTC independently
+matches the note hash, original EUR34.99, EUR5 reduction and EUR29.99 to collect.
+The provider order amount still reads EUR34.99: the carrier amount change is
+pending; no financial application or physical delivery is claimed.
+
+The Dropea view retained yesterday's date range and hid ES1485722's already
+saved solution. The read repair clears only the uniquely identified date
+control, verifies the live input is empty and the chip removed, then searches
+the exact issue/order. Angular retains the old URL until search submission.
+Unknown/ambiguous controls, wrong routes/origins and unchanged dates block.
+At 17:40:52 UTC the existing journal for issue1375009 reconciled from the exact
+persisted note/provider state, preserving its original 11:38:18 UTC timestamp.
+No POST replay; the global hold cleared only after durable verification.
+
+Final 17:38:50–17:44:19 UTC cycle: 29 delivery cases, one new verified solution,
+one message, no review entries. Support reread verified its receipt and
+correctly exposes ORDER_AMOUNT_CHANGE_PENDING. At 17:51:50 UTC: AUTO/READY,
+both dedicated sessions valid, no pending journals, next trigger 18:08:50 UTC
+(exactly 30 minutes). Eleven cumulative runtime files match, connections and
+environment are unchanged, and other containers retain their identities.
+An independent bounded note inspection waited for the asynchronous history
+to load and restored the original probe byte-for-byte before final validation.
+
+Final tests: 415/415 source regressions in 48 files and 217/217 on the exact
+image in 27 files, zero failures/skips; groups overlap. Tests use no network
+or production credentials. Guarded idle code-only rollback prepared; never
+restore business state. Receipt: `docs/DISCOUNT_HALF_HOUR_DEPLOYMENT_20261027.json`.
+ES1459938/1457181/1459392 were not resent; ES1473771 remains a carrier-rejected
+recovery because support explicitly says its return cannot be stopped.
+Next: continue the existing half-hour cycle; verify carrier amount changes
+and fresh evidence without replaying historical emails or solutions.
 
 ## Verified hourly incident review — 26 October 2026
 
