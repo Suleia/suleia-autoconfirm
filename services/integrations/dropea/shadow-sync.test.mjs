@@ -14,6 +14,14 @@ const issue = {
   allowed_resolution_options: ['RETRY'], created_at: '2026-08-01T11:00:00Z',
   updated_at: '2026-08-01T11:01:00Z'
 };
+test('one conflicting identity cannot stop unrelated order refresh or certify complete coverage',async()=>{
+ const projected=[],checkpoints=[],health=[];
+ const client={market:'ES',listAll:async name=>({items:name==='listOrders'?[order,{...order,id:42},{...order,id:43}]:[],page_count:1,complete:true,records_read:name==='listOrders'?3:0})};
+ const projector={resolveCanonicalOrder:async o=>({status:o.dropea_order_id==='42'?'CONFLICT':'NOT_FOUND'}),upsertOrder:async o=>{projected.push(o.dropea_order_id);return {inserted:false};},connectorHealth:async h=>health.push(h),syncCheckpoint:async c=>checkpoints.push(c)};
+ const r=await syncDropeaPublicApi({client,projector,hmacKey:'a-protected-hmac-key-with-more-than-32-characters',storeConfig:{store_id:'17',historical_reingestion_allowed:true}});
+ assert.deepEqual(projected,['41','43']);assert.equal(r.identity_conflicts_blocked,1);assert.equal(r.ok,false);assert.equal(r.actions_executed,0);
+ assert.equal(checkpoints.find(c=>c.resource_type==='orders').errors,1);assert.equal(health[0].data_health,'DEGRADED');
+});
 
 test('Dropea V2 shadow sync projects canonical orders before exactly linked issues', async () => {
   const writes = [];

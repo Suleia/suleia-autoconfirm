@@ -42,7 +42,7 @@ export function createReportCache({read,restore=null,now=()=>Date.now(),waitMs=4
     if(base&&query.force!==true){job.task.catch(()=>{});return {...base.value,readFailed:true,diagnostic:diagnostic(key,'PREPARING',now()-job.startedAt>=jobDeadlineMs?'META_TIMEOUT':'ADS_REPORT_PREPARING',job)};}
     if(now()-job.startedAt>=jobDeadlineMs)throw new ReportReadError(diagnostic(key,'FAILED','META_TIMEOUT',job));
     let timer;
-    try{base=await Promise.race([job.task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('WAIT_EXPIRED')),waitMs);})]);}
+    try{base=await Promise.race([job.task,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('WAIT_EXPIRED')),Number.isInteger(query.waitMs)?Math.max(0,Math.min(10000,query.waitMs)):waitMs);})]);}
     catch{
      const pending=jobs.has(key),code=pending?'ADS_REPORT_PREPARING':failures.get(key)?.code||'META_SOURCE_UNAVAILABLE';
      if(!base)throw new ReportReadError(diagnostic(key,pending?'PREPARING':'FAILED',code,job));failed=true;

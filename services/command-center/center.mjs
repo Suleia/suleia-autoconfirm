@@ -69,6 +69,11 @@ export class CommandCenter {
    const s=await this.read('summary',()=>this.repository.summary(new URLSearchParams()));
    return {orders:{pending:number(s.orders?.pending),responded:number(s.orders?.with_customer_response),observedAt:iso(s.orders?.last_sync_at)},incidents:{pending:number(s.incidents?.pending),responded:number(s.incidents?.responded),blocked:number(s.incidents?.blocked),observedAt:iso(s.incidents?.last_sync_at)},sources:(s.connectors||[]).map(c=>({source:label(c.connector),observedAt:iso(c.last_success_at),status:c.freshness_status&&c.freshness_status!=='FRESH'?label(c.freshness_status):freshness(c.last_success_at,this.now()),reportedStatus:label(c.data_health)}))};
  }
+ async currentAds(query={}) {
+   const requestedAt=new Date(this.now()).toISOString();
+   const result=await this.ads.overview({...query,force:true,interactive:true});
+   return {...result,requestedAt,requestPeriod:query.since?null:query.period||'hoy'};
+ }
  async finance(month) {
    if(month&&(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(month)||month>new Date(this.now()).toISOString().slice(0,7)))throw Error('QUERY_INVALID');
    const f=await this.read('finance:'+(month||'current'),()=>this.readFinance(new URLSearchParams(month?{month}:{})));
@@ -95,7 +100,7 @@ export class CommandCenter {
    if(body.action==='review'||(body.action==='request'&&this.ads.review?.parse(body.text))){
      this.authorize(actor,'ads');
      if(body.action==='request'&&(typeof body.text!=='string'||body.text.length>1000||typeof body.requestKey!=='string'||body.requestKey.length>180))throw Error('QUERY_INVALID');
-     const result=await adsCommand(this.ads,body),intent=this.ads.review?.parse(body.text||'Auditoría de campañas');
+     const result=await adsCommand(this.ads,{...body,query:{...body.query,force:true}}),intent=this.ads.review?.parse(body.text||'Auditoría de campañas');
      if(result.review&&intent){
        await this.ledger.saveContext(actor.user,{tool:'ads',review:'v6',period:intent.period,selector:intent.selector,level:intent.level},this.now()+CONTEXT_TTL_MS);
        if(body.requestKey)await this.remember(actor,body,'QUERY',{tool:'ads',version:'v6',period:intent.period,observedAt:result.review.observedAt,evidenceDigest:result.review.evidenceDigest});
@@ -116,7 +121,7 @@ export class CommandCenter {
      const days=Math.round((Date.parse(period.to)-Date.parse(period.from))/86400000)+1;
      const shift=(day,n)=>new Date(Date.parse(day+'T12:00:00Z')+n*86400000).toISOString().slice(0,10);
      const previous={preset:'custom',from:shift(period.from,-days),to:shift(period.from,-1)};
-     const results=await Promise.allSettled([this.orderReader.get(spec),this.ads.overview({since:period.from,until:period.to,level:'campaign'}),this.ads.ledger.reportHistory(actor.user,period.start,period.end),this.orderReader.get(previous)]);
+     const results=await Promise.allSettled([this.orderReader.get(spec),this.currentAds({since:period.from,until:period.to,level:'campaign'}),this.ads.ledger.reportHistory(actor.user,period.start,period.end),this.orderReader.get(previous)]);
      const value=i=>results[i].status==='fulfilled'?results[i].value:null;
      const proposals=(value(2)||[]).filter(p=>p.actor?.user===actor.user);
      const changes=proposals.flatMap(p=>p.items.filter(i=>i.result&&['VERIFIED','RECONCILED'].includes(i.result.state)&&i.result.verifiedAt>=Date.parse(period.start)&&i.result.verifiedAt<Date.parse(period.end)).map(i=>({campaign:i.name,before:i.before,after:i.after,at:i.result.verifiedAt,state:i.result.state})));
@@ -124,7 +129,7 @@ export class CommandCenter {
      return {report:{period,generatedAt:new Date(this.now()).toISOString(),orders:value(0),previousOrders:value(3),comparisonNote:'Periodo anterior completo; el periodo actual puede estar en curso. No equivale a comparar el mismo tramo horario.',meta:safeMeta,changes,pending:proposals.filter(p=>p.state==='PENDING'&&p.expiresAt>this.now()).map(p=>({id:p.id,expiresAt:p.expiresAt,count:p.items.length})),errors:results.map((r,i)=>r.status==='rejected'?['DROPEA','META','HISTORY','PREVIOUS_DROPEA'][i]:null).filter(Boolean)},format:body.format==='image'||/imagen/.test(clean(body.text))?'image':'pdf'};
    }
    if(body.action==='orders-summary') {this.authorize(actor,'orders');return {orders:await this.orderReader.get(body.period),view:['today','confirmations','hour','products','periods'].includes(body.view)?body.view:'today',metric:['received','confirmed','units'].includes(body.metric)?body.metric:'confirmed'};}
-   if(body.action==='analyze') {this.authorize(actor,'ads');return {analysis:await this.ads.overview(body.query),view:body.view,focus:body.focus,includeInactive:body.includeInactive===true};}
+   if(body.action==='analyze') {this.authorize(actor,'ads');return {analysis:await this.currentAds(body.query),view:body.view,focus:body.focus,includeInactive:body.includeInactive===true};}
    if(body.action!=='request'){
      this.authorize(actor,['confirm','cancel','reconcile'].includes(body.action)?'confirm':body.action==='history'?'history':'ads');
      return adsCommand(this.ads,body);
@@ -132,7 +137,7 @@ export class CommandCenter {
    if(typeof body.text!=='string'||body.text.length>1000||typeof body.requestKey!=='string'||body.requestKey.length>180)throw Error('QUERY_INVALID');
    const context=await this.ledger.context(actor.user,this.now()),intent=parseBusiness(body.text,context,this.now());
    if(/muestrame la propuesta|ver propuesta/.test(clean(body.text))){this.authorize(actor,'propose');const pending=await this.ads.ledger.pendingForActor(actor.user);return pending.length===1?{proposal:pending[0]}:{text:'No hay una única propuesta pendiente. Indica la campaña y el cambio.'};}
-   if(/propon aumentar|que campanas escalarias|cuales reducirias/.test(clean(body.text))){this.authorize(actor,'ads');return {analysis:await this.ads.overview({period:'hoy',level:'campaign'}),focus:'budget'};}
+   if(/propon aumentar|que campanas escalarias|cuales reducirias/.test(clean(body.text))){this.authorize(actor,'ads');return {analysis:await this.currentAds({period:'hoy',level:'campaign'}),focus:'budget'};}
    if(intent.tool==='clarify')return {text:intent.question};
    if(intent.tool==='proposal'){
      this.authorize(actor,'propose');
@@ -149,16 +154,16 @@ export class CommandCenter {
    if(intent.tool==='ads'){
      let result;
      if(intent.followup&&context?.review==='v6'&&this.ads.review){
-       result=await this.ads.review.answer('Auditoría de campañas',{period:intent.period,level:intent.level,selector:intent.selector});
+       result=await this.ads.review.answer('Auditoría de campañas',{period:intent.period,level:intent.level,selector:intent.selector,force:true});
        await this.ledger.saveContext(actor.user,{...context,period:intent.period},this.now()+CONTEXT_TTL_MS);
        await this.remember(actor,body,'QUERY',{tool:'ads',version:'v6',observedAt:result.review?.observedAt||null,evidenceDigest:result.review?.evidenceDigest||null});
        return result;
      }
      if(/algoritmo|bloques|ultima subida/i.test(body.text)&&!intent.followup)result=await adsCommand(this.ads,body);
-     else result={analysis:await this.ads.overview({period:intent.compare?'hoy':intent.period,level:intent.level,selector:intent.selector}),focus:intent.focus,selector:intent.selector};
+     else result={analysis:await this.currentAds({period:intent.compare?'hoy':intent.period,level:intent.level,selector:intent.selector}),focus:intent.focus,selector:intent.selector};
      await this.ledger.saveContext(actor.user,{tool:'ads',period:intent.period,selector:intent.selector,level:intent.level},this.now()+CONTEXT_TTL_MS);
      await this.remember(actor,body,'QUERY',{tool:'ads',period:intent.period,selector:intent.selector,observedAt:result.analysis?.observedAt||null});
-     if(intent.compare)result.previousDay=await this.ads.overview({period:'ayer',level:intent.level,selector:intent.selector});
+     if(intent.compare)result.previousDay=await this.currentAds({period:'ayer',level:intent.level,selector:intent.selector});
      return {...result,includeInactive:intent.includeInactive};
    }
    if(intent.tool==='history')return {text:(await this.ledger.history(actor.user)).map(d=>`${d.id} · ${d.kind} · ${d.body.observedAt}`).join('\n')||'No hay decisiones registradas para tu cuenta.'};
@@ -183,7 +188,7 @@ export class CommandCenter {
      text=`Finanzas · ${evidence.month||'mes actual'}\nBeneficio contable: ${money(evidence.totals?.netProfit)}\nCobertura: ${evidence.coverage}. Fuente: informe financiero del panel.\nActualización: ${evidence.observedAt||'sin fecha verificable'} · ${evidence.freshness}.\n${evidence.limitations.join('\n')}${intent.product?'\nNo hay atribución completa para ordenar productos por beneficio.':''}`;
    }else if(intent.tool==='executive'){
      for(const c of ['finance','health','incidents'])this.authorize(actor,c);
-     const results=await Promise.allSettled([this.ads.overview({period:intent.period}),this.health(),this.finance(null)]);
+     const results=await Promise.allSettled([this.currentAds({period:intent.period}),this.health(),this.finance(null)]);
      const [ads,ops,finance]=results.map(r=>r.status==='fulfilled'?r.value:null);
      const alerts=[];
      results.forEach((r,i)=>{if(r.status==='rejected')alerts.push({source:['META','OPERATIONS','FINANCE'][i],code:'SOURCE_UNAVAILABLE',priority:1,evidence:'Fuente no disponible en esta consulta.',action:'Restablecer la lectura antes de tomar decisiones.'});});

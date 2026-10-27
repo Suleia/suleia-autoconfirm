@@ -27,12 +27,20 @@ export class OperationsProjector {
   }
 
   async resolveCanonicalOrder(order) {
-    const result = await this.pool.query(`SELECT canonical_order_id FROM read_models.operations_order_records
-      WHERE (market=$1 AND store_id=$2 AND dropea_order_id=$3)
-         OR (external_order_id_hash IS NOT NULL AND external_order_id_hash=$4)
-      ORDER BY updated_at DESC LIMIT 2`, [
+    const result = await this.pool.query(`SELECT r.canonical_order_id,
+      i.market AS owner_market,i.store_id AS owner_store_id,i.dropea_order_id AS owner_dropea_order_id
+      FROM read_models.operations_order_records r
+      LEFT JOIN integration.dropea_orders i ON i.canonical_order_id=r.canonical_order_id
+      WHERE (r.market=$1 AND r.store_id=$2 AND r.dropea_order_id=$3)
+         OR (r.external_order_id_hash IS NOT NULL AND r.external_order_id_hash=$4)
+      ORDER BY r.updated_at DESC LIMIT 2`, [
       order.market, String(order.store_id), order.dropea_order_id, order.external_order_id_hash
     ]);
+    // A reused external reference must not steal another provider order's
+    // canonical identity. Leave the ambiguous order blocked for reconciliation.
+    if((result.rows||[]).some(r=>r.owner_dropea_order_id!=null&&
+      (r.owner_market!==order.market||String(r.owner_store_id)!==String(order.store_id)||String(r.owner_dropea_order_id)!==String(order.dropea_order_id))))
+      return {status:'CONFLICT',canonical_order_id:null};
     const ids = [...new Set((result.rows || []).map((row) => row.canonical_order_id))];
     if (ids.length > 1) return { status: 'CONFLICT', canonical_order_id: null };
     if (ids.length === 1) return { status: 'FOUND', canonical_order_id: ids[0] };

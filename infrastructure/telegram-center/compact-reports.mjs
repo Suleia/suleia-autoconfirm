@@ -19,9 +19,9 @@ export function compactOrders(o,view='today',metricName='confirmed') {
     '📦 <b>PEDIDOS DE HOY</b>',`🛒 Recibidos: <b>${metric(o.received,0)}</b>\n✅ Confirmados: <b>${metric(o.confirmed,0)}</b>\n⏳ Pendientes: <b>${metric(o.pending,0)}</b>\n❌ Cancelados: <b>${metric(o.cancelled,0)}</b>`,
     `📊 Confirmación: <b>${o.received>0?metric(o.confirmed/o.received*100,1)+' %':'N/D'}</b>`,
     ...(o.unclassified>0?[`⚠️ Sin clasificar: ${o.unclassified}`]:[])];
-  if(o.freshness!=='FRESH')lines.push('⚠️ Copia desactualizada; no se ha podido confirmar una actualización.');
+  if(o.freshness!=='FRESH')lines.push('⚠️ Copia desactualizada; sin actualización de Dropea confirmada para esta consulta.');
   if(o.coverage!=='COMPLETE')lines.push('⚠️ Cobertura sin verificar: cifras parciales, no total definitivo.');
-  lines.push(`🕒 Actualizado: ${time(o.observedAt)}\nFuente: Dropea V2 · Europe/Madrid`);
+  lines.push(`🕒 Datos comprobados: ${time(o.observedAt)}${o.checkedAt?'\nConsulta: '+time(o.checkedAt):''}\nFuente: Dropea V2 · Europe/Madrid`);
   if(o.period){lines[0]=view==='confirmations'?'✅ <b>CONFIRMACIONES REALIZADAS</b>':view==='hour'?'📦 <b>ÚLTIMA HORA</b>':o.period.spec?.preset==='today'?'📦 <b>PEDIDOS DE HOY</b>':'📦 <b>PEDIDOS</b>';lines.splice(1,0,`${escapeHtml(o.period.label)} · Europe/Madrid${o.period.partial?' · periodo en curso':''}`);}
   return {text:lines.join('\n\n'),parseMode:'HTML',navigation:nav};
 }
@@ -37,6 +37,7 @@ export function compactMeta(data,{page=0,view=data.focus==='improve'?'diagnosis'
   const pageSize=view==='diagnosis'?2:4;
   const pages=Math.max(1,Math.ceil(rows.length/pageSize));page=Math.max(0,Math.min(Math.floor(page)||0,pages-1));
   const query={since:a.range.since,until:a.range.until,level:a.level||'campaign',...a.filters};
+  if(a.requestPeriod){delete query.since;delete query.until;query.period=a.requestPeriod;}
   // Carry exact campaign identity, never a rendered list position.
   if(data.selector)query.selector=data.selector;
   const request={action:'analyze',query,focus:data.focus,includeInactive:data.includeInactive===true};
@@ -72,6 +73,7 @@ export function compactMeta(data,{page=0,view=data.focus==='improve'?'diagnosis'
   if(data.previousDay)lines.push(`Ayer (día completo): gasto ${money(data.previousDay.totals.spend)} · compras ${metric(data.previousDay.totals.purchases,0)} · ROAS ${metric(data.previousDay.totals.roas)}.\nHoy está en curso; no implica una tendencia comparable.`);
   if(focus==='budget')lines.push(a.autopilotPolicy?`${a.autopilotPolicy.version} usa cambios de 10 €, máximo ${a.autopilotPolicy.maxBudgetCents/100} €, ROAS >3,8 y tres compras como mínimo solicitado; se mantienen los bloqueos de seguridad. Consulta Budget Autopilot para ver cada motivo.`:(a.budgetCandidates||[]).length?'Las candidatas superan la muestra mínima. Preparar cambio comprueba límites e historial; no modifica Meta.':'Datos insuficientes o ninguna campaña cumple ROAS > 10 / < 3 y la muestra mínima.');
   if(a.cache?.status==='STALE')lines.push('⚠️ No se pudo refrescar Meta. Última instantánea disponible.');
-  lines.push(`🕒 Actualizado: ${time(a.observedAt)}\nFuente: Meta · 7d clic / 1d vista · Europe/Madrid\nLas conversiones pueden llegar con retraso. ROAS no equivale a beneficio.`);
+  if(a.cache?.status==='STALE')lines.push(a.diagnostic?.state==='PREPARING'?'⏳ Actualización en curso; se muestra la última lectura disponible.':'⚠️ No se pudo actualizar Meta; datos de la última lectura disponible.');
+  lines.push(`🕒 Lectura de Meta: ${time(a.observedAt)}\nFuente: Meta · 7d clic / 1d vista · Europe/Madrid\nLas conversiones pueden llegar con retraso. ROAS no equivale a beneficio.`);
   return {text:lines.join('\n\n'),parseMode:'HTML',navigation};
 }

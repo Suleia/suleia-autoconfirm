@@ -298,7 +298,7 @@ export function createOperationsServer({ config, repository, authenticate, finan
         data=await adsRuntime.journalHistory();
       } else if(requestUrl.pathname==='/api/operations/ads-intelligence/algorithm'){
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
-        data=await adsRuntime.algorithm();
+        data=await adsRuntime.algorithm({bounded:true});
       } else if(requestUrl.pathname==='/api/operations/ads-intelligence/algorithm/simulate'){
         if(!adsRuntime)return json(res,503,{ok:false,error:'ads_disabled'});
         data=await adsRuntime.simulate({campaignId:requestUrl.searchParams.get('campaignId'),newBudgetCents:Number(requestUrl.searchParams.get('newBudgetCents')),days:Number(requestUrl.searchParams.get('days'))});

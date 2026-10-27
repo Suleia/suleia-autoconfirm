@@ -1,0 +1,111 @@
+{
+  "revision": "949d23f6fb0626aec89f3864640166ba772a283e",
+  "previousPanel": "/opt/suleia-panel-releases/ads-reference-1f9d64e",
+  "verifiedAt": "2026-10-25T21:52:29.900513+00:00",
+  "server": {
+    "at": "2026-10-25T21:52:29.900513+00:00",
+    "revision": "949d23f6fb0626aec89f3864640166ba772a283e",
+    "staticFilesVerified": 49,
+    "apiContainerImageAndEnvironmentPreserved": true,
+    "botPidAndConfigPreserved": true,
+    "otherContainersAutomationsPreserved": true,
+    "customerOrBudgetWrites": 0,
+    "panel": "/opt/suleia-panel-releases/ads-reference-949d23f"
+  },
+  "http": {
+    "revision": "949d23f6fb0626aec89f3864640166ba772a283e",
+    "assets": [
+      {
+        "name": "index.html",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "app.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-growth-v10.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-reference.css",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      },
+      {
+        "name": "ads-review-v6.js",
+        "status": 200,
+        "exactHash": true,
+        "cacheControl": "no-store"
+      }
+    ],
+    "private": [
+      {
+        "path": "/api/operations/summary",
+        "anonymousStatus": 401
+      },
+      {
+        "path": "/api/operations/order-reminder",
+        "anonymousStatus": 401
+      },
+      {
+        "path": "/api/operations/ads-intelligence/review",
+        "anonymousStatus": 401
+      }
+    ]
+  },
+  "browser": {
+    "analysisNonmodal": true,
+    "appScript": "app.js?v=20261025-access",
+    "authenticated": true,
+    "callbackCodeInUrl": false,
+    "cards": 12,
+    "horizontalOverflow": false,
+    "qualityLabel": "Lectura hist\u00f3rica \u00b7 5 avisos",
+    "sparklinesWithData": 10
+  },
+  "originalTabReload": {
+    "authenticatedAfterReload": true,
+    "callbackCodeInUrl": false,
+    "cards": 12,
+    "horizontalOverflow": false,
+    "sparklinesWithData": 10
+  },
+  "acceptance": {
+    "exit": 0,
+    "files": 149,
+    "sourceSha256": "d3bed391986f1b58ad896e44fd3b862b1741213c466441b6da7e002cad41ae39",
+    "network": "none",
+    "productionCredentialsSupplied": false,
+    "productionRuntimeChanged": false,
+    "summary": [
+      "# tests 1400",
+      "# pass 1400",
+      "# fail 0",
+      "# skipped 0",
+      "# duration_ms 151563.161952"
+    ],
+    "failures": [],
+    "artifactPath": "/var/tmp/suleia-ads-reference-qa-d3bed39198-final"
+  },
+  "allFiveAssetsMatchExactPassingSource": true,
+  "initialVisualDeployment": {
+    "at": "2026-10-25T21:35:50.362701+00:00",
+    "revision": "1f9d64e777f2279fb0588d3cf3e05e2f9c4e8ec4",
+    "staticFilesVerified": 49,
+    "apiContainerImageAndEnvironmentPreserved": true,
+    "botPidAndConfigPreserved": true,
+    "otherContainersAutomationsPreserved": true,
+    "customerOrBudgetWrites": 0,
+    "panel": "/opt/suleia-panel-releases/ads-reference-1f9d64e"
+  },
+  "customerOrBudgetWritesByPanelDeployment": 0,
+  "rollback": "Restore preceding static mount only, reject superseding release/config; never restore database, ledger, orders, policy or financial state."
+}

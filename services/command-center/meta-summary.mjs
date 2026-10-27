@@ -13,7 +13,7 @@ export function parseMetaSummary(text,now=Date.now()) {
  if(['48h','hour'].includes(spec.preset))return {question:'Para Meta indica días naturales o fechas; las últimas horas no equivalen a un informe diario.'};
  const p=resolvePeriod(spec,now);
  if((Date.parse(p.to)-Date.parse(p.from))/86400000>=31)return {question:'Consulta Meta en un intervalo de hasta 31 días.'};
- return {since:p.from,until:p.to,force:/^actualiza/.test(t)};
+ return {since:p.from,until:p.to,periodSpec:n?{days:['3','tres'].includes(n[1])?3:7}:spec,force:true};
 }
 
 const valid=f=>Number.isFinite(f.roas)&&['VALID','ZERO'].includes(f.roasStatus);
@@ -21,7 +21,12 @@ const enough=f=>Number.isFinite(f.spend)&&f.spend>=15&&Number.isFinite(f.purchas
 export async function readMetaSummary(ads,query={},now=Date.now()) {
  // Canonical reader owns pagination, account/currency/attribution and persistence.
  // This lane never receives or invokes propose, confirm, simulate or a writer.
- const a=await ads.overview({since:query.since,until:query.until,period:query.period||'hoy',force:query.force===true,level:'campaign'});
+ let since=query.since,until=query.until;
+ if(query.periodSpec){
+  if([3,7].includes(query.periodSpec.days)){until=resolvePeriod({preset:'today'},now).to;since=new Date(Date.parse(until)-(query.periodSpec.days-1)*86400000).toISOString().slice(0,10);}
+  else {const p=resolvePeriod(query.periodSpec,now);since=p.from;until=p.to;}
+ }
+ const a=await ads.overview({since,until,period:query.period||'hoy',force:true,interactive:true,level:'campaign'});
  if(a.account?.currency!=='EUR'||a.account?.timezone!=='Europe/Madrid'||a.contract!==CONTRACT||a.level!=='campaign'||String(a.account.id).replace(/^act_/,'')!==ads.engine.accountId)throw Error('META_SUMMARY_CONTRACT_INVALID');
  const fresh=a.cache?.status==='FRESH'&&Number.isFinite(Date.parse(a.observedAt))&&now-Date.parse(a.observedAt)>=-60000&&now-Date.parse(a.observedAt)<120000;
  const rows=a.facts.filter(f=>f.delivery==='ACTIVE'||f.spend>0||f.purchases>0);
@@ -48,5 +53,5 @@ export async function readMetaSummary(ads,query={},now=Date.now()) {
    }
   }else if(rows.some(enough))recommendation={direction:'maintain',reason:'Ninguna campaña activa reúne muestra suficiente y ROAS >10 o <3.'};
  }
- return {range:a.range,observedAt:a.observedAt,fresh,totals:a.totals,rows,winners,winnerComplete:a.quality?.missingPurchaseRows===0,recommendation,partial:a.quality?.status==='PARTIAL',contract:a.contract};
+ return {range:a.range,periodSpec:query.periodSpec,requestedAt:new Date(now).toISOString(),diagnostic:a.diagnostic,observedAt:a.observedAt,fresh,totals:a.totals,rows,winners,winnerComplete:a.quality?.missingPurchaseRows===0,recommendation,partial:a.quality?.status==='PARTIAL',contract:a.contract};
 }

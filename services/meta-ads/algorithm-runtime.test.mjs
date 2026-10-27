@@ -37,3 +37,9 @@ test('mature COD cohorts use exact source IDs and never convert delivery to prof
  const traced=traceOrders([{id:'1',createdAt:'2026-09-22T12:00Z',attributes:[{name:'UTM medium',value:'30'},{name:'UTM source',value:'facebook'}]},{id:'2',createdAt:'2026-10-20T12:00Z'}],{ad:[{id:'30',campaign_id:'10'}]});
  const r=commercialCohorts(traced,[{sourceId:'1',state:'DELIVERED',confirmedAt:'2026-09-22',deliveredAt:'2026-09-25'}],{until:'2026-10-20'});assert.equal(r.groups.find(g=>g.campaignId==='10').delivered,1);assert.equal(r.groups.find(g=>g.campaignId==='10').netProfit,null);assert.equal(r.groups.find(g=>g.campaignId==='NO_ATRIBUIDOS').immature,1);
 });
+
+test('bounded HTTP preparation does not replace the full coalesced Algorithm promise used by Telegram',async()=>{
+ let accountReads=0;const env={ADS_INTELLIGENCE_READ_ENABLED:'true',ADS_ALGORITHM_ENABLED:'true',ADS_INTELLIGENCE_MODE:'SHADOW',META_ACCESS_TOKEN:'fixture-not-real',META_AD_ACCOUNT_ID:'9',TELEGRAM_ALLOWED_USER_IDS:'1'};
+ const runtime=createAdsRuntime({env,pool:{query:async()=>({rows:[]})},fetchImpl:async(url,options)=>{assert.equal(options.method,'GET');if(new URL(url).pathname.endsWith('/act_9')){accountReads++;await new Promise(r=>setTimeout(r,4200));return new Response(JSON.stringify({id:'9',currency:'EUR',timezone_name:'Europe/Madrid',account_status:1}));}return new Response(JSON.stringify({data:[]}));}});
+ const full=runtime.algorithm();await assert.rejects(runtime.algorithm({bounded:true}),e=>e.status===202&&e.diagnostic.state==='PREPARING');const report=await full;assert.equal(report.version,'ADS_ALGORITHM_V4');assert.equal(accountReads,1);assert.equal(report.externalWrites,0);
+});

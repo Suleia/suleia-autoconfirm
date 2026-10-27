@@ -18,6 +18,12 @@ test('a preparing retry keeps its exact context and removes force to avoid dupli
  const urls=[];const c=client(async url=>{urls.push(url);if(urls.length===1)throw {diagnostic:{state:'PREPARING',code:'ADS_REPORT_PREPARING',retryable:true,retryAfterSeconds:1}};return {rows:[{entityId:'101'}]};});
  const r=await c.load('/review?level=campaign&campaignId=101&force=true',{deadlineMs:3000});assert.equal(r.rows[0].entityId,'101');assert.deepEqual(urls,['/review?level=campaign&campaignId=101&force=true','/review?level=campaign&campaignId=101']);
 });
+
+test('a stale successful preview refreshes to the current report without repeating force or retry',async()=>{
+ const urls=[],progress=[],c=client(async url=>{urls.push(url);return urls.length===1?{freshness:'STALE',totals:{addToCart:90},diagnostic:{state:'PREPARING'}}:{freshness:'FRESH',totals:{addToCart:91}};});
+ const out=await c.load('/review?level=campaign&force=true&retry=true',{deadlineMs:3000,onProgress:p=>progress.push(p)});
+ assert.equal(progress[0].totals.addToCart,90);assert.equal(out.freshness,'FRESH');assert.equal(out.totals.addToCart,91);assert.deepEqual(urls,['/review?level=campaign&force=true&retry=true','/review?level=campaign']);
+});
 test('periodic refresh defers while the reader edits a filter or studies expanded evidence',async()=>{
  const app=readFileSync(new URL('./app.js',import.meta.url),'utf8'),start=app.indexOf('async function refresh('),end=app.indexOf('\nfunction setView(',start);let reads=0,open=true,editing=false;
  const root={querySelector:s=>s==='details[open]'&&open?{}:null,contains:()=>editing},button={},document={querySelector:()=>null,activeElement:{matches:()=>editing}};

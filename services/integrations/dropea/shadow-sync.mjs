@@ -149,7 +149,7 @@ export async function syncDropeaPublicApi({
       }
     }
 
-    const dataHealth = orphanIssues.length === 0 ? 'HEALTHY' : 'DEGRADED';
+    const dataHealth = orphanIssues.length === 0 && identityConflictsBlocked === 0 ? 'HEALTHY' : 'DEGRADED';
     if (!dryRun) await projector.connectorHealth({
       connector: `DROPEA_PUBLIC_API_${client.market}`,
       transport_health: 'HEALTHY',
@@ -166,7 +166,7 @@ export async function syncDropeaPublicApi({
         page: orderPage.page_count, requested_limit: orderPage.requested_limit || 100,
         records_read: orderPage.records_read ?? orderPage.items.length,
         records_inserted_to_shadow: ordersInserted, records_updated_in_shadow: ordersUpdated,
-        duplicates_skipped: orderPage.duplicates_skipped || 0, errors: 0,
+        duplicates_skipped: orderPage.duplicates_skipped || 0, errors: identityConflictsBlocked,
         checkpoint_masked: { termination_reason: orderPage.termination_reason },
         sync_started_at: startedAt, sync_completed_at: observedAt,
         source_updated_at: orders.reduce((latest, order) => !latest || order.updated_at > latest ? order.updated_at : latest, null),
@@ -191,7 +191,7 @@ export async function syncDropeaPublicApi({
     }
 
     return zeroActionResult({
-      ok: orphanIssues.length === 0,
+      ok: orphanIssues.length === 0 && identityConflictsBlocked === 0,
       started_at: startedAt,
       completed_at: observedAt,
       orders_projected: orders.length,
