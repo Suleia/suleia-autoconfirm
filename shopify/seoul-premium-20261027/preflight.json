@@ -1,0 +1,26 @@
+{
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "48500864fc513983c6665a2ebd21ceba",
+    "templates/product.seoul_1988.json": "246d86726bf1a523db2cac3d3e2de02f"
+  },
+  "responsivePass": true,
+  "cartPass": true,
+  "syntaxPass": true,
+  "widths": [
+    375,
+    390,
+    430,
+    768,
+    1440
+  ],
+  "quantities": [
+    1,
+    2,
+    3
+  ],
+  "cartTotalsCents": [
+    2999,
+    3499,
+    4499
+  ]
+}
