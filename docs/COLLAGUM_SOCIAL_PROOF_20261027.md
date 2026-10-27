@@ -20,4 +20,4 @@ Anonymous public HTML identifies MAIN198240600396 and all3exact portrait URLs wi
 
 At768px, the unchanged pack selector extends to846px while this new social block fits within425–700px. This is outside the social block and the owner explicitly forbids pack-selector changes, so it was not altered. No page-overflow claim is made for that tablet width. Mobile375/390/430and desktop1440have no page overflow.
 
-Final evidence: `shopify/collagum-social-20261027/final-receipt.json`; local mobile/desktop/detail screenshots under the backup/evidence folder. The temporary loopback preview server was stopped. No whole theme published, no other theme edited, no images generated, no orders/cart operations/messages/campaign actions.
+Final evidence: `shopify/collagum-social-20261027/final-receipt.json`; local mobile/desktop screenshots under the backup/evidence folder. The temporary loopback preview server was stopped. No whole theme published, no other theme edited, no images generated, no orders/cart operations/messages/campaign actions.
