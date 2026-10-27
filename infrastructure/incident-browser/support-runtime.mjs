@@ -22,8 +22,9 @@ export async function supportCycle({enabled,checkMail,readCases,execute}){
  let cases;try{cases=await readCases();}catch{return {status:'SUPPORT_CASE_READ_FAILED',checked:0,results:[]};}
  const results=[];
  for(const incident of cases){
-  try{results.push({orderId:incident.orderId,...await execute(incident)});}
-  catch{results.push({orderId:incident.orderId,status:'CASE_FAILED_REVIEW_REQUIRED'});break;}
+  try{results.push({orderId:incident.orderId,currentIssueId:String(incident.incidenceId||''),...await execute(incident)});}
+  catch(error){results.push({orderId:incident.orderId,currentIssueId:String(incident.incidenceId||''),status:'CASE_FAILED_REVIEW_REQUIRED',
+   reason:/^[A-Z0-9_]{1,100}$/.test(error?.message||'')?error.message:'CASE_EXECUTION_FAILED',needsHumanReview:true});break;}
   if(results.at(-1).mailId||results.at(-1).status==='RECONCILIATION_REQUIRED')break;
  }
  return {status:results.length?'COMPLETED':'WAITING_ELIGIBLE_CASE',checked:results.length,results};

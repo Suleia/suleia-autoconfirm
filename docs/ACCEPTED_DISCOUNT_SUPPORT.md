@@ -21,7 +21,7 @@ Set secrets in Render's environment or an approved secret manager, never in a ch
 
 The server reports `acceptedDiscountSupport.enabled`, `ready`, `missing`, `lastRun` and `lastStatus`. Configuration presence is only a readiness prerequisite, not proof of live provider verification. The initial authenticated capture and sent-mail readback must be verified before claiming end-to-end operational success. A capture failing layout/date/identity checks must be investigated, not replaced with a reconstructed transcript image.
 
-The scheduler checks every 15 minutes. Existing emails, persisted claims and uncertain writes require operator reconciliation. The worker does not automatically migrate or replay historical acceptances. Solution verification confirms the exact issue/order and provider status; the provider's read contract may not expose the literal submitted note. Reconcile COD changes separately with support/provider evidence.
+The production owner is the existing dedicated VPS worker, checking every 30 minutes. Do not enable a second support scheduler or sender in parallel. Existing emails, persisted claims and uncertain writes require reconciliation. The worker does not automatically migrate or replay historical acceptances. Solution verification confirms the exact issue/order and provider status; the provider's read contract may not expose the literal submitted note. Reconcile COD changes separately with support/provider evidence.
 
 The dedicated VPS scheduler runs the existing support lane every 30 minutes.
 An explicit acceptance after a verified return request may request carrier

@@ -11,6 +11,10 @@ test('computes exact customer-specific totals and support instruction',()=>{
   const p=acceptedDiscountPlan({...input,originalAmount:total,currentAmount:total,offeredAmount:final},options);
   assert.equal(p.eligible,true);assert.equal(p.finalCents,Math.round(final*100));assert.equal(p.email.to,'soporte@dropea.com');
   assert.equal(p.email.subject,'Aplicar descuento en pedido ES123456');assert.match(p.email.text,/234567/);assert.match(p.solution,/600000000 antes de entregar/);assert.equal(p.discountApplied,false);
+  assert.ok(p.solution.includes(`Importe original: ${total.toFixed(2).replace('.',',')}€`));
+  assert.match(p.solution,/Descuento: 5€/);
+  assert.ok(p.solution.includes(`Importe total a cobrar: ${final.toFixed(2).replace('.',',')}€`));
+  assert.match(p.solution,/acepta el descuento de 5€ y quiere recibir el pedido/);
  }
 });
 test('rejects unverified identity, old/changed offer, cancellation and repeat discount',()=>{

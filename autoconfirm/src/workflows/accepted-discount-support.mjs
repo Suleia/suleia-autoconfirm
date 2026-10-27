@@ -35,6 +35,7 @@ export function acceptedDiscountPlan(s, {now = Date.now(), activationAt} = {}) {
   if (s.currency !== 'EUR' || original === null || offered === null || original <= 500 || offered !== original - 500) return deny('OFFER_AMOUNT_MISMATCH');
   if (current !== original) return deny(current === offered ? 'ALREADY_DISCOUNTED_RECONCILE' : 'CURRENT_AMOUNT_CHANGED');
   const amount = (offered / 100).toFixed(2).replace('.', ',');
+  const originalAmount = (original / 100).toFixed(2).replace('.', ',');
   const identity = {orderId:String(s.orderId), issueId:String(s.issueId), ownerId:String(s.ownerId), phone:s.phone, conversationId:s.conversationId,customerName:s.customerName,
     offerMessageId:String(s.offerMessageId), acceptanceMessageId:String(s.acceptanceMessageId), acceptedAt:s.acceptedAt, offerAt:s.offerAt, originalCents:original, finalCents:offered,
     ...(recovery?{returnRecovery:{issueId:String(recovery.issueId),issueAt:recovery.issueAt,requestedAt:recovery.requestedAt}}:{})};
@@ -42,7 +43,7 @@ export function acceptedDiscountPlan(s, {now = Date.now(), activationAt} = {}) {
   return {...identity, eligible:true, key, snapshot:hash(identity), discountApplied:false,
     email:{to:SUPPORT_TO,subject:`Aplicar descuento en pedido ES${s.orderId}`,
       text:`Hola, soy el ID dropshipper ${s.ownerId}. Quiero aplicar un descuento en el pedido ES${s.orderId} e id incidencia ${s.issueId}. Se le aplica descuento de 5€. Importe total a cobrar: ${amount}€.${recovery?`\n\nEl cliente ha aceptado después de solicitarse la devolución en la incidencia ${recovery.issueId}. El mismo envío tiene una nueva incidencia abierta. Por favor, comprobad si aún puede detenerse la devolución y realizarse la entrega con el importe indicado; confirmad la recuperación y el importe a cobrar. No damos por anulada la devolución ni por cambiado el cobro hasta vuestra confirmación.`:''}\n\nAdjuntamos las capturas de Chatby de la oferta y aceptación. Teléfono: ${s.phone}. Aceptación: ${s.acceptedAt} (UTC).`},
-    solution:recovery?`El cliente acepta el descuento de 5€ y quiere el pedido. Importe a cobrar: ${amount}€. Existe devolución solicitada: comprobar si puede detenerse y realizar la entrega; confirmar viabilidad e importe. Llamar a ${s.phone.slice(3)} antes de entregar.`:`Realizar entrega y cobrar al cliente ${amount}€. Llamar a ${s.phone.slice(3)} antes de entregar.`};
+    solution:recovery?`El cliente acepta el descuento de 5€ y quiere el pedido. Importe a cobrar: ${amount}€. Existe devolución solicitada: comprobar si puede detenerse y realizar la entrega; confirmar viabilidad e importe. Llamar a ${s.phone.slice(3)} antes de entregar.`:`El cliente acepta el descuento de 5€ y quiere recibir el pedido. Importe original: ${originalAmount}€. Descuento: 5€. Importe total a cobrar: ${amount}€. Realizar entrega. Llamar a ${s.phone.slice(3)} antes de entregar.`};
 }
 export function validateSupportEvidence(plan, evidence, now = Date.now()) {
   if (!evidence || evidence.source !== 'CHATBY_BROWSER_SCREENSHOT' || evidence.snapshot !== plan.snapshot

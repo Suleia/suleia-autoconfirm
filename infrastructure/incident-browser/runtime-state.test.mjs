@@ -7,7 +7,7 @@ test('configured automation is not reported ready with stale reads, missing sess
  assert.equal(runtimeReadiness(input).executionEnabled,true);
  assert.equal(runtimeReadiness({...input,reconcile:true}).executionEnabled,false);
  assert.equal(runtimeReadiness({...input,sites:{}}).executionEnabled,false);
- assert.equal(CYCLE_FRESHNESS_MS,90*60000);
+ assert.equal(CYCLE_FRESHNESS_MS,60*60000);
  assert.equal(runtimeReadiness({...input,cycle:{at:new Date(now-CYCLE_FRESHNESS_MS+1).toISOString()}}).executionEnabled,true);
  assert.equal(runtimeReadiness({...input,cycle:{at:new Date(now-CYCLE_FRESHNESS_MS).toISOString()}}).readiness,'WAITING_FRESH_CYCLE');
  assert.equal(runtimeReadiness({...input,cycle:{...input.cycle,error:'FAILED'}}).readiness,'CYCLE_FAILED');
