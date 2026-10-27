@@ -1,3 +1,4 @@
+import {readAccountEvidence} from './review/account-evidence.mjs';
 import {productLink} from './product-links.mjs';
 import { createHash } from 'node:crypto';
 import { CONTRACT, normalizeInsight, ratio, windowFor } from './metrics.mjs';
@@ -115,6 +116,8 @@ export async function readReport({reader,ledger,accountId,policy,mode,query={},n
   if(!levels.includes('campaign'))entities.campaign=await reader.readEntities('campaign');
   if(includeExtras&&reader.readCreatives)try{const creatives=await reader.readCreatives(),map=new Map(creatives.map(c=>[String(c.id),c.creative]));entities.ad=entities.ad.map(a=>({...a,creative:map.get(String(a.id))||null}));}catch{creativeStatus='UNAVAILABLE';}
   entities.rules=includeExtras?await reader.readRules():[];
-  const dataset={account,range,comparison,observedAt,current,prior,daily,entities,policy,mode,creativeStatus,loadedLevels:levels,budgetObservation:{state:'OBSERVED_NOT_EXECUTOR_VERIFIED',observedAt:new Date(sourceReadAt(entities.campaign)??now).toISOString()}};
+  const accountEvidence=maxRangeDays===90&&levels.includes('campaign')?await readAccountEvidence(reader,{accountId:String(accountId).replace(/^act_/,''),range,comparison,extended:true,now}):null;
+  if(accountEvidence?.state==='AVAILABLE')observedAt=new Date(Math.min(Date.parse(observedAt),...[accountEvidence.current,accountEvidence.previous,...accountEvidence.daily,...accountEvidence.priorDaily].map(f=>Date.parse(f.observedAt)))).toISOString();
+  const dataset={accountEvidence,account,range,comparison,observedAt,current,prior,daily,entities,policy,mode,creativeStatus,loadedLevels:levels,budgetObservation:{state:'OBSERVED_NOT_EXECUTOR_VERIFIED',observedAt:new Date(sourceReadAt(entities.campaign)??now).toISOString()}};
   return {...assembleReport(dataset),dataset};
 }

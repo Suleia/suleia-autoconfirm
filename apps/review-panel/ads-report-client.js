@@ -17,12 +17,12 @@ const AdsReportClient=(()=>{
   for(let attempt=0;attempt<maxAttempts;attempt++){
    if(signal?.aborted)throw new DOMException('Lectura cancelada','AbortError');
    let delay=2;const request=new AbortController(),abort=()=>request.abort(),timer=setTimeout(()=>request.abort(),Math.min(12000,Math.max(1,deadlineMs-Date.now()+started)));signal?.addEventListener('abort',abort,{once:true});
-   try{const value=await api(url,{signal:request.signal});if(!value?.progress?.pending)return value;last=value;onProgress?.(value);delay=1;}catch(error){
+   try{const value=await api(url,{signal:request.signal});if(!value?.progress?.pending&&value?.diagnostic?.state!=='PREPARING')return value;last=value;onProgress?.(value);const next=new URL(url,location.origin);next.searchParams.delete('force');next.searchParams.delete('retry');url=next.pathname+next.search;delay=1;}catch(error){
     if(error.name==='AbortError'){if(signal?.aborted)throw error;error=Object.assign(Error('META_TIMEOUT'),{diagnostic:{code:'META_TIMEOUT',state:'FAILED',retryable:false}});}
     const d=error.diagnostic||{code:error.status===429?'META_HTTP_429':'ADS_READ_FAILED',source:'OPERATIONS_API',state:'FAILED',checkedAt:new Date().toISOString(),retryable:error.status===429,retryAfterSeconds:error.retryAfterSeconds||2};
     onStatus?.(d);
     if(d.retryable!==true||attempt===maxAttempts-1||d.state!=='PREPARING'){if(last)return {...last,clientWaitExpired:true};throw error;}
-    const u=new URL(url,location.origin);u.searchParams.delete('force');url=u.pathname+u.search;
+    const u=new URL(url,location.origin);u.searchParams.delete('force');u.searchParams.delete('retry');url=u.pathname+u.search;
     delay=Math.max(1,d.retryAfterSeconds||2);
    }finally{clearTimeout(timer);signal?.removeEventListener('abort',abort);}
    if(Date.now()-started+delay*1000>=deadlineMs||attempt===maxAttempts-1){if(last)return {...last,clientWaitExpired:true};const e=Error('META_TIMEOUT');e.diagnostic={code:'META_TIMEOUT',state:'FAILED',retryable:false};throw e;}

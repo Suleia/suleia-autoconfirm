@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createReportCache,ReportReadError,reportDependencyError} from './report-cache.mjs';
 const value=at=>({observedAt:new Date(at).toISOString(),dataset:{current:{campaign:[]},prior:{campaign:[]},daily:{campaign:[]}}});
+test('interactive wait joins a slow existing refresh instead of immediately returning the old cut',async()=>{
+ let release,calls=0,clock=Date.now();
+ const cache=createReportCache({now:()=>clock,waitMs:1,read:async()=>{calls++;if(calls>1)await new Promise(r=>release=r);return value(clock);}});
+ await cache.snapshot('range',{},31);clock+=121000;
+ const old=await cache.snapshot('range',{},31);assert.equal(old.readFailed,true);
+ const a=cache.snapshot('range',{force:true,waitMs:1000},31),b=cache.snapshot('range',{force:true,waitMs:1000},31);
+ await new Promise(r=>setImmediate(r));release();
+ const results=await Promise.all([a,b]);assert.equal(calls,2);assert.ok(results.every(r=>!r.readFailed&&r.observedAt===new Date(clock).toISOString()));
+});
 test('HTTP400 remains a distinct rejection with allowlisted numeric evidence and no automatic retry',async()=>{
  const cache=createReportCache({read:async()=>{throw Object.assign(Error('private provider message'),{code:'META_HTTP_400',providerCode:100,providerSubcode:33,transient:false});}});
  await assert.rejects(cache.snapshot('range',{},90),e=>{assert.equal(e.diagnostic.code,'META_HTTP_400');assert.equal(e.diagnostic.providerCode,100);assert.equal(e.diagnostic.providerSubcode,33);assert.equal(e.diagnostic.retryable,false);assert.doesNotMatch(JSON.stringify(e),/private provider/);return true;});

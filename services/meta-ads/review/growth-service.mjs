@@ -8,13 +8,17 @@ import {buildDailyDecisions,GROWTH_POLICY} from '../executive/daily-decisions.mj
 import {ReportReadError} from '../report-cache.mjs';
 import {buildGrowthTrend} from './growth-trend.mjs';
 const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
-const metricKeys=['spend','purchases','cpa','roas','linkCtr','linkCpc','cpm','addToCart','costPerCart','initiateCheckout','costPerCheckout','purchaseValue'];
+const metricKeys=['spend','purchases','cpa','roas','linkCtr','linkCpc','cpm','addToCart','costPerCart','initiateCheckout','costPerCheckout','purchaseValue','purchaseType'];
 const pick=row=>row?Object.fromEntries(metricKeys.map(k=>[k,row[k]??null])):null;
 const one=(r,id)=>r?.rows?.find(row=>row.entityId===id)||null;
 export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.now(),policy=GROWTH_POLICY,waitMs=3000}){
  const cache=new Map(),jobs=new Map();
+ async function optionalReport(query,options){
+  const deadline=now()+45000;
+  for(let attempt=0;;attempt++){try{const value=await report(query,options);if(value.freshness!=='FRESH'&&value.diagnostic?.state==='PREPARING'&&attempt<30&&now()<deadline){await new Promise(resolve=>setTimeout(resolve,1000));continue;}return value;}catch(error){if(error.diagnostic?.state!=='PREPARING'||attempt>=30||now()>=deadline)throw error;await new Promise(resolve=>setTimeout(resolve,1000));}}
+ }
  async function generate(query,publish){
-  const selected=await report(query),today=localDay(now());
+  const selected=await optionalReport(query),today=localDay(now());
   const anchor=selected.range.partial?shiftDay(today,-1):selected.range.until;
   const range={since:shiftDay(anchor,-29),until:anchor};
   const filters=Object.fromEntries(['campaignId','campaignIds','adsetId','adId','productId'].filter(k=>query[k]).map(k=>[k,query[k]]));
@@ -34,9 +38,10 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
   // The chosen level owns this review. Other hierarchy levels are read only
   // when selected or when children are explicitly required by an analysis.
   for(const level of [selected.level]){
-   try{byLevel[level]=selected.level===level&&selected.range.since===range.since&&selected.range.until===range.until?selected:await report({...filters,...range,level},{optionalWaitMs:7000});}
+   try{byLevel[level]=selected.level===level&&selected.range.since===range.since&&selected.range.until===range.until?selected:await optionalReport({...filters,...range,level},{optionalWaitMs:7000});}
    catch(error){byLevel[level]=null;failures.push('HISTORY_'+level.toUpperCase()+'_UNAVAILABLE');}
   }
+  for(const [level,r]of Object.entries(byLevel))if(r&&r.freshness!=='FRESH')failures.push('HISTORY_'+level.toUpperCase()+'_HISTORICAL');
   let current=null;
   if(anchor===shiftDay(today,-1)&&selected.level==='campaign')try{current=selected.range.since===today?selected:await report({...filters,period:'hoy',level:'campaign'});}catch{failures.push('TODAY_UNAVAILABLE');}
   for(const r of Object.values(byLevel))for(const row of r?.rows||[])row.sample={...row.sample,contextVerified:Boolean(row.objective&&row.optimizationGoal)};
@@ -66,8 +71,10 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
     const percent=(after-before)/before*100,entry={metric:key,label,current:after,previous:before,changePercent:percent,range:selected.range,baselineRange:selected.baselineRange};
     (percent*direction>=0?positive:negative).push(entry);
    }
+   output.progress={pending:true,blocks:{...output.progress.blocks,children:level==='ad'?'READY':'PREPARING'}};
+   output.analysis={...preview.analysis,entity:{...preview.analysis.entity,objective:row.objective,optimizationGoal:row.optimizationGoal},row,decision,comparisons,whatWorks:positive.slice(0,4),whatDoesNot:negative.slice(0,4)};publish(structuredClone(output));
    let childrenReport=selected;
-   if(level!=='ad')try{childrenReport=await report({...filters,since:selected.range.since,until:selected.range.until,level:'ad'},{optionalWaitMs:7000});}catch{childrenReport=null;}
+   if(level!=='ad')try{childrenReport=await optionalReport({...filters,since:selected.range.since,until:selected.range.until,level:'ad'},{optionalWaitMs:7000});}catch{childrenReport=null;}
    const children=(childrenReport?.rows||[]).filter(r=>level==='ad'?r.entityId===id:level==='adset'?r.adsetId===id:r.campaignId===id);
    let history={entries:[],status:'UNAVAILABLE'};
    if(ledger?.autopilotAudit)try{history={...await ledger.autopilotAudit(String(selected.account.id).replace(/^act_/,''),{campaignId:row.campaignId||id,limit:25}),status:'AVAILABLE'};}catch{}
@@ -76,6 +83,7 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
     row,decision,comparisons,whatWorks:positive.slice(0,4),whatDoesNot:negative.slice(0,4),children,
     history,childrenRange:childrenReport?.range||null,scopeNote:'Desglose del periodo elegido; las ventanas históricas se etiquetan por separado.'};
   }
+  output.progress.pending=false;
   output.evidenceDigest=hash({version:output.version,selected:selected.evidenceDigest,decisions:brief,goal:output.goal,analysis:output.analysis?.entity});
   return output;
  }
@@ -87,7 +95,7 @@ export function createGrowthService({report,ledger,readGoals=null,now=()=>Date.n
   const key=JSON.stringify(Object.entries(query).filter(([k])=>k!=='retry').sort(([a],[b])=>a.localeCompare(b)));let entry=cache.get(key);
   if(query.retry==='true'&&!jobs.has(key)){cache.delete(key);entry=null;}
   const preparing=code=>new ReportReadError({id:hash(['growth',key]),source:'META_MARKETING_API',state:'PREPARING',code,connection:'READING',retryable:true,retryAfterSeconds:3,checkedAt:new Date(now()).toISOString(),cache:entry?'HISTORICAL':'EMPTY'});
-  if(entry&&now()-entry.at<120000)return entry.value;
+  if(entry&&now()-entry.at<(entry.value.freshness==='FRESH'&&!entry.value.failures?.length?120000:5000))return entry.value;
   if(!jobs.has(key)){
    if(jobs.size>=2)throw preparing('ADS_REPORT_BUSY');
    const job={preview:null,task:null};

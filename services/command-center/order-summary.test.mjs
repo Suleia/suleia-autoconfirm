@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 import {summarizeOrders,readOrderSummary,OrderSummaryReader,orderSummaryIntent} from './order-summary.mjs';
 import {businessDayBounds} from '../../packages/platform-core/src/business-day.mjs';
 const now=Date.parse('2026-10-21T18:28:00Z'),at=new Date(now).toISOString();
+test('each new order request re-reads the mirror and rolling failures never reuse another hour',async()=>{
+ let clock=now,fail=false,reads=0;
+ const reader=new OrderSummaryReader({now:()=>clock,read:async n=>{reads++;if(fail)throw Error('offline');return {received:reads,coverage:'COMPLETE',freshness:'FRESH',observedAt:new Date(n).toISOString()};}});
+ assert.equal((await reader.get()).received,1);assert.equal((await reader.get()).received,2);
+ await reader.get({preset:'hour'});clock+=3600000;fail=true;
+ const r=await reader.get({preset:'hour'});assert.equal(r.freshness,'UNAVAILABLE');assert.equal(r.received,undefined);
+ assert.equal(r.period.end,new Date(clock+1).toISOString());
+});
 const fixture=()=>Array.from({length:22},(_,i)=>({market:'ES',store_id:'1',dropea_order_id:String(i+1),created_at_utc:'2026-10-21T08:00:00Z',confirmed_at_utc:i<17?'2026-10-21T09:00:00Z':null,status:i<17?'SHIPPING':i<21?'PENDING':'CANCELLED',sub_status:i<17?'PREPARED':null,observed_at:at,source_updated_at:at}));
 test('historical 22/17/4/1, SHIPPING confirmation and deduplication',()=>{
  const rows=fixture(),r=summarizeOrders([...rows,rows[0]],now);

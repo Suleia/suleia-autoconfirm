@@ -13,10 +13,10 @@ export function formatMetaSummary(s,{page=0}={}){
  const r=s.fresh?s.recommendation:{direction:'maintain',reason:'Esperar una lectura actualizada antes de recomendar cambios.'};
  lines.push(`💡 Recomendación: ${{increase:'valorar subir',decrease:'valorar bajar',maintain:'mantener'}[r.direction]||'mantener'}${r.campaign?' '+safe(r.campaign,85):' por ahora'}. ${safe(r.reason,220)}`);
  const at=Number.isFinite(Date.parse(s.observedAt))?new Intl.DateTimeFormat('es-ES',{timeZone:'Europe/Madrid',dateStyle:'short',timeStyle:'short'}).format(new Date(s.observedAt)):'sin fecha verificable';
- if(!s.fresh)lines.push(`⚠️ Última lectura disponible: ${at}. No se pudo actualizar.`);
+ if(!s.fresh)lines.push(s.diagnostic?.state==='PREPARING'?'⏳ Actualización en curso; se muestra la última lectura disponible.':`⚠️ Última lectura disponible: ${at}. No se pudo actualizar.`);
  if(s.partial)lines.push('⚠️ Faltan métricas; los datos no disponibles aparecen como N/D.');
- lines.push(`🕒 Actualizado: ${at} · Europe/Madrid`);
- const request={action:'meta-summary',query:{since:s.range.since,until:s.range.until}};
+ lines.push(`🕒 Lectura de Meta: ${at} · Europe/Madrid\nLas conversiones pueden registrarse con retraso.`);
+ const request={action:'meta-summary',query:s.periodSpec?{periodSpec:s.periodSpec}:{since:s.range.since,until:s.range.until}};
  const navigation=[{label:'🔄 Actualizar',request:{...request,query:{...request.query,force:true}},page}];
  if(page>0)navigation.push({label:'← Anterior',request,page:page-1});
  if(page+1<pages)navigation.push({label:'Ver más →',request,page:page+1});

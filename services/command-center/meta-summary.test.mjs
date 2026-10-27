@@ -4,6 +4,16 @@ import {parseMetaSummary,readMetaSummary} from './meta-summary.mjs';
 import {CONTRACT} from '../meta-ads/metrics.mjs';
 import {formatMetaSummary} from '../../infrastructure/telegram-center/meta-summary.mjs';
 const now=Date.parse('2026-10-26T10:00:00Z');
+test('relative refresh buttons resolve the new Madrid day; explicit dates remain fixed',async()=>{
+ const f=fixture(),next=Date.parse('2026-10-27T23:05:00Z');
+ for(const [phrase,from,to] of [['Cómo van las campañas hoy','2026-10-28','2026-10-28'],['Cómo van las campañas ayer','2026-10-27','2026-10-27'],['Cómo van las campañas últimos 7 días','2026-10-22','2026-10-28'],['Cómo van las campañas 2026-10-23','2026-10-23','2026-10-23']]){
+  const query=parseMetaSummary(phrase,now),first=await readMetaSummary(f.ads,query,now);
+  const button=formatMetaSummary(first).navigation[0];
+  await readMetaSummary(f.ads,button.request.query,next);
+  assert.equal(f.queries.at(-1).since,from);assert.equal(f.queries.at(-1).until,to);
+  assert.equal(f.queries.at(-1).force,true);assert.equal(f.queries.at(-1).interactive,true);
+ }
+});
 const fact=(id,roas,purchases=5)=>({entityId:String(id),name:'Campaña '+id,roas,roasStatus:roas===null?'MISSING':roas===0?'ZERO':'VALID',purchases,spend:20,impressions:1200,delivery:'ACTIVE',budgetCents:2000});
 function fixture(rows=[fact(1,12)]){
  const report={account:{id:'act_9',currency:'EUR',timezone:'Europe/Madrid'},contract:CONTRACT,level:'campaign',range:{since:'2026-10-26',until:'2026-10-26'},observedAt:new Date(now).toISOString(),cache:{status:'FRESH'},facts:rows,totals:{spend:rows.length*20},quality:{status:'SOURCE_COMPLETE',missingPurchaseRows:0},inventory:{campaigns:rows.map(f=>({id:f.entityId}))}};

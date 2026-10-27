@@ -1,3 +1,4 @@
+import {reportingDataset} from './account-evidence.mjs';
 import {campaignAudit} from './campaign-audit.mjs';
 import {analyzeReview} from './analyze.mjs';
 import {reviewWindow,comparisonWindow} from './periods.mjs';
@@ -18,15 +19,15 @@ export function createReviewService({snapshot,extras,ledger,productMappings=[],r
   const scope=query.level?{level:query.level}:{};
   const base=await snapshot({...range,...scope,force:query.force===true||query.force==='true'},90);
   let baseline=null;
-  if(comparison.since!==base.dataset.comparison.since||comparison.until!==base.dataset.comparison.until){const b=await snapshot({...comparison,...scope},90);baseline={...b.dataset,readFailed:b.readFailed};}
-  let data={...base.dataset,readFailed:base.readFailed||baseline?.readFailed};
+  if(comparison.since!==base.dataset.comparison.since||comparison.until!==base.dataset.comparison.until){const b=await snapshot({...comparison,...scope},90);baseline={...reportingDataset(b.dataset),readFailed:b.readFailed};}
+  let data={...reportingDataset(base.dataset),readFailed:base.readFailed||baseline?.readFailed};
   if(query.selector){
    const s=String(query.selector).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s/g,'');
    const matches=data.entities.campaign.filter(c=>String(c.id)===s||String(c.name).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s/g,'').includes(s));
    if(matches.length!==1)return {clarification:'Indica un único ID de campaña: el nombre coincide con varias campañas o ninguna.'};
    query={...query,campaignId:String(matches[0].id)};
   }
-  const waitMs=Math.min(7000,Math.max(0,options.optionalWaitMs??((query.detail==='true'||query.detail===true)?1000:optionalWaitMs)));
+  const waitMs=Math.min(7000,Math.max(500,options.optionalWaitMs??((query.detail==='true'||query.detail===true)?1000:optionalWaitMs)));
   let timer;const results=[null,null];
   const collect=(task,i)=>Promise.resolve().then(task).then(value=>{results[i]={status:'fulfilled',value};},()=>{results[i]={status:'rejected'};});
   const tasks=Promise.all([collect(()=>extras(range,query,{waitMs:Math.max(0,waitMs-10)}),0),collect(()=>readCommerce?readCommerce(range):null,1)]);

@@ -81,7 +81,7 @@ export async function readOrderSummary(pool, now=Date.now(),spec={preset:'today'
   const age=observedAt?now-Date.parse(observedAt):Infinity;
   return {...Object.fromEntries(['received','confirmed','cancelled','pending','confirmations','last_hour'].map(k=>[k,r[k]])),
     unclassified:r.received-r.confirmed-r.cancelled-r.pending,day:period.to,period,products:r.products,productCoverage:r.productCoverage,
-    source:'DROPEA_PUBLIC_API_V2',observedAt,sourceUpdatedAt:r.source_updated_at,
+    source:'DROPEA_PUBLIC_API_V2',observedAt,sourceUpdatedAt:r.source_updated_at,checkedAt:new Date(now).toISOString(),
     coverage:complete?'COMPLETE':'UNVERIFIED',freshness:complete&&age>=0&&age<60000?'FRESH':'STALE',
     refreshSupported:false,actionsExecuted:0};
 }
@@ -89,19 +89,19 @@ export async function readOrderSummary(pool, now=Date.now(),spec={preset:'today'
 export class OrderSummaryReader {
   constructor({read,refresh=null,now=()=>Date.now(),timeoutMs=2500}) {Object.assign(this,{read,refresh,now,timeoutMs});this.inflight=new Map();this.last=new Map();}
   async get(spec={preset:'today'}) {
-    const period=resolvePeriod(spec,this.now()),key=JSON.stringify([spec,period.from,period.to]);
+    const requestedAt=this.now(),period=resolvePeriod(spec,requestedAt),key=JSON.stringify([spec,period.from,period.to]);
     if (!this.inflight.has(key)) {
       if(this.inflight.size>=4)throw Error('ORDER_READ_BUSY');
       const task=Promise.resolve().then(async()=>{
-        let r=await this.read(this.now(),spec);
-        if (r.freshness!=='FRESH'&&this.refresh) {await this.refresh(spec);r=await this.read(this.now(),spec);}
+        let r=await this.read(requestedAt,spec);
+        if (r.freshness!=='FRESH'&&this.refresh) {await this.refresh(spec);r=await this.read(requestedAt,spec);}
         if(r.coverage==='COMPLETE'){this.last.set(key,r);while(this.last.size>30)this.last.delete(this.last.keys().next().value);}
         return r;
       }).finally(()=>{this.inflight.delete(key);});this.inflight.set(key,task);
     }
     let timer;
     try {return await Promise.race([this.inflight.get(key),new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('ORDER_READ_TIMEOUT')),this.timeoutMs);})]);}
-    catch {const last=this.last.get(key);return last?{...last,freshness:'STALE',warning:'No se pudo actualizar; última instantánea fiable.'}:{source:'DROPEA_PUBLIC_API_V2',period,freshness:'UNAVAILABLE',coverage:'UNVERIFIED',observedAt:null};}
+    catch {const last=period.rolling?null:this.last.get(key);return last?{...last,checkedAt:new Date(requestedAt).toISOString(),freshness:'STALE',warning:'No se pudo actualizar; última instantánea fiable.'}:{source:'DROPEA_PUBLIC_API_V2',period,checkedAt:new Date(requestedAt).toISOString(),freshness:'UNAVAILABLE',coverage:'UNVERIFIED',observedAt:null};}
     finally {clearTimeout(timer);}
   }
 }

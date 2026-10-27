@@ -19,7 +19,7 @@ import {isV6} from './autopilot/v6-policy.mjs';
 import {madridTime} from './autopilot/schedule.mjs';
 import {createReviewService} from './review/service.mjs';
 import {shiftDay} from './review/periods.mjs';
-import {createReportCache,reportDependencyError} from './report-cache.mjs';
+import {createReportCache,reportDependencyError,ReportReadError} from './report-cache.mjs';
 import {aggregateCommerce} from './review/commerce.mjs';
 import {readStoredReport} from './stored-report.mjs';
 
@@ -71,7 +71,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
     return reviewTasks.get(key);
   }
   async function reviewExtras(range,query,{waitMs=0}={}){
-    const tasks=['campaign','adset','ad'].map(level=>['metadata_'+level,()=>cachedEvidence('metadata:'+level,()=>sharedReportReader.readAuditDetails(level))]);
+    const tasks=(query.level==='ad'?['campaign','adset','ad']:['campaign','adset']).map(level=>['metadata_'+level,()=>cachedEvidence('metadata:'+level,()=>sharedReportReader.readAuditDetails(level))]);
     if(query.level==='ad')tasks.push(['creatives',()=>cachedEvidence('creatives',()=>sharedReportReader.readCreatives())]);
     if(query.detail==='true'||query.detail===true){
       tasks.push(['activities',()=>cachedEvidence(`activities:${range.since}:${range.until}`,()=>sharedReportReader.readActivityHistory({since:Date.parse(range.until)-Date.parse(range.since)>30*86400000?shiftDay(range.until,-30):range.since,until:range.until}))]);
@@ -95,13 +95,14 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
       budgetGuardCache={...buildAlgorithmReport(e,{policy:learningPolicy}),guardEvents:normalizeBudgetActivities([...(e.currentActivities||[]),...(e.activities||[])],e.entities)};return budgetGuardCache;
     }).finally(()=>{budgetGuardTask=null;});
     return budgetGuardTask;
-  },async algorithm(){
+  },async algorithm({bounded=false}={}){
     if(env.ADS_ALGORITHM_ENABLED!=='true')throw Error('ADS_ALGORITHM_DISABLED');
-    if(algorithmCache&&Date.now()-algorithmCache.at<10*60_000)return algorithmCache.report;
-    if(!algorithmTask)algorithmTask=captureAlgorithmEvidence({reader:reader.withPriority(20),readOrders:ordersReader,readOperations:operationsReader}).then(e=>{const deferred=Object.values(e.sources).find(s=>['META_FINANCIAL_WINDOW_RESERVED','META_RATE_LIMITED','META_QUOTA_RESERVED'].includes(s.code));if(deferred)throw Object.assign(Error(deferred.code),{code:deferred.code});e.orders=traceOrders(e.orders,e.entities);const report={...buildAlgorithmReport(e,{policy:learningPolicy}),reportReadOnly};algorithmCache={at:Date.now(),report};return report;}).finally(()=>{algorithmTask=null;});
+    if(algorithmCache&&Date.now()-algorithmCache.at<(Object.values(algorithmCache.report.sources).some(s=>s.status!=='COMPLETE'&&s.status!=='NOT_REQUESTED'&&!s.code?.endsWith('_NOT_CONFIGURED'))?30000:10*60_000))return algorithmCache.report;
+    if(!algorithmTask)algorithmTask=captureAlgorithmEvidence({reader:sharedReportReader,readOrders:ordersReader,readOperations:operationsReader}).then(e=>{const financial=Object.values(e.sources).find(s=>s.code==='META_FINANCIAL_WINDOW_RESERVED');if(financial)throw Object.assign(Error(financial.code),{code:financial.code});e.orders=traceOrders(e.orders,e.entities);const report={...buildAlgorithmReport(e,{policy:learningPolicy}),reportReadOnly};algorithmCache={at:Date.now(),report};return report;}).finally(()=>{algorithmTask=null;});
     // Cold reads can span many Graph pages. Keep a coalesced task, do not launch
     // a second job when Telegram retries after a bounded response.
-    return algorithmTask;
+    if(!bounded)return algorithmTask;
+    let timer;try{return await Promise.race([algorithmTask,new Promise((_,reject)=>{timer=setTimeout(()=>reject(new ReportReadError({source:'META_MARKETING_API',state:'PREPARING',code:'ADS_REPORT_PREPARING',connection:'READING',retryable:true,retryAfterSeconds:2,checkedAt:new Date().toISOString()})),4000);})]);}finally{clearTimeout(timer);}
   },async simulate(query){
     if(!query||!/^\d+$/.test(String(query.campaignId))||!Number.isSafeInteger(query.newBudgetCents)||!Number.isInteger(query.days))throw Error('QUERY_INVALID');
     const report=await this.algorithm(),assessment=report.campaigns.find(c=>c.campaignId===String(query.campaignId));
@@ -116,7 +117,7 @@ export function createAdsRuntime({env=process.env,pool,fetchImpl=fetch,readOrder
   },async overview(query={}){
     const {period='7d',level='campaign',since,until,selector,campaignId,adsetId,adId}=query;
     if(Boolean(since)!==Boolean(until)||(!since&&!['hoy','ayer','3d','7d','30d'].includes(period))||!['campaign','adset','ad'].includes(level)||[campaignId,adsetId,adId].some(id=>id&&!/^\d+$/.test(id))||(selector&&(typeof selector!=='string'||selector.length>100))||query.productId)throw Error('QUERY_INVALID');
-    const base=await snapshot({period,since,until,force:query.force===true||query.force==='true'});
+    const base=await snapshot({period,since,until,force:query.force===true||query.force==='true',...(query.interactive===true?{level,waitMs:10000}:{})});
     const value=assembleReport({...base.dataset,productMappings,selector,filters:{level,campaignId,adsetId,adId}});
     const stale=base.readFailed||Date.now()-Date.parse(value.observedAt)>=120000;
     const budgetCandidates=!autopilotConfig.enabled&&level==='campaign'&&!stale?(value.facts||[]).filter(f=>f.delivery==='ACTIVE'&&f.roasStatus==='VALID'&&f.spend>=engine.policy.minSpend&&f.purchases>=engine.policy.minPurchases&&f.impressions>=engine.policy.minImpressions&&(f.roas>10||f.roas<3)).slice(0,3).map(f=>({campaignId:f.campaignId||f.entityId,name:f.name,direction:f.roas>10?'increase':'decrease',percent:Math.min(10,engine.policy.maxChangePercent),roas:f.roas})):[];
