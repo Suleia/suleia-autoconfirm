@@ -1,0 +1,73 @@
+{
+  "status": "DEPLOYED_GRAPHQL_VERIFIED",
+  "completedAt": "2026-10-27T20:19:08.577566+00:00",
+  "main": 198240600396,
+  "file": "snippets/quantity-breaks.liquid",
+  "changedLines": 2,
+  "originalMd5": "48500864fc513983c6665a2ebd21ceba",
+  "deployedMd5": "9c934494d8649150066da3834387acb5",
+  "seoulTemplateUnchanged": true,
+  "collagumTemplateUnchanged": true,
+  "pack1Unchanged": true,
+  "pricesAndLogicUnchanged": true,
+  "anonymousPublicMainVerified": true,
+  "newImageUrls": [
+    "https://cdn.shopify.com/s/files/1/1046/4929/4156/files/seoul-pack-2-tight-centered-v3.png?v=1793131337",
+    "https://cdn.shopify.com/s/files/1/1046/4929/4156/files/seoul-pack-3-tight-centered-v3.png?v=1793131344"
+  ],
+  "oldPack2And3ImagesAbsent": true,
+  "pack2Preselected": true,
+  "cartQuantities": [
+    1,
+    2,
+    3
+  ],
+  "cartTotalsCents": [
+    2999,
+    3499,
+    4499
+  ],
+  "cartDiscountsCents": [
+    0,
+    2499,
+    4498
+  ],
+  "comparePricesCents": [
+    3499,
+    6998,
+    10497
+  ],
+  "savingsCents": [
+    500,
+    3499,
+    5998
+  ],
+  "unitPricesCents": [
+    2999,
+    1750,
+    1500
+  ],
+  "radioTransitions": [
+    1,
+    2,
+    3,
+    1
+  ],
+  "responsiveCssWidths": [
+    375,
+    390,
+    430,
+    768,
+    1440
+  ],
+  "allImagesLoadedAndContained": true,
+  "imagesCentered": true,
+  "noImageCropOrOverflow": true,
+  "collagumV7AndSocialUnchanged": true,
+  "nidaUnchanged": true,
+  "otherFilesUnchanged": 378,
+  "consoleErrors": 0,
+  "liquidWarning": "Existing shared-snippet complexity warning only",
+  "ordersCreated": 0,
+  "isolatedCartCleaned": true
+}
