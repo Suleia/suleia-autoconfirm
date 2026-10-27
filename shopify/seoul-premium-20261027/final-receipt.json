@@ -1,0 +1,53 @@
+{
+  "completedAt": "2026-10-27T19:45:12.862906+00:00",
+  "status": "DEPLOYED_GRAPHQL_READBACK_VERIFIED",
+  "main": 198240600396,
+  "backup": 209070686540,
+  "changedFiles": [
+    "snippets/quantity-breaks.liquid",
+    "templates/product.seoul_1988.json"
+  ],
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "48500864fc513983c6665a2ebd21ceba",
+    "templates/product.seoul_1988.json": "8ef71c799976c1731e9e4626cd0bfe47"
+  },
+  "nonSeoulSnippetBytesUnchanged": true,
+  "note": "Initial REST readback returned stale content. First write independently verified via GraphQL; never repeated. Only missing template write executed once.",
+  "mainRole": "MAIN",
+  "backupMatchesBeforeFiles": 379,
+  "otherFilesUnchanged": 377,
+  "publicPageVerified": true,
+  "publicPreviewDisabled": true,
+  "responsiveCssWidths": [
+    375,
+    390,
+    430,
+    768,
+    1440
+  ],
+  "radioTransitions": [
+    1,
+    2,
+    3,
+    1
+  ],
+  "pack2Preselected": true,
+  "cartQuantities": [
+    1,
+    2,
+    3
+  ],
+  "cartTotalsCents": [
+    2999,
+    3499,
+    4499
+  ],
+  "isolatedCartCleaned": true,
+  "ordersCreated": 0,
+  "collagumV7Unchanged": true,
+  "nidaUnchanged": true,
+  "collagumCartPack2Cents": 2999,
+  "nidaCartPack2Cents": 3499,
+  "browserConsoleErrors": 0,
+  "syntax": "official Theme Check passes with shared complexity warning"
+}

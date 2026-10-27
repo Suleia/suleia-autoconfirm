@@ -16,4 +16,10 @@ An isolated storefront cart independently verifies quantity1/2999 cents, quantit
 
 Production gate re-reads MAIN role, full backup/MAIN manifests and both files; compares source with the validated candidate hashes; then writes only these two files through the existing approved Shopify application. Each write is journaled before the request and immediately read back. Any failure triggers guarded rollback only when the current file still equals the original or this candidate. A separate per-file rollback is prepared for failed public validation and never overwrites concurrent edits.
 
-Deployment/public validation receipt follows after execution; preflight alone is not a completion claim.
+Deployed at 2026-10-27T19:45:12Z (20:45 Madrid). Fresh GraphQL file readback verifies both files and MAIN role. Full final manifest shows exactly these two changed files and 377 untouched files. The final patch and receipt use the authoritative GraphQL representations.
+
+The first REST file read returned stale pre-write content. An independent GraphQL read proved the snippet write succeeded; it was never repeated. Only the missing template was subsequently written once and verified through GraphQL. No rollback mutation was issued and no theme was published/switched. The guarded rollback now uses GraphQL reads and recognizes both exact deployed hashes in dry-run.
+
+Public verification passes on the real product URL after exiting preview, with no preview bar; an independent anonymous HTML fetch identifies theme198240600396/MAIN and all3SEOUL pack images. All five responsive widths pass in production and console errors=0. CollaGum and NIDA card text/images/default selection/dimensions match the captured pre-deployment references exactly. Independent isolated-cart postchecks again verify all3SEOUL totals, CollaGum pack2=29.99 and NIDA pack2=34.99, then remove all test lines. No orders created and the operator's cart preserved.
+
+Final receipt: `shopify/seoul-premium-20261027/final-receipt.json`. Shared snippet MD5 `48500864fc513983c6665a2ebd21ceba`; SEOUL JSON MD5 `8ef71c799976c1731e9e4626cd0bfe47`. Local backup/rollback/evidence folder: `shopify-theme-work/seoul-premium-deploy-20261027`, outside tracked repository files; it contains no newly created credentials.
