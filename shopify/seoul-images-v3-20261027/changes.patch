@@ -1,0 +1,20 @@
+--- a/snippets/quantity-breaks.liquid
++++ b/snippets/quantity-breaks.liquid
+@@ -348,7 +348,7 @@
+         {% endif %}
+         <div class='quantity-break__image-and-content'>
+ {% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<div class="cg-pack-photo" aria-hidden="true"><img src="https://cdn.shopify.com/s/files/1/1046/4929/4156/files/collagum-pack-2-transparent-v2.png?v=1793042209" alt="" width="180" height="125" loading="lazy"></div>{% endif %}
+-{% if product.handle == 'crema-seoul-1988' %}<div class="s88-pack-photo" aria-hidden="true"><img src="https://cdn.shopify.com/s/files/1/1046/4929/4156/files/seoul-pack-2-transparent-v2.png?v=1793121662" alt="" width="180" height="125" loading="lazy"></div>{% endif %}
++{% if product.handle == 'crema-seoul-1988' %}<div class="s88-pack-photo" aria-hidden="true"><img src="https://cdn.shopify.com/s/files/1/1046/4929/4156/files/seoul-pack-2-tight-centered-v3.png?v=1793131337" alt="" width="180" height="125" loading="lazy"></div>{% endif %}
+           {% if block.settings.option_2_image != blank %}
+             <div class='quantity-break__image'>
+               <img 
+@@ -581,7 +581,7 @@
+         {% endif %}
+         <div class='quantity-break__image-and-content'>
+ {% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<div class="cg-pack-photo" aria-hidden="true"><img src="https://cdn.shopify.com/s/files/1/1046/4929/4156/files/collagum-pack-3-transparent-v2.png?v=1793042216" alt="" width="180" height="125" loading="lazy"></div>{% endif %}
+-{% if product.handle == 'crema-seoul-1988' %}<div class="s88-pack-photo" aria-hidden="true"><img src="https://cdn.shopify.com/s/files/1/1046/4929/4156/files/seoul-pack-3-transparent-v2.png?v=1793121668" alt="" width="180" height="125" loading="lazy"></div>{% endif %}
++{% if product.handle == 'crema-seoul-1988' %}<div class="s88-pack-photo" aria-hidden="true"><img src="https://cdn.shopify.com/s/files/1/1046/4929/4156/files/seoul-pack-3-tight-centered-v3.png?v=1793131344" alt="" width="180" height="125" loading="lazy"></div>{% endif %}
+           {% if block.settings.option_3_image != blank %}
+             <div class='quantity-break__image'>
+               <img 
