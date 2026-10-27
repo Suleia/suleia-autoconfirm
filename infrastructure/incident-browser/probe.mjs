@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import {ensureChatbyView} from './chatby-view.mjs';
+import {clearIncidentDateFilter} from './incident-view.mjs';
 
 async function runProbe(context){
  let inspection;
@@ -32,6 +33,7 @@ async function runProbe(context){
     const draft=page.getByRole('dialog',{name:'Aportar solución',exact:true});
     if(await draft.count()===1)await draft.getByText('Cancelar',{exact:true}).click();
     await page.getByText('Todas',{exact:true}).click();
+    await clearIncidentDateFilter(page);
     const search=page.getByPlaceholder('Buscar...',{exact:true});
     await search.fill(orderId);await search.press('Enter');
    }

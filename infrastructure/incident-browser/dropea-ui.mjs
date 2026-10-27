@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {createHash} from 'node:crypto';
 import {ensureDropeaSession} from './dropea-session.mjs';
+import {clearIncidentDateFilter} from './incident-view.mjs';
 
 export async function selectRetryDate(page,dialog,iso){
  if(!/^\d{4}-\d{2}-\d{2}$/.test(iso))throw Error('RETRY_DATE_REQUIRED');
@@ -48,6 +49,7 @@ export async function incidentRow(context,plan){
   await page.waitForURL(u=>u.pathname.endsWith('/incidences'),{timeout:15000});
  }
  await page.getByText('Todas',{exact:true}).click();
+ await clearIncidentDateFilter(page);
  const search=page.getByPlaceholder('Buscar...',{exact:true});await search.fill(plan.orderId);await search.press('Enter');
  const row=page.locator('tr.clickable-row').filter({has:page.getByText(plan.issueId,{exact:true})});
  await row.waitFor({timeout:15000});

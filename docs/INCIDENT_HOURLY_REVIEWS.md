@@ -1,5 +1,9 @@
 # Hourly autonomous incident reviews
 
+Historical 26 October deployment. The owner's 27 October instruction restores
+the existing worker to 30 minute reviews; see `DISCOUNT_HALF_HOUR_AUTOMATION.md`.
+The original verified receipt below is retained as historical evidence.
+
 The owner requested hourly reviews on 26 October 2026. The existing dedicated VPS
 worker now runs once at startup and then every 60 minutes, including nights and
 weekends. No second cron, sender or Codex heartbeat is created; the old desktop
