@@ -1,0 +1,36 @@
+--- a/templates/product.collagum.json
++++ b/templates/product.collagum.json
+@@ -323,30 +323,9 @@
+           }
+         },
+         "social_proof_widget_p4q4TN": {
+-          "type": "social_proof_widget",
+-          "settings": {
+-            "image_1": "shopify://shop_images/ChatGPT_Image_27_jun_2026_23_14_35_1.png",
+-            "image_2": "shopify://shop_images/ChatGPT_Image_27_jun_2026_23_15_53_1.png",
+-            "customer_name": "Laura",
+-            "customer_name_2": "Marta",
+-            "show_verified": true,
+-            "separator_text": "y",
+-            "name_color": "#000000",
+-            "initial_count": 31,
+-            "text": "personas mas han comprado Colla Gum hoy",
+-            "enable_counter": true,
+-            "initial_delay": 5,
+-            "min_delay": 3,
+-            "max_delay": 9,
+-            "increment_probability": 0.3,
+-            "background_color": "#fffdf4",
+-            "text_color": "#333333",
+-            "count_color": "#000000",
+-            "font_size": 13,
+-            "border_radius": 14,
+-            "spacing_top": 10,
+-            "spacing_bottom": 10,
+-            "mobile_layout": "row"
++          "type": "custom_liquid",
++          "settings": {
++            "custom_liquid": "{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}\n<div id=\"cg-social-proof-p4q4TN\" class=\"cg-social-proof\">\n  <div class=\"cg-social-proof__portraits\" aria-hidden=\"true\">\n    <img src=\"https://cdn.shopify.com/s/files/1/1046/4929/4156/files/collagum-social-avatar-1.png?v=1793126568\" alt=\"\" width=\"40\" height=\"40\" loading=\"lazy\" decoding=\"async\">\n    <img src=\"https://cdn.shopify.com/s/files/1/1046/4929/4156/files/collagum-social-avatar-2.png?v=1793126574\" alt=\"\" width=\"40\" height=\"40\" loading=\"lazy\" decoding=\"async\">\n    <img src=\"https://cdn.shopify.com/s/files/1/1046/4929/4156/files/collagum-social-avatar-3.png?v=1793126581\" alt=\"\" width=\"40\" height=\"40\" loading=\"lazy\" decoding=\"async\">\n  </div>\n  <div class=\"cg-social-proof__copy\">\n    <strong class=\"cg-social-proof__headline\">Sonríe cada día con CollaGum</strong>\n    <span class=\"cg-social-proof__caption\">Retratos ilustrativos</span>\n  </div>\n</div>\n<style>\n  #cg-social-proof-p4q4TN {\n    display: flex;\n    align-items: center;\n    gap: 12px;\n    width: 100%;\n    min-width: 0;\n    box-sizing: border-box;\n    margin: 10px 0;\n    padding: 10px 12px;\n    border: 1px solid #d5e9f7;\n    border-radius: 14px;\n    background: #edf7ff;\n    color: #244e68;\n    box-shadow: 0 2px 8px rgba(36,78,104,.035);\n  }\n  #cg-social-proof-p4q4TN .cg-social-proof__portraits {\n    display: flex;\n    align-items: center;\n    flex: 0 0 auto;\n    isolation: isolate;\n  }\n  #cg-social-proof-p4q4TN .cg-social-proof__portraits img {\n    display: block;\n    flex: 0 0 40px;\n    width: 40px;\n    height: 40px;\n    box-sizing: border-box;\n    margin: 0 0 0 -12px;\n    border: 2px solid #fff;\n    border-radius: 50%;\n    object-fit: cover;\n    object-position: center;\n  }\n  #cg-social-proof-p4q4TN .cg-social-proof__portraits img:first-child { margin-left: 0; z-index: 3; }\n  #cg-social-proof-p4q4TN .cg-social-proof__portraits img:nth-child(2) { z-index: 2; }\n  #cg-social-proof-p4q4TN .cg-social-proof__portraits img:nth-child(3) { z-index: 1; }\n  #cg-social-proof-p4q4TN .cg-social-proof__copy { min-width: 0; flex: 1 1 auto; }\n  #cg-social-proof-p4q4TN .cg-social-proof__headline {\n    display: block;\n    margin: 0;\n    color: #244e68;\n    font: inherit;\n    font-size: 13px;\n    font-weight: 650;\n    line-height: 1.35;\n  }\n  #cg-social-proof-p4q4TN .cg-social-proof__caption {\n    display: block;\n    margin-top: 3px;\n    color: #597587;\n    font-size: 10px;\n    line-height: 1.3;\n  }\n  @media (max-width: 749px) {\n    #cg-social-proof-p4q4TN { gap: 10px; padding: 9px 11px; border-radius: 12px; }\n    #cg-social-proof-p4q4TN .cg-social-proof__portraits img { flex-basis: 36px; width: 36px; height: 36px; }\n    #cg-social-proof-p4q4TN .cg-social-proof__headline { font-size: 12px; }\n  }\n</style>\n{% endif %}\n"
+           }
+         },
+         "image_9nEPa9": {
