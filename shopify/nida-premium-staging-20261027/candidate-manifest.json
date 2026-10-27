@@ -1,0 +1,22 @@
+[
+  {
+    "filename": "assets/nida-premium.css",
+    "md5": "c56859579b699398cbf3cfe561de3a0f",
+    "bytes": 10021
+  },
+  {
+    "filename": "snippets/nida-premium-ui.liquid",
+    "md5": "47631665cff0e5093e55d5a4d59c0e17",
+    "bytes": 3834
+  },
+  {
+    "filename": "snippets/quantity-breaks.liquid",
+    "md5": "ee2e1037f1fdc6cac71ea565b30d0560",
+    "bytes": 69629
+  },
+  {
+    "filename": "templates/product.parches_glp.json",
+    "md5": "9688022b88fd33e3db4403255fde1704",
+    "bytes": 61338
+  }
+]

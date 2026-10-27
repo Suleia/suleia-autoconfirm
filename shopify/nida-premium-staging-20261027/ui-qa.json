@@ -1,0 +1,829 @@
+{
+  "responsive": [
+    {
+      "cards": [
+        {
+          "badge": null,
+          "compare": "€34,99",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-1-unidad-blanco.png?v=1793135821",
+            "width": 101
+          },
+          "price": "€29,99",
+          "quantity": "1",
+          "rect": {
+            "bottom": 230.796875,
+            "height": 197.71875,
+            "left": 15,
+            "right": 341,
+            "top": 33.078125,
+            "width": 326,
+            "x": 15,
+            "y": 33.078125
+          },
+          "saving": "Ahorras 5,00 €",
+          "unit": "29,99 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 258.59375,
+              "height": 20.796875,
+              "left": 218.5,
+              "right": 328,
+              "top": 237.796875,
+              "width": 109.5,
+              "x": 218.5,
+              "y": 237.796875
+            },
+            "text": "PACK DESTACADO"
+          },
+          "compare": "€69,98",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-2-unidades-blanco.png?v=1793135830",
+            "width": 101
+          },
+          "price": "€34,99",
+          "quantity": "2",
+          "rect": {
+            "bottom": 430.671875,
+            "height": 182.875,
+            "left": 15,
+            "right": 341,
+            "top": 247.796875,
+            "width": 326,
+            "x": 15,
+            "y": 247.796875
+          },
+          "saving": "Ahorras 34,99 €",
+          "unit": "17,50 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 458.46875,
+              "height": 20.796875,
+              "left": 237.640625,
+              "right": 328,
+              "top": 437.671875,
+              "width": 90.359375,
+              "x": 237.640625,
+              "y": 437.671875
+            },
+            "text": "MEJOR VALOR"
+          },
+          "compare": "€104,97",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-3-unidades-blanco.png?v=1793135838",
+            "width": 101
+          },
+          "price": "€44,99",
+          "quantity": "3",
+          "rect": {
+            "bottom": 630.546875,
+            "height": 182.875,
+            "left": 15,
+            "right": 341,
+            "top": 447.671875,
+            "width": 326,
+            "x": 15,
+            "y": 447.671875
+          },
+          "saving": "Ahorras 59,98 €",
+          "unit": "15,00 € / unidad"
+        }
+      ],
+      "selected": "2",
+      "viewport": {
+        "h": 1075,
+        "scrollWidth": 356,
+        "w": 375
+      },
+      "pass": true,
+      "badgesClear": true
+    },
+    {
+      "cards": [
+        {
+          "badge": null,
+          "compare": "€34,99",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-1-unidad-blanco.png?v=1793135821",
+            "width": 101
+          },
+          "price": "€29,99",
+          "quantity": "1",
+          "rect": {
+            "bottom": 216.78125,
+            "height": 182.875,
+            "left": 15,
+            "right": 356,
+            "top": 33.90625,
+            "width": 341,
+            "x": 15,
+            "y": 33.90625
+          },
+          "saving": "Ahorras 5,00 €",
+          "unit": "29,99 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 244.578125,
+              "height": 20.796875,
+              "left": 233.5,
+              "right": 343,
+              "top": 223.78125,
+              "width": 109.5,
+              "x": 233.5,
+              "y": 223.78125
+            },
+            "text": "PACK DESTACADO"
+          },
+          "compare": "€69,98",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-2-unidades-blanco.png?v=1793135830",
+            "width": 101
+          },
+          "price": "€34,99",
+          "quantity": "2",
+          "rect": {
+            "bottom": 416.65625,
+            "height": 182.875,
+            "left": 15,
+            "right": 356,
+            "top": 233.78125,
+            "width": 341,
+            "x": 15,
+            "y": 233.78125
+          },
+          "saving": "Ahorras 34,99 €",
+          "unit": "17,50 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 444.453125,
+              "height": 20.796875,
+              "left": 252.640625,
+              "right": 343,
+              "top": 423.65625,
+              "width": 90.359375,
+              "x": 252.640625,
+              "y": 423.65625
+            },
+            "text": "MEJOR VALOR"
+          },
+          "compare": "€104,97",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-3-unidades-blanco.png?v=1793135838",
+            "width": 101
+          },
+          "price": "€44,99",
+          "quantity": "3",
+          "rect": {
+            "bottom": 616.53125,
+            "height": 182.875,
+            "left": 15,
+            "right": 356,
+            "top": 433.65625,
+            "width": 341,
+            "x": 15,
+            "y": 433.65625
+          },
+          "saving": "Ahorras 59,98 €",
+          "unit": "15,00 € / unidad"
+        }
+      ],
+      "selected": "2",
+      "viewport": {
+        "h": 1075,
+        "scrollWidth": 371,
+        "w": 390
+      },
+      "pass": true,
+      "badgesClear": true
+    },
+    {
+      "cards": [
+        {
+          "badge": null,
+          "compare": "€34,99",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-1-unidad-blanco.png?v=1793135821",
+            "width": 101
+          },
+          "price": "€29,99",
+          "quantity": "1",
+          "rect": {
+            "bottom": 216.78125,
+            "height": 182.875,
+            "left": 15,
+            "right": 396,
+            "top": 33.90625,
+            "width": 381,
+            "x": 15,
+            "y": 33.90625
+          },
+          "saving": "Ahorras 5,00 €",
+          "unit": "29,99 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 244.578125,
+              "height": 20.796875,
+              "left": 273.5,
+              "right": 383,
+              "top": 223.78125,
+              "width": 109.5,
+              "x": 273.5,
+              "y": 223.78125
+            },
+            "text": "PACK DESTACADO"
+          },
+          "compare": "€69,98",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-2-unidades-blanco.png?v=1793135830",
+            "width": 101
+          },
+          "price": "€34,99",
+          "quantity": "2",
+          "rect": {
+            "bottom": 416.65625,
+            "height": 182.875,
+            "left": 15,
+            "right": 396,
+            "top": 233.78125,
+            "width": 381,
+            "x": 15,
+            "y": 233.78125
+          },
+          "saving": "Ahorras 34,99 €",
+          "unit": "17,50 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 444.453125,
+              "height": 20.796875,
+              "left": 292.640625,
+              "right": 383,
+              "top": 423.65625,
+              "width": 90.359375,
+              "x": 292.640625,
+              "y": 423.65625
+            },
+            "text": "MEJOR VALOR"
+          },
+          "compare": "€104,97",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 150,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-3-unidades-blanco.png?v=1793135838",
+            "width": 101
+          },
+          "price": "€44,99",
+          "quantity": "3",
+          "rect": {
+            "bottom": 616.53125,
+            "height": 182.875,
+            "left": 15,
+            "right": 396,
+            "top": 433.65625,
+            "width": 381,
+            "x": 15,
+            "y": 433.65625
+          },
+          "saving": "Ahorras 59,98 €",
+          "unit": "15,00 € / unidad"
+        }
+      ],
+      "selected": "2",
+      "viewport": {
+        "h": 1075,
+        "scrollWidth": 411,
+        "w": 430
+      },
+      "pass": true,
+      "badgesClear": true
+    },
+    {
+      "cards": [
+        {
+          "badge": null,
+          "compare": "€34,99",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-1-unidad-blanco.png?v=1793135821",
+            "width": 100
+          },
+          "price": "€29,99",
+          "quantity": "1",
+          "rect": {
+            "bottom": -57.53125,
+            "height": 243.875,
+            "left": 424.5,
+            "right": 699,
+            "top": -301.40625,
+            "width": 274.5,
+            "x": 424.5,
+            "y": -301.40625
+          },
+          "saving": "Ahorras 5,00 €",
+          "unit": "29,99 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": -30.734375,
+              "height": 20.796875,
+              "left": 578.5,
+              "right": 686,
+              "top": -51.53125,
+              "width": 107.5,
+              "x": 578.5,
+              "y": -51.53125
+            },
+            "text": "PACK DESTACADO"
+          },
+          "compare": "€69,98",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-2-unidades-blanco.png?v=1793135830",
+            "width": 100
+          },
+          "price": "€34,99",
+          "quantity": "2",
+          "rect": {
+            "bottom": 201.5,
+            "height": 243.03125,
+            "left": 424.5,
+            "right": 699,
+            "top": -41.53125,
+            "width": 274.5,
+            "x": 424.5,
+            "y": -41.53125
+          },
+          "saving": "Ahorras 34,99 €",
+          "unit": "17,50 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 228.296875,
+              "height": 20.796875,
+              "left": 597.640625,
+              "right": 686,
+              "top": 207.5,
+              "width": 88.359375,
+              "x": 597.640625,
+              "y": 207.5
+            },
+            "text": "MEJOR VALOR"
+          },
+          "compare": "€104,97",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-3-unidades-blanco.png?v=1793135838",
+            "width": 100
+          },
+          "price": "€44,99",
+          "quantity": "3",
+          "rect": {
+            "bottom": 489.375,
+            "height": 271.875,
+            "left": 424.5,
+            "right": 699,
+            "top": 217.5,
+            "width": 274.5,
+            "x": 424.5,
+            "y": 217.5
+          },
+          "saving": "Ahorras 59,98 €",
+          "unit": "15,00 € / unidad"
+        }
+      ],
+      "selected": "2",
+      "viewport": {
+        "h": 1075,
+        "scrollWidth": 749,
+        "w": 768
+      },
+      "pass": true,
+      "badgesClear": true
+    },
+    {
+      "cards": [
+        {
+          "badge": null,
+          "compare": "€34,99",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-1-unidad-blanco.png?v=1793135821",
+            "width": 100
+          },
+          "price": "€29,99",
+          "quantity": "1",
+          "rect": {
+            "bottom": -112.96875,
+            "height": 215.03125,
+            "left": 597.75,
+            "right": 955,
+            "top": -328,
+            "width": 357.25,
+            "x": 597.75,
+            "y": -328
+          },
+          "saving": "Ahorras 5,00 €",
+          "unit": "29,99 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": -86.171875,
+              "height": 20.796875,
+              "left": 834.5,
+              "right": 942,
+              "top": -106.96875,
+              "width": 107.5,
+              "x": 834.5,
+              "y": -106.96875
+            },
+            "text": "PACK DESTACADO"
+          },
+          "compare": "€69,98",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-2-unidades-blanco.png?v=1793135830",
+            "width": 100
+          },
+          "price": "€34,99",
+          "quantity": "2",
+          "rect": {
+            "bottom": 118.0625,
+            "height": 215.03125,
+            "left": 597.75,
+            "right": 955,
+            "top": -96.96875,
+            "width": 357.25,
+            "x": 597.75,
+            "y": -96.96875
+          },
+          "saving": "Ahorras 34,99 €",
+          "unit": "17,50 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 144.859375,
+              "height": 20.796875,
+              "left": 853.640625,
+              "right": 942,
+              "top": 124.0625,
+              "width": 88.359375,
+              "x": 853.640625,
+              "y": 124.0625
+            },
+            "text": "MEJOR VALOR"
+          },
+          "compare": "€104,97",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-3-unidades-blanco.png?v=1793135838",
+            "width": 100
+          },
+          "price": "€44,99",
+          "quantity": "3",
+          "rect": {
+            "bottom": 349.09375,
+            "height": 215.03125,
+            "left": 597.75,
+            "right": 955,
+            "top": 134.0625,
+            "width": 357.25,
+            "x": 597.75,
+            "y": 134.0625
+          },
+          "saving": "Ahorras 59,98 €",
+          "unit": "15,00 € / unidad"
+        }
+      ],
+      "selected": "2",
+      "viewport": {
+        "h": 1075,
+        "scrollWidth": 1005,
+        "w": 1024
+      },
+      "pass": true,
+      "badgesClear": true
+    },
+    {
+      "cards": [
+        {
+          "badge": null,
+          "compare": "€34,99",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-1-unidad-blanco.png?v=1793135821",
+            "width": 100
+          },
+          "price": "€29,99",
+          "quantity": "1",
+          "rect": {
+            "bottom": -125.359375,
+            "height": 215.03125,
+            "left": 738.546875,
+            "right": 1210.984375,
+            "top": -340.390625,
+            "width": 472.4375,
+            "x": 738.546875,
+            "y": -340.390625
+          },
+          "saving": "Ahorras 5,00 €",
+          "unit": "29,99 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": -98.5625,
+              "height": 20.796875,
+              "left": 1090.484375,
+              "right": 1197.984375,
+              "top": -119.359375,
+              "width": 107.5,
+              "x": 1090.484375,
+              "y": -119.359375
+            },
+            "text": "PACK DESTACADO"
+          },
+          "compare": "€69,98",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-2-unidades-blanco.png?v=1793135830",
+            "width": 100
+          },
+          "price": "€34,99",
+          "quantity": "2",
+          "rect": {
+            "bottom": 105.671875,
+            "height": 215.03125,
+            "left": 738.546875,
+            "right": 1210.984375,
+            "top": -109.359375,
+            "width": 472.4375,
+            "x": 738.546875,
+            "y": -109.359375
+          },
+          "saving": "Ahorras 34,99 €",
+          "unit": "17,50 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": 132.46875,
+              "height": 20.796875,
+              "left": 1109.625,
+              "right": 1197.984375,
+              "top": 111.671875,
+              "width": 88.359375,
+              "x": 1109.625,
+              "y": 111.671875
+            },
+            "text": "MEJOR VALOR"
+          },
+          "compare": "€104,97",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 140,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-3-unidades-blanco.png?v=1793135838",
+            "width": 100
+          },
+          "price": "€44,99",
+          "quantity": "3",
+          "rect": {
+            "bottom": 336.703125,
+            "height": 215.03125,
+            "left": 738.546875,
+            "right": 1210.984375,
+            "top": 121.671875,
+            "width": 472.4375,
+            "x": 738.546875,
+            "y": 121.671875
+          },
+          "saving": "Ahorras 59,98 €",
+          "unit": "15,00 € / unidad"
+        }
+      ],
+      "selected": "2",
+      "viewport": {
+        "h": 1075,
+        "scrollWidth": 1261,
+        "w": 1280
+      },
+      "pass": true,
+      "badgesClear": true
+    },
+    {
+      "cards": [
+        {
+          "badge": null,
+          "compare": "€34,99",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 144,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-1-unidad-blanco.png?v=1793135821",
+            "width": 144.328125
+          },
+          "price": "€29,99",
+          "quantity": "1",
+          "rect": {
+            "bottom": 91.234375,
+            "height": 431.625,
+            "left": 825.5,
+            "right": 995.828125,
+            "top": -340.390625,
+            "width": 170.328125,
+            "x": 825.5,
+            "y": -340.390625
+          },
+          "saving": "Ahorras 5,00 €",
+          "unit": "29,99 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": -329.59375,
+              "height": 20.796875,
+              "left": 1039.234375,
+              "right": 1146.734375,
+              "top": -350.390625,
+              "width": 107.5,
+              "x": 1039.234375,
+              "y": -350.390625
+            },
+            "text": "PACK DESTACADO"
+          },
+          "compare": "€69,98",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 144,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-2-unidades-blanco.png?v=1793135830",
+            "width": 144.328125
+          },
+          "price": "€34,99",
+          "quantity": "2",
+          "rect": {
+            "bottom": 91.234375,
+            "height": 431.625,
+            "left": 1007.828125,
+            "right": 1178.15625,
+            "top": -340.390625,
+            "width": 170.328125,
+            "x": 1007.828125,
+            "y": -340.390625
+          },
+          "saving": "Ahorras 34,99 €",
+          "unit": "17,50 € / unidad"
+        },
+        {
+          "badge": {
+            "rect": {
+              "bottom": -329.59375,
+              "height": 20.796875,
+              "left": 1231.1328125,
+              "right": 1319.4921875,
+              "top": -350.390625,
+              "width": 88.359375,
+              "x": 1231.1328125,
+              "y": -350.390625
+            },
+            "text": "MEJOR VALOR"
+          },
+          "compare": "€104,97",
+          "contentOverflow": false,
+          "image": {
+            "fit": "contain",
+            "height": 144,
+            "loaded": true,
+            "src": "https://suleia.com/cdn/shop/files/nida-pack-3-unidades-blanco.png?v=1793135838",
+            "width": 144.328125
+          },
+          "price": "€44,99",
+          "quantity": "3",
+          "rect": {
+            "bottom": 91.234375,
+            "height": 431.625,
+            "left": 1190.15625,
+            "right": 1360.484375,
+            "top": -340.390625,
+            "width": 170.328125,
+            "x": 1190.15625,
+            "y": -340.390625
+          },
+          "saving": "Ahorras 59,98 €",
+          "unit": "15,00 € / unidad"
+        }
+      ],
+      "selected": "2",
+      "viewport": {
+        "h": 1075,
+        "scrollWidth": 1421,
+        "w": 1440
+      },
+      "pass": true,
+      "badgesClear": true
+    }
+  ],
+  "transitions": [
+    {
+      "requested": "1",
+      "quantityFormLinked": true,
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "quantityFormLinked": true,
+      "selected": "2"
+    },
+    {
+      "requested": "3",
+      "quantityFormLinked": true,
+      "selected": "3"
+    },
+    {
+      "requested": "1",
+      "quantityFormLinked": true,
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "quantityFormLinked": true,
+      "selected": "2"
+    }
+  ]
+}

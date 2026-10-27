@@ -1,0 +1,265 @@
+--- a/snippets/quantity-breaks.liquid
++++ b/snippets/quantity-breaks.liquid
+@@ -36,7 +36,7 @@
+   assign variants_option3_arr = product.variants | map: 'option3'
+ %}
+ <quantity-breaks
+-  class="quantity-breaks quantity-breaks--{{ block.settings.style }} accent-color-{{ block.settings.color_scheme }}{% if block.settings.space_images %} quantity-breaks--space-images{% endif %}{% if has_badge %} quantity-breaks--has-badge{% endif %}{% if block.settings.full_width_pickers %} quantity-breaks-full-width-pickers{% endif %} quantity-breaks--vertical-image-{{ block.settings.vertical_images_position }} quantity-breaks--vertical-prices-{{ block.settings.vertical_prices_layout }}{% if block.settings.display_selected_indicator %} quantity-breaks--show-indicator{% endif %}{% if block.settings.image_width == 100 %} quantity-breaks--max-width-images{% endif %}"
++  class="quantity-breaks quantity-breaks--{{ block.settings.style }}{% if product.handle == 'crema-nida' %} nida-premium-packs{% endif %} accent-color-{{ block.settings.color_scheme }}{% if block.settings.space_images %} quantity-breaks--space-images{% endif %}{% if has_badge %} quantity-breaks--has-badge{% endif %}{% if block.settings.full_width_pickers %} quantity-breaks-full-width-pickers{% endif %} quantity-breaks--vertical-image-{{ block.settings.vertical_images_position }} quantity-breaks--vertical-prices-{{ block.settings.vertical_prices_layout }}{% if block.settings.display_selected_indicator %} quantity-breaks--show-indicator{% endif %}{% if block.settings.image_width == 100 %} quantity-breaks--max-width-images{% endif %}"
+   id="quantity-breaks-{{ section.id }}"
+   data-section="{{ section.id }}"
+   data-items="{{ item_count }}"
+@@ -130,6 +130,7 @@
+           <div class="quantity-break__content">
+             <div class="quantity-break__left">{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<div class="cg-detail-list"><span class="cg-detail">✓ Protege encías y dientes</span><span class="cg-detail">✓ Cuidado diario del esmalte</span><span class="cg-detail">✓ Una rutina sencilla para empezar</span></div>{% endif %}
+ {% if product.handle == 'crema-seoul-1988' %}<div class="s88-detail-list"><span class="s88-detail">✓ Retinal + péptidos + fermentos</span><span class="s88-detail">✓ Rutina premium coreana</span></div>{% endif %}
++{% if product.handle == 'crema-nida' %}{% render 'nida-premium-ui', part: 'details', pack: 1 %}{% endif %}
+               <span class="quantity-break__label">
+                 {%- if block.settings.option_1_label != blank -%}
+                   <span class="quantity-break__label-text dynamic-price variant-price-update" data-text="{{ block.settings.option_1_label }}">
+@@ -177,6 +178,7 @@
+             </div>
+             <div class="quantity-break__right dynamic-price">{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<span class="cg-saving">Ahorras 5,00 €</span>{% endif %}
+ {% if product.handle == 'crema-seoul-1988' and option_1_price_difference > 0 %}<span class="s88-saving">Ahorras {{ option_1_price_difference | money_without_currency }} €</span>{% endif %}
++{% if product.handle == 'crema-nida' %}{% render 'nida-premium-ui', part: 'price-details', pack: 1, pack_price: option_1_price, saving: option_1_price_difference %}{% endif %}
+               {% if block.settings.option_1_price_text != blank %}
+                 <span class="quantity-break__price variant-price-update" data-text="{{ block.settings.option_1_price_text }}">
+                   {% render 'text-with-price',
+@@ -363,6 +365,7 @@
+           <div class="quantity-break__content">
+             <div class="quantity-break__left">{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<div class="cg-detail-list"><span class="cg-detail">✓ Mismos beneficios, más duración</span><span class="cg-detail">✓ Ahorra frente a comprar por separado</span><span class="cg-detail">✓ Perfecto para uso diario</span></div>{% endif %}
+ {% if product.handle == 'crema-seoul-1988' %}<div class="s88-detail-list"><span class="s88-detail">✓ Más duración para tu rutina</span><span class="s88-detail">✓ Ideal para uso continuado</span></div>{% endif %}
++{% if product.handle == 'crema-nida' %}{% render 'nida-premium-ui', part: 'details', pack: 2 %}{% endif %}
+               <span class="quantity-break__label">
+                 {%- if block.settings.option_2_label != blank -%}
+                   <span class="quantity-break__label-text dynamic-price variant-price-update" data-text="{{ block.settings.option_2_label }}">
+@@ -410,6 +413,7 @@
+             </div>
+             <div class="quantity-break__right dynamic-price">{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<span class="cg-saving">Ahorras 29,99 €</span>{% endif %}
+ {% if product.handle == 'crema-seoul-1988' and option_2_price_difference > 0 %}<span class="s88-saving">Ahorras {{ option_2_price_difference | money_without_currency }} €</span>{% endif %}
++{% if product.handle == 'crema-nida' %}{% render 'nida-premium-ui', part: 'price-details', pack: 2, pack_price: option_2_price, saving: option_2_price_difference %}{% endif %}
+               {% if block.settings.option_2_price_text != blank %}
+                 <span class="quantity-break__price variant-price-update" data-text="{{ block.settings.option_2_price_text }}">
+                   {% render 'text-with-price',
+@@ -596,6 +600,7 @@
+           <div class="quantity-break__content">
+             <div class="quantity-break__left">{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<div class="cg-detail-list"><span class="cg-detail">✓ El menor precio por unidad</span><span class="cg-detail">✓ Una unidad extra por solo 5 €</span><span class="cg-detail">✓ Cuidado para más tiempo</span></div>{% endif %}
+ {% if product.handle == 'crema-seoul-1988' %}<div class="s88-detail-list"><span class="s88-detail">✓ El menor precio por unidad</span><span class="s88-detail">✓ Más tiempo para tu cuidado</span></div>{% endif %}
++{% if product.handle == 'crema-nida' %}{% render 'nida-premium-ui', part: 'details', pack: 3 %}{% endif %}
+               <span class="quantity-break__label">
+                 {%- if block.settings.option_3_label != blank -%}
+                   <span class="quantity-break__label-text dynamic-price variant-price-update" data-text="{{ block.settings.option_3_label }}">
+@@ -643,6 +648,7 @@
+             </div>
+             <div class="quantity-break__right dynamic-price">{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<span class="cg-saving">Ahorras 54,98 €</span>{% endif %}
+ {% if product.handle == 'crema-seoul-1988' and option_3_price_difference > 0 %}<span class="s88-saving">Ahorras {{ option_3_price_difference | money_without_currency }} €</span>{% endif %}
++{% if product.handle == 'crema-nida' %}{% render 'nida-premium-ui', part: 'price-details', pack: 3, pack_price: option_3_price, saving: option_3_price_difference %}{% endif %}
+               {% if block.settings.option_3_price_text != blank %}
+                 <span class="quantity-break__price variant-price-update" data-text="{{ block.settings.option_3_price_text }}">
+                   {% render 'text-with-price',
+--- a/templates/product.parches_glp.json
++++ b/templates/product.parches_glp.json
+@@ -23,7 +23,8 @@
+             "border_radius": 1,
+             "margin_top": 0,
+             "margin_bottom": 0
+-          }
++          },
++          "disabled": true
+         },
+         "a6eb81db-40e4-43e0-972f-32db010a4a56": {
+           "type": "rating_stars",
+@@ -70,7 +71,8 @@
+             "border_color": "#ededed",
+             "margin_top": 15,
+             "margin_bottom": 15
+-          }
++          },
++          "disabled": true
+         },
+         "title": {
+           "type": "title",
+@@ -80,7 +82,8 @@
+             "uppercase_title": false,
+             "margin_top": 0,
+             "margin_bottom": 9
+-          }
++          },
++          "disabled": true
+         },
+         "judge_me_reviews_preview_badge_T9tmHW": {
+           "type": "shopify://apps/judge-me-reviews/blocks/preview_badge/61ccd3b1-a9f2-4160-9fe9-4fec8413e5d8",
+@@ -97,7 +100,8 @@
+             "border_radius": 1,
+             "margin_top": 9,
+             "margin_bottom": 12
+-          }
++          },
++          "disabled": true
+         },
+         "divider_UcUYCn": {
+           "type": "divider",
+@@ -110,7 +114,8 @@
+             "border_radius": 1,
+             "margin_top": 0,
+             "margin_bottom": 0
+-          }
++          },
++          "disabled": true
+         },
+         "text_LamkkY": {
+           "type": "text",
+@@ -141,7 +146,8 @@
+             "border_color": "#b7b7b7",
+             "margin_top": 15,
+             "margin_bottom": 15
+-          }
++          },
++          "disabled": true
+         },
+         "divider_x6MPRx": {
+           "type": "divider",
+@@ -154,7 +160,8 @@
+             "border_radius": 0,
+             "margin_top": 15,
+             "margin_bottom": 15
+-          }
++          },
++          "disabled": true
+         },
+         "price": {
+           "type": "price",
+@@ -182,7 +189,7 @@
+             "atc_append_heights": "stretch-quantity",
+             "enable_quantity_discounts": true,
+             "style": "normal",
+-            "headline": "☀️ OFERTA VERANO",
++            "headline": "ELIGE TU RUTINA NIDA",
+             "preselected": "option_2",
+             "display_selected_indicator": true,
+             "border_radius": 10,
+@@ -203,42 +210,42 @@
+             "option_1_badge": "",
+             "option_1_badge_style": "1",
+             "option_1_badge_color": "accent-1",
+-            "option_1_label": "1 unidad",
+-            "option_1_benefit": "",
++            "option_1_label": "1 UNIDAD",
++            "option_1_benefit": "Ideal para empezar tu rutina con NIDA",
+             "option_1_benefit_position": "top",
+             "option_1_benefit_style": "outlined",
+             "option_1_benefit_color": "accent-2",
+-            "option_1_caption": "1 unidad - 100g",
++            "option_1_caption": "",
+             "option_1_percentage_off_text": "",
+             "option_1_fixed_amount_off": "5",
+             "option_1_price_text": "[price]",
+             "option_1_compare_price": "compare_price",
+             "option_1_compare_price_text": "[compare_price]",
+             "option_2_quantity": 2,
+-            "option_2_badge": "🔥MÁS VENDIDO",
++            "option_2_badge": "PACK DESTACADO",
+             "option_2_badge_style": "3",
+             "option_2_badge_color": "accent-1",
+-            "option_2_label": "Pack de 2 - Pagas 1",
+-            "option_2_benefit": "",
++            "option_2_label": "PACK DE 2",
++            "option_2_benefit": "Paga 1, llévate 2",
+             "option_2_benefit_position": "top",
+             "option_2_benefit_style": "outlined",
+             "option_2_benefit_color": "accent-1",
+-            "option_2_caption": "2 unidades - 200g",
++            "option_2_caption": "",
+             "option_2_percentage_off_text": "",
+             "option_2_fixed_amount_off": "34.99",
+             "option_2_price_text": "[price]",
+             "option_2_compare_price": "compare_price",
+             "option_2_compare_price_text": "[compare_price]",
+             "option_3_quantity": 3,
+-            "option_3_badge": "💎MEJOR VALOR",
++            "option_3_badge": "MEJOR VALOR",
+             "option_3_badge_style": "3",
+             "option_3_badge_color": "accent-1",
+-            "option_3_label": "Pack de 3",
+-            "option_3_benefit": "",
++            "option_3_label": "PACK DE 3",
++            "option_3_benefit": "Máximo ahorro para tu rutina",
+             "option_3_benefit_position": "top",
+             "option_3_benefit_style": "outlined",
+             "option_3_benefit_color": "accent-1",
+-            "option_3_caption": "3 unidades - 300g",
++            "option_3_caption": "",
+             "option_3_percentage_off_text": "",
+             "option_3_fixed_amount_off": "59.98",
+             "option_3_price_text": "[price]",
+@@ -259,14 +266,17 @@
+             "option_4_price_text": "[price]",
+             "option_4_compare_price": "compare_price",
+             "option_4_compare_price_text": "[compare_price]",
+-            "margin_top": 15,
+-            "margin_bottom": 15
++            "margin_top": 12,
++            "margin_bottom": 15,
++            "option_1_image": "shopify://shop_images/nida-pack-1-unidad-blanco.png",
++            "option_2_image": "shopify://shop_images/nida-pack-2-unidades-blanco.png",
++            "option_3_image": "shopify://shop_images/nida-pack-3-unidades-blanco.png"
+           }
+         },
+         "custom_liquid_xMa63b": {
+           "type": "custom_liquid",
+           "settings": {
+-            "custom_liquid": "<div class=\"nida-stock-alert\">\n  <div class=\"nida-stock-text\">\n    <span class=\"nida-dot\"></span>\n    <span class=\"nida-icon\">⏰</span>\n    <strong>SOLO HOY: 2X1 GRATIS</strong> con stock limitado.\n    Quedan <strong class=\"nida-stock-important\"><span id=\"nida-stock-count\">18</span> packs</strong> · Envío 24h antes de agotarse.\n  </div>\n</div>\n\n<style>\n  .nida-stock-alert {\n    /* Fondo azul grisáceo ultra limpio, mate y profesional */\n    background-color: #f1f5f9;\n    border-radius: 6px;\n    padding: 10px 16px;\n    margin: 14px 0;\n    text-align: center;\n    /* Borde sutil que delimita sin sobrecargar */\n    border: 1px solid #cbd5e1;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n  }\n\n  .nida-stock-text {\n    /* Color carbón premium para una lectura corporativa */\n    color: #334155;\n    font-size: 14px;\n    line-height: 1.4;\n    font-weight: 400;\n    letter-spacing: -0.01em;\n    font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, sans-serif;\n  }\n\n  .nida-stock-text strong {\n    font-weight: 600;\n    color: #0f172a;\n  }\n\n  /* Resaltado elegante y sutil para el stock */\n  .nida-stock-important {\n    color: #dc2626 !important; /* Rojo e-commerce refinado */\n    font-weight: 700 !important;\n    background: rgba(220, 38, 38, 0.05);\n    padding: 1px 5px;\n    border-radius: 3px;\n    display: inline-block;\n  }\n\n  /* Indicador de estado \"Live\" minimalista */\n  .nida-dot {\n    display: inline-block;\n    width: 7px;\n    height: 7px;\n    background: #2563eb; /* Azul tecnológico */\n    border-radius: 50%;\n    margin-right: 8px;\n    vertical-align: middle;\n    position: relative;\n  }\n\n  /* Animación de pulso continuo de alta precisión */\n  .nida-dot::after {\n    content: '';\n    position: absolute;\n    top: 0;\n    left: 0;\n    width: 100%;\n    height: 100%;\n    border-radius: 50%;\n    background: #2563eb;\n    animation: nidaPulse 2.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;\n  }\n\n  .nida-icon {\n    margin-right: 4px;\n    vertical-align: middle;\n    display: inline-block;\n    font-size: 13px;\n  }\n\n  @keyframes nidaPulse {\n    0% { transform: scale(1); opacity: 0.5; }\n    100% { transform: scale(3); opacity: 0; }\n  }\n\n  @media (max-width: 480px) {\n    .nida-stock-alert {\n      padding: 9px 12px;\n    }\n    .nida-stock-text {\n      font-size: 13px;\n    }\n  }\n</style>\n\n<script>\n  document.addEventListener(\"DOMContentLoaded\", function () {\n    const stockElement = document.getElementById(\"nida-stock-count\");\n    if (!stockElement) return;\n\n    const minStock = 10;\n    const maxStock = 20;\n\n    // Valor inicial de partida\n    let currentStock = 18;\n    stockElement.textContent = currentStock;\n\n    let ascending = false;\n\n    // Actualización garantizada y fija cada 10 segundos (10000 ms)\n    setInterval(function () {\n      if (ascending) {\n        // Incremento fijo para asegurar cambio visual inmediato\n        currentStock += 2; \n        if (currentStock >= maxStock) {\n          currentStock = maxStock;\n          ascending = false;\n        }\n      } else {\n        // Decremento fijo para asegurar cambio visual inmediato\n        currentStock -= 2;\n        if (currentStock <= minStock) {\n          currentStock = minStock;\n          ascending = true;\n        }\n      }\n\n      // Se fuerza la actualización en el HTML sin falta\n      stockElement.textContent = currentStock;\n    }, 10000);\n  });\n</script>"
++            "custom_liquid": "{% render 'nida-premium-ui', part: 'trust' %}"
+           }
+         },
+         "text_gMN49x": {
+@@ -298,7 +308,8 @@
+             "border_color": "#b7b7b7",
+             "margin_top": 15,
+             "margin_bottom": 15
+-          }
++          },
++          "disabled": true
+         },
+         "buy_buttons": {
+           "type": "buy_buttons",
+@@ -342,7 +353,8 @@
+             "spacing_top": 10,
+             "spacing_bottom": 10,
+             "mobile_layout": "row"
+-          }
++          },
++          "disabled": true
+         },
+         "image_9nEPa9": {
+           "type": "image",
+@@ -386,7 +398,8 @@
+             "border_color": "#b7b7b7",
+             "margin_top": 15,
+             "margin_bottom": 15
+-          }
++          },
++          "disabled": true
+         },
+         "e0a0b690-50df-4ca4-acfd-ce2980696cce": {
+           "type": "shipping_checkpoints",
+@@ -420,12 +433,19 @@
+             "margin_top": 24,
+             "margin_bottom": 24
+           }
++        },
++        "nida_premium_header": {
++          "type": "custom_liquid",
++          "settings": {
++            "custom_liquid": "{% render 'nida-premium-ui', part: 'header' %}"
++          }
+         }
+       },
+       "block_order": [
+         "divider_6qEgeK",
+         "a6eb81db-40e4-43e0-972f-32db010a4a56",
+         "text_wpa87r",
++        "nida_premium_header",
+         "title",
+         "judge_me_reviews_preview_badge_T9tmHW",
+         "divider_azx9wE",
