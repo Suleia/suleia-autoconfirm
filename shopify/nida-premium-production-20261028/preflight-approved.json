@@ -1,0 +1,18 @@
+{
+  "scope": "NIDA_ONLY_MAIN_FOUR_FILES",
+  "main": 198240600396,
+  "source": 209083892044,
+  "backup": 209083760972,
+  "candidateMd5": {
+    "assets/nida-premium.css": "c56859579b699398cbf3cfe561de3a0f",
+    "snippets/nida-premium-ui.liquid": "47631665cff0e5093e55d5a4d59c0e17",
+    "snippets/quantity-breaks.liquid": "ee2e1037f1fdc6cac71ea565b30d0560",
+    "templates/product.parches_glp.json": "9688022b88fd33e3db4403255fde1704"
+  },
+  "sourceEqualsFreshMainScopedMerge": true,
+  "syntaxPass": true,
+  "responsivePass": true,
+  "priorCartPass": true,
+  "backupMatchesFreshMain": true,
+  "mainOtherFiles": 377
+}
