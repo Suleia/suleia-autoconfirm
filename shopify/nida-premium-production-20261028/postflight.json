@@ -1,0 +1,103 @@
+{
+  "theme": 198240600396,
+  "baselineProductPricePreserved": true,
+  "approvedImagesPresent": true,
+  "cases": [
+    {
+      "quantity": 1,
+      "baseCents": 3499,
+      "originalCents": 3499,
+      "discountCents": 500,
+      "totalCents": 2999,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 2,
+      "baseCents": 3499,
+      "originalCents": 6998,
+      "discountCents": 3499,
+      "totalCents": 3499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 3,
+      "baseCents": 3499,
+      "originalCents": 10497,
+      "discountCents": 5998,
+      "totalCents": 4499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    }
+  ],
+  "quantityChanges": [
+    {
+      "quantity": 1,
+      "baseCents": 3499,
+      "originalCents": 3499,
+      "discountCents": 500,
+      "totalCents": 2999,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 2,
+      "baseCents": 3499,
+      "originalCents": 6998,
+      "discountCents": 3499,
+      "totalCents": 3499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 3,
+      "baseCents": 3499,
+      "originalCents": 10497,
+      "discountCents": 5998,
+      "totalCents": 4499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 2,
+      "baseCents": 3499,
+      "originalCents": 6998,
+      "discountCents": 3499,
+      "totalCents": 3499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 1,
+      "baseCents": 3499,
+      "originalCents": 3499,
+      "discountCents": 500,
+      "totalCents": 2999,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    }
+  ],
+  "regressions": [
+    {
+      "handle": "polvo-dental-de-colageno-colla-gum",
+      "liveTheme": 198240600396,
+      "testTheme": 209083892044,
+      "selectorIdentical": true,
+      "selectorSha256": "a73f7e29a72a69773ff1b042bd2e0e80bbe196d16c81788bd47ff1d34a689372",
+      "nidaAssetsAbsent": true
+    },
+    {
+      "handle": "crema-seoul-1988",
+      "liveTheme": 198240600396,
+      "testTheme": 209083892044,
+      "selectorIdentical": true,
+      "selectorSha256": "df77eeba3b5b372887e2ecb1abb886452a302bba5043fa6c872d66776a35c85f",
+      "nidaAssetsAbsent": true
+    }
+  ],
+  "testCartEmpty": true,
+  "ordersCreated": 0,
+  "operatorCartUsed": false,
+  "checkoutSubmitted": false
+}

@@ -2,7 +2,7 @@
 
 El propietario ha aprobado expresamente trasladar el diseño revisado de NIDA a producción. Tema activo **198240600396**, fuente aprobada **209083892044**, producto **15726118502732**, variante **57618953470284**, plantilla efectiva **product.parches_glp**. Esta autorización no permite publicar otro tema completo ni modificar otros productos o automatizaciones.
 
-La preparación vuelve a leer los archivos y manifiestos actuales. MAIN sigue en la versión sobre la que se creó el borrador. El backup completo **209083760972**, `BACKUP PROD antes NIDA premium · 27 Oct`, coincide en los **379 nombres/checksums** con el MAIN actual, verificado de nuevo el 28 de octubre. Se reutiliza esa copia idéntica y se guardan además valores exactos y manifiesto actuales antes de las escrituras. No se presenta como un backup creado el día 28.
+El diseño está publicado y verificado en [la ficha pública de NIDA](https://suleia.com/products/crema-nida) desde el 28 de octubre de 2026 a las 17:09 UTC. La preparación volvió a leer los archivos y manifiestos: MAIN seguía en la versión sobre la que se creó el borrador. El backup completo **209083760972**, `BACKUP PROD antes NIDA premium · 27 Oct`, coincidía en los **379 nombres/checksums** con MAIN antes del cambio, verificado de nuevo el día 28. Se reutilizó esa copia idéntica y se guardaron además valores exactos y manifiesto actuales antes de las escrituras. No se presenta como un backup creado el día 28.
 
 Se reconstruye el candidato desde MAIN mediante las siete inserciones protegidas por `crema-nida` y la configuración aislada de NIDA. El resultado coincide con los cuatro archivos del borrador aprobado y con los hashes de la validación, las pruebas responsivas y el carrito de la PR #169:
 
@@ -33,4 +33,13 @@ El script depende del helper local `shopify_web_tools.py`; no contiene credencia
 
 `--rollback` es solo una comprobación; requiere `--execute` adicional para escribir. Reconoce únicamente los hashes previos o aprobados, rechaza ediciones concurrentes y restaura solo los dos archivos existentes desde los valores respaldados. Compara el contenido semántico del JSON y el texto del snippet. Los dos recursos nuevos pueden permanecer sin referencias; no elimina archivos ni publica otro tema. La copia completa nativa se conserva. No restaura pedidos, descuentos, clientes, estados financieros ni temporizadores.
 
-La evidencia final de publicación, página pública, móvil/escritorio, carrito y preservación se añadirá después de la comprobación real. Este documento de preparación no afirma que el traslado ya haya ocurrido.
+## Verificación final de producción
+
+- Cuatro escrituras, cada una con lectura independiente del hash aprobado. MAIN conserva su identidad y rol; no se publica otro tema completo.
+- Una segunda lectura paginada completa a las 17:17 UTC confirma 381 archivos, igualdad con el borrador aprobado, exactamente cuatro diferencias respecto al MAIN anterior y **377 archivos existentes sin cambios**. El backup de 379 archivos permanece intacto.
+- El HTML anónimo de NIDA identifica el tema activo y su selector coincide con el aprobado. El precio base de variante, las imágenes y la asignación de plantilla se conservan.
+- El carrito nativo aislado devuelve **29,99 / 34,99 / 44,99 EUR** para 1/2/3 unidades; los cambios 1→2→3→2→1 también cuadran, sin descuentos duplicados. Carrito de prueba vaciado, cero pedidos y ningún checkout enviado. No se usa el carrito personal del operador.
+- Chrome fuera de vista previa: anchos CSS **375, 390, 430, 767 y 1440 px**; imágenes cargadas, etiquetas sin colisiones ni desbordamiento horizontal y selección 1→2→3→1→2 correcta. No se registran errores de consola. Capturas reales de producción móvil y escritorio conservadas en el directorio de evidencia local.
+- CollaGum y SEOUL conservan el selector normalizado idéntico al tema de referencia y no cargan los recursos de NIDA. No se escriben otros productos, precios, descuentos, carrito, checkout ni automatizaciones.
+
+Recibos saneados: `deployment-result.json`, `final-manifest-receipt.json`, `postflight.json` y `final-receipt.json`. Los respaldos completos, el journal y la evidencia del navegador quedan fuera de Git. La reversión fue comprobada en modo lectura; no se ha ejecutado.
