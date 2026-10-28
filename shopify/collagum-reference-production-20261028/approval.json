@@ -1,0 +1,33 @@
+{
+  "main": 198240600396,
+  "files": [
+    "snippets/quantity-breaks.liquid"
+  ],
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "ae97c5af141082b6372586f610ec3952"
+  },
+  "ownerRequestedReferenceDesign": true,
+  "ownerConfirmedMonths": [
+    3,
+    6,
+    9
+  ],
+  "syntaxPass": true,
+  "responsiveComponentPass": true,
+  "requiredMobileNoHorizontalScroll": true,
+  "widths": [
+    320,
+    375,
+    390,
+    430,
+    768,
+    1024,
+    1440
+  ],
+  "photosUnmodifiedAndOpaquePixelsVisible": true,
+  "functionalInputsScriptsPriceCalculationsUnchanged": true,
+  "templateAndOtherProductsUnchanged": true,
+  "fullBackupFiles": 381,
+  "backupArchiveSha256": "292dfc09b54be57338ce875250960fedd8fd6e7c96002378cc2c3f3863779484",
+  "local768StaticPageWiderThanViewportOutsideSelector": true
+}

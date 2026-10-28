@@ -1,0 +1,64 @@
+{
+  "main": 198240600396,
+  "files": [
+    "snippets/quantity-breaks.liquid"
+  ],
+  "beforeNativeMd5": {
+    "snippets/quantity-breaks.liquid": "407d927dc648ea2c95974a56fa24d4cb"
+  },
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "ae97c5af141082b6372586f610ec3952"
+  },
+  "nonCollagumSnippetBytesIdentical": true,
+  "allInputsScriptsAndPriceCalculationsIdentical": true,
+  "productTemplateUnchanged": true,
+  "months": [
+    3,
+    6,
+    9
+  ],
+  "ownerConfirmedMonths": true,
+  "existingPhotosUnchanged": true,
+  "onlyTransparentImagePaddingOutsideViewport": true,
+  "newJavaScript": false,
+  "photoWindows": {
+    "1": [
+      180,
+      16,
+      276,
+      306
+    ],
+    "2": [
+      99,
+      16,
+      439,
+      317
+    ],
+    "3": [
+      50,
+      4,
+      522,
+      317
+    ]
+  },
+  "sourceOpaqueBboxes": {
+    "1": [
+      186,
+      22,
+      450,
+      316
+    ],
+    "2": [
+      105,
+      22,
+      532,
+      327
+    ],
+    "3": [
+      56,
+      10,
+      566,
+      315
+    ]
+  }
+}

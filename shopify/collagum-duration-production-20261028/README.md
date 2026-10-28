@@ -1,5 +1,7 @@
 # CollaGum: duración orientativa en los tres packs
 
+**Histórico, sustituido:** el propietario pidió después corregir la composición con envases grandes y confirmó3/6/9meses. La versión vigente y su publicación se documentan en `../collagum-reference-production-20261028/README.md`; no ejecutar este despliegue histórico.
+
 El propietario autoriza expresamente modificar el selector de CollaGum en el tema MAIN **198240600396**, producto **15849234071884**, variante **57911544578380** y plantilla `product.collagum`. Solo se modifican `snippets/quantity-breaks.liquid` y cinco textos comerciales dentro del bloque `quantity_selector` de `templates/product.collagum.json`. No se publica otro tema ni se crea una nueva plantilla de pruebas.
 
 El selector conserva cantidades, radios, enlace de formulario, actualización nativa de precios y descuentos, pack 2 predeterminado e imágenes transparent-v2 aprobadas. Sustituye las tres listas por calendario SVG y **Hasta 2/4/6 meses de uso**, con una nota única que aclara la estimación de un cepillado diario. Pack 2 azul **RECOMENDADO**, pack 3 verde **MEJOR PRECIO POR UNIDAD**, ahorro rosa y fondo blanco/azul claro. No se alega una posición de ventas sin datos.
