@@ -1,0 +1,56 @@
+{
+  "at": "2026-10-28T20:04:37.817278+00:00",
+  "status": "POSTFLIGHT_PASS",
+  "nativeCart": {
+    "cases": [
+      {
+        "quantity": 1,
+        "totalCents": 2999,
+        "discountCents": 0,
+        "lineAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "totalCents": 3499,
+        "discountCents": 2499,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 3,
+        "totalCents": 4499,
+        "discountCents": 4498,
+        "lineAllocations": 1
+      }
+    ],
+    "updates": [
+      {
+        "quantity": 2,
+        "totalCents": 3499,
+        "discountCents": 2499,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 3,
+        "totalCents": 4499,
+        "discountCents": 4498,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 1,
+        "totalCents": 2999,
+        "discountCents": 0,
+        "lineAllocations": 0
+      }
+    ],
+    "testCartEmpty": true,
+    "ordersCreated": 0,
+    "checkoutSubmitted": false,
+    "operatorCartUsed": false
+  },
+  "otherFilesUnchanged": 379,
+  "otherSelectorsUnchanged": [
+    "polvo-dental-de-colageno-colla-gum",
+    "crema-nida"
+  ],
+  "publicMain": true
+}

@@ -1,0 +1,96 @@
+{"success":true,"responses":[{"result":"inform","resultDetail":"snippets/quantity-breaks.liquid passed all checks (with non-error findings):\nWARNING [line 589, col 1]: Liquid complexity is 213, which exceeds the maximum of 120. The decision at line 589 pushed it over the limit. Consider simplifying conditional logic, or moving self-contained decision logic into snippets with the render tag.","artifactId":"seoul-black-friday-prod-20261028","artifactRevision":3},{"result":"success","resultDetail":"templates/product.seoul_1988.json passed all checks.","artifactId":"seoul-black-friday-prod-20261028","artifactRevision":3}]}
+
+Failed to load or transform loadLatestRevision with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\latest.json'
+Failed to setup with the following error: request to https://raw.githubusercontent.com/Shopify/theme-liquid-docs/main/data/latest.json failed, reason: getaddrinfo ENOTFOUND raw.githubusercontent.com
+Failed to load or transform loadResource(manifest_theme) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\manifest_theme.json'
+Loaded fallback resource
+	manifest_theme from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\manifest_theme.json
+Failed to load or transform loadSchema(theme/translations.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\translations.json'
+Failed to load or transform loadSchema(theme/theme_block.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\theme_block.json'
+Failed to load or transform loadSchema(theme/theme_settings.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\theme_settings.json'
+Failed to load or transform loadSchema(theme/section.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\section.json'
+Failed to load or transform loadSchema(theme/settings.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\settings.json'
+Failed to load or transform loadSchema(theme/app_block_entry.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\app_block_entry.json'
+Failed to load or transform loadSchema(theme/setting.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\setting.json'
+Failed to load or transform loadSchema(theme/theme_block_entry.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\theme_block_entry.json'
+Failed to load or transform loadSchema(theme/default_setting_values.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\default_setting_values.json'
+Failed to load or transform loadSchema(theme/targetted_block_entry.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\targetted_block_entry.json'
+Failed to load or transform loadSchema(theme/preset_blocks.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\preset_blocks.json'
+Failed to load or transform loadSchema(theme/preset.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\preset.json'
+Failed to load or transform loadSchema(theme/local_block_entry.json) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\local_block_entry.json'
+Loaded fallback schema
+	theme/translations.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\translations.json
+Loaded fallback schema
+	theme/theme_settings.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\theme_settings.json
+Loaded fallback schema
+	theme/theme_block.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\theme_block.json
+Loaded fallback schema
+	theme/settings.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\settings.json
+Loaded fallback schema
+	theme/section.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\section.json
+Loaded fallback schema
+	theme/app_block_entry.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\app_block_entry.json
+Loaded fallback schema
+	theme/default_setting_values.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\default_setting_values.json
+Loaded fallback schema
+	theme/theme_block_entry.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\theme_block_entry.json
+Loaded fallback schema
+	theme/setting.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\setting.json
+Loaded fallback schema
+	theme/targetted_block_entry.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\targetted_block_entry.json
+Loaded fallback schema
+	theme/preset_blocks.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\preset_blocks.json
+Loaded fallback schema
+	theme/preset.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\preset.json
+Loaded fallback schema
+	theme/local_block_entry.json from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\local_block_entry.json
+Failed to load or transform loadResource(filters) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\filters.json'
+Failed to load or transform loadResource(objects) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\objects.json'
+Failed to load or transform loadResource(tags) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\tags.json'
+Failed to load or transform loadResource(shopify_system_translations) with the following error:
+ENOENT: no such file or directory, open 'C:\Users\samue\AppData\Local\Packages\sandbox.{f3bdeba0-1fff-41fc-9ea6-c74d19bfae94}\AC\theme-liquid-docs-nodejs\Cache\shopify_system_translations.json'
+Loaded fallback resource
+	filters from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\filters.json
+Loaded fallback resource
+	tags from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\tags.json
+Loaded fallback resource
+	shopify_system_translations from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\shopify_system_translations.json
+Loaded fallback resource
+	objects from
+	C:\Users\samue\OneDrive\Documentos\Suleia\shopify-theme-work\seoul-premium-deploy-20261027\tooling\node_modules\.pnpm\@shopify+theme-check-docs-updater@3.31.0\node_modules\@shopify\theme-check-docs-updater\data\objects.json
+

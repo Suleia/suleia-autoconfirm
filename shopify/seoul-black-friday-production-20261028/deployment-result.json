@@ -1,0 +1,19 @@
+{
+  "at": "2026-10-28T20:02:50.015778+00:00",
+  "status": "PROD_READBACK_VERIFIED",
+  "main": 198240600396,
+  "changedFiles": [
+    "snippets/quantity-breaks.liquid",
+    "templates/product.seoul_1988.json"
+  ],
+  "fileCount": 381,
+  "otherFilesUnchanged": 379,
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "40ae4bc74acf69d2150b084198adeca4",
+    "templates/product.seoul_1988.json": "f108d8616b39d3fc03b91c14af014ff1"
+  },
+  "productUnchanged": true,
+  "wholeThemePublished": false,
+  "backupArchiveSha256": "90a03573c1e1cba20268951dab96db3d90aca8e183fd346bec915377f9d717e1",
+  "responsiveRefinementVerified": true
+}

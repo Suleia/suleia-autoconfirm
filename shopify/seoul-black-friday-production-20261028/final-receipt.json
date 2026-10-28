@@ -1,0 +1,123 @@
+{
+  "at": "2026-10-28T20:05:31.342508+00:00",
+  "status": "PRODUCTION_VERIFIED",
+  "deployment": {
+    "at": "2026-10-28T20:02:50.015778+00:00",
+    "status": "PROD_READBACK_VERIFIED",
+    "main": 198240600396,
+    "changedFiles": [
+      "snippets/quantity-breaks.liquid",
+      "templates/product.seoul_1988.json"
+    ],
+    "fileCount": 381,
+    "otherFilesUnchanged": 379,
+    "candidateMd5": {
+      "snippets/quantity-breaks.liquid": "40ae4bc74acf69d2150b084198adeca4",
+      "templates/product.seoul_1988.json": "f108d8616b39d3fc03b91c14af014ff1"
+    },
+    "productUnchanged": true,
+    "wholeThemePublished": false,
+    "backupArchiveSha256": "90a03573c1e1cba20268951dab96db3d90aca8e183fd346bec915377f9d717e1",
+    "responsiveRefinementVerified": true
+  },
+  "postflight": {
+    "at": "2026-10-28T20:04:37.817278+00:00",
+    "status": "POSTFLIGHT_PASS",
+    "nativeCart": {
+      "cases": [
+        {
+          "quantity": 1,
+          "totalCents": 2999,
+          "discountCents": 0,
+          "lineAllocations": 0
+        },
+        {
+          "quantity": 2,
+          "totalCents": 3499,
+          "discountCents": 2499,
+          "lineAllocations": 1
+        },
+        {
+          "quantity": 3,
+          "totalCents": 4499,
+          "discountCents": 4498,
+          "lineAllocations": 1
+        }
+      ],
+      "updates": [
+        {
+          "quantity": 2,
+          "totalCents": 3499,
+          "discountCents": 2499,
+          "lineAllocations": 1
+        },
+        {
+          "quantity": 3,
+          "totalCents": 4499,
+          "discountCents": 4498,
+          "lineAllocations": 1
+        },
+        {
+          "quantity": 1,
+          "totalCents": 2999,
+          "discountCents": 0,
+          "lineAllocations": 0
+        }
+      ],
+      "testCartEmpty": true,
+      "ordersCreated": 0,
+      "checkoutSubmitted": false,
+      "operatorCartUsed": false
+    },
+    "otherFilesUnchanged": 379,
+    "otherSelectorsUnchanged": [
+      "polvo-dental-de-colageno-colla-gum",
+      "crema-nida"
+    ],
+    "publicMain": true
+  },
+  "responsiveWidths": [
+    320,
+    375,
+    390,
+    430,
+    768,
+    1024,
+    1440
+  ],
+  "completeProductFramingChecks": 21,
+  "transitions": [
+    {
+      "requested": "1",
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "selected": "2"
+    },
+    {
+      "requested": "3",
+      "selected": "3"
+    },
+    {
+      "requested": "1",
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "selected": "2"
+    }
+  ],
+  "consoleErrors": [],
+  "screenshots": [
+    "seoul-production-mobile.png",
+    "seoul-production-desktop.png"
+  ],
+  "images": "Three exact owner-approved Shopify CDN originals, unchanged",
+  "errorsCorrected": [
+    "Inherited title span height",
+    "Inherited card margins",
+    "Duration/price proximity at320 and1024px"
+  ],
+  "remainingValidationWarning": "Shared Liquid complexity, no syntax errors"
+}
