@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-28T19:03:01.863565+00:00",
+  "status": "PROD_READBACK_VERIFIED",
+  "main": 198240600396,
+  "changedFiles": [
+    "snippets/quantity-breaks.liquid"
+  ],
+  "otherExistingFilesUnchanged": 380,
+  "fileCount": 381,
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "ae97c5af141082b6372586f610ec3952"
+  },
+  "productTemplateUnchanged": true,
+  "productUnchanged": true,
+  "wholeThemePublished": false,
+  "fullLocalBackupVerified": true,
+  "backupArchiveSha256": "292dfc09b54be57338ce875250960fedd8fd6e7c96002378cc2c3f3863779484"
+}
