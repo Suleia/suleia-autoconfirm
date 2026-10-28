@@ -1,6 +1,8 @@
-# Hourly Shopify to Dropea recovery
+# Shopify to Dropea recovery every two hours
 
 Owner authorization: 21 October 2026, recover order #3136 and activate hourly review/recovery of Shopify orders missing from Dropea. This worker only imports missing orders; existing confirmation, cancellation, incident and message policies remain owned by their existing services.
+
+Schedule update authorized 28 October 2026: review and recover every two hours on the existing VPS service/timer, with an immediate reconciliation of today's orders. No duplicate importer or Codex task is created. The worker and its existing eligibility, persistent claims, idempotency and verification rules remain unchanged.
 
 ## What it does
 
@@ -14,7 +16,7 @@ Before the single creation POST, a persistent Supabase ledger claim uses `shopif
 
 Run `node autoconfirm/tools/recover-shopify-dropea.mjs` for a read-only audit, or target `--order-id=<Shopify numeric ID>`. Writes require both `--live` and `SULEIA_SHOPIFY_DROPEA_LIVE=true`. Use trusted runtime variables; never pass or log credentials as command arguments.
 
-The enabled server timer runs at minute 05 of every hour, UTC (also hourly in Europe/Madrid), with persistent scheduling and a non-overlap file lock. It is independent of the operator's PC and does not replace the existing five-minute automation or half-hour incident timers. A separate hourly Codex heartbeat supervises results and notifies only meaningful changes; it never starts a duplicate import cycle. Its notifications require Codex availability. `latest.json` records every scanned order and the precise blocking reason; `actions.jsonl` records attempted and verified/uncertain actions with order ID, reason and timestamps, without customer contacts. Both are private in `/var/lib/suleia-shopify-dropea`.
+The enabled server timer runs at minute 05 of every even UTC hour (00, 02, through 22), every day, with persistent scheduling and a non-overlap file lock. This is every two hours in Europe/Madrid; the local clock label follows daylight saving time. It is independent of the operator's PC and does not replace the existing five-minute automation or half-hour incident timers. No Codex automation is required to run it. Historical Codex supervision never owns imports or starts duplicate cycles. `latest.json` records every scanned order and the precise blocking reason; `actions.jsonl` records attempted and verified/uncertain actions with order ID, reason and timestamps, without customer contacts. Both are private in `/var/lib/suleia-shopify-dropea`.
 
 The deployment uses a dedicated immutable release under `/opt/suleia-shopify-dropea/releases/<commit>`, its own environment file, and the existing Node runtime. Copy only Shopify read credentials, Supabase ledger credentials and the existing Dropea read/create credentials to that protected environment; no Render management credential is needed on the server. Validate a read-only audit, the authorized canary and a second reconciliation before enabling the timer. The October 21 canary exercised provider rejection and zero-order postconditions; a successful real creation is not yet certified because Dropea rejects the original postal code. Do not describe that order as recovered until GET postconditions pass.
 
