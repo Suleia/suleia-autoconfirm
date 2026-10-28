@@ -1,0 +1,74 @@
+{
+  "cases": [
+    {
+      "quantity": 1,
+      "originalCents": 2999,
+      "discountCents": 500,
+      "totalCents": 2499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 2,
+      "originalCents": 5998,
+      "discountCents": 2999,
+      "totalCents": 2999,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 3,
+      "originalCents": 8997,
+      "discountCents": 5498,
+      "totalCents": 3499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    }
+  ],
+  "quantityChanges": [
+    {
+      "quantity": 1,
+      "originalCents": 2999,
+      "discountCents": 500,
+      "totalCents": 2499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 2,
+      "originalCents": 5998,
+      "discountCents": 2999,
+      "totalCents": 2999,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 3,
+      "originalCents": 8997,
+      "discountCents": 5498,
+      "totalCents": 3499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 2,
+      "originalCents": 5998,
+      "discountCents": 2999,
+      "totalCents": 2999,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    },
+    {
+      "quantity": 1,
+      "originalCents": 2999,
+      "discountCents": 500,
+      "totalCents": 2499,
+      "lineAllocations": 1,
+      "cartAllocations": 0
+    }
+  ],
+  "testCartEmpty": true,
+  "ordersCreated": 0,
+  "operatorCartUsed": false,
+  "checkoutSubmitted": false
+}
