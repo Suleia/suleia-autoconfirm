@@ -1,0 +1,1052 @@
+[
+  {
+    "cards": [
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 766.7500305175781,
+          "height": 145.60000610351562,
+          "right": 285.00001335144043,
+          "width": 265.20001220703125,
+          "x": 19.80000114440918,
+          "y": 621.1500244140625
+        },
+        "compare": "€34,99",
+        "contentOverflow": false,
+        "duration": "Hasta 3 mesesde uso",
+        "durationBox": {
+          "bottom": 707.875,
+          "height": 32,
+          "right": 198.1500015258789,
+          "width": 85.55000305175781,
+          "x": 112.5999984741211,
+          "y": 675.875
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 753.9500122070312,
+          "height": 120,
+          "right": 109.60000228881836,
+          "width": 61,
+          "x": 48.60000228881836,
+          "y": 633.9500122070312
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 753.9500122070312,
+          "height": 120,
+          "right": 109.60000228881836,
+          "width": 61,
+          "x": 48.60000228881836,
+          "y": 633.9500122070312
+        },
+        "price": "€29,99",
+        "saving": "Ahorras 5,00 €",
+        "title": "1 unidad"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 930.9499969482422,
+          "height": 147.1999969482422,
+          "right": 285.00001335144043,
+          "width": 265.20001220703125,
+          "x": 19.80000114440918,
+          "y": 783.75
+        },
+        "compare": "€69,98",
+        "contentOverflow": false,
+        "duration": "Hasta 6 mesesde uso",
+        "durationBox": {
+          "bottom": 871.2750244140625,
+          "height": 32,
+          "right": 198.95000457763672,
+          "width": 85.55000305175781,
+          "x": 113.4000015258789,
+          "y": 839.2750244140625
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 915.3000259399414,
+          "height": 115.9000015258789,
+          "right": 137.85000228881836,
+          "width": 115.9000015258789,
+          "x": 21.950000762939453,
+          "y": 799.4000244140625
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 917.3500366210938,
+          "height": 120,
+          "right": 110.4000015258789,
+          "width": 61,
+          "x": 49.400001525878906,
+          "y": 797.3500366210938
+        },
+        "price": "€34,99",
+        "saving": "Ahorras 34,99 €",
+        "title": "Pack de 2"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1095.1500091552734,
+          "height": 147.1999969482422,
+          "right": 285.00001335144043,
+          "width": 265.20001220703125,
+          "x": 19.80000114440918,
+          "y": 947.9500122070312
+        },
+        "compare": "€104,97",
+        "contentOverflow": false,
+        "duration": "Hasta 9 mesesde uso",
+        "durationBox": {
+          "bottom": 1029.8500366210938,
+          "height": 32,
+          "right": 198.95000457763672,
+          "width": 85.55000305175781,
+          "x": 113.4000015258789,
+          "y": 997.8500366210938
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1067.2999877929688,
+          "height": 91.5,
+          "right": 125.6500015258789,
+          "width": 91.5,
+          "x": 34.150001525878906,
+          "y": 975.7999877929688
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1081.5499877929688,
+          "height": 120,
+          "right": 110.4000015258789,
+          "width": 61,
+          "x": 49.400001525878906,
+          "y": 961.5499877929688
+        },
+        "price": "€44,99",
+        "saving": "Ahorras 59,98 €",
+        "title": "Pack de 3"
+      }
+    ],
+    "pageWidth": 305,
+    "selected": "2",
+    "selector": {
+      "bottom": 1095.1500244140625,
+      "height": 530.3500366210938,
+      "right": 285.00001335144043,
+      "width": 265.20001220703125,
+      "x": 19.80000114440918,
+      "y": 564.7999877929688
+    },
+    "width": 320
+  },
+  {
+    "cards": [
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 786.6500396728516,
+          "height": 150.5500030517578,
+          "right": 340.19999504089355,
+          "width": 320.3999938964844,
+          "x": 19.80000114440918,
+          "y": 636.1000366210938
+        },
+        "compare": "€34,99",
+        "contentOverflow": false,
+        "duration": "Hasta 3 mesesde uso",
+        "durationBox": {
+          "bottom": 728.5249900817871,
+          "height": 37.47500228881836,
+          "right": 244.3625030517578,
+          "width": 110.6750030517578,
+          "x": 133.6875,
+          "y": 691.0499877929688
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 773.8500289916992,
+          "height": 124.95000457763672,
+          "right": 128.6875038146973,
+          "width": 80.0875015258789,
+          "x": 48.60000228881836,
+          "y": 648.9000244140625
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 773.8500289916992,
+          "height": 124.95000457763672,
+          "right": 128.6875038146973,
+          "width": 80.0875015258789,
+          "x": 48.60000228881836,
+          "y": 648.9000244140625
+        },
+        "price": "€29,99",
+        "saving": "Ahorras 5,00 €",
+        "title": "1 unidad"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 955.800033569336,
+          "height": 152.15000915527344,
+          "right": 340.19999504089355,
+          "width": 320.3999938964844,
+          "x": 19.80000114440918,
+          "y": 803.6500244140625
+        },
+        "compare": "€69,98",
+        "contentOverflow": false,
+        "duration": "Hasta 6 mesesde uso",
+        "durationBox": {
+          "bottom": 896.8750267028809,
+          "height": 37.47500228881836,
+          "right": 245.1625061035156,
+          "width": 110.6750030517578,
+          "x": 134.4875030517578,
+          "y": 859.4000244140625
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 953.4437866210938,
+          "height": 147.4375,
+          "right": 165.5250062942505,
+          "width": 152.16250610351562,
+          "x": 13.362500190734863,
+          "y": 806.0062866210938
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 942.2000045776368,
+          "height": 124.95000457763672,
+          "right": 129.4875030517578,
+          "width": 80.0875015258789,
+          "x": 49.400001525878906,
+          "y": 817.25
+        },
+        "price": "€34,99",
+        "saving": "Ahorras 34,99 €",
+        "title": "Pack de 2"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1124.9499969482422,
+          "height": 152.15000915527344,
+          "right": 340.19999504089355,
+          "width": 320.3999938964844,
+          "x": 19.80000114440918,
+          "y": 972.7999877929688
+        },
+        "compare": "€104,97",
+        "contentOverflow": false,
+        "duration": "Hasta 9 mesesde uso",
+        "durationBox": {
+          "bottom": 1066.0250511169434,
+          "height": 37.47500228881836,
+          "right": 245.1625061035156,
+          "width": 110.6750030517578,
+          "x": 134.4875030517578,
+          "y": 1028.550048828125
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1108.9375,
+          "height": 120.125,
+          "right": 149.51250076293945,
+          "width": 120.125,
+          "x": 29.387500762939453,
+          "y": 988.8125
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1111.3500289916992,
+          "height": 124.95000457763672,
+          "right": 129.4875030517578,
+          "width": 80.0875015258789,
+          "x": 49.400001525878906,
+          "y": 986.4000244140624
+        },
+        "price": "€44,99",
+        "saving": "Ahorras 59,98 €",
+        "title": "Pack de 3"
+      }
+    ],
+    "pageWidth": 360,
+    "selected": "2",
+    "selector": {
+      "bottom": 1124.9500122070312,
+      "height": 546.7000122070312,
+      "right": 340.19999504089355,
+      "width": 320.3999938964844,
+      "x": 19.80000114440918,
+      "y": 578.25
+    },
+    "width": 375
+  },
+  {
+    "cards": [
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 779.9750061035156,
+          "height": 156.47500610351562,
+          "right": 355.4000072479248,
+          "width": 335.6000061035156,
+          "x": 19.80000114440918,
+          "y": 623.5
+        },
+        "compare": "€34,99",
+        "contentOverflow": false,
+        "duration": "Hasta 3 mesesde uso",
+        "durationBox": {
+          "bottom": 719.4250373840332,
+          "height": 38.70000076293945,
+          "right": 251.7750015258789,
+          "width": 114.2874984741211,
+          "x": 137.4875030517578,
+          "y": 680.7250366210938
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 767.1749877929688,
+          "height": 130.875,
+          "right": 132.48750686645508,
+          "width": 83.88750457763672,
+          "x": 48.60000228881836,
+          "y": 636.2999877929688
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 767.1749877929688,
+          "height": 130.875,
+          "right": 132.48750686645508,
+          "width": 83.88750457763672,
+          "x": 48.60000228881836,
+          "y": 636.2999877929688
+        },
+        "price": "€29,99",
+        "saving": "Ahorras 5,00 €",
+        "title": "1 unidad"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 955.050033569336,
+          "height": 158.0749969482422,
+          "right": 355.4000072479248,
+          "width": 335.6000061035156,
+          "x": 19.80000114440918,
+          "y": 796.9750366210938
+        },
+        "compare": "€69,98",
+        "contentOverflow": false,
+        "duration": "Hasta 6 mesesde uso",
+        "durationBox": {
+          "bottom": 893.7000007629395,
+          "height": 38.70000076293945,
+          "right": 252.57500457763672,
+          "width": 114.2874984741211,
+          "x": 138.28750610351562,
+          "y": 855
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 953.2249908447266,
+          "height": 154.4250030517578,
+          "right": 171.03750038146973,
+          "width": 159.375,
+          "x": 11.662500381469728,
+          "y": 798.7999877929688
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 941.4500122070312,
+          "height": 130.875,
+          "right": 133.28750610351562,
+          "width": 83.88750457763672,
+          "x": 49.400001525878906,
+          "y": 810.5750122070312
+        },
+        "price": "€34,99",
+        "saving": "Ahorras 34,99 €",
+        "title": "Pack de 2"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1130.124984741211,
+          "height": 158.0749969482422,
+          "right": 355.4000072479248,
+          "width": 335.6000061035156,
+          "x": 19.80000114440918,
+          "y": 972.0499877929688
+        },
+        "compare": "€104,97",
+        "contentOverflow": false,
+        "duration": "Hasta 9 mesesde uso",
+        "durationBox": {
+          "bottom": 1068.775074005127,
+          "height": 38.70000076293945,
+          "right": 252.57500457763672,
+          "width": 114.2874984741211,
+          "x": 138.28750610351562,
+          "y": 1030.0750732421875
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1113.9999923706057,
+          "height": 125.82500457763672,
+          "right": 154.26250457763672,
+          "width": 125.82500457763672,
+          "x": 28.4375,
+          "y": 988.1749877929688
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1116.5250244140625,
+          "height": 130.875,
+          "right": 133.28750610351562,
+          "width": 83.88750457763672,
+          "x": 49.400001525878906,
+          "y": 985.6500244140624
+        },
+        "price": "€44,99",
+        "saving": "Ahorras 59,98 €",
+        "title": "Pack de 3"
+      }
+    ],
+    "pageWidth": 375,
+    "selected": "2",
+    "selector": {
+      "bottom": 1130.125,
+      "height": 565.7625122070312,
+      "right": 355.4000072479248,
+      "width": 335.6000061035156,
+      "x": 19.80000114440918,
+      "y": 564.3624877929688
+    },
+    "width": 390
+  },
+  {
+    "cards": [
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 793.3874969482422,
+          "height": 172.0749969482422,
+          "right": 395.4000072479248,
+          "width": 375.6000061035156,
+          "x": 19.80000114440918,
+          "y": 621.3125
+        },
+        "compare": "€34,99",
+        "contentOverflow": false,
+        "duration": "Hasta 3 mesesde uso",
+        "durationBox": {
+          "bottom": 726.4249877929688,
+          "height": 41.875,
+          "right": 271.2250061035156,
+          "width": 123.7375030517578,
+          "x": 147.4875030517578,
+          "y": 684.5499877929688
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 780.5874938964844,
+          "height": 146.47500610351562,
+          "right": 142.48750686645508,
+          "width": 93.88750457763672,
+          "x": 48.60000228881836,
+          "y": 634.1124877929688
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 780.5874938964844,
+          "height": 146.47500610351562,
+          "right": 142.48750686645508,
+          "width": 93.88750457763672,
+          "x": 48.60000228881836,
+          "y": 634.1124877929688
+        },
+        "price": "€29,99",
+        "saving": "Ahorras 5,00 €",
+        "title": "1 unidad"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 984.0625152587892,
+          "height": 173.6750030517578,
+          "right": 395.4000072479248,
+          "width": 375.6000061035156,
+          "x": 19.80000114440918,
+          "y": 810.3875122070312
+        },
+        "compare": "€69,98",
+        "contentOverflow": false,
+        "duration": "Hasta 6 mesesde uso",
+        "durationBox": {
+          "bottom": 916.2999877929688,
+          "height": 41.875,
+          "right": 272.02500915527344,
+          "width": 123.7375030517578,
+          "x": 148.28750610351562,
+          "y": 874.4249877929688
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 983.643783569336,
+          "height": 172.83750915527344,
+          "right": 185.53749990463257,
+          "width": 178.375,
+          "x": 7.162499904632568,
+          "y": 810.8062744140625
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 970.4624938964844,
+          "height": 146.47500610351562,
+          "right": 143.28750610351562,
+          "width": 93.88750457763672,
+          "x": 49.400001525878906,
+          "y": 823.9874877929688
+        },
+        "price": "€34,99",
+        "saving": "Ahorras 34,99 €",
+        "title": "Pack de 2"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1174.7375030517578,
+          "height": 173.6750030517578,
+          "right": 395.4000072479248,
+          "width": 375.6000061035156,
+          "x": 19.80000114440918,
+          "y": 1001.0625
+        },
+        "compare": "€104,97",
+        "contentOverflow": false,
+        "duration": "Hasta 9 mesesde uso",
+        "durationBox": {
+          "bottom": 1106.9749755859375,
+          "height": 41.875,
+          "right": 272.02500915527344,
+          "width": 123.7375030517578,
+          "x": 148.28750610351562,
+          "y": 1065.0999755859375
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1158.312484741211,
+          "height": 140.8249969482422,
+          "right": 166.7624969482422,
+          "width": 140.8249969482422,
+          "x": 25.9375,
+          "y": 1017.4874877929688
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1161.1375427246094,
+          "height": 146.47500610351562,
+          "right": 143.28750610351562,
+          "width": 93.88750457763672,
+          "x": 49.400001525878906,
+          "y": 1014.6625366210938
+        },
+        "price": "€44,99",
+        "saving": "Ahorras 59,98 €",
+        "title": "Pack de 3"
+      }
+    ],
+    "pageWidth": 415,
+    "selected": "2",
+    "selector": {
+      "bottom": 1174.737548828125,
+      "height": 617.2250366210938,
+      "right": 395.4000072479248,
+      "width": 375.6000061035156,
+      "x": 19.80000114440918,
+      "y": 557.5125122070312
+    },
+    "width": 430
+  },
+  {
+    "cards": [
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1033.5125427246094,
+          "height": 207.6000061035156,
+          "right": 625.2000274658203,
+          "width": 550.4000244140625,
+          "x": 74.80000305175781,
+          "y": 825.9125366210938
+        },
+        "compare": "€34,99",
+        "contentOverflow": false,
+        "duration": "Hasta 3 mesesde uso",
+        "durationBox": {
+          "bottom": 952.5874900817872,
+          "height": 47.10000228881836,
+          "right": 385.4375,
+          "width": 139.25,
+          "x": 246.1875,
+          "y": 905.4874877929688
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1020.7125244140624,
+          "height": 182,
+          "right": 241.18750762939453,
+          "width": 137.58750915527344,
+          "x": 103.5999984741211,
+          "y": 838.7125244140625
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1020.7125244140624,
+          "height": 182,
+          "right": 241.18750762939453,
+          "width": 137.58750915527344,
+          "x": 103.5999984741211,
+          "y": 838.7125244140625
+        },
+        "price": "€29,99",
+        "saving": "Ahorras 5,00 €",
+        "title": "1 unidad"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1259.7125701904297,
+          "height": 209.1999969482422,
+          "right": 625.2000274658203,
+          "width": 550.4000244140625,
+          "x": 74.80000305175781,
+          "y": 1050.5125732421875
+        },
+        "compare": "€69,98",
+        "contentOverflow": false,
+        "duration": "Hasta 6 mesesde uso",
+        "durationBox": {
+          "bottom": 1177.987575531006,
+          "height": 47.10000228881836,
+          "right": 386.2375030517578,
+          "width": 139.25,
+          "x": 246.9875030517578,
+          "y": 1130.8875732421875
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1262.487548828125,
+          "height": 214.75,
+          "right": 303.9000053405762,
+          "width": 261.4125061035156,
+          "x": 42.48749923706055,
+          "y": 1047.737548828125
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1246.112548828125,
+          "height": 182,
+          "right": 241.98751068115232,
+          "width": 137.58750915527344,
+          "x": 104.4000015258789,
+          "y": 1064.112548828125
+        },
+        "price": "€34,99",
+        "saving": "Ahorras 34,99 €",
+        "title": "Pack de 2"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1485.9125213623047,
+          "height": 209.1999969482422,
+          "right": 625.2000274658203,
+          "width": 550.4000244140625,
+          "x": 74.80000305175781,
+          "y": 1276.7125244140625
+        },
+        "compare": "€104,97",
+        "contentOverflow": false,
+        "duration": "Hasta 9 mesesde uso",
+        "durationBox": {
+          "bottom": 1404.1875267028809,
+          "height": 47.10000228881836,
+          "right": 386.2375030517578,
+          "width": 139.25,
+          "x": 246.9875030517578,
+          "y": 1357.0875244140625
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1484.5,
+          "height": 206.375,
+          "right": 276.3875045776367,
+          "width": 206.375,
+          "x": 70.01250457763672,
+          "y": 1278.125
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1472.3125,
+          "height": 182,
+          "right": 241.98751068115232,
+          "width": 137.58750915527344,
+          "x": 104.4000015258789,
+          "y": 1290.3125
+        },
+        "price": "€44,99",
+        "saving": "Ahorras 59,98 €",
+        "title": "Pack de 3"
+      }
+    ],
+    "pageWidth": 753,
+    "selected": "2",
+    "selector": {
+      "bottom": 1485.9125366210938,
+      "height": 741.4000244140625,
+      "right": 625.2000274658203,
+      "width": 550.4000244140625,
+      "x": 74.80000305175781,
+      "y": 744.5125122070312
+    },
+    "width": 768
+  },
+  {
+    "cards": [
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 849.7125396728516,
+          "height": 146.2375030517578,
+          "right": 933.9875183105468,
+          "width": 309.3500061035156,
+          "x": 624.6375122070312,
+          "y": 703.4750366210938
+        },
+        "compare": "€34,99",
+        "contentOverflow": false,
+        "duration": "Hasta 3 mesesde uso",
+        "durationBox": {
+          "bottom": 793.350025177002,
+          "height": 36.57500076293945,
+          "right": 843.8250122070312,
+          "width": 108.0625,
+          "x": 735.7625122070312,
+          "y": 756.7750244140625
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 836.9125289916992,
+          "height": 120.63750457763672,
+          "right": 730.7625045776367,
+          "width": 77.32500457763672,
+          "x": 653.4375,
+          "y": 716.2750244140625
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 836.9125289916992,
+          "height": 120.63750457763672,
+          "right": 730.7625045776367,
+          "width": 77.32500457763672,
+          "x": 653.4375,
+          "y": 716.2750244140625
+        },
+        "price": "€29,99",
+        "saving": "Ahorras 5,00 €",
+        "title": "1 unidad"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1014.550033569336,
+          "height": 147.83750915527344,
+          "right": 933.9875183105468,
+          "width": 309.3500061035156,
+          "x": 624.6375122070312,
+          "y": 866.7125244140625
+        },
+        "compare": "€69,98",
+        "contentOverflow": false,
+        "duration": "Hasta 6 mesesde uso",
+        "durationBox": {
+          "bottom": 957.3875007629396,
+          "height": 36.57500076293945,
+          "right": 844.625,
+          "width": 108.0625,
+          "x": 736.5625,
+          "y": 920.8125
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1011.8000183105468,
+          "height": 142.35000610351562,
+          "right": 766.3625183105469,
+          "width": 146.91250610351562,
+          "x": 619.4500122070312,
+          "y": 869.4500122070312
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1000.9500045776368,
+          "height": 120.63750457763672,
+          "right": 731.5624923706055,
+          "width": 77.32500457763672,
+          "x": 654.2374877929688,
+          "y": 880.3125
+        },
+        "price": "€34,99",
+        "saving": "Ahorras 34,99 €",
+        "title": "Pack de 2"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1179.3875579833984,
+          "height": 147.83750915527344,
+          "right": 933.9875183105468,
+          "width": 309.3500061035156,
+          "x": 624.6375122070312,
+          "y": 1031.550048828125
+        },
+        "compare": "€104,97",
+        "contentOverflow": false,
+        "duration": "Hasta 9 mesesde uso",
+        "durationBox": {
+          "bottom": 1122.225025177002,
+          "height": 36.57500076293945,
+          "right": 844.625,
+          "width": 108.0625,
+          "x": 736.5625,
+          "y": 1085.6500244140625
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1163.4562530517578,
+          "height": 115.9875030517578,
+          "right": 750.9000396728516,
+          "width": 115.9875030517578,
+          "x": 634.9125366210938,
+          "y": 1047.46875
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1165.7875289916992,
+          "height": 120.63750457763672,
+          "right": 731.5624923706055,
+          "width": 77.32500457763672,
+          "x": 654.2374877929688,
+          "y": 1045.1500244140625
+        },
+        "price": "€44,99",
+        "saving": "Ahorras 59,98 €",
+        "title": "Pack de 3"
+      }
+    ],
+    "pageWidth": 1009,
+    "selected": "2",
+    "selector": {
+      "bottom": 1179.3875122070312,
+      "height": 532.9000244140625,
+      "right": 933.9875183105468,
+      "width": 309.3500061035156,
+      "x": 624.6375122070312,
+      "y": 646.4874877929688
+    },
+    "width": 1024
+  },
+  {
+    "cards": [
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 824.6125183105469,
+          "height": 207.6000061035156,
+          "right": 1337.6000061035156,
+          "width": 485.3999938964844,
+          "x": 852.2000122070312,
+          "y": 617.0125122070312
+        },
+        "compare": "€34,99",
+        "contentOverflow": false,
+        "duration": "Hasta 3 mesesde uso",
+        "durationBox": {
+          "bottom": 743.6875267028809,
+          "height": 47.10000228881836,
+          "right": 1146.5875244140625,
+          "width": 139.25,
+          "x": 1007.3375244140624,
+          "y": 696.5875244140625
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 811.8125,
+          "height": 182,
+          "right": 1002.3375015258788,
+          "width": 121.3375015258789,
+          "x": 881,
+          "y": 629.8125
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 811.8125,
+          "height": 182,
+          "right": 1002.3375015258788,
+          "width": 121.3375015258789,
+          "x": 881,
+          "y": 629.8125
+        },
+        "price": "€29,99",
+        "saving": "Ahorras 5,00 €",
+        "title": "1 unidad"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1050.812484741211,
+          "height": 209.1999969482422,
+          "right": 1337.6000061035156,
+          "width": 485.3999938964844,
+          "x": 852.2000122070312,
+          "y": 841.6124877929688
+        },
+        "compare": "€69,98",
+        "contentOverflow": false,
+        "duration": "Hasta 6 mesesde uso",
+        "durationBox": {
+          "bottom": 969.0874900817872,
+          "height": 47.10000228881836,
+          "right": 1147.3875122070312,
+          "width": 139.25,
+          "x": 1008.1375122070312,
+          "y": 921.9874877929688
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1053.5875244140625,
+          "height": 214.75,
+          "right": 1057.7375183105469,
+          "width": 230.5375061035156,
+          "x": 827.2000122070312,
+          "y": 838.8375244140625
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1037.2125244140625,
+          "height": 182,
+          "right": 1003.1374893188477,
+          "width": 121.3375015258789,
+          "x": 881.7999877929688,
+          "y": 855.2125244140625
+        },
+        "price": "€34,99",
+        "saving": "Ahorras 34,99 €",
+        "title": "Pack de 2"
+      },
+      {
+        "badgeOverlap": false,
+        "card": {
+          "bottom": 1277.0124969482422,
+          "height": 209.1999969482422,
+          "right": 1337.6000061035156,
+          "width": 485.3999938964844,
+          "x": 852.2000122070312,
+          "y": 1067.8125
+        },
+        "compare": "€104,97",
+        "contentOverflow": false,
+        "duration": "Hasta 9 mesesde uso",
+        "durationBox": {
+          "bottom": 1195.2875022888184,
+          "height": 47.10000228881836,
+          "right": 1147.3875122070312,
+          "width": 139.25,
+          "x": 1008.1375122070312,
+          "y": 1148.1875
+        },
+        "durationOverflow": false,
+        "imageLoaded": true,
+        "img": {
+          "bottom": 1263.4124755859375,
+          "height": 182,
+          "right": 1033.4750366210938,
+          "width": 182,
+          "x": 851.4750366210938,
+          "y": 1081.4124755859375
+        },
+        "objectFit": "contain",
+        "overlap": false,
+        "photo": {
+          "bottom": 1263.4124755859375,
+          "height": 182,
+          "right": 1003.1374893188477,
+          "width": 121.3375015258789,
+          "x": 881.7999877929688,
+          "y": 1081.4124755859375
+        },
+        "price": "€44,99",
+        "saving": "Ahorras 59,98 €",
+        "title": "Pack de 3"
+      }
+    ],
+    "pageWidth": 1425,
+    "selected": "2",
+    "selector": {
+      "bottom": 1277.0125732421875,
+      "height": 736.6000366210938,
+      "right": 1337.6000061035156,
+      "width": 485.3999938964844,
+      "x": 852.2000122070312,
+      "y": 540.4125366210938
+    },
+    "width": 1440
+  }
+]

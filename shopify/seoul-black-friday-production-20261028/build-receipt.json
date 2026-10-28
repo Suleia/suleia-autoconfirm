@@ -1,0 +1,41 @@
+{
+  "theme": 198240600396,
+  "files": {
+    "snippets/quantity-breaks.liquid": {
+      "beforeMd5": "ae97c5af141082b6372586f610ec3952",
+      "candidateMd5": "40ae4bc74acf69d2150b084198adeca4"
+    },
+    "templates/product.seoul_1988.json": {
+      "beforeMd5": "8ef71c799976c1731e9e4626cd0bfe47",
+      "candidateMd5": "f108d8616b39d3fc03b91c14af014ff1"
+    }
+  },
+  "durations": [
+    3,
+    6,
+    9
+  ],
+  "pricesCents": [
+    2999,
+    3499,
+    4499
+  ],
+  "compareCents": [
+    3499,
+    6998,
+    10497
+  ],
+  "fixedAmountOff": [
+    "0.00",
+    "24.99",
+    "44.98"
+  ],
+  "inputCalculationScriptsUnchanged": true,
+  "default": 2,
+  "templateSettingsChanged": [
+    "option_2_benefit",
+    "option_3_benefit"
+  ],
+  "imagesUnchanged": true,
+  "fullBackupFiles": 381
+}
