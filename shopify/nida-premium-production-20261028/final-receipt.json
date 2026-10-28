@@ -1,0 +1,188 @@
+{
+  "status": "PRODUCTION_VERIFIED",
+  "publishedAt": "2026-10-28T18:09:07.740772+01:00",
+  "url": "https://suleia.com/products/crema-nida",
+  "mainTheme": 198240600396,
+  "sourceTheme": 209083892044,
+  "backupTheme": 209083760972,
+  "backupCreatedOn": "2026-10-27",
+  "backupReusedAfterFreshFullComparison": true,
+  "mainRole": "MAIN",
+  "approvedFourChecksums": {
+    "assets/nida-premium.css": "c56859579b699398cbf3cfe561de3a0f",
+    "snippets/nida-premium-ui.liquid": "47631665cff0e5093e55d5a4d59c0e17",
+    "snippets/quantity-breaks.liquid": "ee2e1037f1fdc6cac71ea565b30d0560",
+    "templates/product.parches_glp.json": "9688022b88fd33e3db4403255fde1704"
+  },
+  "fullManifest": {
+    "at": "2026-10-28T17:17:03.925Z",
+    "status": "VERIFIED",
+    "mainTheme": 198240600396,
+    "sourceTheme": 209083892044,
+    "backupTheme": 209083760972,
+    "mainRole": "MAIN",
+    "counts": {
+      "main": 381,
+      "backup": 379,
+      "test": 381
+    },
+    "changedFiles": [
+      "assets/nida-premium.css",
+      "snippets/nida-premium-ui.liquid",
+      "snippets/quantity-breaks.liquid",
+      "templates/product.parches_glp.json"
+    ],
+    "unchangedExistingFiles": 377,
+    "approvedSourceIdentical": true,
+    "backupUnchanged": true,
+    "checksums": {
+      "assets/nida-premium.css": "c56859579b699398cbf3cfe561de3a0f",
+      "snippets/nida-premium-ui.liquid": "47631665cff0e5093e55d5a4d59c0e17",
+      "snippets/quantity-breaks.liquid": "ee2e1037f1fdc6cac71ea565b30d0560",
+      "templates/product.parches_glp.json": "9688022b88fd33e3db4403255fde1704"
+    }
+  },
+  "cart": {
+    "theme": 198240600396,
+    "baselineProductPricePreserved": true,
+    "approvedImagesPresent": true,
+    "cases": [
+      {
+        "quantity": 1,
+        "baseCents": 3499,
+        "originalCents": 3499,
+        "discountCents": 500,
+        "totalCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "baseCents": 3499,
+        "originalCents": 6998,
+        "discountCents": 3499,
+        "totalCents": 3499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 3,
+        "baseCents": 3499,
+        "originalCents": 10497,
+        "discountCents": 5998,
+        "totalCents": 4499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      }
+    ],
+    "quantityChanges": [
+      {
+        "quantity": 1,
+        "baseCents": 3499,
+        "originalCents": 3499,
+        "discountCents": 500,
+        "totalCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "baseCents": 3499,
+        "originalCents": 6998,
+        "discountCents": 3499,
+        "totalCents": 3499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 3,
+        "baseCents": 3499,
+        "originalCents": 10497,
+        "discountCents": 5998,
+        "totalCents": 4499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "baseCents": 3499,
+        "originalCents": 6998,
+        "discountCents": 3499,
+        "totalCents": 3499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 1,
+        "baseCents": 3499,
+        "originalCents": 3499,
+        "discountCents": 500,
+        "totalCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      }
+    ],
+    "regressions": [
+      {
+        "handle": "polvo-dental-de-colageno-colla-gum",
+        "liveTheme": 198240600396,
+        "testTheme": 209083892044,
+        "selectorIdentical": true,
+        "selectorSha256": "a73f7e29a72a69773ff1b042bd2e0e80bbe196d16c81788bd47ff1d34a689372",
+        "nidaAssetsAbsent": true
+      },
+      {
+        "handle": "crema-seoul-1988",
+        "liveTheme": 198240600396,
+        "testTheme": 209083892044,
+        "selectorIdentical": true,
+        "selectorSha256": "df77eeba3b5b372887e2ecb1abb886452a302bba5043fa6c872d66776a35c85f",
+        "nidaAssetsAbsent": true
+      }
+    ],
+    "testCartEmpty": true,
+    "ordersCreated": 0,
+    "operatorCartUsed": false,
+    "checkoutSubmitted": false
+  },
+  "browser": {
+    "previewExited": true,
+    "allResponsiveCasesPassed": true,
+    "widthsCss": [
+      375,
+      390,
+      430,
+      767,
+      1440
+    ],
+    "selectedDefault": "2",
+    "transitions": [
+      {
+        "requested": "1",
+        "selected": "1"
+      },
+      {
+        "requested": "2",
+        "selected": "2"
+      },
+      {
+        "requested": "3",
+        "selected": "3"
+      },
+      {
+        "requested": "1",
+        "selected": "1"
+      },
+      {
+        "requested": "2",
+        "selected": "2"
+      }
+    ],
+    "consoleErrors": [],
+    "actualProductionScreenshots": [
+      "nida-prod-mobile.jpg",
+      "nida-prod-desktop.jpg"
+    ]
+  },
+  "rollback": "Read-only preflight passed; not executed"
+}
