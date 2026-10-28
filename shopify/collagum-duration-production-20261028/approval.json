@@ -1,0 +1,37 @@
+{
+  "main": 198240600396,
+  "explicitOwnerProductionApproval": true,
+  "scope": [
+    "snippets/quantity-breaks.liquid",
+    "templates/product.collagum.json"
+  ],
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "407d927dc648ea2c95974a56fa24d4cb",
+    "templates/product.collagum.json": "d56285cd9a90c58a6cf69e2671b5fd04"
+  },
+  "beforeNativeMd5": {
+    "snippets/quantity-breaks.liquid": "ee2e1037f1fdc6cac71ea565b30d0560",
+    "templates/product.collagum.json": "0b0b758898104f0c54610a3630b7ce5d"
+  },
+  "backupArchiveSha256": "0a68581091a9fb245a0f336f6ccde3babb637329c1b0991fc1a62b8cd4222b09",
+  "fullBackupVerified": true,
+  "backupFiles": 381,
+  "syntaxPass": true,
+  "validationWarnings": [
+    "Existing shared snippet complexity warning; no errors"
+  ],
+  "responsivePass": true,
+  "responsiveWidths": [
+    320,
+    375,
+    390,
+    430,
+    1440
+  ],
+  "imagesNotReduced": true,
+  "selectorMoreCompact": true,
+  "cartPass": true,
+  "nonCollagumBytesIdentical": true,
+  "runtimeInputsAndCalculationsUnchanged": true,
+  "wholeThemePublish": false
+}

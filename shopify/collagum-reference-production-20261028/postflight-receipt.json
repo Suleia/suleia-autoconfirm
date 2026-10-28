@@ -1,0 +1,95 @@
+{
+  "at": "2026-10-28T19:04:10.416395+00:00",
+  "status": "PUBLIC_MAIN_CART_AND_REGRESSIONS_VERIFIED",
+  "main": 198240600396,
+  "months": [
+    3,
+    6,
+    9
+  ],
+  "changedFiles": [
+    "snippets/quantity-breaks.liquid"
+  ],
+  "unchangedOtherFiles": 380,
+  "fileCount": 381,
+  "productTemplateUnchanged": true,
+  "regressions": [
+    {
+      "handle": "crema-nida",
+      "selectorIdentical": true,
+      "selectorSha256": "3e42a02c701888c3e7b256b846cc767afbba80a4981078e0f9603c7dd18f3c0d"
+    },
+    {
+      "handle": "crema-seoul-1988",
+      "selectorIdentical": true,
+      "selectorSha256": "df77eeba3b5b372887e2ecb1abb886452a302bba5043fa6c872d66776a35c85f"
+    }
+  ],
+  "cart": {
+    "cases": [
+      {
+        "quantity": 1,
+        "totalCents": 2499,
+        "discountCents": 500,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 3,
+        "totalCents": 3499,
+        "discountCents": 5498,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      }
+    ],
+    "updates": [
+      {
+        "quantity": 1,
+        "totalCents": 2499,
+        "discountCents": 500,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 3,
+        "totalCents": 3499,
+        "discountCents": 5498,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 1,
+        "totalCents": 2499,
+        "discountCents": 500,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      }
+    ],
+    "testCartEmpty": true,
+    "ordersCreated": 0,
+    "checkoutSubmitted": false,
+    "operatorCartUsed": false
+  },
+  "globalCartCheckoutAndReleasitUnchanged": true
+}

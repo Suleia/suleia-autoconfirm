@@ -1,0 +1,29 @@
+{
+  "main": 198240600396,
+  "files": [
+    "snippets/quantity-breaks.liquid",
+    "templates/product.collagum.json"
+  ],
+  "beforeNativeMd5": {
+    "snippets/quantity-breaks.liquid": "ee2e1037f1fdc6cac71ea565b30d0560",
+    "templates/product.collagum.json": "0b0b758898104f0c54610a3630b7ce5d"
+  },
+  "candidateMd5": {
+    "snippets/quantity-breaks.liquid": "407d927dc648ea2c95974a56fa24d4cb",
+    "templates/product.collagum.json": "d56285cd9a90c58a6cf69e2671b5fd04"
+  },
+  "nonCollagumSnippetBytesIdentical": true,
+  "allInputsIdentical": true,
+  "allScriptBlocksIdentical": true,
+  "allPriceCalculationBlocksIdentical": true,
+  "templateOnlyCommercialTextChanges": {
+    "option_1_badge": "",
+    "option_1_benefit": "Ideal para probar",
+    "option_2_badge": "RECOMENDADO",
+    "option_2_benefit": "Más duración, mejor precio",
+    "option_3_benefit": "Tu mejor opción"
+  },
+  "templateBlock": "04ba004e-2f54-4936-8b1c-8bcadf6573f6",
+  "newJavaScript": false,
+  "newImageAssets": false
+}

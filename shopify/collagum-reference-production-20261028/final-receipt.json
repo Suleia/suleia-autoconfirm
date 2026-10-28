@@ -1,0 +1,228 @@
+{
+  "at": "2026-10-28T19:38:01.165432+00:00",
+  "status": "PRODUCTION_VERIFIED",
+  "deployment": {
+    "at": "2026-10-28T19:03:01.863565+00:00",
+    "status": "PROD_READBACK_VERIFIED",
+    "main": 198240600396,
+    "changedFiles": [
+      "snippets/quantity-breaks.liquid"
+    ],
+    "otherExistingFilesUnchanged": 380,
+    "fileCount": 381,
+    "candidateMd5": {
+      "snippets/quantity-breaks.liquid": "ae97c5af141082b6372586f610ec3952"
+    },
+    "productTemplateUnchanged": true,
+    "productUnchanged": true,
+    "wholeThemePublished": false,
+    "fullLocalBackupVerified": true,
+    "backupArchiveSha256": "292dfc09b54be57338ce875250960fedd8fd6e7c96002378cc2c3f3863779484"
+  },
+  "postflight": {
+    "at": "2026-10-28T19:04:10.416395+00:00",
+    "status": "PUBLIC_MAIN_CART_AND_REGRESSIONS_VERIFIED",
+    "main": 198240600396,
+    "months": [
+      3,
+      6,
+      9
+    ],
+    "changedFiles": [
+      "snippets/quantity-breaks.liquid"
+    ],
+    "unchangedOtherFiles": 380,
+    "fileCount": 381,
+    "productTemplateUnchanged": true,
+    "regressions": [
+      {
+        "handle": "crema-nida",
+        "selectorIdentical": true,
+        "selectorSha256": "3e42a02c701888c3e7b256b846cc767afbba80a4981078e0f9603c7dd18f3c0d"
+      },
+      {
+        "handle": "crema-seoul-1988",
+        "selectorIdentical": true,
+        "selectorSha256": "df77eeba3b5b372887e2ecb1abb886452a302bba5043fa6c872d66776a35c85f"
+      }
+    ],
+    "cart": {
+      "cases": [
+        {
+          "quantity": 1,
+          "totalCents": 2499,
+          "discountCents": 500,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 2,
+          "totalCents": 2999,
+          "discountCents": 2999,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 3,
+          "totalCents": 3499,
+          "discountCents": 5498,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        }
+      ],
+      "updates": [
+        {
+          "quantity": 1,
+          "totalCents": 2499,
+          "discountCents": 500,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 2,
+          "totalCents": 2999,
+          "discountCents": 2999,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 3,
+          "totalCents": 3499,
+          "discountCents": 5498,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 2,
+          "totalCents": 2999,
+          "discountCents": 2999,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 1,
+          "totalCents": 2499,
+          "discountCents": 500,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        }
+      ],
+      "testCartEmpty": true,
+      "ordersCreated": 0,
+      "checkoutSubmitted": false,
+      "operatorCartUsed": false
+    },
+    "globalCartCheckoutAndReleasitUnchanged": true
+  },
+  "responsive": [
+    {
+      "widthCss": 320,
+      "selectorHeight": 503.875,
+      "componentPass": true,
+      "pageFitsViewport": true,
+      "opaquePhotoWidths": [
+        74.6,
+        75.86,
+        76.2
+      ]
+    },
+    {
+      "widthCss": 375,
+      "selectorHeight": 566.46875,
+      "componentPass": true,
+      "pageFitsViewport": true,
+      "opaquePhotoWidths": [
+        102.58,
+        104.31,
+        104.78
+      ]
+    },
+    {
+      "widthCss": 390,
+      "selectorHeight": 579.859375,
+      "componentPass": true,
+      "pageFitsViewport": true,
+      "opaquePhotoWidths": [
+        107.04,
+        108.85,
+        109.32
+      ]
+    },
+    {
+      "widthCss": 430,
+      "selectorHeight": 615.015625,
+      "componentPass": true,
+      "pageFitsViewport": true,
+      "opaquePhotoWidths": [
+        118.89,
+        120.9,
+        121.44
+      ]
+    },
+    {
+      "widthCss": 768,
+      "selectorHeight": 547.09375,
+      "componentPass": true,
+      "pageFitsViewport": false,
+      "opaquePhotoWidths": [
+        74.6,
+        75.86,
+        76.2
+      ]
+    },
+    {
+      "widthCss": 1024,
+      "selectorHeight": 596.46875,
+      "componentPass": true,
+      "pageFitsViewport": true,
+      "opaquePhotoWidths": [
+        105.92,
+        107.7,
+        108.19
+      ]
+    },
+    {
+      "widthCss": 1440,
+      "selectorHeight": 697.921875,
+      "componentPass": true,
+      "pageFitsViewport": true,
+      "opaquePhotoWidths": [
+        153.04,
+        155.62,
+        156.31
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "requested": "1",
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "selected": "2"
+    },
+    {
+      "requested": "3",
+      "selected": "3"
+    },
+    {
+      "requested": "1",
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "selected": "2"
+    }
+  ],
+  "consoleErrors": [],
+  "screenshots": [
+    "collagum-reference-prod-mobile.png",
+    "collagum-reference-prod-desktop.png"
+  ],
+  "knownReferenceDifferences": [
+    "Owner-approved authentic PNGs reused unchanged",
+    "RECOMENDADO retained under previous evidence condition for bestseller claim"
+  ],
+  "unrelated768PageOverflowObserved": true
+}

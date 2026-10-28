@@ -1,0 +1,227 @@
+{
+  "at": "2026-10-28T17:54:11.344825+00:00",
+  "status": "PRODUCTION_VERIFIED",
+  "url": "https://suleia.com/products/polvo-dental-de-colageno-colla-gum",
+  "deployment": {
+    "at": "2026-10-28T17:50:01.288700+00:00",
+    "status": "PROD_READBACK_VERIFIED",
+    "main": 198240600396,
+    "changedFiles": [
+      "snippets/quantity-breaks.liquid",
+      "templates/product.collagum.json"
+    ],
+    "otherExistingFilesUnchanged": 379,
+    "fileCount": 381,
+    "candidateMd5": {
+      "snippets/quantity-breaks.liquid": "407d927dc648ea2c95974a56fa24d4cb",
+      "templates/product.collagum.json": "d56285cd9a90c58a6cf69e2671b5fd04"
+    },
+    "productUnchanged": true,
+    "wholeThemePublished": false,
+    "fullLocalBackupVerified": true,
+    "backupArchiveSha256": "0a68581091a9fb245a0f336f6ccde3babb637329c1b0991fc1a62b8cd4222b09",
+    "visualBadgeContrastFollowupVerified": true
+  },
+  "publicAndCart": {
+    "at": "2026-10-28T17:51:30.620595+00:00",
+    "status": "PUBLIC_MAIN_CART_AND_REGRESSIONS_VERIFIED",
+    "main": 198240600396,
+    "publicSelector": {
+      "threeDurationBlocks": true,
+      "oneQualifiedNote": true,
+      "approvedImagesUnchanged": true,
+      "recommendedNotUnprovenBestseller": true,
+      "headerAndSubtitle": true
+    },
+    "changedFiles": [
+      "snippets/quantity-breaks.liquid",
+      "templates/product.collagum.json"
+    ],
+    "unchangedOtherFiles": 379,
+    "finalFileCount": 381,
+    "regressions": [
+      {
+        "handle": "crema-nida",
+        "mainTheme": 198240600396,
+        "selectorIdentical": true,
+        "selectorSha256": "3e42a02c701888c3e7b256b846cc767afbba80a4981078e0f9603c7dd18f3c0d"
+      },
+      {
+        "handle": "crema-seoul-1988",
+        "mainTheme": 198240600396,
+        "selectorIdentical": true,
+        "selectorSha256": "df77eeba3b5b372887e2ecb1abb886452a302bba5043fa6c872d66776a35c85f"
+      }
+    ],
+    "cart": {
+      "cases": [
+        {
+          "quantity": 1,
+          "originalCents": 2999,
+          "discountCents": 500,
+          "totalCents": 2499,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 2,
+          "originalCents": 5998,
+          "discountCents": 2999,
+          "totalCents": 2999,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 3,
+          "originalCents": 8997,
+          "discountCents": 5498,
+          "totalCents": 3499,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        }
+      ],
+      "quantityChanges": [
+        {
+          "quantity": 1,
+          "originalCents": 2999,
+          "discountCents": 500,
+          "totalCents": 2499,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 2,
+          "originalCents": 5998,
+          "discountCents": 2999,
+          "totalCents": 2999,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 3,
+          "originalCents": 8997,
+          "discountCents": 5498,
+          "totalCents": 3499,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 2,
+          "originalCents": 5998,
+          "discountCents": 2999,
+          "totalCents": 2999,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        },
+        {
+          "quantity": 1,
+          "originalCents": 2999,
+          "discountCents": 500,
+          "totalCents": 2499,
+          "lineAllocations": 1,
+          "cartAllocations": 0
+        }
+      ],
+      "testCartEmpty": true,
+      "ordersCreated": 0,
+      "operatorCartUsed": false,
+      "checkoutSubmitted": false
+    },
+    "cartReceiptReusedAfterOpacityOnlyChange": true,
+    "globalCartCheckoutAndReleasitFilesUnchanged": true,
+    "completedPurchaseTested": false
+  },
+  "responsive": [
+    {
+      "widthCss": 320,
+      "selectorHeightBefore": 492.109375,
+      "selectorHeightAfter": 438.671875,
+      "imagesPreserved": true,
+      "noHorizontalOverflow": true,
+      "noBadgePriceOverlap": true,
+      "threeImagesLoaded": true,
+      "defaultSelectedPack": "2"
+    },
+    {
+      "widthCss": 375,
+      "selectorHeightBefore": 447.421875,
+      "selectorHeightAfter": 437.34375,
+      "imagesPreserved": true,
+      "noHorizontalOverflow": true,
+      "noBadgePriceOverlap": true,
+      "threeImagesLoaded": true,
+      "defaultSelectedPack": "2"
+    },
+    {
+      "widthCss": 390,
+      "selectorHeightBefore": 447.421875,
+      "selectorHeightAfter": 437.34375,
+      "imagesPreserved": true,
+      "noHorizontalOverflow": true,
+      "noBadgePriceOverlap": true,
+      "threeImagesLoaded": true,
+      "defaultSelectedPack": "2"
+    },
+    {
+      "widthCss": 430,
+      "selectorHeightBefore": 495.41015625,
+      "selectorHeightAfter": 485.33203125,
+      "imagesPreserved": true,
+      "noHorizontalOverflow": true,
+      "noBadgePriceOverlap": true,
+      "threeImagesLoaded": true,
+      "defaultSelectedPack": "2"
+    },
+    {
+      "widthCss": 1440,
+      "selectorHeightBefore": 738.92578125,
+      "selectorHeightAfter": 666.09375,
+      "imagesPreserved": true,
+      "noHorizontalOverflow": true,
+      "noBadgePriceOverlap": true,
+      "threeImagesLoaded": true,
+      "defaultSelectedPack": "2"
+    }
+  ],
+  "selectionTransitions": [
+    {
+      "requested": "1",
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "selected": "2"
+    },
+    {
+      "requested": "3",
+      "selected": "3"
+    },
+    {
+      "requested": "1",
+      "selected": "1"
+    },
+    {
+      "requested": "2",
+      "selected": "2"
+    }
+  ],
+  "consoleErrors": [],
+  "greenBadgeFullyLegible": true,
+  "productionOutsidePreview": true,
+  "nonCollagumSnippetBytesIdentical": true,
+  "noInputsScriptsOrPriceCalculationsChanged": true,
+  "onlyFiveCommercialSettingsChanged": {
+    "option_1_badge": "",
+    "option_1_benefit": "Ideal para probar",
+    "option_2_badge": "RECOMENDADO",
+    "option_2_benefit": "Más duración, mejor precio",
+    "option_3_benefit": "Tu mejor opción"
+  },
+  "nativeProductBasePrice": "29.99 EUR",
+  "screenshots": [
+    "collagum-prod-mobile.png",
+    "collagum-prod-desktop.png"
+  ],
+  "backup": "Fresh complete local ZIP of381files, checksum verified; original exact files kept outside Git",
+  "rollback": "Prepared and checked in read-only mode; not exercised"
+}
