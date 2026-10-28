@@ -1,0 +1,138 @@
+{
+  "verifiedAtUtc": "2026-10-28T15:30:55.775Z",
+  "state": "LIVE_VERIFIED",
+  "pullRequest": 171,
+  "runtimeRevision": "7658c56187e972eecefbb7936a88913e13692850",
+  "priorRuntimeRevision": "82967745f073c028bca46478da9e18c08909ba13",
+  "renderDeployId": "dep-dbh14i942hec73e709vg",
+  "tests": {
+    "passed": 721,
+    "failed": 0,
+    "skipped": 0,
+    "files": 67,
+    "sourceSha256": "8c4636f861a1639da860cc01a55046db30b6f2a2699e02d0dcd04345326db525",
+    "matchingCommittedFiles": 187,
+    "network": "none",
+    "productionCredentialsSupplied": false
+  },
+  "target": {
+    "at": "2026-10-28T15:30:55.775Z",
+    "orderId": "1488064",
+    "state": "VERIFIED",
+    "template": "es_ES dropea_pedido_reminder_v1",
+    "historyComplete": true,
+    "matchingReminders": 1,
+    "exactProviderReadback": true,
+    "acceptedWamidMatches": true,
+    "initialStillProved": true,
+    "parametersMatchFreshOrder": true,
+    "renderedBodyMatches": true,
+    "providerSentAt": "2026-10-28T15:21:42.000Z",
+    "sentAtMadrid": "28/10/26, 16:21:42",
+    "verifiedAt": "2026-10-28T15:22:10.402Z",
+    "reminderProviderIdHash": "7cf1be6b1dddefc4d4720637250836a47442e0ad9ef50cb55ebd7f15df7280cd",
+    "providerOrderStatus": "PENDING",
+    "laterInbound": 0,
+    "externalWrites": 0
+  },
+  "cohort": {
+    "completeAtDiagnosis": true,
+    "nonterminalReminderCandidates": 2,
+    "affectedPending": 1,
+    "otherCandidateCancelledAndHeld": 1
+  },
+  "naturalCycles": [
+    {
+      "at": "2026-10-28T15:22:10.524Z",
+      "mode": "LIVE",
+      "counts": {
+        "eligible": 0,
+        "reminder_sent": 1,
+        "reminder_not_due": 0,
+        "reminder_verified": 1,
+        "reminder_candidates": 2,
+        "reminder_send_unknown": 0,
+        "reminder_initial_missing": 0,
+        "reminder_blocked_incident": 0,
+        "reminder_already_confirmed": 0,
+        "reminder_customer_responded": 0,
+        "reminder_duplicate_prevented": 0
+      },
+      "coverage": {
+        "queried": 2,
+        "evaluated": 2,
+        "allEvaluated": true
+      },
+      "externalWrites": 1
+    },
+    {
+      "at": "2026-10-28T15:25:11.409Z",
+      "mode": "LIVE",
+      "counts": {
+        "eligible": 0,
+        "reminder_sent": 0,
+        "reminder_not_due": 0,
+        "reminder_verified": 0,
+        "reminder_candidates": 1,
+        "reminder_send_unknown": 0,
+        "reminder_initial_missing": 0,
+        "reminder_blocked_incident": 0,
+        "reminder_already_confirmed": 0,
+        "reminder_customer_responded": 0,
+        "reminder_duplicate_prevented": 0
+      },
+      "coverage": {
+        "queried": 1,
+        "evaluated": 1,
+        "allEvaluated": true
+      },
+      "externalWrites": 0
+    },
+    {
+      "at": "2026-10-28T15:29:49.641Z",
+      "mode": "LIVE",
+      "coverage": {
+        "queried": 1,
+        "evaluated": 1,
+        "allEvaluated": true
+      },
+      "counts": {
+        "reminder_candidates": 1,
+        "reminder_not_due": 0,
+        "reminder_customer_responded": 0,
+        "reminder_already_confirmed": 0,
+        "reminder_initial_missing": 0,
+        "reminder_blocked_incident": 0,
+        "reminder_sent": 0,
+        "reminder_verified": 0,
+        "reminder_send_unknown": 0,
+        "reminder_duplicate_prevented": 0,
+        "eligible": 0
+      },
+      "externalWrites": 0
+    }
+  ],
+  "preservation": {
+    "templateCount": 23,
+    "catalogUnchanged": true,
+    "initialLedgerUnchanged": true,
+    "orderBusinessDataUnchanged": true,
+    "allNonRevisionEnvironmentUnchanged": true,
+    "unchangedAddressSafetyGatesFollowRevision": true,
+    "initialPreparedOwner": "chatby_native",
+    "reminderOwner": "render_order_reminder",
+    "confirmationDelayHours": 1,
+    "cancellationHours": 48,
+    "templateFlowContactEdits": 0,
+    "newSenders": 0,
+    "forcedScans": 0,
+    "ledgerResets": 0
+  },
+  "rollback": {
+    "codeOnly": true,
+    "encryptedBaselineSaved": true,
+    "supersedingReleaseAndConfigGuards": true,
+    "restoreLedgersOrHistoricalState": false,
+    "preparedNotExercised": true
+  }
+}
