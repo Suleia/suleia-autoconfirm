@@ -20,4 +20,14 @@ Los scripts se ejecutan desde el directorio local de evidencia preparado `shopif
 - Carrito nativo anónimo aislado: 1/2/3 unidades **24,99/29,99/34,99 EUR**, descuentos **5/29,99/54,98 EUR**, una asignación por línea y ninguna promoción de carrito duplicada. Cambios 1→2→3→2→1 correctos, carrito vaciado, cero pedidos y ningún checkout enviado.
 - Simulación local de composición sobre HTML real de MAIN, sin scripts ni POST, en **320/375/390/430/1440 px**. No hay desplazamiento horizontal ni etiquetas sobre precios; fotos `contain` con dimensiones originales conservadas. Alturas del selector antes→después: **492,11→440,80; 447,42→439,92; 447,42→439,92; 495,41→487,92; 738,93→668,69 px**. Esta prueba local no se presenta como verificación productiva; tras publicar se comprueba de nuevo la página real.
 
-La confirmación final del despliegue y los recibos productivos se añaden después de la lectura independiente y de las pruebas reales. No se modifica ni se prueba una compra final con pago; se conserva la configuración del checkout y Releasit.
+## Resultado productivo verificado
+
+Publicado en [CollaGum](https://suleia.com/products/polvo-dental-de-colageno-colla-gum) el **28/10/2026 a las 17:44 UTC**. La verificación real detectó la opacidad nativa del distintivo verde no seleccionado (0,6): se añadió exclusivamente `opacity:1` y se validó de nuevo, con journal/readback separado. Los hashes finales son **407d927dc648ea2c95974a56fa24d4cb** para el snippet y **d56285cd9a90c58a6cf69e2671b5fd04** para la plantilla.
+
+Lectura completa posterior a las 17:51 UTC: MAIN conserva **381 archivos**, exactamente **dos** modificados y **379 sin cambios**. Las fichas públicas NIDA y SEOUL conservan su selector normalizado idéntico a las lecturas previas. Producto, variante, base29,99 EUR, imágenes, descuentos, formulario, checkout y Releasit sin alteraciones.
+
+Chrome real fuera de vista previa, **320/375/390/430/1440 px**: precios y duración correctos, fotografías con las dimensiones previas, sin desbordamiento ni etiquetas sobre precios; todos los tamaños resultan más compactos. Alturas productivas **438,67 / 437,34 / 437,34 / 485,33 / 666,09 px**, frente a492,11 /447,42 /447,42 /495,41 /738,93. Selección1→2→3→1→2 correcta, pack2 seleccionado al cargar y cero errores de consola. Se guardan capturas reales de móvil/escritorio; el viewport temporal queda restaurado.
+
+El carrito nativo productivo confirmó1/2/3unidades por **24,99/29,99/34,99 EUR**, descuentos5/29,99/54,98 y las cinco transiciones sin acumulación de promociones; cero pedidos, checkout sin enviar y carrito personal sin usar. Tras la corrección exclusiva de opacidad se repitieron solo las lecturas y pruebas visuales pertinentes, conservando el recibo funcional ya verificado. No se presenta como una compra completada.
+
+Recibos saneados `deployment-result.json`, `postflight-receipt.json` y `final-receipt.json`. Copia completa y originales exactos privados fuera de Git. Reversión preparada y comprobada en modo lectura, sin ejecutar.

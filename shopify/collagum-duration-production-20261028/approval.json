@@ -6,7 +6,7 @@
     "templates/product.collagum.json"
   ],
   "candidateMd5": {
-    "snippets/quantity-breaks.liquid": "27782a0be7b545d3f145df12ca2de81a",
+    "snippets/quantity-breaks.liquid": "407d927dc648ea2c95974a56fa24d4cb",
     "templates/product.collagum.json": "d56285cd9a90c58a6cf69e2671b5fd04"
   },
   "beforeNativeMd5": {

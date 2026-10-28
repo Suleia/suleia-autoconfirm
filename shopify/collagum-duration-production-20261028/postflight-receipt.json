@@ -1,0 +1,109 @@
+{
+  "at": "2026-10-28T17:51:30.620595+00:00",
+  "status": "PUBLIC_MAIN_CART_AND_REGRESSIONS_VERIFIED",
+  "main": 198240600396,
+  "publicSelector": {
+    "threeDurationBlocks": true,
+    "oneQualifiedNote": true,
+    "approvedImagesUnchanged": true,
+    "recommendedNotUnprovenBestseller": true,
+    "headerAndSubtitle": true
+  },
+  "changedFiles": [
+    "snippets/quantity-breaks.liquid",
+    "templates/product.collagum.json"
+  ],
+  "unchangedOtherFiles": 379,
+  "finalFileCount": 381,
+  "regressions": [
+    {
+      "handle": "crema-nida",
+      "mainTheme": 198240600396,
+      "selectorIdentical": true,
+      "selectorSha256": "3e42a02c701888c3e7b256b846cc767afbba80a4981078e0f9603c7dd18f3c0d"
+    },
+    {
+      "handle": "crema-seoul-1988",
+      "mainTheme": 198240600396,
+      "selectorIdentical": true,
+      "selectorSha256": "df77eeba3b5b372887e2ecb1abb886452a302bba5043fa6c872d66776a35c85f"
+    }
+  ],
+  "cart": {
+    "cases": [
+      {
+        "quantity": 1,
+        "originalCents": 2999,
+        "discountCents": 500,
+        "totalCents": 2499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "originalCents": 5998,
+        "discountCents": 2999,
+        "totalCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 3,
+        "originalCents": 8997,
+        "discountCents": 5498,
+        "totalCents": 3499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      }
+    ],
+    "quantityChanges": [
+      {
+        "quantity": 1,
+        "originalCents": 2999,
+        "discountCents": 500,
+        "totalCents": 2499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "originalCents": 5998,
+        "discountCents": 2999,
+        "totalCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 3,
+        "originalCents": 8997,
+        "discountCents": 5498,
+        "totalCents": 3499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 2,
+        "originalCents": 5998,
+        "discountCents": 2999,
+        "totalCents": 2999,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      },
+      {
+        "quantity": 1,
+        "originalCents": 2999,
+        "discountCents": 500,
+        "totalCents": 2499,
+        "lineAllocations": 1,
+        "cartAllocations": 0
+      }
+    ],
+    "testCartEmpty": true,
+    "ordersCreated": 0,
+    "operatorCartUsed": false,
+    "checkoutSubmitted": false
+  },
+  "cartReceiptReusedAfterOpacityOnlyChange": true,
+  "globalCartCheckoutAndReleasitFilesUnchanged": true,
+  "completedPurchaseTested": false
+}
