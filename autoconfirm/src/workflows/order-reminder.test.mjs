@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import {approvedReminder,evaluateReminder,reminderKey,purchaseAnchor,reminderParameters,reminderHash,REMINDER_COMPONENT_HASH,confirmationOrderField} from './order-reminder-policy.mjs';
+import {approvedReminder,evaluateReminder,initialProof,reminderKey,purchaseAnchor,reminderParameters,reminderHash,REMINDER_COMPONENT_HASH,confirmationOrderField} from './order-reminder-policy.mjs';
 import {createOrderReminderService,renderedReminder,verifyReminderReadback} from './order-reminder-service.mjs';
 
 const template=JSON.parse(fs.readFileSync(new URL('./order-reminder-template.fixture.json',import.meta.url)));
@@ -29,6 +29,30 @@ test('confirmed_at blocks even when top-level state is stale pending',()=>{const
 test('active incident, address and import workflows block separately',()=>{for(const flag of ['incidentActive','addressPending','importRecovery']){const c=context();c.workflow[flag]=true;assert.equal(decide(c).state,flag==='incidentActive'?'INCIDENT_ACTIVE':'OTHER_WORKFLOW_ACTIVE');}});
 test('unknown workflow coverage blocks sending',()=>{const c=context();c.workflow.verified=false;assert.equal(decide(c).state,'WORKFLOW_NOT_VERIFIABLE');});
 test('missing initial provider proof, wrong order, wrong mid or pre-purchase initial block',()=>{for(const mutate of [c=>c.initialLedger=null,c=>c.initialLedger.order_id='102',c=>c.initialLedger.raw.provider_message_id='wamid.other',c=>c.initialLedger.sent_at='2026-10-25T09:01:00Z']){const c=context();mutate(c);assert.equal(decide(c).state,'INITIAL_TEMPLATE_NOT_VERIFIED');}});
+
+test('API agent initial receipt qualifies only with the exact verified initial message',()=>{
+ const c=context();c.messages[0].type='agent';c.initialLedger.status='sent';
+ assert.ok(initialProof(c));assert.equal(decide(c).state,'ELIGIBLE');
+});
+test('agent initial retains WAMID, template, timestamp, order, conversation and uniqueness gates',()=>{
+ for(const mutate of [
+  c=>c.initialLedger.raw.provider_message_id='wamid.other',
+  c=>{c.initialLedger.raw.provider_message_id='non-provider-id';c.messages[0].mid='non-provider-id';},
+  c=>c.messages[0].payload.name='dropea_pedido_preparado_v1',
+  c=>c.initialLedger.sent_at='2026-10-25T10:01:01Z',
+  c=>c.initialLedger.order_id='102',
+  c=>c.initialLedger.status='failed',
+  c=>c.messages[0].user_ns='other-thread',
+  c=>c.initialLedger.chatby_user_ns='other-thread',
+  c=>c.messages.push(structuredClone(c.messages[0]))
+ ]){const c=context();c.messages[0].type='agent';mutate(c);assert.equal(initialProof(c),null);assert.equal(decide(c).state,'INITIAL_TEMPLATE_NOT_VERIFIED');}
+});
+test('inbound, note, system and unknown directions cannot prove initial delivery',()=>{
+ for(const direction of ['in','note','system','unknown',undefined]){const c=context();c.messages[0].type=direction;assert.equal(initialProof(c),null);}
+});
+test('any later customer input still blocks a verified agent initial',()=>{
+ for(const payload of [{text:'hola'},{type:'audio'},{type:'postback',payload:'uninterpretable'}]){const c=context();c.messages[0].type='agent';c.messages.push({mid:'in-after-agent',user_ns:'fixture-thread',type:'in',ts:at/1000,payload});assert.equal(decide(c).state,'CUSTOMER_RESPONDED');}
+});
 test('same phone with another order is not an exact conversation match',()=>{const c=context();c.subscriber.user_fields[0].value='102';assert.equal(decide(c).state,'CHATBY_NOT_VERIFIABLE');});
 test('conflicting order fields or different recipient block',()=>{const c=context();c.subscriber.user_fields.push({name:'ID Pedido',value:'102'});assert.equal(confirmationOrderField(c.subscriber),null);assert.equal(decide(c).state,'CHATBY_NOT_VERIFIABLE');const d=context();d.subscriber.phone='+34600000001';assert.equal(decide(d).state,'CHATBY_NOT_VERIFIABLE');});
 test('incomplete history is not absence of inbound input',()=>{const c=context();c.historyComplete=false;assert.equal(decide(c).state,'CHATBY_NOT_VERIFIABLE');});
@@ -49,6 +73,15 @@ function fixture(overrides={}){
 }
 test('SHADOW and replay send zero messages and replay writes no ledger or status',async()=>{const f=fixture();const r=await f.service.scan({replay:true});assert.equal(r.results[0].state,'ELIGIBLE');assert.equal(r.replayCounts.wouldReceive,1);assert.equal(f.counts().sends,0);assert.equal(f.counts().saves,0);assert.equal(f.rows.size,0);await f.service.scan({natural:true});assert.equal(f.counts().sends,0);assert.equal(f.summary().naturalCycles.length,1);});
 test('one naturally eligible canary is verified and never sent twice',async()=>{const f=fixture({canaryEnabled:true});const r=await f.service.scan({natural:true});assert.equal(r.results[0].state,'VERIFIED');assert.equal(f.summary().canary.state,'VERIFIED');await f.service.scan({natural:true});assert.equal(f.counts().sends,1);assert.equal(f.summary().counts.reminder_verified,1);assert.equal(f.rows.size,1);});
+
+test('agent initial uses the same single reminder claim and preserves the initial receipt',async()=>{
+ const f=fixture({canaryEnabled:true});f.c.messages[0].type='agent';f.c.initialLedger.status='sent';
+ const initial=structuredClone(f.c.initialLedger),order=structuredClone(f.c.order);
+ const first=await f.service.scan({natural:true});assert.equal(first.results[0].state,'VERIFIED');
+ await f.service.scan({natural:true});assert.equal(f.counts().sends,1);assert.equal(f.rows.size,1);
+ assert.deepEqual(f.c.initialLedger,initial);assert.deepEqual(f.c.order,order);
+ assert.ok([...f.rows.keys()].every(k=>k.startsWith('ORDER_REMINDER:')));
+});
 test('LIVE flag without a canary cannot dispatch',async()=>{const f=fixture({realSends:true});const r=await f.service.scan();assert.equal(r.mode,'SHADOW');assert.equal(r.liveBlockedReason,'REMINDER_CANARY_NOT_VERIFIED');assert.equal(f.counts().sends,0);});
 test('exclusive sender attestation is mandatory for a real canary',async()=>{const f=fixture({canaryEnabled:true,nativeSendersDisabled:false});await f.service.scan();assert.equal(f.counts().sends,0);});
 test('late customer input after claiming prevents send',async()=>{const f=fixture({canaryEnabled:true});const read=f.ports.readContext;let n=0;f.ports.readContext=async()=>{if(++n===2)f.c.messages.push({mid:'late',type:'in',ts:at/1000,user_ns:'fixture-thread',payload:{text:'hola'}});return read();};const r=await f.service.scan();assert.equal(r.results[0].state,'CUSTOMER_RESPONDED');assert.equal(f.counts().sends,0);assert.equal([...f.rows.values()][0].status,'PRE_SEND_BLOCKED');});

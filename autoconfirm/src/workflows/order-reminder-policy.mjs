@@ -53,7 +53,9 @@ export function initialProof({order,subscriber,messages,initialLedger}){
  const mid=ledger.raw.provider_message_id,rows=messages.filter(m=>m.mid===mid);
  if(rows.length!==1)return null;
  const row=rows[0],sent=messageAt(row),ledgerSent=instant(ledger.sent_at);
- if(row.type!=='out'||!String(mid).startsWith('wamid.')||providerTemplate(row)!==INITIAL_TEMPLATE||sent===null||ledgerSent!==sent||created===null||sent<created
+ // Chatby labels native sends as out and approved API/manual sends as agent.
+ // Both still require the same exact accepted WAMID, template, clock and binding.
+ if(!['out','agent'].includes(row.type)||!String(mid).startsWith('wamid.')||providerTemplate(row)!==INITIAL_TEMPLATE||sent===null||ledgerSent!==sent||created===null||sent<created
   ||String(row.user_ns)!==String(subscriber.user_ns)||String(ledger.chatby_user_ns)!==String(subscriber.user_ns))return null;
  return {messageId:mid,sentAt:new Date(sent).toISOString(),sentMs:sent};
 }
