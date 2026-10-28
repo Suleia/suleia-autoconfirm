@@ -51,8 +51,33 @@ candidate was already cancelled upstream and had customer input, so remains
 blocked. The worker had already verified four other reminders on 28 October;
 this was a compatibility gap, not an inactive global sender.
 
-Deployment/readback evidence is recorded separately after verification. Use a
-guarded code-only deployment against the actual base, preserve every existing
-ledger and keep all non-revision environment values identical. Roll back only
-the application revision and its four unchanged-source safety revision gates;
-never restore historical order, message or timer data.
+## Production verification
+
+The owner explicitly approved PR #171 / runtime `7658c56`. The guarded code-only
+deployment `dep-dbh14i942hec73e709vg` is live and healthy. All non-revision Render
+environment values match the captured baseline; only the four unchanged-source
+address safety gates follow the tested revision. Sender/owners and the existing
+one-hour confirmation / 48-hour cancellation policies are preserved.
+
+The existing natural scanner sent **one** `es_ES dropea_pedido_reminder_v1` to
+ES1488064 on **28 October 2026 at 15:21:42 UTC / 16:21:42 Europe/Madrid**. The
+independent provider-history read verifies the accepted WAMID, exact recipient/
+conversation, full rendered body and current order parameters. The initial proof
+remains valid; its original ledger and all order business-data hashes are intact.
+
+Three consecutive natural cycles on the actual new runtime completed at
+15:22:10.524, 15:25:11.409 and 15:29:49.641 UTC, with respectively **1 / 0 / 0**
+message writes and zero unknown sends. The terminal reminder key removes the order
+before later batching. A second independent history read at 15:30:55 UTC still
+finds exactly one reminder. No manual reminder sender or forced scan was used.
+
+All **23** Chatby template catalogue entries retain the same semantic hash; no
+template/flow/contact fields were edited. The other current candidate remains
+cancelled and correctly held. The worker reports five verified reminders that
+day, including four that had already been sent before this repair.
+
+See [deployment receipt](ORDER_REMINDER_AGENT_INITIAL_DEPLOYMENT.json). Runtime
+remains `7658c56`; later documentation-only commits are not a new deployment.
+Guarded rollback restores only the application predecessor `8296774` and its four
+safety revision gates, refusing a superseding release/configuration. Never restore
+historical order, message, claim, financial or timer data.
