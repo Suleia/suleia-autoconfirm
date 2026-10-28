@@ -1,0 +1,128 @@
+[
+  {
+    "width": 320,
+    "pack": 1,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 320,
+    "pack": 2,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 320,
+    "pack": 3,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 375,
+    "pack": 1,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 375,
+    "pack": 2,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 375,
+    "pack": 3,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 390,
+    "pack": 1,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 390,
+    "pack": 2,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 390,
+    "pack": 3,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 430,
+    "pack": 1,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 430,
+    "pack": 2,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 430,
+    "pack": 3,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 768,
+    "pack": 1,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 768,
+    "pack": 2,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 768,
+    "pack": 3,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 1024,
+    "pack": 1,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 1024,
+    "pack": 2,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 1024,
+    "pack": 3,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 1440,
+    "pack": 1,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 1440,
+    "pack": 2,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  },
+  {
+    "width": 1440,
+    "pack": 3,
+    "completeProductVisible": true,
+    "objectFit": "contain"
+  }
+]
