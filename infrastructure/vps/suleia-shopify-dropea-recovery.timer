@@ -1,8 +1,8 @@
 [Unit]
-Description=Reconcile missing Shopify orders in Dropea every hour
+Description=Reconcile missing Shopify orders in Dropea every 30 minutes
 
 [Timer]
-OnCalendar=*-*-* *:05:00 UTC
+OnCalendar=*-*-* *:05,35:00 UTC
 Persistent=true
 AccuracySec=15s
 Unit=suleia-shopify-dropea-recovery.service
