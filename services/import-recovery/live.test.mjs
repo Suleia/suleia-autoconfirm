@@ -31,7 +31,7 @@ test('portal evidence requires unique exact number, street, city, province, coun
  assert.equal(portalQuery({...address,street:'Calle Ejemplo'}),null);
 });
 test('official resolver never sends contacts/order ids/flat; verifies selected portal again, not first fuzzy result',async()=>{
- const calls=[],r=cartociudadResolver({request:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>calls.length===1?[result({address:'CALLE DIFERENTE 10, Madrid'}),result()]:result()};}});
+ const calls=[],r=cartociudadResolver({request:async(url,options)=>{calls.push({url,options});return {ok:true,json:async()=>calls.length===1?[result({address:'CALLE DIFERENTE 10, Madrid'}),result()]:result({address:'EJEMPLO'})};}});
  const verified=await r.findCandidates({...address,phone:'PRIVATE_PHONE',name:'PRIVATE_NAME',orderId:123});
  assert.equal(verified.confidence,1);assert.equal(verified.candidates[0].postalCode,'28001');assert.equal(verified.verified,true);
  const sent=decodeURIComponent(calls.map(c=>c.url).join(' '));for(const secret of ['PRIVATE_PHONE','PRIVATE_NAME','Piso privado','orderId'])assert.ok(!sent.includes(secret));

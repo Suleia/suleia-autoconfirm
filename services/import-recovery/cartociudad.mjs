@@ -8,7 +8,11 @@ const returnedRoad=r=>{
   if(!/^[a-z]?$/i.test(r.extension||''))return '';
   const address=String(r.address||'').split(',')[0].trim();
   const suffix=new RegExp('\\s+'+String(r.portalNumber).replace(/[^0-9]/g,'')+(r.extension||'')+'$','i');
-  return road(address.replace(suffix,''));
+  // candidates returns "CALLE NAME 5, City"; find returns only "NAME".
+  // Both carry the road type and portal separately. Normalize only this
+  // documented structural difference; never use fuzzy road matching.
+  const value=road(address.replace(suffix,'')),type=road(r.tip_via);
+  return value.startsWith(type+' ')?value:road(type+' '+value);
 };
 
 export function portalQuery(a){
