@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createIncidentAutomationRetry, discountSchedulerOwnsIncidentSync, incidentChatbyReadBlockCount } from './incident-automation-retry.mjs';
+import { createIncidentAutomationRetry, discountSchedulerOwnsIncidentSync, incidentChatbyReadBlockCount, runIncidentSyncWithRecovery } from './incident-automation-retry.mjs';
 
 test('one enabled discount scheduler owns the complete incident sync; standalone sync remains otherwise', () => {
   assert.equal(discountSchedulerOwnsIncidentSync(true, 15), true);
@@ -79,4 +79,30 @@ test('a last-moment return read failure is retried but other incident lanes neve
     {incidentType:'rejected_goods',incidentDiscountReturnStatus:'BLOCKED_CHATBY_READ_FAILED'},
     {incidentType:'absent',incidentDiscountReturnStatus:'BLOCKED_CHATBY_READ_FAILED'}
   ]),1);
+});
+
+test('the cron and scheduled entry points resume a verified completed batch after provider cooldown',async()=>{
+ const f=fixture(),result={ok:true,...blocked};let reads=0;
+ assert.equal(await runIncidentSyncWithRecovery(async()=>{reads++;return result;},f.retry),result);
+ assert.equal(reads,1);assert.equal(f.timers.length,1);assert.equal(f.calls(),0);
+ f.timers[0].callback();assert.equal(f.calls(),1);
+});
+test('uncertain thrown requests and unverified result payloads cannot schedule recovery',async()=>{
+ const f=fixture();
+ await assert.rejects(runIncidentSyncWithRecovery(async()=>{throw Error('transport');},f.retry),/transport/);
+ await runIncidentSyncWithRecovery(async()=>({...blocked,ok:false}),f.retry);
+ assert.equal(f.timers.length,0);
+});
+test('active provider cooldown also recovers absent/address reads without another periodic owner',()=>{
+ const f=fixture();
+ f.retry.consider({customerActivitySummary:{checked:3,verified:0}});
+ assert.equal(f.timers.length,1);assert.equal(f.timers[0].delay,196000);
+ f.timers[0].callback();assert.equal(f.calls(),1);
+ f.retry.consider({customerActivitySummary:{checked:3,verified:3}});
+ assert.equal(f.retry.status().retryScheduled,false);
+});
+test('ambiguous evidence alone is not provider throttling and does not schedule another review',()=>{
+ const f=fixture();f.cooldown(0);
+ f.retry.consider({customerActivitySummary:{checked:3,verified:0}});
+ assert.equal(f.timers.length,0);
 });

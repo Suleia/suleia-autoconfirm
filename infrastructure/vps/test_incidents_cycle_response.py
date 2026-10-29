@@ -33,6 +33,16 @@ class Receipts(unittest.TestCase):
         for body in ['broken', 'null', '[]', '{"ok":false}', '{"ok":true,"result":{}}']:
             self.assertFalse(validator.receipt(body, '200', 0, NOW, NOW)['ok'])
 
+    def test_http_success_does_not_claim_failed_customer_reads_are_verified(self):
+        payload = {'ok': True, 'result': {'updatedAt': NOW, 'count': 2, 'incidents': [],
+                   'customerActivitySummary': {'checked': 2, 'verified': 0},
+                   'discountRecoverySummary': {'blockedChatbyRead': 2}}}
+        result = validator.receipt(json.dumps(payload), '200', 0, NOW, NOW)
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['customerReadCoverage'], 'BLOCKED')
+        self.assertEqual(result['actionOutcome'], 'REVIEW_COMPLETED_WITH_READ_BLOCKS')
+        self.assertFalse(result['retryAutomatically'])
+
     def test_failure_preserves_last_success_and_durable_failure_receipt(self):
         with tempfile.TemporaryDirectory() as directory:
             success = {'ok': True, 'count': 2}

@@ -58,6 +58,15 @@ def receipt(body, http_status, curl_exit, started_at, completed_at):
                   offersSent=nested('discountRecoverySummary', 'sent'),
                   returnsVerified=nested('discountReturnSummary', 'requestedVerified'),
                   resolutionFailures=nested('incidentResolutionSummary', 'failures'))
+    checked = activity.get('checked') if activity else None
+    verified = activity.get('verified') if activity else None
+    coverage = 'UNKNOWN'
+    if checked is not None and verified is not None:
+        coverage = 'VERIFIED' if checked == verified else ('BLOCKED' if verified == 0 else 'PARTIAL')
+    result['customerReadCoverage'] = coverage
+    result['blockedChatbyReads'] = nested('discountRecoverySummary', 'blockedChatbyRead')
+    if coverage in ('BLOCKED', 'PARTIAL'):
+        result['actionOutcome'] = 'REVIEW_COMPLETED_WITH_READ_BLOCKS'
     return result
 
 

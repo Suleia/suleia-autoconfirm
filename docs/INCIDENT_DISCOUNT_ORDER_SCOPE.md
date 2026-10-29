@@ -59,3 +59,14 @@ Rollback restores the previous launcher from its private backup. Do not restore
 historical customer state or remove claims. Validator fixture tests cover valid,
 invalid, partial, transport and HTTP outcomes and preservation of the last
 acknowledged completion without personal data.
+
+An acknowledged HTTP200 batch can still have incomplete customer reads. The
+receipt reports verified/partial/blocked/unknown read coverage separately from
+transport completion. The authenticated VPS entry point now invokes the same
+existing result-driven cooldown recovery as the scheduled wrapper. It reuses
+the existing queue, singleton timer, provider cooldown/backoff and durable
+claims; it adds no periodic owner. Provider-throttled absent/address reads are
+also recoverable. Unknown HTTP outcomes, thrown requests and non-success
+payloads do not authorize recovery from this entry point. Customer settling,
+offer delays and current-state rereads remain mandatory on every resumed batch.
+`/health.incidentReadRecovery` exposes only its pending state/time.
