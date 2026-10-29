@@ -62,6 +62,13 @@ test('fails closed when the incident order cannot be correlated to Shopify', () 
   }), null);
 });
 
+test('an explicit reference cannot fall back to a different nearby order or choose duplicate identities',()=>{
+ const d={createdAt:'2026-08-18T10:00:00Z',raw:{external_order_id:'#2007'}};
+ const s={id:'shop-1',name:'#2007',createdAt:'2026-08-18T10:01:00Z'};
+ assert.equal(selectShopifyOrderForDropeaOrder({dropeaOrder:d,shopifyOrders:[{...s,name:'#2008'}]}),null);
+ assert.equal(selectShopifyOrderForDropeaOrder({dropeaOrder:d,shopifyOrders:[s,{...s,id:'shop-2'}]}),null);
+});
+
 test('allows only a recent Shopify order in the explicitly isolated test lane', () => {
   const selected = selectRecentShopifyOnlyTestOrder([
     { id: 'shop-old', createdAt: '2026-07-20T18:00:00.000Z' },

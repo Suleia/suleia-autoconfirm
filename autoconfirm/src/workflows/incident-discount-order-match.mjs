@@ -58,6 +58,8 @@ export function selectShopifyOrderForDropeaOrder({
       || right.createdAtMs - left.createdAtMs
     ));
   const selected = candidates[0];
+  if (external.size && (!selected?.exactReference || candidates.filter(entry => entry.exactReference).length !== 1)) return null;
+  if (!external.size && candidates[1]?.differenceMs === selected?.differenceMs) return null;
   if (!selected || (!selected.exactReference && selected.differenceMs > maxDifferenceMs)) return null;
   return selected;
 }

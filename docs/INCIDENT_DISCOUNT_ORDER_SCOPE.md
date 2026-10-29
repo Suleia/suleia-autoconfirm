@@ -18,6 +18,15 @@ is an explicit conflict, never removed or silently reset. All existing claim,
 return and cross-source guards remain in effect. No template, flow, owner,
 schedule, budget, order-confirmation or Shopify-import change is included.
 
+The production incident lane reads a numeric Shopify source reference directly,
+with a two-result bound and exact local name/phone checks. Older incidents no
+longer fall outside the newest-250-order window. Explicit reference mismatches
+cannot fall back to a nearby purchase; duplicate source identities block. Only
+the reference-free compatibility path retains the old bounded lookup. An active,
+uncancelled EUR source with the same total is required, and the fresh Dropea
+pre-send read must retain the same reference and amount. No order is edited to
+make this comparison pass.
+
 Regression includes older offer/acceptance followed by a new order, old initial
 notification, same-order later incidence, unknown/future timestamps, conflicting
 ledger, missing current-order creation and complete sender final reads. The
@@ -29,3 +38,24 @@ Preserve all environment variables and shared durable claims. Verify the deploye
 revision, operational health, completed natural half-hour cycle and fresh provider
 outcomes before reporting any real customer action. Rollback changes code only;
 it never restores a historical ledger or replays an uncertain send.
+
+## VPS cron response diagnostics
+
+`run-incidents-cycle.sh` retains the same lock, endpoint, timeout and single POST.
+Install `validate-incidents-cycle-response.py` at
+`/usr/local/lib/suleia/validate-incidents-cycle-response.py` before atomically
+replacing the launcher. The existing timer/service/environment are unchanged.
+
+The validator writes sanitized, private `last-run.json` and `last-failure.json`
+receipts alongside the existing `last-cycle.json`. Failed communication preserves
+the last acknowledged completion and records HTTP/curl status with outcome
+`UNKNOWN`, never a claim that no customer actions ran. No response bodies,
+messages, contacts or provider diagnostics are retained. Reconcile the backend
+cache/ledgers read-only after an uncertain response; never retry that POST merely
+because systemd reports failure. A subsequent natural scheduled cycle retains
+the established persistent claims.
+
+Rollback restores the previous launcher from its private backup. Do not restore
+historical customer state or remove claims. Validator fixture tests cover valid,
+invalid, partial, transport and HTTP outcomes and preservation of the last
+acknowledged completion without personal data.
