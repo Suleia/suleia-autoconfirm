@@ -1,0 +1,38 @@
+[Unit]
+Description=Recover exact failed Shopify shipping addresses only
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=suleiaops
+Group=suleiaops
+EnvironmentFile=/etc/suleia/shopify-dropea-recovery.env
+EnvironmentFile=/etc/suleia/address-import-recovery-shadow.env
+Environment=ADDRESS_IMPORT_RECOVERY_ENABLED=true
+Environment=ADDRESS_RECOVERY_SHOPIFY_WRITE=true
+Environment=ADDRESS_RECOVERY_CHATBY_SEND=false
+Environment=ADDRESS_RECOVERY_DROPEA_IMPORT=false
+Environment=ADDRESS_RECOVERY_STATE_DIR=/var/lib/suleia-address-import-recovery
+Environment=ADDRESS_RECOVERY_AUDIT_DIR=/var/lib/suleia-shopify-dropea
+Environment=ADDRESS_RECOVERY_PROJECTION_DIR=/var/lib/suleia-address-import-recovery-panel
+ExecStart=/opt/suleia-node/node-v22.22.0-linux-x64/bin/node /opt/suleia-address-import-recovery/current/services/import-recovery/live.mjs
+TimeoutStartSec=8min
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/suleia-address-import-recovery /var/lib/suleia-address-import-recovery-panel
+ReadOnlyPaths=/var/lib/suleia-shopify-dropea
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=20%
+MemoryMax=256M
+TasksMax=64
+

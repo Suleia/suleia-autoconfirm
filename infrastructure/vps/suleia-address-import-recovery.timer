@@ -1,0 +1,11 @@
+[Unit]
+Description=Review persisted Shopify address import failures every thirty minutes
+
+[Timer]
+OnCalendar=*-*-* *:10,40:00 UTC
+Persistent=true
+AccuracySec=15s
+Unit=suleia-address-import-recovery.service
+
+[Install]
+WantedBy=timers.target
