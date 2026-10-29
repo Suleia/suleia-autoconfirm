@@ -146,7 +146,26 @@ test('staged flags cannot inherit global enabled writers or skip rollout phases'
  for(const e of [{ADDRESS_RECOVERY_CHATBY_SEND:'true'},{ADDRESS_IMPORT_RECOVERY_ENABLED:'true',ADDRESS_RECOVERY_DROPEA_IMPORT:'true'},{ADDRESS_IMPORT_RECOVERY_ENABLED:'yes'}])assert.throws(()=>flags(e));
 });
 test('Shopify transport sends exactly shippingAddress to exact order, once, no global customer/profile/tag changes',async()=>{
- const requests=[],client=recoveryShopify({shop:'fixture.myshopify.com',requestOnce:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>({data:{orderUpdate:{order:{id:'gid://shopify/Order/123'},userErrors:[]}}})};}});
- await client.updateShippingAddress('123','fixture.myshopify.com',lookup(addressOf(order())).candidates[0]);const body=JSON.parse(requests[0].options.body);
- assert.deepEqual(Object.keys(body.variables.input).sort(),['id','shippingAddress']);assert.equal(body.query,SHIPPING_MUTATION);assert.equal(requests.length,1);await assert.rejects(client.updateShippingAddress('123','another.myshopify.com',{}));
+ const requests=[],client=recoveryShopify({shop:'fixture.myshopify.com',requestOnce:async(url,options)=>{requests.push({url,options});return {ok:true,json:async()=>options.method==='GET'?{order:order()}:{data:{orderUpdate:{order:{id:'gid://shopify/Order/123'},userErrors:[]}}}};}});
+ await client.readOrder('123','fixture.myshopify.com');await client.updateShippingAddress('123','fixture.myshopify.com',lookup(addressOf(order())).candidates[0]);const body=JSON.parse(requests.find(r=>r.options.method==='POST').options.body);
+ assert.deepEqual(Object.keys(body.variables.input).sort(),['id','shippingAddress']);assert.equal(body.query,SHIPPING_MUTATION);assert.equal(requests.filter(r=>r.options.method==='POST').length,1);assert.equal(body.variables.input.shippingAddress.phone,'test-contact');assert.equal(body.variables.input.shippingAddress.firstName,'Fixture');await assert.rejects(client.updateShippingAddress('123','another.myshopify.com',{}));
+});
+
+test('source-only rollout reconciles the unchanged importer with full postconditions, without another POST',async t=>{
+ const f=fixture(t,{config:flags({ADDRESS_IMPORT_RECOVERY_ENABLED:'true',ADDRESS_RECOVERY_SHOPIFY_WRITE:'true'})});
+ const id=f.start();await f.a.process(id);assert.equal(f.s.get(id).shopifyCorrectionStatus,'VERIFIED');
+ f.setExisting([{id:9,storeId:10,externalReference:'#123',sourcePostconditionsVerified:true}]);
+ await f.a.process(id);assert.equal(f.s.get(id).state,'IMPORT_VERIFIED');assert.equal(f.calls.post+f.calls.send,0);
+});
+
+test('coverage can only correct a uniquely independently verified different full-address postcode',async t=>{
+ const f=fixture(t,{config:{...flags({ADDRESS_IMPORT_RECOVERY_ENABLED:'true',ADDRESS_RECOVERY_SHOPIFY_WRITE:'true'}),validateCoverage:true}});
+ const id=f.a.ingest(event({source:'dropea-public-v2',failureType:'ValidationFailure',code:'POSTAL_CODE_NOT_COVERED'})).id;
+ await f.a.process(id);assert.equal(f.calls.patch,1);assert.equal(f.calls.post+f.calls.send,0);
+});
+
+test('valid postcode lacking coverage stays manual; never changes street, number or carrier',async t=>{
+ const f=fixture(t,{config:{...flags({ADDRESS_IMPORT_RECOVERY_ENABLED:'true',ADDRESS_RECOVERY_SHOPIFY_WRITE:'true'}),validateCoverage:true},address:{findCandidates:async a=>({candidates:[a],confidence:1,verified:true,evidenceId:'same-address',query:a})}});
+ const id=f.a.ingest(event({source:'dropea-public-v2',failureType:'ValidationFailure',code:'POSTAL_CODE_NOT_COVERED'})).id;
+ await f.a.process(id);assert.equal(f.s.get(id).lastError,'CARRIER_COVERAGE_REVIEW');assert.equal(f.calls.patch+f.calls.send+f.calls.post,0);
 });

@@ -29,9 +29,13 @@ export class AddressRecoveryAgent {
       c.dropeaOrderId=String(rows[0].id);c.dropeaImportStatus='ALREADY_IMPORTED';
       // Do not invent that the existing order is healthy or change its incidents.
       c.private.existingAddressReview=rows[0].addressProblem===true?'PRESENT':rows[0].addressProblem===false?'ABSENT':'NOT_VERIFIABLE';
+      // A source-only recovery can be completed by the unchanged native/existing
+      // importer. Count recovery only after independent full postconditions.
+      const verified=c.shopifyCorrectionStatus==='VERIFIED'&&rows[0].sourcePostconditionsVerified===true;
+      if(verified)c.dropeaImportStatus='VERIFIED';
       c.resolvedAt=new Date(this.now()).toISOString();
       // step checks the persisted version, not the updated in-memory resolvedAt.
-      this.step(c,'ALREADY_IMPORTED','VERIFY_EXISTING_ADDRESS');return true;
+      this.step(c,verified?'IMPORT_VERIFIED':'ALREADY_IMPORTED',verified?'END':'VERIFY_EXISTING_ADDRESS');return true;
     }
     return false;
   }
@@ -54,8 +58,8 @@ export class AddressRecoveryAgent {
       if(this.store.effect(claimKey(c.shopifyOrderId)))return await this.reconcileImport(c);
       if(c.private.newFailurePending)return this.manual(c,'NEW_FAILURE_REQUIRES_RECLASSIFICATION');
       if(await this.existing(c))return {id,state:c.state};
-      if(c.category==='NO_CARRIER_FOR_ADDRESS')return this.manual(c,'CARRIER_COVERAGE_REVIEW');
-      if(c.nextAction==='MANUAL_REVIEW')return {id,state:c.state,blocked:c.lastError};
+      if(c.category==='NO_CARRIER_FOR_ADDRESS'&&!this.config.validateCoverage)return this.manual(c,'CARRIER_COVERAGE_REVIEW');
+      if(c.nextAction==='MANUAL_REVIEW'&&!(this.config.validateCoverage&&c.lastError==='CARRIER_COVERAGE_REVIEW'))return {id,state:c.state,blocked:c.lastError};
       const order=await this.source(c);
       if(!c.private.invariant){c.private.invariant=sourceInvariant(order);c.private.originalAddress=addressOf(order);c.private.originalContact=contact(order);this.step(c,'VALIDATING','VALIDATE_FAILED_ORDER');}
       if(c.shopifyCorrectionStatus==='VERIFIED'){
@@ -69,7 +73,9 @@ export class AddressRecoveryAgent {
       const confidence=candidateConfidence(result,addressOf(order));
       c.confidence=confidence.score;c.confidenceLevel=confidence.level;c.private.candidate=confidence.candidate;
       c.private.validationEvidence=result?.evidenceId||null;
+      c.private.validationReceipt=result?.receipt||null;
       this.store.save(c,{reason:'ADDRESS_CANDIDATE_CLASSIFIED'});
+      if(c.category==='NO_CARRIER_FOR_ADDRESS'&&(confidence.level!=='HIGH'||addressEquals(confidence.candidate,addressOf(order))))return this.manual(c,'CARRIER_COVERAGE_REVIEW');
       if(confidence.level!=='HIGH'||addressEquals(confidence.candidate,addressOf(order))||
          c.failureCode==='ADDRESS_LINES_TOO_LONG' && (confidence.candidate.street.length+(confidence.candidate.line2||'').length)>100)return await this.waitCustomer(c,order);
       return await this.correct(c,order,confidence.candidate,false);
@@ -120,7 +126,7 @@ export class AddressRecoveryAgent {
   }
   async waitCustomer(c){
     c.customerConfirmationStatus='REQUIRED';this.step(c,'WAITING_CUSTOMER','WAITING_CUSTOMER_ADDRESS');
-    if(!this.config.chatbySend)return c;
+    if(!this.config.chatbySend)return this.step(c,'WAITING_CUSTOMER','VERIFY_CURRENT_ORDER_CONTACT');
     if(await this.existing(c))return c;
     const conversation=await this.conversation(c),key=`CHATBY_ADDRESS_RECOVERY:${c.shopifyOrderId}:${TEMPLATE}`;
     if(this.store.effect(key))return this.manual(c,'TEMPLATE_DELIVERY_RECONCILIATION_REQUIRED');

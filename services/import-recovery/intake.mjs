@@ -1,4 +1,4 @@
-import {EVENT,normalizeId,digest} from './policy.mjs';
+import {EVENT,POLICY,normalizeId,digest} from './policy.mjs';
 
 // Consume the existing PRIVATE persisted recovery audit, not Shopify orders.
 // `blocked/ADDRESS_INCOMPLETE` before a POST is explicitly NOT an import failure.
@@ -37,3 +37,31 @@ export function markedFailureEligible(order,{hasActiveCase=false}={}){
   return marked && !order.dropea_id && !attrs.dropea_id && !order.import_recovery_resolved && !hasActiveCase;
 }
 export const FALLBACK_SEARCH='(tag:error_dropea OR tag:dropea_error)';
+
+// Native Dropea app notes, observed in Shopify. A tag, a planning block or a
+// loose text match never establishes a failure. Require the native note event
+// AND an exact, current-address-bound note signature. Preserve it encrypted.
+export function persistedNativeFailure(order,events,{shop,storeId,observedAt}){
+  if(!markedFailureEligible(order)||!Array.isArray(events))return null;
+  const a=order.shipping_address||{},note=String(order.note||'');
+  if(a.country_code!=='ES')return null;
+  let code=null;
+  const postal=note.match(/^dropea_error: Postal code ([^\r\n]{1,160}) has an invalid format for country ES$/);
+  const coverage=note.match(/^dropea_error: No carrier ships to postal code ([^\r\n]{1,160}) in ES$/);
+  if(postal&&postal[1]===a.zip&&!/^\d{5}$/.test(a.zip||''))code='POSTAL_CODE_INVALID';
+  if(coverage&&coverage[1]===a.zip)code='NO_CARRIER_FOR_ADDRESS';
+  if(note==='dropea_error: La ciudad de la direccion de envio es demasiado corta. Corrigela en el pedido de Shopify y vuelve a enviarlo a Dropea.'&&String(a.city||'').trim().length<2)code='CITY_INVALID';
+  if(!code)return null;
+  const notes=events.filter(e=>e.author==='dropea'&&e.verb==='note_created'&&e.id&&e.body===note&&
+    String(e.subject_id)===String(order.id)&&e.subject_type==='Order'&&
+    JSON.stringify(e.arguments)===JSON.stringify(['api_client_id',49082073089])&&
+    Number.isFinite(Date.parse(e.created_at))&&Date.parse(e.created_at)>=Date.parse(order.created_at)&&
+    Date.parse(e.created_at)<=Date.parse(observedAt));
+  if(!notes.length)return null;
+  const last=notes.sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0];
+  const evidenceId=digest([shop,String(order.id),last.id,note]);
+  return {type:EVENT,persisted:true,definitive:true,evidenceId,failureGeneration:evidenceId,
+    at:last.created_at,shopifyOrderId:normalizeId(order.id),externalReference:order.name,shop,storeId,
+    source:'governed-import-event-v1',mappingVersion:POLICY,code,httpStatus:400,
+    originalError:{source:'shopify-native-dropea-note-v1',note,eventId:last.id,observedAt}};
+}
