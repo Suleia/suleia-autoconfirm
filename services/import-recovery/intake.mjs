@@ -52,7 +52,9 @@ export function persistedNativeFailure(order,events,{shop,storeId,observedAt}){
   if(coverage&&coverage[1]===a.zip)code='NO_CARRIER_FOR_ADDRESS';
   if(note==='dropea_error: La ciudad de la direccion de envio es demasiado corta. Corrigela en el pedido de Shopify y vuelve a enviarlo a Dropea.'&&String(a.city||'').trim().length<2)code='CITY_INVALID';
   if(!code)return null;
-  const notes=events.filter(e=>e.author==='dropea'&&e.verb==='note_created'&&e.id&&
+  const notes=events.filter(e=>e.author==='dropea'&&e.verb==='note_created'&&e.id&&e.body===note&&
+    String(e.subject_id)===String(order.id)&&e.subject_type==='Order'&&
+    JSON.stringify(e.arguments)===JSON.stringify(['api_client_id',49082073089])&&
     Number.isFinite(Date.parse(e.created_at))&&Date.parse(e.created_at)>=Date.parse(order.created_at)&&
     Date.parse(e.created_at)<=Date.parse(observedAt));
   if(!notes.length)return null;

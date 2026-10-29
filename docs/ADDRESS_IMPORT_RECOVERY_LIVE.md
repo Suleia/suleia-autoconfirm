@@ -9,7 +9,8 @@ bounded server-filtered query for `error_dropea`/`dropea_error` orders only. It 
 independent of Codex and the owner's PC. The old observation path is disabled to
 keep a single recovery owner. No healthy orders are scanned or validated here.
 
-Native intake requires a Dropea-authored `note_created` event and an exact current
+Native intake requires a Dropea-app-authored `note_created` event for that exact
+order, its observed native app identity, and a body equal to the current
 address-bound error note. Only three observed signatures are mapped: malformed
 postal code, city too short and no carrier for the supplied postcode. A tag,
 missing provider reference or a normal import planning block is never sufficient.

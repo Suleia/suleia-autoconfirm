@@ -4,7 +4,7 @@ import {cartociudadResolver,portalQuery,verifiedPortal} from './cartociudad.mjs'
 import {nativeFailures,MARKED_QUERY} from './live.mjs';
 const at='2026-10-29T10:00:00Z';
 const source=()=>({id:123,name:'#123',created_at:'2026-10-29T08:00:00Z',tags:'dropea_error',note:'dropea_error: Postal code 999 has an invalid format for country ES',shipping_address:{zip:'999',country_code:'ES'}});
-const timeline=()=>[{id:1,author:'dropea',verb:'note_created',created_at:at}];
+const timeline=()=>[{id:1,author:'dropea',verb:'note_created',created_at:at,subject_id:123,subject_type:'Order',arguments:['api_client_id',49082073089],body:source().note}];
 const opts={shop:'fixture.myshopify.com',storeId:10,observedAt:at};
 const address={street:'Calle Ejemplo 10',houseNumber:'10',line2:'Piso privado',postalCode:'99999',city:'Madrid',province:'Madrid',country:'ES'};
 const result=(patch={})=>({id:'public-fixture',type:'portal',address:'CALLE EJEMPLO 10, Madrid',tip_via:'CALLE',portalNumber:10,extension:null,muni:'Madrid',province:'Madrid',postalCode:'28001',countryCode:'011',noNumber:false,...patch});
@@ -15,10 +15,12 @@ test('native intake needs current exact error note + native app timeline; tag al
  assert.equal(persistedNativeFailure(source(),[],opts),null);
  assert.equal(persistedNativeFailure(source(),[{...timeline()[0],author:'someone'}],opts),null);
  assert.equal(persistedNativeFailure(source(),[{...timeline()[0],created_at:'2026-10-20T08:00:00Z'}],opts),null);
+ for(const patch of [{body:'another error'},{subject_id:124},{arguments:['api_client_id',1]}])assert.equal(persistedNativeFailure(source(),[{...timeline()[0],...patch}],opts),null);
 });
 test('native signature changes generation; stale native note after correction is rejected',()=>{
  const o=source(),a=persistedNativeFailure(o,timeline(),opts);
- const b=persistedNativeFailure({...o,note:'dropea_error: No carrier ships to postal code 999 in ES'},timeline(),opts);
+ const note='dropea_error: No carrier ships to postal code 999 in ES';
+ const b=persistedNativeFailure({...o,note},[{...timeline()[0],body:note}],opts);
  assert.notEqual(a.failureGeneration,b.failureGeneration);assert.equal(b.code,'NO_CARRIER_FOR_ADDRESS');
  assert.equal(persistedNativeFailure({...o,shipping_address:{zip:'28001',country_code:'ES'}},timeline(),opts),null);
 });
