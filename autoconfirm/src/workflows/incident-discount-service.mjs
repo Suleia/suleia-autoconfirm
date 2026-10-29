@@ -13,6 +13,7 @@ import {
   sendWhatsappTemplate
 } from '../clients/chatby.mjs';
 import { listRecentShopifyOrders } from '../clients/shopify.mjs';
+import { findIncidentDiscountShopifyOrders, incidentDiscountSourceAmountsMatch } from './incident-discount-shopify-read.mjs';
 import { claimTemplateDelivery, finishTemplateDelivery, getTemplateDelivery } from '../db/supabase-store.mjs';
 import {
   INCIDENT_DISCOUNT_TEMPLATE_NAME,
@@ -23,6 +24,7 @@ import {
   extractWamid,
   findVerifiedTemplateDelivery,
   INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME,
+  scopeIncidentDiscountMessages,
   incidentDiscountPolicy
 } from './incident-discount-policy.mjs';
 import {
@@ -430,7 +432,7 @@ export async function processIncidentDiscountRecovery({
   const deps = {
     getMessages: dependencies.getMessages || getChatMessages,
     getTemplate: dependencies.getTemplate || findTemplate,
-    getShopifyOrders: dependencies.getShopifyOrders || findShopifyOrders,
+    getShopifyOrders: dependencies.getShopifyOrders || findIncidentDiscountShopifyOrders,
     claim: dependencies.claim || claimTemplateDelivery,
     finish: dependencies.finish || finishTemplateDelivery,
     getDelivery: dependencies.getDelivery || getTemplateDelivery,
@@ -443,7 +445,14 @@ export async function processIncidentDiscountRecovery({
   if (!incident?.chatbyUserNs) {
     return recoveryResult({ reason: 'missing_chatby_conversation' });
   }
-  if (incident.incidentType === 'absent') incident = { ...incident, absentDiscountOrderCreatedAt: order.createdAt || order.raw?.created_at };
+  const orderCreatedAt=order.createdAt||order.raw?.created_at;
+  if(!Number.isFinite(Date.parse(orderCreatedAt))||Date.parse(orderCreatedAt)>Number(now))return recoveryResult({reason:'current_order_creation_unverified'});
+  if(String(order.orderId||order.id)!==String(incident.orderId))return recoveryResult({reason:'current_order_identity_unverified'});
+  incident={...incident,incidentDiscountOrderCreatedAt:orderCreatedAt,
+    ...(incident.incidentType==='absent'?{absentDiscountOrderCreatedAt:orderCreatedAt}:{})};
+  messages=scopeIncidentDiscountMessages(messages,orderCreatedAt);
+  const readMessages=deps.getMessages;
+  deps.getMessages=async userNs=>scopeIncidentDiscountMessages(await readMessages(userNs),orderCreatedAt);
   const discountTemplateName = INCIDENT_DISCOUNT_TEMPLATE_NAME;
 
   let merchandisePersistentDelivery;
@@ -464,6 +473,10 @@ export async function processIncidentDiscountRecovery({
   } catch (error) {
     return recoveryResult({ reason: 'template_delivery_ledger_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
   }
+  // An exact-order ledger predating that order is contradictory evidence. Keep
+  // the claim and flag it; never erase it to manufacture permission to resend.
+  if([merchandisePersistentDelivery,discountPersistentDelivery].some(d=>['sent','already_seen'].includes(d?.status)&&
+      Number.isFinite(Date.parse(d.sent_at||d.sentAt))&&Date.parse(d.sent_at||d.sentAt)<Date.parse(orderCreatedAt)))return recoveryResult({reason:'delivery_ledger_predates_current_order',templateName:discountTemplateName});
   const verifiedBatchMessages = incident?.chatbyReadVerified === true
     && incident?.chatbyReadAt
     && Array.isArray(messages)
@@ -558,13 +571,16 @@ export async function processIncidentDiscountRecovery({
 
   let shopifyOrders;
   try {
-    shopifyOrders = await deps.getShopifyOrders(incident.phone || order.customerPhone || '');
+    shopifyOrders = await deps.getShopifyOrders(incident.phone || order.customerPhone || '', order);
   } catch (error) {
     return recoveryResult({ reason: 'shopify_order_read_failed', templateName: template.name, error: error instanceof Error ? error.message : String(error) });
   }
   const exactPair = selectShopifyOrderForDropeaOrder({ dropeaOrder: order, shopifyOrders });
   if (!exactPair) {
     return recoveryResult({ reason: 'cross_source_order_mismatch', templateName: template.name });
+  }
+  if (!incidentDiscountSourceAmountsMatch(order, exactPair.order)) {
+    return recoveryResult({ reason: 'cross_source_amount_or_status_mismatch', templateName: template.name });
   }
 
   let templateData;
@@ -613,6 +629,10 @@ export async function processIncidentDiscountRecovery({
   }
 
   if (incident.incidentType === 'absent' && !verifiedSecondAbsence(currentIssue)) return recoveryResult({ ...preview, reason: 'second_absence_not_verified' });
+  const currentPair = selectShopifyOrderForDropeaOrder({ dropeaOrder: currentOrder, shopifyOrders });
+  if (currentPair?.order?.id !== exactPair.order.id || !incidentDiscountSourceAmountsMatch(currentOrder, exactPair.order)) {
+    return recoveryResult({ ...preview, reason: 'cross_source_pre_send_state_changed' });
+  }
 
   // Re-read immediately before claiming and sending. Any message or button after
   // the initial template closes the lane, including an ambiguous reply.

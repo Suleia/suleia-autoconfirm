@@ -29,6 +29,8 @@ function fixture() {
   const order = {
     orderId: incident.orderId,
     customerPhone: incident.phone,
+    orderAmount: 29.99,
+    currencyCode: 'EUR',
     createdAt: '2026-08-27T10:00:00.000Z',
     raw: { created_at: '2026-08-27T10:00:00.000Z', external_order_id: '#2007' }
   };
@@ -61,6 +63,39 @@ function fixture() {
   };
   return { incident, order, dependencies, sent, finished };
 }
+
+test('new-order discount ignores only earlier-order history in batch and final reads',async()=>{
+ const data=fixture(),name='dropea_incidencia_descuento_5_v1';
+ const old={type:'agent',created_at:'2026-08-01T10:00:00Z',mid:'wamid.PREVIOUS_ORDER_DISCOUNT',content:{name}};
+ const oldReply={type:'in',created_at:'2026-08-02T10:00:00Z',text:'Quiero el descuento'};
+ data.dependencies.getMessages=async()=>[old,oldReply,initial];
+ const r=await processIncidentDiscountRecovery({...data,messages:[old,oldReply,initial],realEnabled:true,now:Date.parse('2026-08-29T10:00:00Z')});
+ assert.equal(r.status,'sent');assert.equal(r.responseStatus,'NOT_SENT');assert.equal(data.sent.length,1);
+ assert.equal(data.finished[0].raw.originalAmount,29.99);assert.equal(data.finished[0].raw.finalAmount,24.99);
+});
+
+test('missing current-order birth and contradictory ledger block before any claim or send',async()=>{
+ for(const conflict of [false,true]){
+  const data=fixture();let claims=0;data.dependencies.claim=async()=>{claims++;return {acquired:true};};
+  if(conflict)data.dependencies.getDelivery=async()=>({status:'sent',sent_at:'2026-08-01T10:00:00Z'});
+  else {delete data.order.createdAt;delete data.order.raw.created_at;}
+  const r=await processIncidentDiscountRecovery({...data,messages:[initial],realEnabled:true,now:Date.parse('2026-08-29T10:00:00Z')});
+  assert.equal(r.reason,conflict?'delivery_ledger_predates_current_order':'current_order_creation_unverified');assert.equal(claims,0);assert.equal(data.sent.length,0);
+ }
+});
+
+test('exact older Shopify source and a fresh Dropea amount are required before claiming',async()=>{
+ for(const changed of [false,true]){
+  const data=fixture();let claims=0;
+  data.dependencies.claim=async()=>{claims++;return {acquired:true};};
+  const read=data.dependencies.getShopifyOrders;
+  data.dependencies.getShopifyOrders=async(phone,order)=>{assert.equal(phone,data.incident.phone);assert.equal(order,data.order);return read();};
+  if(changed)data.dependencies.readCurrent=async()=>({issue:{id:data.incident.incidenceId,order_id:data.incident.orderId,status:'PENDING',is_active:true,type:'REFUSED_BY_RECIPIENT'},order:{...data.order,status:'ERROR',orderAmount:34.99}});
+  const result=await processIncidentDiscountRecovery({...data,messages:[initial],realEnabled:true,now:Date.parse('2026-08-29T10:00:00Z')});
+  assert.equal(result.reason,changed?'cross_source_pre_send_state_changed':'discount_template_sent');
+  assert.equal(claims,changed?0:1);assert.equal(data.sent.length,changed?0:1);
+ }
+});
 
 test('ADDRESS offer reuses sender and blocks a reply arriving after its persistent claim',async()=>{
  for(const late of [false,'Calle Mayor 25','Hola','Ahora te digo']){

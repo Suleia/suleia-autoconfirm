@@ -39,7 +39,7 @@ import { checkChatbyConnection, getChatbyRetryAfterMs } from './src/clients/chat
 import { handleTelegramUpdate } from './src/workflows/telegram-agent.mjs';
 import { backfillSupabaseFromLocal, ensureCoreAgentMemory, getSupabaseMirrorStatus, getTemplateDelivery, hydrateLocalStateFromSupabase, testSupabaseConnection } from './src/db/supabase-store.mjs';
 import { createScheduledJobQueue } from './src/scheduled-job-queue.mjs';
-import { createIncidentAutomationRetry, discountSchedulerOwnsIncidentSync } from './src/incident-automation-retry.mjs';
+import { createIncidentAutomationRetry, discountSchedulerOwnsIncidentSync, runIncidentSyncWithRecovery } from './src/incident-automation-retry.mjs';
 import {
   previewIncidentDiscountTest,
   sendAuthorizedIncidentDiscountTest
@@ -605,6 +605,7 @@ const server = http.createServer(async (req, res) => {
           && lifecycleTemplates.ready
           && !state.lastIngestError),
         integrations: { chatby: { ...chatbyHealth, lifecycleTemplates } },
+        incidentReadRecovery: incidentAutomationRetry.status(),
         ...storeSummary({ publicView: true })
       });
     }
@@ -1225,7 +1226,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && url.pathname === '/api/cron/sync-incidents') {
       if (!isAuthorizedCron(req)) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
-      const result = await syncPendingIncidents();
+      const result = await runIncidentSyncWithRecovery(() => syncPendingIncidents(), incidentAutomationRetry);
       dashboardBuildCacheAt = 0;
       return sendJson(res, 200, { ok: Boolean(result?.ok), result });
     }
@@ -1414,9 +1415,9 @@ async function runScheduledIncidentsSync() {
   if (incidentsSyncRunning) return;
   incidentsSyncRunning = true;
   try {
-    const result = await syncPendingIncidents();
+    const result = await runIncidentSyncWithRecovery(() => syncPendingIncidents(), incidentAutomationRetry);
     console.log(`Incidents sync checked ${result.count || 0} pending incidents.`);
-    if (incidentAutomationRetry.consider(result)) {
+    if (incidentAutomationRetry.status().retryScheduled) {
       console.log('Incident automation deferred by Chatby; recovery queued after provider cooldown.');
     }
   } catch (error) {
