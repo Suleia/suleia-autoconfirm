@@ -2,6 +2,11 @@
 
 Owner's architecture correction, 25 October 2026. Policy `address-post-failure-v1`.
 
+Current rollout (29 October): [VPS source-only recovery](ADDRESS_IMPORT_RECOVERY_LIVE.md)
+connects the strict official resolver and shipping-only correction on a half-hour
+timer. The phase-one architecture and gated direct-import/Chatby contracts below
+remain the reference; their SHADOW-only statements describe the original release.
+
 ## Boundary
 
 ```

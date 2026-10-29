@@ -60,3 +60,22 @@ shadow path. Preserve encrypted database, key, effects, leases and audit. Do not
 roll back customer addresses blindly, clear claims, change the ordinary importer,
 its timer/environment or unrelated services. Private deployment receipts hold
 captured hashes and rollback data; no customer records belong in GitHub.
+
+## Deployment verification
+
+Runtime `ea6ca8df2ec9c8284690bc7c6c2d7d0fec7d7ee1` activated 29 October;
+independent verification at 17:22 UTC confirms a completed LIVE cycle with full
+intake coverage, active/enabled half-hour timer, previous shadow path inactive,
+normal importer source/release/environment/service/timer hashes unchanged,
+unrelated unit files and running containers preserved. The first cycle performed
+no source correction; this is not a claimed real-customer correction canary.
+Source correction is enabled; direct Dropea creation and recovery Chatby sends
+remain disabled. Cases requiring missing address data or historical-order review
+are explicitly pending, not successful recoveries.
+
+Exact Linux candidate: 55/55 recovery/panel/OAuth tests, zero failed/skipped.
+Unchanged existing importer: 28/28. Official Shopify 2026-04 schema validation
+passed. Live official resolver checked against its public documentation example
+through both endpoints, with one exact verified portal. The initially detected
+different road formats are covered by the final regression. No real customer
+order was manufactured for testing.
