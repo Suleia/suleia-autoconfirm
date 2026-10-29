@@ -101,9 +101,26 @@ export function isCustomerInteraction(message) {
   return false;
 }
 
-export function findVerifiedTemplateDelivery(messages = [], templateName) {
+// A conversation may contain several orders. Keep unknown timestamps so they
+// can block a decision; never silently turn unknown customer activity into silence.
+export function scopeIncidentDiscountMessages(messages, orderCreatedAt) {
+  const start=parseDateMs(orderCreatedAt);
+  if(!Number.isFinite(start))throw Error('CURRENT_ORDER_CREATION_UNVERIFIED');
+  return (Array.isArray(messages)?messages:[]).filter(m=>{
+    const at=messageTimestamp(m);return !Number.isFinite(at)||at>=start;
+  });
+}
+
+export function unverifiedTemplateTimestamp(messages,templateName,now=Date.now()) {
+  const target=templateSlug(templateName);
+  return (messages||[]).some(m=>!isCustomerInteraction(m)&&extractWamid(m)&&templateSlug(messageText(m)).includes(target)&&
+    (!Number.isFinite(messageTimestamp(m))||messageTimestamp(m)>Number(now)+60_000));
+}
+
+export function findVerifiedTemplateDelivery(messages = [], templateName, {notBefore=null}={}) {
   const target = templateSlug(templateName);
-  const matches = (Array.isArray(messages) ? messages : [])
+  const history=notBefore?scopeIncidentDiscountMessages(messages,notBefore):messages;
+  const matches = (Array.isArray(history) ? history : [])
     .map((message) => ({
       message,
       timestamp: messageTimestamp(message),
@@ -183,6 +200,13 @@ export function incidentDiscountPolicy({
     return { eligible: false, reason: 'incident_not_pending' };
   }
   if (incident?.chatbyReadVerified !== true) return { eligible: false, reason: 'chatby_context_unverified' };
+  if(incident.incidentDiscountOrderCreatedAt){
+    const created=parseDateMs(incident.incidentDiscountOrderCreatedAt);
+    messages=scopeIncidentDiscountMessages(messages,incident.incidentDiscountOrderCreatedAt);
+    if([merchandisePersistentDelivery,discountPersistentDelivery].some(d=>verifiedPersistentDelivery(d)&&parseDateMs(d.sent_at||d.sentAt)<created))return {eligible:false,reason:'delivery_ledger_predates_current_order'};
+  }
+  if(unverifiedTemplateTimestamp(messages,INCIDENT_MERCHANDISE_TEMPLATE,now)||
+    discountTemplateName&&unverifiedTemplateTimestamp(messages,discountTemplateName,now))return {eligible:false,reason:'template_delivery_timestamp_unverified'};
 
   const merchandiseDelivery = latestVerifiedDelivery(
     messages,
@@ -255,7 +279,10 @@ export function incidentDiscountPolicy({
   };
 }
 
-export function classifyIncidentDiscountResponse(messages = [], discountTemplateName, discountPersistentDelivery = null) {
+export function classifyIncidentDiscountResponse(messages = [], discountTemplateName, discountPersistentDelivery = null,{notBefore=null}={}) {
+  if(notBefore)messages=scopeIncidentDiscountMessages(messages,notBefore);
+  if(notBefore&&verifiedPersistentDelivery(discountPersistentDelivery)&&parseDateMs(discountPersistentDelivery.sent_at||discountPersistentDelivery.sentAt)<parseDateMs(notBefore))return {status:'OTHER_RESPONSE',intent:'AMBIGUOUS',respondedAt:null};
+  if(unverifiedTemplateTimestamp(messages,discountTemplateName))return {status:'OTHER_RESPONSE',intent:'AMBIGUOUS',respondedAt:null};
   const delivery = latestVerifiedDelivery(messages, discountTemplateName, discountPersistentDelivery);
   if (!delivery?.sentAt) return { status: 'NOT_SENT', respondedAt: null };
   const inbound = messages.filter(isCustomerInteraction).map(message => ({message,timestamp:messageTimestamp(message)}));

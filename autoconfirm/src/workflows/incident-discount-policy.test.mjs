@@ -232,3 +232,31 @@ test('unknown interaction timestamps fail closed and internal ids do not verify 
     'dropea_incidencia_mercancia_v1'
   ), null);
 });
+
+test('old-order discount and replies cannot suppress or accept an offer on the new order',()=>{
+ const created='2026-07-27T07:00:00Z',name='dropea_incidencia_descuento_5_v1';
+ const old={type:'agent',mid:'wamid.OLD',created_at:'2026-07-07T12:00:00Z',content:{name}};
+ const history=[old,{type:'in',ts:Date.parse('2026-07-08T12:00:00Z')/1000,text:'Sí, quiero el descuento'},initialTemplate];
+ const policy=incidentDiscountPolicy({incident:incident({incidentDiscountOrderCreatedAt:created}),messages:history,now:Date.parse('2026-07-29T10:00:00Z'),discountTemplateName:name});
+ assert.equal(policy.eligible,true);assert.equal(policy.reason,'discount_template_due');
+ assert.equal(classifyIncidentDiscountResponse(history,name,null,{notBefore:created}).status,'NOT_SENT');
+});
+
+test('same-order offer remains deduplicated across a later carrier incidence',()=>{
+ const name='dropea_incidencia_descuento_5_v1';
+ const messages=[initialTemplate,{type:'agent',mid:'wamid.CURRENT',created_at:'2026-07-29T09:00:00Z',content:{name}}];
+ const policy=incidentDiscountPolicy({incident:incident({incidentDiscountOrderCreatedAt:'2026-07-27T07:00:00Z',incidenceDate:'2026-07-30T07:00:00Z'}),messages,now:Date.parse('2026-07-31T10:00:00Z'),discountTemplateName:name});
+ assert.equal(policy.reason,'discount_template_already_sent');
+});
+
+test('current-order boundary never erases unknown customer activity or trusts unknown discount times',()=>{
+ const input={incident:incident({incidentDiscountOrderCreatedAt:'2026-07-27T07:00:00Z'}),messages:[initialTemplate,{type:'in',text:'Sin fecha'}],now:Date.parse('2026-07-29T10:00:00Z'),discountTemplateName:'dropea_incidencia_descuento_5_v1'};
+ assert.equal(incidentDiscountPolicy(input).reason,'customer_interaction_after_merchandise_template');
+ input.messages=[initialTemplate,{type:'agent',mid:'wamid.UNKNOWN',content:{name:input.discountTemplateName}}];
+ assert.equal(incidentDiscountPolicy(input).reason,'template_delivery_timestamp_unverified');
+});
+
+test('contradictory exact-order ledger is reviewable, never cleared to authorize another offer',()=>{
+ const policy=incidentDiscountPolicy({incident:incident({incidentDiscountOrderCreatedAt:'2026-07-27T07:00:00Z'}),messages:[initialTemplate],now:Date.parse('2026-07-29T10:00:00Z'),discountTemplateName:'dropea_incidencia_descuento_5_v1',discountPersistentDelivery:{status:'sent',sent_at:'2026-07-07T12:00:00Z'}});
+ assert.equal(policy.reason,'delivery_ledger_predates_current_order');assert.equal(policy.eligible,false);
+});

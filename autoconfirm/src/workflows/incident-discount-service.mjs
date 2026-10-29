@@ -23,6 +23,7 @@ import {
   extractWamid,
   findVerifiedTemplateDelivery,
   INCIDENT_MERCHANDISE_TEMPLATE_LEDGER_NAME,
+  scopeIncidentDiscountMessages,
   incidentDiscountPolicy
 } from './incident-discount-policy.mjs';
 import {
@@ -443,7 +444,14 @@ export async function processIncidentDiscountRecovery({
   if (!incident?.chatbyUserNs) {
     return recoveryResult({ reason: 'missing_chatby_conversation' });
   }
-  if (incident.incidentType === 'absent') incident = { ...incident, absentDiscountOrderCreatedAt: order.createdAt || order.raw?.created_at };
+  const orderCreatedAt=order.createdAt||order.raw?.created_at;
+  if(!Number.isFinite(Date.parse(orderCreatedAt))||Date.parse(orderCreatedAt)>Number(now))return recoveryResult({reason:'current_order_creation_unverified'});
+  if(String(order.orderId||order.id)!==String(incident.orderId))return recoveryResult({reason:'current_order_identity_unverified'});
+  incident={...incident,incidentDiscountOrderCreatedAt:orderCreatedAt,
+    ...(incident.incidentType==='absent'?{absentDiscountOrderCreatedAt:orderCreatedAt}:{})};
+  messages=scopeIncidentDiscountMessages(messages,orderCreatedAt);
+  const readMessages=deps.getMessages;
+  deps.getMessages=async userNs=>scopeIncidentDiscountMessages(await readMessages(userNs),orderCreatedAt);
   const discountTemplateName = INCIDENT_DISCOUNT_TEMPLATE_NAME;
 
   let merchandisePersistentDelivery;
@@ -464,6 +472,10 @@ export async function processIncidentDiscountRecovery({
   } catch (error) {
     return recoveryResult({ reason: 'template_delivery_ledger_read_failed', templateName: discountTemplateName, error: error instanceof Error ? error.message : String(error) });
   }
+  // An exact-order ledger predating that order is contradictory evidence. Keep
+  // the claim and flag it; never erase it to manufacture permission to resend.
+  if([merchandisePersistentDelivery,discountPersistentDelivery].some(d=>['sent','already_seen'].includes(d?.status)&&
+      Number.isFinite(Date.parse(d.sent_at||d.sentAt))&&Date.parse(d.sent_at||d.sentAt)<Date.parse(orderCreatedAt)))return recoveryResult({reason:'delivery_ledger_predates_current_order',templateName:discountTemplateName});
   const verifiedBatchMessages = incident?.chatbyReadVerified === true
     && incident?.chatbyReadAt
     && Array.isArray(messages)

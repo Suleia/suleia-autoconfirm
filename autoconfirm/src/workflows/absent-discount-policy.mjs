@@ -1,4 +1,4 @@
-import { findVerifiedTemplateDelivery, customerInteractionAfter, messageTimestamp, isCustomerInteraction } from './incident-discount-policy.mjs';
+import { findVerifiedTemplateDelivery, customerInteractionAfter, messageTimestamp, isCustomerInteraction, scopeIncidentDiscountMessages, unverifiedTemplateTimestamp } from './incident-discount-policy.mjs';
 
 export function verifiedSecondAbsence(issue = {}) {
   const description = String(issue.initial_carrier_description || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
@@ -17,6 +17,10 @@ export function absentDiscountPolicy({ incident, messages = [], now = Date.now()
       || issue.is_active !== true || issue.status !== 'PENDING') return deny('absent_current_issue_unverified');
   if (!verifiedSecondAbsence(issue)) return deny('second_absence_not_verified');
   if (incident.chatbyReadVerified !== true || incident.chatbyOrderAssociation !== 'EXACT_ORDER') return deny('chatby_context_unverified');
+  const createdAt=incident.absentDiscountOrderCreatedAt;
+  if(!Number.isFinite(Date.parse(createdAt)))return deny('absent_v3_current_order_not_verified');
+  messages=scopeIncidentDiscountMessages(messages,createdAt);
+  if(discountTemplateName&&unverifiedTemplateTimestamp(messages,discountTemplateName,now))return deny('template_delivery_timestamp_unverified');
   const v3Messages = messages.filter(m => {
     const raw = m.raw || m;
     const name = raw.payload?.name || raw.content?.name || raw.template_name || raw.templateName || (typeof raw.content === 'string' ? raw.content : '');
