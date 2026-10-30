@@ -2,6 +2,7 @@ import { absentDiscountReturnDecision } from './absent-discount-return.mjs';
 import {executeObservedAddress} from './address-observed-executor.mjs';
 import {recoverReconciledAddressDetails} from './address-reconciled-details.mjs';
 import {runIncidentResolutionCycle} from './incident-resolution-runtime.mjs';
+import {observeCustomerCare} from '../customer-care/runtime.mjs';
 import {applyAcceptedDiscountFeedback} from './accepted-discount-feedback.mjs';
 import {selectRows} from '../clients/supabase.mjs';
 import {refreshAddressCapabilities,runAddressCapability,addressCapabilitiesSnapshot} from './address-capabilities.mjs';
@@ -2970,11 +2971,13 @@ async function performPendingIncidentSync({
       incidents.push(enrichedIncident);
     }
 
-    let incidentResolutionSummary=null;
+    let incidentResolutionSummary=null,customerCareSummary=null;
     if(persist!==false){
       const enrichedById=new Map(incidents.map(i=>[String(i.incidenceId),i]));
       try{incidentResolutionSummary=await runIncidentResolutionCycle(analyzed.map(item=>({...item,incident:enrichedById.get(String(item.incident.incidenceId))||item.incident})),{execute:returnOnly!==true});}
       catch{incidentResolutionSummary={enabled:true,failures:1,status:'DURABLE_STORE_UNAVAILABLE',new_write_default:'SHADOW'};}
+      try{customerCareSummary=await observeCustomerCare(analyzed.map(item=>({...item,incident:enrichedById.get(String(item.incident.incidenceId))||item.incident})));}
+      catch{customerCareSummary={enabled:true,mode:'SHADOW',provider_writes:0,failures:1};}
     }
     try {
       const feedback=(await selectRows('app_state',{query:{key:'eq.accepted_discount_support_feedback_v1',select:'value'},limit:1}))[0];
@@ -3044,6 +3047,7 @@ async function performPendingIncidentSync({
       discountRecoverySummary,
       discountReturnSummary,
       incidentResolutionSummary,
+      customerCareSummary,
       returnReconciliationSummary,
       customerActivitySummary,
       transportHistoryNotice: 'Incidencias activas de Dropea Public API V2; historial oficial de GLS cuando hay tracking disponible.',

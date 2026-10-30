@@ -747,6 +747,21 @@ function renderIncidents() {
         <td>
           <span class="signal-chip ${customerSignalTone}">${escapeHtml(customerSignalLabel)}</span>
           <small>${escapeHtml(customerSignalDetail)}</small>
+          ${incident.customerCare ? `<details class="incident-customer-activity customer-care-context" ${incident.customerCare.next_best_action === 'HUMAN_REVIEW' ? 'open' : ''}>
+            <summary>Contexto de atención · ${escapeHtml(incident.customerCare.mode || 'SHADOW')}</summary>
+            <small>Intención actual: ${escapeHtml((incident.customerCare.latest_customer_intents || []).join(' + ') || 'Por verificar')}</small>
+            <small>Quiere recibirlo: ${incident.customerCare.wants_order === true ? 'Sí' : incident.customerCare.wants_order === false ? 'No' : 'Por verificar'}</small>
+            <small>Datos conocidos: ${escapeHtml([incident.customerCare.delivery_date, ({MORNING:'Mañana',AFTERNOON:'Tarde'})[incident.customerCare.delivery_window], incident.customerCare.time_from ? 'Desde ' + incident.customerCare.time_from : null, incident.customerCare.time_to ? 'Hasta ' + incident.customerCare.time_to : null, incident.customerCare.call_before_arrival ? 'Llamar antes' : null].filter(Boolean).join(' · ') || 'Sin fecha u horario verificado')}</small>
+            <small>Falta: ${escapeHtml((incident.customerCare.missing_slots || []).join(' · ') || 'Sin datos adicionales requeridos')}</small>
+            <small>Última pregunta: ${escapeHtml(incident.customerCare.last_outbound_question_type || 'Ninguna verificada')} · ${escapeHtml(formatDateTime(incident.customerCare.last_outbound_question_at))}</small>
+            <small>Siguiente paso: ${escapeHtml(incident.customerCare.next_best_action || 'HUMAN_REVIEW')} · ${escapeHtml(incident.customerCare.reason || '')}</small>
+            <small>Responsable: ${escapeHtml(incident.customerCare.owner || 'HUMAN')}</small>
+            <small>Esperando a: ${incident.customerCare.waiting_for_customer ? 'Cliente' : incident.customerCare.waiting_for_provider ? 'Proveedor' : 'Workflow responsable'}</small>
+            <small>Última acción verificada: ${escapeHtml(incident.customerCare.last_verified_action?.action || 'Ninguna')}</small>
+            ${incident.customerCare.proposed_response ? `<blockquote>Borrador: ${escapeHtml(incident.customerCare.proposed_response)}</blockquote>` : ''}
+            <small>Historial: ${escapeHtml((incident.customerCare.timeline || []).slice(-5).map(e => [e.kind,(e.intents || []).join(' + '),e.action,e.owner].filter(Boolean).join(' · ')).join(' → '))}</small>
+            <small>Versión de conversación: ${escapeHtml(incident.customerCare.conversation_version || 0)}</small>
+          </details>` : ''}
           ${incident.incidentResolution ? `<div class="incident-customer-activity">
             <b>Seguimiento de resolución</b>
             <small>Cliente respondió: ${incident.incidentResolution.customer_replied ? 'Sí' : 'Sin evidencia verificada'}</small>
