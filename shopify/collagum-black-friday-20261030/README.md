@@ -22,4 +22,8 @@ Only `snippets/quantity-breaks.liquid` and `templates/product.collagum.json`. Th
 
 `release.py check --work-dir PRIVATE_DIRECTORY` checks the current MAIN manifest. `deploy` requires every native checksum to match the fresh backup before its single two-file write, persists an uncertainty journal, then checks the complete manifest and exact file contents. Never repeat an uncertain write: read back first. `rollback` restores only these two backup files and rejects unknown concurrent changes. Both commands reuse the existing private `shop_api.py` and trusted local credential storage.
 
-Production verification and actual mobile/desktop captures are recorded after deployment; this source record alone is not a claim of publication.
+## Production verification
+
+Published at 2026-10-30 22:54:39 UTC. Exact content readback and all 381 native checksums verified: only the two authorized files changed. Fresh public anonymous reads confirm the new heading and byte-identical normalized NIDA/SEOUL selectors. Mobile and desktop screenshots were captured from the public active theme after leaving Shopify preview mode.
+
+Postflight cart checks pass all quantities and transitions. The live Releasit form opens with pack two and a EUR 29.99 total, then closes without submission. No orders or payments were created. The isolated card-checkout probe returned HTTP 200; a completed card transaction was intentionally not attempted. `verification.json` records the precise scope and limitations.
