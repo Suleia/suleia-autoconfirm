@@ -1,0 +1,109 @@
+--- a/snippets/quantity-breaks.liquid
++++ b/snippets/quantity-breaks.liquid
+@@ -55,13 +55,12 @@
+   {% if block.settings.headline != blank %}
+     <h3 class="quantity-breaks__title flex-center center">
+       <span></span>
+-      <span>{% if product.handle == 'crema-seoul-1988' %}<span class="s88-offer">OFERTA</span>BLACK FRIDAY{% else %}{{ block.settings.headline }}{% endif %}</span>
++      <span>{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<span class="cg-bf-heading"><span class="cg-bf-kicker">OFERTA</span> <span class="cg-bf-main">BLACK FRIDAY</span></span>{% elsif product.handle == 'crema-seoul-1988' %}<span class="s88-offer">OFERTA</span>BLACK FRIDAY{% else %}{{ block.settings.headline }}{% endif %}</span>
+       <span></span>
+     </h3>
+   {% endif %}
+ 
+-{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}<p class="cg-pack-subtitle">MISMA CALIDAD, MÁS DURACIÓN</p>
+-{% endif %}  <div class="quantity-breaks-container">
++  <div class="quantity-breaks-container">
+     {% if block.settings.option_1_quantity != 0 %}
+       {% liquid
+         assign percentage_discount = block.settings.option_1_percentage_off_text | plus: 0
+@@ -1083,4 +1082,79 @@
+  #quantity-breaks-{{ section.id }} .cg-duration strong{font-size:14px}
+ }
+ </style>
+-{% endif %}+{% endif %}{% if product.handle == 'polvo-dental-de-colageno-colla-gum' %}
++<style>
++#quantity-breaks-{{ section.id }}.cg-reference-packs .quantity-breaks__title{
++  display:block!important;
++  height:auto!important;
++  margin:0 0 16px!important;
++  padding:4px 4px 2px!important;
++  color:#082e4f!important;
++  background:radial-gradient(ellipse at 50% 25%,#e9f8fc80,transparent 72%);
++  line-height:1!important;
++  letter-spacing:normal!important;
++}
++#quantity-breaks-{{ section.id }}.cg-reference-packs .quantity-breaks__title>span:first-child,
++#quantity-breaks-{{ section.id }}.cg-reference-packs .quantity-breaks__title>span:last-child{
++  display:none!important;
++}
++#quantity-breaks-{{ section.id }}.cg-reference-packs .quantity-breaks__title>span:nth-child(2){
++  display:block!important;
++  width:100%;
++  min-width:0;
++  height:auto!important;
++  background:none!important;
++}
++#quantity-breaks-{{ section.id }}.cg-reference-packs .cg-bf-heading{
++  display:block;
++  height:auto!important;
++  flex:none!important;
++  background:none!important;
++  width:100%;
++  text-align:center;
++}
++#quantity-breaks-{{ section.id }}.cg-reference-packs .cg-bf-kicker{
++  display:flex;
++  height:auto!important;
++  flex:none!important;
++  background:none!important;
++  align-items:center;
++  justify-content:center;
++  gap:13px;
++  margin:0 0 3px;
++  color:#08647c;
++  font:700 clamp(10px,3.2cqw,15px)/1.35 Georgia,'Times New Roman',serif;
++  letter-spacing:.43em;
++  text-indent:.43em;
++}
++#quantity-breaks-{{ section.id }}.cg-reference-packs .cg-bf-kicker::before,
++#quantity-breaks-{{ section.id }}.cg-reference-packs .cg-bf-kicker::after{
++  content:'';
++  height:1px;
++  flex:1;
++  max-width:30%;
++  background:linear-gradient(90deg,transparent,#008fad80);
++}
++#quantity-breaks-{{ section.id }}.cg-reference-packs .cg-bf-kicker::after{
++  transform:scaleX(-1);
++}
++#quantity-breaks-{{ section.id }}.cg-reference-packs .cg-bf-main{
++  display:block;
++  height:auto!important;
++  flex:none!important;
++  max-width:100%;
++  color:#082e4f;
++  font:700 clamp(27px,12.4cqw,62px)/.94 Georgia,'Times New Roman',serif;
++  letter-spacing:-.055em;
++  white-space:nowrap;
++}
++@supports(background-clip:text){
++  #quantity-breaks-{{ section.id }}.cg-reference-packs .cg-bf-main{
++    background:linear-gradient(110deg,#082e4f 7%,#08738a 48%,#082e4f 94%);
++    background-clip:text;
++    -webkit-background-clip:text;
++    color:transparent;
++  }
++}
++</style>
++{% endif %}
+--- a/templates/product.collagum.json
++++ b/templates/product.collagum.json
+@@ -184,7 +184,7 @@
+             "atc_append_heights": "stretch-quantity",
+             "enable_quantity_discounts": true,
+             "style": "normal",
+-            "headline": "ELIGE TU PACK Y AHORRA",
++            "headline": "OFERTA BLACK FRIDAY",
+             "preselected": "option_2",
+             "display_selected_indicator": true,
+             "border_radius": 18,
