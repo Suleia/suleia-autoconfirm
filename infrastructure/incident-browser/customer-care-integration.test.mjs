@@ -33,3 +33,31 @@ test('existing sender never sends after a late cancellation changes the plan',as
  assert.equal(result.status,'BLOCKED');assert.equal(sends,0);
 });
 test('AI cannot be enabled through private controls',()=>assert.equal(customerCareEnvironment({customerCare:{ai:true}}).CUSTOMER_CARE_AI_INTERPRETER_ENABLED,'false'));
+
+test('V3 SHADOW stores its own namespace and returns the exact legacy plan',async()=>{
+ const legacy={eligible:true,kind:'CLARIFY',hash:'existing',content:'existing'};
+ const v3Store=memory();let oldReads=0;
+ const result=await prepareCustomerCare(legacy,input,{control:{conversationV3:{enabled:true,mode:'SHADOW'}},v3Store,store:{load:async()=>{oldReads++;throw Error('must not load old memory');}},now});
+ assert.equal(result.plan,legacy);assert.equal(result.care.version,'CONVERSATION_V3');assert.equal((await v3Store.load()).value.version,'CONVERSATION_V3');assert.equal(oldReads,0);
+});
+test('V3 cannot replace a legacy solution, even with requested global LIVE',async()=>{
+ const legacy={eligible:true,kind:'SOLUTION',hash:'existing'};
+ const result=await prepareCustomerCare(legacy,input,{control:{conversationV3:{enabled:true,mode:'LIVE',clarification:true}},v3Store:memory(),now});
+ assert.equal(result.plan,legacy);
+});
+test('V3 observation failure preserves normal work and blocks only its selected canary',async()=>{
+ const legacy={eligible:true,kind:'CLARIFY'},v3Store={load:async()=>{throw Error('private database unavailable');}};
+ for(const mode of ['SHADOW','LIVE'])assert.equal((await prepareCustomerCare(legacy,input,{control:{conversationV3:{enabled:true,mode}},v3Store,now})).plan,legacy);
+ const result=await prepareCustomerCare(legacy,input,{control:{conversationV3:{enabled:true,mode:'CANARY',canaryCase:'90001:80001'}},v3Store,now});
+ assert.equal(result.plan.eligible,false);assert.equal(result.plan.reason,'V3_MEMORY_UNAVAILABLE');
+});
+test('V3 receipt preserves audit history and never promotes an uncertain send',async()=>{
+ const v3Store=memory(),legacy={eligible:true,kind:'CLARIFY'};
+ const result=await prepareCustomerCare(legacy,input,{control:{conversationV3:{enabled:true,mode:'SHADOW'}},v3Store,now});
+ const plan={orderId:'90001',issueId:'80001',conversationId:'fixture',content:'synthetic clarification',care_capability:'CONTEXTUAL_CLARIFICATION',care_plan:{...result.care,response_type:'CLARIFICATION',missing_slots:['TIME_WINDOW']}};
+ await recordCustomerCareReceipt(plan,{status:'delivery_unverified',attemptedAt:new Date(now).toISOString(),raw:{}},{store:v3Store});
+ const value=(await v3Store.load()).value;
+ assert.equal(value.version,'CONVERSATION_V3');assert.equal(value.clarifications.at(-1).status,'DELIVERY_UNVERIFIED');assert.equal(value.waiting_for_customer,true);assert.ok(value.fact_ledger.length);
+ const again=await prepareCustomerCare(legacy,input,{control:{conversationV3:{enabled:true,mode:'SHADOW'}},v3Store,now:now+3600000});
+ assert.equal(again.care.customer_reply_action,'NONE');assert.equal(again.plan,legacy);
+});
