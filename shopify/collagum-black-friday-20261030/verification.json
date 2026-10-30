@@ -1,0 +1,346 @@
+{
+  "deployment": {
+    "status": "READBACK_VERIFIED",
+    "theme": 198240600396,
+    "mode": "deploy",
+    "utc": "2026-10-30T22:54:39.966658+00:00",
+    "target": {
+      "snippets/quantity-breaks.liquid": "65801d242bcef21b5bab2ad0b9efc004",
+      "templates/product.collagum.json": "2f4f8f3cf70f22840683f995206bd1f3"
+    },
+    "filesCompared": 381,
+    "changedFiles": [
+      "snippets/quantity-breaks.liquid",
+      "templates/product.collagum.json"
+    ],
+    "unrelatedFilesUnchanged": true
+  },
+  "cartPreflight": {
+    "cases": [
+      {
+        "quantity": 1,
+        "totalCents": 2499,
+        "discountCents": 500,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 3,
+        "totalCents": 3499,
+        "discountCents": 5498,
+        "lineAllocations": 1
+      }
+    ],
+    "updates": [
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 3,
+        "totalCents": 3499,
+        "discountCents": 5498,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 1,
+        "totalCents": 2499,
+        "discountCents": 500,
+        "lineAllocations": 1
+      }
+    ],
+    "testCartEmpty": true,
+    "ordersCreated": 0,
+    "checkoutSubmitted": false,
+    "operatorCartUsed": false
+  },
+  "cartPostflight": {
+    "cases": [
+      {
+        "quantity": 1,
+        "totalCents": 2499,
+        "discountCents": 500,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 3,
+        "totalCents": 3499,
+        "discountCents": 5498,
+        "lineAllocations": 1
+      }
+    ],
+    "updates": [
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 3,
+        "totalCents": 3499,
+        "discountCents": 5498,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 2,
+        "totalCents": 2999,
+        "discountCents": 2999,
+        "lineAllocations": 1
+      },
+      {
+        "quantity": 1,
+        "totalCents": 2499,
+        "discountCents": 500,
+        "lineAllocations": 1
+      }
+    ],
+    "testCartEmpty": true,
+    "ordersCreated": 0,
+    "checkoutSubmitted": false,
+    "operatorCartUsed": false
+  },
+  "nidaSeoulSelectorsIdentical": true,
+  "browser": {
+    "draftBreakpoints": [
+      {
+        "bodyWidth": 301,
+        "firstCardTop": 573.640625,
+        "headerHeight": 56.40625,
+        "headlineBottom": 555.640625,
+        "noOverlap": true,
+        "noTitleOverflow": true,
+        "photos": [
+          {
+            "h": 86.46875,
+            "w": 78
+          },
+          {
+            "h": 56.3125,
+            "w": 78
+          },
+          {
+            "h": 47.359375,
+            "w": 78
+          }
+        ],
+        "radio": [
+          "2"
+        ],
+        "selector": {
+          "bottom": 1030.25,
+          "height": 529.015625,
+          "left": 5,
+          "right": 296,
+          "top": 501.234375,
+          "width": 291,
+          "x": 5,
+          "y": 501.234375
+        },
+        "viewport": 320
+      },
+      {
+        "bodyWidth": 356,
+        "firstCardTop": 530.921875,
+        "headerHeight": 64.28125,
+        "headlineBottom": 512.921875,
+        "noOverlap": true,
+        "noTitleOverflow": true,
+        "photos": [
+          {
+            "h": 118.90625,
+            "w": 107.25
+          },
+          {
+            "h": 77.4375,
+            "w": 107.25
+          },
+          {
+            "h": 65.125,
+            "w": 107.25
+          }
+        ],
+        "radio": [
+          "2"
+        ],
+        "selector": {
+          "bottom": 1045.375,
+          "height": 594.734375,
+          "left": 5,
+          "right": 351,
+          "top": 450.640625,
+          "width": 346,
+          "x": 5,
+          "y": 450.640625
+        },
+        "viewport": 375
+      },
+      {
+        "bodyWidth": 371,
+        "firstCardTop": 500.15625,
+        "headerHeight": 66.65625,
+        "headlineBottom": 482.15625,
+        "noOverlap": true,
+        "noTitleOverflow": true,
+        "photos": [
+          {
+            "h": 124.0625,
+            "w": 111.90625
+          },
+          {
+            "h": 80.796875,
+            "w": 111.90625
+          },
+          {
+            "h": 67.953125,
+            "w": 111.90625
+          }
+        ],
+        "radio": [
+          "2"
+        ],
+        "selector": {
+          "bottom": 1026.5625,
+          "height": 609.0625,
+          "left": 5,
+          "right": 366,
+          "top": 417.5,
+          "width": 361,
+          "x": 5,
+          "y": 417.5
+        },
+        "viewport": 390
+      },
+      {
+        "bodyWidth": 411,
+        "firstCardTop": 492.3125,
+        "headerHeight": 73.046875,
+        "headlineBottom": 474.3125,
+        "noOverlap": true,
+        "noTitleOverflow": true,
+        "photos": [
+          {
+            "h": 137.796875,
+            "w": 124.296875
+          },
+          {
+            "h": 89.75,
+            "w": 124.296875
+          },
+          {
+            "h": 75.46875,
+            "w": 124.296875
+          }
+        ],
+        "radio": [
+          "2"
+        ],
+        "selector": {
+          "bottom": 1050.546875,
+          "height": 647.28125,
+          "left": 5,
+          "right": 406,
+          "top": 403.265625,
+          "width": 401,
+          "x": 5,
+          "y": 403.265625
+        },
+        "viewport": 430
+      },
+      {
+        "bodyWidth": 1421,
+        "firstCardTop": 125.75,
+        "headerHeight": 87.515625,
+        "headlineBottom": 107.75,
+        "noOverlap": true,
+        "noTitleOverflow": true,
+        "photos": [
+          {
+            "h": 177.390625,
+            "w": 160
+          },
+          {
+            "h": 115.53125,
+            "w": 160
+          },
+          {
+            "h": 97.15625,
+            "w": 160
+          }
+        ],
+        "radio": [
+          "2"
+        ],
+        "selector": {
+          "bottom": 765.578125,
+          "height": 743.34375,
+          "left": 825.5,
+          "right": 1360.5,
+          "top": 22.234375,
+          "width": 535,
+          "x": 825.5,
+          "y": 22.234375
+        },
+        "viewport": 1440
+      }
+    ],
+    "stageSelections": [
+      "1",
+      "2",
+      "3",
+      "2"
+    ],
+    "productionSelections": [
+      "1",
+      "3",
+      "2"
+    ],
+    "codFormOpened": true,
+    "codPackTwoTotal": "29,99 EUR",
+    "codFormClosedWithoutSubmission": true,
+    "productionPreviewBarAbsent": true,
+    "nidaSeoulVisualRegressionPassed": true,
+    "consoleErrors": [],
+    "screenshots": [
+      "collagum-production-mobile.png",
+      "collagum-production-desktop.png"
+    ]
+  },
+  "cardCheckoutProbe": {
+    "orderCreated": false,
+    "paymentSubmitted": false,
+    "operatorCartUsed": false,
+    "httpStatus": 200,
+    "checkoutPathRecognized": true,
+    "cardProviderIndicators": [
+      "paypal"
+    ],
+    "challengeDetected": true,
+    "testCartEmpty": true
+  },
+  "cardPaymentEndToEndVerified": false,
+  "note": "No payments or orders submitted. Anonymous checkout returned HTTP 200; no completed card payment was attempted.",
+  "screenshotsSha256": {
+    "collagum-production-mobile.png": "aaee301e07374c4c8465934cdc6438bf6abf9e47e075aa0ffce2908574639adc",
+    "collagum-production-desktop.png": "86a974bb0fef84406ddf1ddee252417c6181cb61af0d12a537669d5e97857640"
+  }
+}

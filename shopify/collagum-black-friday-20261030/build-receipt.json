@@ -1,0 +1,29 @@
+{
+  "main": 198240600396,
+  "files": {
+    "snippets/quantity-breaks.liquid": {
+      "beforeMd5": "40ae4bc74acf69d2150b084198adeca4",
+      "candidateMd5": "65801d242bcef21b5bab2ad0b9efc004"
+    },
+    "templates/product.collagum.json": {
+      "beforeMd5": "d56285cd9a90c58a6cf69e2671b5fd04",
+      "candidateMd5": "2f4f8f3cf70f22840683f995206bd1f3"
+    }
+  },
+  "nonCollagumBytesPreserved": true,
+  "inputsScriptsPricesImagesIdentical": true,
+  "templateOnlyHeadlineChanged": true,
+  "noNewJavaScript": true,
+  "existingPack2Default": true,
+  "pricesEur": [
+    24.99,
+    29.99,
+    34.99
+  ],
+  "months": [
+    3,
+    6,
+    9
+  ],
+  "backupArchiveSha256": "a9222b4e6ec3d1b33bffdd150e5cbeeda020db1be4c2207483b7db0c3efa1c26"
+}
