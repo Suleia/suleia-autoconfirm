@@ -169,6 +169,11 @@ planes caducados, respuestas tardías y recibos inciertos.
 
 El validador Ajv es standalone; Ajv solo es dependencia de desarrollo. Una prueba
 comprueba la huella del esquema para evitar un validador generado desactualizado.
+Resultado final: **944/944 backend**, **779/779 integración VPS** y **107/107
+panel/proyecciones**; cero fallos, omisiones o pruebas pendientes. El núcleo tiene
+83 pruebas sintéticas, compartidas entre backend y VPS; no se cuentan como casos
+reales ni como dos conjuntos independientes. Código probado: Render `89a1a9c`,
+VPS `d0b53ef`, panel `5e0178a`; las revisiones posteriores solo añaden documentación.
 Los recibos finales y revisiones concretas se publican en el handoff del Agent Hub.
 
 ## J. Canary real
