@@ -144,7 +144,8 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
     if(!await association(fresh.order,replies,true))return {eligible:false,reason:'FRESH_ASSOCIATION_REQUIRED'};
     const guard=await inspectPriorOrderReturn(incident);if(guard.verified||guard.blocked)return {eligible:false,reason:'PRIOR_RETURN_GUARD'};
     const legacy=deliveryReplyPlan({incident:scoped,...fresh,messages:replies});
-    return (await prepareCustomerCare(legacy,{incident:scoped,...fresh,messages:replies},{control})).plan;
+    const freshCareControl=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
+    return (await prepareCustomerCare(legacy,{incident:scoped,...fresh,messages:replies},{control:freshCareControl})).plan;
    };
    const result=await executeDeliveryReply(plan,{
     revalidate,readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:async receipt=>{
