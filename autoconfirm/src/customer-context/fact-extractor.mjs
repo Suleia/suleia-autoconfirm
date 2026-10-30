@@ -174,6 +174,10 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   if(/^(?:otro dia|otro dia o datos)[.! ]*$/.test(t)){put('WANTS_ORDER',true);unresolved.add('DELIVERY_DATE');}
   if(/gls.*(?:el \d+ lo recojo|recoger)|donde ir a recogerlo|direccion.*para ir a recogerlo/.test(t)){put('REQUESTS_AGENCY',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}
   if(/me (?:h?an|a) dicho|medujo el repartidor/.test(t))put('REPORTS_CARRIER_PLAN',true);
+  if(/no vino nadie|como q no habia alguien|no es posible.*no hubiese nadie/.test(t)){put('REPORTS_NO_DELIVERY_ATTEMPT',true);if(!facts.get('WANTS_RETURN')?.value)put('WANTS_ORDER',true);}
+  if(/(?:por la manana|la manana).*no estoy/.test(t)&&facts.has('TIME_FROM')&&!/por la tarde|de la tarde/.test(t)){
+    facts.get('TIME_FROM').confidence=.55;unresolved.add('TIME_FROM');
+  }
   if(/(?:me dijeron|me han dicho|medijo|me dijo)/.test(t)&&!requestsDelivery)put('REPORTS_CARRIER_PLAN',true);
   // Conditional acceptance/refusal is evidence for review, never an unconditional instruction.
   if(/\b(?:solo si|si no (?:es|mandais|es asi)|si (?:yo )?veo|tal vez|quizas)\b/.test(t)){

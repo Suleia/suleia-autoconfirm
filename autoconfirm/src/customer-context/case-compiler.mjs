@@ -39,6 +39,7 @@ export function compileCustomerCase(input,previous=null){
     const result=extractCustomerFacts(event,{question:replied?contextualQuestion(replied.message):question,offerVerified:offer,incidentType:base.current_incident_type,current,structuredButton});
     if(event.message.payload?.reply_to_mid&&!replied){result.unresolved.push('UNVERIFIED_REPLY_REFERENCE');}
     for(const fact of result.facts)if(fact.confidence>=.9)slotUncertainty.delete(fact.type);
+    if(result.facts.some(f=>['TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(f.type)&&f.confidence>=.9))slotUncertainty.delete('DELIVERY_WINDOW');
     for(const type of result.unresolved)if(['TIME_FROM','TIME_TO','DELIVERY_DATE','DELIVERY_WINDOW'].includes(type))slotUncertainty.add(type);
     if(result.facts.some(f=>!['GREETING','THANKS','REQUESTS_CONTACT','CALL_BEFORE_ARRIVAL'].includes(f.type))||result.unresolved.length){unresolved=result.unresolved;contradictions=result.contradictions;}
     if(result.facts.some(f=>f.type==='WANTS_RETURN'&&f.value===true&&f.confidence>=.9))slotUncertainty.clear();
