@@ -189,7 +189,8 @@ export function buildCustomerCase(input,previous=null){
  for(const c of state.clarifications){const answer=events.find(m=>isCustomerInteraction(m)&&messageTimestamp(m)>Date.parse(c.sent_at));if(answer){c.answered_at=iso(messageTimestamp(answer));c.answer_hash=hash(addressMessageText(answer));c.status='ANSWERED';}}
  for(let i=1;i<state.clarifications.length;i++){const a=state.clarifications[i-1],b=state.clarifications[i];if(!a.answered_at||a.answered_at>b.sent_at)state.findings.push({code:'REPEATED_CLARIFICATION',severity:'HIGH',previous_hash:a.message_hash,current_hash:b.message_hash});}
  state.timeline=[...new Map(state.timeline.map(e=>[hash(e),e])).values()].slice(-100);
- state.input_hash=hash(events.map(m=>[m.id||m.mid,messageTimestamp(m),hash(m)]));state.has_current_reply=!!lastInbound&&messageTimestamp(lastInbound)>=Date.parse(incident?.incidenceDate||order.createdAt);
+ // Hash customer/provider evidence, not changing UI counters or pause metadata.
+ state.input_hash=hash(events.map(m=>[m.id||m.mid,messageTimestamp(m),isCustomerInteraction(m),m.msg_type,addressMessageText(m),m.payload?.name,m.payload?.body,m.payload?.reply_to_mid,extractWamid(m)]));state.has_current_reply=!!lastInbound&&messageTimestamp(lastInbound)>=Date.parse(incident?.incidenceDate||order.createdAt);
  if(state.delivery_date&&state.delivery_date<madridDate(now)){state.expired_delivery_date=state.delivery_date;state.delivery_date=null;state.delivery_window=null;state.time_from=null;state.time_to=null;}
  return state;
 }
