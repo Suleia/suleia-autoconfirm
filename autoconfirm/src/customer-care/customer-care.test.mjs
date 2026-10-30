@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildCustomerCase,interpretMessage,OWNERS} from './context.mjs';
 import {routeCustomerCase,requiredMissingSlots,responseForPlan,assertFreshPlan} from './policy.mjs';
-import {interpretCustomerCase,observeCustomerCare,compareCareReplay} from './runtime.mjs';
+import {interpretCustomerCase,observeCustomerCare,compareCareReplay,followCustomerCare} from './runtime.mjs';
 import {decorateClarification,revalidateCarePlan} from './clarification-adapter.mjs';
 import {createCustomerCareStore} from './store.mjs';
 
@@ -141,4 +141,13 @@ test('a separately supplied postcode preserves the literal partial address',()=>
 test('existing owner default schedule avoids asking an unnecessary date/window',()=>{
  const a=care([inbound('Sigo esperando, nadie ha venido')],{policy:{requireDeliveryDate:true,requireDeliveryWindow:true,ownerProvidesDefaultSchedule:true}});
  assert.equal(a.next_best_action,'DELEGATE');assert.equal(a.capability,'REDELIVERY');assert.equal(a.delivery_date,null);
+});
+test('leaving the pending list is not a resolution; only actual provider outcome closes',async()=>{
+ const state=care([inbound('Mañana por la tarde')]);const previous={value:state,updated_at:state.updated_at};let saved=null;
+ const store={save:async s=>{saved=s;}};
+ for(const status of ['ERROR','DELIVERED','RETURNED','CANCELLED']){
+  await followCustomerCare(previous,[],{store,now,readCurrent:async()=>({order:{orderId:'90001',status},issue:{id:'80001',status:'RESOLVED'}})});
+  assert.equal(saved.status,status==='ERROR'?'WAITING_PROVIDER':'CLOSED');
+ }
+ const next=context();next.incident.incidenceId='80002';await followCustomerCare(previous,[next],{store,now,readCurrent:async()=>({order:{orderId:'90001',status:'ERROR'},issue:{id:'80001',status:'RESOLVED'}})});assert.equal(saved.reason,'NEW_INCIDENT');assert.equal(saved.linked_next_issue_id,'80002');
 });

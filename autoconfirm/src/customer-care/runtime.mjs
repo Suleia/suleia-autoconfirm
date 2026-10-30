@@ -1,6 +1,7 @@
 import {buildCustomerCase,hash} from './context.mjs';
 import {careFlags,routeCustomerCase,applyCarePlan,responseForPlan} from './policy.mjs';
 import {createCustomerCareStore} from './store.mjs';
+import {readDropeaV2ReturnIssueState} from '../clients/dropea-v2-incidents.mjs';
 
 export function carePolicyFor({incident,order,issue}){
  const raw=issue?.raw||issue||{};
@@ -34,7 +35,19 @@ export function customerCareMetrics(cases){
 
 // Observation only: no action client/sender is imported or supplied. The owner
 // loops have already run, and failures here cannot interrupt their behaviour.
-export async function observeCustomerCare(items,{env=process.env,store=createCustomerCareStore(),now=Date.now(),policyFor=carePolicyFor}={}){
+export async function followCustomerCare(previous,currentItems,{readCurrent=readDropeaV2ReturnIssueState,store,now=Date.now()}={}){
+ const old=previous.value,caseState=structuredClone(old);
+ const read=await readCurrent({orderId:old.dropea_order_id,incidenceId:old.active_issue_id},{includeOrder:true});
+ if(String(read.order?.orderId)!==old.dropea_order_id||String((read.issue?.raw||read.issue)?.id)!==old.active_issue_id)throw Error('CARE_FOLLOWUP_IDENTITY');
+ const next=currentItems.find(i=>String(i.order?.orderId)===old.dropea_order_id&&String(i.incident?.incidenceId)!==old.active_issue_id);
+ caseState.current_order_state=read.order.status;caseState.updated_at=new Date(now).toISOString();
+ if(next){caseState.status='HUMAN_REVIEW';caseState.next_best_action='HUMAN_REVIEW';caseState.reason='NEW_INCIDENT';caseState.linked_next_issue_id=String(next.incident.incidenceId);}
+ else if(['DELIVERED','RETURNED','CANCELLED'].includes(read.order.status)){caseState.status='CLOSED';caseState.logistics_outcome=read.order.status;caseState.next_best_action='WAITING_PROVIDER';caseState.reason='PROVIDER_OUTCOME_VERIFIED';caseState.waiting_for_provider=false;caseState.waiting_for_customer=false;}
+ else {caseState.status='WAITING_PROVIDER';caseState.next_best_action='WAITING_PROVIDER';caseState.reason='PROVIDER_OUTCOME_PENDING';caseState.waiting_for_provider=true;}
+ caseState.timeline=[...caseState.timeline,{kind:'PROVIDER_FOLLOWUP',at:caseState.updated_at,outcome:caseState.logistics_outcome||'PENDING',provider_issue_status:(read.issue?.raw||read.issue).status}].slice(-100);
+ await store.save(caseState,previous);return caseState;
+}
+export async function observeCustomerCare(items,{env=process.env,store=createCustomerCareStore(),now=Date.now(),policyFor=carePolicyFor,readCurrent=readDropeaV2ReturnIssueState}={}){
  const flags=careFlags(env);if(!flags.enabled||!flags.context)return {enabled:false};
  const cases=[];let failures=0,next=0;
  const worker=async()=>{while(next<items.length){const item=items[next++];try{
@@ -46,15 +59,25 @@ export async function observeCustomerCare(items,{env=process.env,store=createCus
   await store.save(care,previous);item.incident.customerCare=care;cases.push(care);
  }catch{failures++;item.incident.customerCare={mode:flags.mode,status:'HUMAN_REVIEW',next_best_action:'HUMAN_REVIEW',reason:'CUSTOMER_CARE_OBSERVATION_UNAVAILABLE',owner:'HUMAN'};}}};
  await Promise.all(Array.from({length:Math.min(3,items.length)},worker));
- return {enabled:true,mode:flags.mode,provider_writes:0,failures,metrics:customerCareMetrics(cases)};
+ let followed=0;
+ if(store.listOpen){
+  try{const active=new Set(cases.map(c=>`${c.dropea_order_id}:${c.active_issue_id}`));
+   const prior=(await store.listOpen()).filter(r=>!active.has(`${r.value.dropea_order_id}:${r.value.active_issue_id}`)&&r.value.active_issue_id).slice(0,3);
+   for(const previous of prior){try{await followCustomerCare(previous,items,{readCurrent,store,now});followed++;}catch{failures++;}}
+  }catch{failures++;}
+ }
+ return {enabled:true,mode:flags.mode,provider_writes:0,failures,followed,metrics:customerCareMetrics(cases)};
 }
 
 export function compareCareReplay(rows){
- const report={cases_reviewed:rows.length,same_decision:0,improved_decision:0,fewer_clarification_opportunities:0,change_of_mind_detected:0,wrong_question_avoided:0,human_review_changed:0,unverified_context:0};
+ const report={cases_reviewed:rows.length,same_decision:0,improved_decision:0,changed_other:0,fewer_clarification_opportunities:0,change_of_mind_detected:0,wrong_question_avoided:0,human_review_changed:0,unverified_context:0};
  for(const {care,baseline}of rows){
   const clarifies=baseline?.kind==='CLARIFY',suppressed=clarifies&&care.next_best_action!=='RESPOND';
   if(!care.input_hash)report.unverified_context++;
-  if(suppressed){report.fewer_clarification_opportunities++;report.improved_decision++;}else if(baseline?.next_best_action===care.next_best_action)report.same_decision++;
+  const baselineAction=baseline?.next_best_action||(baseline?.kind==='CLARIFY'?'RESPOND':baseline?.kind==='SOLUTION'?'DELEGATE':/NO_CURRENT_DELIVERY_REPLY/.test(baseline?.reason||'')?'WAITING_CUSTOMER':'HUMAN_REVIEW');
+  const improves=clarifies&&['WAITING_CUSTOMER','DELEGATE'].includes(care.next_best_action);
+  if(suppressed)report.fewer_clarification_opportunities++;
+  if(improves)report.improved_decision++;else if(baselineAction===care.next_best_action)report.same_decision++;else report.changed_other++;
   if(clarifies&&(baseline?.reason==='PAYMENT_OR_PRICE_NEEDS_CONFIRMATION'||care.wants_order&&care.missing_slots?.length<2))report.wrong_question_avoided++;
   if(care.change_of_mind_detected)report.change_of_mind_detected++;
   if((baseline?.status==='HUMAN_REVIEW')!==(care.next_best_action==='HUMAN_REVIEW'))report.human_review_changed++;

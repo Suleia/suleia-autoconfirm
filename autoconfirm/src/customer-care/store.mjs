@@ -5,6 +5,7 @@ export function createCustomerCareStore({enabled=isSupabaseEnabled,select=select
  const requireEnabled=()=>{if(!enabled())throw Error('CUSTOMER_CARE_DURABLE_STORE_UNAVAILABLE');};
  return {
   async load(identity){requireEnabled();const rows=await select('app_state',{query:{key:'eq.'+caseKey(identity),select:'key,value,updated_at'},limit:1,timeoutMs:5000});return rows[0]||null;},
+  async listOpen(){requireEnabled();return select('app_state',{query:{key:'like.customer_care_case:*','value->>status':'neq.CLOSED',order:'updated_at.asc',select:'key,value,updated_at'},limit:10,timeoutMs:5000});},
   async save(state,previous=null){
    requireEnabled();const key=caseKey(state);
    const semantic={...state,updated_at:undefined,timeline:undefined};
