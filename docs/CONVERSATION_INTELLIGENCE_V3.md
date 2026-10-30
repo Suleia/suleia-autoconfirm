@@ -196,6 +196,12 @@ El reader sigue en `suleia-customer-care-ingestion:dbaaef7`. Render usa rama `ma
 con despliegue automático desactivado. Publicar estas ramas/PR no despliega V3.
 No se han cambiado contenedores, servicios, variables, controles ni calendarios.
 
+Una consulta posterior de solo lectura encontró 37 filas marcadas activas en el
+modelo local, con asociaciones FOUND fechadas entre 18/08 y 30/10 a las 22:18 UTC.
+Ese inventario local no equivale a 37 incidencias actuales verificadas en Dropea
+y no constituye un replay fresco completo. No se forzó otra sincronización ni
+se reutilizó una asociación antigua como autorización para actuar.
+
 ## L. Métricas
 
 El observador separa mensajes procesados, hechos extraídos/sustituidos, confianza,
