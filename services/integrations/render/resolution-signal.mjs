@@ -1,3 +1,4 @@
+import {normalizeCustomerCareSignal} from './customer-care-signal.mjs';
 const code=v=>typeof v==='string'&&/^[A-Z][A-Z0-9_]{0,100}$/.test(v)?v:null;
 const date=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))?new Date(v).toISOString():null;
 const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)?v:null;
@@ -18,5 +19,6 @@ export function normalizeResolutionSignal(row){
   resolution_plan:plan?{plan_id:hash(plan.plan_id),input_hash:hash(plan.input_hash),status:code(plan.status),created_at:date(plan.created_at),superseded_at:date(plan.superseded_at),
     steps:(plan.steps||[]).map(s=>({action:code(s.action),capability:code(s.capability),dependency:code(s.dependency),status:code(s.status),verification:code(s.verification)}))}:null
  };
+ const care=normalizeCustomerCareSignal(row);if(care)observation.customer_care=care;
  return {dropea_issue_id:String(row.incidence_id),dropea_order_id:String(row.order_id),observation,source_updated_at:observation.observed_at};
 }

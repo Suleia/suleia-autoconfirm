@@ -5,6 +5,25 @@ const IncidentPanel=(()=>{
   const icon=(kind,tone='blue')=>{const n=node('span',`ip-icon ${tone}`);n.append(recoveryIcon(kind));return n;};
   const badge=(label,tone)=>node('span',`ip-badge ${tone}`,label);
   const copy=(primary,secondary='')=>{const n=node('div','ip-copy');n.append(node('strong','',primary));if(secondary)n.append(node('small','',secondary));return n;};
+  function customerCareCard(c){
+    const card=node('details','ip-resolution customer-care-context');card.append(node('summary','',`Contexto de atención · ${c.mode||'SHADOW'}`));
+    if(c.next_best_action==='HUMAN_REVIEW')card.open=true;
+    card.addEventListener('click',event=>event.stopPropagation());
+    const labels={WAITING_CUSTOMER:'Esperar al cliente',WAITING_PROVIDER:'Esperar al proveedor',RESPOND:'Preparar respuesta',DELEGATE:'Delegar al workflow responsable',HUMAN_REVIEW:'Revisión humana'};
+    for(const [label,value]of [
+      ['Intención actual',(c.intents||[]).join(' + ')||'Por verificar'],
+      ['Quiere recibirlo',c.wants_order===true?'Sí':c.wants_order===false?'No':'Por verificar'],
+      ['Datos conocidos',[(c.known_slots||[]).join(', '),c.delivery_date,({MORNING:'Mañana',AFTERNOON:'Tarde'})[c.delivery_window],c.time_from?'Desde '+c.time_from:null,c.time_to?'Hasta '+c.time_to:null,c.call_before_arrival?'Llamar antes':null].filter(Boolean).join(' · ')||'Sin datos verificados'],
+      ['Datos faltantes',(c.missing_slots||[]).join(' · ')||'Ninguno adicional'],
+      ['Última pregunta',[c.last_question_type,c.last_question_at?incidentDate(c.last_question_at):null].filter(Boolean).join(' · ')||'Ninguna verificada'],
+      ['Siguiente paso',labels[c.next_best_action]||c.next_best_action||'Por verificar'],['Responsable',c.owner||'HUMAN'],
+      ['Esperando a',c.waiting_for_customer?'Cliente':c.waiting_for_provider?'Proveedor':'Workflow responsable'],
+      ['Última acción verificada',c.last_verified_action?.action||'Ninguna'],['Motivo',c.reason||'Por verificar']
+    ])card.append(node('small','',label+': '+value));
+    const timeline=(c.timeline||[]).map(t=>[t.kind,(t.intents||[]).join(' + '),t.action,t.owner].filter(Boolean).join(' · ')).join(' → ');
+    if(timeline)card.append(node('small','',`Cronología: ${timeline}`));
+    card.append(node('small','ip-date',`Revisión · ${incidentDate(c.updated_at)} · conversación v${c.conversation_version??'—'}`));return card;
+  }
   function row(item){
     const d=item.dashboard,r=item.recovery||{},e=r.evidence||{},type=types[item.interpreted_type]||['Incidencia por revisar','Otros','gray','warning'];
     const tr=node('tr','ip-row');tr.tabIndex=0;tr.setAttribute('aria-label',`Abrir incidencia ${item.dropea_issue_id}`);
@@ -24,6 +43,7 @@ const IncidentPanel=(()=>{
     if(e.customer_interacted && e.response_at)evidenceText.append(node('small','ip-date',`Chatby · ${incidentDate(e.response_at)} · ${Date.parse(e.response_at)>Date.parse(item.created_at)?'tras la apertura':Date.parse(e.response_at)<=Date.parse(item.created_at)?'anterior o simultánea a esta incidencia':'relación temporal por verificar'}`));
     if(acceptance){evidenceText.append(badge(acceptance.label,'amber'),node('small','ip-date',`Aceptación · ${incidentDate(acceptance.accepted_at)}`));}
     evidence.append(evidenceText,node('span','ip-chevron','›'));
+    if(item.resolution_observation?.customer_care)evidenceText.append(customerCareCard(item.resolution_observation.customer_care));
     const action=node('div','ip-action'),stale=d.action==='Actualizar evidencia';
     const title=stale?({REFUSED_BY_RECIPIENT:'Revisar evidencia de rechazo',ADDRESS_INCORRECT:'Revalidar la dirección',RECIPIENT_ABSENT:'Revalidar aviso de ausencia',PICKUP_AT_AGENCY:'Verificar recogida en agencia'}[item.interpreted_type]||d.action):d.action;
     action.append(icon(d.flags.WAITING_CUSTOMER?'clock':type[3],d.flags.WAITING_CUSTOMER?'amber':type[2]),copy(title,stale?'Fuentes pendientes de validar':d.action_detail));
