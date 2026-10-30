@@ -1,6 +1,7 @@
 import {interpretMessage,fold,hash} from '../customer-care/context.mjs';
 import {madridDate} from '../workflows/incident-intent-v2.mjs';
 import validateOutput from './fact-validator.generated.mjs';
+import {correctTemporalFacts} from './temporal-facts.mjs';
 
 const slots={wants_order:'WANTS_ORDER',wants_return:'WANTS_RETURN',cancel_intent:'CANCEL_INTENT',
   delivery_date:'DELIVERY_DATE',delivery_window:'DELIVERY_WINDOW',time_from:'TIME_FROM',time_to:'TIME_TO',
@@ -39,6 +40,7 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
     put(slots[key],key==='address'?Object.fromEntries(addressFields.filter(k=>typeof value[k]==='string').map(k=>[k,value[k]])):value);
   }
   for(const intent of parsed.intents)if(boolTypes.has(intent))put(intent,true);
+  for(const [key,type]of Object.entries(slots))if(parsed.facts[key]===false)put(type,false);
   if(parsed.facts.address){
     for(const [key,type]of [['postal_code','POSTAL_CODE'],['city','CITY'],['province','PROVINCE']])if(parsed.facts.address[key])put(type,parsed.facts.address[key]);
   }
@@ -137,10 +139,41 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
     else put(/recib/.test(t)?'REPORTS_RECEIVED':'REPORTS_CARRIER_PLAN',true);
   }
   if(parsed.confidence<.65&&!facts.size&&!unresolved.size)unresolved.add('UNCLASSIFIED_CUSTOMER_TEXT');
-  for(const type of ['WANTS_ORDER','WANTS_RETURN','CANCEL_INTENT']){
-    // Explicit source slots override incidental intent names from the old parser.
-    const key=Object.keys(slots).find(k=>slots[k]===type);
-    if(parsed.facts[key]===false&&!/no quiero devolverlo|no quiero cancelar/.test(t))put(type,false);
+  correctTemporalFacts(event,{facts,unresolved,put,question,current});
+  const yes=/^(?:s+i+|ok(?:ey)?|vale|de acuerdo|claro|acepto|perfecto)(?: por favor)?[!. ,]*$/.test(t);
+  const no=/^no(?:[ ,]+(?:m?gracias|por favor))?[!. ,]*$/.test(t);
+  if((yes||no)&&question==='AGENCY_PICKUP'){
+    put('REQUESTS_AGENCY',yes);facts.delete('WANTS_RETURN');facts.delete('CANCEL_INTENT');
+    if(yes){put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}unresolved.clear();
+  }else if(yes&&['WANTS_ORDER','CONFIRM_ORDER'].includes(question)){
+    put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('CANCEL_INTENT',false);unresolved.clear();
+  }else if(no&&question==='WANTS_ORDER'){
+    put('WANTS_RETURN',true);put('WANTS_ORDER',false);put('CANCEL_INTENT',true);unresolved.clear();
+  }
+  const originDisputed=/no (?:lo )?(?:he |e |ha )?(?:realizado|hecho|echo|pedido)|no hice (?:el|este) pedido|yo no pedi/.test(t);
+  if(originDisputed){
+    for(const type of ['WANTS_ORDER','WANTS_RETURN','CANCEL_INTENT','REQUESTS_REDELIVERY'])facts.delete(type);
+    unresolved.add('ORDER_ORIGIN_DISPUTED');
+  }
+  const explicitRefusal=/no (?:me )?lo (?:mandes|mande|manden|envies|envie|envien)|no lo envien|no queremos (?:el )?producto|ya no me interesa|ya no necesito|no quiero (?:nada|el producto)|no (?:lo )?voy a recibir/.test(t)&&!originDisputed;
+  if(explicitRefusal){put('WANTS_RETURN',true);put('WANTS_ORDER',false);put('CANCEL_INTENT',true);}
+  const explicitDesire=/mandamela|mandamelo|ya me podeis mandar|me traigan|lo he aceptado|lo espero|si que me interesa el producto|quiero.*recibir|manda lo hoy aceptare/.test(t)&&!explicitRefusal&&!originDisputed;
+  if(explicitDesire){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('CANCEL_INTENT',false);}
+  if(/(?:ire|voy|recojo|recoger|retirar).*\b(?:agencia|oficina)\b/.test(t)){put('REQUESTS_AGENCY',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}
+  if(/(?:y )?(?:precio|cantidad contrareembolso)\s*[?¿]|cuanto.*(?:pagar|cobrar)/.test(t))put('ASKS_PAYMENT',true);
+  if(/que (?:crema|pedido|producto)|crema.*falsa|como.*(?:usa|aplica)|no me acuerdo.*pedi/.test(t))put(/como.*(?:usa|aplica)/.test(t)?'ASKS_USAGE':'ASKS_PRODUCT',true);
+  if(/(?:ya lo tengo|me ha llegado|ya lo he recogido)/.test(t)&&!/no (?:me )?ha llegado|no lo tengo/.test(t))put('REPORTS_RECEIVED',true);
+  if(/(?:me dijeron|me han dicho|medijo|me dijo)/.test(t)&&!requestsDelivery)put('REPORTS_CARRIER_PLAN',true);
+  // Conditional acceptance/refusal is evidence for review, never an unconditional instruction.
+  if(/\b(?:solo si|si no (?:es|mandais|es asi)|si (?:yo )?veo|tal vez|quizas)\b/.test(t)){
+    for(const type of ['WANTS_ORDER','WANTS_RETURN','CANCEL_INTENT','REQUESTS_AGENCY','REQUESTS_REDELIVERY'])if(facts.has(type))facts.get(type).confidence=.55;
+    unresolved.add('CONDITIONAL_OR_CONTRADICTORY_INTENT');
+  }
+  if(current.WANTS_RETURN===true&&!explicitDesire&&!explicitRefusal&&!(yes&&question==='WANTS_ORDER')&&![...facts.values()].some(f=>f.type==='WANTS_RETURN'&&f.value===true)){
+    // Availability supplied while explaining an existing refusal is not consent.
+    if(facts.has('DELIVERY_DATE')||facts.has('DELIVERY_WINDOW')){
+      facts.delete('WANTS_ORDER');facts.delete('WANTS_RETURN');facts.delete('CANCEL_INTENT');facts.delete('REQUESTS_REDELIVERY');unresolved.add('AVAILABILITY_AFTER_REFUSAL_REQUIRES_REVIEW');
+    }
   }
   if(structuredButton==='REQUEST_RETURN'){put('WANTS_RETURN',true,1);put('WANTS_ORDER',false,1);put('CANCEL_INTENT',true,1);unresolved.clear();}
   if(structuredButton==='ACCEPT_DISCOUNT_5'){

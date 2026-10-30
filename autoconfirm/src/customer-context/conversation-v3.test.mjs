@@ -21,6 +21,37 @@ function input(texts,extra={}){
   binding:{verified:true,orderId:'90001',issueId:'80001',conversationId:'fixture-v3'},...extra};
 }
 const compile=(texts,extra={},prior=null)=>compileCustomerCase(input(texts,extra),prior);
+
+test('answered consent question is consumed before an unrelated later acknowledgment',()=>{
+ const c=compile([message('¿Quiere el pedido?',0,'agent',{mid:'wamid.ask'}),message('No',1),message('Vale',2)]);
+ assert.equal(c.wants_return,true);assert.equal(c.wants_order,false);assert.equal(c.active_outbound_question_type,null);
+});
+test('No to agency pickup declines only pickup, never the goods',()=>{
+ const c=compile(['Quiero el pedido',message('¿Prefiere recoger en la oficina GLS?',1,'agent',{mid:'wamid.pickup'}),message('No',2)]);
+ assert.equal(c.agency_requested,false);assert.equal(c.wants_order,true);assert.equal(c.wants_return,false);
+});
+test('unresolved work-end time survives a later contact instruction',()=>{
+ const c=compile(['Quiero el pedido el sábado','cuando salga del trabajo','que me llamen']);
+ assert.ok(c.missing_information.includes('TIME_FROM'));assert.equal(c.time_from,null);
+});
+test('an availability explanation cannot reverse an explicit refusal',()=>{
+ const c=compile(['No quiero el pedido','Estoy de viaje hasta el día 8']);
+ assert.equal(c.wants_order,false);assert.equal(c.wants_return,true);assert.equal(c.operational_action,'NONE');
+});
+for(const [text,date,window]of [['Mañana estaré en casa','2026-10-31',null],['por la mañana',null,'MORNING'],['MAÑANA POR MAÑANA/TARDE','2026-10-31',null]])test('date/window scope: '+text,()=>{
+ const c=compile([text]);assert.equal(c.delivery_date,date);assert.equal(c.delivery_window,window);
+});
+for(const [text,from,to]of [['a partir de las 17h','17:00',null],['a partir de 12.15h','12:15',null],['de 11 :30 a 13:30','11:30','13:30'],['hasta las 18 h',null,'18:00']])test('clock normalization preserves bounds: '+text,()=>{
+ const c=compile(['Quiero el pedido el sábado',text]);assert.equal(c.time_from,from);assert.equal(c.time_to,to);
+});
+test('work hours and unavailable morning cannot become requested morning delivery',()=>{
+ const c=compile(['Quiero el pedido el sábado','Trabajo de 8 a 3 por la mañana. Por la tarde estaré en casa']);
+ assert.equal(c.delivery_window,'AFTERNOON');assert.equal(c.time_from,null);assert.equal(c.time_to,null);assert.ok(!c.unresolved.includes('INVALID_TIME_RANGE'));
+});
+test('conditional acceptance never creates a high-confidence return instruction',()=>{
+ const c=compile(['Si no es la oferta no me lo quedaré']);assert.notEqual(c.operational_action,'REQUEST_RETURN');
+ assert.ok(!c.current_facts.WANTS_RETURN||c.current_facts.WANTS_RETURN.confidence<.9);
+});
 test('cluster compiles desire, Friday, afternoon and call-before into one case',()=>{
  const c=compile(['Sí quiero el pedido','viernes','por la tarde','llamadme antes','Hola']);
  assert.equal(c.wants_order,true);assert.equal(c.wants_return,false);assert.equal(c.delivery_date,'2026-10-30');assert.equal(c.delivery_window,'AFTERNOON');assert.equal(c.call_before_arrival,true);

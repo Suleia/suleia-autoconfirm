@@ -8,7 +8,7 @@ import {mergeFactLedger,materializeFacts} from './fact-ledger.mjs';
 import {requiredMissingInformation} from './missing-information.mjs';
 import {clarificationGuard} from './clarification-guard.mjs';
 import {composeSafeResponse} from './response-composer.mjs';
-import {contextualQuestion} from './question-context.mjs';
+import {contextualQuestion,remainingQuestion} from './question-context.mjs';
 const branded=new WeakMap();
 const bindings={WANTS_ORDER:'wants_order',WANTS_RETURN:'wants_return',CANCEL_INTENT:'cancel_intent',DELIVERY_DATE:'delivery_date',DELIVERY_WINDOW:'delivery_window',TIME_FROM:'time_from',TIME_TO:'time_to',CALL_BEFORE_ARRIVAL:'call_before_arrival',REQUESTS_AGENCY:'agency_requested',REPORTS_NO_DELIVERY_ATTEMPT:'reports_no_delivery_attempt',ADDRESS:'address',POSTAL_CODE:'postal_code',ADDRESS_CHANGE_REQUESTED:'address_change_requested'};
 const timed=new Set(['TIME_FROM','TIME_TO']);
@@ -20,12 +20,14 @@ export function compileCustomerCase(input,previous=null){
   if(!base.input_hash)return {...base,version:'CONVERSATION_V3',operational_action:'NONE',customer_reply_action:'NONE',decision_reason_codes:[base.reason],release_eligible:false};
   const events=relevantMessageCluster(input),incoming=[],eventVersions={};
   const attemptKey=String(input.deliveryAttemptKey||`${base.dropea_order_id}:${base.active_issue_id}`);
-  let question=null,offer=false,current={},unresolved=[],contradictions=[];
+  let question=null,lastQuestion=null,offer=false,current={},unresolved=[],contradictions=[];
+  const slotUncertainty=new Set();
   for(const event of events){
     eventVersions[event.event_id]=event.source_event_hash;
     if(event.direction==='OUTBOUND'){
       if(extractWamid(event.message)){
         question=contextualQuestion(event.message)||question;
+        if(contextualQuestion(event.message))lastQuestion=question;
         if(contextualQuestion(event.message)==='DISCOUNT')offer=true;
       }
       continue;
@@ -35,7 +37,11 @@ export function compileCustomerCase(input,previous=null){
     const structuredButton=(raw.button_verified===true&&String(raw.order_id)===base.dropea_order_id||replied)?raw.button_payload||null:null;
     const result=extractCustomerFacts(event,{question:replied?contextualQuestion(replied.message):question,offerVerified:offer,incidentType:base.current_incident_type,current,structuredButton});
     if(event.message.payload?.reply_to_mid&&!replied){result.unresolved.push('UNVERIFIED_REPLY_REFERENCE');}
-    if(result.facts.some(f=>!['GREETING','THANKS'].includes(f.type))||result.unresolved.length){unresolved=result.unresolved;contradictions=result.contradictions;}
+    for(const fact of result.facts)if(fact.confidence>=.9)slotUncertainty.delete(fact.type);
+    for(const type of result.unresolved)if(['TIME_FROM','TIME_TO','DELIVERY_DATE','DELIVERY_WINDOW'].includes(type))slotUncertainty.add(type);
+    if(result.facts.some(f=>!['GREETING','THANKS','REQUESTS_CONTACT','CALL_BEFORE_ARRIVAL'].includes(f.type))||result.unresolved.length){unresolved=result.unresolved;contradictions=result.contradictions;}
+    if(result.facts.some(f=>f.type==='WANTS_RETURN'&&f.value===true&&f.confidence>=.9))slotUncertainty.clear();
+    question=remainingQuestion(question,result.facts);
     const relatedDate=result.facts.find(f=>f.type==='DELIVERY_DATE')?.value||current.DELIVERY_DATE||null;
     for(const fact of result.facts){
       current[fact.type]=fact.value;
@@ -44,19 +50,22 @@ export function compileCustomerCase(input,previous=null){
   }
   // These facts come exclusively from trusted workflow/provider inputs, never
   // from the extractor or a semantic response.
-  const systemAt=input.policy?.providerReadAt||input.order.updatedAt||input.order.createdAt;
+  const systemAt=input.policy?.providerReadAt||previous?.trusted_context_first_observed_at||new Date(now).toISOString();
   const controlled=(type,value,authority)=>incoming.push({type,value,authority,confidence:1,source_event_id:hash([type,'trusted']),source_event_hash:hash([type,value,base.dropea_order_id,base.active_issue_id]),source_event_at:systemAt});
-  controlled('WORKFLOW_OWNER',OWNERS.REDELIVERY,'SYSTEM_CONTROLLED');
+  if(input.currentWorkflowOwner&&Object.values(OWNERS).includes(input.currentWorkflowOwner))controlled('WORKFLOW_OWNER',input.currentWorkflowOwner,'SYSTEM_CONTROLLED');
   if(policy.discountAppliedVerified===true)controlled('DISCOUNT_APPLIED_VERIFIED',true,'SYSTEM_CONTROLLED');
   if(policy.lastVerifiedAction?.status==='VERIFIED'&&policy.lastVerifiedAction.at){
     incoming.push({type:policy.lastVerifiedAction.action,value:true,authority:'PROVIDER_VERIFIED',confidence:1,source_event_id:hash(policy.lastVerifiedAction),source_event_hash:hash([base.dropea_order_id,base.active_issue_id,policy.lastVerifiedAction]),source_event_at:policy.lastVerifiedAction.at});
   }
   const ledger=mergeFactLedger(previous?.fact_ledger,incoming,{orderId:base.canonical_order_id,issueId:base.active_issue_id,now,attemptKey,eventVersions});
   const active=materializeFacts(ledger,{now,attemptKey});
-  const state={...base,version:'CONVERSATION_V3',policy,fact_ledger:ledger,current_facts:active,unresolved,contradictions,
+  for(const type of slotUncertainty)if(active[type])active[type].confidence=Math.min(active[type].confidence,.55);
+  unresolved=[...new Set([...unresolved,...slotUncertainty])];
+  const state={...base,version:'CONVERSATION_V3',policy,fact_ledger:ledger,current_facts:active,unresolved,contradictions,trusted_context_first_observed_at:systemAt,
     owner_capabilities:[...new Set(Object.values(OWNERS))],active_workflows:input.activeWorkflows||[],active_waits:input.activeWaits||[],timers:input.timers||[],
     fact_confidence:Object.fromEntries(Object.entries(active).map(([k,v])=>[k,v.confidence]))};
-  state.last_outbound_question_type=question||state.last_outbound_question_type;
+  state.last_outbound_question_type=lastQuestion||state.last_outbound_question_type;
+  state.active_outbound_question_type=question;
   for(const clarification of state.clarifications){
     if(clarification.clarification_type!=='LEGACY_PAYMENT')continue;
     const source=events.find(e=>e.direction==='OUTBOUND'&&extractWamid(e.message)===clarification.provider_message_id);
@@ -69,7 +78,7 @@ export function compileCustomerCase(input,previous=null){
   if(active.ACCEPTS_DISCOUNT?.value_json===true)state.discount_response='ACCEPTED';
   if(active.REJECTS_DISCOUNT?.value_json===true)state.discount_response='REJECTED';
   state.wants_return=state.wants_return===true;state.cancel_intent=state.cancel_intent===true;
-  state.latest_customer_intents=[...new Set([...base.latest_customer_intents.filter(i=>!['AMBIGUOUS','WANTS_ORDER','WANTS_RETURN','ACCEPTS_DISCOUNT','REJECTS_DISCOUNT','REQUESTS_AGENCY'].includes(i)),...Object.values(active).filter(f=>f.value_json===true&&f.authority==='CUSTOMER_DERIVED').map(f=>f.fact_type)])];
+  state.latest_customer_intents=[...new Set([...base.latest_customer_intents.filter(i=>!['AMBIGUOUS','WANTS_ORDER','WANTS_RETURN','ACCEPTS_DISCOUNT','REJECTS_DISCOUNT','REQUESTS_AGENCY'].includes(i)),...Object.values(active).filter(f=>f.value_json===true&&f.confidence>=.9&&f.authority==='CUSTOMER_DERIVED').map(f=>f.fact_type)])];
   state.confidence=Object.values(active).filter(f=>f.authority==='CUSTOMER_DERIVED').reduce((min,f)=>Math.min(min,f.confidence),1);
   // Specific temporal uncertainty belongs to Missing Information, not a global
   // loss of the already-established desire/date/window.
