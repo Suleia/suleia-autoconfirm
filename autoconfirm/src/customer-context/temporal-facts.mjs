@@ -25,17 +25,17 @@ export function correctTemporalFacts(event,{facts,unresolved,put,question,curren
     if(!morningPhrase&&facts.get('DELIVERY_WINDOW')?.value==='MORNING')facts.delete('DELIVERY_WINDOW');
   }
   // Clauses about work or an unavailable window cannot become positive delivery preferences.
-  const temporalText=text.replace(/(\d)\s*[.,]\s*(\d{2})(?:h\b)?/g,'$1:$2 ').replace(/las[. ]*(\d)/g,'las $1').replace(/(\d)(de la|del|a\b)/g,'$1 $2').replace(/delas/g,'de las');
-  const available=temporalText.split(/\b(?:me (?:h?an|a) dicho|me dijo|medijo)\b/)[0].split(/[;.!?]|\bpero\b|\bsino\b|\bporque\b/).filter(s=>!/(?:\btrabajo (?:de|por|desde)|estoy trabajando|no (?:voy a |puedo |estare|estoy|estar)|no.*(?:manana|tarde)|manana.*no estoy)/.test(s)).join(' ');
+  const temporalText=text.replace(/(\d)\s*[.,]\s*(\d{2})(?:h\b)?/g,'$1:$2 ').replace(/las[. ]*(\d)/g,'las $1').replace(/(\d)(de la|del|a\b)/g,'$1 $2').replace(/delas/g,'de las').replace(/por que/g,'porque').replace(/trabajo en la manana (de tarde)/g,'trabajo en la manana; $1');
+  const available=temporalText.replace(/\b(vengan|entreguen) por/g,'; $1 por').split(/\b(?:me (?:h?an|a) dicho|me dijo|medijo)\b/)[0].split(/[;.!?]|\bpero\b|\bsino\b|\bporque\b/).filter(s=>!/(?:\btrabajo (?:de|por|desde|en)|estoy trabajando|no (?:voy a |puedo |estare|estoy|estar)|no.*(?:manana|tarde)|manana.*no estoy)/.test(s)).join(' ');
   const morning=/por (?:la|las) manana|en la manana|de la manana|toda la manana|la manana|^manana[.! ]*$/.test(available)&&!(tomorrow&&!morningPhrase&&question!=='TIME_WINDOW');
-  const afternoon=/por (?:la|las) tarde|de la tarde|en la tarde|esta tarde|^tarde[.! ]*$/.test(available);
+  const afternoon=/por (?:la|las) tarde|de la tarde|en la tarde|\b(?:en|de) tardes?\b|esta tarde|^tarde[.! ]*$/.test(available);
   if(!nativeAlternative){
     if(morning&&!afternoon){put('DELIVERY_WINDOW','MORNING');unresolved.delete('CONTRADICTORY_WINDOW');unresolved.delete('NEGATED_DELIVERY_PREFERENCE');}
     else if(afternoon&&!morning){put('DELIVERY_WINDOW','AFTERNOON');unresolved.delete('CONTRADICTORY_WINDOW');unresolved.delete('NEGATED_DELIVERY_PREFERENCE');}
     else if(!morning&&!afternoon&&(/no.*(?:manana|tarde)|manana.*no estoy|trabajo.*(?:manana|tarde)/.test(text)))facts.delete('DELIVERY_WINDOW');
   }
   if(alternativeDays.length>1){facts.delete('DELIVERY_DATE');unresolved.add('DELIVERY_DATE');}
-  const numbered=/\b(?:el|dia+|eldia)\s*(\d{1,2})(?![\d:.,])\b/.exec(text)||/\b(\d{1,2}) (?:d|de) este mes\b/.exec(text);
+  const numbered=/\bel (\d{1,2}) (?:lo recojo|lo recogere|lo recibo)\b/.exec(text)||/\b(?:el|dia+|eldia)\s*(\d{1,2})(?![\d:.,])\b/.exec(text)||/\b(\d{1,2}) (?:d|de) este mes\b/.exec(text);
   if(numbered&&!/\b(?:ayer|dia anterior)\b/.test(text)){
     let year=+day.slice(0,4),month=+day.slice(5,7),date=+numbered[1];
     if(/mes (?:q|que|k) (?:viene|biene)|mes siguiente/.test(text)||date<+day.slice(8))if(++month===13){month=1;year++;}
@@ -70,7 +70,8 @@ export function correctTemporalFacts(event,{facts,unresolved,put,question,curren
   if(bare){const value=resolve(bare[1],bare[2]);if(value){put('TIME_FROM',value);unresolved.delete('UNCLASSIFIED_CUSTOMER_TEXT');}}
   // Recounting a carrier promise/past failed attempt is not a new chosen day.
   const reportsPast=/\b(?:me dijeron|me han dicho|medijo|me dijo|ayer|he estado|estuve)\b|no (?:ha|han|a|an) venido|aqui no.*venido/.test(text);
-  const ownPreference=/\b(?:prefiero|quiero|pueden venir|podeis venir|vengan|entreguen|desde las|a partir|estoy.*(?:hasta|desde))\b/.test(text);
+  const ownPreference=/\b(?:prefiero|quiero|pueden venir|podeis venir|vengan|entreguen|desde las|a partir|(?:estoy|estare|voy (?:a )?estar).*(?:hasta|desde))\b/.test(text);
   if((reportsPast||facts.get('ASKS_DELIVERY_DATE')?.value)&&!ownPreference){for(const key of temporal)facts.delete(key);}
+  if(/esta manana (?:no he salido|he estado)/.test(text)&&/vengan por (?:la|las) tarde/.test(text))facts.delete('DELIVERY_DATE');
   if(/\b(?:hasta|asta) dia\s*\d/.test(text)&&!/(?:recibir|entregar|traer|pueden venir)/.test(text)){facts.delete('DELIVERY_DATE');unresolved.add('DELIVERY_DATE');}
 }

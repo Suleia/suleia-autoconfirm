@@ -22,6 +22,20 @@ function input(texts,extra={}){
 }
 const compile=(texts,extra={},prior=null)=>compileCustomerCase(input(texts,extra),prior);
 
+test('explicit pickup date wins over travel-return date in the same message',()=>{
+ const c=compile(['No regreso hasta el 8, guárdenlo en GLS y el 9 lo recojo']);assert.equal(c.delivery_date,'2026-11-09');assert.equal(c.agency_requested,true);
+});
+test('recurring afternoon is retained while the morning clause describes work',()=>{
+ const c=compile(['Quiero el pedido','En tardes por que trabajo en la mañana']);assert.equal(c.delivery_window,'AFTERNOON');
+});
+test('a precise current upper bound is preserved alongside a past-delivery complaint',()=>{
+ const c=compile(['Ayer me dijeron otra cosa. Ahora voy estar en casa hasta las 18 h']);assert.equal(c.time_to,'18:00');
+});
+test('a denied morning attempt does not overwrite a future chosen day with a past report',()=>{
+ const c=compile(['Mañana por la tarde','Esta mañana no he salido de casa, no es posible que no hubiese nadie, vengan por las tardes']);
+ assert.equal(c.delivery_date,'2026-10-31');assert.equal(c.delivery_window,'AFTERNOON');assert.equal(c.reports_no_delivery_attempt,true);
+});
+
 test('a newly received date completes persisted window validity and retains the old record',()=>{
  const old=compile(['Por la mañana']);
  const later=compile(['Por la mañana','El sábado'],{now:Date.parse('2026-11-02T10:00:00Z')},old);
