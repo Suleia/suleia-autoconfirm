@@ -152,6 +152,7 @@ export function buildCustomerCase(input,previous=null){
   // A structured answer must refer to a real outgoing message in THIS transcript.
   const replied=event.payload?.reply_to_mid&&events.find(m=>!isCustomerInteraction(m)&&extractWamid(m)===event.payload.reply_to_mid&&messageTimestamp(m)<at);
   const parsed=interpretMessage(event,{question:replied?questionContext(replied):question,offerVerified:offer,at,incidentType:incident?.incidentType});
+  if(interpreted.latest_intent_at===iso(at)&&interpreted.wants_order!==null&&parsed.facts.wants_order!==undefined&&interpreted.wants_order!==parsed.facts.wants_order){parsed.uncertainties.push('SIMULTANEOUS_CONTRADICTORY_EVENTS');parsed.intents.push('AMBIGUOUS');parsed.confidence=0.5;}
   lastInbound=event;
   const meaningful=parsed.intents.some(i=>!['GREETING','THANKS','IRRELEVANT'].includes(i));
   if(meaningful){latestIntents=parsed.intents;confidence=parsed.confidence;interpreted.latest_intent_at=iso(at);}

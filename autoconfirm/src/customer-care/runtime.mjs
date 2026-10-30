@@ -23,7 +23,7 @@ export function interpretCustomerCase(input,previous=null){
  return applyCarePlan(built,routeCustomerCase(built,policy));
 }
 export function customerCareMetrics(cases){
- const total=cases.length,withReply=cases.filter(c=>c.has_current_reply),verified=cases.filter(c=>c.last_verified_action?.status==='VERIFIED');
+ const total=cases.length,withReply=cases.filter(c=>c.has_current_reply),verified=cases.filter(c=>c.last_verified_action?.status==='VERIFIED'&&Number.isFinite(Date.parse(c.last_verified_action.at))&&Date.parse(c.last_verified_action.at)>=Date.parse(c.latest_intent_at));
  const outcome=cases.filter(c=>['DELIVERED','RETURNED'].includes(c.current_order_state)&&c.last_verified_action?.status==='VERIFIED');
  const clarificationCount=cases.reduce((n,c)=>n+(c.clarifications||[]).length,0);
  const times=outcome.map(c=>Date.parse(c.updated_at)-Date.parse(c.latest_intent_at)).filter(n=>Number.isFinite(n)&&n>=0).sort((a,b)=>a-b);
