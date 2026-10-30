@@ -77,12 +77,11 @@ Corpus de **380 casos genuinos**, de pedidos distintos, procedentes de la histor
 local cifrada ya existente. No se generaron casos reales a partir de variaciones
 sintéticas. La extracción no hizo llamadas a Chatby ni escrituras en fuentes.
 
-Se revisaron privadamente **340 contextos** con autorización expresa del usuario.
+Se revisaron privadamente **los 380 contextos** con autorización expresa del usuario.
 Se fijaron expectativas a partir de sus mensajes, no a partir de la predicción
-del compilador. **307 casos históricos completos** son puntuables; 31 casos
+del compilador. **345 casos históricos completos** son puntuables; 32 casos
 activos tienen revisión de contexto pendiente de validación operativa completa
-y dos contextos adicionales se excluyeron por información insuficiente.
-Los 40 restantes del corpus no se presentan como revisados manualmente.
+y tres contextos adicionales se excluyeron por información insuficiente.
 
 La anotación evalúa una proyección de hechos centrales, no todos los hechos
 posibles ni capacidad de generalización a conversaciones no vistas. Contrato:
@@ -94,7 +93,7 @@ pagos, preguntas de producto, intentos de entrega disputados y caducidad.
 Las pruebas sintéticas se contabilizan por separado.
 
 Huella SHA-256 del corpus revisado congelado:
-`c71f540c2d290dd86f699737b2f7b51d414e3f6b7d06af0364bc6cc85ffc68fc`.
+`b2a56686413d99dd74aef8c90daa5f084ba59aa5ce58a610b67674ab5e2228c2`.
 La huella del corpus inicial y los recibos completos están en el expediente
 privado del servidor. El saneado puede dejar información residual; precisamente
 por eso la revisión autorizada y los textos permanecen privados.
@@ -102,24 +101,24 @@ por eso la revisión autorizada y los textos permanecen privados.
 ## E. Comparación V2/V3 y resultados
 
 Replay offline de los 380 casos: cero fallos de compilación, llamadas a proveedores
-o escrituras en fuentes. El candidato `89a1a9c` obtuvo:
+o escrituras en fuentes. El candidato `2adca6c` obtuvo:
 
-| Comprobación en los 307 casos anotados | Resultado |
+| Comprobación en los 345 casos anotados | Resultado |
 | --- | ---: |
-| Deseo explícito de recibir | 240/240, 100 % |
-| Rechazo/devolución explícita | 23/23, 100 % |
-| Fecha/franja/límite horario esperado | 119/121, 98,35 % |
-| Hechos centrales exigidos | 503/506, 99,41 % |
-| Casos que cumplen todas sus expectativas | 299/307 |
+| Deseo explícito de recibir | 271/271, 100 % |
+| Rechazo/devolución explícita | 25/25, 100 % |
+| Fecha/franja/límite horario esperado | 130/132, 98,48 % |
+| Hechos centrales exigidos | 558/564, 98,94 % |
+| Casos que cumplen todas sus expectativas | 332/345 |
 | Identidad incorrecta observada | 0 |
 | Ruta irreversible incorrecta observada | 0 |
 | Aclaraciones nuevas repetidas propuestas | 0 |
-| Owner esperado en el conjunto puntuado | 307/307 |
+| Owner esperado en el conjunto puntuado | 345/345 |
 
-**Límite esencial:** esos 307 casos están inactivos y su decisión operativa
+**Límite esencial:** esos 345 casos están inactivos y su decisión operativa
 esperada es seguimiento logístico sin otra escritura. El 100 % de owner no
 demuestra exactitud de todas las rutas de los casos activos ni habilita un canary.
-Quedan ocho casos con discrepancias en alguna expectativa, principalmente
+Quedan trece casos con discrepancias en alguna expectativa, principalmente
 caducidad/alcance de preferencias compuestas y algunos hechos secundarios.
 
 La comparación normalizada del candidate engine coincide en 379/380 casos y
@@ -129,10 +128,13 @@ planificador y del compilador; **no es una reducción comparable de ambigüedad*
 
 ## F. Ambigüedad
 
-El primer candidato puntuado reconocía el 73,91 % de los rechazos, el 95,83 % del
+El primer candidato puntuado, en el subconjunto inicial de 307 casos, reconocía
+el 73,91 % de los rechazos, el 95,83 % del
 deseo explícito y el 80,17 % de hechos temporales. Las correcciones posteriores
-se contrastaron con las mismas expectativas congeladas. Son resultados de
-desarrollo sobre este conjunto, no una evaluación ciega de datos nunca vistos.
+se contrastaron con esas expectativas y se completó la revisión de los 40
+contextos restantes. Las métricas finales incluyen los 345 casos puntuables;
+no se seleccionó solo el subconjunto favorable. Son resultados de desarrollo,
+no una evaluación ciega de datos nunca vistos.
 
 Se conserva la duda cuando falta AM/PM, hay fechas alternativas, aceptación
 condicional, disputa del producto o del origen del pedido. No se transforma una
@@ -169,11 +171,11 @@ planes caducados, respuestas tardías y recibos inciertos.
 
 El validador Ajv es standalone; Ajv solo es dependencia de desarrollo. Una prueba
 comprueba la huella del esquema para evitar un validador generado desactualizado.
-Resultado final: **944/944 backend**, **779/779 integración VPS** y **107/107
+Resultado final: **947/947 backend**, **782/782 integración VPS** y **107/107
 panel/proyecciones**; cero fallos, omisiones o pruebas pendientes. El núcleo tiene
-83 pruebas sintéticas, compartidas entre backend y VPS; no se cuentan como casos
-reales ni como dos conjuntos independientes. Código probado: Render `89a1a9c`,
-VPS `d0b53ef`, panel `5e0178a`; las revisiones posteriores solo añaden documentación.
+86 pruebas sintéticas, compartidas entre backend y VPS; no se cuentan como casos
+reales ni como dos conjuntos independientes. Código probado: Render `2adca6c`,
+VPS `f8d755c`, panel `5e0178a`; las revisiones posteriores solo añaden documentación.
 Los recibos finales y revisiones concretas se publican en el handoff del Agent Hub.
 
 ## J. Canary real
@@ -201,6 +203,13 @@ modelo local, con asociaciones FOUND fechadas entre 18/08 y 30/10 a las 22:18 UT
 Ese inventario local no equivale a 37 incidencias actuales verificadas en Dropea
 y no constituye un replay fresco completo. No se forzó otra sincronización ni
 se reutilizó una asociación antigua como autorización para actuar.
+
+El conector privado de solo lectura informó después sondeo Chatby FRESH y sondeos
+Dropea FRESH, con frescura de eventos Dropea STALE y la del read model UNKNOWN.
+La antigüedad del último evento puede representar datos sin cambios; no demuestra
+por sí sola un fallo del sondeo. Tampoco acredita una lectura fresca completa de
+cada pedido antes de actuar. No se ha convertido esa respuesta agregada en una
+validación del replay ni se ha forzado un ciclo adicional.
 
 ## L. Métricas
 
@@ -235,7 +244,7 @@ de intención/temporalidad en su proyección puntuable. **No autoriza aún despl
 el gate devuelve `BLIND_RETRY` y `CURRENT_REPLAY_UNVERIFIED`. Deben resolverse con
 evidencia independiente, no editando números o relajando controles.
 
-Faltan cerrar las ocho discrepancias de anotación, revisar rutas actuales con
+Faltan cerrar las trece discrepancias de anotación, revisar rutas actuales con
 lecturas exactas y frescas, validar la reconciliación del ejecutor sin reenvío y
 observar después el canary natural. La frontera semántica está preparada, pero
 no implementa ni activa un modelo externo con el presupuesto vigente de 0 USD.
