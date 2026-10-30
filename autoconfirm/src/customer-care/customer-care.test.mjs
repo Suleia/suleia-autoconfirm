@@ -181,3 +181,7 @@ test('provider readback enriches one pending clarification without losing its mi
  s.clarifications=[{clarification_type:'TIME_WINDOW',missing_slots:['TIME_WINDOW'],message_hash:hash(body),sent_at:new Date(baseAt+60000).toISOString(),provider_message_id:null,status:'DELIVERY_UNVERIFIED',source:'CUSTOMER_CARE_EXISTING_SENDER'}];
  const a=care([first,outbound(body,1.2)],{},s);assert.equal(a.clarifications.length,1);assert.deepEqual(a.clarifications[0].missing_slots,['TIME_WINDOW']);assert.equal(a.findings.length,0);
 });
+test('changing provider UI counters is not a new customer event or a stale conversation',()=>{
+ const m=inbound('Mañana por la tarde'),a=care([{...m,paused_diff_seconds:5}]);
+ const b=care([{...m,paused_diff_seconds:99}],{},a);assert.equal(a.conversation_version,b.conversation_version);assertFreshPlan(a,b);
+});
