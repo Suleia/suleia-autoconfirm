@@ -1,6 +1,7 @@
 import {careFlags,responseForPlan,assertFreshPlan} from './policy.mjs';
 import {interpretCustomerCase} from './runtime.mjs';
 import {hash} from './context.mjs';
+import {isCustomerInteraction,messageTimestamp} from '../workflows/incident-discount-policy.mjs';
 
 // Called only by the existing VPS delivery-reply sender. This adapter is a
 // message-plan decorator; it cannot call a provider or an operational writer.
@@ -25,9 +26,9 @@ export function decorateClarification(legacy,input,{previous=null,env={},policy=
  if(now-Date.parse(care.latest_customer_at)>=24*3600000)return block('CUSTOMER_REPLY_WINDOW_EXPIRED');
  const text=responseForPlan(care,care,policy);
  if(!text)return block('VERIFIED_RESPONSE_CONTENT_UNAVAILABLE');
- const latest=input.messages.filter(m=>m.type==='in'||m.direction==='incoming'||m.is_from_customer===true).at(-1);
+ const latest=input.messages.filter(isCustomerInteraction).sort((a,b)=>messageTimestamp(a)-messageTimestamp(b)).at(-1);
  const plan={eligible:true,kind:'CLARIFY',reason:`CUSTOMER_CARE_V1_${care.conversation_version}`,orderId:care.dropea_order_id,issueId:care.active_issue_id,conversationId:care.conversation_reference,messageAt:care.latest_customer_at,messageId:String(latest?.id||''),content:text,care_plan:care,care_capability:care.capability};
- return {plan:{...plan,hash:hash(plan)},care};
+ return {plan:{...plan,hash:hash([plan.orderId,plan.issueId,plan.conversationId,plan.content,care.plan_hash])},care};
 }
 
 export function revalidateCarePlan(plan,current){
