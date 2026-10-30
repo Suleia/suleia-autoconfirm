@@ -18,8 +18,10 @@ no omite esa selección. Los recibos desconocidos se conservan como inciertos; n
 se consideran enviados ni habilitan otro intento. Las respuestas informativas,
 aclaraciones y reconocimientos conservan sus registros separados.
 
-La validación histórica del backend contiene 380 casos reales, 307 anotados y
-puntuados. No contiene conversaciones en Git. El gate sigue bloqueado por falta
+La validación histórica del backend contiene 380 contextos reales revisados,
+345 históricos puntuables, 32 activos pendientes de revisión operativa y tres
+exclusiones por información insuficiente. No contiene conversaciones en Git.
+El gate sigue bloqueado por falta
 de replay vigente verificado y evidencia completa contra reintentos ciegos. Este
 adaptador no debe instalarse ni activarse solo porque sus pruebas unitarias pasen.
 
