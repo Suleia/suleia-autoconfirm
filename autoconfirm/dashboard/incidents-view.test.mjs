@@ -37,3 +37,8 @@ test('unknown blockers remain visible and escaped rather than hiding the reply',
  const html=render({orderId:'fixture',incidentResolution:{customer_replied:true,current_owner:'HUMAN',human_review_reason:'<unknown>'}});
  assert.match(html,/Necesita tu decisión/);assert.match(html,/Qué falta/);assert.match(html,/&lt;unknown&gt;/);
 });
+
+test('customer-care context is additive, visibly shadow and escapes all model fields',()=>{
+ const html=render({orderId:'fixture',customerCare:{mode:'SHADOW',latest_customer_intents:['WANTS_ORDER'],wants_order:true,delivery_date:'2026-11-02',delivery_window:'AFTERNOON',next_best_action:'HUMAN_REVIEW',reason:'<unsafe>',owner:'existing_incident_action_gateway',proposed_response:'<script>draft</script>',conversation_version:3}});
+ assert.match(html,/Contexto de atención · SHADOW/);assert.match(html,/2026-11-02/);assert.match(html,/&lt;unsafe&gt;/);assert.match(html,/&lt;script&gt;draft/);assert.doesNotMatch(html,/<script>/);assert.match(html,/existing_incident_action_gateway/);
+});
