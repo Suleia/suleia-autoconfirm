@@ -14,6 +14,7 @@ import {readDropeaV2ReturnIssueState} from '../../autoconfirm/src/clients/dropea
 import {verifyDropeaResolution,buildDropeaResolutionBody} from '../../autoconfirm/src/clients/dropea-v2-resolution-contract.mjs';
 import {reconcileVerifiedSupport,selectSupportCandidates,sameSpanishSupportPhone,supportCaseKey as caseKey,SUPPORT_FEEDBACK_KEY,supportFeedbackProjection} from './support-reconciliation.mjs';
 import {reconcilePendingSupport} from './support-pending-reconciliation.mjs';
+import {sendAcceptedDiscountAmountOnce} from './accepted-discount-amount-notice.mjs';
 
 export async function supportCycle({enabled,checkMail,readCases,execute}){
  if(!enabled)return {status:'DISABLED',checked:0,results:[]};
@@ -116,6 +117,15 @@ export async function runVpsSupportCycle(context){
    if(shared)throw Error('INCIDENT_ALREADY_CLAIMED');
    return readCandidate(i,env);
   },get:p=>getTemplateDelivery(args(p)),capture,claim:p=>claimTemplateDelivery(args(p)),
+  notifyAmount:p=>sendAcceptedDiscountAmountOnce(p,{
+   readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:finishTemplateDelivery,
+   send:async value=>(await import('../../autoconfirm/src/clients/chatby.mjs')).sendTextMessage(value),
+   waitForReadback:()=>new Promise(resolve=>setTimeout(resolve,1500)),
+   revalidate:async()=>{
+    const fresh=acceptedDiscountPlan(await readCandidate(incident,env),{activationAt:env.DISCOUNT_SUPPORT_ACTIVATION_AT});
+    return {eligible:fresh.eligible,hash:fresh.snapshot};
+   }
+  }),
   save:(p,status,raw)=>finishTemplateDelivery({...args(p),status,attemptedAt:raw.requestedAt,sentAt:status==='verified'?raw.verifiedAt:null,raw}),
   send:(p,a)=>mail.send(p,a),verifyMail:(id,p,a)=>mail.verify(id,p,a),
   solve:async p=>{
