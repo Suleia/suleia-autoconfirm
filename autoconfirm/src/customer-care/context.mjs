@@ -107,7 +107,7 @@ export function interpretMessage(message,{question=null,offerVerified=false,at=m
  if(/queja|reclamacion|verg[uü]enza|estafa/.test(t)){add('COMPLAINT');facts.complaint=true;}
  if(/^(?:hola|buenos dias|buenas tardes|buenas)[!. ]*$/.test(t))add('GREETING');
  if(/^(?:muchas )?gracias(?: a vosotros| a ustedes)?[!. ]*$/.test(t)||/^[👍🙏😊🙂 ]+$/u.test(t))add('THANKS');
- if(!intents.length)add(yes||no?'AMBIGUOUS':'IRRELEVANT');
+ if(!intents.length)add(Object.keys(facts).length?'IRRELEVANT':'AMBIGUOUS');
  if(negativeOrder&&accepts||uncertainties.length){add('AMBIGUOUS');if(negativeOrder&&accepts)uncertainties.push('CONTRADICTORY_INTENT');}
  return {intents:[...new Set(intents)],facts,confidence:uncertainties.length?0.5:intents.includes('AMBIGUOUS')?0.3:0.98,uncertainties,evidence:[{message_id:String(message.id||message.mid),at:iso(at),hash:hash(literal)}]};
 }
@@ -178,7 +178,14 @@ export function buildCustomerCase(input,previous=null){
  state.payment_method=policy.paymentVerified?policy.paymentMethod:null;state.amount_due=policy.paymentVerified&&Number.isFinite(policy.amountDue)?policy.amountDue:null;state.allowed_payment_methods=policy.paymentVerified?(policy.allowedPaymentMethods||[]).filter(m=>['CASH','CARD'].includes(m)):[];
  state.discount_applied_verified=policy.discountAppliedVerified===true;state.address_verified=policy.addressVerified===true;state.last_verified_action=policy.lastVerifiedAction||state.last_verified_action;
  const imported=events.filter(m=>!isCustomerInteraction(m)&&extractWamid(m)&&['DATE','DATE_AND_WINDOW','TIME_WINDOW','WANTS_ORDER','POSTAL_CODE','ADDRESS','LEGACY_PAYMENT'].includes(questionContext(m))).map(m=>({clarification_type:questionContext(m),missing_slots:[],message_hash:hash(m.payload?.body||addressMessageText(m)),sent_at:iso(messageTimestamp(m)),provider_message_id:extractWamid(m),status:'PROVIDER_ACCEPTED',source:'EXISTING_SENDER',answered_at:events.find(n=>isCustomerInteraction(n)&&messageTimestamp(n)>messageTimestamp(m))?iso(messageTimestamp(events.find(n=>isCustomerInteraction(n)&&messageTimestamp(n)>messageTimestamp(m)))):null}));
- const unique=new Map([...state.clarifications,...imported].map(c=>[c.provider_message_id||c.message_hash,c]));state.clarifications=[...unique.values()].sort((a,b)=>String(a.sent_at).localeCompare(String(b.sent_at)));
+ const unique=new Map(state.clarifications.map(c=>[c.provider_message_id||c.message_hash,c]));
+ for(const observed of imported){
+  const pending=[...unique.entries()].find(([,c])=>!c.provider_message_id&&c.source==='CUSTOMER_CARE_EXISTING_SENDER'&&c.message_hash===observed.message_hash&&Math.abs(Date.parse(c.sent_at)-Date.parse(observed.sent_at))<120000);
+  const old=unique.get(observed.provider_message_id)||pending?.[1];
+  if(pending)unique.delete(pending[0]);
+  unique.set(observed.provider_message_id,{...observed,...old,sent_at:observed.sent_at,provider_message_id:observed.provider_message_id,status:observed.status,answered_at:observed.answered_at});
+ }
+ state.clarifications=[...unique.values()].sort((a,b)=>String(a.sent_at).localeCompare(String(b.sent_at)));
  for(const c of state.clarifications){const answer=events.find(m=>isCustomerInteraction(m)&&messageTimestamp(m)>Date.parse(c.sent_at));if(answer){c.answered_at=iso(messageTimestamp(answer));c.answer_hash=hash(addressMessageText(answer));c.status='ANSWERED';}}
  for(let i=1;i<state.clarifications.length;i++){const a=state.clarifications[i-1],b=state.clarifications[i];if(!a.answered_at||a.answered_at>b.sent_at)state.findings.push({code:'REPEATED_CLARIFICATION',severity:'HIGH',previous_hash:a.message_hash,current_hash:b.message_hash});}
  state.timeline=[...new Map(state.timeline.map(e=>[hash(e),e])).values()].slice(-100);

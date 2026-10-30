@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {buildCustomerCase,interpretMessage,OWNERS} from './context.mjs';
+import {buildCustomerCase,interpretMessage,OWNERS,hash} from './context.mjs';
 import {routeCustomerCase,requiredMissingSlots,responseForPlan,assertFreshPlan} from './policy.mjs';
 import {interpretCustomerCase,observeCustomerCare,compareCareReplay,followCustomerCare} from './runtime.mjs';
 import {decorateClarification,revalidateCarePlan} from './clarification-adapter.mjs';
@@ -170,4 +170,14 @@ test('conflicting simultaneous events require review rather than arbitrary id or
 test('an informational response is emitted once per inbound conversation version',()=>{
  const policy={paymentVerified:true,amountDue:24.99,paymentMethod:'COD',allowedPaymentMethods:['CASH','CARD']};
  const a=care([inbound('¿Cómo puedo pagar?')],{policy});a.responded_conversation_version=a.conversation_version;a.last_response_type='PAYMENT_INFORMATION';assert.equal(responseForPlan(a,a,policy),null);
+});
+test('unrecognized substantive text is low confidence and cannot resume an old delivery plan',()=>{
+ const a=care([inbound('Quiero el pedido'),inbound('Depende de otras cosas que no sé explicar',2)]);
+ assert.equal(a.next_best_action,'HUMAN_REVIEW');assert.ok(a.confidence<0.65);
+});
+test('provider readback enriches one pending clarification without losing its missing slots',()=>{
+ const first=inbound('Quiero el pedido el sábado'),s=care([first]);
+ const body='Perfecto. ¿Prefiere recibirlo por la mañana o por la tarde?';
+ s.clarifications=[{clarification_type:'TIME_WINDOW',missing_slots:['TIME_WINDOW'],message_hash:hash(body),sent_at:new Date(baseAt+60000).toISOString(),provider_message_id:null,status:'DELIVERY_UNVERIFIED',source:'CUSTOMER_CARE_EXISTING_SENDER'}];
+ const a=care([first,outbound(body,1.2)],{},s);assert.equal(a.clarifications.length,1);assert.deepEqual(a.clarifications[0].missing_slots,['TIME_WINDOW']);assert.equal(a.findings.length,0);
 });
