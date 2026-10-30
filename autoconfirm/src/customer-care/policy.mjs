@@ -31,6 +31,7 @@ export function routeCustomerCase(state,policy={}){
  }
  if(['DELIVERED','RETURNED','CANCELLED'].includes(state.current_order_state))return result('WAITING_PROVIDER',null,'TERMINAL_OUTCOME_VERIFY_AND_CLOSE',{outcome:state.current_order_state,case_status:'CLOSED'});
  if(state.unresolved_interpretation?.length)return result('HUMAN_REVIEW',null,state.unresolved_interpretation[0]);
+ if(state.pending_provider_response)return result('HUMAN_REVIEW',null,'UNCERTAIN_CUSTOMER_CARE_RESPONSE');
  if(!state.has_current_reply)return result('WAITING_CUSTOMER',null,'NO_CURRENT_CUSTOMER_REPLY');
  // These routes are proposals to existing owners. They never authorize a new
  // writer, bypass a capability gate, shorten settling or synthesize acceptance.
@@ -68,6 +69,7 @@ export function routeCustomerCase(state,policy={}){
 
 export function responseForPlan(state,plan,policy={}){
  if(plan.next_best_action!=='RESPOND')return null;
+ if(state.responded_conversation_version===state.conversation_version&&state.last_response_type===plan.response_type)return null;
  if(plan.response_type==='PAYMENT_INFORMATION'){
   const signature=hash([state.amount_due,state.allowed_payment_methods]);
   if(state.payment_information_sent&&state.payment_information_signature===signature&&!state.latest_customer_intents.includes('ASKS_PAYMENT'))return null;

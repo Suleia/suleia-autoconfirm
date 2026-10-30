@@ -164,3 +164,10 @@ test('current questions take precedence over old delivery and accepted-offer fac
 test('courtesy does not silently upgrade an unresolved low-confidence clock',()=>{
  const a=care([inbound('El sábado a las 5'),inbound('Gracias',2)]);assert.equal(a.next_best_action,'HUMAN_REVIEW');assert.ok(a.confidence<0.65);
 });
+test('conflicting simultaneous events require review rather than arbitrary id ordering',()=>{
+ const a=care([inbound('Quiero el pedido'),inbound('No quiero el pedido')]);assert.equal(a.next_best_action,'HUMAN_REVIEW');assert.equal(a.reason,'SIMULTANEOUS_CONTRADICTORY_EVENTS');
+});
+test('an informational response is emitted once per inbound conversation version',()=>{
+ const policy={paymentVerified:true,amountDue:24.99,paymentMethod:'COD',allowedPaymentMethods:['CASH','CARD']};
+ const a=care([inbound('¿Cómo puedo pagar?')],{policy});a.responded_conversation_version=a.conversation_version;a.last_response_type='PAYMENT_INFORMATION';assert.equal(responseForPlan(a,a,policy),null);
+});
