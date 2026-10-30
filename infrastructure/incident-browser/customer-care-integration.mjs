@@ -35,6 +35,16 @@ export async function recordCustomerCareReceipt(plan,result,{store=createCustome
  if(state.conversation_reference!==plan.conversationId)throw Error('CUSTOMER_CARE_RECEIPT_IDENTITY_CHANGED');
  const mid=result.raw?.messageId||null;
  const messageHash=hash(plan.content),status=['sent','already_seen'].includes(result.status)?'PROVIDER_ACCEPTED':result.status==='aborted'?'ABORTED':'DELIVERY_UNVERIFIED';
+ if(plan.care_plan.response_type!=='CLARIFICATION'){
+  state.pending_provider_response=status==='DELIVERY_UNVERIFIED';state.updated_at=new Date().toISOString();
+  if(status==='PROVIDER_ACCEPTED'){
+   state.responded_conversation_version=plan.care_plan.conversation_version;state.last_response_type=plan.care_plan.response_type;
+   if(plan.care_plan.response_type==='PAYMENT_INFORMATION'){state.payment_information_sent=true;state.payment_information_signature=plan.care_plan.payment_signature;}
+  }
+  state.status=state.pending_provider_response?'HUMAN_REVIEW':'OBSERVING';state.waiting_for_customer=false;
+  state.timeline=[...state.timeline,{kind:'INFORMATION_RESPONSE',at:state.updated_at,message_hash:messageHash,provider_message_id:mid,status}].slice(-100);
+  await store.save(state,previous);return;
+ }
  const question={clarification_type:plan.care_plan.missing_slots.join('+')||plan.care_capability,missing_slots:plan.care_plan.missing_slots,message_hash:messageHash,sent_at:result.sentAt||result.attemptedAt,provider_message_id:mid,answered_at:null,answer_hash:null,status,source:'CUSTOMER_CARE_EXISTING_SENDER',based_on_conversation_version:plan.care_plan.conversation_version};
  // Replace only this question's in-flight projection; never clear old entries.
  state.clarifications=[...state.clarifications.filter(c=>c.message_hash!==messageHash||c.based_on_conversation_version!==question.based_on_conversation_version),question];
