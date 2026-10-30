@@ -10,8 +10,8 @@ writers. It is deterministic, with no external model usage or API spending.
 
 Published changes:
 
-- PR178: exact live Render baseline a844f24 → 830ec31; isolated memory/observer.
-- PR179: exact VPS worker baseline3ad9a8f → b33ded7; gated clarification adapter,
+- PR178: exact live Render baseline a844f24 → de40d19; isolated memory/observer.
+- PR179: exact VPS worker baseline3ad9a8f → ae1cf00; gated clarification adapter,
   prepared for the existing sender. **Not activated in production**.
 - PR180: actual static panel baseline dc714f6 → dbaaef7; sanitized read-only card
   and additive local JSON projection. No SQL migration or new access grants.
@@ -19,8 +19,11 @@ Published changes:
 ## Validation
 
 - Original backend regression: **822/822**, isolated Linux, no network/secrets.
-- Final Render candidate: **858/858**, same isolated conditions.
-- VPS candidate: **689/689**, including existing retry/support/clarification tests.
+- Final Render candidate: **861/861**, Node22.22.0, isolated Linux without network
+  or production credentials, including Telegram and existing timer suites.
+- Final VPS candidate: **692/692**, including existing retry, support,
+  clarification, Telegram and timer suites in the same isolated Node22 runtime.
+- Focused conversation/context regression: **38/38**.
 - Actual panel/Render projection regression: **103/103**.
 - All new fixtures are synthetic/sanitized. Customer transcripts and receipts
   remain in governed private runtime storage, never Git or public issue comments.
@@ -29,7 +32,10 @@ Published changes:
 
 ## Read-only shadow replay
 
-Fresh exact subscriber/order/active-issue reads, 19:37–19:39 UTC:
+Fresh exact subscriber/order/active-issue reads, 19:37–19:39 UTC, initial830ec31
+implementation. Later unknown-text/provenance/hash refinements were covered by
+regression tests; these replay totals must not be relabelled as a fresh replay
+ofde40d19:
 
 | Measure | Result |
 | --- | ---: |
@@ -58,6 +64,15 @@ the total to153: enabled/context true; clarification/status-reply/AI false;
 modeSHADOW. The existing VPS incident timer remains active at :00/:30; no timer
 or sender was added. The observer reuses the normal batch's already-read messages.
 
+Follow-up deployment dep-dbifp6cipgvc73dl4ktg reached LIVE with exact revision
+de40d1915fbc7be07c5c6827f01ce3a3d8d34199 after the previous incident invocation
+finished. No environment variables were changed by this follow-up: all153 hashes
+were independently compared. Its process responds with `ok:true` and the exact
+revision. At20:27UTC its global `operational` status remained false because the
+existing Chatby integration was rate-limited (HTTP429), not a successful provider
+health check. Do not describe this as fully healthy or activate the new sender
+while source freshness is unresolved.
+
 The actual Operations panel serves the context card (HTTP200) and anonymous
 incident API access remains401. Exactly two static files changed;47 other assets
 were verified unchanged. The existing ingestion image was extended with only two
@@ -65,6 +80,20 @@ projection modules, preserving its deployed runtime patches. API, bot, Meta and
 all other containers were retained; reader/panel environments and entrypoints
 were independently verified unchanged. Private release copies and rollback
 instructions are retained on the VPS.
+
+The normal20:00UTC incident invocation completed at20:08:49UTC. It persisted
+**33 SHADOW cases**,175 current-order inbound events, **zero observation errors**
+and **zero Customer Care provider writes**. Its cohort includes49 historical
+clarification messages and two historical repeated-question findings; these are
+not new Customer Care sends or today's send count. One change of mind and two
+human-review routes were observed. No new-layer autonomous resolution is claimed.
+
+At20:18:45UTC the existing local SQL observation projection contained **33 exact
+context cards**. The public static script returns200 and the protected incident
+API returns401 without login. The reader's later overall health was503 with an
+explicit `CHATBY_MESSAGES_HTTP_429` and retry-not-before20:31:12UTC. Its running
+container is not evidence of a complete source synchronization. Respect that
+backoff; do not force another scan or retry customer writes.
 
 ## Canary and remaining risks
 
@@ -79,9 +108,8 @@ instructions are retained on the VPS.
   provider contract. It is not evidence of an action being requested or applied.
 - Payment methods and product/usage answers require verified source contracts;
   unsupported nuances escalate instead of generating unverified prose.
-- Reader health and natural shadow-memory/projected-card observations must be
-  checked after the first normal synchronization, not inferred from a running
-  container or a successful deployment alone.
+- Natural shadow persistence and the sanitized panel projection are verified;
+  complete reader/provider health and a naturally eligible canary remain pending.
 - Browser visual validation was not performed under the repository prohibition;
   DOM/render/privacy tests and actual served-asset checks were performed.
 
