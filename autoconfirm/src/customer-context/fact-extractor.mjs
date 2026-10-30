@@ -174,6 +174,13 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   if(/^(?:otro dia|otro dia o datos)[.! ]*$/.test(t)){put('WANTS_ORDER',true);unresolved.add('DELIVERY_DATE');}
   if(/gls.*(?:el \d+ lo recojo|recoger)|donde ir a recogerlo|direccion.*para ir a recogerlo/.test(t)){put('REQUESTS_AGENCY',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}
   if(/me (?:h?an|a) dicho|medujo el repartidor/.test(t))put('REPORTS_CARRIER_PLAN',true);
+  if(/horario de entrega|he cambia(?:do|fo) el dia de entrega/.test(t)){
+    put('WANTS_ORDER',true);if(!facts.has('DELIVERY_DATE')&&/cambia(?:do|fo)/.test(t))unresolved.add('DELIVERY_DATE');
+  }
+  if(/no puedo usar (?:ese|este|el) producto/.test(t)){
+    put('COMPLAINT',true);put('WANTS_ORDER',current.WANTS_ORDER===true,.55);
+    unresolved.add('PRODUCT_UNSUITABLE_REQUIRES_REVIEW');
+  }
   if(/no vino nadie|como q no habia alguien|no es posible.*no hubiese nadie/.test(t)){put('REPORTS_NO_DELIVERY_ATTEMPT',true);if(!facts.get('WANTS_RETURN')?.value)put('WANTS_ORDER',true);}
   if(/(?:por la manana|la manana).*no estoy/.test(t)&&facts.has('TIME_FROM')&&!/por la tarde|de la tarde/.test(t)){
     facts.get('TIME_FROM').confidence=.55;unresolved.add('TIME_FROM');

@@ -22,6 +22,16 @@ function input(texts,extra={}){
 }
 const compile=(texts,extra={},prior=null)=>compileCustomerCase(input(texts,extra),prior);
 
+test('an explicit schedule request preserves desire even when its clock is unclear',()=>{
+ const c=compile(['Horario de entrega 10 a 3;30 por favor llamar antes']);assert.equal(c.wants_order,true);assert.equal(c.operational_action,'NONE');
+});
+test('a reported change of delivery day does not invent the missing new date',()=>{
+ const c=compile(['Solo he cambiado el día de entrega']);assert.equal(c.wants_order,true);assert.equal(c.delivery_date,null);assert.ok(c.missing_information.includes('DELIVERY_DATE'));
+});
+test('an inability to use the product requires review without inferring return or renewed consent',()=>{
+ const c=compile(['Quiero el pedido','No puedo usar este producto']);assert.equal(c.wants_return,false);assert.equal(c.wants_order,null);assert.equal(c.operational_action,'NONE');assert.equal(c.next_best_action,'HUMAN_REVIEW');
+});
+
 test('explicit pickup date wins over travel-return date in the same message',()=>{
  const c=compile(['No regreso hasta el 8, guárdenlo en GLS y el 9 lo recojo']);assert.equal(c.delivery_date,'2026-11-09');assert.equal(c.agency_requested,true);
 });
