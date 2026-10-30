@@ -22,6 +22,15 @@ function input(texts,extra={}){
 }
 const compile=(texts,extra={},prior=null)=>compileCustomerCase(input(texts,extra),prior);
 
+test('No answers the consent part of a combined consent/date question',()=>{
+ const c=compile([message('¿Quiere que solicitemos una nueva entrega de su pedido? Si es así, indíquenos el día y la franja horaria.',0,'agent',{mid:'wamid.combined'}),message('No gracias',1)]);
+ assert.equal(c.wants_return,true);assert.equal(c.wants_order,false);assert.equal(c.customer_reply_action,'NONE');
+});
+test('later supplied date scopes the previously supplied morning window',()=>{
+ const c=compile(['Por la mañana','El sábado'],{now:Date.parse('2026-11-02T10:00:00Z')});
+ assert.equal(c.delivery_window,null);assert.ok(c.fact_ledger.some(f=>f.fact_type==='DELIVERY_WINDOW'&&f.status==='EXPIRED'));
+});
+
 test('answered consent question is consumed before an unrelated later acknowledgment',()=>{
  const c=compile([message('¿Quiere el pedido?',0,'agent',{mid:'wamid.ask'}),message('No',1),message('Vale',2)]);
  assert.equal(c.wants_return,true);assert.equal(c.wants_order,false);assert.equal(c.active_outbound_question_type,null);

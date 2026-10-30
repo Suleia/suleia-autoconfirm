@@ -43,6 +43,10 @@ export function compileCustomerCase(input,previous=null){
     if(result.facts.some(f=>f.type==='WANTS_RETURN'&&f.value===true&&f.confidence>=.9))slotUncertainty.clear();
     question=remainingQuestion(question,result.facts);
     const relatedDate=result.facts.find(f=>f.type==='DELIVERY_DATE')?.value||current.DELIVERY_DATE||null;
+    if(result.facts.some(f=>f.type==='DELIVERY_DATE')){
+      // A later date completes a previously supplied window in the same bounded case.
+      for(const preference of incoming)if(['DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(preference.type)&&!preference.related_delivery_date)preference.related_delivery_date=relatedDate;
+    }
     for(const fact of result.facts){
       current[fact.type]=fact.value;
       incoming.push({...fact,authority:'CUSTOMER_DERIVED',source_event_id:event.event_id,source_event_hash:fact.evidence_hash,source_event_at:event.source_event_at,related_delivery_date:relatedDate});

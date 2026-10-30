@@ -25,7 +25,7 @@ export function correctTemporalFacts(event,{facts,unresolved,put,question,curren
     if(facts.get('DELIVERY_WINDOW')?.value==='MORNING')facts.delete('DELIVERY_WINDOW');
   }
   // Clauses about work or an unavailable window cannot become positive delivery preferences.
-  const temporalText=text.replace(/(\d)\s*[.,]\s*(\d{2})(?:h\b|\b)/g,'$1:$2');
+  const temporalText=text.replace(/(\d)\s*[.,]\s*(\d{2})(?:h\b|\b)/g,'$1:$2').replace(/las[. ]*(\d)/g,'las $1').replace(/(\d)(de la|del|a\b)/g,'$1 $2').replace(/delas/g,'de las');
   const available=temporalText.split(/[;.!?]|\bpero\b|\bsino\b/).filter(s=>!/(?:trabajo|trabajando|no (?:voy a |puedo |estare|estoy|estar)|no.*(?:manana|tarde))/.test(s)).join(' ');
   const morning=/por (?:la|las) manana|en la manana|de la manana|toda la manana|^manana[.! ]*$/.test(available)&&!(tomorrow&&!morningPhrase&&question!=='TIME_WINDOW');
   const afternoon=/por (?:la|las) tarde|de la tarde|en la tarde|esta tarde|^tarde[.! ]*$/.test(available);
@@ -59,15 +59,15 @@ export function correctTemporalFacts(event,{facts,unresolved,put,question,curren
   }else if(ranges.length>1){
     facts.delete('TIME_FROM');facts.delete('TIME_TO');put('DELIVERY_AVAILABILITY',event.text.slice(0,300));unresolved.delete('MULTIPLE_CLOCKS');
   }else{
-    const boundaries=[...source.matchAll(/\b(a partir de|despues de|antes de|hasta|desde|sobre|a)\s+(?:las?\s+)?(\d{1,2})(?::(\d{2}))?\b/g)];
+    const boundaries=[...source.matchAll(/\b(a partir de|despues de|antes de|hasta|maximo|desde|sobre|a)\s+(?:las?\s+)?(\d{1,2})(?::(\d{2}))?\b/g)];
     if(boundaries.length===1){
-      const b=boundaries[0],type=/antes|hasta/.test(b[1])?'TIME_TO':'TIME_FROM',value=resolve(b[2],b[3]);
+      const b=boundaries[0],type=/antes|hasta|maximo/.test(b[1])?'TIME_TO':'TIME_FROM',value=resolve(b[2],b[3]);
       facts.delete(type);
       if(value){put(type,value);unresolved.delete('AMBIGUOUS_CLOCK');unresolved.delete(type);}else unresolved.add(type);
     }
   }
   // Recounting a carrier promise/past failed attempt is not a new chosen day.
-  const reportsPast=/\b(?:me dijeron|me han dicho|medijo|me dijo|ayer|he estado|estuve)\b/.test(text);
+  const reportsPast=/\b(?:me dijeron|me han dicho|medijo|me dijo|ayer|he estado|estuve)\b|no (?:ha|han|a|an) venido|aqui no.*venido/.test(text);
   const ownPreference=/\b(?:prefiero|quiero|pueden venir|podeis venir|vengan|entreguen|desde las|a partir|estoy.*(?:hasta|desde))\b/.test(text);
   if((reportsPast||facts.get('ASKS_DELIVERY_DATE')?.value)&&!ownPreference){for(const key of temporal)facts.delete(key);}
 }

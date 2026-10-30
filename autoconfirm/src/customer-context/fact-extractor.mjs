@@ -32,6 +32,7 @@ export function validateCustomerFacts(result,evidence){
 // from both the schema and this interface.
 export function extractCustomerFacts(event,{question=null,offerVerified=false,incidentType=null,current={},structuredButton=null}={}){
   const at=Date.parse(event.source_event_at),t=fold(event.text);
+  if(question==='WANTS_ORDER_AND_SCHEDULE')question='WANTS_ORDER';
   const parsed=interpretMessage({id:event.message.id,content:event.text},{question,offerVerified,at,incidentType});
   const facts=new Map(),unresolved=new Set(parsed.uncertainties||[]),contradictions=[];
   const put=(type,value,confidence=.99)=>facts.set(type,{type,value,confidence,evidence_hash:event.source_event_hash});
@@ -140,6 +141,7 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   }
   if(parsed.confidence<.65&&!facts.size&&!unresolved.size)unresolved.add('UNCLASSIFIED_CUSTOMER_TEXT');
   correctTemporalFacts(event,{facts,unresolved,put,question,current});
+  if(['DELIVERY_DATE','DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].some(type=>facts.has(type))&&!facts.get('WANTS_RETURN')?.value){put('WANTS_ORDER',true);put('WANTS_RETURN',false);if(incidentType)put('REQUESTS_REDELIVERY',true);}
   const yes=/^(?:s+i+|ok(?:ey)?|vale|de acuerdo|claro|acepto|perfecto)(?: por favor)?[!. ,]*$/.test(t);
   const no=/^no(?:[ ,]+(?:m?gracias|por favor))?[!. ,]*$/.test(t);
   if((yes||no)&&question==='AGENCY_PICKUP'){
@@ -160,9 +162,14 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   const explicitDesire=/mandamela|mandamelo|ya me podeis mandar|me traigan|lo he aceptado|lo espero|si que me interesa el producto|quiero.*recibir|manda lo hoy aceptare/.test(t)&&!explicitRefusal&&!originDisputed;
   if(explicitDesire){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('CANCEL_INTENT',false);}
   if(/(?:ire|voy|recojo|recoger|retirar).*\b(?:agencia|oficina)\b/.test(t)){put('REQUESTS_AGENCY',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}
-  if(/(?:y )?(?:precio|cantidad contrareembolso)\s*[?¿]|cuanto.*(?:pagar|cobrar)/.test(t))put('ASKS_PAYMENT',true);
-  if(/que (?:crema|pedido|producto)|crema.*falsa|como.*(?:usa|aplica)|no me acuerdo.*pedi/.test(t))put(/como.*(?:usa|aplica)/.test(t)?'ASKS_USAGE':'ASKS_PRODUCT',true);
-  if(/(?:ya lo tengo|me ha llegado|ya lo he recogido)/.test(t)&&!/no (?:me )?ha llegado|no lo tengo/.test(t))put('REPORTS_RECEIVED',true);
+  if(/(?:y )?(?:precio|cantidad contra ?reembolso)\s*[?¿]|cuanto.*(?:pagar|cobrar)|cantidad.*contra ?reembolso/.test(t))put('ASKS_PAYMENT',true);
+  if(/que (?:crema|pedido|producto)|crema.*falsa|como.*(?:usa|aplica)|no me acuerdo.*pedi|marca.*(?:verdadera|imitacion|autentica)|original.*(?:verdad|\?)|que he pedido/.test(t))put(/como.*(?:usa|aplica)/.test(t)?'ASKS_USAGE':'ASKS_PRODUCT',true);
+  if(/(?:ya lo tengo|me ha llegado|ya lo he recogido|he recibido el pedido|a llegado mi pedido)/.test(t)&&!/no (?:me )?ha llegado|no lo tengo|no he recibido/.test(t))put('REPORTS_RECEIVED',true);
+  if(/cuando.*(?:lleg|traer)|saber si.*traeran|me llegara/.test(t))put('ASKS_DELIVERY_DATE',true);
+  if(/(?:empresa|enpresa).*(?:venir|viene|trae)/.test(t))put('ASKS_STATUS',true);
+  if(/(?:me |nos )?(?:llame|llamen|puedes llamar)|llamar al|llamar antes/.test(t))put('REQUESTS_CONTACT',true);
+  if(/(?:no |nadie ).*(?:ha |a |han |an )?venido|no .*rechazado|ningun momento.*rechazado|no tengo constancia.*venido|no viniste|no me han llamado/.test(t)&&!facts.get('WANTS_RETURN')?.value){put('REPORTS_NO_DELIVERY_ATTEMPT',true);put('WANTS_ORDER',true);put('WANTS_RETURN',false);}
+  if(/lo estaba esperando|mandarme|reenviar|enviarmelo|mandarmelo/.test(t)&&!explicitRefusal){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('REQUESTS_REDELIVERY',true);}
   if(/(?:me dijeron|me han dicho|medijo|me dijo)/.test(t)&&!requestsDelivery)put('REPORTS_CARRIER_PLAN',true);
   // Conditional acceptance/refusal is evidence for review, never an unconditional instruction.
   if(/\b(?:solo si|si no (?:es|mandais|es asi)|si (?:yo )?veo|tal vez|quizas)\b/.test(t)){
