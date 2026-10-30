@@ -20,7 +20,7 @@ export function verifiedDeliverySolution(raw,plan,attemptedAt,noteEvidence=null)
 
 export async function sendDeliveryReplyOnce(plan,content,purpose,deps){
  const phase=purpose==='clarify'?`:${plan.reason}`:'';
- const key={storeId:'suleia',orderId:plan.orderId,templateName:`incident_delivery_${purpose}_v1:${plan.issueId}${phase}`,provider:'chatby',chatbyUserNs:plan.conversationId};
+ const key={storeId:'suleia',orderId:plan.orderId,templateName:purpose==='discount_amount'?'accepted_discount_amount_notice_v1':`incident_delivery_${purpose}_v1:${plan.issueId}${phase}`,provider:'chatby',chatbyUserNs:plan.conversationId};
  const fresh=await deps.revalidate();
  if(!fresh?.eligible||fresh.hash!==plan.hash)return {status:'BLOCKED',reason:'LATE_CUSTOMER_RESPONSE'};
  const messages=await deps.readMessages(plan.conversationId);

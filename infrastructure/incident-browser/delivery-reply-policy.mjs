@@ -1,5 +1,7 @@
 import {currentCustomerIntent,madridDate,resolutionHash,literalDeliveryPreference} from '../../autoconfirm/src/workflows/incident-intent-v2.mjs';
-import {isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
+import {isCustomerInteraction,messageTimestamp,findVerifiedTemplateDelivery} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
+import {INCIDENT_DISCOUNT_TEMPLATE_NAME} from '../../autoconfirm/src/workflows/incident-discount-template.mjs';
+import {rejectedIntent} from '../../autoconfirm/src/workflows/recipient-rejected-policy.mjs';
 import {addressMessageText} from '../../autoconfirm/src/workflows/address-response-policy.mjs';
 import {preciseRetrySlot,requestedWindowWithoutDate} from './retry-policy.mjs';
 import {nextBusinessMorning} from './business-day.mjs';
@@ -60,6 +62,12 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  // instruction. Use that fresh message window only to request current details.
  if(now-lastAt>=24*3600000)return clarify('EARLIER_PREFERENCE_REQUIRES_RENEWAL',
   'Hola, para respetar sus indicaciones, confírmenos qué día y franja horaria le vienen bien ahora para solicitar una nueva entrega. Gracias.');
+ // A discount reply belongs to the verified offer/support owner. The generic
+ // payment lane must never quote the undiscounted total or request a schedule.
+ const discountOffer=findVerifiedTemplateDelivery(messages,INCIDENT_DISCOUNT_TEMPLATE_NAME);
+ const discountAcceptance=discountOffer&&Date.parse(discountOffer.sentAt)>=anchor&&meaningful.some(m=>
+  messageTimestamp(m)>Date.parse(discountOffer.sentAt)&&rejectedIntent(addressMessageText(m),{offerVerified:true}).discount_accepted);
+ if(discountAcceptance||/\b(?:descuento|rebaja|cambiar el precio)\b/.test(combined))return block('DISCOUNT_REQUIRES_EXISTING_OWNER');
  const confirmedPayment=paymentConfirmed(normalized.at(-1));
  if(paymentContext(combined)&&!(confirmedPayment&&!/descuento|rebaja|cambiar el precio/.test(combined))){
   const segments=deliveryScheduleText(lastText).split(/[.!?;]\s+(?=\p{L})/u).map(t=>preciseRetrySlot(t,lastAt)).filter(s=>s.date);

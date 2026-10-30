@@ -1,0 +1,63 @@
+{
+  "status": "RUNNING_SOURCE_VERIFIED",
+  "at": "2026-10-30T23:17:46.154311+00:00",
+  "source": "65f00f4bdefc510e5398e91f0da157c5abb2bd92",
+  "oldImage": "sha256:f4b4d9dc8007b940854f32df23d28a2da260c23a1d493794929917b623a7d93a",
+  "newImage": "sha256:61a3508252901861c6f883558000335e36246cd58227ad6634bef6010ca8510d",
+  "backupContainer": "suleia-incident-browser-before-65f00f4",
+  "runtimeChangedFiles": 5,
+  "securitySettingsPreserved": true,
+  "privateSettingsPreserved": true,
+  "unrelatedContainersPreserved": true,
+  "pullRequest": "https://github.com/Suleia/suleia-autoconfirm/pull/185",
+  "tests": {
+    "focused": {
+      "passed": 55,
+      "failed": 0
+    },
+    "isolatedLinuxBaseline": {
+      "passed": 335,
+      "failed": 0
+    },
+    "isolatedLinuxCandidate": {
+      "passed": 359,
+      "failed": 0
+    },
+    "groupsOverlap": true,
+    "network": "none",
+    "productionCredentials": false
+  },
+  "postRestart": {
+    "at": "2026-10-30T23:19:46.595Z",
+    "readiness": "READY",
+    "mode": "AUTO",
+    "browser": "RUNNING",
+    "captureSelfTest": true,
+    "schedule": {
+      "intervalMinutes": 30,
+      "lastTriggeredAt": "2026-10-30T23:19:16.539Z",
+      "nextRunAt": "2026-10-30T23:49:16.539Z"
+    },
+    "progress": {
+      "startedAt": "2026-10-30T23:19:16.539Z",
+      "state": "RUNNING"
+    },
+    "probe": {
+      "at": "2026-10-30T23:19:16.529Z",
+      "error": null,
+      "chatby": {
+        "authenticated": true,
+        "accountVerified": true
+      },
+      "dropea": {
+        "authenticated": true,
+        "accountVerified": true
+      },
+      "uploadSelfTest": true
+    }
+  },
+  "liveNoticeCanaryPerformed": false,
+  "caseAlreadyCorrectedNoDuplicate": true,
+  "newCustomerMessagesSentByOperator": 0,
+  "newDiscountsAppliedByOperator": 0
+}

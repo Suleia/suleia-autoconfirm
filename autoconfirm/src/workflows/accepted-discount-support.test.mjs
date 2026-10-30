@@ -42,6 +42,22 @@ test('mail and exact attachments must verify before provider mutation',async()=>
  const f=fixture();const r=await runAcceptedDiscount({},f.deps,options);assert.equal(r.status,'SUPPORT_SENT_SOLUTION_VERIFIED');assert.equal(r.discountApplied,false);
  assert.ok(f.events.indexOf('verifyMail')<f.events.indexOf('solve'));assert.equal(f.saved.at(-1).status,'verified');assert.ok(f.saved[0].raw.attachmentHashes[0].sha256);
 });
+
+test('VPS amount notice is optional, recorded and never replaces email/evidence verification',async()=>{
+ const f=fixture({notifyAmount:async p=>{f.events.push('amountNotice');assert.equal(p.finalCents,2499);return {status:'VERIFIED'};}});
+ const result=await runAcceptedDiscount({},f.deps,options);
+ assert.equal(result.status,'SUPPORT_SENT_SOLUTION_VERIFIED');assert.ok(f.events.indexOf('amountNotice')<f.events.indexOf('capture'));
+ assert.ok(f.events.indexOf('verifyMail')<f.events.indexOf('solve'));assert.equal(f.saved.at(-1).raw.amountNoticeStatus,'VERIFIED');
+ const g=fixture({notifyAmount:async()=>({status:'RECONCILE'}),verifyMail:async()=>false});
+ await runAcceptedDiscount({},g.deps,options);assert.equal(g.events.includes('solve'),false);assert.equal(g.saved.at(-1).raw.amountNoticeStatus,'RECONCILE');
+});
+
+test('late change after amount notice blocks financial work and previous support is never replayed',async()=>{
+ let changed=false;const f=fixture({notifyAmount:async()=>{changed=true;return {status:'VERIFIED'};},read:async()=>changed?{...input,intent:'REQUESTS_RETURN'}:input});
+ assert.equal((await runAcceptedDiscount({},f.deps,options)).status,'CUSTOMER_OR_ORDER_CHANGED');assert.equal(f.events.includes('send'),false);assert.equal(f.events.includes('solve'),false);
+ const g=fixture({get:async()=>({status:'verified'}),notifyAmount:async()=>assert.fail('historical notice must not replay')});
+ assert.equal((await runAcceptedDiscount({},g.deps,options)).status,'ALREADY_VERIFIED');assert.deepEqual(g.events,[]);
+});
 test('missing connections perform no reads or writes',async()=>{
  const f=fixture({ready:()=>false,read:async()=>{throw Error('must not read');}});assert.equal((await runAcceptedDiscount({},f.deps,options)).status,'CONNECTIONS_REQUIRED');assert.deepEqual(f.events,[]);
 });
