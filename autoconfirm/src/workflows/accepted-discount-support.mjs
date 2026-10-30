@@ -67,6 +67,12 @@ export async function runAcceptedDiscount(incident, deps, options) {
   if (!plan.eligible) return {status:plan.reason,discountApplied:false};
   const previous = await deps.get(plan);
   if (previous) return {status:previous.status==='verified'?'ALREADY_VERIFIED':'RECONCILIATION_REQUIRED',discountApplied:false};
+  // Optional VPS communication uses the same durable Chatby sender, independently
+  // of the existing screenshot/email/solution sequence. It never changes COD.
+  let amountNotice=null;
+  if(deps.notifyAmount){
+    try{amountNotice=await deps.notifyAmount(plan);}catch{amountNotice={status:'REVIEW_REQUIRED'};}
+  }
   const evidence = await deps.capture(plan);
   if (!validateSupportEvidence(plan,evidence)) return {status:'SCREENSHOT_NOT_VERIFIED',discountApplied:false};
   const reread = await fresh();
@@ -77,7 +83,7 @@ export async function runAcceptedDiscount(incident, deps, options) {
   const attachmentHashes=evidence.attachments.map(a=>({filename:a.filename,sha256:crypto.createHash('sha256').update(a.bytes).digest('hex')}));
   const audit={workflow:SUPPORT_WORKFLOW,orderId:plan.orderId,issueId:plan.issueId,phone:plan.phone,acceptedAt:plan.acceptedAt,
     acceptanceMessageId:plan.acceptanceMessageId,originalCents:plan.originalCents,finalCents:plan.finalCents,snapshot:plan.snapshot,attachmentHashes,requestedAt:new Date().toISOString(),
-    supportPlan:plan,...(plan.returnRecovery?{returnRecovery:plan.returnRecovery,carrierRecoveryPending:true}:{})};
+    supportPlan:plan,...(amountNotice?{amountNoticeStatus:amountNotice.status}:{}),...(plan.returnRecovery?{returnRecovery:plan.returnRecovery,carrierRecoveryPending:true}:{})};
   const save=(status,extra={})=>deps.save(plan,status,{...audit,phase,mailId,...extra});
   try {
     const beforeMail=await fresh();
