@@ -91,7 +91,7 @@ export function interpretMessage(message,{question=null,offerVerified=false,at=m
  if(/\b(?:llam\w*|avis\w*)\b.*\bantes\b/.test(t))facts.call_before_arrival=!/\bno (?:me |nos )?(?:llam|avis)/.test(t);
  if(/\b(?:cambiar|cambio|otra|nueva|corregir)\b.*\bdireccion\b/.test(t)){add('CHANGES_ADDRESS');facts.address_change_requested=true;}
  const address=parseCustomerAddress(literal);
- if(['VALID_ADDRESS','INCOMPLETE_ADDRESS'].includes(address.kind)){add('PROVIDES_ADDRESS');facts.address=address;facts.address_complete=address.kind==='VALID_ADDRESS';facts.address_change_requested=true;}
+ if(['VALID_ADDRESS','INCOMPLETE_ADDRESS'].includes(address.kind)&&['street','number','postal_code','city','floor','door','province','country'].some(k=>address[k])){add('PROVIDES_ADDRESS');facts.address=address;facts.address_complete=address.kind==='VALID_ADDRESS';facts.address_change_requested=true;}
  if(question==='POSTAL_CODE'&&/^\d{5}$/.test(t))facts.postal_code=t;
  if(/confirmo.*direccion|direccion.*correcta/.test(t))add('CONFIRMS_ADDRESS');
  if(/no ha llegado|donde (?:esta|va)|estado.*pedido|seguimiento|sigo esperando/.test(t)){add('ASKS_STATUS');facts.asks_status=true;}
@@ -152,9 +152,9 @@ export function buildCustomerCase(input,previous=null){
   // A structured answer must refer to a real outgoing message in THIS transcript.
   const replied=event.payload?.reply_to_mid&&events.find(m=>!isCustomerInteraction(m)&&extractWamid(m)===event.payload.reply_to_mid&&messageTimestamp(m)<at);
   const parsed=interpretMessage(event,{question:replied?questionContext(replied):question,offerVerified:offer,at,incidentType:incident?.incidentType});
-  lastInbound=event;confidence=parsed.confidence;
+  lastInbound=event;
   const meaningful=parsed.intents.some(i=>!['GREETING','THANKS','IRRELEVANT'].includes(i));
-  if(meaningful){latestIntents=parsed.intents;interpreted.latest_intent_at=iso(at);}
+  if(meaningful){latestIntents=parsed.intents;confidence=parsed.confidence;interpreted.latest_intent_at=iso(at);}
   if(interpreted.wants_order!==null&&parsed.facts.wants_order!==undefined&&interpreted.wants_order!==parsed.facts.wants_order)changeOfMind++;
   if(parsed.uncertainties?.length){interpreted.unresolved_interpretation=parsed.uncertainties;interpreted.unresolved_at=iso(at);}
   else if(meaningful){interpreted.unresolved_interpretation=[];interpreted.unresolved_at=null;}
@@ -163,7 +163,8 @@ export function buildCustomerCase(input,previous=null){
     const prior=interpreted.address,changed=value.street&&prior?.street&&fold(value.street)!==fold(prior.street);
     interpreted.address=changed?value:{...(prior||{}),...Object.fromEntries(Object.entries(value).filter(([,v])=>v!==null&&v!==''))};
     interpreted.address_complete=['street','number','postal_code','city'].every(k=>!!interpreted.address[k]);
-   }else if(slot!=='address_complete')interpreted[slot]=value;
+   }else if(slot==='address_change_requested'&&at<Date.parse(incident?.incidenceDate||order.createdAt))continue;
+   else if(slot!=='address_complete')interpreted[slot]=value;
    interpreted.fact_evidence[slot]={message_id:id,at:iso(at),hash:signature};
   }
   if(parsed.facts.delivery_window){interpreted.time_from=null;interpreted.time_to=null;}
