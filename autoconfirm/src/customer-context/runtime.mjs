@@ -10,6 +10,7 @@ export function conversationV3Flags(env={}){
 }
 export function shadowComparison(v2,v3){
   if(v3.contradictions?.length)return 'V3_CONFLICT';
+  if(v3.next_best_action==='HUMAN_REVIEW'&&v2.twin?.current_owner==='HUMAN')return 'SAME_DECISION';
   if(v3.next_best_action==='HUMAN_REVIEW')return 'V3_HUMAN_REVIEW';
   if(v3.next_best_action==='WAITING_CUSTOMER'&&v3.reason==='WAITING_CUSTOMER')return 'V3_AVOIDS_CLARIFICATION';
   if(v2.twin?.human_review_reason==='DELIVERY_DATE_AND_WINDOW_REQUIRED'&&v3.missing_information?.length===1)return 'V3_MORE_SPECIFIC';

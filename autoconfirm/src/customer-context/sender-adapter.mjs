@@ -13,8 +13,8 @@ export function decorateConversationV3(legacy,input,{previous=null,env={},releas
   if(env.CONVERSATION_V3_CLARIFICATION_ENABLED!=='true'&&env.CONVERSATION_V3_STATUS_REPLY_ENABLED!=='true')return {plan:legacy,care};
   care.mode='CANARY';
   const block=reason=>({plan:{eligible:false,reason,customerCare:care},care});
-  if(care.next_best_action!=='RESPOND')return block(care.reason);
-  const released=care.customer_reply_action==='CLARIFY'?env.CONVERSATION_V3_CLARIFICATION_ENABLED==='true':care.customer_reply_action==='STATUS_RESPONSE'&&env.CONVERSATION_V3_STATUS_REPLY_ENABLED==='true';
+  if(care.next_best_action!=='RESPOND'&&care.customer_reply_action!=='ACKNOWLEDGE_REQUEST')return block(care.reason);
+  const released=care.customer_reply_action==='CLARIFY'?env.CONVERSATION_V3_CLARIFICATION_ENABLED==='true':['STATUS_RESPONSE','ACKNOWLEDGE_REQUEST'].includes(care.customer_reply_action)&&env.CONVERSATION_V3_STATUS_REPLY_ENABLED==='true';
   if(!released)return block('V3_REPLY_CAPABILITY_NOT_RELEASED');
   const age=(input.now??Date.now())-Date.parse(care.latest_customer_at);
   if(!Number.isFinite(age)||age<3600000||age>=24*3600000)return block('EXISTING_REPLY_WINDOW_REQUIRED');

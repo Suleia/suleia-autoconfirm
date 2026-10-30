@@ -166,3 +166,63 @@ test('V3 canary requires reviewed release evidence, exact case and independent c
  for(const mode of ['SHADOW','LIVE'])assert.equal(decorateConversationV3(legacy,x,{env:{...env,CONVERSATION_INTELLIGENCE_V3_MODE:mode},releaseReport,canaryCase:'90001:80001'}).plan,legacy);
  const solution={eligible:true,kind:'SOLUTION',hash:'original'};assert.equal(decorateConversationV3(solution,x,{env,releaseReport,canaryCase:'90001:80001'}).plan,solution);
 });
+test('duplicated provider display text does not create multiple clocks or erase courtesy context',()=>{
+ const c=compile(['Quiero el pedido el sábado Quiero el pedido el sábado','entre 16 y 18 entre 16 y 18','Gracias Gracias']);assert.equal(c.wants_order,true);assert.equal(c.time_from,'16:00');assert.equal(c.time_to,'18:00');assert.deepEqual(c.unresolved,[]);
+});
+test('a delivery question is not a new date preference',()=>{
+ const c=compile(['¿Mañana llegará el paquete?']);assert.equal(c.delivery_date,null);assert.equal(c.current_facts.ASKS_DELIVERY_DATE.value_json,true);assert.equal(c.operational_action,'NONE');
+});
+test('customer-reported receipt/carrier promise is not provider verified delivery or a retry request',()=>{
+ for(const text of ['Lo he recibido hoy','El repartidor me dijo que vendría mañana']){
+  const c=compile([text]);assert.equal(c.delivery_date,null);assert.equal(c.operational_action,'NONE');assert.equal(c.next_best_action,'WAITING_PROVIDER');assert.equal(c.last_verified_action,null);
+ }
+});
+test('an inactive incident preserves context but never prepares another operation or clarification',()=>{
+ const x=input(['Quiero el pedido el sábado']);x.issue.raw.is_active=false;const c=compileCustomerCase(x);assert.equal(c.wants_order,true);assert.equal(c.operational_action,'NONE');assert.equal(c.customer_reply_action,'NONE');assert.equal(c.next_best_action,'WAITING_PROVIDER');
+});
+test('inactive issue cannot regain a clarification through a doubtful work-end time',()=>{
+ const x=input(['Quiero el pedido el sábado','cuando salga del trabajo']);x.issue.raw.is_active=false;const c=compileCustomerCase(x);assert.equal(c.customer_reply_action,'NONE');assert.deepEqual(c.missing_information,[]);
+});
+test('availability tied to an expired day expires together with that day',()=>{
+ const c=compile(['El viernes por la tarde','Llamadme antes'],{now:Date.parse('2026-11-01T12:00:00Z')});assert.equal(c.delivery_date,null);assert.equal(c.delivery_window,null);assert.equal(c.call_before_arrival,null);
+});
+test('written dates and an explicit no-longer-needed refusal retain their meaning',()=>{
+ const c=compile(['Lo quiero para el día diez de noviembre']);assert.equal(c.delivery_date,'2026-11-10');assert.equal(c.wants_order,true);
+ const d=compile(['Ya no necesito el pedido']);assert.equal(d.wants_return,true);assert.equal(d.wants_order,false);
+});
+test('a later explicit delivery instruction supersedes an old product question',()=>{
+ const c=compile(['¿Qué producto es?','Quiero el pedido el sábado por la tarde']);assert.equal(c.operational_action,'RETRY_DELIVERY');assert.ok(c.fact_ledger.some(f=>f.fact_type==='ASKS_PRODUCT'&&f.status==='SUPERSEDED'));
+ const question=compile(['¿Qué producto es?']);assert.deepEqual(question.missing_information,[]);assert.equal(question.next_best_action,'HUMAN_REVIEW');
+});
+test('latest discount decision supersedes both sides of a previous acceptance/refusal',()=>{
+ const offer=message('Descuento',0,'agent',{mid:'wamid.offer',payload:{name:'es_es_dropea_incidencia_descuento_5_v1'}});
+ const c=compile([offer,message('Quiero el descuento',1),message('No quiero el pedido',2)]);assert.equal(c.discount_response,'REJECTED');assert.equal(c.current_facts.ACCEPTS_DISCOUNT.value_json,false);
+ const d=compile([offer,message('No quiero el pedido',1),message('Quiero el descuento',2)]);assert.equal(d.discount_response,'ACCEPTED');assert.equal(d.wants_return,false);assert.equal(d.current_facts.REJECTS_DISCOUNT.value_json,false);
+});
+test('two explicit availability intervals remain literal and use only the existing solution contract',()=>{
+ const x=input(['Horario de días laborables: de 10h a 14h y de 17h a 20h']);x.policy.ownerProvidesDefaultDate=true;
+ const c=compileCustomerCase(x);assert.equal(c.wants_order,true);assert.ok(c.current_facts.DELIVERY_AVAILABILITY);assert.equal(c.operational_action,'RETRY_DELIVERY');
+ const response=readCompiledIntent(c,x);assert.match(response.literal_delivery_preference.literal,/10h.*14h.*17h.*20h/);
+ const candidate=resolutionCandidate({...x,conversationContext:c});assert.equal(candidate.twin.next_best_action,'PROVIDE_SOLUTION');
+});
+test('hour suffixes and a precise clock after a window are retained',()=>{
+ const c=compile(['Quiero el pedido el sábado','de 14h hasta 17h']);assert.equal(c.wants_order,true);
+ const d=compile(['Quiero el pedido el sábado','de 14h a 17h']);assert.equal(d.time_from,'14:00');assert.equal(d.time_to,'17:00');
+ const e=compile(['por la tarde 16:00']);assert.equal(e.time_from,'16:00');
+});
+test('reply and operational decisions are independent, and an acknowledgment needs fresh verified action evidence',()=>{
+ const policy={requireDeliveryDate:true,requireDeliveryWindow:true,lastVerifiedAction:{action:'RETRY_DELIVERY',status:'VERIFIED',at:'2026-10-30T11:00:00Z'},providerReadVerified:true,providerReadAt:new Date(now-1000).toISOString()};
+ const c=compile(['Quiero el pedido el sábado por la tarde'],{policy});assert.equal(c.operational_action,'NONE');assert.equal(c.customer_reply_action,'ACKNOWLEDGE_REQUEST');assert.match(c.proposed_response,/solicitado una nueva entrega/);assert.doesNotMatch(c.proposed_response,/llegará|entregado/);
+ const d=compile(['Quiero el pedido el sábado por la tarde'],{policy},{...c,acknowledged_action_hash:c.ack_action_hash});assert.equal(d.customer_reply_action,'NONE');
+ const stale=compile(['Quiero el pedido el sábado por la tarde'],{policy:{...policy,providerReadAt:new Date(now-120000).toISOString()}});assert.equal(stale.customer_reply_action,'NONE');
+});
+test('a newer unknown question prevents an old yes/no question from consuming the answer',()=>{
+ const c=compile([message('¿Quiere el pedido?',0,'agent',{mid:'wamid.want'}),message('¿Ha recibido el SMS?',1,'agent',{mid:'wamid.sms'}),message('No',2)]);
+ assert.notEqual(c.wants_return,true);assert.equal(c.operational_action,'NONE');
+});
+test('cash availability alone is never an active missing requirement',()=>{
+ const c=compile(['Quiero el pedido el sábado por la tarde',message('Confirme que dispondrá de efectivo',1,'agent',{mid:'wamid.cash'})]);
+ assert.equal(c.operational_action,'RETRY_DELIVERY');assert.equal(c.customer_reply_action,'NONE');assert.ok(c.clarifications.some(q=>q.status==='INFORMATIONAL_NOT_REQUIRED'));
+ const mixed=compile(['Quiero el pedido',message('Confirme que dispondrá de efectivo e indique día y franja horaria',1,'agent',{mid:'wamid.cash-schedule'})]);
+ assert.equal(mixed.next_best_action,'WAITING_CUSTOMER');assert.equal(mixed.proposed_response,null);
+});

@@ -8,8 +8,9 @@ import {mergeFactLedger,materializeFacts} from './fact-ledger.mjs';
 import {requiredMissingInformation} from './missing-information.mjs';
 import {clarificationGuard} from './clarification-guard.mjs';
 import {composeSafeResponse} from './response-composer.mjs';
+import {contextualQuestion} from './question-context.mjs';
 const branded=new WeakMap();
-const bindings={WANTS_ORDER:'wants_order',WANTS_RETURN:'wants_return',CANCEL_INTENT:'cancel_intent',DELIVERY_DATE:'delivery_date',DELIVERY_WINDOW:'delivery_window',TIME_FROM:'time_from',TIME_TO:'time_to',CALL_BEFORE_ARRIVAL:'call_before_arrival',REQUESTS_AGENCY:'agency_requested',REPORTS_NO_DELIVERY_ATTEMPT:'reports_no_delivery_attempt',ADDRESS:'address',POSTAL_CODE:'postal_code'};
+const bindings={WANTS_ORDER:'wants_order',WANTS_RETURN:'wants_return',CANCEL_INTENT:'cancel_intent',DELIVERY_DATE:'delivery_date',DELIVERY_WINDOW:'delivery_window',TIME_FROM:'time_from',TIME_TO:'time_to',CALL_BEFORE_ARRIVAL:'call_before_arrival',REQUESTS_AGENCY:'agency_requested',REPORTS_NO_DELIVERY_ATTEMPT:'reports_no_delivery_attempt',ADDRESS:'address',POSTAL_CODE:'postal_code',ADDRESS_CHANGE_REQUESTED:'address_change_requested'};
 const timed=new Set(['TIME_FROM','TIME_TO']);
 const providerHash=input=>hash([input.order?.orderId,input.order?.status,input.order?.updatedAt,input.issue?.raw||input.issue,input.incident?.incidenceId,input.incident?.chatbyUserNs,input.incident?.chatbyReadVerified,input.incident?.chatbyOrderAssociation]);
 const decisionFingerprint=c=>hash([c.case_hash,c.operational_action,c.customer_reply_action,c.wants_order,c.wants_return,c.cancel_intent,c.latest_customer_intents,c.delivery_date,c.delivery_window,c.time_from,c.time_to,c.literal_delivery_preference,c.unresolved,c.provider_snapshot_hash,c.v2_response]);
@@ -24,20 +25,21 @@ export function compileCustomerCase(input,previous=null){
     eventVersions[event.event_id]=event.source_event_hash;
     if(event.direction==='OUTBOUND'){
       if(extractWamid(event.message)){
-        question=questionContext(event.message)||question;
-        if(questionContext(event.message)==='DISCOUNT')offer=true;
+        question=contextualQuestion(event.message)||question;
+        if(contextualQuestion(event.message)==='DISCOUNT')offer=true;
       }
       continue;
     }
     const raw=event.message.raw||event.message;
     const replied=event.message.payload?.reply_to_mid&&events.find(e=>e.direction==='OUTBOUND'&&extractWamid(e.message)===event.message.payload.reply_to_mid&&e.source_event_at<event.source_event_at);
     const structuredButton=(raw.button_verified===true&&String(raw.order_id)===base.dropea_order_id||replied)?raw.button_payload||null:null;
-    const result=extractCustomerFacts(event,{question:replied?questionContext(replied.message):question,offerVerified:offer,incidentType:base.current_incident_type,current,structuredButton});
+    const result=extractCustomerFacts(event,{question:replied?contextualQuestion(replied.message):question,offerVerified:offer,incidentType:base.current_incident_type,current,structuredButton});
     if(event.message.payload?.reply_to_mid&&!replied){result.unresolved.push('UNVERIFIED_REPLY_REFERENCE');}
     if(result.facts.some(f=>!['GREETING','THANKS'].includes(f.type))||result.unresolved.length){unresolved=result.unresolved;contradictions=result.contradictions;}
+    const relatedDate=result.facts.find(f=>f.type==='DELIVERY_DATE')?.value||current.DELIVERY_DATE||null;
     for(const fact of result.facts){
       current[fact.type]=fact.value;
-      incoming.push({...fact,authority:'CUSTOMER_DERIVED',source_event_id:event.event_id,source_event_hash:fact.evidence_hash,source_event_at:event.source_event_at});
+      incoming.push({...fact,authority:'CUSTOMER_DERIVED',source_event_id:event.event_id,source_event_hash:fact.evidence_hash,source_event_at:event.source_event_at,related_delivery_date:relatedDate});
     }
   }
   // These facts come exclusively from trusted workflow/provider inputs, never
@@ -54,6 +56,15 @@ export function compileCustomerCase(input,previous=null){
   const state={...base,version:'CONVERSATION_V3',policy,fact_ledger:ledger,current_facts:active,unresolved,contradictions,
     owner_capabilities:[...new Set(Object.values(OWNERS))],active_workflows:input.activeWorkflows||[],active_waits:input.activeWaits||[],timers:input.timers||[],
     fact_confidence:Object.fromEntries(Object.entries(active).map(([k,v])=>[k,v.confidence]))};
+  state.last_outbound_question_type=question||state.last_outbound_question_type;
+  for(const clarification of state.clarifications){
+    if(clarification.clarification_type!=='LEGACY_PAYMENT')continue;
+    const source=events.find(e=>e.direction==='OUTBOUND'&&extractWamid(e.message)===clarification.provider_message_id);
+    const type=source?contextualQuestion(source.message):'LEGACY_PAYMENT';
+    clarification.legacy_clarification_type='LEGACY_PAYMENT';
+    clarification.clarification_type=type;
+    if(type==='LEGACY_PAYMENT')clarification.status='INFORMATIONAL_NOT_REQUIRED';
+  }
   for(const [type,field]of Object.entries(bindings))state[field]=active[type]?.confidence>=.9?active[type].value_json:null;
   if(active.ACCEPTS_DISCOUNT?.value_json===true)state.discount_response='ACCEPTED';
   if(active.REJECTS_DISCOUNT?.value_json===true)state.discount_response='REJECTED';
@@ -64,19 +75,36 @@ export function compileCustomerCase(input,previous=null){
   // loss of the already-established desire/date/window.
   state.unresolved_interpretation=unresolved.filter(u=>!timed.has(u));
   if(contradictions.length)state.unresolved_interpretation.push(...contradictions);
+  if(!state.has_current_reply)state.unresolved_interpretation=[];
   if(input.historyComplete===false)state.unresolved_interpretation.push('CONVERSATION_HISTORY_INCOMPLETE');
   if(state.wants_order===true&&state.wants_return)state.unresolved_interpretation.push('WANTS_ORDER_VS_RETURN');
-  const intent=state.wants_return?'RETURN':state.address_change_requested?'ADDRESS':state.discount_response==='ACCEPTED'?'DISCOUNT_ACCEPT':'REDELIVERY';
+  const intent=state.wants_return?'RETURN':state.address_change_requested?'ADDRESS':state.discount_response==='ACCEPTED'?'DISCOUNT_ACCEPT':state.latest_customer_intents.some(i=>i.startsWith('ASKS_'))?'STATUS_REPLY':'REDELIVERY';
   state.missing_information=requiredMissingInformation(state,intent);
   const routed=routeCustomerCase(state,policy);
+  if(active.DELIVERY_AVAILABILITY?.confidence>=.9&&state.has_current_reply&&state.wants_order&&!state.wants_return&&!policy.irreversibleAction&&!state.unresolved_interpretation.length&&['absent','rejected_goods'].includes(state.current_incident_type)&&(input.issue?.raw||input.issue)?.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
+    Object.assign(routed,{next_best_action:'DELEGATE',capability:'REDELIVERY',owner:OWNERS.REDELIVERY,reason:'COMPOSITE_AVAILABILITY_EXISTING_SOLUTION_CONTRACT',missing_slots:[]});
+  }
+  if((active.REPORTS_RECEIVED?.value_json||active.REPORTS_CARRIER_PLAN?.value_json)&&!state.wants_return){
+    Object.assign(routed,{next_best_action:'WAITING_PROVIDER',capability:null,owner:OWNERS.REDELIVERY,reason:'CUSTOMER_REPORT_REQUIRES_PROVIDER_VERIFICATION'});
+  }
   if(timed.size&&unresolved.some(u=>timed.has(u))&&state.wants_order&&!state.wants_return&&!policy.irreversibleAction){
     Object.assign(routed,{next_best_action:'RESPOND',capability:'CONTEXTUAL_CLARIFICATION',owner:OWNERS.CONTEXTUAL_CLARIFICATION,response_type:'CLARIFICATION',reason:'ONLY_REQUIRED_MISSING_FACT',missing_slots:state.missing_information});
   }else if(routed.capability==='CONTEXTUAL_CLARIFICATION')routed.missing_slots=state.missing_information;
   const guard=clarificationGuard(state);
   if(routed.next_best_action==='RESPOND'&&!guard.allowed){Object.assign(routed,{next_best_action:'WAITING_CUSTOMER',capability:null,owner:'HUMAN',reason:guard.reason});state.findings.push(guard.finding);}
+  if((input.issue?.raw||input.issue)?.is_active===false){
+    state.missing_information=[];
+    Object.assign(routed,{next_best_action:'WAITING_PROVIDER',capability:null,owner:OWNERS.REDELIVERY,reason:'INACTIVE_ISSUE_REQUIRES_LOGISTICS_FOLLOWUP',missing_slots:[]});
+  }
   const compiled=applyCarePlan(state,routed);
   compiled.operational_action=routed.next_best_action==='DELEGATE'?({REDELIVERY:'RETRY_DELIVERY',RETURN:'REQUEST_RETURN',AGENCY:'PICKUP_AT_AGENCY'}[routed.capability]||routed.capability):'NONE';
   compiled.customer_reply_action=routed.next_best_action==='RESPOND'?(routed.response_type==='CLARIFICATION'?'CLARIFY':'STATUS_RESPONSE'):'NONE';
+  compiled.operational_owner=compiled.owner;compiled.reply_owner=compiled.customer_reply_action==='NONE'?null:OWNERS.STATUS_REPLY;
+  const verifiedAction=compiled.last_verified_action;
+  if(compiled.next_best_action==='WAITING_PROVIDER'&&compiled.reason==='EXISTING_ACTION_AWAITING_LOGISTICS'&&policy.providerReadVerified===true&&policy.providerReadAt&&now-Date.parse(policy.providerReadAt)>=0&&now-Date.parse(policy.providerReadAt)<=60000&&verifiedAction?.status==='VERIFIED'&&['RETRY_DELIVERY','REDELIVERY'].includes(verifiedAction.action)){
+    compiled.ack_action_hash=hash(verifiedAction);
+    if(previous?.acknowledged_action_hash!==compiled.ack_action_hash){compiled.customer_reply_action='ACKNOWLEDGE_REQUEST';compiled.response_type='ACKNOWLEDGE_REQUEST';compiled.capability='STATUS_REPLY';compiled.reply_owner=OWNERS.STATUS_REPLY;}
+  }
   compiled.decision_reason_codes=[routed.reason,...(state.wants_order?['CUSTOMER_WANTS_ORDER']:[]),...(state.delivery_date?['DELIVERY_DATE_KNOWN']:[]),...(state.delivery_window?['DELIVERY_WINDOW_KNOWN']:[])];
   compiled.context_hash=hash([input.binding,input.order?.status,input.issue?.raw||input.issue,policy,compiled.active_workflows,compiled.active_waits,compiled.timers]);
   compiled.provider_snapshot_hash=providerHash(input);
@@ -90,8 +118,8 @@ export function compileCustomerCase(input,previous=null){
   compiled.plan_hash=hash([routed,compiled.case_hash]);
   compiled.release_eligible=false; // Release requires the separately reviewed benchmark.
   compiled.v2_response=currentCustomerIntent(input);
-  if(compiled.time_from||compiled.time_to){
-    const eventHashes=new Set(['DELIVERY_DATE','DELIVERY_WINDOW','TIME_FROM','TIME_TO','CALL_BEFORE_ARRIVAL'].map(t=>active[t]?.source_event_hash).filter(Boolean));
+  if(compiled.time_from||compiled.time_to||active.DELIVERY_AVAILABILITY){
+    const eventHashes=new Set(['DELIVERY_DATE','DELIVERY_WINDOW','TIME_FROM','TIME_TO','CALL_BEFORE_ARRIVAL','DELIVERY_AVAILABILITY'].map(t=>active[t]?.source_event_hash).filter(Boolean));
     compiled.literal_delivery_preference={literal:events.filter(e=>eventHashes.has(e.source_event_hash)).map(e=>e.text).join(' · '),date:compiled.delivery_date,clockInterpretation:'CUSTOMER_CONTEXT_NO_WIDENING'};
   }
   const factsTimeline=ledger.map(f=>({kind:f.status==='SUPERSEDED'?'FACT_SUPERSEDED':f.status==='RETRACTED'?'FACT_RETRACTED':'FACT_EXTRACTED',at:f.source_event_at,fact_type:f.fact_type,fact_id:f.fact_id,authority:f.authority,confidence:f.confidence,status:f.status}));
