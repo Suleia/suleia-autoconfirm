@@ -22,6 +22,28 @@ function input(texts,extra={}){
 }
 const compile=(texts,extra={},prior=null)=>compileCustomerCase(input(texts,extra),prior);
 
+test('a newly received date completes persisted window validity and retains the old record',()=>{
+ const old=compile(['Por la mañana']);
+ const later=compile(['Por la mañana','El sábado'],{now:Date.parse('2026-11-02T10:00:00Z')},old);
+ assert.equal(later.delivery_window,null);assert.ok(later.fact_ledger.some(f=>f.fact_type==='DELIVERY_WINDOW'&&f.status==='SUPERSEDED'));
+ assert.ok(later.fact_ledger.some(f=>f.fact_type==='DELIVERY_WINDOW'&&f.status==='EXPIRED'));
+});
+test('a precise upper bound expires at that Madrid time on the chosen date',()=>{
+ const c=compile(['Hoy antes de las 12:00'],{now:Date.parse('2026-10-30T13:00:00Z')});
+ assert.equal(c.time_to,null);assert.ok(c.fact_ledger.some(f=>f.fact_type==='TIME_TO'&&f.status==='EXPIRED'&&f.valid_until==='2026-10-30T11:00:00.000Z'));
+});
+test('a repeated compatible afternoon preference retains an already supplied precise interval',()=>{
+ const c=compile(['El sábado por la tarde de 16 a 19','El sábado por la tarde']);assert.equal(c.time_from,'16:00');assert.equal(c.time_to,'19:00');
+});
+
+for(const [text,from,to]of [['a partir de las 15:15 de la tarde','15:15',null],['a partir de las 14.30del mediodía','14:30',null],['de 11 :30 ha 13:30','11:30','13:30'],['máximo 12:30h',null,'12:30']])test('minutes stay intact next to words: '+text,()=>{
+ const c=compile(['Quiero el pedido el sábado',text]);assert.equal(c.time_from,from);assert.equal(c.time_to,to);
+});
+test('a later recurring window is not tied to an expired earlier day',()=>{
+ const c=compile(['El viernes por la tarde',message('Que me lo dejen por las tardes',3*24*60)],{now:Date.parse('2026-11-02T15:00:00Z')});
+ assert.equal(c.delivery_window,'AFTERNOON');assert.equal(c.delivery_date,null);
+});
+
 test('No answers the consent part of a combined consent/date question',()=>{
  const c=compile([message('¿Quiere que solicitemos una nueva entrega de su pedido? Si es así, indíquenos el día y la franja horaria.',0,'agent',{mid:'wamid.combined'}),message('No gracias',1)]);
  assert.equal(c.wants_return,true);assert.equal(c.wants_order,false);assert.equal(c.customer_reply_action,'NONE');

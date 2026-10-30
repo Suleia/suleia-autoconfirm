@@ -17,40 +17,40 @@ export function correctTemporalFacts(event,{facts,unresolved,put,question,curren
     unresolved.delete('CONTRADICTORY_WINDOW');unresolved.add('DELIVERY_WINDOW');
   }
   // A morning window does not mean tomorrow; tomorrow alone is not a morning window.
-  const morningPhrase=/\b(?:por (?:la|las)|en la|de la|toda la) manana/.test(text);
-  const tomorrow=/\b(?:para )?manana\b/.test(text.replace(/(?:por (?:la|las)|en la|de la|toda la|esta) manana[s]?/g,''));
+  const morningPhrase=/\b(?:por (?:la|las)|en la|de la|toda la|la) manana/.test(text);
+  const tomorrow=/\b(?:para )?manana\b/.test(text.replace(/(?:por (?:la|las)|en la|de la|toda la|esta|la) manana[s]?/g,''));
   if(morningPhrase&&!tomorrow&&!/\bhoy\b|esta (?:manana|tarde)|pasado manana|\b\d{1,2} de\b/.test(text)&&!alternativeDays.length)facts.delete('DELIVERY_DATE');
-  if(tomorrow&&!nativeAlternative&&!morningPhrase&&!/pasado manana/.test(text)&&question!=='TIME_WINDOW'){
+  if(tomorrow&&!nativeAlternative&&!/pasado manana/.test(text)&&question!=='TIME_WINDOW'){
     put('DELIVERY_DATE',addDay(day,1));
-    if(facts.get('DELIVERY_WINDOW')?.value==='MORNING')facts.delete('DELIVERY_WINDOW');
+    if(!morningPhrase&&facts.get('DELIVERY_WINDOW')?.value==='MORNING')facts.delete('DELIVERY_WINDOW');
   }
   // Clauses about work or an unavailable window cannot become positive delivery preferences.
-  const temporalText=text.replace(/(\d)\s*[.,]\s*(\d{2})(?:h\b|\b)/g,'$1:$2').replace(/las[. ]*(\d)/g,'las $1').replace(/(\d)(de la|del|a\b)/g,'$1 $2').replace(/delas/g,'de las');
-  const available=temporalText.split(/[;.!?]|\bpero\b|\bsino\b/).filter(s=>!/(?:trabajo|trabajando|no (?:voy a |puedo |estare|estoy|estar)|no.*(?:manana|tarde))/.test(s)).join(' ');
-  const morning=/por (?:la|las) manana|en la manana|de la manana|toda la manana|^manana[.! ]*$/.test(available)&&!(tomorrow&&!morningPhrase&&question!=='TIME_WINDOW');
+  const temporalText=text.replace(/(\d)\s*[.,]\s*(\d{2})(?:h\b)?/g,'$1:$2 ').replace(/las[. ]*(\d)/g,'las $1').replace(/(\d)(de la|del|a\b)/g,'$1 $2').replace(/delas/g,'de las');
+  const available=temporalText.split(/\b(?:me (?:h?an|a) dicho|me dijo|medijo)\b/)[0].split(/[;.!?]|\bpero\b|\bsino\b|\bporque\b/).filter(s=>!/(?:\btrabajo (?:de|por|desde)|estoy trabajando|no (?:voy a |puedo |estare|estoy|estar)|no.*(?:manana|tarde)|manana.*no estoy)/.test(s)).join(' ');
+  const morning=/por (?:la|las) manana|en la manana|de la manana|toda la manana|la manana|^manana[.! ]*$/.test(available)&&!(tomorrow&&!morningPhrase&&question!=='TIME_WINDOW');
   const afternoon=/por (?:la|las) tarde|de la tarde|en la tarde|esta tarde|^tarde[.! ]*$/.test(available);
   if(!nativeAlternative){
     if(morning&&!afternoon){put('DELIVERY_WINDOW','MORNING');unresolved.delete('CONTRADICTORY_WINDOW');unresolved.delete('NEGATED_DELIVERY_PREFERENCE');}
     else if(afternoon&&!morning){put('DELIVERY_WINDOW','AFTERNOON');unresolved.delete('CONTRADICTORY_WINDOW');unresolved.delete('NEGATED_DELIVERY_PREFERENCE');}
-    else if(!morning&&!afternoon&&(/no.*(?:manana|tarde)|trabajo.*(?:manana|tarde)/.test(text)))facts.delete('DELIVERY_WINDOW');
+    else if(!morning&&!afternoon&&(/no.*(?:manana|tarde)|manana.*no estoy|trabajo.*(?:manana|tarde)/.test(text)))facts.delete('DELIVERY_WINDOW');
   }
   if(alternativeDays.length>1){facts.delete('DELIVERY_DATE');unresolved.add('DELIVERY_DATE');}
-  const numbered=/\b(?:el|dia+|eldia)\s*(\d{1,2})(?![\d:.,])\b/.exec(text);
+  const numbered=/\b(?:el|dia+|eldia)\s*(\d{1,2})(?![\d:.,])\b/.exec(text)||/\b(\d{1,2}) (?:d|de) este mes\b/.exec(text);
   if(numbered&&!/\b(?:ayer|dia anterior)\b/.test(text)){
     let year=+day.slice(0,4),month=+day.slice(5,7),date=+numbered[1];
     if(/mes (?:q|que|k) (?:viene|biene)|mes siguiente/.test(text)||date<+day.slice(8))if(++month===13){month=1;year++;}
     const value=`${year}-${String(month).padStart(2,'0')}-${String(date).padStart(2,'0')}`;
     if(date>0&&new Date(value).toISOString().slice(0,10)===value)put('DELIVERY_DATE',value);
   }
-  let source=available.replace(/apartir/g,'a partir').replace(/(\d)\s*[:,.]\s*(\d{2})\s*h?\b/g,'$1:$2').replace(/(\d)\s*h(?:s|oras)?\b/g,'$1');
+  let source=available.replace(/apartir/g,'a partir').replace(/des pues/g,'despues').replace(/\balas\b/g,'a las').replace(/(\d)\s*[:,.]\s*(\d{2})(?:\s*h\b)?/g,'$1:$2 ').replace(/(\d)\s*h(?:s|oras)?\b/g,'$1');
   source=source.replace(new RegExp(`\\b(las?|de|a|hasta|desde) (${Object.keys(words).join('|')})\\b`,'g'),(_,p,w)=>p+' '+words[w]);
   // Work hours are not availability; removing them also removes old parser uncertainty.
   if(/trabajo|trabajando/.test(text)&&!/[0-9]/.test(source)){
     facts.delete('TIME_FROM');facts.delete('TIME_TO');unresolved.delete('INVALID_TIME_RANGE');unresolved.delete('AMBIGUOUS_CLOCK');
   }
-  const window=facts.get('DELIVERY_WINDOW')?.value||current.DELIVERY_WINDOW;
+  const window=facts.get('DELIVERY_WINDOW')?.value||(!/\bluego\b/.test(text)&&(!facts.has('DELIVERY_DATE')||facts.get('DELIVERY_DATE').value===current.DELIVERY_DATE)?current.DELIVERY_WINDOW:null);
   const resolve=(h,m)=>{h=+h;m=+(m||0);if(h<12&&['AFTERNOON','EVENING'].includes(window))h+=12;return h<=23&&m<=59&&(h>=8||window==='MORNING')?clock(h,m):null;};
-  const ranges=[...source.matchAll(/\b(?:de |entre |desde )?(?:las? )?(\d{1,2})(?::(\d{2}))?\s*(?:a|hasta|y)\s*(?:las? )?(\d{1,2})(?::(\d{2}))?\b/g)];
+  const ranges=[...source.matchAll(/\b(?:de |entre |desde )?(?:las? )?(\d{1,2})(?::(\d{2}))?\s*(?:a|ha|hasta|y)\s*(?:las? )?(\d{1,2})(?::(\d{2}))?\b/g)];
   if(ranges.length===1){
     const r=ranges[0],from=resolve(r[1],r[2]),to=resolve(r[3],r[4]);
     facts.delete('TIME_FROM');facts.delete('TIME_TO');
@@ -59,15 +59,18 @@ export function correctTemporalFacts(event,{facts,unresolved,put,question,curren
   }else if(ranges.length>1){
     facts.delete('TIME_FROM');facts.delete('TIME_TO');put('DELIVERY_AVAILABILITY',event.text.slice(0,300));unresolved.delete('MULTIPLE_CLOCKS');
   }else{
-    const boundaries=[...source.matchAll(/\b(a partir de|despues de|antes de|hasta|maximo|desde|sobre|a)\s+(?:las?\s+)?(\d{1,2})(?::(\d{2}))?\b/g)];
+    const boundaries=[...source.matchAll(/\b(a partir(?: de)?|despues de|antes de|hasta|maximo|desde|sobre|a)\s+(?:las?\s+)?(\d{1,2})(?::(\d{2}))?\b/g)];
     if(boundaries.length===1){
       const b=boundaries[0],type=/antes|hasta|maximo/.test(b[1])?'TIME_TO':'TIME_FROM',value=resolve(b[2],b[3]);
       facts.delete(type);
       if(value){put(type,value);unresolved.delete('AMBIGUOUS_CLOCK');unresolved.delete(type);}else unresolved.add(type);
     }
   }
+  const bare=/^(\d{1,2})(?::(\d{2}))? (?:de la )?tarde[.! ]*$/.exec(source);
+  if(bare){const value=resolve(bare[1],bare[2]);if(value){put('TIME_FROM',value);unresolved.delete('UNCLASSIFIED_CUSTOMER_TEXT');}}
   // Recounting a carrier promise/past failed attempt is not a new chosen day.
   const reportsPast=/\b(?:me dijeron|me han dicho|medijo|me dijo|ayer|he estado|estuve)\b|no (?:ha|han|a|an) venido|aqui no.*venido/.test(text);
   const ownPreference=/\b(?:prefiero|quiero|pueden venir|podeis venir|vengan|entreguen|desde las|a partir|estoy.*(?:hasta|desde))\b/.test(text);
   if((reportsPast||facts.get('ASKS_DELIVERY_DATE')?.value)&&!ownPreference){for(const key of temporal)facts.delete(key);}
+  if(/\b(?:hasta|asta) dia\s*\d/.test(text)&&!/(?:recibir|entregar|traer|pueden venir)/.test(text)){facts.delete('DELIVERY_DATE');unresolved.add('DELIVERY_DATE');}
 }

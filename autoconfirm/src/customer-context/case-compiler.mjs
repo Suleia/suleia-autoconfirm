@@ -2,6 +2,7 @@ import {buildCustomerCase,questionContext,hash,OWNERS} from '../customer-care/co
 import {routeCustomerCase,applyCarePlan} from '../customer-care/policy.mjs';
 import {extractWamid} from '../workflows/incident-discount-policy.mjs';
 import {currentCustomerIntent} from '../workflows/incident-intent-v2.mjs';
+import {madridDate} from '../workflows/incident-intent-v2.mjs';
 import {relevantMessageCluster,clusterHash} from './message-cluster.mjs';
 import {extractCustomerFacts} from './fact-extractor.mjs';
 import {mergeFactLedger,materializeFacts} from './fact-ledger.mjs';
@@ -42,7 +43,7 @@ export function compileCustomerCase(input,previous=null){
     if(result.facts.some(f=>!['GREETING','THANKS','REQUESTS_CONTACT','CALL_BEFORE_ARRIVAL'].includes(f.type))||result.unresolved.length){unresolved=result.unresolved;contradictions=result.contradictions;}
     if(result.facts.some(f=>f.type==='WANTS_RETURN'&&f.value===true&&f.confidence>=.9))slotUncertainty.clear();
     question=remainingQuestion(question,result.facts);
-    const relatedDate=result.facts.find(f=>f.type==='DELIVERY_DATE')?.value||current.DELIVERY_DATE||null;
+    const relatedDate=result.facts.find(f=>f.type==='DELIVERY_DATE')?.value||(current.DELIVERY_DATE>=madridDate(Date.parse(event.source_event_at))?current.DELIVERY_DATE:null)||null;
     if(result.facts.some(f=>f.type==='DELIVERY_DATE')){
       // A later date completes a previously supplied window in the same bounded case.
       for(const preference of incoming)if(['DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(preference.type)&&!preference.related_delivery_date)preference.related_delivery_date=relatedDate;

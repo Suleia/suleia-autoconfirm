@@ -11,6 +11,12 @@ function endOfMadridDay(day){
   while(high-low>1){const mid=Math.floor((low+high)/2);if(madridDate(mid)===day)low=mid;else high=mid;}
   return iso(high);
 }
+function madridDeadline(day,clock){
+  const format=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});
+  const target=day+' '+clock+':00';let low=Date.parse(day+'T00:00:00Z')-86400000,high=Date.parse(endOfMadridDay(day));
+  while(high-low>1){const mid=Math.floor((low+high)/2);if(format.format(new Date(mid))<target)low=mid;else high=mid;}
+  return iso(high);
+}
 export function materializeFacts(records,{now=Date.now(),attemptKey}={}){
   const active={};
   for(const fact of records){
@@ -30,12 +36,13 @@ export function mergeFactLedger(previous,incoming,{orderId,issueId,now,attemptKe
   }
   const sorted=[...incoming].sort((a,b)=>a.source_event_at.localeCompare(b.source_event_at)||a.type.localeCompare(b.type));
   for(const input of sorted){
-    const id=hash([orderId,issueId,input.authority,input.type,input.value,input.source_event_hash]);
+    const id=hash([orderId,issueId,input.authority,input.type,input.value,input.source_event_hash,input.related_delivery_date||null]);
     if(rows.some(r=>r.fact_id===id))continue;
     const fact={fact_id:id,canonical_order_id:orderId,canonical_issue_id:issueId,fact_type:input.type,value_json:input.value,
       authority:input.authority,confidence:input.confidence,source_event_id:input.source_event_id,
       source_event_hash:input.source_event_hash,source_event_at:input.source_event_at,valid_from:input.source_event_at,
-      valid_until:input.type==='DELIVERY_DATE'?endOfMadridDay(input.value):preferenceTypes.has(input.type)&&input.related_delivery_date?endOfMadridDay(input.related_delivery_date):['GREETING','THANKS'].includes(input.type)?iso(Date.parse(input.source_event_at)+15*60000):null,
+      related_delivery_date:input.related_delivery_date||null,
+      valid_until:input.type==='DELIVERY_DATE'?endOfMadridDay(input.value):input.type==='TIME_TO'&&input.related_delivery_date?madridDeadline(input.related_delivery_date,input.value):preferenceTypes.has(input.type)&&input.related_delivery_date?endOfMadridDay(input.related_delivery_date):['GREETING','THANKS'].includes(input.type)?iso(Date.parse(input.source_event_at)+15*60000):null,
       superseded_by:null,status:'CURRENT',created_at:created,updated_at:created,
       attempt_key:preferenceTypes.has(input.type)?attemptKey:null};
     for(const old of rows.filter(r=>r.fact_type===fact.fact_type&&r.status==='CURRENT')){
@@ -46,6 +53,9 @@ export function mergeFactLedger(previous,incoming,{orderId,issueId,now,attemptKe
     }
     const exclusive=input.type==='DELIVERY_AVAILABILITY'?['TIME_FROM','TIME_TO','DELIVERY_WINDOW']:input.type==='DELIVERY_WINDOW'?['TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY']:['TIME_FROM','TIME_TO'].includes(input.type)?['DELIVERY_WINDOW','DELIVERY_AVAILABILITY']:[];
     for(const old of rows.filter(r=>r.status==='CURRENT'&&exclusive.includes(r.fact_type)&&r.source_event_at<fact.source_event_at&&r.authority===fact.authority)){
+      if(input.type==='DELIVERY_WINDOW'&&['TIME_FROM','TIME_TO'].includes(old.fact_type)){
+        const h=Number(old.value_json.slice(0,2));if(input.value==='MORNING'&&h<12||input.value==='AFTERNOON'&&h>=12&&h<21||input.value==='EVENING'&&h>=18)continue;
+      }
       old.status='SUPERSEDED';old.superseded_by=id;old.updated_at=created;
     }
     if(instructionTypes.has(fact.fact_type))for(const old of rows.filter(r=>r.status==='CURRENT'&&r.fact_type.startsWith('ASKS_')&&r.source_event_at<fact.source_event_at&&r.authority===fact.authority)){
