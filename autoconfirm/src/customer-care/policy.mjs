@@ -9,8 +9,9 @@ export function requiredMissingSlots(state,policy={}){
  if(state.wants_return||state.cancel_intent)return [];
  if(state.address_change_requested)return ['street','number','postal_code','city'].filter(k=>!(k==='postal_code'?state.postal_code||state.address?.[k]:state.address?.[k])).map(k=>k.toUpperCase());
  if(state.wants_order!==true)return ['WANTS_ORDER'];
+ if(policy.ownerProvidesDefaultSchedule===true&&!state.delivery_date&&!state.delivery_window&&!state.time_from&&!state.time_to&&!state.expired_delivery_date)return [];
  const missing=[];
- if(policy.requireDeliveryDate===true&&!state.delivery_date)missing.push('DELIVERY_DATE');
+ if(policy.requireDeliveryDate===true&&!state.delivery_date&&!(policy.ownerProvidesDefaultDate===true&&(state.delivery_window||state.time_from||state.time_to)&&!state.expired_delivery_date))missing.push('DELIVERY_DATE');
  if(policy.requireDeliveryWindow===true&&!state.delivery_window&&!state.time_from&&!state.time_to)missing.push('TIME_WINDOW');
  return missing;
 }

@@ -158,7 +158,14 @@ export function buildCustomerCase(input,previous=null){
   if(interpreted.wants_order!==null&&parsed.facts.wants_order!==undefined&&interpreted.wants_order!==parsed.facts.wants_order)changeOfMind++;
   if(parsed.uncertainties?.length){interpreted.unresolved_interpretation=parsed.uncertainties;interpreted.unresolved_at=iso(at);}
   else if(meaningful){interpreted.unresolved_interpretation=[];interpreted.unresolved_at=null;}
-  for(const [slot,value]of Object.entries(parsed.facts)){interpreted[slot]=value;interpreted.fact_evidence[slot]={message_id:id,at:iso(at),hash:signature};}
+  for(const [slot,value]of Object.entries(parsed.facts)){
+   if(slot==='address'){
+    const prior=interpreted.address,changed=value.street&&prior?.street&&fold(value.street)!==fold(prior.street);
+    interpreted.address=changed?value:{...(prior||{}),...Object.fromEntries(Object.entries(value).filter(([,v])=>v!==null&&v!==''))};
+    interpreted.address_complete=['street','number','postal_code','city'].every(k=>!!interpreted.address[k]);
+   }else if(slot!=='address_complete')interpreted[slot]=value;
+   interpreted.fact_evidence[slot]={message_id:id,at:iso(at),hash:signature};
+  }
   if(parsed.facts.delivery_window){interpreted.time_from=null;interpreted.time_to=null;}
   if(parsed.facts.time_from||parsed.facts.time_to){interpreted.delivery_window=null;}
   state.timeline.push({kind:'CUSTOMER_INTERPRETED',event_hash:signature,at:iso(at),intents:parsed.intents,confidence:parsed.confidence});

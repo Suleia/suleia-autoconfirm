@@ -134,3 +134,11 @@ test('a negated weekday and disputed order origin never become a return or retry
  const a=care([inbound('No quiero el viernes')]);assert.equal(a.wants_return,false);assert.equal(a.next_best_action,'HUMAN_REVIEW');
  const b=care([inbound('Yo no he pedido esto')]);assert.equal(b.reason,'ORDER_ORIGIN_DISPUTED');
 });
+test('a separately supplied postcode preserves the literal partial address',()=>{
+ const a=care([inbound('Calle Ejemplo 7, Ciudad'),inbound('28001',1)]);
+ assert.match(a.address.street,/Ejemplo/);assert.equal(a.address.number,'7');assert.equal(a.address.postal_code,'28001');
+});
+test('existing owner default schedule avoids asking an unnecessary date/window',()=>{
+ const a=care([inbound('Sigo esperando, nadie ha venido')],{policy:{requireDeliveryDate:true,requireDeliveryWindow:true,ownerProvidesDefaultSchedule:true}});
+ assert.equal(a.next_best_action,'DELEGATE');assert.equal(a.capability,'REDELIVERY');assert.equal(a.delivery_date,null);
+});
