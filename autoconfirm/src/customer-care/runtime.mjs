@@ -6,7 +6,7 @@ export function carePolicyFor({incident,order,issue}){
  const raw=issue?.raw||issue||{};
  const verifiedReturn=incident?.incidentDiscountReturnVerified===true;
  const verifiedAction=verifiedReturn?{action:'RETURN_REQUESTED',status:'VERIFIED',at:incident.incidentDiscountReturnCompletedAt||incident.incidentDiscountReturnAttemptedAt}:incident?.operationalActionVerified===true?{action:incident.operationalAction||'EXISTING_PROVIDER_ACTION',status:'VERIFIED',at:incident.operationalActionVerifiedAt}:null;
- return {requireDeliveryDate:true,requireDeliveryWindow:true,
+ return {requireDeliveryDate:true,requireDeliveryWindow:true,ownerProvidesDefaultSchedule:['absent','rejected_goods'].includes(incident?.incidentType),ownerProvidesDefaultDate:['absent','rejected_goods'].includes(incident?.incidentType),
   irreversibleAction:verifiedReturn||raw.resolution_status==='RETURN_REQUESTED'?'RETURN_REQUESTED':raw.resolution_status==='CANCELLED'?'CANCELLATION_APPLIED':null,
   lastVerifiedAction:verifiedAction,
   // An amount alone does not prove the payment contract or card availability.
