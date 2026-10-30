@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises';
+import {prepareCustomerCare,recordCustomerCareReceipt} from './customer-care-integration.mjs';
 import {deliveryReplyPlan} from './delivery-reply-policy.mjs';
 import {executeDeliveryReply,verifiedDeliverySolution,verifiedDeliverySolutionState,solutionNoteHash} from './delivery-reply-executor.mjs';
 import {loadProviderEnv} from './worker.mjs';
@@ -130,6 +131,10 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    if(!await association(current.order,messages)){report.cases.push({...item,status:'BLOCKED',reason:'FRESH_EXACT_ORDER_ASSOCIATION_REQUIRED'});continue;}
    const prior=await inspectPriorOrderReturn(incident);
    if(prior.verified||prior.blocked){report.cases.push({...item,status:'BLOCKED',reason:'PRIOR_RETURN_GUARD'});continue;}
+   const careResult=await prepareCustomerCare(plan,{incident:scoped,...current,messages},{control});
+   plan=careResult.plan;
+   if(careResult.care)item.customerCare={mode:careResult.care.mode,nextAction:careResult.care.next_best_action,owner:careResult.care.owner,reason:careResult.care.reason,missingSlots:careResult.care.missing_slots,conversationVersion:careResult.care.conversation_version};
+   if(!plan.eligible){report.cases.push({...item,status:'BLOCKED',reason:plan.reason});continue;}
    const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null,providerRawType:raw.type,customerIntent:plan.customer_intent||null,waitingForOrder:plan.waiting_for_order===true,deliveryAttemptDeniedByCustomer:plan.delivery_attempt_denied_by_customer===true,nextBestAction:plan.next_best_action||null,...(plan.context?{context:plan.context}:{})};
    if(!canWrite||(control.deliveryReplyMode==='AUTO_CANARY'&&(admitted||control.deliveryReplyCanaryOrderId&&String(control.deliveryReplyCanaryOrderId)!==plan.orderId))){report.cases.push(observed);continue;}
    let attemptedAt=null;
@@ -138,10 +143,16 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
     const replies=await getIncidentChatMessages(incident.chatbyUserNs);
     if(!await association(fresh.order,replies,true))return {eligible:false,reason:'FRESH_ASSOCIATION_REQUIRED'};
     const guard=await inspectPriorOrderReturn(incident);if(guard.verified||guard.blocked)return {eligible:false,reason:'PRIOR_RETURN_GUARD'};
-    return deliveryReplyPlan({incident:scoped,...fresh,messages:replies});
+    const legacy=deliveryReplyPlan({incident:scoped,...fresh,messages:replies});
+    const freshCareControl=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
+    return (await prepareCustomerCare(legacy,{incident:scoped,...fresh,messages:replies},{control:freshCareControl})).plan;
    };
    const result=await executeDeliveryReply(plan,{
-    revalidate,readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:finishTemplateDelivery,send:sendTextMessage,
+    revalidate,readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:async receipt=>{
+     const saved=await finishTemplateDelivery(receipt);
+     if(plan.care_plan)await recordCustomerCareReceipt(plan,receipt);
+     return saved;
+    },send:sendTextMessage,
     waitForReadback:()=>new Promise(resolve=>setTimeout(resolve,1500)),
     claimSolution:async p=>{
      const claim=await claimTemplateDelivery(issueKey(p));if(claim.acquired||!claim.persistent)return claim;
