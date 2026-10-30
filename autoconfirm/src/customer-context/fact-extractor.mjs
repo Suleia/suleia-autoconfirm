@@ -142,7 +142,7 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   if(parsed.confidence<.65&&!facts.size&&!unresolved.size)unresolved.add('UNCLASSIFIED_CUSTOMER_TEXT');
   correctTemporalFacts(event,{facts,unresolved,put,question,current});
   if(['DELIVERY_DATE','DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].some(type=>facts.has(type))&&!facts.get('WANTS_RETURN')?.value){put('WANTS_ORDER',true);put('WANTS_RETURN',false);if(incidentType)put('REQUESTS_REDELIVERY',true);}
-  const yes=/^(?:s+i+|ok(?:ey)?|vale|de acuerdo|claro|acepto|perfecto)(?: por favor)?[!. ,]*$/.test(t);
+  const yes=/^(?:s+i+|ok(?:ey)?|vale|de acuerdo|claro|acepto|perfecto)(?: por favor)?[!. ,]*$/.test(t)||question==='AGENCY_PICKUP'&&/^si[, .]/.test(t);
   const no=/^no(?:[ ,]+(?:m?gracias|por favor))?[!. ,]*$/.test(t);
   if((yes||no)&&question==='AGENCY_PICKUP'){
     put('REQUESTS_AGENCY',yes);facts.delete('WANTS_RETURN');facts.delete('CANCEL_INTENT');
@@ -162,14 +162,18 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   const explicitDesire=/mandamela|mandamelo|ya me podeis mandar|me traigan|lo he aceptado|lo espero|si que me interesa el producto|quiero.*recibir|manda lo hoy aceptare/.test(t)&&!explicitRefusal&&!originDisputed;
   if(explicitDesire){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('CANCEL_INTENT',false);}
   if(/(?:ire|voy|recojo|recoger|retirar).*\b(?:agencia|oficina)\b/.test(t)){put('REQUESTS_AGENCY',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}
-  if(/(?:y )?(?:precio|cantidad contra ?reembolso)\s*[?¿]|cuanto.*(?:pagar|cobrar)|cantidad.*contra ?reembolso/.test(t))put('ASKS_PAYMENT',true);
-  if(/que (?:crema|pedido|producto)|crema.*falsa|como.*(?:usa|aplica)|no me acuerdo.*pedi|marca.*(?:verdadera|imitacion|autentica)|original.*(?:verdad|\?)|que he pedido/.test(t))put(/como.*(?:usa|aplica)/.test(t)?'ASKS_USAGE':'ASKS_PRODUCT',true);
-  if(/(?:ya lo tengo|me ha llegado|ya lo he recogido|he recibido el pedido|a llegado mi pedido)/.test(t)&&!/no (?:me )?ha llegado|no lo tengo|no he recibido/.test(t))put('REPORTS_RECEIVED',true);
-  if(/cuando.*(?:lleg|traer)|saber si.*traeran|me llegara/.test(t))put('ASKS_DELIVERY_DATE',true);
+  if(/(?:y )?(?:precio|cantidad contra ?reembolso)\s*[?¿]|cuanto.*(?:pagar|cobrar)|cantidad.*contra ?reembolso|se puede pagar/.test(t))put('ASKS_PAYMENT',true);
+  if(/que (?:crema|pedido|producto|envio)|crema.*falsa|como.*(?:usa|aplica)|no me acuerdo.*pedi|marca.*(?:verdadera|imitacion|autentica)|original.*(?:verdad|\?)|que he pedido|recomiendas la crema/.test(t))put(/como.*(?:usa|aplica)/.test(t)?'ASKS_USAGE':'ASKS_PRODUCT',true);
+  if(/(?:ya lo tengo|me ha llegado|ya lo he recogido|he recibido (?:el|un) pedido|a llegado mi pedido|me entregaron el pedido|ya tengo la crema)/.test(t)&&!/no (?:me )?ha llegado|no lo tengo|no he recibido/.test(t))put('REPORTS_RECEIVED',true);
+  if(/cuando.*(?:lleg|traer)|saber si.*traeran|me llegara|que dia.*mandar|que dia mebais/.test(t))put('ASKS_DELIVERY_DATE',true);
   if(/(?:empresa|enpresa).*(?:venir|viene|trae)/.test(t))put('ASKS_STATUS',true);
-  if(/(?:me |nos )?(?:llame|llamen|puedes llamar)|llamar al|llamar antes/.test(t))put('REQUESTS_CONTACT',true);
-  if(/(?:no |nadie ).*(?:ha |a |han |an )?venido|no .*rechazado|ningun momento.*rechazado|no tengo constancia.*venido|no viniste|no me han llamado/.test(t)&&!facts.get('WANTS_RETURN')?.value){put('REPORTS_NO_DELIVERY_ATTEMPT',true);put('WANTS_ORDER',true);put('WANTS_RETURN',false);}
+  if(/(?:me |nos )?(?:llame|llamen|puedes llamar)|llamar al|llamar antes|me llamaran/.test(t))put('REQUESTS_CONTACT',true);
+  if(/(?:no |nadie ).*(?:ha |a |han |an )?venido|no .*rechazado|ningun momento.*rechazado|no tengo constancia.*venido|no viniste|no me han llamado|nunca llego|no (?:an|han) (?:toca|llamado)|no allegado nada/.test(t)&&!facts.get('WANTS_RETURN')?.value){put('REPORTS_NO_DELIVERY_ATTEMPT',true);put('WANTS_ORDER',true);put('WANTS_RETURN',false);}
   if(/lo estaba esperando|mandarme|reenviar|enviarmelo|mandarmelo/.test(t)&&!explicitRefusal){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('REQUESTS_REDELIVERY',true);}
+  if(/que vuelva por favor/.test(t)){put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',true);}
+  if(/^(?:otro dia|otro dia o datos)[.! ]*$/.test(t)){put('WANTS_ORDER',true);unresolved.add('DELIVERY_DATE');}
+  if(/gls.*(?:el \d+ lo recojo|recoger)|donde ir a recogerlo|direccion.*para ir a recogerlo/.test(t)){put('REQUESTS_AGENCY',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}
+  if(/me (?:h?an|a) dicho|medujo el repartidor/.test(t))put('REPORTS_CARRIER_PLAN',true);
   if(/(?:me dijeron|me han dicho|medijo|me dijo)/.test(t)&&!requestsDelivery)put('REPORTS_CARRIER_PLAN',true);
   // Conditional acceptance/refusal is evidence for review, never an unconditional instruction.
   if(/\b(?:solo si|si no (?:es|mandais|es asi)|si (?:yo )?veo|tal vez|quizas)\b/.test(t)){
