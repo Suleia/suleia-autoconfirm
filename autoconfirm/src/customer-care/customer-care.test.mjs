@@ -151,3 +151,16 @@ test('leaving the pending list is not a resolution; only actual provider outcome
  }
  const next=context();next.incident.incidenceId='80002';await followCustomerCare(previous,[next],{store,now,readCurrent:async()=>({order:{orderId:'90001',status:'ERROR'},issue:{id:'80001',status:'RESOLVED'}})});assert.equal(saved.reason,'NEW_INCIDENT');assert.equal(saved.linked_next_issue_id,'80002');
 });
+test('an old initial address is memory, not a new address-change instruction',()=>{
+ const old=inbound('Calle Ejemplo 7, 28001 Ciudad',-120);const a=care([old,inbound('Mañana por la tarde')]);
+ assert.equal(a.address_change_requested,false);assert.equal(a.capability,'REDELIVERY');
+ const b=care([inbound('Es la misma dirección'),inbound('¿Qué producto es?',1)]);assert.equal(b.reason,'VERIFIED_PRODUCT_SOURCE_REQUIRED');
+});
+test('current questions take precedence over old delivery and accepted-offer facts',()=>{
+ const a=care([inbound('Quiero el pedido'),inbound('¿Dónde está mi pedido?',2)]);assert.equal(a.reason,'FRESH_PROVIDER_STATUS_REQUIRED');
+ const offer=outbound('Oferta',-1,{payload:{name:'es_es_dropea_incidencia_descuento_5_v1'}});
+ const b=care([offer,inbound('Acepto el descuento'),inbound('¿Cómo puedo pagar?',2)]);assert.equal(b.reason,'VERIFIED_PAYMENT_INFORMATION_REQUIRED');
+});
+test('courtesy does not silently upgrade an unresolved low-confidence clock',()=>{
+ const a=care([inbound('El sábado a las 5'),inbound('Gracias',2)]);assert.equal(a.next_best_action,'HUMAN_REVIEW');assert.ok(a.confidence<0.65);
+});
