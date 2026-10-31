@@ -20,7 +20,8 @@ const IncidentPanel=(()=>{
       ...(c.version==='CONVERSATION_V3'?[
         ['Datos anteriores',(c.superseded_fact_types||[]).join(' · ')||'Ninguno'],
         ['Acción operativa',c.operational_action||'NONE'],['Respuesta al cliente',c.customer_reply_action||'NONE'],
-        ['Confianza por dato',Object.entries(c.confidence||{}).map(([k,v])=>`${k}: ${Math.round(v*100)}%`).join(' · ')||'Por verificar']
+        ['Confianza por dato',Object.entries(c.confidence||{}).map(([k,v])=>`${k}: ${Math.round(v*100)}%`).join(' · ')||'Por verificar'],
+        ['Motivos de la decisión',(c.decision_reason_codes||[]).join(' · ')||c.reason||'Por verificar']
       ]:[]),
       ['Esperando a',c.waiting_for_customer?'Cliente':c.waiting_for_provider?'Proveedor':'Workflow responsable'],
       ['Última acción verificada',c.last_verified_action?.action||'Ninguna'],['Motivo',c.reason||'Por verificar']
