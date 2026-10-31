@@ -11,7 +11,7 @@ import { prepareDropeaV2Webhook } from './integrations/webhooks/dropea-v2-ingres
 import { syncIncidentSimulations } from './incident-simulation-sync.mjs';
 import { syncChatbyReadOnly } from './integrations/chatby/readonly-sync.mjs';
 import { syncOperationalOrderSignals } from './integrations/chatby/operational-order-signal-sync.mjs';
-import { syncRenderIncidentDiscountSignals } from './integrations/render/incident-discount-signal-sync.mjs';
+import { syncRenderIncidentDiscountSignals, syncGlsPickupObservations } from './integrations/render/incident-discount-signal-sync.mjs';
 import { shadowWorkerHealth,applyAbsentReadHealth } from './shadow-worker-health.mjs';
 import { createAbsentLogisticsReader } from './integrations/gls/absent-read-context.mjs';
 import { prepareAbsentTemplateApproval } from './integrations/chatby/absent-template-admin.mjs';
@@ -94,6 +94,10 @@ async function run() {
   if (running) return;
   running = true;
   try {
+    try {
+      const pickup=await syncGlsPickupObservations({source,projector:operationsProjector});
+      audit({event:'gls_pickup_observation_sync',projected:pickup.projected});
+    }catch{audit({event:'gls_pickup_observation_unavailable'});}
     const legacy = await syncShadow({ source, repository, hashKey: config.hashKey, pageSize: config.pageSize, audit });
     const dropeaResults = [];
     for (const { store, client } of dropeaClients) {

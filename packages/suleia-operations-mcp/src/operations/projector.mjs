@@ -302,17 +302,33 @@ export class OperationsProjector {
     return {matched:result.rowCount===1,actions_executed:0,production_writes:0};
   }
 
-  async upsertIncidentResolutionObservation(signal) {
+  async upsertIncidentResolutionObservation(signal,{glsOnly=false}={}) {
     const pickup=signal.observation?.gls_pickup;
     if(pickup){
       if(!publicGlsAgencySafe(pickup.agency))throw Error('PUBLIC_GLS_AGENCY_PROVENANCE_REQUIRED');
       assertSafe({...signal,observation:{...signal.observation,gls_pickup:{...pickup,agency:null}}});
     }else assertSafe(signal);
+    if(glsOnly){
+      if(!pickup||Object.keys(signal.observation).some(k=>k!=='gls_pickup'))throw Error('GLS_ONLY_OBSERVATION_REQUIRED');
+      const result=await this.pool.query(`INSERT INTO operations.incident_resolution_observations
+        (canonical_issue_id,canonical_order_id,dropea_issue_id,dropea_order_id,observation,source_updated_at)
+        SELECT canonical_issue_id,canonical_order_id,$1,$2,$3::jsonb,$4 FROM read_models.operations_incident_records
+        WHERE dropea_issue_id=$1 AND dropea_order_id=$2
+        ON CONFLICT(canonical_issue_id) DO UPDATE SET
+        observation=jsonb_set(operations.incident_resolution_observations.observation,'{gls_pickup}',EXCLUDED.observation->'gls_pickup',true),
+        source_updated_at=greatest(operations.incident_resolution_observations.source_updated_at,EXCLUDED.source_updated_at),ingested_at=now()
+        WHERE coalesce(EXCLUDED.observation->'gls_pickup'->>'report_at','')>=coalesce(operations.incident_resolution_observations.observation->'gls_pickup'->>'report_at','')
+        RETURNING canonical_issue_id`,[signal.dropea_issue_id,signal.dropea_order_id,JSON.stringify(signal.observation),signal.source_updated_at]);
+      return {matched:result.rowCount===1,actions_executed:0,production_writes:0};
+    }
     const result=await this.pool.query(`INSERT INTO operations.incident_resolution_observations
       (canonical_issue_id,canonical_order_id,dropea_issue_id,dropea_order_id,observation,source_updated_at)
       SELECT canonical_issue_id,canonical_order_id,$1,$2,$3::jsonb,$4 FROM read_models.operations_incident_records
       WHERE dropea_issue_id=$1 AND dropea_order_id=$2
-      ON CONFLICT(canonical_issue_id) DO UPDATE SET observation=EXCLUDED.observation,
+      ON CONFLICT(canonical_issue_id) DO UPDATE SET observation=CASE
+        WHEN coalesce(operations.incident_resolution_observations.observation->'gls_pickup'->>'report_at','')>coalesce(EXCLUDED.observation->'gls_pickup'->>'report_at','')
+        THEN jsonb_set(EXCLUDED.observation,'{gls_pickup}',operations.incident_resolution_observations.observation->'gls_pickup',true)
+        ELSE EXCLUDED.observation END,
       source_updated_at=EXCLUDED.source_updated_at,ingested_at=now()
       WHERE EXCLUDED.source_updated_at>=operations.incident_resolution_observations.source_updated_at
       RETURNING canonical_issue_id`,[signal.dropea_issue_id,signal.dropea_order_id,JSON.stringify(signal.observation),signal.source_updated_at]);

@@ -1,6 +1,6 @@
 import {normalizeAddressSignal} from './address-signal.mjs';
 import {normalizeResolutionSignal} from './resolution-signal.mjs';
-import {withGlsPickupObservation} from './gls-pickup-signal.mjs';
+import {withGlsPickupObservation,normalizeGlsPickupSignal} from './gls-pickup-signal.mjs';
 const RESPONSE_STATUSES = new Set([
   'DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'OTHER_RESPONSE',
   'NO_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE'
@@ -95,16 +95,12 @@ export async function syncRenderIncidentDiscountSignals({
   let eligible = 0;
   let projected = 0;
   let unmatched = 0;
-  let pickupReport=null;
-  // Read the isolated VPS observation through the existing read-only source.
-  // Do not wait for a separate Render business review or change other signals.
-  try{if(typeof source.readGlsPickupNotice==='function')pickupReport=await source.readGlsPickupNotice();}catch{/* Other incident observations continue normally. */}
   for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
     const page = await source.page('incidents', 'updated_at', { offset, limit: pageSize });
     if (page.missing || !page.rows.length) break;
     for (const row of page.rows) {
       seen += 1;
-      const resolution=normalizeResolutionSignal(withGlsPickupObservation(row,pickupReport));
+      const resolution=normalizeResolutionSignal(row);
       if(resolution)await projector.upsertIncidentResolutionObservation(resolution);
       const address=normalizeAddressSignal(row,{hmacKey});
       if(address){await projector.upsertAddressOwnerObservation(address);continue;}
@@ -122,4 +118,20 @@ export async function syncRenderIncidentDiscountSignals({
     ok: true, seen, eligible, projected, unmatched,
     actions_executed: 0, production_writes: 0
   });
+}
+
+// Same worker, same projector, one bounded exact-case observation stage. A
+// failed unrelated historical import must not hide GLS blockers from the panel.
+export async function syncGlsPickupObservations({source,projector,now=Date.now()}){
+  const report=await source.readGlsPickupNotice();
+  if(!report||!Array.isArray(report.cases)||!Number.isFinite(Date.parse(report.completed_at))||Date.parse(report.completed_at)>now||now-Date.parse(report.completed_at)>3600000)return {projected:0,skipped:true};
+  const rows=await source.readGlsPickupIncidentRows(report.cases);
+  let projected=0;
+  for(const row of rows){
+    const pickup=normalizeGlsPickupSignal(withGlsPickupObservation(row,report,now));
+    if(!pickup)continue;
+    const result=await projector.upsertIncidentResolutionObservation({dropea_issue_id:String(row.incidence_id),dropea_order_id:String(row.order_id),observation:{gls_pickup:pickup},source_updated_at:pickup.report_at},{glsOnly:true});
+    if(result.matched)projected++;
+  }
+  return {projected,source_cases:report.cases.length,actions_executed:0,production_writes:0};
 }
