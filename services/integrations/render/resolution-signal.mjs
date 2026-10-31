@@ -1,10 +1,12 @@
 import {normalizeCustomerCareSignal} from './customer-care-signal.mjs';
 import {normalizeConversationV3Signal} from './conversation-v3-signal.mjs';
+import {normalizeGlsPickupSignal} from './gls-pickup-signal.mjs';
 const code=v=>typeof v==='string'&&/^[A-Z][A-Z0-9_]{0,100}$/.test(v)?v:null;
 const date=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))?new Date(v).toISOString():null;
 const hash=v=>typeof v==='string'&&/^[a-f0-9]{64}$/.test(v)?v:null;
 export function normalizeResolutionSignal(row){
- const r=row.raw?.incidentResolution;
+ const pickup=normalizeGlsPickupSignal(row);
+ const r=row.raw?.incidentResolution||(pickup?{incident_id:row.incidence_id,order_id:row.order_id,observed_at:pickup.report_at}:null);
  if(!r||String(r.incident_id)!==String(row.incidence_id)||String(r.order_id)!==String(row.order_id)||!date(r.observed_at))return null;
  const plan=r.resolution_plan;
  const observation={
@@ -22,5 +24,6 @@ export function normalizeResolutionSignal(row){
  };
  const care=normalizeCustomerCareSignal(row);if(care)observation.customer_care=care;
  const v3=normalizeConversationV3Signal(row);if(v3)observation.conversation_v3=v3;
- return {dropea_issue_id:String(row.incidence_id),dropea_order_id:String(row.order_id),observation,source_updated_at:observation.observed_at};
+ if(pickup)observation.gls_pickup=pickup;
+ return {dropea_issue_id:String(row.incidence_id),dropea_order_id:String(row.order_id),observation,source_updated_at:pickup&&Date.parse(pickup.report_at)>Date.parse(observation.observed_at)?pickup.report_at:observation.observed_at};
 }

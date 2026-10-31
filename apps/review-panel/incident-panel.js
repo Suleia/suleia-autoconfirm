@@ -5,6 +5,13 @@ const IncidentPanel=(()=>{
   const icon=(kind,tone='blue')=>{const n=node('span',`ip-icon ${tone}`);n.append(recoveryIcon(kind));return n;};
   const badge=(label,tone)=>node('span',`ip-badge ${tone}`,label);
   const copy=(primary,secondary='')=>{const n=node('div','ip-copy');n.append(node('strong','',primary));if(secondary)n.append(node('small','',secondary));return n;};
+  function pickupCard(g){
+    const labels={PICKUP_DETECTED:'Pendiente de comprobar',GLS_LOOKUP_PENDING:'Buscando agencia GLS',GLS_AGENCY_FOUND:'Agencia verificada',WAITING_FOR_PICKUP_AVAILABILITY:'Esperando disponibilidad del paquete',TEMPLATE_PENDING_APPROVAL:'Esperando aprobación de plantilla',READY_TO_NOTIFY:'Aviso 1 preparado',SEND_CLAIMED:'Envío reservado',SEND_UNKNOWN:'Envío incierto: no repetir',SENT_PROVIDER_ACCEPTED:'Aviso 1 aceptado por proveedor',MESSAGE_VERIFIED:'Aviso 1 verificado',WAITING_CUSTOMER:'Esperando respuesta',GLS_AGENCY_CONFLICT:'Agencias en conflicto',WAITING_COD_RECONCILIATION:'Esperando importe contra reembolso',MANUAL_REVIEW:'Revisión manual',CLOSED:'Seguimiento cerrado'};
+    const card=node('details','ip-resolution gls-pickup-notice');card.append(node('summary','',`GLS · ${labels[g.state]||'Pendiente de comprobar'}`));card.addEventListener('click',e=>e.stopPropagation());
+    const a=g.agency||{},fresh=Date.now()-Date.parse(g.report_at)<3600000&&Date.parse(g.report_at)<=Date.now();
+    for(const [name,value]of [['Estado',labels[g.state]||g.state],['Actualización',fresh?'Comprobación reciente':'Requiere nueva comprobación'],['Modo',g.mode],['Plantilla',g.template_status],['Agencia',a.agency_name],['Dirección',a.address_line],['Localidad',[a.postal_code,a.city,a.province].filter(Boolean).join(' · ')],['Horario',a.opening_hours],['Teléfono de la agencia',a.phone],['Fuente',a.source_url],['Verificación',a.validated_at?incidentDate(a.validated_at):null],['Importe verificado',Number.isSafeInteger(g.amount_cents)?(g.amount_cents/100).toLocaleString('es-ES',{style:'currency',currency:'EUR'}):'Pendiente de conciliar'],['Recibo Chatby / WAMID',g.wamid],['Bloqueo',g.reason],['Revisión',incidentDate(g.observed_at)]])if(value)card.append(node('small','',name+': '+value));
+    card.append(node('small','','El aviso no confirma recogida ni resuelve la incidencia.'));return card;
+  }
   function customerCareCard(c){
     const card=node('details','ip-resolution customer-care-context');card.append(node('summary','',`Contexto de atención · ${c.mode||'SHADOW'}`));
     if(c.next_best_action==='HUMAN_REVIEW')card.open=true;
@@ -57,6 +64,7 @@ const IncidentPanel=(()=>{
     const timer=r.timer||{},timerTone=timer.state==='EXPIRED'?'rose':timer.state==='ACTIVE'?timer.remaining_seconds<=10800?'amber':'green':'gray';
     const timerBox=node('div',`ip-timer ${timerTone}`);timerBox.append(icon('clock',timerTone),copy(timer.state==='ACTIVE'?recoveryDuration(timer.remaining_seconds):timer.state==='EXPIRED'?'Plazo vencido':'Plazo no verificable',timer.deadline?incidentDate(timer.deadline):'Sin temporizador confirmado'));
     const result=node('div','ip-result');const label=d.flags.WAITING_CUSTOMER?'Esperando cliente':d.flags.SIMULATION_READY?'Simulación preparada':d.flow==='CUSTOMER_RESPONDED'?'Cliente respondió':d.flow==='LOGISTICS_VALIDATION_REQUIRED'?'Validar logística':d.flow==='RESCHEDULE_REQUESTED'?'Nueva entrega':d.flow==='PICKUP_REQUESTED'?'Recogida en agencia recomendada':d.flags.HUMAN_REVIEW?e.valid_response?'Revisión humana':'Evidencia no concluyente':item.is_active?'Pendiente de revisión':'Histórico';
+    if(item.resolution_observation?.gls_pickup)result.append(pickupCard(item.resolution_observation.gls_pickup));
     result.append(badge(label,tones[d.flow]||'gray'),node('small','',d.flags.SIMULATION_READY?'Lista para simular':d.blocking_reasons?.length||d.flags.HUMAN_REVIEW?'Acción bloqueada':item.is_active?'No ejecutable todavía':'Sin acción vigente'));
     if(acceptance)result.append(badge(acceptance.label,'amber'),node('small','',discountReview?'Revisar el correo anterior y el importe contra reembolso':acceptance.pending?'Comprobar estado del descuento y de soporte':'Revisar estado actual antes de actuar'));
     if(item.execution)result.append(node('small','',`${item.execution.action_label || 'Última acción'}: ${item.execution.label}`));

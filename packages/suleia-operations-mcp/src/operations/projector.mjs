@@ -1,4 +1,5 @@
 import { containsDirectPii } from '../shadow/masking.mjs';
+import {publicGlsAgencySafe} from '../../../../services/integrations/render/gls-pickup-signal.mjs';
 
 function assertSafe(record) {
   if (containsDirectPii(record)) throw new Error('Operations projection rejected direct PII');
@@ -302,7 +303,11 @@ export class OperationsProjector {
   }
 
   async upsertIncidentResolutionObservation(signal) {
-    assertSafe(signal);
+    const pickup=signal.observation?.gls_pickup;
+    if(pickup){
+      if(!publicGlsAgencySafe(pickup.agency))throw Error('PUBLIC_GLS_AGENCY_PROVENANCE_REQUIRED');
+      assertSafe({...signal,observation:{...signal.observation,gls_pickup:{...pickup,agency:null}}});
+    }else assertSafe(signal);
     const result=await this.pool.query(`INSERT INTO operations.incident_resolution_observations
       (canonical_issue_id,canonical_order_id,dropea_issue_id,dropea_order_id,observation,source_updated_at)
       SELECT canonical_issue_id,canonical_order_id,$1,$2,$3::jsonb,$4 FROM read_models.operations_incident_records
