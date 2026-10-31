@@ -85,8 +85,12 @@ export async function recordCustomerCareReceipt(plan,result,{store=null}={}){
    if(plan.care_plan.response_type==='ACKNOWLEDGE_REQUEST')state.acknowledged_action_hash=plan.care_plan.ack_action_hash;
    if(plan.care_plan.response_type==='PAYMENT_INFORMATION'){state.payment_information_sent=true;state.payment_information_signature=plan.care_plan.payment_signature;}
   }
-  state.status=state.pending_provider_response?'HUMAN_REVIEW':'OBSERVING';state.waiting_for_customer=false;
-  state.timeline=[...state.timeline,{kind:'INFORMATION_RESPONSE',source:result.status==='already_seen'?'EXISTING_SENDER':'V3_EXISTING_SENDER',at:state.updated_at,message_hash:messageHash,provider_message_id:mid,status}].slice(-100);
+  state.support_followup_required=plan.care_plan.product_context?.missingTopics||[];
+  state.status=state.pending_provider_response||state.support_followup_required.length?'HUMAN_REVIEW':'OBSERVING';state.waiting_for_customer=false;
+  state.timeline=[...state.timeline,{kind:'INFORMATION_RESPONSE',source:result.status==='already_seen'?'EXISTING_SENDER':'V3_EXISTING_SENDER',at:state.updated_at,message_hash:messageHash,provider_message_id:mid,status,
+   response_type:plan.care_plan.response_type,
+   readback_verified:result.raw?.readbackVerified===true&&result.raw?.providerReceipt===true,
+   answered_fact_ids:result.raw?.readbackVerified===true&&result.raw?.providerReceipt===true?plan.care_plan.response_question_fact_ids||[]:[]}].slice(-100);
   await store.save(state,previous);return;
  }
  const question={clarification_type:plan.care_plan.missing_slots.join('+')||plan.care_capability,missing_slots:plan.care_plan.missing_slots,message_hash:messageHash,sent_at:result.sentAt||result.attemptedAt,provider_message_id:mid,answered_at:null,answer_hash:null,status,source:result.status==='already_seen'?'EXISTING_SENDER':'CUSTOMER_CARE_EXISTING_SENDER',based_on_conversation_version:plan.care_plan.conversation_version};

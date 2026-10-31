@@ -10,7 +10,7 @@ const slots={wants_order:'WANTS_ORDER',wants_return:'WANTS_RETURN',cancel_intent
   asks_status:'ASKS_STATUS',complaint:'COMPLAINT',address_change_requested:'ADDRESS_CHANGE_REQUESTED'};
 const boolTypes=new Set(['WANTS_ORDER','WANTS_RETURN','CANCEL_INTENT','ACCEPTS_DISCOUNT','REJECTS_DISCOUNT',
   'REQUESTS_REDELIVERY','REQUESTS_AGENCY','CALL_BEFORE_ARRIVAL','REPORTS_NO_DELIVERY_ATTEMPT',
-  'ASKS_STATUS','ASKS_DELIVERY_DATE','ASKS_PAYMENT','ASKS_PRODUCT','ASKS_USAGE','COMPLAINT','GREETING','THANKS','REQUESTS_CONTACT','ADDRESS_CHANGE_REQUESTED','REPORTS_RECEIVED','REPORTS_CARRIER_PLAN']);
+  'ASKS_STATUS','ASKS_DELIVERY_DATE','ASKS_PAYMENT','ASKS_PRODUCT','ASKS_USAGE','COMPLAINT','GREETING','THANKS','REQUESTS_CONTACT','ADDRESS_CHANGE_REQUESTED','REPORTS_RECEIVED','REPORTS_CARRIER_PLAN','REQUESTS_SINGLE_ORDER','DUPLICATE_ORDER_CONCERN','CUSTOMER_FRUSTRATION','CONDITIONAL_RETURN_THREAT']);
 const dayAdd=(date,n)=>new Date(Date.parse(date+'T12:00:00Z')+86400000*n).toISOString().slice(0,10);
 const validDate=d=>/^\d{4}-\d{2}-\d{2}$/.test(d)&&Number.isFinite(Date.parse(d))&&new Date(d).toISOString().slice(0,10)===d;
 export function validateCustomerFacts(result,evidence){
@@ -24,6 +24,7 @@ export function validateCustomerFacts(result,evidence){
     if(['TIME_FROM','TIME_TO'].includes(fact.type)&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(fact.value))throw Error('FACT_CLOCK_INVALID');
     if(fact.type==='POSTAL_CODE'&&!/^\d{5}$/.test(fact.value))throw Error('FACT_POSTAL_INVALID');
     if(fact.type==='PHONE'&&!(typeof fact.value==='object'&&/^[a-f0-9]{64}$/.test(fact.value.hash)))throw Error('PHONE_MUST_BE_HASHED');
+    if(fact.type==='CUSTOMER_MENTIONED_AMOUNT'&&(typeof fact.value!=='string'||!/^\d{1,5}\.\d{2}$/.test(fact.value)))throw Error('CUSTOMER_AMOUNT_INVALID');
   }
   return result;
 }
@@ -212,6 +213,24 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   if(accepts&&rejects)contradictions.push('ACCEPTS_VS_REJECTS_DISCOUNT');
   else if(accepts)put('REJECTS_DISCOUNT',false);
   else if(rejects)put('ACCEPTS_DISCOUNT',false);
+  // Bounded domain facts supplement the existing extractor. These never turn
+  // customer claims into verified money, duplicates or operational authority.
+  if(/\b(?:como|se puede)\b.*\b(?:us[oa]|usar|utiliz\w*|aplic\w*|se hace.*cara)\b/.test(t))put('ASKS_USAGE',true);
+  if(/\b(?:solo (?:un|uno|una|este)|un unico)\b.*(?:pedido|envio|ningun|mas)|\bsolo un pedido\b|\bningun[oa]? mas\b/.test(t))put('REQUESTS_SINGLE_ORDER',true);
+  if(facts.get('REQUESTS_SINGLE_ORDER')||/\b(?:otro pedido|pedidos? duplicad|no me (?:mand|envi).*otr|me escriben (?:otros|varios))\b/.test(t))put('DUPLICATE_ORDER_CONCERN',true);
+  const amounts=[...t.matchAll(/\b(\d{1,5})[,.](\d{2})\s*(?:€|euros?)?/g)];
+  if(amounts.length===1)put('CUSTOMER_MENTIONED_AMOUNT',`${Number(amounts[0][1])}.${amounts[0][2]}`);
+  if(/\b(?:me estais liando|me lian|no me lieis|ya lo he dicho|dejad de preguntar|es igual|estoy hart[oa]|no me aclarais|poneis de acuerdo|me escriben (?:otros|varios))\b/.test(t))put('CUSTOMER_FRUSTRATION',true);
+  const conditionalReturn=/\bsi\b[^.!?;]*(?:envi|mand|cambi|otro)[^.!?;]*[, ](?:lo |los |le |la )?(?:devolver|devuelv|rechaz|no (?:lo )?quier)/.exec(t);
+  if(conditionalReturn){
+    put('CONDITIONAL_RETURN_THREAT',true);
+    const outside=t.replace(conditionalReturn[0],'');
+    if(!/\b(?:devuelv\w*|devolver|cancel\w*|anul\w*|no (?:lo )?quiero)\b/.test(outside)){
+      facts.delete('WANTS_RETURN');facts.delete('CANCEL_INTENT');
+      if(current.WANTS_RETURN!==true)put('WANTS_RETURN',false);
+      if(current.CANCEL_INTENT!==true)put('CANCEL_INTENT',false);
+    }
+  }
   if(facts.size&&unresolved.size===1&&unresolved.has('UNCLASSIFIED_CUSTOMER_TEXT'))unresolved.clear();
   if(facts.get('WANTS_ORDER')?.value&&facts.get('WANTS_RETURN')?.value){contradictions.push('WANTS_ORDER_VS_RETURN');}
   return validateCustomerFacts({facts:[...facts.values()],contradictions,unresolved:[...unresolved]},[event]);

@@ -601,7 +601,17 @@ export async function getIncidentSubscriberInfo(userNs,{conversationLease=null}=
  const row=response?.data;if(!row||String(row.user_ns)!==String(userNs)||!Array.isArray(row.user_fields))throw Error('V3_CURRENT_SUBSCRIBER_IDENTITY_REQUIRED');return row;
 }
 
-export async function getIncidentChatMessages(userNs,{conversationLease=null}={}) {
+const incidentHistoryReads = new Map();
+export function getIncidentChatMessages(userNs,{conversationLease=null}={}) {
+  // Coalesce only identical reads still in progress. No completed-message
+  // cache can manufacture a newer freshProof or authorize an eventual write.
+  if(conversationLease)return readIncidentChatMessages(userNs,{conversationLease});
+  const key=String(userNs);
+  if(incidentHistoryReads.has(key))return incidentHistoryReads.get(key);
+  const pending=readIncidentChatMessages(userNs).finally(()=>{if(incidentHistoryReads.get(key)===pending)incidentHistoryReads.delete(key);});
+  incidentHistoryReads.set(key,pending);return pending;
+}
+async function readIncidentChatMessages(userNs,{conversationLease=null}={}) {
   const collected = new Map();
   let endTime = null;
   for (let page = 0; page < 10; page += 1) {
