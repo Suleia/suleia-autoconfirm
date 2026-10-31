@@ -30,7 +30,7 @@ export function verifyConversationV3Dispatch(plan,input,memory){
  const actual=readCompiledIntent(care,input);if(!actual||actual.status==='NOT_VERIFIABLE')fail('STALE_PLAN');
  if(memory?.dropea_order_id!==plan.orderId||memory?.active_issue_id!==plan.issueId||memory?.conversation_reference!==plan.conversationId)fail('V3_MEMORY_DISPATCH_IDENTITY_CHANGED');
  const messageHash=hash(plan.content);
- if((memory.clarifications||[]).some(q=>!q.answered_at&&['ATTEMPTING','PROVIDER_ACCEPTED','DELIVERY_UNVERIFIED'].includes(q.status)&&q.message_hash!==messageHash))fail('V3_OTHER_CLARIFICATION_ACTIVE');
+ if(plan.care_capability!=='STATUS_REPLY'&&(memory.clarifications||[]).some(q=>!q.answered_at&&['ATTEMPTING','PROVIDER_ACCEPTED','DELIVERY_UNVERIFIED'].includes(q.status)&&q.message_hash!==messageHash))fail('V3_OTHER_CLARIFICATION_ACTIVE');
  if(memory.pending_provider_response&&memory.pending_response_hash!==messageHash)fail('V3_OTHER_INFORMATION_RESPONSE_PENDING');
  return {expiresAt:Math.min(Date.parse(input.freshProof.orderReadAt),Date.parse(input.freshProof.conversationReadAt))+60000};
 }

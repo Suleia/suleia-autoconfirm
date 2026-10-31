@@ -130,7 +130,7 @@ export function compileCustomerCase(input,previous=null){
     Object.assign(routed,{next_best_action:'RESPOND',capability:'CONTEXTUAL_CLARIFICATION',owner:OWNERS.CONTEXTUAL_CLARIFICATION,response_type:'CLARIFICATION',reason:'ONLY_REQUIRED_MISSING_FACT',missing_slots:state.missing_information});
   }else if(routed.capability==='CONTEXTUAL_CLARIFICATION')routed.missing_slots=state.missing_information;
   const guard=clarificationGuard(state);
-  if(routed.next_best_action==='RESPOND'&&!guard.allowed){Object.assign(routed,{next_best_action:'WAITING_CUSTOMER',capability:null,owner:'HUMAN',reason:guard.reason});state.findings.push(guard.finding);}
+  if(routed.next_best_action==='RESPOND'&&routed.capability==='CONTEXTUAL_CLARIFICATION'&&!guard.allowed){Object.assign(routed,{next_best_action:'WAITING_CUSTOMER',capability:null,owner:'HUMAN',reason:guard.reason});state.findings.push(guard.finding);}
   if((input.issue?.raw||input.issue)?.is_active===false){
     state.missing_information=[];
     Object.assign(routed,{next_best_action:'WAITING_PROVIDER',capability:null,owner:OWNERS.REDELIVERY,reason:'INACTIVE_ISSUE_REQUIRES_LOGISTICS_FOLLOWUP',missing_slots:[]});
