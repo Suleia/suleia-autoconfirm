@@ -317,6 +317,7 @@ export async function sendWhatsappTemplate(payload, {beforeDispatch} = {}) {
         const proof=await beforeDispatch({readMessages:ns=>getIncidentChatMessages(ns,{conversationLease:lease}),readSubscriber:ns=>getIncidentSubscriberInfo(ns,{conversationLease:lease}),readTemplates:()=>listExactWhatsappTemplates(payload.content.name,{conversationLease:lease})});
         if(!proof||!Number.isFinite(proof.expiresAt))throw Error('TEMPLATE_DISPATCH_PROOF_REQUIRED');
         return await request('/subscriber/send-whatsapp-template',{method:'POST',body:JSON.stringify(payload),maxAttempts:1,conversationLease:lease,beforeFetch:()=>{
+          if(typeof proof.beforeFetch==='function')return Promise.resolve(proof.beforeFetch()).then(()=>{if(Date.now()>proof.expiresAt)throw Error('TEMPLATE_DISPATCH_EVIDENCE_EXPIRED');postStarted=true;});
           if(Date.now()>proof.expiresAt)throw Error('TEMPLATE_DISPATCH_EVIDENCE_EXPIRED');postStarted=true;
         }});
       }catch(error){if(!postStarted)error.notSent=true;throw error;}finally{activeConversationLease=null;}

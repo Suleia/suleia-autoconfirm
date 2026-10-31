@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {createGlsDirectory,readGlsTracking,collectGlsPickupIncidents} from './gls-pickup-source.mjs';
-import {canonicalPickup,pickupPlan,matchingPickupMessage,existingPickupNotice,pickupPhone} from './gls-pickup-policy.mjs';
+import {canonicalPickup,pickupPlan,matchingPickupMessage,existingPickupNotice,pickupPhone,pickupWriteAuthorized,effectivePickupMode} from './gls-pickup-policy.mjs';
 import {PICKUP_TEMPLATE,PICKUP_OWNER,pickupTemplateStatus} from '../../autoconfirm/src/workflows/gls-pickup-template.mjs';
 import {compileCustomerCase} from '../../autoconfirm/src/customer-context/case-compiler.mjs';
 import {extractWamid,isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
@@ -21,7 +21,7 @@ export async function executePickupNotice(plan,deps){
    const fresh=await deps.revalidate(readers);
    if(!fresh.eligible||fresh.fingerprint!==plan.fingerprint)throw Error('PICKUP_DISPATCH_CONTEXT_CHANGED');
    if(await deps.alreadySeen(readers,plan))throw Error('PICKUP_MESSAGE_ALREADY_SEEN');
-   return {expiresAt:Math.min(Date.now()+20000,fresh.fresh_expires_at??Infinity)};
+   return {expiresAt:Math.min(Date.now()+20000,fresh.fresh_expires_at??Infinity),beforeFetch:deps.checkAuthorization};
   }});
  }catch(e){const state=e.notSent?'MANUAL_REVIEW':'SEND_UNKNOWN';await deps.finish(plan,e.notSent?'not_sent':'send_unknown',{plan,attemptedAt,owner:PICKUP_OWNER,post_attempts_max:1,proven_no_post:e.notSent===true});return {state,reason:e.notSent?'DISPATCH_BLOCKED_ZERO_POST':'PROVIDER_OUTCOME_UNKNOWN'};}
  const wamid=extractWamid(receipt);
@@ -67,7 +67,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
   let previous={};try{previous=JSON.parse(await fs.readFile('/state/gls-pickup-template-status.json','utf8'));}catch{}
   template={approved:false,status:'CATALOG_UNAVAILABLE',id:previous.id??null,meta_id:previous.meta_id??null,last_known_status:previous.status||null,last_verified_at:previous.at||null,source_error:/^[A-Z_]+$/.test(e.code||'')?e.code:'CHATBY_CATALOG_READ_FAILED',http_status:Number.isInteger(e.status)?e.status:null};
  }
- report.template=template;report.mode=flags.mode==='SHADOW'?'SHADOW':release?.status==='verified'?'LIVE':'CANARY';
+ report.template=template;report.mode=effectivePickupMode(control,release?.status==='verified');
  const native=await collectGlsPickupIncidents({deadlineAt:Math.min(deadlineAt,Date.now()+60000)});
  let candidates=native.filter(canonicalPickup).sort((a,b)=>Number(a.order.orderId)-Number(b.order.orderId));report.metrics.pickup_incidents_detected=candidates.length;
  let cursor={};try{cursor=JSON.parse(await fs.readFile('/state/gls-pickup-cursor.json','utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -83,7 +83,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
  // An uncertain first canary is never replaced by a different customer.
  if(release&&release.status!=='verified'){
   const pin=receipts.find(r=>r.template_name===release.raw?.key);
-  if(pin?.status==='verified'&&pin.raw?.readback_verified){await finishTemplateDelivery({...releaseArgs,status:'verified',raw:{...release.raw,verified:true,wamid:pin.raw.wamid}});release={status:'verified'};report.mode='LIVE';}
+  if(pin?.status==='verified'&&pin.raw?.readback_verified){await finishTemplateDelivery({...releaseArgs,status:'verified',raw:{...release.raw,verified:true,wamid:pin.raw.wamid}});release={...release,status:'verified'};report.mode=effectivePickupMode(control,true);}
  }
  for(const base of candidates){
   const item={order_id:base.order.orderId,issue_id:String(base.issue.id),state:'PICKUP_DETECTED',observed_at:new Date().toISOString()};
@@ -120,7 +120,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    const currentEpisodeHistory=history=>history.filter(m=>!receipts.some(r=>r.status==='verified'&&r.order_id===plan.order_id&&r.raw?.plan?.tracking_id===plan.tracking_id&&r.raw?.plan?.episode_id!==plan.episode_id&&r.raw?.wamid===m.mid));
    const old=existingPickupNotice(currentEpisodeHistory(messages),plan,{since:fresh.order.createdAt});
    if(old){report.cases.push({...item,state:'MANUAL_REVIEW',reason:'PREEXISTING_MESSAGE_REQUIRES_LEDGER_RECONCILIATION'});continue;}
-   if(flags.mode==='SHADOW'){report.cases.push({...item,state:'READY_TO_NOTIFY',reason:'SHADOW_NO_SEND'});continue;}
+   if(!pickupWriteAuthorized(control)){report.cases.push({...item,state:'READY_TO_NOTIFY',reason:'SHADOW_OR_MASTER_STOP_NO_SEND'});continue;}
    if(report.mode==='CANARY'){
     if(!release){const claimed=await claimTemplateDelivery(releaseArgs);if(claimed.acquired&&claimed.persistent){await finishTemplateDelivery({...releaseArgs,status:'claimed',raw:{key:plan.key,order_id:plan.order_id,authorization:flags.authorizationRef}});release={status:'claimed',raw:{key:plan.key}};}}
     if(release?.raw?.key!==plan.key){report.cases.push({...item,state:'READY_TO_NOTIFY',reason:'WAITING_FIRST_CANARY_VERIFICATION'});continue;}
@@ -128,6 +128,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    const baseline=digest(messages);
    const result=await executePickupNotice(plan,{
     get:p=>getTemplateDelivery(args(p)),claim:p=>claimTemplateDelivery(args(p)),finish,reconcile,send:sendWhatsappTemplate,
+    checkAuthorization:async()=>{const latest=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));if(!pickupWriteAuthorized(latest,{requireAuto:report.mode==='LIVE'}))throw Error('PICKUP_AUTHORIZATION_CHANGED');},
     revalidate:async readers=>{
      const freshReadAt=Date.now();
      const current=await readDropeaV2ReturnIssueState(incident,{includeOrder:true});
@@ -143,7 +144,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    });
    report.cases.push({...item,...result,amount_cents:plan.amount_cents,tracking_url:plan.tracking.source_url,tracking_id:plan.tracking_id,episode_id:plan.episode_id,template_id:plan.template_id,meta_template_id:plan.meta_template_id});
    if(result.provider_accepted)report.metrics.pickup_notice_1_sent++;
-   if(result.verified&&report.mode==='CANARY'){await finishTemplateDelivery({...releaseArgs,status:'verified',raw:{...release.raw,verified:true,wamid:result.wamid}});report.mode='LIVE';release={status:'verified'};}
+   if(result.verified&&report.mode==='CANARY'){await finishTemplateDelivery({...releaseArgs,status:'verified',raw:{...release.raw,verified:true,wamid:result.wamid}});release={...release,status:'verified'};report.mode=effectivePickupMode(control,true);}
   }catch(e){report.cases.push({...item,state:'MANUAL_REVIEW',reason:/^[A-Z_]+$/.test(e.code||e.message)?e.code||e.message:'PICKUP_FRESH_READ_UNAVAILABLE'});}
  }
  report.cases=[...new Map(report.cases.map(c=>[c.order_id+':'+c.issue_id,c])).values()];

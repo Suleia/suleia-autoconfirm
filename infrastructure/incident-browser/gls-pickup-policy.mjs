@@ -6,6 +6,14 @@ export const PICKUP_STATES=['PICKUP_DETECTED','PICKUP_ELIGIBILITY_CHECK','WAITIN
 export const PICKUP_SEQUENCE=[{notice:1,enabled:true},{notice:2,enabled:false},{notice:3,enabled:false},{notice:4,enabled:false}];
 const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
 export function pickupPhone(value){let n=String(value||'').replace(/\D/g,'').replace(/^00/,'');if(n.length===9)n='34'+n;return /^[1-9]\d{9,14}$/.test(n)?n:null;}
+export function pickupWriteAuthorized(control,{requireAuto=false}={}){
+ const f=control?.glsPickupNotice;
+ return (requireAuto?control?.mode==='AUTO':['AUTO','AUTO_CANARY'].includes(control?.mode))&&f?.enabled===true&&['CANARY','LIVE'].includes(f.mode)&&f.authorizationRef==='OWNER-2026-10-31-GLS-PICKUP-1'&&f.owner==='EXISTING_AUTHORIZED_CHATBY_SENDER';
+}
+export function effectivePickupMode(control,releaseVerified){
+ if(!pickupWriteAuthorized(control))return 'SHADOW';
+ return releaseVerified&&control.mode==='AUTO'?'LIVE':'CANARY';
+}
 export const canonicalPickup=r=>r?.issue?.raw?.type==='PICKUP_AT_AGENCY'&&r.issue.raw.carrier==='GLS'&&r.issue.raw.is_active===true&&['PENDING','MANAGING_WITH_CLIENT'].includes(r.issue.raw.status);
 export function pickupPlan(input){
  const {order,issue,tracking:t,agency:a,template,subscriber,care,supportReceipt,now=Date.now()}=input;
