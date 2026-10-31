@@ -209,8 +209,8 @@ test('SHADOW observer persists comparison without any sender or provider writer'
 });
 test('300 synthetic cases cannot satisfy the genuinely sourced reviewed release gate',()=>{
  const failed=evaluateConversationRelease({real_cases:0,reviewed_real_cases:0,synthetic_cases:1000});assert.equal(failed.allowed,false);
- const good={real_cases:300,reviewed_real_cases:300,provenance_verified:true,wrong_irreversible_route:0,wrong_order_binding:0,repeated_clarification:0,blind_retry:0,owner_routing:1,explicit_return_recall:1,explicit_order_recall:1,date_window_accuracy:.99,current_replay_verified:true};assert.equal(evaluateConversationRelease(good).allowed,true);
- for(const field of ['wrong_irreversible_route','wrong_order_binding','repeated_clarification','blind_retry'])assert.equal(evaluateConversationRelease({...good,[field]:1}).allowed,false);
+ const good={real_cases:300,reviewed_real_cases:300,provenance_verified:true,wrong_irreversible_route:0,wrong_order_binding:0,repeated_clarification:0,blind_retry:null,owner_routing:1,explicit_return_recall:1,explicit_order_recall:1,date_window_accuracy:.99,current_replay_verified:true,executor_reconciliation_contract_verified:true,unknown_execution_no_blind_retry_tests:true};assert.equal(evaluateConversationRelease(good).allowed,true);
+ for(const field of ['wrong_irreversible_route','wrong_order_binding','repeated_clarification'])assert.equal(evaluateConversationRelease({...good,[field]:1}).allowed,false);
 });
 test('provider changes and mutation after compilation cannot reuse a branded intent',()=>{
  const x=input(['Quiero el pedido el sábado por la tarde']),c=compileCustomerCase(x);
@@ -243,7 +243,7 @@ test('verified exact-order buttons are interpreted before text, and foreign repl
 test('V3 canary requires reviewed release evidence, exact case and independent capability',()=>{
  const legacy={eligible:true,kind:'CLARIFY',content:'legacy'},x=input(['Quiero el pedido el sábado']);
  const env={CONVERSATION_V3_ENABLED:'true',CONVERSATION_INTELLIGENCE_V3_MODE:'CANARY',CONVERSATION_V3_CLARIFICATION_ENABLED:'true'};
- const releaseReport={real_cases:300,reviewed_real_cases:300,provenance_verified:true,wrong_irreversible_route:0,wrong_order_binding:0,repeated_clarification:0,blind_retry:0,owner_routing:1,explicit_return_recall:1,explicit_order_recall:1,date_window_accuracy:.99,current_replay_verified:true};
+ const releaseReport={real_cases:300,reviewed_real_cases:300,provenance_verified:true,wrong_irreversible_route:0,wrong_order_binding:0,repeated_clarification:0,blind_retry:null,owner_routing:1,explicit_return_recall:1,explicit_order_recall:1,date_window_accuracy:.99,current_replay_verified:true,executor_reconciliation_contract_verified:true,unknown_execution_no_blind_retry_tests:true};
  assert.equal(decorateConversationV3(legacy,x,{env,canaryCase:'90001:80001'}).plan,legacy);
  assert.equal(decorateConversationV3(legacy,x,{env,releaseReport,canaryCase:'other'}).plan,legacy);
  const result=decorateConversationV3(legacy,x,{env,releaseReport,canaryCase:'90001:80001'});assert.match(result.plan.content,/mañana o por la tarde/);

@@ -10,6 +10,7 @@ import {requiredMissingInformation} from './missing-information.mjs';
 import {clarificationGuard} from './clarification-guard.mjs';
 import {composeSafeResponse} from './response-composer.mjs';
 import {contextualQuestion,remainingQuestion} from './question-context.mjs';
+import {recurringPreference} from './temporal-facts.mjs';
 const branded=new WeakMap();
 const bindings={WANTS_ORDER:'wants_order',WANTS_RETURN:'wants_return',CANCEL_INTENT:'cancel_intent',DELIVERY_DATE:'delivery_date',DELIVERY_WINDOW:'delivery_window',TIME_FROM:'time_from',TIME_TO:'time_to',CALL_BEFORE_ARRIVAL:'call_before_arrival',REQUESTS_AGENCY:'agency_requested',REPORTS_NO_DELIVERY_ATTEMPT:'reports_no_delivery_attempt',ADDRESS:'address',POSTAL_CODE:'postal_code',ADDRESS_CHANGE_REQUESTED:'address_change_requested'};
 const timed=new Set(['TIME_FROM','TIME_TO']);
@@ -37,6 +38,18 @@ export function compileCustomerCase(input,previous=null){
     const replied=event.message.payload?.reply_to_mid&&events.find(e=>e.direction==='OUTBOUND'&&extractWamid(e.message)===event.message.payload.reply_to_mid&&e.source_event_at<event.source_event_at);
     const structuredButton=(raw.button_verified===true&&String(raw.order_id)===base.dropea_order_id||replied)?raw.button_payload||null:null;
     const result=extractCustomerFacts(event,{question:replied?contextualQuestion(replied.message):question,offerVerified:offer,incidentType:base.current_incident_type,current,structuredButton});
+    const recurring=recurringPreference(event.text),recurrenceEnd=recurring&&/\bhasta\b/i.test(event.text)?result.facts.find(f=>f.type==='DELIVERY_DATE')?.value:null;
+    let supportingEvents=[];
+    if(recurring&&recurrenceEnd){
+      const ids=new Set(incoming.filter(f=>['DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(f.type)&&Date.parse(event.source_event_at)-Date.parse(f.source_event_at)<=30*60000).map(f=>f.source_event_id));
+      supportingEvents=events.filter(e=>ids.has(e.event_id)&&e.source_event_at<event.source_event_at);
+      result.facts=result.facts.filter(f=>f.type!=='DELIVERY_DATE'); // Until is an expiry boundary, never the delivery day.
+      if(supportingEvents.length){
+        const literal=[...supportingEvents.map(e=>e.text),event.text].join(' · ');
+        if(literal.length<=300)result.facts.push({type:'DELIVERY_AVAILABILITY',value:literal,confidence:.99,evidence_hash:event.source_event_hash});
+        else result.unresolved.push('DELIVERY_WINDOW');
+      }else result.unresolved.push('DELIVERY_WINDOW');
+    }
     if(event.message.payload?.reply_to_mid&&!replied){result.unresolved.push('UNVERIFIED_REPLY_REFERENCE');}
     for(const fact of result.facts)if(fact.confidence>=.9)slotUncertainty.delete(fact.type);
     if(result.facts.some(f=>['TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(f.type)&&f.confidence>=.9))slotUncertainty.delete('DELIVERY_WINDOW');
@@ -47,11 +60,13 @@ export function compileCustomerCase(input,previous=null){
     const relatedDate=result.facts.find(f=>f.type==='DELIVERY_DATE')?.value||(current.DELIVERY_DATE>=madridDate(Date.parse(event.source_event_at))?current.DELIVERY_DATE:null)||null;
     if(result.facts.some(f=>f.type==='DELIVERY_DATE')){
       // A later date completes a previously supplied window in the same bounded case.
-      for(const preference of incoming)if(['DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(preference.type)&&!preference.related_delivery_date)preference.related_delivery_date=relatedDate;
+      for(const preference of incoming)if(['DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(preference.type)&&!preference.related_delivery_date&&!preference.recurring)preference.related_delivery_date=relatedDate;
     }
     for(const fact of result.facts){
       current[fact.type]=fact.value;
-      incoming.push({...fact,authority:'CUSTOMER_DERIVED',source_event_id:event.event_id,source_event_hash:fact.evidence_hash,source_event_at:event.source_event_at,related_delivery_date:relatedDate});
+      const repeating=recurring&&['DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].includes(fact.type);
+      incoming.push({...fact,authority:'CUSTOMER_DERIVED',source_event_id:event.event_id,source_event_hash:fact.evidence_hash,source_event_at:event.source_event_at,related_delivery_date:repeating?null:relatedDate,
+        ...(repeating?{recurring:true,recurring_until_date:recurrenceEnd||null,supporting_event_hashes:supportingEvents.map(e=>e.source_event_hash)}:{})});
     }
   }
   // These facts come exclusively from trusted workflow/provider inputs, never
@@ -65,6 +80,10 @@ export function compileCustomerCase(input,previous=null){
   }
   const ledger=mergeFactLedger(previous?.fact_ledger,incoming,{orderId:base.canonical_order_id,issueId:base.active_issue_id,now,attemptKey,eventVersions});
   const active=materializeFacts(ledger,{now,attemptKey});
+  // A later product question/dispute does not reaffirm an older refusal. Keep
+  // its history, but require specialist review before projecting a return.
+  if(active.WANTS_RETURN?.value_json===true&&active.ASKS_PRODUCT?.value_json===true&&active.ASKS_PRODUCT.source_event_at>active.WANTS_RETURN.source_event_at)
+    unresolved.push('PRODUCT_UNSUITABLE_REQUIRES_REVIEW');
   for(const type of slotUncertainty)if(active[type])active[type].confidence=Math.min(active[type].confidence,.55);
   unresolved=[...new Set([...unresolved,...slotUncertainty])];
   const state={...base,version:'CONVERSATION_V3',policy,fact_ledger:ledger,current_facts:active,unresolved,contradictions,trusted_context_first_observed_at:systemAt,
@@ -134,7 +153,7 @@ export function compileCustomerCase(input,previous=null){
   compiled.release_eligible=false; // Release requires the separately reviewed benchmark.
   compiled.v2_response=currentCustomerIntent(input);
   if(compiled.time_from||compiled.time_to||active.DELIVERY_AVAILABILITY){
-    const eventHashes=new Set(['DELIVERY_DATE','DELIVERY_WINDOW','TIME_FROM','TIME_TO','CALL_BEFORE_ARRIVAL','DELIVERY_AVAILABILITY'].map(t=>active[t]?.source_event_hash).filter(Boolean));
+    const eventHashes=new Set(['DELIVERY_DATE','DELIVERY_WINDOW','TIME_FROM','TIME_TO','CALL_BEFORE_ARRIVAL','DELIVERY_AVAILABILITY'].flatMap(t=>[active[t]?.source_event_hash,...(active[t]?.supporting_event_hashes||[])]).filter(Boolean));
     compiled.literal_delivery_preference={literal:events.filter(e=>eventHashes.has(e.source_event_hash)).map(e=>e.text).join(' · '),date:compiled.delivery_date,clockInterpretation:'CUSTOMER_CONTEXT_NO_WIDENING'};
   }
   const factsTimeline=ledger.map(f=>({kind:f.status==='SUPERSEDED'?'FACT_SUPERSEDED':f.status==='RETRACTED'?'FACT_RETRACTED':'FACT_EXTRACTED',at:f.source_event_at,fact_type:f.fact_type,fact_id:f.fact_id,authority:f.authority,confidence:f.confidence,status:f.status}));
@@ -147,7 +166,7 @@ export function readCompiledIntent(compiled,input){
   if(String(input.order?.orderId)!==compiled.dropea_order_id||String(input.incident?.incidenceId)!==compiled.active_issue_id)throw Error('V3_CONTEXT_IDENTITY_CHANGED');
   if(clusterHash(relevantMessageCluster(input))!==compiled.cluster_hash)throw Error('STALE_PLAN');
   if(providerHash(input)!==compiled.provider_snapshot_hash)throw Error('STALE_PLAN');
-  if(compiled.next_best_action==='HUMAN_REVIEW'||compiled.unresolved?.length)return {status:'NOT_VERIFIABLE',intents:['AMBIGUOUS'],confidence:'LOW',reason:compiled.reason,has_reply:compiled.has_current_reply};
+  if(compiled.next_best_action==='HUMAN_REVIEW'||compiled.next_best_action==='WAITING_CUSTOMER'||compiled.unresolved?.length)return {status:'NOT_VERIFIABLE',intents:['AMBIGUOUS'],confidence:'LOW',reason:compiled.reason,has_reply:compiled.has_current_reply};
   return {...compiled.v2_response,status:'CLASSIFIED',intents:compiled.latest_customer_intents,confidence:'HIGH',has_reply:compiled.has_current_reply,
     at:compiled.latest_intent_at,event_hash:compiled.case_hash,slot:{date:compiled.delivery_date,time_window:compiled.time_from||compiled.time_to?null:compiled.delivery_window?.toLowerCase()||null},
     ...(compiled.literal_delivery_preference?{literal_delivery_preference:compiled.literal_delivery_preference}:{}),

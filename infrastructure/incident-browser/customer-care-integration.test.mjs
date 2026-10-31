@@ -61,3 +61,43 @@ test('V3 receipt preserves audit history and never promotes an uncertain send',a
  const again=await prepareCustomerCare(legacy,input,{control:{conversationV3:{enabled:true,mode:'SHADOW'}},v3Store,now:now+3600000});
  assert.equal(again.care.customer_reply_action,'NONE');assert.equal(again.plan,legacy);
 });
+
+const preCanary={real_cases:380,reviewed_real_cases:345,provenance_verified:true,wrong_irreversible_route:0,wrong_order_binding:0,repeated_clarification:0,owner_routing:1,explicit_return_recall:1,explicit_order_recall:1,date_window_accuracy:.99,current_replay_verified:true,executor_reconciliation_contract_verified:true,unknown_execution_no_blind_retry_tests:true};
+const v3Control={conversationV3:{enabled:true,mode:'CANARY',clarification:true,statusReply:false,canaryCase:'90001:80001',releaseReport:preCanary}};
+const v3Input={...input,incident:{...input.incident,chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER'},issue:{raw:{id:80001,order_id:90001,status:'PENDING',is_active:true,allowed_resolution_options:['RETRY_DELIVERY']}}};
+test('V3 uses the existing pre-send journal and never repeats an uncertain send after later cycles',async()=>{
+ const store=memory(),legacy={eligible:true,kind:'CLARIFY'},trace=[];let ledger=null,sends=0;
+ const prepare=async currentNow=>prepareCustomerCare(legacy,v3Input,{control:v3Control,v3Store:store,now:currentNow});
+ const first=await prepare(now);assert.equal(first.plan.eligible,true);assert.equal(first.care.missing_information.length,1);
+ const deps={revalidate:async()=> (await prepare(now)).plan,readMessages:async()=>[message],now:()=>now,
+  claimMessage:async()=>ledger?{persistent:true,acquired:false,existing:ledger}:{persistent:true,acquired:true},
+  finishMessage:async receipt=>{trace.push(receipt.status);ledger={status:receipt.status,attempted_at:receipt.attemptedAt,raw:receipt.raw};await recordCustomerCareReceipt(first.plan,receipt,{store});return receipt;},
+  send:async()=>{assert.equal(ledger.status,'delivery_unverified');assert.equal((await store.load()).value.waiting_for_customer,true);trace.push('POST');sends++;throw Error('connection lost after provider accepted');}};
+ const result=await executeDeliveryReply(first.plan,deps);assert.equal(result.status,'RECONCILE');assert.equal(sends,1);
+ assert.ok(trace.indexOf('delivery_unverified')<trace.indexOf('POST'));
+ for(const age of [30*60000,3*3600000,25*3600000]){
+  const next=await prepare(now+age);assert.equal(next.care.next_best_action,'WAITING_CUSTOMER');
+  await executeDeliveryReply(next.plan,deps);assert.equal(sends,1);
+ }
+});
+test('V3 cannot post if durable journal persistence fails',async()=>{
+ const store=memory(),legacy={eligible:true,kind:'CLARIFY'};
+ const first=await prepareCustomerCare(legacy,v3Input,{control:v3Control,v3Store:store,now});let sends=0;
+ await assert.rejects(executeDeliveryReply(first.plan,{revalidate:async()=>first.plan,readMessages:async()=>[message],claimMessage:async()=>({persistent:true,acquired:true}),finishMessage:async()=>{throw Error('durable journal unavailable');},send:async()=>{sends++;}}));
+ assert.equal(sends,0);
+});
+test('V3 one verified clarification persists the provider WAMID and consumes only a natural inbound',async()=>{
+ const store=memory(),legacy={eligible:true,kind:'CLARIFY'};
+ const first=await prepareCustomerCare(legacy,v3Input,{control:v3Control,v3Store:store,now});let sent=false,sends=0;
+ const outbound={id:'20',type:'agent',user_ns:'fixture',content:first.plan.content,ts:now/1000,mid:'wamid.v3-regression'};
+ const result=await executeDeliveryReply(first.plan,{revalidate:async()=>first.plan,now:()=>now,readMessages:async()=>sent?[message,outbound]:[message],
+  claimMessage:async()=>({persistent:true,acquired:true}),finishMessage:async receipt=>{await recordCustomerCareReceipt(first.plan,receipt,{store});return receipt;},
+  send:async()=>{sends++;sent=true;return {mid:'wamid.v3-regression'};}});
+ assert.equal(sends,1);assert.equal(result.status,'VERIFIED');assert.equal((await store.load()).value.clarifications.at(-1).provider_message_id,'wamid.v3-regression');
+ const waiting=await prepareCustomerCare(legacy,{...v3Input,messages:[message,outbound]},{control:v3Control,v3Store:store,now:now+30*60000});
+ assert.equal(waiting.care.next_best_action,'WAITING_CUSTOMER');assert.equal(waiting.plan.eligible,false);
+ const answer={id:'21',type:'in',user_ns:'fixture',content:'Por la tarde',ts:(now+3600000)/1000};
+ const answered=await prepareCustomerCare(legacy,{...v3Input,messages:[message,outbound,answer]},{control:v3Control,v3Store:store,now:now+2*3600000});
+ assert.equal(answered.care.delivery_window,'AFTERNOON');assert.ok(answered.care.clarifications.every(c=>c.answered_at));assert.equal(answered.care.customer_reply_action,'NONE');
+ assert.equal(sends,1);
+});

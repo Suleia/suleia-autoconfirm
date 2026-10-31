@@ -3,6 +3,7 @@ import {createCustomerCareStore} from '../../autoconfirm/src/customer-care/store
 import {careFlags} from '../../autoconfirm/src/customer-care/policy.mjs';
 import {hash} from '../../autoconfirm/src/customer-care/context.mjs';
 import {decorateConversationV3} from '../../autoconfirm/src/customer-context/sender-adapter.mjs';
+import {carePolicyFor} from '../../autoconfirm/src/customer-care/runtime.mjs';
 
 export function customerCareEnvironment(control){
  const care=control?.customerCare||{};
@@ -16,7 +17,7 @@ export async function prepareCustomerCare(legacy,input,{control,store=createCust
   const v3=control.conversationV3,storage=v3Store;
   try{
    const previous=await storage.load({canonical_order_id:String(input.order.orderId),active_issue_id:String(input.incident.incidenceId)});
-   const result=decorateConversationV3(legacy,{...input,now,binding:{verified:true,orderId:String(input.order.orderId),issueId:String(input.incident.incidenceId),conversationId:input.incident.chatbyUserNs}},{previous:previous?.value,env:{CONVERSATION_V3_ENABLED:'true',CONVERSATION_INTELLIGENCE_V3_MODE:v3.mode||'SHADOW',CONVERSATION_V3_CLARIFICATION_ENABLED:String(v3.clarification===true),CONVERSATION_V3_STATUS_REPLY_ENABLED:String(v3.statusReply===true)},releaseReport:v3.releaseReport||null,canaryCase:v3.canaryCase||null});
+   const result=decorateConversationV3(legacy,{...input,policy:input.policy||carePolicyFor(input),now,binding:{verified:true,orderId:String(input.order.orderId),issueId:String(input.incident.incidenceId),conversationId:input.incident.chatbyUserNs}},{previous:previous?.value,env:{CONVERSATION_V3_ENABLED:'true',CONVERSATION_INTELLIGENCE_V3_MODE:v3.mode||'SHADOW',CONVERSATION_V3_CLARIFICATION_ENABLED:String(v3.clarification===true),CONVERSATION_V3_STATUS_REPLY_ENABLED:String(v3.statusReply===true)},releaseReport:v3.releaseReport||null,canaryCase:v3.canaryCase||null});
    if(result.care)await storage.save(result.care,previous);return result;
   }catch{
    const selected=v3.mode==='CANARY'&&v3.canaryCase===`${input.order.orderId}:${input.incident.incidenceId}`&&legacy?.kind==='CLARIFY';

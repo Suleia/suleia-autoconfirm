@@ -3,6 +3,7 @@ import {addressMessageText} from '../workflows/address-response-policy.mjs';
 export function contextualQuestion(message){
   const text=fold(message.payload?.body||addressMessageText(message)),type=questionContext(message);
   if(/(?:quiere|interesad[oa]|prefiere).*recog.*(?:agencia|oficina|gls)/.test(text))return 'AGENCY_PICKUP';
+  if(/\b(?:agencia|oficina|almacen)\b/.test(text)&&/\b(?:quiere|prefiere|avisemos)\b.*\b(?:recoger|recogerla|recogerlo|pasara|pasar)\b/.test(text))return 'AGENCY_PICKUP';
   if(/quiere (?:el )?producto/.test(text))return 'WANTS_ORDER';
   if(type==='DATE_AND_WINDOW'&&/quiere.*(?:pedido|entrega)/.test(text))return 'WANTS_ORDER_AND_SCHEDULE';
   if(type==='LEGACY_PAYMENT'){

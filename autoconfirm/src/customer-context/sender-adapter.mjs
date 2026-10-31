@@ -1,18 +1,20 @@
 import {compileCustomerCase} from './case-compiler.mjs';
-import {evaluateConversationRelease} from './release-gates.mjs';
+import {evaluatePreCanaryGate} from './release-gates.mjs';
 import {hash} from '../customer-care/context.mjs';
 import {isCustomerInteraction,messageTimestamp} from '../workflows/incident-discount-policy.mjs';
 export function decorateConversationV3(legacy,input,{previous=null,env={},releaseReport=null,canaryCase=null}={}){
   if(env.CONVERSATION_V3_ENABLED!=='true')return {plan:legacy,care:null};
   const care=compileCustomerCase(input,previous);care.mode='SHADOW';
   const mode=env.CONVERSATION_INTELLIGENCE_V3_MODE||'SHADOW';
-  if(mode==='SHADOW'||!evaluateConversationRelease(releaseReport).allowed)return {plan:legacy,care};
+  if(mode==='SHADOW'||!evaluatePreCanaryGate(releaseReport).allowed)return {plan:legacy,care};
   // Initial promotion is always one explicit natural case, even if a caller
   // mistakenly requests global LIVE. Operational solution plans are untouched.
-  if(mode!=='CANARY'||canaryCase!==`${care.canonical_order_id}:${care.active_issue_id}`||legacy?.eligible&&legacy.kind!=='CLARIFY')return {plan:legacy,care};
+  if(mode!=='CANARY'||canaryCase!==`${care.canonical_order_id}:${care.active_issue_id}`||!legacy?.eligible||legacy.kind!=='CLARIFY')return {plan:legacy,care};
   if(env.CONVERSATION_V3_CLARIFICATION_ENABLED!=='true'&&env.CONVERSATION_V3_STATUS_REPLY_ENABLED!=='true')return {plan:legacy,care};
   care.mode='CANARY';
   const block=reason=>({plan:{eligible:false,reason,customerCare:care},care});
+  if(care.operational_action!=='NONE'||care.customer_reply_action!=='CLARIFY'||care.missing_information?.length!==1)
+    return block('V3_INITIAL_CANARY_REQUIRES_ONE_MISSING_FACT');
   if(care.next_best_action!=='RESPOND'&&care.customer_reply_action!=='ACKNOWLEDGE_REQUEST')return block(care.reason);
   const released=care.customer_reply_action==='CLARIFY'?env.CONVERSATION_V3_CLARIFICATION_ENABLED==='true':['STATUS_RESPONSE','ACKNOWLEDGE_REQUEST'].includes(care.customer_reply_action)&&env.CONVERSATION_V3_STATUS_REPLY_ENABLED==='true';
   if(!released)return block('V3_REPLY_CAPABILITY_NOT_RELEASED');

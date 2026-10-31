@@ -36,13 +36,14 @@ export function mergeFactLedger(previous,incoming,{orderId,issueId,now,attemptKe
   }
   const sorted=[...incoming].sort((a,b)=>a.source_event_at.localeCompare(b.source_event_at)||a.type.localeCompare(b.type));
   for(const input of sorted){
-    const id=hash([orderId,issueId,input.authority,input.type,input.value,input.source_event_hash,input.related_delivery_date||null]);
+    const id=hash([orderId,issueId,input.authority,input.type,input.value,input.source_event_hash,input.related_delivery_date||null,input.recurring_until_date||null,input.supporting_event_hashes||[]]);
     if(rows.some(r=>r.fact_id===id))continue;
     const fact={fact_id:id,canonical_order_id:orderId,canonical_issue_id:issueId,fact_type:input.type,value_json:input.value,
       authority:input.authority,confidence:input.confidence,source_event_id:input.source_event_id,
       source_event_hash:input.source_event_hash,source_event_at:input.source_event_at,valid_from:input.source_event_at,
       related_delivery_date:input.related_delivery_date||null,
-      valid_until:input.type==='DELIVERY_DATE'?endOfMadridDay(input.value):input.type==='TIME_TO'&&input.related_delivery_date?madridDeadline(input.related_delivery_date,input.value):preferenceTypes.has(input.type)&&input.related_delivery_date?endOfMadridDay(input.related_delivery_date):['GREETING','THANKS'].includes(input.type)?iso(Date.parse(input.source_event_at)+15*60000):null,
+      valid_until:input.recurring_until_date?endOfMadridDay(input.recurring_until_date):input.type==='DELIVERY_DATE'?endOfMadridDay(input.value):input.type==='TIME_TO'&&input.related_delivery_date?madridDeadline(input.related_delivery_date,input.value):preferenceTypes.has(input.type)&&input.related_delivery_date?endOfMadridDay(input.related_delivery_date):['GREETING','THANKS'].includes(input.type)?iso(Date.parse(input.source_event_at)+15*60000):null,
+      ...(input.recurring?{recurring:true,supporting_event_hashes:input.supporting_event_hashes||[]}:{}),
       superseded_by:null,status:'CURRENT',created_at:created,updated_at:created,
       attempt_key:preferenceTypes.has(input.type)?attemptKey:null};
     for(const old of rows.filter(r=>r.fact_type===fact.fact_type&&r.status==='CURRENT')){
@@ -56,6 +57,9 @@ export function mergeFactLedger(previous,incoming,{orderId,issueId,now,attemptKe
       if(input.type==='DELIVERY_WINDOW'&&['TIME_FROM','TIME_TO'].includes(old.fact_type)){
         const h=Number(old.value_json.slice(0,2));if(input.value==='MORNING'&&h<12||input.value==='AFTERNOON'&&h>=12&&h<21||input.value==='EVENING'&&h>=18)continue;
       }
+      old.status='SUPERSEDED';old.superseded_by=id;old.updated_at=created;
+    }
+    if(input.type==='REPORTS_RECEIVED'&&input.value===true)for(const old of rows.filter(r=>r.status==='CURRENT'&&preferenceTypes.has(r.fact_type)&&r.source_event_at<fact.source_event_at&&r.authority===fact.authority)){
       old.status='SUPERSEDED';old.superseded_by=id;old.updated_at=created;
     }
     if(instructionTypes.has(fact.fact_type))for(const old of rows.filter(r=>r.status==='CURRENT'&&r.fact_type.startsWith('ASKS_')&&r.source_event_at<fact.source_event_at&&r.authority===fact.authority)){

@@ -142,7 +142,7 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   if(parsed.confidence<.65&&!facts.size&&!unresolved.size)unresolved.add('UNCLASSIFIED_CUSTOMER_TEXT');
   correctTemporalFacts(event,{facts,unresolved,put,question,current});
   if(['DELIVERY_DATE','DELIVERY_WINDOW','TIME_FROM','TIME_TO','DELIVERY_AVAILABILITY'].some(type=>facts.has(type))&&!facts.get('WANTS_RETURN')?.value){put('WANTS_ORDER',true);put('WANTS_RETURN',false);if(incidentType)put('REQUESTS_REDELIVERY',true);}
-  const yes=/^(?:s+i+|ok(?:ey)?|vale|de acuerdo|claro|acepto|perfecto)(?: por favor)?[!. ,]*$/.test(t)||question==='AGENCY_PICKUP'&&/^si[, .]/.test(t);
+  const yes=/^(?:s+i+|ok(?:ey)?|vale|de acuerdo|claro|acepto|perfecto)(?: por favor)?[!. ,]*$/.test(t)||question==='AGENCY_PICKUP'&&(/^si[, .]/.test(t)||/^(?:ok|vale|de acuerdo)[,. ]+(?:que me llamen|llamadme|indiquenme|a que hora|cuando puedo pasar)\b/.test(t));
   const no=/^no(?:[ ,]+(?:m?gracias|por favor))?[!. ,]*$/.test(t);
   if((yes||no)&&question==='AGENCY_PICKUP'){
     put('REQUESTS_AGENCY',yes);facts.delete('WANTS_RETURN');facts.delete('CANCEL_INTENT');
@@ -171,6 +171,7 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   if(/(?:no |nadie ).*(?:ha |a |han |an )?venido|no .*rechazado|ningun momento.*rechazado|no tengo constancia.*venido|no viniste|no me han llamado|nunca llego|no (?:an|han) (?:toca|llamado)|no allegado nada/.test(t)&&!facts.get('WANTS_RETURN')?.value){put('REPORTS_NO_DELIVERY_ATTEMPT',true);put('WANTS_ORDER',true);put('WANTS_RETURN',false);}
   if(/lo estaba esperando|mandarme|reenviar|enviarmelo|mandarmelo/.test(t)&&!explicitRefusal){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('REQUESTS_REDELIVERY',true);}
   if(/que vuelva por favor/.test(t)){put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',true);}
+  if(/que pase a dejar (?:el|mi) pedido/.test(t)){put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',true);}
   if(/^(?:otro dia|otro dia o datos)[.! ]*$/.test(t)){put('WANTS_ORDER',true);unresolved.add('DELIVERY_DATE');}
   if(/gls.*(?:el \d+ lo recojo|recoger)|donde ir a recogerlo|direccion.*para ir a recogerlo/.test(t)){put('REQUESTS_AGENCY',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',false);}
   if(/me (?:h?an|a) dicho|medujo el repartidor/.test(t))put('REPORTS_CARRIER_PLAN',true);
