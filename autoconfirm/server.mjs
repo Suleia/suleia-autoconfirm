@@ -542,6 +542,7 @@ function queueDashboardBackgroundRefresh() {
 }
 
 const financeRefreshInFlight = new Map();
+const financeRefreshStatus = new Map();
 const financeCostRefreshPending = new Set();
 const financeBackgroundRefreshEnabled = process.env.FINANCE_BACKGROUND_REFRESH_ENABLED !== 'false';
 
@@ -569,12 +570,38 @@ function queueFinanceReportRefresh(month, {afterCurrent=false}={}) {
     return afterCurrent;
   }
   const job = new Promise((resolve) => setTimeout(resolve, 250))
-    .then(() => buildFinanceReport({ month, force: true, leanRefresh: true }))
-    .then((report) => console.log(`Finance report refreshed (${report.period.month}).`))
-    .catch((error) => console.error('Finance report refresh error:', error instanceof Error ? error.message : String(error)))
+    .then(() => { financeRefreshStatus.set(key,{state:'READING',startedAt:new Date().toISOString()}); return buildFinanceReport({ month, force: true, leanRefresh: true }); })
+    .then((report) => { financeRefreshStatus.set(key,{...financeRefreshStatus.get(key),state:'READY',completedAt:new Date().toISOString(),sourceGeneratedAt:report.generatedAt}); console.log(`Finance report refreshed (${report.period.month}).`); })
+    .catch((error) => { financeRefreshStatus.set(key,{...financeRefreshStatus.get(key),state:'ERROR',completedAt:new Date().toISOString(),errorCode:/^(FINANCE|DROPEA)_[A-Z0-9_:]+$/.test(String(error?.message))?error.message:'FINANCE_READ_FAILED'}); console.error('Finance report refresh error:', error instanceof Error ? error.message : String(error)); })
     .finally(() => financeRefreshInFlight.delete(key));
   financeRefreshInFlight.set(key, job);
+  if(financeRefreshStatus.size>12)financeRefreshStatus.delete(financeRefreshStatus.keys().next().value);
   return true;
+}
+
+let financeReconciliationSweepInFlight = null;
+function runFinanceReconciliationSweep() {
+  if (financeReconciliationSweepInFlight) return financeReconciliationSweepInFlight;
+  const job = (async () => {
+    const currentMonth = resolveFinancePeriod().month;
+    queueFinanceReportRefresh(currentMonth);
+    await financeRefreshInFlight.get(currentMonth);
+    // Reconcile one older unresolved cohort after the current month. This uses
+    // the existing financial timer, with no parallel provider sweeps or second scheduler.
+    for (let offset = 1; offset <= 12; offset += 1) {
+      const [year, month] = currentMonth.split('-').map(Number);
+      const prior = new Date(Date.UTC(year,month-1-offset,1)).toISOString().slice(0,7);
+      const snapshot = await loadFinanceSnapshot({month:prior}).catch(()=>null);
+      if (snapshot && Number(snapshot.counts?.inAir||0)+Number(snapshot.counts?.pending||0)>0 && financeSnapshotNeedsRefresh(snapshot)) {
+        queueFinanceReportRefresh(prior);
+        await financeRefreshInFlight.get(prior);
+        break;
+      }
+    }
+  })().catch(()=>console.error('Finance reconciliation sweep failed; prior snapshots retained.'))
+    .finally(()=>{financeReconciliationSweepInFlight=null;});
+  financeReconciliationSweepInFlight=job;
+  return job;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -794,6 +821,7 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         finance,
         pending: !finance,
+        financialSync: {enabled:financeBackgroundRefreshEnabled,intervalMinutes:Number(process.env.FINANCE_REFRESH_INTERVAL_MINUTES||60),inFlight:[...financeRefreshInFlight.keys()],lastRuns:Object.fromEntries(financeRefreshStatus)},
         stale,
         refreshing: queued || financeRefreshInFlight.has(resolveFinancePeriod(month).month)
       });
@@ -1535,8 +1563,8 @@ function startFinanceReportRefreshScheduler() {
   if (!Number.isFinite(intervalMinutes) || intervalMinutes <= 0) return;
   const intervalMs = intervalMinutes * 60 * 1000;
   setTimeout(() => {
-    queueFinanceReportRefresh(undefined);
-    financeReportRefreshTimer = setInterval(() => queueFinanceReportRefresh(undefined), intervalMs);
+    runFinanceReconciliationSweep();
+    financeReportRefreshTimer = setInterval(() => runFinanceReconciliationSweep(), intervalMs);
     financeReportRefreshTimer.unref?.();
   }, 90000);
 }
