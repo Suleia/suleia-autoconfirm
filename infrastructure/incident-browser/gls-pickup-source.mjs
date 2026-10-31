@@ -49,10 +49,11 @@ export function parseGlsTracking(visible,{tracking,postal,url,now=Date.now()}={}
  const lines=String(visible).split(/[\r\n]+/).map(s=>s.trim()).filter(Boolean);
  const field=name=>{const i=lines.findIndex(s=>s===name||s.startsWith(name+':'));return i<0?null:lines[i]===name?lines[i+1]:lines[i].slice(name.length+1).trim();};
  const current=field('Estado del envío');
- const states={'Disponible para recoger':'READY','Listo para recoger en agencia':'READY','Entregado':'COLLECTED','Recogido':'COLLECTED','Devuelto al remitente':'RETURNED','En tránsito':'IN_TRANSIT','En reparto':'IN_TRANSIT','Cancelado':'CANCELLED'};
+ const states={'Disponible para recoger':'READY','Listo para recoger en agencia':'READY','Entregado':'DELIVERED','Recogido':'COLLECTED','Devuelto al remitente':'RETURNED','En tránsito':'IN_TRANSIT','En reparto':'IN_TRANSIT','Cancelado':'CANCELLED'};
  const result={verified:true,tracking_id:String(tracking),postal_code:field('Código postal de destino'),state:states[current]||'UNVERIFIED',agency_code:field('Código de agencia'),agency_name:field('Agencia GLS'),source_url:url,source_type:'GLS_OFFICIAL_TRACKING_VISIBLE',observed_at:new Date(now).toISOString(),availability_at:field('Disponible desde'),cod_cents:null};
  const cod=field('Importe pendiente de pago');if(cod&&/^\d+(?:[.,]\d{2})\s*€$/.test(cod))result.cod_cents=Math.round(Number(cod.replace('€','').replace(',','.').trim())*100);
  const agency={postal_code_searched:postal,agency_code:result.agency_code,agency_name:result.agency_name,address_line:field('Dirección de agencia'),postal_code:field('Código postal de agencia'),city:field('Localidad de agencia'),province:field('Provincia de agencia'),phone:field('Teléfono de agencia'),opening_hours:field('Horario de recogida'),source_url:url,source_type:'GLS_OFFICIAL_TRACKING_VISIBLE',retrieved_at:new Date(now).toISOString(),validated_at:new Date(now).toISOString(),validation_status:'VERIFIED_TRACKING_ONLY'};
+ result.agency_address_line=agency.address_line;result.agency_postal_code=agency.postal_code;
  if(Object.values(agency).every(Boolean)&&/^\d{5}$/.test(agency.postal_code)&&glsDirectAgencyPhone(agency.phone)&&glsOpeningHoursVerified(agency.opening_hours))result.agency=agency;
  if(result.state==='READY'&&result.agency_code&&Number.isFinite(Date.parse(result.availability_at))){
   result.episode_id=createHash('sha256').update(JSON.stringify([tracking,result.agency_code,new Date(result.availability_at).toISOString()])).digest('hex').slice(0,32);

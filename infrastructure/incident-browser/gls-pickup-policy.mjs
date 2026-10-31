@@ -18,12 +18,14 @@ export function pickupPlan(input){
  const postal=String(o.shipping_address?.postal_code||'');
  if(!['ES','España','Spain'].includes(o.shipping_address?.country)||!/^(?:0[1-9]|[1-4]\d|5[0-2])\d{3}$/.test(postal))return no('INVALID_SHIPMENT_POSTAL_CODE');
  if(!t?.verified||t.tracking_id!==String(o.tracking_number)||t.postal_code!==postal||String(i.tracking_number)!==String(o.tracking_number)||now-Date.parse(t.observed_at)>60000||now<Date.parse(t.observed_at))return no('FRESH_EXACT_TRACKING_REQUIRED');
- if(['COLLECTED','RETURNED','CANCELLED'].includes(t.state))return no('SHIPMENT_TERMINAL','CLOSED');
+ if(['DELIVERED','COLLECTED','RETURNED','CANCELLED'].includes(t.state))return no('SHIPMENT_TERMINAL','CLOSED');
  if(t.state!=='READY')return no('WAITING_FOR_PICKUP_AVAILABILITY','WAITING_FOR_PICKUP_AVAILABILITY');
  if(!t.episode_id||!t.agency_code)return no('PICKUP_EPISODE_NOT_VERIFIED');
  if(!a||!['VERIFIED_DIRECTORY_ONLY','VERIFIED_TRACKING_ONLY'].includes(a.validation_status)||a.postal_code_searched!==postal||now-Date.parse(a.retrieved_at)>(a.validation_status==='VERIFIED_TRACKING_ONLY'?60000:24*3600000)||now<Date.parse(a.retrieved_at))return no('MISSING_VERIFIED_AGENCY_DATA');
  if(a.validation_status==='VERIFIED_TRACKING_ONLY'&&(input.allowTrackingFallback!==true||a.source_type!=='GLS_OFFICIAL_TRACKING_VISIBLE'||a.source_url!==o.tracking_url||t.agency!==a))return no('TRACKING_AGENCY_FALLBACK_NOT_VERIFIED');
  if(a.agency_code!==t.agency_code)return no('GLS_AGENCY_CONFLICT','GLS_AGENCY_CONFLICT');
+ const addressKey=value=>String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');
+ if(t.agency_postal_code&&t.agency_postal_code!==a.postal_code||t.agency_address_line&&addressKey(t.agency_address_line)!==addressKey(a.address_line))return no('GLS_AGENCY_CONFLICT','GLS_AGENCY_CONFLICT');
  if(!glsDirectAgencyPhone(a.phone))return no('DIRECT_AGENCY_PHONE_NOT_VERIFIED');
  if(!glsOpeningHoursVerified(a.opening_hours))return no('MISSING_VERIFIED_AGENCY_DATA');
  if(!a.opening_hours||!a.phone||!a.city||!a.province||!a.address_line||!a.agency_name)return no('MISSING_VERIFIED_AGENCY_DATA');

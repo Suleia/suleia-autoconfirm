@@ -24,6 +24,7 @@ test('GLS Retry-After seconds/date persist cooldown and prevent later queries',a
 test('official form iframe change is blocked',async()=>{const d=createGlsDirectory({fetchImpl:async()=>({ok:true,text:async()=>'<iframe src="/other">'})});await assert.rejects(d.lookup('28001'),/IFRAME_CHANGED/);});
 test('tracking URL must prove exact tracking and current corrected postal code',()=>{assert.throws(()=>validatedTrackingUrl(fixture().order.raw.tracking_url,'999','28001'));assert.throws(()=>validatedTrackingUrl(fixture().order.raw.tracking_url,'123456789','28002'));assert.throws(()=>validatedTrackingUrl('https://evil.test/e/123456789/28001/es','123456789','28001'));});
 test('pickup action button is not availability',()=>{const t=parseGlsTracking('Recoger en Agencia',{tracking:'123456789',postal:'28001',url:fixture().order.raw.tracking_url,now});assert.equal(t.verified,false);});
+test('delivery is terminal but does not prove collection at an agency',()=>{for(const [label,state]of [['Entregado','DELIVERED'],['Recogido','COLLECTED']]){const t=parseGlsTracking('Estado del envío\n'+label+'\nCódigo postal de destino\n28001',{tracking:'123456789',postal:'28001',url:fixture().order.raw.tracking_url,now});assert.equal(t.state,state);}});
 test('exact official tracking labels verify ready state, COD and stable episode',()=>{const body='Estado del envío\nDisponible para recoger\nCódigo postal de destino\n28001\nCódigo de agencia\n999\nDisponible desde\n2026-10-30T12:00:00+01:00\nImporte pendiente de pago\n29,99 €';const t=parseGlsTracking(body,{tracking:'123456789',postal:'28001',url:fixture().order.raw.tracking_url,now});assert.equal(t.verified,true);assert.equal(t.cod_cents,2999);assert.ok(t.episode_id);});
 test('eligible pickup requires every fresh native/logistic/recipient proof',()=>assert.equal(pickupPlan(fixture()).eligible,true));
 test('recipient identity retains the full country prefix, not just trailing digits',()=>{assert.equal(pickupPhone('610000000'),pickupPhone('+34 610000000'));assert.notEqual(pickupPhone('+34 610000000'),pickupPhone('+44 610000000'));assert.equal(pickupPhone('3461000000034610000000'),null);});
@@ -42,6 +43,8 @@ for(const [name,edit,reason]of [
  ['return in transit',f=>f.order.raw.sub_status='RETURN_IN_TRANSIT','SHIPMENT_TERMINAL'],
  ['prior existing return owner',f=>f.priorReturn=true,'PRIOR_RETURN_GUARD'],
  ['different agency',f=>f.tracking.agency_code='888','GLS_AGENCY_CONFLICT'],
+ ['same agency code at a different tracking address',f=>f.tracking.agency_address_line='Otra calle 99','GLS_AGENCY_CONFLICT'],
+ ['agency moved to a different postal address',f=>f.tracking.agency_postal_code='28002','GLS_AGENCY_CONFLICT'],
  ['rerouted postal mismatch',f=>f.order.raw.shipping_address.postal_code='28002','FRESH_EXACT_TRACKING_REQUIRED'],
  ['stale tracking',f=>f.tracking.observed_at=new Date(now-61000).toISOString(),'FRESH_EXACT_TRACKING_REQUIRED'],
  ['missing stable episode',f=>delete f.tracking.episode_id,'PICKUP_EPISODE_NOT_VERIFIED'],

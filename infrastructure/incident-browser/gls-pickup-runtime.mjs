@@ -99,7 +99,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    let agency=null;try{agency=await directory.lookup(postal,{agencyCode:tracking.agency_code});item.agency=agency;report.metrics.gls_lookup_success++;}catch(e){report.metrics.gls_lookup_failed++;item.lookup_reason=/^[A-Z_]+$/.test(e.message)?e.message:'GLS_LOOKUP_FAILED';}
    if(!agency&&flags.allowVerifiedTrackingFallback===true&&tracking.verified&&tracking.state==='READY'&&tracking.agency){agency=tracking.agency;item.agency=agency;item.agency_fallback='EXACT_CURRENT_TRACKING_FULL_AGENCY';}
    if(!tracking.verified){report.cases.push({...item,state:'MANUAL_REVIEW',reason:tracking.unavailable_reason||'OFFICIAL_TRACKING_DATA_NOT_VERIFIABLE'});continue;}
-   if(tracking.state!=='READY'){report.cases.push({...item,state:['COLLECTED','RETURNED','CANCELLED'].includes(tracking.state)?'CLOSED':'WAITING_FOR_PICKUP_AVAILABILITY',reason:'PACKAGE_NOT_READY'});continue;}
+   if(tracking.state!=='READY'){report.cases.push({...item,state:['DELIVERED','COLLECTED','RETURNED','CANCELLED'].includes(tracking.state)?'CLOSED':'WAITING_FOR_PICKUP_AVAILABILITY',reason:'PACKAGE_NOT_READY'});continue;}
    report.metrics.pickup_ready_verified++;
    const previous=receipts.find(r=>r.order_id===base.order.orderId&&r.raw?.plan?.tracking_id===tracking.tracking_id&&r.raw?.plan?.episode_id===tracking.episode_id);
    if(previous){report.cases.push({...item,...await reconcile(previous)});continue;}
