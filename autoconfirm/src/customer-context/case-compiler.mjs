@@ -120,13 +120,13 @@ export function compileCustomerCase(input,previous=null){
   const intent=state.wants_return?'RETURN':state.address_change_requested?'ADDRESS':state.discount_response==='ACCEPTED'?'DISCOUNT_ACCEPT':state.latest_customer_intents.some(i=>i.startsWith('ASKS_'))?'STATUS_REPLY':'REDELIVERY';
   state.missing_information=requiredMissingInformation(state,intent);
   const routed=routeCustomerCase(state,{...policy,...(state.product_context?{verifiedFaq:state.product_context}:{})});
-  if(active.DELIVERY_AVAILABILITY?.confidence>=.9&&state.has_current_reply&&state.wants_order&&!state.wants_return&&!policy.irreversibleAction&&!state.unresolved_interpretation.length&&['absent','rejected_goods'].includes(state.current_incident_type)&&(input.issue?.raw||input.issue)?.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
+  if(routed.capability!=='STATUS_REPLY'&&active.DELIVERY_AVAILABILITY?.confidence>=.9&&state.has_current_reply&&state.wants_order&&!state.wants_return&&!policy.irreversibleAction&&!state.unresolved_interpretation.length&&['absent','rejected_goods'].includes(state.current_incident_type)&&(input.issue?.raw||input.issue)?.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
     Object.assign(routed,{next_best_action:'DELEGATE',capability:'REDELIVERY',owner:OWNERS.REDELIVERY,reason:'COMPOSITE_AVAILABILITY_EXISTING_SOLUTION_CONTRACT',missing_slots:[]});
   }
   if((active.REPORTS_RECEIVED?.value_json||active.REPORTS_CARRIER_PLAN?.value_json)&&!state.wants_return){
     Object.assign(routed,{next_best_action:'WAITING_PROVIDER',capability:null,owner:OWNERS.REDELIVERY,reason:'CUSTOMER_REPORT_REQUIRES_PROVIDER_VERIFICATION'});
   }
-  if(timed.size&&unresolved.some(u=>timed.has(u))&&state.wants_order&&!state.wants_return&&!policy.irreversibleAction){
+  if(routed.capability!=='STATUS_REPLY'&&timed.size&&unresolved.some(u=>timed.has(u))&&state.wants_order&&!state.wants_return&&!policy.irreversibleAction){
     Object.assign(routed,{next_best_action:'RESPOND',capability:'CONTEXTUAL_CLARIFICATION',owner:OWNERS.CONTEXTUAL_CLARIFICATION,response_type:'CLARIFICATION',reason:'ONLY_REQUIRED_MISSING_FACT',missing_slots:state.missing_information});
   }else if(routed.capability==='CONTEXTUAL_CLARIFICATION')routed.missing_slots=state.missing_information;
   const guard=clarificationGuard(state);
