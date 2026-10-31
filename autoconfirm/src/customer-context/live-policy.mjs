@@ -18,12 +18,15 @@ export function liveCarePolicy(input,{now=Date.now(),supportReceipt=null,payment
  const current=cents(raw.total_amount),amount=cents(order?.orderAmount);
  const moneyVerified=verified&&raw.currency==='EUR'&&current!==null&&current===amount&&raw.payment_method==='COD';
  const r=supportReceipt?.raw||{},plan=r.supportPlan||{};
- const applied=moneyVerified&&supportReceipt?.status==='verified'&&String(r.orderId||plan.orderId)===String(order.orderId)&&plan.conversationId===incident.chatbyUserNs&&Number.isSafeInteger(r.originalCents)&&Number.isSafeInteger(r.finalCents)&&r.originalCents-r.finalCents===500&&current===r.finalCents;
+ const exactDiscountReceipt=supportReceipt?.status==='verified'&&String(r.orderId||plan.orderId)===String(order.orderId)&&plan.conversationId===incident.chatbyUserNs&&Number.isSafeInteger(r.originalCents)&&Number.isSafeInteger(r.finalCents)&&r.originalCents-r.finalCents===500;
+ const applied=moneyVerified&&exactDiscountReceipt&&current===r.finalCents;
+ const amountConflict=moneyVerified&&exactDiscountReceipt&&current!==r.finalCents;
  return {...p,liveVerifiedContext:verified,liveReplyOwnerBusy:['claimed','sending','applied_unverified','delivery_unverified','reconciliation_claimed','manual_reconciliation_required'].includes(input.sharedIssueReceipt?.status),providerReadVerified:verified,providerReadAt:verified?proof.orderReadAt:null,
   verifiedOrderState:verified?currentProviderState(order):null,
-  paymentVerified:moneyVerified&&!!authorizationRef&&paymentMethods.length>0,paymentMethod:moneyVerified?'COD':null,
-  amountDue:moneyVerified?current/100:null,amountReadAt:moneyVerified?proof.orderReadAt:null,
-  allowedPaymentMethods:moneyVerified&&authorizationRef?paymentMethods.filter(m=>['CASH','CARD'].includes(m)):[],
+  paymentVerified:moneyVerified&&!amountConflict&&!!authorizationRef&&paymentMethods.length>0,paymentMethod:moneyVerified?'COD':null,
+  amountDue:moneyVerified&&!amountConflict?current/100:null,amountReadAt:moneyVerified&&!amountConflict?proof.orderReadAt:null,
+  allowedPaymentMethods:moneyVerified&&!amountConflict&&authorizationRef?paymentMethods.filter(m=>['CASH','CARD'].includes(m)):[],
+  discountAmountConflict:amountConflict,
   paymentContractSource:authorizationRef||null,discountAppliedVerified:applied,
   verifiedProductKnowledge:verified?verifiedProductKnowledge(order,{now}):null,
   amountProofHash:moneyVerified?hash([order.orderId,current,raw.currency,raw.payment_method,applied]):null};
