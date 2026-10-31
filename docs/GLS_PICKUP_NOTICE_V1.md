@@ -41,6 +41,11 @@ is accepted. No pickup request/action is clicked. Physical availability,
 agency identity, stable ready-event identity and pending COD must be directly
 verifiable. Unknown/changed provider UI cannot unlock sending. Private
 diagnostics stay on the VPS. No undocumented HMAC tracking API is used here.
+The explicit `allowVerifiedTrackingFallback` policy permits a directory outage
+fallback only when that exact fresh tracking UI supplies the complete agency,
+hours, direct phone, READY event identity and COD. A directory/tracking conflict
+cannot use fallback. Provider Retry-After deadlines persist in the existing
+private cache and prevent new GLS requests until they expire.
 
 Eligibility requires exact canonical `PICKUP_AT_AGENCY`, active native issue,
 same shipment/current destination, READY tracking, matching agency, current

@@ -2,6 +2,9 @@ import {createHash} from 'node:crypto';
 export const GLS_DIRECTORY='https://gls-group.com/ES/es/buscador-codigos-postales/';
 export const GLS_FORM='https://www.gls-spain.es/es/iframe-buscador-codigos-postales-cloned/';
 const text=s=>String(s||'').replace(/<[^>]*>/g,' ').replace(/&#(\d+);/g,(_,n)=>String.fromCodePoint(Number(n))).replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&quot;/g,'"').replace(/&#0?39;/g,"'").replace(/\s+/g,' ').trim();
+export function glsRetryUntil(value,now=Date.now()){
+ const seconds=Number(value);return value!==null&&String(value).trim()!==''&&Number.isFinite(seconds)&&seconds>=0?now+seconds*1000:Math.max(now+60000,Date.parse(value)||0);
+}
 export function parseGlsDirectory(html,postal,now=Date.now()){
  if(!/^(?:0[1-9]|[1-4]\d|5[0-2])\d{3}$/.test(postal))throw Error('INVALID_SHIPMENT_POSTAL_CODE');
  const section=String(html).split('id="pc-result"')[1]?.split('</code>')[0];
@@ -14,6 +17,7 @@ export function parseGlsDirectory(html,postal,now=Date.now()){
 export function createGlsDirectory({fetchImpl=fetch,cache={},now=Date.now,ttlMs=24*3600000}={}){
  const pending=new Map();ttlMs=Math.min(Math.max(ttlMs,60000),24*3600000);
  return {cache,async lookup(postal,{agencyCode=null,force=false}={}){
+  if(now()<Number(cache.__directory_retry_until||0))throw Error('GLS_RATE_LIMITED');
   const key=`ES:${postal}`;
   for(const [k,a]of Object.entries(cache))if(k.startsWith(key+':')&&agencyCode&&a.agency_code!==agencyCode)delete cache[k];
   const cached=Object.entries(cache).find(([k,a])=>k.startsWith(key+':')&&(!agencyCode||a.agency_code===agencyCode)&&now()-Date.parse(a.retrieved_at)>=0&&now()-Date.parse(a.retrieved_at)<ttlMs)?.[1];
@@ -22,9 +26,11 @@ export function createGlsDirectory({fetchImpl=fetch,cache={},now=Date.now,ttlMs=
    // The official entry point must still link this exact public form. Never
    // guess private APIs, generate signatures or bypass provider challenges.
    const entry=await fetchImpl(GLS_DIRECTORY,{signal:AbortSignal.timeout(8000)});
+   if(entry.status===429){cache.__directory_retry_until=glsRetryUntil(entry.headers?.get('retry-after'),now());throw Error('GLS_RATE_LIMITED');}
    if(!entry.ok||!(await entry.text()).includes(GLS_FORM))throw Error('GLS_DIRECTORY_IFRAME_CHANGED');
    const r=await fetchImpl(GLS_FORM,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({postalcode:postal}),signal:AbortSignal.timeout(8000)});
-   if(!r.ok)throw Error(r.status===429?'GLS_RATE_LIMITED':'GLS_DIRECTORY_UNAVAILABLE');
+   if(r.status===429){cache.__directory_retry_until=glsRetryUntil(r.headers?.get('retry-after'),now());throw Error('GLS_RATE_LIMITED');}
+   if(!r.ok)throw Error('GLS_DIRECTORY_UNAVAILABLE');
    const a=parseGlsDirectory(await r.text(),postal,now());cache[`${key}:${a.agency_code}`]=a;return a;
   })();pending.set(key,job);try{return await job;}finally{pending.delete(key);}
  }};
@@ -42,15 +48,19 @@ export function parseGlsTracking(visible,{tracking,postal,url,now=Date.now()}={}
  const states={'Disponible para recoger':'READY','Listo para recoger en agencia':'READY','Entregado':'COLLECTED','Recogido':'COLLECTED','Devuelto al remitente':'RETURNED','En tránsito':'IN_TRANSIT','En reparto':'IN_TRANSIT','Cancelado':'CANCELLED'};
  const result={verified:true,tracking_id:String(tracking),postal_code:field('Código postal de destino'),state:states[current]||'UNVERIFIED',agency_code:field('Código de agencia'),agency_name:field('Agencia GLS'),source_url:url,source_type:'GLS_OFFICIAL_TRACKING_VISIBLE',observed_at:new Date(now).toISOString(),availability_at:field('Disponible desde'),cod_cents:null};
  const cod=field('Importe pendiente de pago');if(cod&&/^\d+(?:[.,]\d{2})\s*€$/.test(cod))result.cod_cents=Math.round(Number(cod.replace('€','').replace(',','.').trim())*100);
+ const agency={postal_code_searched:postal,agency_code:result.agency_code,agency_name:result.agency_name,address_line:field('Dirección de agencia'),postal_code:field('Código postal de agencia'),city:field('Localidad de agencia'),province:field('Provincia de agencia'),phone:field('Teléfono de agencia'),opening_hours:field('Horario de recogida'),source_url:url,source_type:'GLS_OFFICIAL_TRACKING_VISIBLE',retrieved_at:new Date(now).toISOString(),validated_at:new Date(now).toISOString(),validation_status:'VERIFIED_TRACKING_ONLY'};
+ if(Object.values(agency).every(Boolean)&&/^\d{5}$/.test(agency.postal_code)&&/^\+?[\d ()-]{9,20}$/.test(agency.phone)&&/\d{1,2}[:.]\d{2}/.test(agency.opening_hours))result.agency=agency;
  if(result.state==='READY'&&result.agency_code&&Number.isFinite(Date.parse(result.availability_at))){
   result.episode_id=createHash('sha256').update(JSON.stringify([tracking,result.agency_code,new Date(result.availability_at).toISOString()])).digest('hex').slice(0,32);
  }
  result.verified=result.postal_code===postal&&result.state!=='UNVERIFIED';return result;
 }
-export async function readGlsTracking(context,input,{saveDiagnostic=async()=>{}}={}){
+export async function readGlsTracking(context,input,{saveDiagnostic=async()=>{},retryUntil=0,onRateLimit=async()=>{}}={}){
+ if(Date.now()<retryUntil)throw Error('GLS_TRACKING_RATE_LIMITED');
  const url=validatedTrackingUrl(input.url,input.tracking,input.postal);
  const page=await context.newPage();try{
-  await page.goto(url,{waitUntil:'domcontentloaded',timeout:15000});
+  const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:15000});
+  if(response?.status()===429){await onRateLimit(glsRetryUntil(response.headers()['retry-after']));throw Error('GLS_TRACKING_RATE_LIMITED');}
   const accessibility=page.locator('flt-semantics-placeholder[aria-label="Enable accessibility"]');
   try{await accessibility.waitFor({state:'attached',timeout:5000});await accessibility.click({force:true,timeout:1500});}catch{}
   try{await page.getByText('Estado del envío',{exact:false}).first().waitFor({timeout:8000});}catch{}

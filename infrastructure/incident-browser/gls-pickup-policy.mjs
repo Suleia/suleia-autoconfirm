@@ -18,7 +18,8 @@ export function pickupPlan(input){
  if(['COLLECTED','RETURNED','CANCELLED'].includes(t.state))return no('SHIPMENT_TERMINAL','CLOSED');
  if(t.state!=='READY')return no('WAITING_FOR_PICKUP_AVAILABILITY','WAITING_FOR_PICKUP_AVAILABILITY');
  if(!t.episode_id||!t.agency_code)return no('PICKUP_EPISODE_NOT_VERIFIED');
- if(!a||a.validation_status!=='VERIFIED_DIRECTORY_ONLY'||a.postal_code_searched!==postal||now-Date.parse(a.retrieved_at)>24*3600000||now<Date.parse(a.retrieved_at))return no('MISSING_VERIFIED_AGENCY_DATA');
+ if(!a||!['VERIFIED_DIRECTORY_ONLY','VERIFIED_TRACKING_ONLY'].includes(a.validation_status)||a.postal_code_searched!==postal||now-Date.parse(a.retrieved_at)>(a.validation_status==='VERIFIED_TRACKING_ONLY'?60000:24*3600000)||now<Date.parse(a.retrieved_at))return no('MISSING_VERIFIED_AGENCY_DATA');
+ if(a.validation_status==='VERIFIED_TRACKING_ONLY'&&(input.allowTrackingFallback!==true||a.source_type!=='GLS_OFFICIAL_TRACKING_VISIBLE'||a.source_url!==o.tracking_url||t.agency!==a))return no('TRACKING_AGENCY_FALLBACK_NOT_VERIFIED');
  if(a.agency_code!==t.agency_code)return no('GLS_AGENCY_CONFLICT','GLS_AGENCY_CONFLICT');
  if(!a.opening_hours||!a.phone||!a.city||!a.province||!a.address_line||!a.agency_name)return no('MISSING_VERIFIED_AGENCY_DATA');
  if(o.payment_method!=='COD'||o.currency!=='EUR'||!Number.isSafeInteger(t.cod_cents)||t.cod_cents<=0)return no('PICKUP_TEMPLATE_PAYMENT_INCOMPATIBLE');
@@ -33,7 +34,7 @@ export function pickupPlan(input){
  const values={customer_name:o.shipping_address.full_name,order_number:'ES'+id,products:items.map(p=>`${p.product_name} × ${p.quantity}`).join('; '),amount:(total/100).toLocaleString('es-ES',{style:'currency',currency:'EUR'}),agency_name:a.agency_name,address_line:a.address_line,locality:`${a.postal_code} ${a.city}, ${a.province}`,opening_hours:a.opening_hours,phone:a.phone,tracking_url:o.tracking_url};
  let params;try{params=pickupParameters(values);}catch{return no('PICKUP_REQUIRED_PARAMETER_MISSING');}
  const key=`GLS_PICKUP_NOTICE_1:${id}:${t.tracking_id}:${t.episode_id}`;
- return {eligible:true,state:'READY_TO_NOTIFY',reason:'VERIFIED_PICKUP',order_id:id,issue_id:String(i.id),key,tracking_id:t.tracking_id,episode_id:t.episode_id,agency:a,amount_cents:total,tracking:t,template_id:template.id,meta_template_id:template.meta_id,observed_at:new Date(now).toISOString(),conversation_id:subscriber.user_ns,params,payload:{user_ns:subscriber.user_ns,content:{name:PICKUP_TEMPLATE,lang:PICKUP_LANGUAGE,namespace:template.namespace,params}},fingerprint:hash([id,i.id,o,subscriber.user_ns,t.episode_id,t.cod_cents,a,params,template.id,template.meta_id])};
+ return {eligible:true,state:'READY_TO_NOTIFY',reason:'VERIFIED_PICKUP',order_id:id,issue_id:String(i.id),key,tracking_id:t.tracking_id,episode_id:t.episode_id,agency:a,amount_cents:total,tracking:t,template_id:template.id,meta_template_id:template.meta_id,observed_at:new Date(now).toISOString(),conversation_id:subscriber.user_ns,params,payload:{user_ns:subscriber.user_ns,content:{name:PICKUP_TEMPLATE,lang:PICKUP_LANGUAGE,namespace:template.namespace,params}},fingerprint:hash([id,i.id,o,subscriber.user_ns,t.episode_id,t.cod_cents,[a.agency_code,a.source_url,a.source_type],params,template.id,template.meta_id])};
 }
 export function matchingPickupMessage(messages,plan,{attemptedAt=plan.observed_at,wamid=null}={}){
  const start=Date.parse(attemptedAt)-5000;
