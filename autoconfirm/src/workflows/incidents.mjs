@@ -2972,6 +2972,11 @@ async function performPendingIncidentSync({
       incidents.push(enrichedIncident);
     }
 
+    try {
+      const report=(await selectRows('app_state',{query:{key:'eq.gls_pickup_notice_v1',select:'value'},limit:1}))[0];
+      const {applyGlsPickupProjection}=await import('./gls-pickup-projection.mjs');
+      applyGlsPickupProjection(incidents,report?.value);
+    } catch { /* Pickup observations never interrupt other owners. */ }
     let incidentResolutionSummary=null,customerCareSummary=null,conversationIntelligenceV3Summary=null;
     if(persist!==false){
       const enrichedById=new Map(incidents.map(i=>[String(i.incidenceId),i]));
