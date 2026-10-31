@@ -301,12 +301,27 @@ export async function createSubscriber(payload) {
   return created;
 }
 
-export async function sendWhatsappTemplate(payload) {
+export async function sendWhatsappTemplate(payload, {beforeDispatch} = {}) {
   assertRepositoryOwnsTemplate(payload);
   if (!payload.content) {
     payload = await buildWhatsappTemplatePayload(payload);
   }
   assertRepositoryOwnsTemplate(payload);
+
+  if(typeof beforeDispatch==='function'){
+    let entered=false;
+    return scheduleRequest(async()=>{
+      entered=true;
+      const lease={deadline:Date.now()+45000};activeConversationLease=lease;let postStarted=false;
+      try{
+        const proof=await beforeDispatch({readMessages:ns=>getIncidentChatMessages(ns,{conversationLease:lease}),readSubscriber:ns=>getIncidentSubscriberInfo(ns,{conversationLease:lease}),readTemplates:()=>listExactWhatsappTemplates(payload.content.name,{conversationLease:lease})});
+        if(!proof||!Number.isFinite(proof.expiresAt))throw Error('TEMPLATE_DISPATCH_PROOF_REQUIRED');
+        return await request('/subscriber/send-whatsapp-template',{method:'POST',body:JSON.stringify(payload),maxAttempts:1,conversationLease:lease,beforeFetch:()=>{
+          if(Date.now()>proof.expiresAt)throw Error('TEMPLATE_DISPATCH_EVIDENCE_EXPIRED');postStarted=true;
+        }});
+      }catch(error){if(!postStarted)error.notSent=true;throw error;}finally{activeConversationLease=null;}
+    }).catch(error=>{if(!entered)error.notSent=true;throw error;});
+  }
 
   return request('/subscriber/send-whatsapp-template', {
     method: 'POST',
@@ -491,6 +506,20 @@ export async function listWhatsappTemplates({ page = 1, limit = 200 } = {}) {
     maxAttempts: 3
   });
   return response?.data ?? response;
+}
+
+// Exact, fully paginated catalogue read for guarded template dispatch. Existing
+// callers and their template ownership/selection semantics are unchanged.
+export async function listExactWhatsappTemplates(name,{conversationLease=null}={}){
+ if(!/^[a-z0-9_]+$/.test(name))throw Error('EXACT_TEMPLATE_NAME_REQUIRED');
+ const rows=[];
+ for(let page=1;page<=20;page++){
+  const query=new URLSearchParams({name,limit:'100',page:String(page)});
+  const r=await request('/whatsapp-template/list?'+query,{method:'POST',body:'{}',retrySafe:true,maxAttempts:1,timeoutMs:8000,conversationLease});
+  if(!Array.isArray(r.data))throw Error('EXACT_TEMPLATE_CATALOG_SCHEMA');rows.push(...r.data);
+  if(r.meta?.last_page?page>=Number(r.meta.last_page):r.data.length<100)return rows;
+ }
+ throw Error('EXACT_TEMPLATE_CATALOG_INCOMPLETE');
 }
 
 export async function checkChatbyConnection() {

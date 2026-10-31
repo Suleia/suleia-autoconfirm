@@ -120,6 +120,11 @@ async function observe(){
   catch{result.feedbackError='FOLLOWUP_UNAVAILABLE';}
   try{result.acceptedDiscountSupport=await (await import('./support-runtime.mjs')).runVpsSupportCycle(context);}
   catch{result.acceptedDiscountSupport={status:'SUPPORT_CYCLE_FAILED'};}
+  // Isolated, bounded tail stage. No new scheduler, sender or logistics writer.
+  if(Date.now()+35000<Date.parse(startedAt)+24*60000){
+   try{result.glsPickupNotice=await(await import('./gls-pickup-runtime.mjs')).runGlsPickupCycle(context,{deadlineAt:Math.min(Date.now()+240000,Date.parse(startedAt)+24*60000)});}
+   catch{result.glsPickupNotice={status:'GLS_PICKUP_REQUIRES_REVIEW',messages:0};}
+  }
   result.startedAt=startedAt;result.completedAt=new Date().toISOString();
   await fs.writeFile('/state/observer-health.json',JSON.stringify(result));
   let history=[];try{history=JSON.parse(await fs.readFile('/state/cycle-history.json','utf8'));}catch{}
