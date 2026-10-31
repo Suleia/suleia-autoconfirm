@@ -45,6 +45,8 @@ const IncidentPanel=(()=>{
         ['Última respuesta contextual',c.last_contextual_outbound?[c.last_contextual_outbound.type,c.last_contextual_outbound.sender,incidentDate(c.last_contextual_outbound.at),c.last_contextual_outbound.readback_verified?'Lectura posterior verificada':'Sin verificación posterior'].filter(Boolean).join(' · '):'Sin recibo contextual verificado'],
         ['Repeticiones bloqueadas registradas',String(c.blocked_duplicate_findings||0)],
         ['Calidad / reconciliación',[c.interpretation_quality,c.reconciliation_state].filter(Boolean).join(' · ')||'Por verificar']
+        ,['Último contexto observado',incidentDate(c.updated_at)],
+        ['Lectura actual',c.source_state==='RETAINED_AFTER_SOURCE_GAP'?'No disponible: se conserva el contexto anterior, sin autorizar acciones':'Consultar fecha y calidad de la observación']
       ]:[]),
       ['Esperando a',c.waiting_for_customer?'Cliente':c.waiting_for_provider?'Proveedor':'Workflow responsable'],
       ['Última acción verificada',c.last_verified_action?.action||'Ninguna'],['Motivo',c.reason||'Por verificar']

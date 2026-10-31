@@ -4,7 +4,8 @@ const codes=v=>(Array.isArray(v)?v:[]).slice(0,40).map(code).filter(Boolean);
 const at=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))?new Date(v).toISOString():null;
 const mid=v=>typeof v==='string'&&/^wamid\.[A-Za-z0-9_+=.\/-]{1,240}$/.test(v)?v:null;
 export function normalizeConversationV3Signal(row){
-  const state=row.raw?.conversationIntelligenceV3;
+  const retained=!row.raw?.conversationIntelligenceV3&&row.raw?.conversationIntelligenceV3Retained?.source_state==='RETAINED_AFTER_SOURCE_GAP';
+  const state=row.raw?.conversationIntelligenceV3||(retained?row.raw.conversationIntelligenceV3Retained:null);
   if(!state||state.version!=='CONVERSATION_V3')return null;
   const base=normalizeCustomerCareSignal({...row,raw:{customerCare:state}});if(!base)return null;
   const facts=Object.values(state.current_facts||{}),policy=state.policy||{},product=state.product_context;
@@ -12,6 +13,7 @@ export function normalizeConversationV3Signal(row){
   const last=(state.timeline||[]).filter(t=>t.kind==='INFORMATION_RESPONSE'&&t.provider_message_id).at(-1);
   const amount=policy.liveVerifiedContext===true&&policy.paymentVerified===true&&Number.isFinite(state.amount_due)&&state.amount_due>=0?Math.round(state.amount_due*100):null;
   return {...base,version:'CONVERSATION_V3',operational_action:code(state.operational_action),customer_reply_action:code(state.customer_reply_action),
+    source_state:retained?'RETAINED_AFTER_SOURCE_GAP':'CURRENT_OBSERVATION',source_failed_at:retained?at(state.source_failed_at):null,
     pending_question_types:codes((state.pending_customer_questions||[]).map(q=>q.type)),
     answered_question_types:codes((state.fact_ledger||[]).filter(f=>answered.has(f.fact_id)).map(f=>f.fact_type)),
     verified_fact_types:codes(facts.filter(f=>f.confidence>=.9&&['PROVIDER_VERIFIED','SYSTEM_CONTROLLED'].includes(f.authority)).map(f=>f.fact_type)),
