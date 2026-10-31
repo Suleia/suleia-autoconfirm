@@ -63,7 +63,10 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
  const releaseArgs={storeId:'suleia',orderId:'__gls_pickup_notice_release__',templateName:'GLS_PICKUP_NOTICE_1_CANARY',provider:'chatby'};
  let release=await getTemplateDelivery(releaseArgs);
  let template;
- try{template=pickupTemplateStatus(await listExactWhatsappTemplates(PICKUP_TEMPLATE));}catch{template={approved:false,status:'CATALOG_UNAVAILABLE'};}
+ try{template=pickupTemplateStatus(await listExactWhatsappTemplates(PICKUP_TEMPLATE));await save('/state/gls-pickup-template-status.json',{at:new Date().toISOString(),...template});}catch(e){
+  let previous={};try{previous=JSON.parse(await fs.readFile('/state/gls-pickup-template-status.json','utf8'));}catch{}
+  template={approved:false,status:'CATALOG_UNAVAILABLE',id:previous.id??null,meta_id:previous.meta_id??null,last_known_status:previous.status||null,last_verified_at:previous.at||null,source_error:/^[A-Z_]+$/.test(e.code||'')?e.code:'CHATBY_CATALOG_READ_FAILED',http_status:Number.isInteger(e.status)?e.status:null};
+ }
  report.template=template;report.mode=flags.mode==='SHADOW'?'SHADOW':release?.status==='verified'?'LIVE':'CANARY';
  const native=await collectGlsPickupIncidents({deadlineAt:Math.min(deadlineAt,Date.now()+60000)});
  let candidates=native.filter(canonicalPickup).sort((a,b)=>Number(a.order.orderId)-Number(b.order.orderId));report.metrics.pickup_incidents_detected=candidates.length;
@@ -95,7 +98,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    item.tracking={state:tracking.state,verified:tracking.verified,observed_at:tracking.observed_at};
    let agency=null;try{agency=await directory.lookup(postal,{agencyCode:tracking.agency_code});item.agency=agency;report.metrics.gls_lookup_success++;}catch(e){report.metrics.gls_lookup_failed++;item.lookup_reason=/^[A-Z_]+$/.test(e.message)?e.message:'GLS_LOOKUP_FAILED';}
    if(!agency&&flags.allowVerifiedTrackingFallback===true&&tracking.verified&&tracking.state==='READY'&&tracking.agency){agency=tracking.agency;item.agency=agency;item.agency_fallback='EXACT_CURRENT_TRACKING_FULL_AGENCY';}
-   if(!tracking.verified){report.cases.push({...item,state:'MANUAL_REVIEW',reason:'OFFICIAL_TRACKING_DATA_NOT_VERIFIABLE'});continue;}
+   if(!tracking.verified){report.cases.push({...item,state:'MANUAL_REVIEW',reason:tracking.unavailable_reason||'OFFICIAL_TRACKING_DATA_NOT_VERIFIABLE'});continue;}
    if(tracking.state!=='READY'){report.cases.push({...item,state:['COLLECTED','RETURNED','CANCELLED'].includes(tracking.state)?'CLOSED':'WAITING_FOR_PICKUP_AVAILABILITY',reason:'PACKAGE_NOT_READY'});continue;}
    report.metrics.pickup_ready_verified++;
    const previous=receipts.find(r=>r.order_id===base.order.orderId&&r.raw?.plan?.tracking_id===tracking.tracking_id&&r.raw?.plan?.episode_id===tracking.episode_id);
@@ -143,7 +146,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
   }catch(e){report.cases.push({...item,state:'MANUAL_REVIEW',reason:/^[A-Z_]+$/.test(e.code||e.message)?e.code||e.message:'PICKUP_FRESH_READ_UNAVAILABLE'});}
  }
  report.cases=[...new Map(report.cases.map(c=>[c.order_id+':'+c.issue_id,c])).values()];
- for(const c of report.cases){if(c.verified)report.metrics.pickup_notice_1_verified++;if(c.already_sent)report.metrics.pickup_notice_1_already_sent++;if(c.customer_replied)report.metrics.pickup_notice_1_customer_replied++;if(c.duplicate_prevented)report.metrics.pickup_notice_1_duplicate_prevented++;if(c.state==='SEND_UNKNOWN')report.metrics.pickup_notice_1_unknown++;if(c.state==='MANUAL_REVIEW')report.metrics.pickup_notice_1_manual_review++;if(c.state==='GLS_AGENCY_CONFLICT')report.metrics.agency_conflicts++;if(c.state==='WAITING_COD_RECONCILIATION')report.metrics.cod_reconciliation_blocked++;if(c.reason==='MISSING_VERIFIED_AGENCY_DATA')report.metrics.missing_agency_data++;}
+ for(const c of report.cases){if(c.verified)report.metrics.pickup_notice_1_verified++;if(c.already_sent)report.metrics.pickup_notice_1_already_sent++;if(c.customer_replied)report.metrics.pickup_notice_1_customer_replied++;if(c.duplicate_prevented)report.metrics.pickup_notice_1_duplicate_prevented++;if(c.state==='SEND_UNKNOWN')report.metrics.pickup_notice_1_unknown++;if(c.state==='MANUAL_REVIEW')report.metrics.pickup_notice_1_manual_review++;if(c.state==='GLS_AGENCY_CONFLICT')report.metrics.agency_conflicts++;if(c.state==='WAITING_COD_RECONCILIATION')report.metrics.cod_reconciliation_blocked++;if([c.reason,c.lookup_reason].some(r=>['MISSING_VERIFIED_AGENCY_DATA','DIRECT_AGENCY_PHONE_NOT_VERIFIED'].includes(r)))report.metrics.missing_agency_data++;}
  await save('/state/gls-pickup-cursor.json',cursor);
  report.completed_at=new Date().toISOString();await save('/state/gls-agency-cache.json',cache);await save('/state/gls-pickup-report.json',report);
  await upsertRows('app_state',{key:'gls_pickup_notice_v1',value:report,updated_at:report.completed_at},{onConflict:'key',timeoutMs:8000});

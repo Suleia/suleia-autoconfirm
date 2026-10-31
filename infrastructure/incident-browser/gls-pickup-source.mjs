@@ -62,7 +62,16 @@ export function parseGlsTracking(visible,{tracking,postal,url,now=Date.now()}={}
 export async function readGlsTracking(context,input,{saveDiagnostic=async()=>{},retryUntil=0,onRateLimit=async()=>{}}={}){
  if(Date.now()<retryUntil)throw Error('GLS_TRACKING_RATE_LIMITED');
  const url=validatedTrackingUrl(input.url,input.tracking,input.postal);
- const page=await context.newPage();try{
+ const page=await context.newPage(),providerStatuses=[],requestFailures=[],rateJobs=[];let limited=false;
+ page.on('requestfailed',request=>{if(requestFailures.length<20)requestFailures.push(request.failure()?.errorText||'REQUEST_FAILED');});
+ page.on('response',response=>{try{
+  const host=new URL(response.url()).hostname;
+  if(/(?:^|\.)(?:gls-spain\.es|gls-group\.com|gls-group\.eu)$/.test(host)&&response.status()>=400){
+   if(providerStatuses.length<20)providerStatuses.push({host,status:response.status()});
+   if(response.status()===429&&!limited){limited=true;const job=(async()=>{try{await onRateLimit(glsRetryUntil(response.headers()['retry-after']));}finally{await page.close().catch(()=>{});}})();rateJobs.push(job);}
+  }
+ }catch{/* Diagnostics cannot affect the existing worker. */}});
+ try{
   const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:15000});
   if(response?.status()===429){await onRateLimit(glsRetryUntil(response.headers()['retry-after']));throw Error('GLS_TRACKING_RATE_LIMITED');}
   const necessary=page.getByRole('button',{name:'Solo usar cookies necesarias',exact:true});
@@ -74,16 +83,19 @@ export async function readGlsTracking(context,input,{saveDiagnostic=async()=>{},
   try{await page.locator('flt-semantics[aria-label]').first().waitFor({state:'attached',timeout:8000});}catch{}
   // Header semantics appear before the shipment query finishes. Reading that
   // first frame would mistake the actual loading screen for missing data.
-  try{await page.locator('flt-semantics[aria-label^="Cargando"]').waitFor({state:'hidden',timeout:15000});}catch{}
+  try{await page.locator('flt-semantics[aria-label^="Cargando"]').waitFor({state:'hidden',timeout:25000});}catch{}
   const body=await page.locator('body').innerText({timeout:2000});
   // Flutter paints text on a canvas; its live accessibility semantics carry
   // the same rendered labels. Read these labels, never provider internals.
   const semantics=await page.locator('flt-semantics[aria-label]').evaluateAll(nodes=>nodes.filter(n=>n.getAttribute('aria-hidden')!=='true').map(n=>n.getAttribute('aria-label')).filter(Boolean));
   const visible=[body,...semantics].join('\n');
   const result=parseGlsTracking(visible,{...input,url});
-  if(!result.verified||result.state==='READY'&&(!result.episode_id||!result.cod_cents))await saveDiagnostic({visible,at:new Date().toISOString(),tracking:input.tracking,ui:{semantics:semantics.length,loading:await page.locator('flt-semantics[aria-label^="Cargando"]').count(),cookieControl:await page.getByText('Solo usar cookies necesarias',{exact:true}).count()}});
+  const loading=await page.locator('flt-semantics[aria-label^="Cargando"]').count();
+  if(!result.verified)result.unavailable_reason=providerStatuses.some(s=>[401,403].includes(s.status))?'GLS_TRACKING_PROVIDER_DENIED':loading?'GLS_TRACKING_STILL_LOADING':'OFFICIAL_TRACKING_DATA_NOT_VERIFIABLE';
+  if(!result.verified||result.state==='READY'&&(!result.episode_id||!result.cod_cents))await saveDiagnostic({visible,at:new Date().toISOString(),tracking:input.tracking,ui:{semantics:semantics.length,loading,cookieControl:await page.getByText('Solo usar cookies necesarias',{exact:true}).count(),providerStatuses,requestFailures}});
   return result;
- }finally{await page.close();}
+ }catch(error){if(limited)throw Error('GLS_TRACKING_RATE_LIMITED');throw error;}
+ finally{await Promise.allSettled(rateJobs);await page.close().catch(()=>{});}
 }
 
 export async function collectGlsPickupIncidents({deadlineAt=Date.now()+60000}={}){
