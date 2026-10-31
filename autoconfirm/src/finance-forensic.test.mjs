@@ -55,6 +55,31 @@ test('31-day October boundary preserves the Europe Madrid daylight-saving change
  assert.equal(period.fromTimestamp,'2026-09-30T22:00:00.000Z');
  assert.equal(period.toTimestamp,'2026-10-31T22:59:59.999Z');assert.equal(build(make()).days.length,31);
 });
+
+test('late import uses the explicit purchase day for all cohort components, keeping the monthly result',()=>{
+ const order=make({created_at:'2026-10-25T07:43:19Z',external_created_at:'2026-10-24T18:21:28Z'});
+ const r=build(order),old=build({...order,external_created_at:null});
+ assert.deepEqual(r.totals,old.totals);
+ assert.equal(r.days.find(d=>d.day==='2026-10-24').created,1);
+ assert.equal(r.days.find(d=>d.day==='2026-10-25').created,0);
+ assert.equal(r.days.find(d=>d.day==='2026-10-24').realRevenue,29.99);
+ assert.equal(r.orders[0].dropeaCreatedDay,'2026-10-25');
+ assert.equal(r.financialAssurance.purchaseDates.importDayDifferences,1);
+ assert.equal(old.financialAssurance.purchaseDates.fallbackOrders,1);
+});
+
+test('unreconciled cross-month, invalid or future purchase dates fail before replacing the last valid snapshot',()=>{
+ for(const external_created_at of ['2026-09-30T12:00Z','invalid','2026-10-21T12:00Z'])
+  assert.throws(()=>build(make({external_created_at})),/PURCHASE_DATE_REQUIRES_RECONCILIATION/);
+});
+
+test('date-only event evidence survives purchase-day correction and a second idempotent refresh',()=>{
+ const order=make({delivered_at:null,external_created_at:'2026-10-19T12:00Z'});
+ const old=build({...order,external_created_at:null});old.orders[0].settlementDay='2026-10-23';
+ const refresh=previousOrders=>aggregateFinanceReport({period,orders:[order],expenses:[],metaRows:[],previousOrders});
+ const first=refresh(old.orders),second=refresh(first.orders);
+ assert.equal(first.orders[0].settlementDay,'2026-10-23');assert.deepEqual(first,second);
+});
 test('V2 final return charges remain in the financial cohort when event dates are unavailable',()=>{
  const o=make({status:'ERROR',sub_status:'REJECTED',delivered_at:null,tracking_number:'test-tracking'});o.expenses_breakdown.total_expenses=11.94;
  const r=build(o);assert.equal(r.counts.returned,1);assert.equal(r.orders[0].settlementDay,null);assert.equal(r.totals.returnCost,5.06);assert.equal(r.totals.realRevenue,0);

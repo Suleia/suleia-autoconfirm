@@ -88,8 +88,15 @@ export function buildFinanceAssurance(report) {
       cashVerified:null,realizedCashProfit:null },
     pendingOutcomeOrders: Number(report.counts?.inAir || 0)+Number(report.counts?.pending || 0),
     physicallyShippedOrders: rows.filter(r => r.physicallyShipped === true).length,
+    purchaseDates: {
+      source: 'DROPEA_CREATED_IN_PERIOD_INVENTORY',
+      externalDateOrders: rows.filter(r => r.cohortDateBasis === 'PROVIDER_EXTERNAL_PURCHASE_DATE').length,
+      fallbackOrders: rows.filter(r => r.cohortDateBasis !== 'PROVIDER_EXTERNAL_PURCHASE_DATE').length,
+      importDayDifferences: rows.filter(r => r.dropeaCreatedDay && r.createdDay !== r.dropeaCreatedDay).length
+    },
     warnings: [
       'Beneficio provisional por cohorte de compra; no acredita cobros bancarios ni un cierre definitivo.',
+      'Inventario de altas Dropea del mes. Fecha de compra externa cuando consta; en pedidos manuales sin esa fecha se usa el alta y queda pendiente de verificar.',
       'Un total reconstruido con tarifas no es un cargo final publicado. calculated_at no es una fecha de cargo.',
       'Las cuotas calculadas con tipos del proveedor no sustituyen facturas; los residuos quedan separados.',
       'Publicidad y gastos generales se mantienen fuera de la contribución individual del pedido.'

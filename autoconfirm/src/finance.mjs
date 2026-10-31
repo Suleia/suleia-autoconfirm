@@ -506,6 +506,17 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   const uniqueOrders = [...new Map(orders.map((order, index) => [`${order.market || ''}:${order.id ?? `row-${index}`}`, order])).values()];
   const cohort = uniqueOrders.filter((order) => inPeriod(order.created_at, period));
   const cohortIds = new Set(cohort.map((order) => String(order.id)));
+  // Inventory is the provider's created-in-period inventory. Group imported
+  // purchases by their explicit source date, never by their later import day.
+  const cohortDays = new Map(cohort.map(order => {
+    const external = order.external_created_at;
+    const timestamp = external || order.created_at;
+    const day = inPeriod(timestamp, period);
+    if (!day || !Number.isFinite(Date.parse(timestamp)) || external && Date.parse(external) > Date.parse(order.created_at) + 300000) {
+      throw new Error('FINANCE_PURCHASE_DATE_REQUIRES_RECONCILIATION');
+    }
+    return [String(order.id), day];
+  }));
   const issueIds = new Set(issues.map((issue) => String(issue.order_id)));
   const counts = { created: cohort.length, confirmed: 0, rejected: 0, sent: 0, inTransit: 0, delivered: 0, deliveredUnits: 0, returned: 0, returnedUnits: 0, incidentOrders: 0, incidents: 0 };
   const products = new Map();
@@ -574,7 +585,7 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   };
   for (const order of uniqueOrders) {
     const orderId = String(order.id);
-    const createdDay = inPeriod(order.created_at, period);
+    const createdDay = cohortDays.get(orderId) || null;
     const category = classifyFinanceOrder(order);
     const breakdown = dropeaExpenseBreakdown(order);
     const settledBreakdown = Boolean(breakdown && ['delivered', 'returned'].includes(category));
@@ -772,12 +783,13 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
   const productRevenue = productRows.reduce((sum, row) => sum + (moneyToCents(row.revenue) || 0), 0);
   const productReturnCosts = productRows.reduce((sum, row) => sum + (moneyToCents(row.returnCost) || 0), 0);
   const orderRows = uniqueOrders.map((order) => {
-    const createdDay = inPeriod(order.created_at, period);
+    const createdDay = cohortDays.get(String(order.id)) || null;
     const category = classifyFinanceOrder(order);
     const settled = ['delivered', 'returned'].includes(category);
     const actualSettlementDay = localDay(category === 'delivered' ? stamp(order, 'delivered_at_utc', 'delivered_at') : (category === 'returned' ? returnStamp(order) : null), period.timeZone);
     const previous = previousById.get(String(order.id));
-    const priorDate = settled && previous?.createdDay === createdDay && String(previous.status).toLowerCase() === category && /^\d{4}-\d{2}-\d{2}$/.test(previous.settlementDay||'') ? previous.settlementDay : null;
+    const priorSameOrderDate = previous && (previous.dropeaCreatedDay || previous.createdDay) === localDay(order.created_at, period.timeZone);
+    const priorDate = settled && priorSameOrderDate && String(previous.status).toLowerCase() === category && /^\d{4}-\d{2}-\d{2}$/.test(previous.settlementDay||'') ? previous.settlementDay : null;
     const settlementDay = actualSettlementDay || priorDate;
     if (!createdDay) return null;
     const charges = [...chargeLedger.values()].filter((charge) => charge.orderId === String(order.id));
@@ -790,7 +802,10 @@ export function aggregateFinanceReport({ orders = [], issues = [], metaRows = []
     return financeOrderEvidence({ order, charges, row: {
       orderId: String(order.id),
       externalOrderId: String(order.external_order_id || ''),
-      createdDay: localDay(order.created_at, period.timeZone),
+      createdDay,
+      dropeaCreatedDay: localDay(order.created_at, period.timeZone),
+      purchaseAt: order.external_created_at || null,
+      cohortDateBasis: order.external_created_at ? 'PROVIDER_EXTERNAL_PURCHASE_DATE' : 'DROPEA_CREATION_FALLBACK',
       settlementDay,
       settlementDateSource: actualSettlementDay ? 'PROVIDER_EVENT_DATE' : priorDate ? 'PRIOR_FINANCE_SNAPSHOT_DATE_ONLY' : 'MISSING',
       status: category,
