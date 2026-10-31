@@ -64,6 +64,15 @@ test('finance client authenticates once and keeps only the sanitized per-order f
   assert.equal(calls[1].options.headers.cookie, 'suleia_dashboard=signed-session');
 });
 
+test('finance-only purchase provenance is bounded while personal fields remain excluded',async()=>{
+ const client=new FinanceReportClient({baseUrl:'https://finance.example.test',password:'fixture',fetchImpl:async url=>url.endsWith('/api/dashboard-login')
+  ? new Response(null,{status:303,headers:{'set-cookie':'suleia_dashboard=fixture; Path=/'}})
+  : Response.json({finance:{period:{month:'2026-10'},orders:[{orderId:991,createdDay:'2026-10-24',dropeaCreatedDay:'2026-10-25',purchaseAt:'2026-10-24T18:21:28Z',cohortDateBasis:'PROVIDER_EXTERNAL_PURCHASE_DATE',customer:{name:'private'},externalOrderId:'private'}]}})});
+ const report=await client.getMonthly('2026-10'),row=report.orders[0];
+ assert.equal(row.purchaseAt,'2026-10-24T18:21:28Z');assert.equal(row.dropeaCreatedDay,'2026-10-25');
+ assert.equal(row.cohortDateBasis,'PROVIDER_EXTERNAL_PURCHASE_DATE');assert.equal('customer'in row,false);assert.equal('externalOrderId'in row,false);
+});
+
 test('finance client validates month and retries an expired session once', async () => {
   let logins = 0; let reports = 0;
   const client = new FinanceReportClient({ baseUrl: 'https://finance.example.test', password: 'fixture', fetchImpl: async (url) => {

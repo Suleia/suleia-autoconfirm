@@ -44,6 +44,15 @@ Expose financial-only synchronization status through the authenticated finance
 read. Preserve the last snapshot if reconciliation or source generation fails.
 
 ## Panel
+
+The inventory remains all provider orders created in the selected month. Within
+that inventory, an explicit external purchase timestamp determines the daily
+cohort instead of a delayed import timestamp. Missing purchase dates are marked
+as provider-creation fallback, never verified purchase dates. An invalid, future
+or cross-month external date stops replacement of the valid snapshot and requires
+inventory reconciliation; it is never silently reassigned to a different month.
+Keep the provider creation day separately and preserve exact-order legacy event
+evidence across the purchase-day correction.
 Retain existing KPIs and charts. Add source assurance, a separate economic-date
 diagnostic and a paginated private order-contribution ledger/export. Headline
 values remain the purchase cohort. Do not allocate Meta or general overhead to

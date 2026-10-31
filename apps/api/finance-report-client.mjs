@@ -45,6 +45,11 @@ function safeFinanceOrders(rows) {
       breakdownStatus: String(row?.breakdownStatus || 'MISSING').slice(0, 40).toUpperCase(),
       units: Number.isFinite(Number(row?.units)) ? Math.max(0, Number(row.units)) : null
     };
+    if (Object.hasOwn(row,'cohortDateBasis')) Object.assign(safe, {
+      dropeaCreatedDay: /^\d{4}-\d{2}-\d{2}$/.test(String(row?.dropeaCreatedDay)) ? row.dropeaCreatedDay : null,
+      purchaseAt: /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(String(row?.purchaseAt)) && Number.isFinite(Date.parse(row.purchaseAt)) ? row.purchaseAt : null,
+      cohortDateBasis: ['PROVIDER_EXTERNAL_PURCHASE_DATE','DROPEA_CREATION_FALLBACK'].includes(row.cohortDateBasis) ? row.cohortDateBasis : 'LEGACY_SNAPSHOT_UNVERIFIED'
+    });
     for (const field of [...FINANCE_ORDER_MONEY_FIELDS,'providerPublishedTotal']) safe[field] = nullableMoney(row?.[field]);
     safe.costBasis = ['PROVIDER_PUBLISHED_TOTAL','REBUILT_COMPONENTS','PROVISIONAL_COMPONENTS','ESTIMATE_OR_TARIFF'].includes(row.costBasis) ? row.costBasis : 'LEGACY_SNAPSHOT_UNVERIFIED';
     safe.paymentState = ['PROVIDER_REPORTED_PAID','DELIVERED_SETTLEMENT_UNVERIFIED','NOT_REALIZED'].includes(row.paymentState) ? row.paymentState : 'UNVERIFIED';
