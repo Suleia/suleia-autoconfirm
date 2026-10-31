@@ -52,7 +52,9 @@ export function replayBenchmark(corpus){
         if(JSON.stringify(v3.missing_information)!==JSON.stringify(fixture.expected_missing_information))errors.push('MISSING_INFORMATION_MISMATCH');
         if(v3.operational_action==='REQUEST_RETURN'&&fixture.expected_operational_action!=='REQUEST_RETURN')scored.irreversibleWrong++;
         if(v3.customer_reply_action==='CLARIFY'&&v3.clarifications.some(c=>!c.answered_at))scored.questionRepeated++;
-        grading={passed:errors.length===0,errors};
+        const intentionallyUnresolved=fixture.review_disposition==='INTENTIONALLY_UNRESOLVED';
+        if(intentionallyUnresolved&&(!fixture.unresolved_reason||!v3.unresolved?.length||v3.operational_action!=='NONE'||v3.customer_reply_action!=='NONE'))errors.push('UNRESOLVED_DISPOSITION_NOT_SAFE');
+        grading={passed:errors.length===0,errors,disposition:intentionallyUnresolved?'INTENTIONALLY_UNRESOLVED':'EXPECTED',...(intentionallyUnresolved?{reason_code:fixture.unresolved_reason}:{} )};
       }
       result.cases.push({case_id:fixture.case_id,comparison,annotation_status:fixture.annotation_status,
         proposed_current_fact_types:Object.keys(v3.current_facts||{}),proposed_superseded_fact_types:(v3.fact_ledger||[]).filter(f=>f.status==='SUPERSEDED').map(f=>f.fact_type),
@@ -67,6 +69,8 @@ export function replayBenchmark(corpus){
     result.wrong_irreversible_route=scored.irreversibleWrong;result.wrong_order_binding=scored.identityWrong;result.repeated_clarification=scored.questionRepeated;
     result.core_fact_projection_accuracy=scored.coreProjections?scored.coreCorrect/scored.coreProjections:null;
     result.reviewed_cases_passing=result.cases.filter(c=>c.grading?.passed).length;
+    result.intentionally_unresolved_cases=result.cases.filter(c=>c.grading?.passed&&c.grading.disposition==='INTENTIONALLY_UNRESOLVED').length;
+    result.expectation_closed_cases=result.reviewed_cases_passing-result.intentionally_unresolved_cases;
   }
   // No provider writes were attempted; blind-retry execution and a current live
   // replay need independent runtime verification, not a guessed perfect score.
