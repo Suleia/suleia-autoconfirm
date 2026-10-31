@@ -2,6 +2,7 @@ import {currentCustomerIntent,resolutionHash,madridDate} from './incident-intent
 import {addressResponseDecision,parseCustomerAddress} from './address-response-policy.mjs';
 import {planDropeaResolution} from '../clients/dropea-v2-resolution-contract.mjs';
 import {newDeliverySolution} from './customer-delivery-intent.mjs';
+import {readCompiledIntent} from '../customer-context/case-compiler.mjs';
 
 export const RESOLUTION_POLICY_VERSION='2026-10-22.customer-delivery.1';
 export const WORKFLOW_POLICY=Object.freeze({
@@ -14,9 +15,9 @@ const rawIssue=issue=>issue?.raw||issue||{};
 const step=(action,dependency=null)=>({action,capability:action,dependency,status:'PREPARED',verification:'NOT_REQUESTED'});
 const executed=p=>p?.steps?.some(s=>['REQUESTED','UNKNOWN','VERIFIED'].includes(s.status));
 
-export function resolutionCandidate({incident,order,issue,messages=[],previous=null,now=Date.now()}) {
+export function resolutionCandidate({incident,order,issue,messages=[],previous=null,now=Date.now(),conversationContext=null}) {
   const raw=rawIssue(issue), policy=WORKFLOW_POLICY[incident.incidentType];
-  const response=currentCustomerIntent({incident,order,messages,now});
+  const response=readCompiledIntent(conversationContext,{incident,order,issue,messages,now})||currentCustomerIntent({incident,order,messages,now});
   const t={incident_id:String(incident.incidenceId),order_id:String(incident.orderId),workflow:policy?.workflow||'UNKNOWN',
     issue_state:raw.status||incident.issueStatus||'UNKNOWN',current_policy:policy||null,policy_version:RESOLUTION_POLICY_VERSION,
     customer_contact_status:response.notice_at?'VERIFIED':'NOT_VERIFIED',customer_response_status:response.status,

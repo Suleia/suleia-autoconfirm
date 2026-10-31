@@ -69,3 +69,14 @@ test('later cancellation, wrong snapshot, settling, stale window and failed dura
  for(const t of [now-30*60000,now-24*3600000,now+1000]){const h=harness();assert.equal((await sendAcceptedDiscountAmountOnce({...h.p,acceptedAt:new Date(t).toISOString()},h.deps)).status,'BLOCKED');assert.equal(h.sends(),0);}
  const h=harness();h.deps.finishMessage=async()=>({skipped:true});await assert.rejects(sendAcceptedDiscountAmountOnce(h.p,h.deps),/DURABLE_JOURNAL/);assert.equal(h.sends(),0);
 });
+
+test('production applied-amount gate blocks original, stale, wrong-order and unavailable totals; fresh final amount alone proceeds',async()=>{
+ const correct={verified:true,orderId:'900001',currency:'EUR',amount:24.99,readAt:new Date(now).toISOString()};
+ for(const patch of [{amount:29.99},{verified:false},{orderId:'900002'},{currency:'USD'},{readAt:new Date(now-61000).toISOString()},{amount:null}]){
+  const h=harness();h.deps.requireAppliedAmount=true;h.deps.readCurrentAmount=async()=>({...correct,...patch});
+  assert.equal((await sendAcceptedDiscountAmountOnce(h.p,h.deps)).reason,'WAIT_VERIFIED_DISCOUNT_AMOUNT');assert.equal(h.sends(),0);
+ }
+ const h=harness();h.deps.requireAppliedAmount=true;h.deps.readCurrentAmount=async()=>{throw Error('429');};
+ assert.equal((await sendAcceptedDiscountAmountOnce(h.p,h.deps)).status,'BLOCKED');assert.equal(h.sends(),0);
+ h.deps.readCurrentAmount=async()=>correct;assert.equal((await sendAcceptedDiscountAmountOnce(h.p,h.deps)).status,'VERIFIED');assert.equal(h.sends(),1);
+});

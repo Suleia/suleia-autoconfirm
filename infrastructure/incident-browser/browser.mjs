@@ -2,6 +2,9 @@ import {chromium} from 'playwright-core';
 import fs from 'node:fs/promises';
 import {runtimeReadiness} from './runtime-state.mjs';
 import {startSchedule,CYCLE_WATCHDOG_MS} from './schedule.mjs';
+// Load the existing trusted provider store before any optional probe/client
+// can freeze its configuration during a cold start. No second worker/sender.
+await (await import('./worker.mjs')).loadProviderEnv();
 let schedule=null;
 
 // Dedicated server profile. Never import cookies from the operator's browser.

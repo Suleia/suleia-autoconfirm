@@ -118,6 +118,10 @@ export async function runVpsSupportCycle(context){
    return readCandidate(i,env);
   },get:p=>getTemplateDelivery(args(p)),capture,claim:p=>claimTemplateDelivery(args(p)),
   notifyAmount:p=>sendAcceptedDiscountAmountOnce(p,{
+   requireAppliedAmount:true,readCurrentAmount:async()=>{
+    const fresh=await readDropeaV2ReturnIssueState({orderId:p.orderId,incidenceId:p.issueId},{includeOrder:true});
+    return {verified:String(fresh.order?.orderId)===p.orderId,orderId:fresh.order?.orderId,currency:fresh.order?.raw?.currency,amount:fresh.order?.orderAmount,readAt:new Date().toISOString()};
+   },
    readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:finishTemplateDelivery,
    send:async value=>(await import('../../autoconfirm/src/clients/chatby.mjs')).sendTextMessage(value),
    waitForReadback:()=>new Promise(resolve=>setTimeout(resolve,1500)),

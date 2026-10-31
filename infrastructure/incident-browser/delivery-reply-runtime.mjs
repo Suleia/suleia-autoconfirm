@@ -1,5 +1,9 @@
 import fs from 'node:fs/promises';
-import {deliveryReplyPlan} from './delivery-reply-policy.mjs';
+import {prepareCustomerCare,recordCustomerCareReceipt,needsConversationV3Read,verifyConversationV3Dispatch} from './customer-care-integration.mjs';
+import {recordConversationV3Release,verifyConversationV3Admission} from './conversation-v3-release.mjs';
+import {liveCarePolicy} from '../../autoconfirm/src/customer-context/live-policy.mjs';
+import {createCustomerCareStore} from '../../autoconfirm/src/customer-care/store.mjs';
+import {deliveryReplyPlan,conversationV3DeliveryPlan} from './delivery-reply-policy.mjs';
 import {executeDeliveryReply,verifiedDeliverySolution,verifiedDeliverySolutionState,solutionNoteHash} from './delivery-reply-executor.mjs';
 import {loadProviderEnv} from './worker.mjs';
 import {readEvidenceDetail} from './dropea-ui.mjs';
@@ -47,7 +51,7 @@ async function updateControl(patch){
 export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60000}={}){
  await loadProviderEnv();
  const {selectRows,upsertRows,updateRows}=await import('../../autoconfirm/src/clients/supabase.mjs');
- const {getIncidentChatMessages,loadSubscriberIndex,findSubscriberInIndexForExactOrder,sendTextMessage}=await import('../../autoconfirm/src/clients/chatby.mjs');
+ const {getIncidentChatMessages,getIncidentSubscriberInfo,loadSubscriberIndex,findSubscriberInIndexForExactOrder,sendTextMessage}=await import('../../autoconfirm/src/clients/chatby.mjs');
  const {readDropeaV2ReturnIssueState}=await import('../../autoconfirm/src/clients/dropea-v2-incidents.mjs');
  const {executeDropeaV2Resolution}=await import('../../autoconfirm/src/clients/dropea-v2-issue-actions.mjs');
  const {getTemplateDelivery,claimTemplateDelivery,finishTemplateDelivery}=await import('../../autoconfirm/src/db/supabase-store.mjs');
@@ -56,6 +60,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
  const started=Date.now(),report={at:new Date().toISOString(),mode:'OBSERVE_ONLY',solutions:0,messages:0,cases:[]};
  const preparationRecoveries=new Map();
  const control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
+ const v3Live=control.conversationV3?.enabled===true&&control.conversationV3?.mode==='LIVE'&&!!control.conversationV3?.authorizationRef;
  const canWrite=['AUTO','AUTO_CANARY'].includes(control.mode)&&['AUTO','AUTO_CANARY'].includes(control.deliveryReplyMode);
  report.mode=canWrite?control.deliveryReplyMode:'OBSERVE_ONLY';
  async function verifyPersisted(plan,attemptedAt,current=null){
@@ -101,15 +106,17 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
  const cached=(await selectRows('app_state',{query:{key:'eq.incidents_cache',select:'value,updated_at'},limit:1}))[0];
  if(!Array.isArray(cached?.value?.incidents)||!Number.isFinite(Date.parse(cached.updated_at))||Date.now()-Date.parse(cached.updated_at)>3600000)throw Error('CURRENT_INCIDENT_CACHE_REQUIRED');
  let index=null,admitted=0;
- for(const incident of cached.value.incidents.filter(i=>['absent','rejected_goods'].includes(i.incidentType))){
+ for(const incident of cached.value.incidents.filter(i=>v3Live||['absent','rejected_goods'].includes(i.incidentType))){
   if(Date.now()-started>15*60000||Date.now()+120000>deadlineAt)break;
   const item={orderId:String(incident.orderId),issueId:String(incident.incidenceId)};
   try{
    const current=await readDropeaV2ReturnIssueState(incident,{includeOrder:true});
+   const orderReadAt=new Date().toISOString();
    const raw=current.issue?.raw||current.issue;
-   if(raw.status!=='PENDING'||!raw.is_active||raw.resolution_status)continue;
+   if((v3Live?!['PENDING','MANAGING_WITH_CLIENT'].includes(raw.status):raw.status!=='PENDING'||raw.resolution_status)||!raw.is_active)continue;
    if(!incident.chatbyUserNs)continue;
    const messages=await getIncidentChatMessages(incident.chatbyUserNs);
+   const conversationReadAt=new Date().toISOString();
    // A cached label is not identity evidence. Re-prove the exact subscriber or
    // the exact-order sent-template ledger + same WAMID in the live transcript.
    async function association(order,transcript,force=false){
@@ -126,22 +133,62 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    // Preliminary pure classification avoids full subscriber scans for silence.
    const scoped={...incident,chatbyReadVerified:true,chatbyOrderAssociation:'EXACT_ORDER'};
    let plan=deliveryReplyPlan({incident:scoped,...current,messages});
-   if(!plan.eligible){report.cases.push({...item,status:'BLOCKED',reason:plan.reason,...(plan.context?{context:plan.context}:{})});continue;}
-   if(!await association(current.order,messages)){report.cases.push({...item,status:'BLOCKED',reason:'FRESH_EXACT_ORDER_ASSOCIATION_REQUIRED'});continue;}
+   const candidateInput={incident:scoped,...current,messages};
+   if(!plan.eligible&&(!v3Live||!needsConversationV3Read(candidateInput))){report.cases.push({...item,status:'BLOCKED',reason:plan.reason,...(plan.context?{context:plan.context}:{})});continue;}
+   async function exactSubscriber(order,subscriber){
+    const digits=s=>String(s||'').replace(/\D/g,'').slice(-9),phone=digits(order.customerPhone);
+    const index={byPhone:new Map([[phone,[subscriber]]])};
+    return subscriber.user_ns===incident.chatbyUserNs&&digits(subscriber.phone||subscriber.user_id)===phone&&findSubscriberInIndexForExactOrder(index,{phone:order.customerPhone,orderId:order.orderId})?.user_ns===incident.chatbyUserNs;
+   }
+   const exact=v3Live?await exactSubscriber(current.order,await getIncidentSubscriberInfo(incident.chatbyUserNs)):await association(current.order,messages);
+   if(!exact){report.cases.push({...item,status:'BLOCKED',reason:'FRESH_EXACT_ORDER_ASSOCIATION_REQUIRED'});continue;}
    const prior=await inspectPriorOrderReturn(incident);
    if(prior.verified||prior.blocked){report.cases.push({...item,status:'BLOCKED',reason:'PRIOR_RETURN_GUARD'});continue;}
-   const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null,providerRawType:raw.type,customerIntent:plan.customer_intent||null,waitingForOrder:plan.waiting_for_order===true,deliveryAttemptDeniedByCustomer:plan.delivery_attempt_denied_by_customer===true,nextBestAction:plan.next_best_action||null,...(plan.context?{context:plan.context}:{})};
+   const [supportReceipt,sharedIssueReceipt]=v3Live?await Promise.all([getTemplateDelivery({storeId:'suleia',orderId:item.orderId,templateName:'accepted_discount_support_v1'}),getTemplateDelivery({storeId:'suleia',orderId:item.orderId,templateName:`incident_resolution_v1:${item.issueId}`})]):[null,null];
+   const careResult=await prepareCustomerCare(plan,{...candidateInput,supportReceipt,sharedIssueReceipt,freshProof:{orderReadAt,conversationReadAt,exactConversationVerified:exact}},{control});
+   plan=careResult.plan;
+   if(v3Live&&control.conversationV3.delegation===true&&careResult.care?.policy?.liveVerifiedContext)plan=conversationV3DeliveryPlan(plan,{...candidateInput,now:Date.now()},careResult.care);
+   if(careResult.care)item.customerCare={mode:careResult.care.mode,nextAction:careResult.care.next_best_action,owner:careResult.care.owner,reason:careResult.care.reason,missingSlots:careResult.care.missing_slots,conversationVersion:careResult.care.conversation_version};
+   if(!plan.eligible){report.cases.push({...item,status:'BLOCKED',reason:plan.reason});continue;}
+   const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null,providerRawType:raw.type,customerIntent:plan.customer_intent||null,waitingForOrder:plan.waiting_for_order===true,deliveryAttemptDeniedByCustomer:plan.delivery_attempt_denied_by_customer===true,nextBestAction:plan.next_best_action||null,...(plan.context?{context:plan.context}:{}),...(plan.care_plan?{v3Capability:plan.care_capability}:{}),...(plan.v3_delegation?{v3Delegation:plan.v3_delegation}:{})};
    if(!canWrite||(control.deliveryReplyMode==='AUTO_CANARY'&&(admitted||control.deliveryReplyCanaryOrderId&&String(control.deliveryReplyCanaryOrderId)!==plan.orderId))){report.cases.push(observed);continue;}
    let attemptedAt=null;
    const revalidate=async()=>{
     const fresh=await readDropeaV2ReturnIssueState(incident,{includeOrder:true});
+    const freshOrderReadAt=new Date().toISOString();
     const replies=await getIncidentChatMessages(incident.chatbyUserNs);
-    if(!await association(fresh.order,replies,true))return {eligible:false,reason:'FRESH_ASSOCIATION_REQUIRED'};
+    const freshConversationReadAt=new Date().toISOString();
+    const freshExact=v3Live?await exactSubscriber(fresh.order,await getIncidentSubscriberInfo(incident.chatbyUserNs)):await association(fresh.order,replies,true);
+    if(!freshExact)return {eligible:false,reason:'FRESH_ASSOCIATION_REQUIRED'};
     const guard=await inspectPriorOrderReturn(incident);if(guard.verified||guard.blocked)return {eligible:false,reason:'PRIOR_RETURN_GUARD'};
-    return deliveryReplyPlan({incident:scoped,...fresh,messages:replies});
+    const legacy=deliveryReplyPlan({incident:scoped,...fresh,messages:replies});
+    const freshCareControl=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
+    const [supportReceipt,sharedIssueReceipt]=v3Live?await Promise.all([getTemplateDelivery({storeId:'suleia',orderId:item.orderId,templateName:'accepted_discount_support_v1'}),getTemplateDelivery({storeId:'suleia',orderId:item.orderId,templateName:`incident_resolution_v1:${item.issueId}`})]):[null,null];
+    const input={incident:scoped,...fresh,messages:replies,supportReceipt,sharedIssueReceipt,freshProof:{orderReadAt:freshOrderReadAt,conversationReadAt:freshConversationReadAt,exactConversationVerified:freshExact}};
+    const prepared=await prepareCustomerCare(legacy,input,{control:freshCareControl});
+    return v3Live&&freshCareControl.conversationV3.delegation===true&&prepared.care?.policy?.liveVerifiedContext?conversationV3DeliveryPlan(prepared.plan,{...input,now:Date.now()},prepared.care):prepared.plan;
    };
    const result=await executeDeliveryReply(plan,{
-    revalidate,readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:finishTemplateDelivery,send:sendTextMessage,
+    guardedDispatch:true,initialMessages:messages,
+    revalidate,readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:async receipt=>{
+     const saved=await finishTemplateDelivery(receipt);
+     if(plan.care_admission)await recordConversationV3Release(plan,receipt,control.conversationV3);
+     if(plan.care_plan)await recordCustomerCareReceipt(plan,receipt);
+     return saved;
+    },send:payload=>plan.care_plan?.version!=='CONVERSATION_V3'?sendTextMessage(payload):sendTextMessage({...payload,beforeDispatch:async reads=>{
+     const fresh=await readDropeaV2ReturnIssueState(incident,{includeOrder:true}),orderReadAt=new Date().toISOString();
+     const subscriber=await reads.readSubscriber(incident.chatbyUserNs);
+     const replies=await reads.readMessages(incident.chatbyUserNs),conversationReadAt=new Date().toISOString();
+     if(!await exactSubscriber(fresh.order,subscriber))throw Error('V3_DISPATCH_ASSOCIATION_CHANGED');
+     const currentControl=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
+     if(currentControl.conversationV3?.mode!=='LIVE'||currentControl.conversationV3.enabled!==true||!(plan.care_capability==='STATUS_REPLY'?currentControl.conversationV3.statusReply:currentControl.conversationV3.clarification))throw Error('V3_REPLY_CAPABILITY_DISABLED');
+     await verifyConversationV3Admission(plan,currentControl.conversationV3);
+     const [supportReceipt,sharedIssueReceipt]=await Promise.all([getTemplateDelivery({storeId:'suleia',orderId:item.orderId,templateName:'accepted_discount_support_v1'}),getTemplateDelivery({storeId:'suleia',orderId:item.orderId,templateName:`incident_resolution_v1:${item.issueId}`})]);
+     const input={incident:scoped,...fresh,messages:replies,supportReceipt,sharedIssueReceipt,freshProof:{orderReadAt,conversationReadAt,exactConversationVerified:true},binding:{verified:true,orderId:item.orderId,issueId:item.issueId,conversationId:incident.chatbyUserNs}};
+     input.policy=liveCarePolicy(input,{supportReceipt,paymentMethods:currentControl.conversationV3.paymentMethods||[],authorizationRef:currentControl.conversationV3.authorizationRef});
+     const memory=await createCustomerCareStore({prefix:'conversation_v3'}).load({canonical_order_id:item.orderId,active_issue_id:item.issueId});
+     return verifyConversationV3Dispatch(plan,input,memory?.value);
+    }}),
     waitForReadback:()=>new Promise(resolve=>setTimeout(resolve,1500)),
     claimSolution:async p=>{
      const claim=await claimTemplateDelivery(issueKey(p));if(claim.acquired||!claim.persistent)return claim;
@@ -163,6 +210,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
     verifySolution:verifyPersisted
    });
    admitted++;report.cases.push({...observed,...result,reason:result.reason||plan.reason});
+   if(plan.care_admission&&result.status==='BLOCKED')await recordConversationV3Release(plan,{status:'aborted',raw:{notSent:true}},control.conversationV3);
    if(result.status==='VERIFIED'){
     if(plan.kind==='SOLUTION')report.solutions++;
     else if(!result.alreadySent&&!result.reconciled)report.messages++;
@@ -173,13 +221,24 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    }
    await fs.appendFile('/state/delivery-reply-audit.jsonl',JSON.stringify({at:new Date().toISOString(),...item,...result,reason:result.reason||plan.reason})+'\n',{mode:0o600});
    if(result.solutionAttempted&&result.status!=='VERIFIED')break;
-  }catch(e){report.cases.push({...item,status:'REVIEW_REQUIRED',reason:typeof e.code==='string'&&/^[A-Z0-9_]+$/.test(e.code)?e.code:'DELIVERY_REPLY_READ_OR_EXECUTION_FAILED'});
+  }catch(e){report.cases.push({...item,status:'REVIEW_REQUIRED',reason:e.status===429||e.statusCode===429||e.code==='CHATBY_RATE_LIMITED'||/429|cooldown|rate.limit/i.test(e.message||'')?'PROVIDER_RATE_LIMIT_FAIL_CLOSED':typeof e.code==='string'&&/^[A-Z0-9_]+$/.test(e.code)?e.code:'DELIVERY_REPLY_READ_OR_EXECUTION_FAILED',diagnostic:{kind:['TypeError','ReferenceError','SyntaxError','Error'].includes(e.name)?e.name:'Error',frame:String(e.stack||'').match(/\/(?:app|autoconfirm)\/[A-Za-z0-9_./-]+\.mjs:\d+:\d+/)?.[0]||null}});
    try{await fs.access(stateFile);break;}catch{}
   }
  }
  report.completedAt=new Date().toISOString();
+ if(v3Live)report.conversationV3={mode:'LIVE',semantic:false,capabilities:['STATUS_REPLY','CONTEXTUAL_CLARIFICATION'],
+  messagesSent:report.cases.filter(c=>c.v3Capability&&c.status==='VERIFIED'&&!c.alreadySent&&!c.reconciled).length,
+  clarificationsSent:report.cases.filter(c=>c.v3Capability==='CONTEXTUAL_CLARIFICATION'&&c.status==='VERIFIED'&&!c.alreadySent&&!c.reconciled).length,
+  delegatedActions:report.cases.filter(c=>c.v3Delegation&&c.solutionAttempted).length,
+  verifiedDropeaActions:report.cases.filter(c=>c.v3Delegation&&c.verified===true).length,
+  stalePlanBlocks:report.cases.filter(c=>c.status==='BLOCKED'&&/STALE|CHANGED|LATE_CUSTOMER/.test(c.reason||'')).length,
+  unknownWrites:report.cases.filter(c=>(c.v3Capability||c.v3Delegation)&&c.status==='RECONCILE').length,
+  p0Events:report.cases.filter(c=>c.p0_code).map(c=>({code:c.p0_code,orderId:c.orderId,issueId:c.issueId})),
+  rateLimitedCases:report.cases.filter(c=>c.reason==='PROVIDER_RATE_LIMIT_FAIL_CLOSED').length};
  await fs.writeFile('/state/delivery-reply-report.tmp',JSON.stringify(report),{mode:0o600});await fs.rename('/state/delivery-reply-report.tmp','/state/delivery-reply-report.json');
+ if(report.conversationV3)await fs.appendFile('/state/delivery-reply-audit.jsonl',JSON.stringify({at:report.completedAt,event:'CONVERSATION_V3_CYCLE_METRICS',...report.conversationV3})+'\n',{mode:0o600});
  await upsertRows('app_state',{key:'vps_incident_delivery_replies_v1',value:report,updated_at:report.completedAt},{onConflict:'key',timeoutMs:10000});
  return {mode:report.mode,observed:report.cases.length,solutions:report.solutions,messages:report.messages,
+  ...(report.conversationV3?{conversationV3:report.conversationV3}:{}),
   review:report.cases.filter(c=>['RECONCILE','REVIEW_REQUIRED'].includes(c.status)).length};
 }
