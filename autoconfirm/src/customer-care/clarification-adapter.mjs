@@ -2,6 +2,7 @@ import {careFlags,responseForPlan,assertFreshPlan} from './policy.mjs';
 import {interpretCustomerCase} from './runtime.mjs';
 import {hash} from './context.mjs';
 import {isCustomerInteraction,messageTimestamp} from '../workflows/incident-discount-policy.mjs';
+import {assertFreshCompilation} from '../customer-context/case-compiler.mjs';
 
 // Called only by the existing VPS delivery-reply sender. This adapter is a
 // message-plan decorator; it cannot call a provider or an operational writer.
@@ -34,5 +35,6 @@ export function decorateClarification(legacy,input,{previous=null,env={},policy=
 export function revalidateCarePlan(plan,current){
  if(!plan?.care_plan)return;
  if(String(plan.orderId)!==String(current.dropea_order_id)||String(plan.issueId)!==String(current.active_issue_id)||plan.conversationId!==current.conversation_reference)throw Error('CUSTOMER_CARE_IDENTITY_CHANGED');
+ if(plan.care_plan.version==='CONVERSATION_V3')assertFreshCompilation(plan.care_plan,current);
  assertFreshPlan(plan.care_plan,current);
 }

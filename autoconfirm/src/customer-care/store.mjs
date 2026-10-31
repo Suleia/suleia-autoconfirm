@@ -1,20 +1,21 @@
 import {selectRows,insertRows,updateRows,isSupabaseEnabled} from '../clients/supabase.mjs';
 import {hash} from './context.mjs';
-export const caseKey=s=>`customer_care_case:${s.canonical_order_id}:${s.active_issue_id||'order'}`;
-export function createCustomerCareStore({enabled=isSupabaseEnabled,select=selectRows,insert=insertRows,update=updateRows}={}){
+export const caseKey=(s,prefix='customer_care')=>`${prefix}_case:${s.canonical_order_id}:${s.active_issue_id||'order'}`;
+export function createCustomerCareStore({enabled=isSupabaseEnabled,select=selectRows,insert=insertRows,update=updateRows,prefix='customer_care'}={}){
+ if(!['customer_care','conversation_v3'].includes(prefix))throw Error('UNSUPPORTED_CASE_NAMESPACE');
  const requireEnabled=()=>{if(!enabled())throw Error('CUSTOMER_CARE_DURABLE_STORE_UNAVAILABLE');};
  return {
-  async load(identity){requireEnabled();const rows=await select('app_state',{query:{key:'eq.'+caseKey(identity),select:'key,value,updated_at'},limit:1,timeoutMs:5000});return rows[0]||null;},
-  async listOpen(){requireEnabled();return select('app_state',{query:{key:'like.customer_care_case:*','value->>status':'neq.CLOSED',order:'updated_at.asc',select:'key,value,updated_at'},limit:10,timeoutMs:5000});},
+  async load(identity){requireEnabled();const rows=await select('app_state',{query:{key:'eq.'+caseKey(identity,prefix),select:'key,value,updated_at'},limit:1,timeoutMs:5000});return rows[0]||null;},
+  async listOpen(){requireEnabled();return select('app_state',{query:{key:`like.${prefix}_case:*`,'value->>status':'neq.CLOSED',order:'updated_at.asc',select:'key,value,updated_at'},limit:10,timeoutMs:5000});},
   async save(state,previous=null){
-   requireEnabled();const key=caseKey(state);
+   requireEnabled();const key=caseKey(state,prefix);
    const semantic={...state,updated_at:undefined,timeline:undefined};
    const signature=hash(semantic);
    if(previous?.value?.projection_hash===signature)return previous;
    const value={...state,projection_hash:signature};
    // The private app_state store is already service-role governed. Append first,
    // then CAS the current projection; concurrent observers cannot erase memory.
-   try{await insert('app_state',{key:`customer_care_event:${hash(key)}:${signature}`,value,updated_at:state.updated_at},{timeoutMs:5000});}
+   try{await insert('app_state',{key:`${prefix}_event:${hash(key)}:${signature}`,value,updated_at:state.updated_at},{timeoutMs:5000});}
    catch(e){if(!/409|23505|duplicate key/i.test(String(e.message)))throw e;}
    const row={key,value,updated_at:state.updated_at};
    if(!previous){
