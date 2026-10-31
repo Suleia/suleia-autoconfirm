@@ -7,6 +7,7 @@ const ResultsV2 = (() => {
   const columns=[['Día','day'],['Pedidos','created'],['Facturación','realRevenue'],['Costes','totalCosts'],['Beneficio','netProfit'],['Margen','marginPercent'],['ROI','roiPercent'],['ROAS','roas'],['Confirmados','confirmed'],['Entregados','delivered'],['Devueltos','returned'],['En tránsito','inTransit'],['Publicidad','metaSpend']];
   let visible=new Set(['day','created','realRevenue','totalCosts','netProfit','confirmed','delivered','returned','metaSpend','roas']);
   let historyWindow=9;
+  let temporalBasis='cohort';
   function StatusBadge(label,tone='gray'){return node('span',`rv-status ${tone}`,label);}
   function MetricTooltip(label,description){const root=node('details','rv-metric-tooltip'),summary=node('summary','','ⓘ');summary.setAttribute('aria-label',`Cómo se calcula ${label}`);root.append(summary,node('p','',description));return root;}
   function Sparkline(values,tone){
@@ -39,6 +40,7 @@ const ResultsV2 = (() => {
     const stale=Object.values(data.freshness?.sources||{}).some(s=>s?.status==='STALE');
     const complete=data.quality?.status==='OK' && data.coverage?.exactProfitAvailable!==false && present(data.totals?.exactNetProfit);
     if(stale)return StatusBadge('DATOS ATRASADOS','amber');
+    if(data.financialAssurance && data.financialAssurance.providerFinal!=='PROVIDER_FINAL_VERIFIED')return StatusBadge('PROVISIONAL · fuentes pendientes','amber');
     if(!complete || ['dropea','meta','report'].some(k=>!['OK','STALE'].includes(data.freshness?.sources?.[k]?.status)))return StatusBadge('INCOMPLETO · revisar cobertura','amber');
     if(data.period?.current)return StatusBadge(`PROVISIONAL · MTD hasta ${incidentDate(data.period.until).split(',')[0]}`,'amber');
     if(Number(data.accounting?.unsettledOrders)>0 || data.coverage?.dropeaBreakdownPercent!==100)return StatusBadge('PROVISIONAL','amber');
@@ -108,15 +110,51 @@ const ResultsV2 = (() => {
     const root=node('div','rv-daily-table'),toolbar=node('div','rv-table-toolbar'),options=node('details','rv-column-options'),summary=node('summary','','Columnas');options.append(summary);
     const redraw=()=>{$('finance-daily').replaceChildren(DailyResultsTable(data));};
     for(const [label,key] of columns){const field=node('label'),input=node('input');input.type='checkbox';input.checked=visible.has(key);input.disabled=key==='day';input.addEventListener('change',()=>{input.checked?visible.add(key):visible.delete(key);redraw();});field.append(input,document.createTextNode(label));options.append(field);}
-    const download=node('button','rv-export','↓ Exportar CSV');download.type='button';download.addEventListener('click',()=>{const csv=csvData(data);const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}),url=URL.createObjectURL(blob),a=node('a');a.href=url;a.download=`suleia-resultados-${data.period.month}.csv`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);});toolbar.append(options,download);
+    const download=node('button','rv-export','↓ Exportar CSV');download.type='button';download.addEventListener('click',()=>{const csv=csvData(data);downloadCsv(csv,`suleia-resultados-${data.period.month}-${data.tableBasis||'cohort'}.csv`);});toolbar.append(options,download);
     const selected=columns.filter(([,key])=>visible.has(key)),table=node('table','rv-results-table'),head=node('thead'),hr=node('tr');for(const [label] of selected)hr.append(node('th','',label));head.append(hr);const body=node('tbody');
     for(const row of data.days||[]){const tr=node('tr',present(row.netProfit)&&row.netProfit<0?'negative':'');for(const [,key] of selected)tr.append(node('td',key==='netProfit'?'rv-profit-cell':'',tableValue(row,key,data.currency)));body.append(tr);}
-    const total={...data.counts,...data.totals,netProfit:data.totals?.exactNetProfit},foot=node('tfoot'),tr=node('tr');for(const [,key] of selected)tr.append(node('td',key==='netProfit'?'rv-profit-cell':'',key==='day'?'TOTAL DEL MES':tableValue(total,key,data.currency)));foot.append(tr);table.append(head,body,foot);const scroll=node('div','rv-table-scroll');scroll.append(table);root.append(toolbar,scroll);return root;
+    const total={...data.counts,...data.totals,netProfit:data.totals?.exactNetProfit},foot=node('tfoot'),tr=node('tr');for(const [,key] of selected)tr.append(node('td',key==='netProfit'?'rv-profit-cell':'',key==='day'?(data.tableBasis==='economic'?'TOTAL POR FECHA DE EVENTO':'TOTAL DEL MES'):tableValue(total,key,data.currency)));foot.append(tr);table.append(head,body,foot);const scroll=node('div','rv-table-scroll');scroll.append(table);root.append(toolbar,scroll);return root;
+  }
+  function downloadCsv(csv,name){const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'}),url=URL.createObjectURL(blob),a=node('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  function evidencePanel(data){
+    const root=node('section','rv-finance-evidence'),a=data.financialAssurance;
+    root.append(node('strong','','Criterio del resultado y calidad de las fuentes'));
+    root.append(node('p','',`Cohorte de compra · actualización: ${data.generatedAt?incidentDate(data.generatedAt):'sin fecha'}. El beneficio de las compras del mes sigue siendo provisional.`));
+    if(data.financialSync)root.append(node('p','',`Revisión financiera automática: ${data.financialSync.enabled?'activa':'desactivada'} · intervalo ${count(data.financialSync.intervalMinutes)} minutos${data.financialSync.inFlight?.length?' · lectura en curso':''}.`));
+    if(!a){root.append(node('p','','Este snapshot conserva el histórico disponible. No contiene una conciliación independiente de cargos y cobros.'));return root;}
+    const badges=node('div','rv-legend');for(const [label,value] of [['Sumas',a.arithmetic],['Fuentes',a.source],['Cierre proveedor',a.providerFinal]])badges.append(StatusBadge(`${label}: ${value}`,value==='ARITHMETIC_RECONCILED'?'green':'amber'));root.append(badges);
+    root.append(node('p','',`${count(a.pendingOutcomeOrders)} pedidos pendientes de resultado. Costes provisionales: ${money(a.provisionalCosts?.amount,data.currency)} en ${count(a.provisionalCosts?.orders)} pedidos. Totales publicados del proveedor: ${count(a.publishedProviderTotals?.orders)}; reconstruidos con componentes: ${count(a.rebuiltProviderTotals?.orders)}.`));
+    root.append(node('p','',`Importe de pedidos que Dropea marca pagados: ${money(a.revenue?.providerReportedPaid,data.currency)}. Entregados sin liquidación verificada: ${money(a.revenue?.deliveredUnverifiedSettlement,data.currency)}. Cobro bancario y beneficio de caja: no disponibles.`));
+    root.append(node('p','',`Ajustes sin concepto identificado: ${money(a.unidentifiedAdjustments?.positiveAmount,data.currency)} de cargos y ${money(a.unidentifiedAdjustments?.negativeAmount,data.currency)} de abonos/residuos. No se presentan como IVA confirmado.`));
+    return root;
+  }
+  function ledgerCsv(rows){
+    const keys=['orderId','createdDay','settlementDay','status','units','orderAmount','realizedRevenue','productCost','outboundShippingCost','outboundFulfillmentCost','codCost','returnCost','dropeaAdjustmentsCost','recognizedCost','contributionAfterProduct','providerPublishedTotal','costBasis','paymentState','providerCalculatedAt','costEventDate','cashSettlementDate'];
+    const cell=v=>`"${String(v??'').replaceAll('"','""')}"`;
+    return [keys.map(cell).join(';'),...rows.map(r=>keys.map(k=>cell(r[k])).join(';'))].join('\r\n');
+  }
+  function orderLedger(data){
+    const root=node('details','rv-finance-ledger'),rows=data.orderLedger||[];
+    root.append(node('summary','',`Contribución operativa por pedido · ${rows.length} registros`));
+    root.append(node('p','','Ingresos reconocidos y costes del pedido. Publicidad y gastos generales permanecen separados. Cada base es publicada, reconstruida o provisional; no acredita cobro bancario.'));
+    const toolbar=node('div','rv-table-toolbar'),search=node('input');search.type='search';search.placeholder='Buscar ID de Dropea';search.setAttribute('aria-label','Buscar pedido en el libro financiero');
+    const exportButton=node('button','rv-export','↓ Libro CSV');exportButton.type='button';exportButton.addEventListener('click',()=>downloadCsv(ledgerCsv(rows),`suleia-libro-${data.period.month}.csv`));toolbar.append(search,exportButton);root.append(toolbar);
+    const body=node('div');let page=0;
+    const draw=()=>{const filtered=rows.filter(r=>String(r.orderId).includes(search.value.replace(/^ES/i,''))),chosen=filtered.slice(page*50,(page+1)*50),table=node('table','rv-results-table'),head=node('thead'),hr=node('tr');
+      const cols=[['Pedido','orderId'],['Compra','createdDay'],['Estado','status'],['Ingreso reconocido','realizedRevenue'],['Producto','productCost'],['Envío','outboundShippingCost'],['Preparación','outboundFulfillmentCost'],['COD','codCost'],['Retorno','returnCost'],['Ajustes / impuestos','dropeaAdjustmentsCost'],['Total operativo','recognizedCost'],['Contribución','contributionAfterProduct'],['Base de costes','costBasis']];
+      for(const[label]of cols)hr.append(node('th','',label));head.append(hr);const tb=node('tbody');for(const row of chosen){const tr=node('tr');for(const[,key]of cols)tr.append(node('td','',['orderId','createdDay','status','costBasis'].includes(key)?String(row[key]??'—'):money(row[key],data.currency)));tb.append(tr);}table.append(head,tb);const scroll=node('div','rv-table-scroll');scroll.append(table);
+      const nav=node('div','rv-table-toolbar'),prev=node('button','rv-export','←'),next=node('button','rv-export','→');prev.disabled=page===0;next.disabled=(page+1)*50>=filtered.length;prev.addEventListener('click',()=>{page--;draw();});next.addEventListener('click',()=>{page++;draw();});nav.append(prev,node('span','',`${filtered.length? page*50+1:0}–${Math.min((page+1)*50,filtered.length)} de ${filtered.length}`),next);body.replaceChildren(scroll,nav);
+    };search.addEventListener('input',()=>{page=0;draw();});draw();root.append(body);return root;
+  }
+  function temporalData(data){
+    if(temporalBasis!=='economic'||!data.dailySettlements)return data;
+    const e=data.dailySettlements;return {...data,tableBasis:'economic',days:e.days,totals:e.totals,counts:{created:null,confirmed:null,delivered:e.eventCounts?.delivered,returned:e.eventCounts?.returned,inTransit:null}};
   }
   function csvData(data){const chosen=columns.filter(([,key])=>visible.has(key));const safe=value=>`"${String(value??'').replaceAll('"','""')}"`;return [chosen.map(([label])=>safe(label)).join(';'),...(data.days||[]).map(row=>chosen.map(([,key])=>safe(key==='day'?row.day:present(row[key])?row[key]:null)).join(';'))].join('\r\n');}
   function render(data){
     $('finance-view').classList.add('results-v2');const t=data.totals||{},c=data.counts||{},days=data.days||[],defs=data.definitions||{};
-    const reconciled=!data.period?.current && Number(data.accounting?.unsettledOrders||0)===0 && data.quality?.status==='OK' && data.coverage?.dropeaBreakdownPercent===100 && present(t.exactNetProfit);
+    const display=temporalData(data);
+    const reconciled=data.financialAssurance?.providerFinal==='PROVIDER_FINAL_VERIFIED' && !data.period?.current && Number(data.accounting?.unsettledOrders||0)===0 && data.quality?.status==='OK' && data.coverage?.dropeaBreakdownPercent===100 && present(t.exactNetProfit);
     const cards=[
       {label:reconciled?'Beneficio neto conciliado':'Beneficio neto provisional',field:'exactNetProfit',value:money(t.exactNetProfit,data.currency),tone:t.exactNetProfit<0?'red':'green',icon:'profit',series:days.map(r=>r.netProfit),definition:defs.netProfit},
       {label:'Facturación',field:'realRevenue',value:money(t.realRevenue,data.currency),tone:'blue',icon:'revenue',series:days.map(r=>r.realRevenue),definition:'Facturación realizada reconocida por el informe canónico.'},
@@ -137,17 +175,23 @@ const ResultsV2 = (() => {
     const warning=$('finance-data-warning');
     warning.hidden=present(t.exactNetProfit);
     warning.textContent=present(t.exactNetProfit)?'':`Informe parcial: ${(data.warnings||[]).map(w=>typeof w==='string'?w:w.message||w.code).filter(w=>w&&!w.startsWith('RECONCILIATION:')).slice(0,2).join(' ') || 'Faltan componentes para calcular el beneficio completo.'} Se muestran los ingresos, recuentos, días e históricos disponibles. Los importes afectados quedan pendientes de completar.`;
+    if(data.financialAssurance && present(t.exactNetProfit)){warning.hidden=false;warning.textContent=`Beneficio provisional por cohorte de compra. ${count(data.financialAssurance.pendingOutcomeOrders)} pedidos pendientes de resultado. Las sumas conciliadas no certifican los cargos, impuestos ni cobros bancarios; consulta el detalle de fuentes y el libro por pedido.`;}
     const selector=node('select','rv-history-select');selector.setAttribute('aria-label','Meses de comparativa');for(const n of [6,9,12]){const option=node('option','',`${n} meses`);option.value=String(n);selector.append(option);}selector.value=String(historyWindow);selector.addEventListener('change',()=>{historyWindow=Number(selector.value);render(data);});
     $('results-v2-charts').replaceChildren(
-      ChartCard('Evolución diaria de beneficio neto','Cohorte de compra · beneficio de cada día',timelineChart(data,'profit')),
-      ChartCard('Facturación, costes y beneficio','Importes del informe · misma escala en euros',timelineChart(data,'pnl')),
+      ChartCard('Evolución diaria de beneficio neto',temporalBasis==='economic'?'Fecha económica · importes no verificados permanecen vacíos':'Cohorte de compra · beneficio provisional de cada día',timelineChart(display,'profit')),
+      ChartCard('Facturación, costes y beneficio','Mismo modelo temporal que la tabla · misma escala en euros',timelineChart(display,'pnl')),
       ChartCard('Estado de pedidos','Categorías excluyentes · estado actual',statusChart(data)),
       ChartCard('Confirmación vs entrega','Tasas por cohorte diaria · denominadores canónicos',timelineChart(data,'rates')),
       ChartCard('Desglose del beneficio','Componentes reales del informe',waterfall(data)),
       ChartCard('Comparativa mensual de beneficio','Selecciona una barra para abrir el mes',history(data),selector)
-    );$('finance-daily').replaceChildren(DailyResultsTable(data));
-    $('finance-daily-caption').textContent=`Datos hasta ${incidentDate(data.period?.until).split(',')[0]} · fecha de compra (Europe/Madrid). El total usa los mismos importes que las tarjetas. ${data.period?.current?'Mes actual provisional; comparación completa deshabilitada.':''}`;
+    );
+    const basis=node('label','rv-finance-basis','Modelo de la tabla y evolución diaria '),select=node('select','rv-history-select');select.setAttribute('aria-label','Modelo temporal financiero');
+    for(const[value,label]of [['cohort','Cohorte de compra · provisional'],['economic','Fecha económica · evidencia disponible']]){const option=node('option','',label);option.value=value;option.disabled=value==='economic'&&!data.dailySettlements;select.append(option);}select.value=temporalBasis;select.addEventListener('change',()=>{temporalBasis=select.value;render(data);});basis.append(select);
+    $('finance-daily').replaceChildren(basis,evidencePanel(data),DailyResultsTable(display),orderLedger(data));
+    $('finance-daily-caption').textContent=temporalBasis==='economic'
+      ? `${data.dailySettlements?.limitation||'Fechas económicas no disponibles.'} Esta vista tiene su propio total y no cambia las tarjetas de cohorte.`
+      : `Datos hasta ${incidentDate(data.period?.until).split(',')[0]} · fecha de compra (Europe/Madrid). El total usa los mismos importes que las tarjetas. ${data.period?.current?'Mes actual provisional; comparación completa deshabilitada.':''}`;
   }
-  return {render,KpiCard,SourceStatus,DataQualityBadge,MetricTooltip,Sparkline,ChartCard,StatusBadge,DailyResultsTable,timelineChart,statusChart,waterfall,history,csvData};
+  return {render,KpiCard,SourceStatus,DataQualityBadge,MetricTooltip,Sparkline,ChartCard,StatusBadge,DailyResultsTable,timelineChart,statusChart,waterfall,history,csvData,evidencePanel,orderLedger,ledgerCsv,temporalData};
 })();
 function renderResultsDashboard(data){ResultsV2.render(data);}

@@ -1,5 +1,6 @@
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 import {normalizeProductCostRates,productCostRateVersion} from '../../autoconfirm/src/finance-product-cost-policy.mjs';
+import {buildFinanceAssurance} from '../../autoconfirm/src/finance-assurance.mjs';
 
 function nextMonth(month) {
   const [year, value] = month.split('-').map(Number);
@@ -39,17 +40,28 @@ function safeFinanceOrders(rows) {
       orderId,
       createdDay: /^\d{4}-\d{2}-\d{2}$/.test(String(row?.createdDay)) ? row.createdDay : null,
       settlementDay: /^\d{4}-\d{2}-\d{2}$/.test(String(row?.settlementDay)) ? row.settlementDay : null,
+      settlementDateSource: ['PROVIDER_EVENT_DATE','PRIOR_FINANCE_SNAPSHOT_DATE_ONLY'].includes(row.settlementDateSource) ? row.settlementDateSource : 'MISSING',
       status: String(row?.status || 'UNKNOWN').slice(0, 40).toUpperCase(),
       breakdownStatus: String(row?.breakdownStatus || 'MISSING').slice(0, 40).toUpperCase(),
       units: Number.isFinite(Number(row?.units)) ? Math.max(0, Number(row.units)) : null
     };
-    for (const field of FINANCE_ORDER_MONEY_FIELDS) safe[field] = nullableMoney(row?.[field]);
+    for (const field of [...FINANCE_ORDER_MONEY_FIELDS,'providerPublishedTotal']) safe[field] = nullableMoney(row?.[field]);
+    safe.costBasis = ['PROVIDER_PUBLISHED_TOTAL','REBUILT_COMPONENTS','PROVISIONAL_COMPONENTS','ESTIMATE_OR_TARIFF'].includes(row.costBasis) ? row.costBasis : 'LEGACY_SNAPSHOT_UNVERIFIED';
+    safe.paymentState = ['PROVIDER_REPORTED_PAID','DELIVERED_SETTLEMENT_UNVERIFIED','NOT_REALIZED'].includes(row.paymentState) ? row.paymentState : 'UNVERIFIED';
+    safe.physicallyShipped = typeof row.physicallyShipped === 'boolean' ? row.physicallyShipped : null;
+    safe.providerCalculatedAt = /^\d{4}-\d{2}-\d{2}T/.test(String(row.providerCalculatedAt)) ? String(row.providerCalculatedAt).slice(0,40) : null;
+    safe.cashReceived = null; safe.cashSettlementDate = null; safe.costEventDate = null; safe.discountApplied = null;
+    const allowedSources = new Set(['actual_order_cost','estimated_order_cost','reconstructed_provider_component','provisional_provider_component','versioned_product_tariff','versioned_logistics_tariff','legacy_product_tariff','legacy_logistics_tariff','NOT_RECOGNIZED']);
+    safe.costSources = Object.fromEntries(['product','shipping','fulfillment','cod','returns','dropeaAdjustments'].map(key=>[key,
+      String(row.costSources?.[key]||'').split('+').filter(value=>allowedSources.has(value)).join('+')||'MISSING']));
+    if(row.taxAudit) safe.taxAudit = {...Object.fromEntries(['base','rate','taxAtRate','surchargeRate','surchargeAtRate','supplierRate','supplierTaxAtRate','unclassifiedAdjustment'].map(key=>[key,nullableMoney(row.taxAudit[key])])),basis:'PROVIDER_RATES_NOT_TAX_INVOICE'};
     return [safe];
   });
 }
 
 function safeReport(report) {
   if (!report || typeof report !== 'object' || !MONTH.test(String(report?.period?.month))) throw new Error('finance_report_invalid');
+  const orders = safeFinanceOrders(report.orders);
   return {
     period: report.period,
     status: report.status,
@@ -79,7 +91,10 @@ function safeReport(report) {
     // reconcile event-date P&L. Keep only a strict finance whitelist: no
     // customer identifiers, external references or raw drilldowns cross this
     // server-to-server boundary.
-    orders: safeFinanceOrders(report.orders),
+    orders,
+    metaEvidence: report.metaEvidence?.complete === true && report.metaEvidence.currency === 'EUR' && report.metaEvidence.timeZone === 'Europe/Madrid'
+      ? {complete:true,currency:'EUR',timeZone:'Europe/Madrid',since:String(report.metaEvidence.since||'').slice(0,10),until:String(report.metaEvidence.until||'').slice(0,10),readAt:String(report.metaEvidence.readAt||'').slice(0,40),basis:'ACCOUNT_LEVEL_MONETARY_SPEND'} : null,
+    financialAssurance: report.financialAssurance ? buildFinanceAssurance({...report,orders}) : null,
     generatedAt: report.generatedAt || null,
     availableRange: report.availableRange || null,
     availableMonths: availableMonths(report),
@@ -146,6 +161,8 @@ export class FinanceReportClient {
     const payload = await this.request(`/api/finance?month=${encodeURIComponent(month)}`);
     if (!payload?.finance) throw Object.assign(new Error('finance_report_not_ready'), { status: 503 });
     const report = safeReport(payload.finance);
+    report.financialSync = payload.financialSync ? {enabled:payload.financialSync.enabled===true,intervalMinutes:Number(payload.financialSync.intervalMinutes)||null,
+      inFlight:Array.isArray(payload.financialSync.inFlight)?payload.financialSync.inFlight.filter(value=>MONTH.test(String(value))):[]} : null;
     const relevantRate=this.productCostRates?.some(rate=>rate.effective_from<=`${month}-31`&&(!rate.effective_to||rate.effective_to>=`${month}-01`));
     if(relevantRate&&this.productCostVersion!==report.productCostVersion){
       report.costConfiguration={status:'RECALCULATING',expectedVersion:this.productCostVersion,sourceVersion:report.productCostVersion};

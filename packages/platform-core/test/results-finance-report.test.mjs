@@ -221,7 +221,7 @@ test('audited Dropea monthly reports remain authoritative from May and cannot be
   assert.equal(result.totals.totalCosts, 8057.51);
   assert.deepEqual(result.availableMonths, ['2026-09', '2026-08', '2026-07', '2026-06', '2026-05']);
   assert.deepEqual(result.history.map((item) => item.totals.exactNetProfit), [60.31, 1643.99, 1558.99, 797.17, 286.36]);
-  assert.equal(Object.prototype.hasOwnProperty.call(result, 'orderLedger'), false);
+  assert.deepEqual(result.orderLedger,reports.find(report=>report.period.month==='2026-07').orders||[]);
   const september = buildResultsFinanceReport({ month: '2026-09', orders, rates, supplementalReports: reports,
     now: new Date('2026-09-13T12:00:00Z') });
   assert.equal(september.totals.exactNetProfit, 286.36);

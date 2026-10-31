@@ -17,10 +17,13 @@ test('daily settlements use actual terminal dates across cohorts and never count
   const result=buildDailySettlements({month:'2026-09',currentDay:day.day,reports});
   assert.deepEqual(result.eventCounts,{delivered:1,returned:1});
   assert.equal(result.days[0].realRevenue,30);
-  assert.equal(result.days[0].returnCost,4.06); // Actual order cost, not a uniform tariff.
+  assert.equal(result.days[0].undatedOrderCosts.returnCost,4.06); // Known amount, without proof of debit date.
+  assert.equal(result.days[0].returnCost,null);
   assert.equal(result.days[0].closeStatus,'CURRENT_PARTIAL');
   assert.equal(result.productionWrites,0);
-  assert.equal(result.totals.exactNetProfit,Number((30-9-9.86-10-11.02-3).toFixed(6)));
+  assert.equal(result.totals.exactNetProfit,null);
+  assert.equal(result.audit.cashVerified,false);
+  assert.equal(result.audit.chargeDatesVerified,false);
 });
 
 test('calendar fixed accrual does not reallocate the whole monthly cost into elapsed days',()=>{
