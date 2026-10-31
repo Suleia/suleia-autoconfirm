@@ -31,6 +31,9 @@ for(const [name,edit,reason]of [
  ['already collected',f=>f.tracking.state='COLLECTED','SHIPMENT_TERMINAL'],
  ['returned',f=>f.order.raw.status='RETURNED','SHIPMENT_TERMINAL'],
  ['cancelled',f=>f.order.raw.status='CANCELLED','SHIPMENT_TERMINAL'],
+ ['native FINISH delivered substatus',f=>{f.order.raw.status='FINISH';f.order.raw.sub_status='DELIVERED';},'SHIPMENT_TERMINAL'],
+ ['return in transit',f=>f.order.raw.sub_status='RETURN_IN_TRANSIT','SHIPMENT_TERMINAL'],
+ ['prior existing return owner',f=>f.priorReturn=true,'PRIOR_RETURN_GUARD'],
  ['different agency',f=>f.tracking.agency_code='888','GLS_AGENCY_CONFLICT'],
  ['rerouted postal mismatch',f=>f.order.raw.shipping_address.postal_code='28002','FRESH_EXACT_TRACKING_REQUIRED'],
  ['stale tracking',f=>f.tracking.observed_at=new Date(now-61000).toISOString(),'FRESH_EXACT_TRACKING_REQUIRED'],
@@ -43,6 +46,7 @@ for(const [name,edit,reason]of [
  ['unsubscribed',f=>f.subscriber.unsubscribed=iso,'EXACT_SUBSCRIBER_AND_PERMISSION_REQUIRED'],
  ['later cancellation',f=>f.care={input_hash:'fixture',has_current_reply:true,cancel_intent:true,latest_customer_intents:['CANCELS_ORDER']},'CUSTOMER_CARE_REVIEW_REQUIRED'],
  ['later home delivery request',f=>f.care={input_hash:'fixture',has_current_reply:true,latest_customer_intents:['REQUESTS_REDELIVERY']},'CUSTOMER_CARE_REVIEW_REQUIRED'],
+ ['existing V3 unresolved interpretation',f=>f.care={input_hash:'fixture',has_current_reply:true,latest_customer_intents:['WANTS_ORDER'],unresolved_interpretation:['CONTRADICTORY']},'CUSTOMER_CARE_REVIEW_REQUIRED'],
  ['missing existing interpreter context',f=>f.care=null,'CUSTOMER_CARE_CONTEXT_NOT_VERIFIED'],
  ['pending template',f=>f.template.approved=false,'EXACT_TEMPLATE_NOT_APPROVED'],
  ['missing product',f=>f.order.raw.line_items=[],'ORDER_PRODUCTS_UNVERIFIED']

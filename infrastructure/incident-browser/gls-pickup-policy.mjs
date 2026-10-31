@@ -11,7 +11,8 @@ export function pickupPlan(input){
  const no=(reason,state='MANUAL_REVIEW')=>({eligible:false,order_id:id,issue_id:String(i?.id||''),reason,state,observed_at:new Date(now).toISOString()});
  if(!canonicalPickup(input)||String(i.order_id)!==id)return no('PICKUP_INCIDENT_NOT_ACTIVE','CLOSED');
  if(input.otherActiveIssue)return no('OTHER_ACTIVE_INCIDENT_REQUIRES_REVIEW');
- if(['DELIVERED','RETURNED','CANCELLED','CANCELED'].includes(o.status)||['RETURN_REQUESTED','RETURNED','DELIVERED'].includes(i.resolution_status))return no('SHIPMENT_TERMINAL','CLOSED');
+ if(['DELIVERED','RETURNED','CANCELLED','CANCELED'].includes(o.status)||['DELIVERED','RETURNED','CANCELLED','RETURN_IN_TRANSIT','RETURN_REQUESTED'].includes(o.sub_status)||['RETURN_REQUESTED','RETURNED','DELIVERED'].includes(i.resolution_status))return no('SHIPMENT_TERMINAL','CLOSED');
+ if(input.priorReturn)return no('PRIOR_RETURN_GUARD');
  const postal=String(o.shipping_address?.postal_code||'');
  if(!['ES','España','Spain'].includes(o.shipping_address?.country)||!/^(?:0[1-9]|[1-4]\d|5[0-2])\d{3}$/.test(postal))return no('INVALID_SHIPMENT_POSTAL_CODE');
  if(!t?.verified||t.tracking_id!==String(o.tracking_number)||t.postal_code!==postal||String(i.tracking_number)!==String(o.tracking_number)||now-Date.parse(t.observed_at)>60000||now<Date.parse(t.observed_at))return no('FRESH_EXACT_TRACKING_REQUIRED');
@@ -28,7 +29,7 @@ export function pickupPlan(input){
  if(accepted&&(!supportReceipt||supportReceipt.status!=='verified'||Number(supportReceipt.raw?.finalCents)!==total||String(supportReceipt.order_id)!==id))return no('WAITING_COD_RECONCILIATION','WAITING_COD_RECONCILIATION');
  if(!input.exactSubscriber||input.whatsappVerified!==true||!subscriber?.user_ns||!subscriber.subscribed||subscriber.unsubscribed||subscriber.blocked||subscriber.is_blocked)return no('EXACT_SUBSCRIBER_AND_PERMISSION_REQUIRED');
  if(!care?.input_hash)return no('CUSTOMER_CARE_CONTEXT_NOT_VERIFIED');
- if(care?.has_current_reply&&(care.unresolved?.length||care.cancel_intent||care.wants_return||!(care.latest_customer_intents||[]).length||(care.latest_customer_intents||[]).some(x=>!['WANTS_ORDER','REQUESTS_AGENCY','THANKS','GREETING','ACCEPTS_DISCOUNT'].includes(x))))return no('CUSTOMER_CARE_REVIEW_REQUIRED');
+ if(care?.has_current_reply&&(care.unresolved_interpretation?.length||care.unresolved?.length||care.cancel_intent||care.wants_return||!(care.latest_customer_intents||[]).length||(care.latest_customer_intents||[]).some(x=>!['WANTS_ORDER','REQUESTS_AGENCY','THANKS','GREETING','ACCEPTS_DISCOUNT'].includes(x))))return no('CUSTOMER_CARE_REVIEW_REQUIRED');
  const items=o.line_items;if(!Array.isArray(items)||!items.length||items.some(p=>!p.product_name||!Number.isInteger(Number(p.quantity))||Number(p.quantity)<1))return no('ORDER_PRODUCTS_UNVERIFIED');
  if(!template?.approved)return no('EXACT_TEMPLATE_NOT_APPROVED','TEMPLATE_PENDING_APPROVAL');
  const values={customer_name:o.shipping_address.full_name,order_number:'ES'+id,products:items.map(p=>`${p.product_name} × ${p.quantity}`).join('; '),amount:(total/100).toLocaleString('es-ES',{style:'currency',currency:'EUR'}),agency_name:a.agency_name,address_line:a.address_line,locality:`${a.postal_code} ${a.city}, ${a.province}`,opening_hours:a.opening_hours,phone:a.phone,tracking_url:o.tracking_url};
