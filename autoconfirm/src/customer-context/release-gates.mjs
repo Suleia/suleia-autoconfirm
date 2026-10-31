@@ -27,3 +27,16 @@ export function evaluatePromotionGate(report){
 
 // Compatibility for offline report consumers; this never grants promotion.
 export const evaluateConversationRelease=evaluatePreCanaryGate;
+
+// LIVE remains capability-scoped. The existing durable ledger pins the first
+// natural canary; only its verified provider receipt/readback grants promotion.
+export function evaluateLiveCapabilityGate(report,{capability,admission,caseKey,conversationId,inputHash,authorizationRef}={}){
+ const reasons=[...evaluatePreCanaryGate(report).reasons];
+ if(!['CONTEXTUAL_CLARIFICATION','STATUS_REPLY'].includes(capability))reasons.push('UNSUPPORTED_REPLY_CAPABILITY');
+ if(!authorizationRef||admission?.authorization_ref!==authorizationRef||admission?.capability!==capability||admission?.persistent!==true)reasons.push('DURABLE_CAPABILITY_AUTHORIZATION_REQUIRED');
+ if(admission?.stage==='PROMOTED')reasons.push(...evaluatePromotionGate({...report,...admission.proof}).reasons);
+ else if(admission?.stage==='CANARY'){
+  if(admission.case_key!==caseKey||admission.conversation_id!==conversationId||admission.input_hash!==inputHash)reasons.push('EXACT_NATURAL_CANARY_REQUIRED');
+ }else reasons.push('CAPABILITY_NOT_ADMITTED');
+ return {gate:'LIVE_CAPABILITY',allowed:reasons.length===0,capability,stage:admission?.stage||null,reasons};
+}

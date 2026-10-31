@@ -2,6 +2,7 @@ import {questionContext,fold} from '../customer-care/context.mjs';
 import {addressMessageText} from '../workflows/address-response-policy.mjs';
 export function contextualQuestion(message){
   const text=fold(message.payload?.body||addressMessageText(message)),type=questionContext(message);
+  if(/\bdescuento\b/.test(text)&&/\b5\s*(?:€|euros?)\b|\b5\s*€/.test(text)&&/acept|ofrec|quiere/.test(text))return 'DISCOUNT';
   if(/(?:quiere|interesad[oa]|prefiere).*recog.*(?:agencia|oficina|gls)/.test(text))return 'AGENCY_PICKUP';
   if(/\b(?:agencia|oficina|almacen)\b/.test(text)&&/\b(?:quiere|prefiere|avisemos)\b.*\b(?:recoger|recogerla|recogerlo|pasara|pasar)\b/.test(text))return 'AGENCY_PICKUP';
   if(/quiere (?:el )?producto/.test(text))return 'WANTS_ORDER';

@@ -26,6 +26,7 @@ let nextRequestAt = 0;
 let rateLimitedUntil = 0;
 let adaptiveRequestMinIntervalMs = requestMinIntervalMs;
 let successfulRequestsSinceRateLimit = 0;
+let activeConversationLease = null;
 
 // Read-only metadata for the incident scheduler. Never bypass the shared
 // provider cooldown or change the behaviour of another messaging lane.
@@ -183,12 +184,24 @@ async function scheduleRequest(task) {
   }
 }
 
+async function inConversationLease(lease,task){
+ if(!lease||lease!==activeConversationLease)throw Error('V3_QUEUE_RESERVATION_INVALID');
+ if(rateLimitedUntil>Date.now())throw Object.assign(Error('CHATBY_RATE_LIMITED'),{code:'CHATBY_RATE_LIMITED'});
+ const wait=Math.max(0,nextRequestAt-Date.now());
+ if(Date.now()+wait>=lease.deadline)throw Error('V3_QUEUE_WINDOW_EXPIRED');
+ if(wait)await sleep(wait);
+ if(Date.now()>=lease.deadline)throw Error('V3_QUEUE_WINDOW_EXPIRED');
+ try{return await task();}finally{nextRequestAt=Date.now()+adaptiveRequestMinIntervalMs;}
+}
+
 async function request(path, options = {}) {
   if (!config.chatbyToken) throw new Error('Falta CHATBY_TOKEN.');
   const {
     maxAttempts: configuredAttempts,
     timeoutMs: configuredTimeout = 20000,
     retrySafe = false,
+    conversationLease = null,
+    beforeFetch = null,
     signal: providedSignal,
     ...requestOptions
   } = options;
@@ -203,7 +216,9 @@ async function request(path, options = {}) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      response = await scheduleRequest(async () => {
+      const dispatch=conversationLease?task=>inConversationLease(conversationLease,task):scheduleRequest;
+      response = await dispatch(async () => {
+        if(beforeFetch)await beforeFetch();
         const controller = providedSignal ? null : new AbortController();
         const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
         try {
@@ -373,10 +388,22 @@ export async function sendInitialTemplateRecovery(payload, {
   });
 }
 
-export async function sendTextMessage({ user_ns, content }) {
+export async function sendTextMessage({ user_ns, content, beforeDispatch }) {
   if (!user_ns || !String(content || '').trim()) {
     throw new Error('Chatby send-text requiere user_ns y content.');
   }
+  const payload={user_ns,content:String(content).trim()};
+  if(typeof beforeDispatch==='function')return scheduleRequest(async()=>{
+    const lease={deadline:Date.now()+45000};activeConversationLease=lease;let postStarted=false,dispatchedAt=null;
+    try{
+      const proof=await beforeDispatch({readMessages:ns=>getIncidentChatMessages(ns,{conversationLease:lease}),readSubscriber:ns=>getIncidentSubscriberInfo(ns,{conversationLease:lease})});
+      if(!proof||!Number.isFinite(proof.expiresAt))throw Error('V3_DISPATCH_PROOF_REQUIRED');
+      const response=await request('/subscriber/send-text',{method:'POST',body:JSON.stringify(payload),maxAttempts:1,conversationLease:lease,beforeFetch:()=>{
+        if(Date.now()>proof.expiresAt)throw Error('V3_DISPATCH_EVIDENCE_EXPIRED');postStarted=true;dispatchedAt=new Date().toISOString();
+      }});
+      return {...response,v3_dispatch_verified:true,v3_dispatched_at:dispatchedAt};
+    }catch(error){if(!postStarted)error.notSent=true;else {error.v3_dispatch_verified=true;error.v3_dispatched_at=dispatchedAt;}throw error;}finally{activeConversationLease=null;}
+  });
   return request('/subscriber/send-text', {
     method: 'POST',
     body: JSON.stringify({ user_ns, content: String(content).trim() })
@@ -534,13 +561,18 @@ export async function getChatMessages(userNs) {
 // Chatby's default excludes bot messages, including native incident templates.
 // Keep the confirmation reader unchanged; incident decisions need both sides.
 // The provider documents end_time, not page, for older message history.
-export async function getIncidentChatMessages(userNs) {
+export async function getIncidentSubscriberInfo(userNs,{conversationLease=null}={}){
+ const response=await request('/subscriber/get-info?'+new URLSearchParams({user_ns:String(userNs)}),{method:'GET',timeoutMs:12000,maxAttempts:conversationLease?1:undefined,conversationLease});
+ const row=response?.data;if(!row||String(row.user_ns)!==String(userNs)||!Array.isArray(row.user_fields))throw Error('V3_CURRENT_SUBSCRIBER_IDENTITY_REQUIRED');return row;
+}
+
+export async function getIncidentChatMessages(userNs,{conversationLease=null}={}) {
   const collected = new Map();
   let endTime = null;
   for (let page = 0; page < 10; page += 1) {
     const query = new URLSearchParams({ user_ns: userNs, include_bot: '1', limit: '100' });
     if (endTime !== null) query.set('end_time', String(endTime));
-    const response = await request(`/subscriber/chat-messages?${query}`, { method: 'GET', timeoutMs: 12000 });
+    const response = await request(`/subscriber/chat-messages?${query}`, { method: 'GET', timeoutMs: 12000,conversationLease,maxAttempts:conversationLease?1:undefined });
     const messages = response?.data ?? response;
     if (!Array.isArray(messages)) throw new Error('CHATBY_INCIDENT_MESSAGES_INVALID');
     for (const message of messages) {

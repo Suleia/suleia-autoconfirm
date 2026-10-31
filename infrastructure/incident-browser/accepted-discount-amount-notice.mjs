@@ -26,6 +26,11 @@ export async function sendAcceptedDiscountAmountOnce(plan,deps){
  if(!Number.isFinite(Date.parse(plan.acceptedAt))||now-Date.parse(plan.acceptedAt)>=24*3600000||Date.parse(plan.acceptedAt)>now)
   return {status:'BLOCKED',reason:'CUSTOMER_TEXT_WINDOW_REQUIRED'};
  if(now-Date.parse(plan.acceptedAt)<3600000)return {status:'BLOCKED',reason:'WAIT_ONE_HOUR'};
+ if(deps.requireAppliedAmount===true){
+  let fresh=null;try{fresh=await deps.readCurrentAmount(plan);}catch{}
+  const age=now-Date.parse(fresh?.readAt);
+  if(fresh?.verified!==true||String(fresh.orderId)!==String(plan.orderId)||fresh.currency!=='EUR'||!Number.isFinite(age)||age<0||age>60000||Math.round(fresh.amount*100)!==plan.finalCents)return {status:'BLOCKED',reason:'WAIT_VERIFIED_DISCOUNT_AMOUNT'};
+ }
  const messages=await deps.readMessages(plan.conversationId);
  if(existingDiscountAmountNotice(messages,plan))return {status:'VERIFIED',alreadySent:true};
  return sendDeliveryReplyOnce({...plan,hash:plan.snapshot,messageAt:plan.acceptedAt,messageId:plan.acceptanceMessageId},content,'discount_amount',deps);

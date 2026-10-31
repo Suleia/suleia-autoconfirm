@@ -7,6 +7,30 @@ import {preciseRetrySlot,requestedWindowWithoutDate} from './retry-policy.mjs';
 import {nextBusinessMorning} from './business-day.mjs';
 import {customerDeliverySignals,newDeliverySolution} from '../../autoconfirm/src/workflows/customer-delivery-intent.mjs';
 import {deliveryContactContext,deliveryScheduleText,requestedDayOfMonth,paymentContext,paymentClarification,pickupContext} from './delivery-conversation-context.mjs';
+import {readCompiledIntent} from '../../autoconfirm/src/customer-context/case-compiler.mjs';
+
+// Context may complete the existing gateway's solution input, never select a
+// different writer or override a specialist, financial or irreversible owner.
+export function conversationV3DeliveryPlan(legacy,input,context){
+ if(legacy?.eligible&&legacy.kind==='SOLUTION'||context?.version!=='CONVERSATION_V3')return legacy;
+ if(context.operational_owner!=='existing_incident_action_gateway'||context.operational_action!=='RETRY_DELIVERY'||context.next_best_action!=='DELEGATE'||context.wants_order!==true||context.discount_response==='ACCEPTED')return legacy;
+ if(!['V3_DELEGATED_TO_EXISTING_OWNER','NO_CURRENT_DELIVERY_REPLY','NO_DELIVERY_REQUEST','EARLIER_PREFERENCE_REQUIRES_RENEWAL','CUSTOMER_MESSAGE_NEEDS_CLARIFICATION','REQUESTED_DELIVERY_WINDOW_EXPIRED','PRECISE_PREFERENCE_NEEDS_CLARIFICATION'].includes(legacy?.reason))return legacy;
+ const response=readCompiledIntent(context,input),raw=input.issue?.raw||input.issue||{},now=input.now??Date.now();
+ if(response?.status!=='CLASSIFIED'||context.confidence<.9||context.unresolved?.length||raw.status!=='PENDING'||raw.is_active!==true||raw.resolution_status||!raw.allowed_resolution_options?.includes('PROVIDE_SOLUTION'))return legacy;
+ if(!['ERROR','INCIDENCE'].includes(input.order.status)||String(raw.id)!==String(input.incident.incidenceId)||String(raw.order_id)!==String(input.order.orderId))return legacy;
+ const age=now-Date.parse(context.latest_customer_at);if(age<3600000||age>=24*3600000)return legacy;
+ const date=context.delivery_date,window=context.delivery_window,literal=context.literal_delivery_preference?.literal;
+ if(!literal&&(!date||!['MORNING','AFTERNOON'].includes(window)))return legacy;
+ const today=madridDate(now),hour=+new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Madrid',hour:'2-digit',hourCycle:'h23'}).format(new Date(now));
+ if(literal&&date&&date<=today||date&&(date<today||date===today&&hour>=({MORNING:14,AFTERNOON:21}[window]||0)))return legacy;
+ const note=['El cliente quiere recibir su pedido y solicita una nueva entrega.',literal?`Disponibilidad literal del cliente: «${literal}».`:`Solicita entrega el ${date} por la ${window==='MORNING'?'mañana':'tarde'}.`,context.call_before_arrival?'El cliente solicita que le llamen antes de llegar.':null,'Por favor, gestionar la entrega respetando sus indicaciones.'].filter(Boolean).join(' ');
+ if(note.length>500||/https?:|ignora.*instrucciones|\btoken\b|contrase/i.test(note))return legacy;
+ const last=input.messages.filter(isCustomerInteraction).sort((a,b)=>messageTimestamp(a)-messageTimestamp(b)).at(-1);if(!/^\d+$/.test(String(last?.id)))return legacy;
+ const plan={eligible:true,kind:'SOLUTION',orderId:String(input.order.orderId),issueId:String(raw.id),conversationId:input.incident.chatbyUserNs,messageId:String(last.id),messageAt:context.latest_customer_at,
+  note,acknowledgement:null,date:date||null,time_window:window?.toLowerCase()||null,customer_intent:'WANTS_ORDER',requests_redelivery:true,reason:'V3_CONTEXT_EXISTING_INCIDENT_ACTION_GATEWAY',
+  v3_delegation:{owner:'existing_incident_action_gateway',capability:'REDELIVERY',case_hash:context.case_hash,policy:'EXISTING_PROVIDE_SOLUTION_CONTRACT'}};
+ plan.hash=resolutionHash([plan.orderId,plan.issueId,context.case_hash,note]);return plan;
+}
 
 export const NON_DELIVERY_ACK='Hola, no se preocupe y reportamos a la empresa de transporte para que le realicen la entrega. Un saludo';
 const fold=t=>String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s+/g,' ').trim();

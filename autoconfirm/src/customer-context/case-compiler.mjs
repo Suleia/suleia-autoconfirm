@@ -11,10 +11,11 @@ import {clarificationGuard} from './clarification-guard.mjs';
 import {composeSafeResponse} from './response-composer.mjs';
 import {contextualQuestion,remainingQuestion} from './question-context.mjs';
 import {recurringPreference} from './temporal-facts.mjs';
+import {stableCarePolicy} from './live-policy.mjs';
 const branded=new WeakMap();
 const bindings={WANTS_ORDER:'wants_order',WANTS_RETURN:'wants_return',CANCEL_INTENT:'cancel_intent',DELIVERY_DATE:'delivery_date',DELIVERY_WINDOW:'delivery_window',TIME_FROM:'time_from',TIME_TO:'time_to',CALL_BEFORE_ARRIVAL:'call_before_arrival',REQUESTS_AGENCY:'agency_requested',REPORTS_NO_DELIVERY_ATTEMPT:'reports_no_delivery_attempt',ADDRESS:'address',POSTAL_CODE:'postal_code',ADDRESS_CHANGE_REQUESTED:'address_change_requested'};
 const timed=new Set(['TIME_FROM','TIME_TO']);
-const providerHash=input=>hash([input.order?.orderId,input.order?.status,input.order?.updatedAt,input.issue?.raw||input.issue,input.incident?.incidenceId,input.incident?.chatbyUserNs,input.incident?.chatbyReadVerified,input.incident?.chatbyOrderAssociation]);
+const providerHash=input=>hash([input.order?.orderId,input.order?.status,input.order?.updatedAt,input.order?.orderAmount,input.order?.raw?.total_amount,input.order?.raw?.currency,input.order?.raw?.payment_method,input.order?.raw?.sub_status,input.issue?.raw||input.issue,input.incident?.incidenceId,input.incident?.chatbyUserNs,input.incident?.chatbyReadVerified,input.incident?.chatbyOrderAssociation]);
 const decisionFingerprint=c=>hash([c.case_hash,c.operational_action,c.customer_reply_action,c.wants_order,c.wants_return,c.cancel_intent,c.latest_customer_intents,c.delivery_date,c.delivery_window,c.time_from,c.time_to,c.literal_delivery_preference,c.unresolved,c.provider_snapshot_hash,c.v2_response]);
 export function compileCustomerCase(input,previous=null){
   const policy=input.policy||{},now=input.now??Date.now();
@@ -86,7 +87,7 @@ export function compileCustomerCase(input,previous=null){
     unresolved.push('PRODUCT_UNSUITABLE_REQUIRES_REVIEW');
   for(const type of slotUncertainty)if(active[type])active[type].confidence=Math.min(active[type].confidence,.55);
   unresolved=[...new Set([...unresolved,...slotUncertainty])];
-  const state={...base,version:'CONVERSATION_V3',policy,fact_ledger:ledger,current_facts:active,unresolved,contradictions,trusted_context_first_observed_at:systemAt,
+  const state={...base,version:'CONVERSATION_V3',order_created_at:input.order.createdAt,policy,fact_ledger:ledger,current_facts:active,unresolved,contradictions,trusted_context_first_observed_at:systemAt,
     owner_capabilities:[...new Set(Object.values(OWNERS))],active_workflows:input.activeWorkflows||[],active_waits:input.activeWaits||[],timers:input.timers||[],
     fact_confidence:Object.fromEntries(Object.entries(active).map(([k,v])=>[k,v.confidence]))};
   state.last_outbound_question_type=lastQuestion||state.last_outbound_question_type;
@@ -140,7 +141,7 @@ export function compileCustomerCase(input,previous=null){
     if(previous?.acknowledged_action_hash!==compiled.ack_action_hash){compiled.customer_reply_action='ACKNOWLEDGE_REQUEST';compiled.response_type='ACKNOWLEDGE_REQUEST';compiled.capability='STATUS_REPLY';compiled.reply_owner=OWNERS.STATUS_REPLY;}
   }
   compiled.decision_reason_codes=[routed.reason,...(state.wants_order?['CUSTOMER_WANTS_ORDER']:[]),...(state.delivery_date?['DELIVERY_DATE_KNOWN']:[]),...(state.delivery_window?['DELIVERY_WINDOW_KNOWN']:[])];
-  compiled.context_hash=hash([input.binding,input.order?.status,input.issue?.raw||input.issue,policy,compiled.active_workflows,compiled.active_waits,compiled.timers]);
+  compiled.context_hash=hash([input.binding,input.order?.status,input.issue?.raw||input.issue,stableCarePolicy(policy),compiled.active_workflows,compiled.active_waits,compiled.timers]);
   compiled.provider_snapshot_hash=providerHash(input);
   compiled.cluster_hash=clusterHash(events);
   compiled.case_hash=hash([compiled.cluster_hash,compiled.context_hash,Object.values(active).map(f=>[f.fact_id,f.confidence]),compiled.missing_information,compiled.operational_action,compiled.customer_reply_action]);
