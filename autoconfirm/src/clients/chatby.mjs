@@ -393,7 +393,10 @@ export async function sendTextMessage({ user_ns, content, beforeDispatch }) {
     throw new Error('Chatby send-text requiere user_ns y content.');
   }
   const payload={user_ns,content:String(content).trim()};
-  if(typeof beforeDispatch==='function')return scheduleRequest(async()=>{
+  if(typeof beforeDispatch==='function'){
+   let entered=false;
+   return scheduleRequest(async()=>{
+    entered=true;
     const lease={deadline:Date.now()+45000};activeConversationLease=lease;let postStarted=false,dispatchedAt=null;
     try{
       const proof=await beforeDispatch({readMessages:ns=>getIncidentChatMessages(ns,{conversationLease:lease}),readSubscriber:ns=>getIncidentSubscriberInfo(ns,{conversationLease:lease})});
@@ -403,7 +406,8 @@ export async function sendTextMessage({ user_ns, content, beforeDispatch }) {
       }});
       return {...response,v3_dispatch_verified:true,v3_dispatched_at:dispatchedAt};
     }catch(error){if(!postStarted)error.notSent=true;else {error.v3_dispatch_verified=true;error.v3_dispatched_at=dispatchedAt;}throw error;}finally{activeConversationLease=null;}
-  });
+   }).catch(error=>{if(!entered)error.notSent=true;throw error;});
+  }
   return request('/subscriber/send-text', {
     method: 'POST',
     body: JSON.stringify({ user_ns, content: String(content).trim() })

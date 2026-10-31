@@ -15,6 +15,10 @@ test('late evidence change or a read429 aborts before the POST and never retries
  const original=globalThis.fetch;
  try{for(const reason of ['CHANGED','RATE_LIMIT']){let posts=0;const c=await client();globalThis.fetch=async(_,o={})=>{if(o.method==='POST')posts++;return response([],429);};
   await assert.rejects(()=>c.sendTextMessage({user_ns:'fixture',content:'Synthetic status',beforeDispatch:async reads=>{if(reason==='CHANGED')throw Error('STALE_PLAN');await reads.readMessages('fixture');return {expiresAt:Date.now()+60000};}}),e=>e.notSent===true);assert.equal(posts,0);
+  if(reason==='RATE_LIMIT'){
+   let entered=false;await assert.rejects(()=>c.sendTextMessage({user_ns:'fixture',content:'Synthetic status',beforeDispatch:async()=>{entered=true;return {expiresAt:Date.now()+60000};}}),e=>e.notSent===true&&e.code==='CHATBY_RATE_LIMITED');
+   assert.equal(entered,false);assert.equal(posts,0);
+  }
  }}finally{globalThis.fetch=original;}
 });
 test('an uncertain send response makes exactly one POST; the ordinary sender contract is preserved',async()=>{
