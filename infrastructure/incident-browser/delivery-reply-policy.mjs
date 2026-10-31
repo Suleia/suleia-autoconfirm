@@ -8,6 +8,7 @@ import {nextBusinessMorning} from './business-day.mjs';
 import {customerDeliverySignals,newDeliverySolution} from '../../autoconfirm/src/workflows/customer-delivery-intent.mjs';
 import {deliveryContactContext,deliveryScheduleText,requestedDayOfMonth,paymentContext,paymentClarification,pickupContext} from './delivery-conversation-context.mjs';
 import {readCompiledIntent} from '../../autoconfirm/src/customer-context/case-compiler.mjs';
+import {frustratedReply} from '../../autoconfirm/src/customer-context/question-safety.mjs';
 
 // Context may complete the existing gateway's solution input, never select a
 // different writer or override a specialist, financial or irreversible owner.
@@ -50,6 +51,8 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  if(!['RECIPIENT_ABSENT','REFUSED_BY_RECIPIENT'].includes(raw?.type))return block('EXISTING_PROVIDER_WORKFLOW_OWNER');
  if(String(raw?.id)!==String(incident.incidenceId)||String(raw?.order_id)!==String(incident.orderId)||String(order?.orderId)!==String(incident.orderId))return block('IDENTITY_CONFLICT');
  if(raw.status!=='PENDING'||raw.is_active!==true||raw.resolution_status||!['ERROR','INCIDENCE'].includes(order.status))return block('CURRENT_PENDING_ISSUE_REQUIRED');
+ const latest=messages.filter(isCustomerInteraction).filter(m=>messageTimestamp(m)>=Date.parse(order.createdAt)).sort((a,b)=>messageTimestamp(a)-messageTimestamp(b)).at(-1);
+ if(latest&&frustratedReply(addressMessageText(latest)))return block('CUSTOMER_FRUSTRATION_REQUIRES_HUMAN_REVIEW');
  const base=currentCustomerIntent({incident,order,messages,now});
  if(base.status==='NOT_VERIFIABLE')return block(base.reason);
  const created=Date.parse(order.createdAt),anchor=Date.parse(base.notice_at||incident.incidenceDate);
@@ -76,7 +79,7 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  if(contact.some(c=>c.differentPhone))return block('CONTACT_CHANGE_REQUIRES_EXISTING_OWNER');
  const lastId=String(last.id||'');
  if(!/^\d+$/.test(lastId))return block('MESSAGE_IDENTITY_REQUIRED');
- const identity={orderId:String(order.orderId),issueId:String(raw.id),conversationId:incident.chatbyUserNs,
+ const identity={orderId:String(order.orderId),issueId:String(raw.id),conversationId:incident.chatbyUserNs,orderCreatedAt:order.createdAt,
   messageId:lastId,messageAt:iso(lastAt),text:lastText,customerName:order.customerName,
   phone:String(order.customerPhone||'').replace(/\D/g,'').replace(/^34(?=\d{9}$)/,''),
   evidence:cluster.map(m=>({id:String(m.id),at:iso(messageTimestamp(m)),text:addressMessageText(m)}))};
@@ -114,7 +117,8 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
    const every=/\bcualquier dia(?: de la semana)?\b/.test(t);
    const clean=t.replace(/\bcualquier dia(?: de la semana)?\b/,'').replace(/\b(?:q|que) es cuando termino\b.*$/,'').trim();
    const window=requestedWindowWithoutDate(clean);
-   const literal=literalDeliveryPreference(texts[n],messageTimestamp(cluster[n]),now);
+   const noon=/\b(?:medio\s?dia)\b/.test(fold(texts[n]))&&!/\b(?:no|ayer|pasado|quizas|tal vez)\b/.test(fold(texts[n]));
+   const literal=literalDeliveryPreference(texts[n],messageTimestamp(cluster[n]),now)||(noon&&parsed.date?{literal:texts[n],date:parsed.date,clockInterpretation:'LITERAL_APPROXIMATE_NOON'}:null);
    if(literal&&(!parsed.date||!parsed.time_window)){
     selected=cluster[n];slot={date:literal.date||slot?.date||null,time_window:null};literalPreference=literal;scheduleSource='CUSTOMER_LITERAL_PREFERENCE';
    }else if(parsed.date||window){
@@ -137,6 +141,7 @@ export function deliveryReplyPlan({incident,order,issue,messages=[],now=Date.now
  if(literalPreference&&slot?.date&&slot.date<=madridDate(now))return clarify('REQUESTED_DELIVERY_WINDOW_EXPIRED','Hola, la fecha de entrega indicada ya necesita renovarse. Confírmenos qué día le viene bien para solicitar una nueva entrega. Gracias.');
  if(slot&&!literalPreference){
   const today=madridDate(now),hour=Number(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Madrid',hour:'2-digit',hourCycle:'h23'}).format(new Date(now)));
+  if(!slot.time_window&&slot.date>today)return clarify('DELIVERY_WINDOW_NEEDS_CLARIFICATION','Hola, ¿en qué franja horaria puede recibir el pedido en la fecha que nos ha indicado? Gracias.');
   if(!slot.time_window||slot.date<today||(slot.date===today&&hour>=({morning:14,afternoon:21}[slot.time_window]||0)))return clarify('REQUESTED_DELIVERY_WINDOW_EXPIRED',
    'Hola, el horario de entrega que nos indicó ya ha pasado o necesita concretarse. ¿Qué nuevo día y franja horaria le vienen bien? Gracias.');
  }

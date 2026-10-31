@@ -417,7 +417,8 @@ export async function sendTextMessage({ user_ns, content, beforeDispatch }) {
     try{
       const proof=await beforeDispatch({readMessages:ns=>getIncidentChatMessages(ns,{conversationLease:lease}),readSubscriber:ns=>getIncidentSubscriberInfo(ns,{conversationLease:lease})});
       if(!proof||!Number.isFinite(proof.expiresAt))throw Error('V3_DISPATCH_PROOF_REQUIRED');
-      const response=await request('/subscriber/send-text',{method:'POST',body:JSON.stringify(payload),maxAttempts:1,conversationLease:lease,beforeFetch:()=>{
+      const response=await request('/subscriber/send-text',{method:'POST',body:JSON.stringify(payload),maxAttempts:1,conversationLease:lease,beforeFetch:async()=>{
+        if(typeof proof.beforeFetch==='function')await proof.beforeFetch();
         if(Date.now()>proof.expiresAt)throw Error('V3_DISPATCH_EVIDENCE_EXPIRED');postStarted=true;dispatchedAt=new Date().toISOString();
       }});
       return {...response,v3_dispatch_verified:true,v3_dispatched_at:dispatchedAt};

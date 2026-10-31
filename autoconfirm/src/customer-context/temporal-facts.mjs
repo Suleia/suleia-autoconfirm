@@ -75,6 +75,12 @@ export function correctTemporalFacts(event,{facts,unresolved,put,question,curren
   const ownPreference=/\b(?:prefiero|quiero|pueden venir|podeis venir|vengan|entreguen|desde las|a partir|(?:estoy|estare|voy (?:a )?estar).*(?:hasta|desde))\b/.test(text)
     ||/\b(?:estoy|estare|eztare|voy (?:a )?estar)\b/.test(available)&&/\b(?:en casa|disponible|hasta|desde)\b/.test(available);
   if((reportsPast||facts.get('ASKS_DELIVERY_DATE')?.value)&&!ownPreference){for(const key of temporal)facts.delete(key);}
+  // Noon is a usable literal preference, not an invented exact hour. Preserve
+  // the customer's words for PROVIDE_SOLUTION instead of asking both slots again.
+  if(/\bmedio\s?dia\b/.test(available)&&!reportsPast&&!/\b(?:no|quizas|tal vez)\b/.test(available)){
+    put('DELIVERY_AVAILABILITY',event.text.slice(0,300));
+    unresolved.delete('DELIVERY_WINDOW');
+  }
   if(/esta manana (?:no he salido|he estado)/.test(text)&&/vengan por (?:la|las) tarde/.test(text))facts.delete('DELIVERY_DATE');
   if(/\b(?:hasta|asta) dia\s*\d/.test(text)&&!/(?:recibir|entregar|traer|pueden venir)/.test(text)){facts.delete('DELIVERY_DATE');unresolved.add('DELIVERY_DATE');}
   if(explicitTomorrow&&/\btodo el dia\b/.test(text)){put('DELIVERY_AVAILABILITY',event.text.slice(0,300));facts.delete('DELIVERY_WINDOW');}

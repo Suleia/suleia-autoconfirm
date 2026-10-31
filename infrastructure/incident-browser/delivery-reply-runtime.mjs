@@ -4,10 +4,17 @@ import {recordConversationV3Release,verifyConversationV3Admission} from './conve
 import {liveCarePolicy} from '../../autoconfirm/src/customer-context/live-policy.mjs';
 import {createCustomerCareStore} from '../../autoconfirm/src/customer-care/store.mjs';
 import {deliveryReplyPlan,conversationV3DeliveryPlan} from './delivery-reply-policy.mjs';
-import {executeDeliveryReply,verifiedDeliverySolution,verifiedDeliverySolutionState,solutionNoteHash} from './delivery-reply-executor.mjs';
+import {executeDeliveryReply,verifiedDeliverySolution,verifiedDeliverySolutionState,solutionNoteHash,deliveryReplyMessageKey} from './delivery-reply-executor.mjs';
 import {loadProviderEnv} from './worker.mjs';
 import {readEvidenceDetail} from './dropea-ui.mjs';
 import {recoverPreSaveClaim} from './pre-save-claim-recovery.mjs';
+import {clarificationHistoryGuard} from '../../autoconfirm/src/customer-context/question-safety.mjs';
+export function deliveryReplyControlAllows(control,plan){
+ if(!['AUTO','AUTO_CANARY'].includes(control?.mode)||!['AUTO','AUTO_CANARY'].includes(control?.deliveryReplyMode))return false;
+ if(plan?.kind!=='CLARIFY')return true;
+ const v3=control.conversationV3;
+ return plan.care_plan?.version==='CONVERSATION_V3'&&!!plan.care_admission&&v3?.enabled===true&&v3.mode==='LIVE'&&(plan.care_capability==='STATUS_REPLY'?v3.statusReply===true:v3.clarification===true);
+}
 
 const stateFile='/state/delivery-reply-inflight.json';
 const issueKey=p=>({storeId:'suleia',orderId:p.orderId,templateName:`incident_resolution_v1:${p.issueId}`,provider:'dropea'});
@@ -60,6 +67,10 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
  const started=Date.now(),report={at:new Date().toISOString(),mode:'OBSERVE_ONLY',solutions:0,messages:0,cases:[]};
  const preparationRecoveries=new Map();
  const control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
+ const readQuestionDeliveries=async p=>{
+  const rows=await selectRows('template_delivery_ledger',{query:{store_id:'eq.suleia',order_id:`eq.${p.orderId}`,template_name:'like.incident_delivery_clarify_v*',select:'order_id,template_name,status,raw'},limit:1000});
+  if(rows.length>=1000)throw Error('QUESTION_HISTORY_INCOMPLETE');return rows;
+ };
  const v3Live=control.conversationV3?.enabled===true&&control.conversationV3?.mode==='LIVE'&&!!control.conversationV3?.authorizationRef;
  const canWrite=['AUTO','AUTO_CANARY'].includes(control.mode)&&['AUTO','AUTO_CANARY'].includes(control.deliveryReplyMode);
  report.mode=canWrite?control.deliveryReplyMode:'OBSERVE_ONLY';
@@ -150,10 +161,13 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    if(v3Live&&control.conversationV3.delegation===true&&careResult.care?.policy?.liveVerifiedContext)plan=conversationV3DeliveryPlan(plan,{...candidateInput,now:Date.now()},careResult.care);
    if(careResult.care)item.customerCare={mode:careResult.care.mode,nextAction:careResult.care.next_best_action,owner:careResult.care.owner,reason:careResult.care.reason,missingSlots:careResult.care.missing_slots,conversationVersion:careResult.care.conversation_version};
    if(!plan.eligible){report.cases.push({...item,status:'BLOCKED',reason:plan.reason});continue;}
+   if(canWrite&&!deliveryReplyControlAllows(control,plan)){report.cases.push({...item,status:'BLOCKED',reason:'INCIDENT_REPLY_CAPABILITY_DISABLED'});continue;}
    const observed={...item,status:'PREPARED',kind:plan.kind,reason:plan.reason,date:plan.date,time_window:plan.time_window,proposedSolution:plan.note||null,providerRawType:raw.type,customerIntent:plan.customer_intent||null,waitingForOrder:plan.waiting_for_order===true,deliveryAttemptDeniedByCustomer:plan.delivery_attempt_denied_by_customer===true,nextBestAction:plan.next_best_action||null,...(plan.context?{context:plan.context}:{}),...(plan.care_plan?{v3Capability:plan.care_capability}:{}),...(plan.v3_delegation?{v3Delegation:plan.v3_delegation}:{})};
    if(!canWrite||(control.deliveryReplyMode==='AUTO_CANARY'&&(admitted||control.deliveryReplyCanaryOrderId&&String(control.deliveryReplyCanaryOrderId)!==plan.orderId))){report.cases.push(observed);continue;}
    let attemptedAt=null;
    const revalidate=async()=>{
+    const latestControl=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
+    if(!deliveryReplyControlAllows(latestControl,plan))return {eligible:false,reason:'INCIDENT_REPLY_CAPABILITY_DISABLED'};
     const fresh=await readDropeaV2ReturnIssueState(incident,{includeOrder:true});
     const freshOrderReadAt=new Date().toISOString();
     const replies=await getIncidentChatMessages(incident.chatbyUserNs);
@@ -170,15 +184,23 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    };
    const result=await executeDeliveryReply(plan,{
     guardedDispatch:true,initialMessages:messages,
-    revalidate,readMessages:getIncidentChatMessages,claimMessage:claimTemplateDelivery,finishMessage:async receipt=>{
+    revalidate,readMessages:getIncidentChatMessages,readQuestionDeliveries,claimMessage:claimTemplateDelivery,finishMessage:async receipt=>{
      const saved=await finishTemplateDelivery(receipt);
      if(plan.care_admission)await recordConversationV3Release(plan,receipt,control.conversationV3);
      if(plan.care_plan)await recordCustomerCareReceipt(plan,receipt);
      return saved;
-    },send:payload=>plan.care_plan?.version!=='CONVERSATION_V3'?sendTextMessage(payload):sendTextMessage({...payload,beforeDispatch:async reads=>{
+    },send:payload=>sendTextMessage({...payload,beforeDispatch:async reads=>{
+     const checkControl=async()=>{const c=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));if(!deliveryReplyControlAllows(c,plan))throw Error('INCIDENT_REPLY_CAPABILITY_DISABLED');};
+     await checkControl();
+     if(plan.care_plan?.version!=='CONVERSATION_V3')return {expiresAt:Date.now()+20000,beforeFetch:checkControl};
      const fresh=await readDropeaV2ReturnIssueState(incident,{includeOrder:true}),orderReadAt=new Date().toISOString();
      const subscriber=await reads.readSubscriber(incident.chatbyUserNs);
      const replies=await reads.readMessages(incident.chatbyUserNs),conversationReadAt=new Date().toISOString();
+     if(plan.care_capability!=='STATUS_REPLY'){
+      const key=deliveryReplyMessageKey(plan,'clarify');
+      const guard=clarificationHistoryGuard(plan,plan.content,replies,await readQuestionDeliveries(plan),{currentKey:key.templateName});
+      if(!guard.allowed)throw Error(guard.reason);
+     }
      if(!await exactSubscriber(fresh.order,subscriber))throw Error('V3_DISPATCH_ASSOCIATION_CHANGED');
      const currentControl=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
      if(currentControl.conversationV3?.mode!=='LIVE'||currentControl.conversationV3.enabled!==true||!(plan.care_capability==='STATUS_REPLY'?currentControl.conversationV3.statusReply:currentControl.conversationV3.clarification))throw Error('V3_REPLY_CAPABILITY_DISABLED');
@@ -187,7 +209,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
      const input={incident:scoped,...fresh,messages:replies,supportReceipt,sharedIssueReceipt,freshProof:{orderReadAt,conversationReadAt,exactConversationVerified:true},binding:{verified:true,orderId:item.orderId,issueId:item.issueId,conversationId:incident.chatbyUserNs}};
      input.policy=liveCarePolicy(input,{supportReceipt,paymentMethods:currentControl.conversationV3.paymentMethods||[],authorizationRef:currentControl.conversationV3.authorizationRef});
      const memory=await createCustomerCareStore({prefix:'conversation_v3'}).load({canonical_order_id:item.orderId,active_issue_id:item.issueId});
-     return verifyConversationV3Dispatch(plan,input,memory?.value);
+     return {...verifyConversationV3Dispatch(plan,input,memory?.value),beforeFetch:checkControl};
     }}),
     waitForReadback:()=>new Promise(resolve=>setTimeout(resolve,1500)),
     claimSolution:async p=>{

@@ -3,6 +3,7 @@ import {addressMessageText} from '../../autoconfirm/src/workflows/address-respon
 import {findAddressDetailsReadback} from '../../autoconfirm/src/workflows/address-observed-executor.mjs';
 import {createHash} from 'node:crypto';
 import {hash} from '../../autoconfirm/src/customer-care/context.mjs';
+import {clarificationHistoryGuard,questionFamily} from '../../autoconfirm/src/customer-context/question-safety.mjs';
 const sameText=(a,b)=>String(a||'').replace(/\s+/g,' ').trim()===String(b||'').replace(/\s+/g,' ').trim();
 export const solutionNoteHash=note=>createHash('sha256').update(String(note||'').replace(/\s+/g,' ').trim()).digest('hex');
 
@@ -21,7 +22,7 @@ export function verifiedDeliverySolution(raw,plan,attemptedAt,noteEvidence=null)
 
 export function deliveryReplyMessageKey(plan,purpose){
  const phase=purpose==='clarify'||plan.care_plan?.version==='CONVERSATION_V3'?`:${plan.reason}`:'';
- return {storeId:'suleia',orderId:plan.orderId,templateName:purpose==='discount_amount'?'accepted_discount_amount_notice_v1':`incident_delivery_${purpose}_v1:${plan.issueId}${phase}`,provider:'chatby',chatbyUserNs:plan.conversationId};
+ return {storeId:'suleia',orderId:plan.orderId,templateName:purpose==='clarify'?'incident_delivery_clarify_v2':purpose==='discount_amount'?'accepted_discount_amount_notice_v1':`incident_delivery_${purpose}_v1:${plan.issueId}${phase}`,provider:'chatby',chatbyUserNs:plan.conversationId};
 }
 export async function sendDeliveryReplyOnce(plan,content,purpose,deps){
  const key=deliveryReplyMessageKey(plan,purpose);
@@ -30,6 +31,13 @@ export async function sendDeliveryReplyOnce(plan,content,purpose,deps){
  const fresh=guarded?plan:await deps.revalidate();
  if(!fresh?.eligible||fresh.hash!==plan.hash)return {status:'BLOCKED',reason:'LATE_CUSTOMER_RESPONSE'};
  const messages=guarded&&Array.isArray(deps.initialMessages)?deps.initialMessages:await deps.readMessages(plan.conversationId);
+ const questionMetadata=purpose==='clarify'?{questionFamily:questionFamily(plan,content),orderCreatedAt:plan.orderCreatedAt||plan.care_plan?.order_created_at,contextHash:plan.hash}:{};
+ if(purpose==='clarify'){
+  if(typeof deps.readQuestionDeliveries!=='function')return {status:'BLOCKED',reason:'QUESTION_HISTORY_REQUIRED'};
+  let deliveries;try{deliveries=await deps.readQuestionDeliveries(plan);}catch{return {status:'BLOCKED',reason:'QUESTION_HISTORY_UNAVAILABLE'};}
+  const check=clarificationHistoryGuard(plan,content,messages,deliveries,{currentKey:key.templateName});
+  if(!check.allowed)return {status:'BLOCKED',reason:check.reason};
+ }
  const seen=messages.find(m=>!isCustomerInteraction(m)&&String(m.user_ns)===plan.conversationId&&extractWamid(m)&&
   messageTimestamp(m)>=Date.parse(plan.messageAt)&&sameText(addressMessageText(m),content));
  const claim=await deps.claimMessage(key);
@@ -42,15 +50,15 @@ export async function sendDeliveryReplyOnce(plan,content,purpose,deps){
   return {status:'RECONCILE',reason:'MESSAGE_ALREADY_CLAIMED_NO_RESEND'};
  }
  const attemptedAt=new Date(deps.now?.()||Date.now()).toISOString();
- if(seen){await deps.finishMessage({...key,status:'already_seen',attemptedAt,sentAt:new Date(messageTimestamp(seen)).toISOString(),raw:{owner:'vps_delivery_reply',messageId:extractWamid(seen)}});return {status:'VERIFIED',alreadySent:true};}
+ if(seen){await deps.finishMessage({...key,status:'already_seen',attemptedAt,sentAt:new Date(messageTimestamp(seen)).toISOString(),raw:{owner:'vps_delivery_reply',messageId:extractWamid(seen),...questionMetadata}});return {status:'VERIFIED',alreadySent:true};}
  const last=guarded?plan:await deps.revalidate();
  if(!last?.eligible||last.hash!==plan.hash){await deps.finishMessage({...key,status:'aborted',attemptedAt,raw:{reason:'LATE_CUSTOMER_RESPONSE',notSent:true}});return {status:'BLOCKED',reason:'LATE_CUSTOMER_RESPONSE'};}
  // Persist before the only send attempt. An uncertain response is read back,
  // never retried. No template/flow is created or edited.
- const persisted=await deps.finishMessage({...key,status:'delivery_unverified',attemptedAt,raw:{owner:'vps_delivery_reply',purpose,contextHash:plan.hash}});
+ const persisted=await deps.finishMessage({...key,status:'delivery_unverified',attemptedAt,raw:{owner:'vps_delivery_reply',purpose,contextHash:plan.hash,...questionMetadata}});
  if(persisted?.skipped)throw Error('MESSAGE_DURABLE_JOURNAL_REQUIRED');
  let receipt=null,uncertainDispatch=null;try{receipt=await deps.send({user_ns:plan.conversationId,content});}catch(error){
-  if(plan.care_plan?.version==='CONVERSATION_V3'&&error?.notSent===true){
+  if(error?.notSent===true){
    const reason=/^[A-Z0-9_]{1,100}$/.test(error.message)?error.message:'V3_PRE_DISPATCH_REVALIDATION_FAILED';
    await deps.finishMessage({...key,status:'aborted',attemptedAt,raw:{owner:'vps_delivery_reply',reason,notSent:true}});return {status:'BLOCKED',reason,notSent:true};
   }
@@ -77,7 +85,7 @@ export async function sendDeliveryReplyOnce(plan,content,purpose,deps){
  const p0=duplicate?'DUPLICATE_V3_MESSAGE':confirmedStale?'CONFIRMED_STALE_PLAN_WRITE':plan.care_plan?.version==='CONVERSATION_V3'&&receiptRecipient&&receiptRecipient!==plan.conversationId?'WRONG_RECIPIENT':null;
  const result={status:mid&&!p0?'VERIFIED':'RECONCILE',reason:p0||(!mid?'MESSAGE_DELIVERY_REQUIRES_REVIEW':null),providerReceipt:Boolean(extractWamid(receipt)),
   ...(plan.care_plan?.version==='CONVERSATION_V3'?{sendAttempts:1,readbackVerified:!!mid&&!duplicate,beforeDispatchVerified:receipt?.v3_dispatch_verified===true||uncertainDispatch?.v3_dispatch_verified===true,dispatchedAt:receipt?.v3_dispatched_at||uncertainDispatch?.v3_dispatched_at||null,p0_code:p0,...(duplicate?{duplicateMessageIds:matchedIds}:{})}:{} )};
- await deps.finishMessage({...key,status:mid?'sent':'delivery_unverified',attemptedAt,sentAt:mid?attemptedAt:null,raw:{owner:'vps_delivery_reply',purpose,messageId:mid,...result}});
+ await deps.finishMessage({...key,status:mid?'sent':'delivery_unverified',attemptedAt,sentAt:mid?attemptedAt:null,raw:{owner:'vps_delivery_reply',purpose,messageId:mid,...questionMetadata,...result}});
  return result;
 }
 
