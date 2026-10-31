@@ -60,6 +60,10 @@ COD and amount reconciliation, exact subscribed Chatby identity/order,
 existing V3 compilation and no incompatible current instruction. Accepted
 discounts need the existing owner's verified final-amount receipt AND a fresh
 matching native total/logistics COD; email/solution alone is insufficient.
+The existing exact-order discount-offer ledger is also re-read before sending.
+An offer from an older administrative issue without a reconciled owner receipt
+blocks the quote conservatively, even if the current V3 conversation anchor
+does not contain that offer. This does not apply or repeat a discount.
 
 Each episode reserves `GLS_PICKUP_NOTICE_1:<order>:<tracking>:<ready-event>`
 in the existing durable template ledger. Administrative issue IDs are absent

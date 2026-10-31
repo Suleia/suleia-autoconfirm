@@ -39,6 +39,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
  const readDropeaV2ReturnIssueState=(i,options={})=>nativeClient.readDropeaV2ReturnIssueState(i,{...options,clientFactory:c=>{if(Date.now()>=deadlineAt)throw Error('PICKUP_NATIVE_READ_BUDGET_EXHAUSTED');return nativeClient.createDropeaV2IncidentClient({...c,maxReadRetries:1,timeoutMs:Math.max(1,Math.min(8000,deadlineAt-Date.now()))});}});
  const {getIncidentChatMessages,getIncidentSubscriberInfo,findSubscriberInIndexForExactOrder,listExactWhatsappTemplates,sendWhatsappTemplate}=await import('../../autoconfirm/src/clients/chatby.mjs');
  const {getTemplateDelivery,claimTemplateDelivery,finishTemplateDelivery}=await import('../../autoconfirm/src/db/supabase-store.mjs');
+ const {INCIDENT_DISCOUNT_TEMPLATE_NAME}=await import('../../autoconfirm/src/workflows/incident-discount-template.mjs');
  const {inspectPriorOrderReturn}=await import('../../autoconfirm/src/workflows/incident-order-return-guard.mjs');
  const control=JSON.parse(await fs.readFile('/state/retry-control.json','utf8'));
  const flags=control.glsPickupNotice||{};
@@ -105,13 +106,14 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    if(previous){report.cases.push({...item,...await reconcile(previous)});continue;}
    if(!incident.chatbyUserNs){report.cases.push({...item,state:'MANUAL_REVIEW',reason:'EXACT_CONVERSATION_NOT_AVAILABLE'});continue;}
    const supportReceipt=await getTemplateDelivery({storeId:'suleia',orderId:base.order.orderId,templateName:'accepted_discount_support_v1'});
+   const discountOffer=await getTemplateDelivery({storeId:'suleia',orderId:base.order.orderId,templateName:INCIDENT_DISCOUNT_TEMPLATE_NAME});
    const prior=await inspectPriorOrderReturn(incident);
-   const readInput=async(current,t,sub,messages,status,receipt=supportReceipt,priorProof=prior)=>{
+   const readInput=async(current,t,sub,messages,status,receipt=supportReceipt,priorProof=prior,offer=discountOffer)=>{
     const phone=pickupPhone(current.order.customerPhone);
     const exact=!!phone&&sub.user_ns===incident.chatbyUserNs&&pickupPhone(sub.phone||sub.user_id)===phone&&findSubscriberInIndexForExactOrder({byPhone:new Map([[phone.slice(-9),[sub]]])},{phone:current.order.customerPhone,orderId:current.order.orderId})?.user_ns===sub.user_ns;
     const scoped={...incident,chatbyReadVerified:true,chatbyOrderAssociation:exact?'EXACT_ORDER':null};
     const care=compileCustomerCase({...current,incident:scoped,messages,binding:{verified:exact,orderId:current.order.orderId,issueId:incident.incidenceId,conversationId:sub.user_ns}});
-    return {...current,priorReturn:priorProof.verified||priorProof.blocked,otherActiveIssue:base.otherActiveIssue,tracking:t,agency:agency?.validation_status==='VERIFIED_TRACKING_ONLY'?t.agency:agency,allowTrackingFallback:flags.allowVerifiedTrackingFallback===true,template:status,subscriber:sub,care,exactSubscriber:exact,whatsappVerified:messages.some(m=>String(m.user_ns)===sub.user_ns&&!!extractWamid(m)),supportReceipt:receipt,discountAccepted:incident.incidentDiscountResponseStatus==='DISCOUNT_ACCEPTED'};
+    return {...current,priorReturn:priorProof.verified||priorProof.blocked,otherActiveIssue:base.otherActiveIssue,tracking:t,agency:agency?.validation_status==='VERIFIED_TRACKING_ONLY'?t.agency:agency,allowTrackingFallback:flags.allowVerifiedTrackingFallback===true,template:status,subscriber:sub,care,exactSubscriber:exact,whatsappVerified:messages.some(m=>String(m.user_ns)===sub.user_ns&&!!extractWamid(m)),supportReceipt:receipt,discountOffer:offer,discountAccepted:incident.incidentDiscountResponseStatus==='DISCOUNT_ACCEPTED'};
    };
    const messages=await getIncidentChatMessages(incident.chatbyUserNs),sub=await getIncidentSubscriberInfo(incident.chatbyUserNs);
    const plan=pickupPlan(await readInput(fresh,tracking,sub,messages,template));
@@ -136,9 +138,10 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
      if(digest(history)!==baseline)throw Error('PICKUP_NEW_CONVERSATION_EVENT');
      const status=pickupTemplateStatus(await readers.readTemplates());
      const receipt=await getTemplateDelivery({storeId:'suleia',orderId:base.order.orderId,templateName:'accepted_discount_support_v1'});
+     const offer=await getTemplateDelivery({storeId:'suleia',orderId:base.order.orderId,templateName:INCIDENT_DISCOUNT_TEMPLATE_NAME});
      const priorProof=await inspectPriorOrderReturn(incident);
      const latest=await readGlsTracking(context,{url:current.order.raw.tracking_url,tracking:String(current.order.raw.tracking_number),postal:String(current.order.raw.shipping_address?.postal_code||'')},trackingOptions);
-     const p=pickupPlan(await readInput(current,latest,subscriber,history,status,receipt,priorProof));return {...p,fresh_expires_at:freshReadAt+60000};
+     const p=pickupPlan(await readInput(current,latest,subscriber,history,status,receipt,priorProof,offer));return {...p,fresh_expires_at:freshReadAt+60000};
     },alreadySeen:async(readers,p)=>{const history=await readers.readMessages(p.conversation_id);if(digest(history)!==baseline)throw Error('PICKUP_NEW_CONVERSATION_EVENT');return existingPickupNotice(currentEpisodeHistory(history),p,{since:fresh.order.createdAt});},
     readback:async(p,receipt)=>matchingPickupMessage(await getIncidentChatMessages(p.conversation_id),p,receipt)
    });

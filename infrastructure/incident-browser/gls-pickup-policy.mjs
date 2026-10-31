@@ -38,7 +38,7 @@ export function pickupPlan(input){
  if(!glsOpeningHoursVerified(a.opening_hours))return no('MISSING_VERIFIED_AGENCY_DATA');
  if(!a.opening_hours||!a.phone||!a.city||!a.province||!a.address_line||!a.agency_name)return no('MISSING_VERIFIED_AGENCY_DATA');
  if(o.payment_method!=='COD'||o.currency!=='EUR'||!Number.isSafeInteger(t.cod_cents)||t.cod_cents<=0)return no('PICKUP_TEMPLATE_PAYMENT_INCOMPATIBLE');
- const total=Math.round(Number(o.total_amount)*100),accepted=care?.discount_response==='ACCEPTED'||care?.latest_customer_intents?.includes('ACCEPTS_DISCOUNT')||input.discountAccepted===true||!!supportReceipt;
+ const total=Math.round(Number(o.total_amount)*100),accepted=care?.discount_response==='ACCEPTED'||care?.latest_customer_intents?.includes('ACCEPTS_DISCOUNT')||input.discountAccepted===true||!!supportReceipt||!!input.discountOffer;
  if(!Number.isSafeInteger(total)||total!==t.cod_cents)return no('WAITING_COD_RECONCILIATION','WAITING_COD_RECONCILIATION');
  if(accepted&&(!supportReceipt||supportReceipt.status!=='verified'||Number(supportReceipt.raw?.finalCents)!==total||String(supportReceipt.order_id)!==id))return no('WAITING_COD_RECONCILIATION','WAITING_COD_RECONCILIATION');
  if(!input.exactSubscriber||input.whatsappVerified!==true||!subscriber?.user_ns||!subscriber.subscribed||subscriber.unsubscribed||subscriber.blocked||subscriber.is_blocked)return no('EXACT_SUBSCRIBER_AND_PERMISSION_REQUIRED');
