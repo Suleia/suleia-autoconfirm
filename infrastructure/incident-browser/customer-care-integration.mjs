@@ -17,7 +17,7 @@ export function customerCareEnvironment(control){
 // association read. It never persists, releases a plan or authorizes a write.
 export function needsConversationV3Read(input){
  const care=compileCustomerCase({...input,policy:carePolicyFor(input),binding:{verified:true,orderId:String(input.order.orderId),issueId:String(input.incident.incidenceId),conversationId:input.incident.chatbyUserNs}});
- return care.has_current_reply&&(care.customer_reply_action==='CLARIFY'||care.operational_action==='RETRY_DELIVERY'||care.latest_customer_intents?.some(i=>['ASKS_STATUS','ASKS_DELIVERY_DATE','ASKS_PAYMENT'].includes(i)));
+ return care.has_current_reply&&(care.customer_reply_action==='CLARIFY'||care.operational_action==='RETRY_DELIVERY'||care.pending_customer_questions?.length>0);
 }
 export function verifyConversationV3Dispatch(plan,input,memory){
  const fail=code=>{throw Object.assign(Error(code),{notSent:true});};

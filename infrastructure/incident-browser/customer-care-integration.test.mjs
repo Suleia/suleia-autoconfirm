@@ -1,12 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareCustomerCare,recordCustomerCareReceipt,customerCareEnvironment} from './customer-care-integration.mjs';
+import {prepareCustomerCare,recordCustomerCareReceipt,customerCareEnvironment,needsConversationV3Read} from './customer-care-integration.mjs';
 import {executeDeliveryReply} from './delivery-reply-executor.mjs';
 const now=Date.parse('2026-10-30T13:00:00Z'),at=now-2*3600000;
 const message={id:'10',type:'in',user_ns:'fixture',content:'Quiero el pedido el sábado',ts:at/1000};
 const input={order:{orderId:'90001',createdAt:'2026-10-29T09:00:00Z',status:'ERROR'},incident:{orderId:'90001',incidenceId:'80001',incidenceDate:'2026-10-30T09:00:00Z',incidentType:'absent',chatbyUserNs:'fixture'},messages:[message]};
 const control={customerCare:{enabled:true,context:true,clarification:true,mode:'CANARY',canaryCase:'90001:80001'}};
 const memory=()=>{let current=null;return {load:async()=>current,save:async value=>{current={value,updated_at:value.updated_at};return current;}};};
+test('product support enters the existing fresh association reader without authorizing a send',()=>{
+ assert.equal(needsConversationV3Read({...input,messages:[{...message,content:'¿Cómo uso la crema por la mañana o por la noche?'}]}),true);
+ assert.equal(needsConversationV3Read({...input,messages:[]}),false);
+});
 test('disabled and SHADOW paths preserve the exact legacy plan, even on memory failure',async()=>{
  const legacy={eligible:true,kind:'CLARIFY',hash:'legacy',content:'old'};
  const failure={load:async()=>{throw Error('offline');}};
