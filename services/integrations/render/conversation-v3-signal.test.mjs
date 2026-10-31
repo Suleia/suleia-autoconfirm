@@ -16,3 +16,9 @@ test('V3 context must retain exact binding, date and safe scalar types',()=>{
  for(const mutate of [c=>c.dropea_order_id='3',c=>c.active_issue_id='4',c=>c.updated_at=null]){const r=fixture();mutate(r.raw.conversationIntelligenceV3);assert.equal(normalizeConversationV3Signal(r),null);}
  const r=fixture();r.raw.conversationIntelligenceV3.fact_confidence={WANTS_ORDER:NaN,BAD:2,'<script>':1};assert.deepEqual(normalizeConversationV3Signal(r).confidence,{});
 });
+test('compact support context keeps verified observations and question purposes without exposing transcripts',()=>{
+ const r=fixture(),s=r.raw.conversationIntelligenceV3;
+ Object.assign(s,{pending_customer_questions:[{type:'ASKS_USAGE',text:'PRIVATE'}],answered_customer_questions:['answered-id'],fact_ledger:[{fact_id:'answered-id',fact_type:'ASKS_PAYMENT'}],amount_due:24.99,policy:{liveVerifiedContext:true,paymentVerified:true,amountReadAt:s.updated_at,discountAppliedVerified:true},product_context:{verified:true,productName:'NIDA',units:2,verifiedAt:s.updated_at},pending_provider_response:true});
+ const c=normalizeConversationV3Signal(r);assert.deepEqual(c.pending_question_types,['ASKS_USAGE']);assert.deepEqual(c.answered_question_types,['ASKS_PAYMENT']);assert.equal(c.observed_verified_amount_cents,2499);assert.equal(c.discount_state,'APPLIED_VERIFIED');assert.equal(c.product.units,2);assert.equal(c.reconciliation_state,'UNCERTAIN_SEND');assert.doesNotMatch(JSON.stringify(c),/PRIVATE/);
+ s.policy.paymentVerified=false;assert.equal(normalizeConversationV3Signal(r).observed_verified_amount_cents,null);
+});
