@@ -7,7 +7,7 @@ import {validateCustomerFacts} from './fact-extractor.mjs';
 import {semanticFallback,compileSemanticContext} from './semantic-interpreter.mjs';
 import {factOutputSchema} from './fact-schema.mjs';
 import {evaluateConversationRelease} from './release-gates.mjs';
-import {observeConversationV3} from './runtime.mjs';
+import {observeConversationV3,bindCurrentConversationV3} from './runtime.mjs';
 import {decorateConversationV3} from './sender-adapter.mjs';
 import {resolutionCandidate} from '../workflows/incident-resolution-plan.mjs';
 import {hash} from '../customer-care/context.mjs';
@@ -213,6 +213,24 @@ test('SHADOW read failure preserves valid memory and reports failure rather than
  const result=await observeConversationV3([item],{env:{CONVERSATION_V3_ENABLED:'true'},now,policyFor:i=>i.policy,store:{load:async()=>({value:previous}),save:async()=>{writes++;}}});
  assert.equal(result.failures,1);assert.equal(result.metrics.cases,0);assert.equal(result.provider_writes,0);assert.equal(writes,0);assert.deepEqual(previous,frozen);
  assert.equal(item.incident.conversationIntelligenceV3,undefined);
+});
+test('native activity-window labels reuse only a fresh exact field and same-conversation proof',async()=>{
+ const item=input(['Quiero el pedido']);item.order.customerPhone='600000001';item.incident.chatbyOrderAssociation='EXACT_ORDER_MERCHANDISE_LEDGER';
+ const subscriber={user_ns:'fixture-v3',phone:'600000001',user_fields:[{name:'Dropea: Número',value:'90001'}]};
+ const index={byPhone:new Map([['600000001',[subscriber]]])};
+ const binding=bindCurrentConversationV3(item,index);assert.equal(binding.verified,true);
+ let writes=0;const result=await observeConversationV3([{...item,binding}],{env:{CONVERSATION_V3_ENABLED:'true'},now,policyFor:i=>i.policy,store:{load:async()=>null,save:async()=>{writes++;}}});
+ assert.equal(result.failures,0);assert.equal(writes,1);
+ for(const change of [()=>subscriber.user_fields[0].value='90002',()=>subscriber.user_ns='different-conversation',()=>item.incident.chatbyReadVerified=false]){
+  subscriber.user_fields[0].value='90001';subscriber.user_ns='fixture-v3';item.incident.chatbyReadVerified=true;change();
+  assert.equal(bindCurrentConversationV3(item,index).verified,false);
+ }
+ assert.equal(bindCurrentConversationV3(item,{byPhone:new Map()}).verified,false);
+});
+test('a ledger activity label without independent exact-field proof remains unverified',async()=>{
+ const item=input(['Quiero el pedido']);delete item.binding;item.incident.chatbyOrderAssociation='EXACT_ORDER_MERCHANDISE_LEDGER';let writes=0;
+ const result=await observeConversationV3([item],{env:{CONVERSATION_V3_ENABLED:'true'},now,policyFor:i=>i.policy,store:{load:async()=>null,save:async()=>{writes++;}}});
+ assert.equal(result.failures,1);assert.equal(writes,0);
 });
 test('300 synthetic cases cannot satisfy the genuinely sourced reviewed release gate',()=>{
  const failed=evaluateConversationRelease({real_cases:0,reviewed_real_cases:0,synthetic_cases:1000});assert.equal(failed.allowed,false);

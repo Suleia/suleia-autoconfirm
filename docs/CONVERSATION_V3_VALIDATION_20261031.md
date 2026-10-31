@@ -66,3 +66,12 @@ External model consumption remains 0 USD.
 Retain exact prior images and control hashes for rollback. Disable V3/restore the
 prior image without deleting persistent memory, claims or uncertain journals.
 Final SHA tests and conditional runtime evidence must be reported separately.
+
+During natural SHADOW observation, one existing rejected-order activity label used
+the merchandise ledger although a fresh exact subscriber field still matched.
+The Render observer now reuses that same native scan's exact field/phone/user_ns
+proof through the existing binding input, with no extra provider reads. A ledger
+alone, another order, another conversation or a failed read remains unverified.
+This is a Render observation adapter correction; the VPS sender and its separate
+fresh association checks are unchanged. The typed compiler/fact engine is shared;
+the two target-specific observation wrappers need not have identical source.

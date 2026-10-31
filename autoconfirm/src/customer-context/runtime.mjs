@@ -2,6 +2,16 @@ import {compileCustomerCase} from './case-compiler.mjs';
 import {createCustomerCareStore} from '../customer-care/store.mjs';
 import {carePolicyFor} from '../customer-care/runtime.mjs';
 import {resolutionCandidate} from '../workflows/incident-resolution-plan.mjs';
+import {findSubscriberInIndexForExactOrder} from '../clients/chatby.mjs';
+
+// Reuse the current native scan's exact field proof. A ledger may change the
+// activity-window label without changing identity. A ledger alone never grants
+// this binding and this helper performs no additional provider read.
+export function bindCurrentConversationV3(item,subscriberIndex){
+  const subscriber=findSubscriberInIndexForExactOrder(subscriberIndex,{phone:item.order?.customerPhone,orderId:item.order?.orderId});
+  return {verified:item.incident?.chatbyReadVerified===true&&!!subscriber&&subscriber.user_ns===item.incident?.chatbyUserNs,
+    orderId:String(item.order?.orderId),issueId:String(item.incident?.incidenceId),conversationId:item.incident?.chatbyUserNs};
+}
 
 export function conversationV3Flags(env={}){
   return {enabled:env.CONVERSATION_V3_ENABLED==='true',semantic:env.CONVERSATION_V3_SEMANTIC_ENABLED==='true',
@@ -36,7 +46,8 @@ export async function observeConversationV3(items,{env=process.env,store=createC
   for(const item of items){try{
     const identity={canonical_order_id:String(item.order?.orderId),active_issue_id:String(item.incident?.incidenceId)};
     const prior=await store.load(identity);
-    const input={...item,now,policy:policyFor(item),binding:{verified:item.incident.chatbyReadVerified===true&&item.incident.chatbyOrderAssociation==='EXACT_ORDER',orderId:String(item.order?.orderId),issueId:String(item.incident.incidenceId),conversationId:item.incident.chatbyUserNs}};
+    const binding=item.binding?{...item.binding,verified:item.binding.verified===true&&item.incident.chatbyReadVerified===true}:{verified:item.incident.chatbyReadVerified===true&&item.incident.chatbyOrderAssociation==='EXACT_ORDER',orderId:String(item.order?.orderId),issueId:String(item.incident.incidenceId),conversationId:item.incident.chatbyUserNs};
+    const input={...item,now,policy:policyFor(item),binding};
     const compiled=compileCustomerCase(input,prior?.value);
     // A failed/incomplete provider read is not a successfully observed case.
     // Keep the last valid projection and report the failed observation instead

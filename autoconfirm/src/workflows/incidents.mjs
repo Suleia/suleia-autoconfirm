@@ -3,7 +3,7 @@ import {executeObservedAddress} from './address-observed-executor.mjs';
 import {recoverReconciledAddressDetails} from './address-reconciled-details.mjs';
 import {runIncidentResolutionCycle} from './incident-resolution-runtime.mjs';
 import {observeCustomerCare} from '../customer-care/runtime.mjs';
-import {observeConversationV3} from '../customer-context/runtime.mjs';
+import {observeConversationV3,bindCurrentConversationV3} from '../customer-context/runtime.mjs';
 import {applyAcceptedDiscountFeedback} from './accepted-discount-feedback.mjs';
 import {selectRows} from '../clients/supabase.mjs';
 import {refreshAddressCapabilities,runAddressCapability,addressCapabilitiesSnapshot} from './address-capabilities.mjs';
@@ -2979,7 +2979,7 @@ async function performPendingIncidentSync({
       catch{incidentResolutionSummary={enabled:true,failures:1,status:'DURABLE_STORE_UNAVAILABLE',new_write_default:'SHADOW'};}
       try{customerCareSummary=await observeCustomerCare(analyzed.map(item=>({...item,incident:enrichedById.get(String(item.incident.incidenceId))||item.incident})));}
       catch{customerCareSummary={enabled:true,mode:'SHADOW',provider_writes:0,failures:1};}
-      try{conversationIntelligenceV3Summary=await observeConversationV3(analyzed.map(item=>({...item,incident:enrichedById.get(String(item.incident.incidenceId))||item.incident})));}
+      try{conversationIntelligenceV3Summary=await observeConversationV3(analyzed.map(item=>({...item,binding:bindCurrentConversationV3(item,subscriberIndex),incident:enrichedById.get(String(item.incident.incidenceId))||item.incident})));}
       catch{conversationIntelligenceV3Summary={enabled:true,mode:'SHADOW',provider_writes:0,failures:1};}
     }
     try {
