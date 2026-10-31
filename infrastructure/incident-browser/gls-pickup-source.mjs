@@ -73,7 +73,8 @@ export async function readGlsTracking(context,input,{saveDiagnostic=async()=>{},
  }catch{/* Diagnostics cannot affect the existing worker. */}});
  try{
   const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:15000});
-  if(response?.status()===429){await onRateLimit(glsRetryUntil(response.headers()['retry-after']));throw Error('GLS_TRACKING_RATE_LIMITED');}
+  if(response?.status()===429)throw Error('GLS_TRACKING_RATE_LIMITED');
+  if(new URL(page.url()).origin!==new URL(url).origin)throw Error('GLS_TRACKING_ORIGIN_CHANGED');
   const necessary=page.getByRole('button',{name:'Solo usar cookies necesarias',exact:true});
   try{await necessary.waitFor({state:'visible',timeout:2000});await necessary.click({timeout:2000});}catch{
    try{await page.getByText('Solo usar cookies necesarias',{exact:true}).click({timeout:2000});}catch{}
