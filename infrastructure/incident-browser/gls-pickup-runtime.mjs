@@ -94,12 +94,12 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    if(previous){report.cases.push({...item,...await reconcile(previous)});continue;}
    if(!incident.chatbyUserNs){report.cases.push({...item,state:'MANUAL_REVIEW',reason:'EXACT_CONVERSATION_NOT_AVAILABLE'});continue;}
    const supportReceipt=await getTemplateDelivery({storeId:'suleia',orderId:base.order.orderId,templateName:'accepted_discount_support_v1'});
-   const readInput=async(current,t,sub,messages,status)=>{
+   const readInput=async(current,t,sub,messages,status,receipt=supportReceipt)=>{
     const digits=s=>String(s||'').replace(/\D/g,'').slice(-9),phone=digits(current.order.customerPhone);
     const exact=!!phone&&sub.user_ns===incident.chatbyUserNs&&digits(sub.phone||sub.user_id)===phone&&findSubscriberInIndexForExactOrder({byPhone:new Map([[phone,[sub]]])},{phone:current.order.customerPhone,orderId:current.order.orderId})?.user_ns===sub.user_ns;
     const scoped={...incident,chatbyReadVerified:true,chatbyOrderAssociation:exact?'EXACT_ORDER':null};
     const care=compileCustomerCase({...current,incident:scoped,messages,binding:{verified:exact,orderId:current.order.orderId,issueId:incident.incidenceId,conversationId:sub.user_ns}});
-    return {...current,tracking:t,agency,template:status,subscriber:sub,care,exactSubscriber:exact,supportReceipt,discountAccepted:incident.incidentDiscountResponseStatus==='DISCOUNT_ACCEPTED'};
+    return {...current,otherActiveIssue:base.otherActiveIssue,tracking:t,agency,template:status,subscriber:sub,care,exactSubscriber:exact,whatsappVerified:messages.some(m=>String(m.user_ns)===sub.user_ns&&!!extractWamid(m)),supportReceipt:receipt,discountAccepted:incident.incidentDiscountResponseStatus==='DISCOUNT_ACCEPTED'};
    };
    const messages=await getIncidentChatMessages(incident.chatbyUserNs),sub=await getIncidentSubscriberInfo(incident.chatbyUserNs);
    const plan=pickupPlan(await readInput(fresh,tracking,sub,messages,template));
@@ -121,8 +121,9 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
      const subscriber=await readers.readSubscriber(incident.chatbyUserNs),history=await readers.readMessages(incident.chatbyUserNs);
      if(digest(history)!==baseline)throw Error('PICKUP_NEW_CONVERSATION_EVENT');
      const status=pickupTemplateStatus(await readers.readTemplates());
+     const receipt=await getTemplateDelivery({storeId:'suleia',orderId:base.order.orderId,templateName:'accepted_discount_support_v1'});
      const latest=await readGlsTracking(context,{url:current.order.raw.tracking_url,tracking:String(current.order.raw.tracking_number),postal:String(current.order.raw.shipping_address?.postal_code||'')});
-     const p=pickupPlan(await readInput(current,latest,subscriber,history,status));return {...p,fresh_expires_at:freshReadAt+60000};
+     const p=pickupPlan(await readInput(current,latest,subscriber,history,status,receipt));return {...p,fresh_expires_at:freshReadAt+60000};
     },alreadySeen:async(readers,p)=>!!matchingPickupMessage(await readers.readMessages(p.conversation_id),p,{attemptedAt:fresh.order.createdAt}),
     readback:async(p,receipt)=>matchingPickupMessage(await getIncidentChatMessages(p.conversation_id),p,receipt)
    });

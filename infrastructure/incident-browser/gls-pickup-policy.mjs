@@ -10,6 +10,7 @@ export function pickupPlan(input){
  const i=issue?.raw,o=order?.raw,id=String(order?.orderId||'');
  const no=(reason,state='MANUAL_REVIEW')=>({eligible:false,order_id:id,issue_id:String(i?.id||''),reason,state,observed_at:new Date(now).toISOString()});
  if(!canonicalPickup(input)||String(i.order_id)!==id)return no('PICKUP_INCIDENT_NOT_ACTIVE','CLOSED');
+ if(input.otherActiveIssue)return no('OTHER_ACTIVE_INCIDENT_REQUIRES_REVIEW');
  if(['DELIVERED','RETURNED','CANCELLED','CANCELED'].includes(o.status)||['RETURN_REQUESTED','RETURNED','DELIVERED'].includes(i.resolution_status))return no('SHIPMENT_TERMINAL','CLOSED');
  const postal=String(o.shipping_address?.postal_code||'');
  if(!['ES','España','Spain'].includes(o.shipping_address?.country)||!/^(?:0[1-9]|[1-4]\d|5[0-2])\d{3}$/.test(postal))return no('INVALID_SHIPMENT_POSTAL_CODE');
@@ -24,7 +25,7 @@ export function pickupPlan(input){
  const total=Math.round(Number(o.total_amount)*100),accepted=care?.discount_response==='ACCEPTED'||care?.latest_customer_intents?.includes('ACCEPTS_DISCOUNT')||input.discountAccepted===true||!!supportReceipt;
  if(!Number.isSafeInteger(total)||total!==t.cod_cents)return no('WAITING_COD_RECONCILIATION','WAITING_COD_RECONCILIATION');
  if(accepted&&(!supportReceipt||supportReceipt.status!=='verified'||Number(supportReceipt.raw?.finalCents)!==total||String(supportReceipt.order_id)!==id))return no('WAITING_COD_RECONCILIATION','WAITING_COD_RECONCILIATION');
- if(!input.exactSubscriber||!subscriber?.user_ns||!subscriber.subscribed||subscriber.unsubscribed||subscriber.blocked||subscriber.is_blocked)return no('EXACT_SUBSCRIBER_AND_PERMISSION_REQUIRED');
+ if(!input.exactSubscriber||input.whatsappVerified!==true||!subscriber?.user_ns||!subscriber.subscribed||subscriber.unsubscribed||subscriber.blocked||subscriber.is_blocked)return no('EXACT_SUBSCRIBER_AND_PERMISSION_REQUIRED');
  if(!care?.input_hash)return no('CUSTOMER_CARE_CONTEXT_NOT_VERIFIED');
  if(care?.has_current_reply&&(care.unresolved?.length||care.cancel_intent||care.wants_return||!(care.latest_customer_intents||[]).length||(care.latest_customer_intents||[]).some(x=>!['WANTS_ORDER','REQUESTS_AGENCY','THANKS','GREETING','ACCEPTS_DISCOUNT'].includes(x))))return no('CUSTOMER_CARE_REVIEW_REQUIRED');
  const items=o.line_items;if(!Array.isArray(items)||!items.length||items.some(p=>!p.product_name||!Number.isInteger(Number(p.quantity))||Number(p.quantity)<1))return no('ORDER_PRODUCTS_UNVERIFIED');

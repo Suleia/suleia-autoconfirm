@@ -54,7 +54,11 @@ export async function readGlsTracking(context,input,{saveDiagnostic=async()=>{}}
   const accessibility=page.locator('flt-semantics-placeholder[aria-label="Enable accessibility"]');
   try{await accessibility.waitFor({state:'attached',timeout:5000});await accessibility.click({force:true,timeout:1500});}catch{}
   try{await page.getByText('Estado del envío',{exact:false}).first().waitFor({timeout:8000});}catch{}
-  const visible=await page.locator('body').innerText({timeout:2000});
+  const body=await page.locator('body').innerText({timeout:2000});
+  // Flutter paints text on a canvas; its live accessibility semantics carry
+  // the same rendered labels. Read these labels, never provider internals.
+  const semantics=await page.locator('flt-semantics[aria-label]').evaluateAll(nodes=>nodes.filter(n=>n.getAttribute('aria-hidden')!=='true').map(n=>n.getAttribute('aria-label')).filter(Boolean));
+  const visible=[body,...semantics].join('\n');
   const result=parseGlsTracking(visible,{...input,url});
   if(!result.verified||result.state==='READY'&&(!result.episode_id||!result.cod_cents))await saveDiagnostic({visible,at:new Date().toISOString(),tracking:input.tracking});
   return result;
@@ -72,7 +76,9 @@ export async function collectGlsPickupIncidents({deadlineAt=Date.now()+60000}={}
    if(issue.type!=='PICKUP_AT_AGENCY'||issue.carrier!=='GLS'||issue.is_active!==true||!['PENDING','MANAGING_WITH_CLIENT'].includes(issue.status))continue;
    const order=(await client.request('getOrder',{id:Number(issue.order_id)}))?.data;
    if(String(order?.id)!==String(issue.order_id))throw Error('PICKUP_NATIVE_ORDER_IDENTITY_MISMATCH');
-   result.push(normalizeDropeaV2Incident(issue,order,{market:config.market}));
+   const row=normalizeDropeaV2Incident(issue,order,{market:config.market});
+   row.otherActiveIssue=pending.items.some(i=>String(i.order_id)===String(issue.order_id)&&String(i.id)!==String(issue.id)&&i.is_active===true&&['PENDING','MANAGING_WITH_CLIENT'].includes(i.status)&&i.type!=='PICKUP_AT_AGENCY');
+   result.push(row);
   }
  }return result;
 }
