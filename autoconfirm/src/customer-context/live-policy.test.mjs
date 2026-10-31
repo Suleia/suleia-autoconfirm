@@ -44,3 +44,15 @@ test('a subsequent explicit refusal never causes delivery/payment questions',()=
  const x=fixture(['Sí quiero el pedido','el lunes','por la tarde','No quiero el pedido']);x.policy=policy(x);const c=compileCustomerCase(x);
  assert.equal(c.operational_action,'REQUEST_RETURN');assert.equal(c.proposed_response,null);assert.equal(c.owner,'existing_return_workflow');
 });
+
+test('fresh refusal, accepted discount or ambiguous intent blocks an older delivery solution while SHADOW and valid legacy delivery remain unchanged',()=>{
+ const legacy=Object.freeze({eligible:true,kind:'SOLUTION',reason:'CUSTOMER_DELIVERY_PREFERENCE',hash:'synthetic-existing-plan'});
+ for(const texts of [['Sí quiero el pedido','el lunes','por la tarde','No quiero el pedido'],[msg('¿Acepta el descuento de 5 €?',1,'out'),'Sí, acepto el descuento'],['Quizás quiera recibirlo, no sé']]){
+  const x=fixture(texts);x.policy=policy(x);
+  const live=decorateConversationV3(legacy,x,{env,releaseReport:report,authorizationRef:'OWNER-LIVE'});
+  assert.equal(live.plan.eligible,false);assert.match(live.plan.reason,/V3_(OPERATIONAL|UNCERTAIN_OPERATIONAL)_CONTEXT/);
+  const shadow=decorateConversationV3(legacy,x,{env:{...env,CONVERSATION_INTELLIGENCE_V3_MODE:'SHADOW'},releaseReport:report});assert.equal(shadow.plan,legacy);
+ }
+ const x=fixture(['Sí quiero el pedido','el lunes','por la tarde']);x.policy=policy(x);
+ assert.equal(decorateConversationV3(legacy,x,{env,releaseReport:report,authorizationRef:'OWNER-LIVE'}).plan,legacy);
+});
