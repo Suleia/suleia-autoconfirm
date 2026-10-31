@@ -51,11 +51,13 @@ test('finance client authenticates once and keeps only the sanitized per-order f
   const report = await client.getMonthly('2026-07');
   assert.deepEqual(report.availableMonths, ['2026-09', '2026-08', '2026-07', '2026-06', '2026-05']);
   assert.equal(report.totals.exactNetProfit, 30);
-  assert.deepEqual(report.orders, [{ orderId: '1384509', createdDay: '2026-09-01', settlementDay: '2026-09-09', status: 'FINISHED',
+  assert.deepEqual(report.orders, [{ orderId: '1384509', createdDay: '2026-09-01', settlementDay: '2026-09-09', settlementDateSource:'MISSING', status: 'FINISHED',
     breakdownStatus: 'DROPEA_FINAL', units: 2, orderAmount: null, realizedRevenue: 29.99, dropeaExpenses: null,
     productCost: 2.02, outboundShippingCost: 4.06, outboundFulfillmentCost: 1, codCost: 1.2,
     returnCost: null, dropeaAdjustmentsCost: 0, recognizedCost: 8.28, dropeaOrderProfit: null,
-    contributionAfterProduct: null }]);
+    contributionAfterProduct: null,providerPublishedTotal:null,costBasis:'LEGACY_SNAPSHOT_UNVERIFIED',paymentState:'UNVERIFIED',physicallyShipped:null,providerCalculatedAt:null,
+    cashReceived:null,cashSettlementDate:null,costEventDate:null,discountApplied:null,
+    costSources:{product:'MISSING',shipping:'MISSING',fulfillment:'MISSING',cod:'MISSING',returns:'MISSING',dropeaAdjustments:'MISSING'} }]);
   assert.equal('drilldowns' in report, false);
   assert.equal(report.productionWrites, 0);
   assert.equal(calls.length, 2);

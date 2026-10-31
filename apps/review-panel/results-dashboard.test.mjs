@@ -4,6 +4,19 @@ import test from 'node:test';
 import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 
+test('financial evidence and order contribution stay provisional despite reconciled sums; event-date view has its own footer',()=>{
+ const h=harness(),d=fixture();d.financialAssurance={providerFinal:'INCOMPLETE',arithmetic:'ARITHMETIC_RECONCILED',source:'INCOMPLETE',pendingOutcomeOrders:2,provisionalCosts:{amount:10,orders:2},publishedProviderTotals:{orders:2},rebuiltProviderTotals:{orders:1},unidentifiedAdjustments:{positiveAmount:4.79,negativeAmount:-7.39},revenue:{providerReportedPaid:30,deliveredUnverifiedSettlement:70}};
+ d.orderLedger=[{orderId:'123',createdDay:'2026-09-01',status:'DELIVERED',realizedRevenue:30,productCost:2,outboundShippingCost:4,outboundFulfillmentCost:1,codCost:1.2,returnCost:0,dropeaAdjustmentsCost:-6.2,recognizedCost:2,contributionAfterProduct:28,costBasis:'PROVIDER_PUBLISHED_TOTAL'}];
+ d.dailySettlements={days:[{day:'2026-09-01',realRevenue:null,totalCosts:null,netProfit:null,metaSpend:10}],totals:{realRevenue:null,totalCosts:null,exactNetProfit:null},eventCounts:{delivered:null,returned:null},limitation:'Sin fechas verificadas de cobro/cargo'};
+ h.state.finance=d;h.renderResultsFinance();assert.equal(h.get('finance-data-warning').hidden,false);
+ assert.match(text(h.get('finance-daily')),/ARITHMETIC_RECONCILED.*INCOMPLETE/);assert.match(text(h.get('finance-daily')),/Contribución operativa por pedido/);
+ assert.match(h.ResultsV2.ledgerCsv(d.orderLedger),/"-6.2"/);assert.doesNotMatch(h.ResultsV2.ledgerCsv(d.orderLedger),/Meta|gastos generales/);
+ const selector=all(h.get('finance-daily')).find(e=>e['aria-label']==='Modelo temporal financiero');selector.value='economic';selector.events.change();
+ assert.match(text(h.get('finance-daily')),/TOTAL POR FECHA DE EVENTO/);assert.match(text(h.get('finance-daily-caption')),/Sin fechas verificadas/);
+ assert.match(text(h.get('finance-hero').children[0]),/20,00/);assert.doesNotMatch(text(h.get('finance-daily')),/certificado/);
+});
+
+
 class Element {
   constructor(tag='div') { Object.assign(this,{tagName:tag,children:[],textContent:'',options:[],value:'',style:{setProperty(){}},classList:{add(){},remove(){},toggle(){}}}); }
   append(...items){this.children.push(...items);}

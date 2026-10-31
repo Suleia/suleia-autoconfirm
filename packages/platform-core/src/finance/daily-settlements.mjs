@@ -10,6 +10,9 @@ export function buildDailySettlements({ month, currentDay, reports = [] } = {}) 
   if (!source?.days?.length || !reports.some(r => r.orders?.length)) return null;
   const daysInMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).getUTCDate();
   const sourceDays = new Map(source.days.map(r => [r.day, r]));
+  const datedChargesVerified = reports.length > 0 && reports.every(report =>
+    report.financialAssurance?.independentVerification?.invoices === 'PROVIDER_FINAL_VERIFIED'
+    && (report.orders || []).every(order => order.costEventDate && order.cashSettlementDate));
   const rows = source.days.map(r => ({ day:r.day, created:r.created, delivered:0, returned:0,
     realRevenue:0, ...Object.fromEntries(COSTS.map(k => [k,0])), metaSpend:r.metaSpend,
     fixedCosts:0, oneOffCosts:r.oneOffCosts, otherCosts:r.otherCosts, quality:'COMPLETE' }));
@@ -61,10 +64,12 @@ export function buildDailySettlements({ month, currentDay, reports = [] } = {}) 
   if (!recurring.length) for (const row of rows) row.fixedCosts=sourceDays.get(row.day)?.fixedCosts ?? null;
   for (const row of rows) {
     if (missingDates || duplicateConflicts) row.quality='INCOMPLETE';
+    if (missingDates) { row.knownRevenue=row.realRevenue; row.realRevenue=null; row.delivered=null; row.returned=null; }
     for (const key of COSTS) if (row[key] !== null) row[key]=round(row[key]);
+    if (!datedChargesVerified) { row.undatedOrderCosts=Object.fromEntries(COSTS.map(key=>[key,row[key]])); for(const key of COSTS) row[key]=null; }
     if (validMoney(row.fixedCosts)) row.fixedCosts=round(Number(row.fixedCosts));
     const components=[...COSTS.map(k=>row[k]),row.metaSpend,row.fixedCosts,row.oneOffCosts,row.otherCosts];
-    const complete=components.every(validMoney) && validMoney(row.realRevenue) && row.quality==='COMPLETE';
+    const complete=datedChargesVerified && components.every(validMoney) && validMoney(row.realRevenue) && row.quality==='COMPLETE';
     if (!complete) row.quality='INCOMPLETE';
     row.totalCosts=complete ? round(components.reduce((n,v)=>n+Number(v),0)) : null;
     row.netProfit=complete ? round(row.realRevenue-row.totalCosts) : null;
@@ -72,7 +77,7 @@ export function buildDailySettlements({ month, currentDay, reports = [] } = {}) 
     row.roiPercent=row.totalCosts && row.netProfit!==null ? round(row.netProfit*100/row.totalCosts) : null;
     row.roas=validMoney(row.metaSpend) && Number(row.metaSpend)>0 && validMoney(row.realRevenue) ? round(row.realRevenue/row.metaSpend) : null;
     row.closeStatus=row.day===currentDay ? 'CURRENT_PARTIAL' : complete ? 'OBSERVED' : 'PENDING';
-    row.closeLabel=row.day===currentDay ? 'Hoy · datos parciales' : complete ? 'Liquidaciones observadas' : 'Datos incompletos';
+    row.closeLabel=row.day===currentDay ? 'Hoy · datos parciales' : complete ? 'Resultados por entrega/devolución observada' : 'Faltan fechas de cargo y/o liquidación verificadas';
   }
   const fields=['realRevenue',...COSTS,'metaSpend','fixedCosts','oneOffCosts','otherCosts','totalCosts','netProfit'];
   const totals=Object.fromEntries(fields.map(key => [key,rows.every(r=>validMoney(r[key])) ? round(rows.reduce((n,r)=>n+Number(r[key]),0)) : null]));
@@ -80,11 +85,11 @@ export function buildDailySettlements({ month, currentDay, reports = [] } = {}) 
   totals.marginPercent=totals.realRevenue && totals.netProfit!==null ? round(totals.netProfit*100/totals.realRevenue) : null;
   totals.roiPercent=totals.totalCosts && totals.netProfit!==null ? round(totals.netProfit*100/totals.totalCosts) : null;
   totals.roas=totals.metaSpend && totals.realRevenue!==null ? round(totals.realRevenue/totals.metaSpend) : null;
-  return { basis:'ACTUAL_ORDER_SETTLEMENT_DATE', days:rows, totals,
+  return { basis:'DELIVERY_RETURN_DATE_DIAGNOSTIC', days:rows, totals,
     eventCounts:Object.fromEntries(['delivered','returned'].map(key=>[key,
       rows.every(r=>r[key]!==null&&r[key]!==undefined) ? rows.reduce((n,r)=>n+r[key],0) : null])),
-    audit:{missingDates,missingComponents,duplicateConflicts,nonFinal},
-    label:'Entregas/devoluciones por fecha real · costes del pedido liquidado − Meta del día − gastos devengados',
-    limitation:'No es el movimiento diario de wallet: los costes de pedidos aún sin liquidar quedan en el resumen mensual de la cohorte. No se incluyen pedidos creados antes del primer mes disponible.',
+    audit:{missingDates,missingComponents,duplicateConflicts,nonFinal,chargeDatesVerified:datedChargesVerified,cashVerified:false},
+    label:'Fecha de entrega/devolución · diagnóstico separado de la cohorte de compra',
+    limitation:'La fecha de entrega no es una liquidación COD. Sin fechas verificadas de cargos y cobros no se publica beneficio económico definitivo. Los costes sin fecha y pedidos pendientes permanecen en la cohorte; no se reparten por su fecha de cálculo. No se incluyen pedidos creados antes del primer mes disponible.',
     productionWrites:0 };
 }

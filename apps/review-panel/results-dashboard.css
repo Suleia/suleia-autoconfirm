@@ -91,3 +91,10 @@
 .product-cost-coverage p{margin:8px 0 4px}
 .finance-product-cost-table th:nth-last-child(-n+2),.finance-product-cost-table td:nth-last-child(-n+2){white-space:nowrap;overflow-wrap:normal}
 .finance-product-cost-table td:last-child button{min-width:76px;white-space:nowrap;word-break:normal}
+.rv-finance-evidence{margin:14px 0;padding:16px;border:1px solid #dce9ef;border-radius:12px;background:#f5fafc;color:#36556f;overflow-wrap:anywhere}
+.rv-finance-evidence p,.rv-finance-ledger>p{font-size:12px;line-height:1.6;margin:9px 0}
+.rv-finance-basis{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:12px 0;font-size:12px}
+.rv-finance-ledger{margin-top:18px;padding:14px;border:1px solid #dce9ef;border-radius:12px;background:#fff}
+.rv-finance-ledger>summary{cursor:pointer;font-weight:700;color:#16455c}
+.rv-finance-ledger input{border:1px solid #dce9ef;border-radius:7px;padding:8px;min-width:180px}
+.rv-finance-ledger .rv-results-table{min-width:1450px}
