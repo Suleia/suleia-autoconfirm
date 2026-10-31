@@ -3,6 +3,11 @@ const at=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))?new Date(v).toIS
 const text=(v,n=300)=>typeof v==='string'?v.replace(/[\r\n\t]+/g,' ').slice(0,n):null;
 const official=a=>a?.source_type==='GLS_OFFICIAL_POSTAL_FORM'&&a.source_url==='https://www.gls-spain.es/es/iframe-buscador-codigos-postales-cloned/'||a?.source_type==='GLS_OFFICIAL_TRACKING_VISIBLE'&&/^https:\/\/mygls\.gls-spain\.es\/e\/\d+\/\d{5}\/es$/.test(a.source_url);
 const direct=v=>String(v||'').replace(/\D/g,'').replace(/^34(?=\d{9}$)/,'')!=='910806229';
+export function withGlsPickupObservation(row,report,now=Date.now()){
+ if(!report||!Array.isArray(report.cases)||!at(report.completed_at)||Date.parse(report.completed_at)>now||now-Date.parse(report.completed_at)>3600000)return row;
+ const g=report.cases.find(g=>String(g.order_id)===String(row.order_id)&&String(g.issue_id)===String(row.incidence_id));
+ return g?{...row,raw:{...row.raw,glsPickupNotice:{...g,mode:report.mode,template:report.template,report_at:report.completed_at}}}:row;
+}
 export function normalizeGlsPickupSignal(row){
  const g=row.raw?.glsPickupNotice;
  if(!g||String(g.order_id)!==String(row.order_id)||String(g.issue_id)!==String(row.incidence_id)||!at(g.observed_at)||!at(g.report_at))return null;

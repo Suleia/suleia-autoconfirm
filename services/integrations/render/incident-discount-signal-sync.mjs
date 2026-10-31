@@ -1,5 +1,6 @@
 import {normalizeAddressSignal} from './address-signal.mjs';
 import {normalizeResolutionSignal} from './resolution-signal.mjs';
+import {withGlsPickupObservation} from './gls-pickup-signal.mjs';
 const RESPONSE_STATUSES = new Set([
   'DISCOUNT_ACCEPTED', 'DISCOUNT_REJECTED', 'OTHER_RESPONSE',
   'NO_RESPONSE', 'NOT_SENT', 'NOT_VERIFIABLE'
@@ -94,12 +95,16 @@ export async function syncRenderIncidentDiscountSignals({
   let eligible = 0;
   let projected = 0;
   let unmatched = 0;
+  let pickupReport=null;
+  // Read the isolated VPS observation through the existing read-only source.
+  // Do not wait for a separate Render business review or change other signals.
+  try{if(typeof source.readGlsPickupNotice==='function')pickupReport=await source.readGlsPickupNotice();}catch{/* Other incident observations continue normally. */}
   for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
     const page = await source.page('incidents', 'updated_at', { offset, limit: pageSize });
     if (page.missing || !page.rows.length) break;
     for (const row of page.rows) {
       seen += 1;
-      const resolution=normalizeResolutionSignal(row);
+      const resolution=normalizeResolutionSignal(withGlsPickupObservation(row,pickupReport));
       if(resolution)await projector.upsertIncidentResolutionObservation(resolution);
       const address=normalizeAddressSignal(row,{hmacKey});
       if(address){await projector.upsertAddressOwnerObservation(address);continue;}

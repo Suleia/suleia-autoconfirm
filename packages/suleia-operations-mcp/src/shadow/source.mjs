@@ -12,6 +12,13 @@ export class SupabaseReadSource {
     this.sourceUrl = sourceUrl; this.sourceToken = sourceToken; this.fetchImpl = fetchImpl;
   }
 
+  async readGlsPickupNotice() {
+    const query=new URLSearchParams({select:'value,updated_at',key:'eq.gls_pickup_notice_v1',limit:'2'});
+    const response=await this.fetchImpl(`${this.sourceUrl}/rest/v1/app_state?${query}`,{method:'GET',redirect:'error',headers:{apikey:this.sourceToken,Authorization:`Bearer ${this.sourceToken}`,Accept:'application/json'},signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw Error('GLS_PICKUP_OBSERVATION_SOURCE_UNAVAILABLE');
+    const rows=await response.json();if(!Array.isArray(rows)||rows.length>1)throw Error('GLS_PICKUP_OBSERVATION_SOURCE_AMBIGUOUS');return rows[0]?.value||null;
+  }
+
   async page(table, timestampField, { after = null, offset = 0, limit = 250 } = {}) {
     const query = new URLSearchParams({ select: '*', order: `${timestampField}.asc`, limit: String(limit), offset: String(offset) });
     if (after) query.set(timestampField, `gt.${after}`);
