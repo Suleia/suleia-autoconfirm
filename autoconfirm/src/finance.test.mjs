@@ -413,6 +413,7 @@ test('live Dropea order detail can be returned without a data wrapper', async ()
     ...summaryOrder,
     expenses_breakdown: {
       product_price: 1.01,
+      fulfillment_extra_unit_price: 0,
       fulfillment_outbound_price: 1,
       fulfillment_refused_price: 0,
       shipping_outbound_price: 4.06,
@@ -437,7 +438,7 @@ test('live Dropea order detail can be returned without a data wrapper', async ()
     metaLoader: async () => []
   });
   const enriched = report.orders.find((item) => item.orderId === '9002');
-  assert.equal(enriched.breakdownStatus, 'DROPEA_FINAL');
+  assert.equal(enriched.breakdownStatus, 'DROPEA_RECONSTRUCTED');
   assert.equal(enriched.dropeaExpenses, 8.40);
   assert.equal(enriched.productCost, 1.01);
   assert.equal(enriched.dropeaAdjustmentsCost, 1.13);

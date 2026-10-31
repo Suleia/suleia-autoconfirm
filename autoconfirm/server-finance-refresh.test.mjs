@@ -31,3 +31,14 @@ test('a tariff change during an existing refresh queues exactly one follow-up us
  assert.deepEqual(tasks,['2026-10','2026-10']);releases.shift()();await new Promise(setImmediate);assert.equal(tasks.length,2);
 });
 
+test('the existing financial timer reconciles a stale prior cohort sequentially and never duplicates a sweep',async()=>{
+ const calls=[],releases=[];const context={Date,Map,Set,Promise,Number,process:{env:{}},resolveFinancePeriod:month=>({month:month||'2026-11'}),setTimeout:fn=>fn(),console:{log(){},error(){}},
+  loadFinanceSnapshot:async({month})=>month==='2026-10'?{generatedAt:'2026-10-30T10:00Z',period:{current:false},counts:{inAir:2,pending:1}}:null,
+  buildFinanceReport:async({month})=>{calls.push(month);await new Promise(resolve=>releases.push(resolve));return {period:{month}};}};
+ const start=source.indexOf('const financeRefreshInFlight = new Map();'),end=source.indexOf('\nconst server = http.createServer',start);
+ vm.runInNewContext(source.slice(start,end)+'\nglobalThis.sweep=runFinanceReconciliationSweep;',context);
+ const first=context.sweep(),second=context.sweep();assert.equal(first,second);await new Promise(setImmediate);assert.deepEqual(calls,['2026-11']);
+ releases.shift()();await new Promise(setImmediate);assert.deepEqual(calls,['2026-11','2026-10']);releases.shift()();await first;
+ assert.equal(calls.length,2);
+});
+
