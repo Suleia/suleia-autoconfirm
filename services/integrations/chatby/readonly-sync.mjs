@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {sharedChatbyReader} from './read-gate.mjs';
 import { collectPaginated, createReadOnlyTransport } from '../../../packages/platform-core/src/read-only-transport.mjs';
 import { encryptPrivateJson } from '../../../packages/platform-core/src/operational-truth/dropea-canonical.mjs';
 import { interpretChatbyCustomerText } from '../../../packages/platform-core/src/operational-truth/chatby-customer-instruction.mjs';
@@ -335,14 +336,14 @@ export async function syncChatbyReadOnly({
     throw new Error('CHATBY_READ_HOST_NOT_ALLOWLISTED');
   }
   const transport = createReadOnlyTransport({
-    fetchImpl,
+    fetchImpl:sharedChatbyReader(subscriberCache,{fetchImpl,now,minRequestIntervalMs}),
     allowedHosts: [base.hostname],
-    // AUSENTE defers to the next scheduled cycle on provider throttling;
-    // it never retries sooner than the actual Retry-After deadline.
-    maxRetries: onlyRecipientAbsent ? 0 : 4,
+    // Both observational phases share pacing/cooldown and defer to their next
+    // existing cycle; never truncate a long Retry-After into an early retry.
+    maxRetries: 0,
     retryBaseMs,
     maxRetryDelayMs: 60_000,
-    minRequestIntervalMs
+    minRequestIntervalMs:0
   });
   const cacheHit = Boolean(subscriberCache?.items && Number.isFinite(subscriberCache.fetchedAt)
     && now() - subscriberCache.fetchedAt < subscriberCacheTtlMs);
