@@ -69,7 +69,7 @@ test('V3 uses the existing pre-send journal and never repeats an uncertain send 
  const store=memory(),legacy={eligible:true,kind:'CLARIFY'},trace=[];let ledger=null,sends=0;
  const prepare=async currentNow=>prepareCustomerCare(legacy,v3Input,{control:v3Control,v3Store:store,now:currentNow});
  const first=await prepare(now);assert.equal(first.plan.eligible,true);assert.equal(first.care.missing_information.length,1);
- const deps={revalidate:async()=> (await prepare(now)).plan,readMessages:async()=>[message],now:()=>now,
+ const deps={revalidate:async()=> (await prepare(now)).plan,readMessages:async()=>[message],readQuestionDeliveries:async()=>[],now:()=>now,
   claimMessage:async()=>ledger?{persistent:true,acquired:false,existing:ledger}:{persistent:true,acquired:true},
   finishMessage:async receipt=>{trace.push(receipt.status);ledger={status:receipt.status,attempted_at:receipt.attemptedAt,raw:receipt.raw};await recordCustomerCareReceipt(first.plan,receipt,{store});return receipt;},
   send:async()=>{assert.equal(ledger.status,'delivery_unverified');assert.equal((await store.load()).value.waiting_for_customer,true);trace.push('POST');sends++;throw Error('connection lost after provider accepted');}};
@@ -83,14 +83,14 @@ test('V3 uses the existing pre-send journal and never repeats an uncertain send 
 test('V3 cannot post if durable journal persistence fails',async()=>{
  const store=memory(),legacy={eligible:true,kind:'CLARIFY'};
  const first=await prepareCustomerCare(legacy,v3Input,{control:v3Control,v3Store:store,now});let sends=0;
- await assert.rejects(executeDeliveryReply(first.plan,{revalidate:async()=>first.plan,readMessages:async()=>[message],claimMessage:async()=>({persistent:true,acquired:true}),finishMessage:async()=>{throw Error('durable journal unavailable');},send:async()=>{sends++;}}));
+ await assert.rejects(executeDeliveryReply(first.plan,{revalidate:async()=>first.plan,readMessages:async()=>[message],readQuestionDeliveries:async()=>[],claimMessage:async()=>({persistent:true,acquired:true}),finishMessage:async()=>{throw Error('durable journal unavailable');},send:async()=>{sends++;}}));
  assert.equal(sends,0);
 });
 test('V3 one verified clarification persists the provider WAMID and consumes only a natural inbound',async()=>{
  const store=memory(),legacy={eligible:true,kind:'CLARIFY'};
  const first=await prepareCustomerCare(legacy,v3Input,{control:v3Control,v3Store:store,now});let sent=false,sends=0;
  const outbound={id:'20',type:'agent',user_ns:'fixture',content:first.plan.content,ts:now/1000,mid:'wamid.v3-regression'};
- const result=await executeDeliveryReply(first.plan,{revalidate:async()=>first.plan,now:()=>now,readMessages:async()=>sent?[message,outbound]:[message],
+ const result=await executeDeliveryReply(first.plan,{revalidate:async()=>first.plan,now:()=>now,readMessages:async()=>sent?[message,outbound]:[message],readQuestionDeliveries:async()=>[],
   claimMessage:async()=>({persistent:true,acquired:true}),finishMessage:async receipt=>{await recordCustomerCareReceipt(first.plan,receipt,{store});return receipt;},
   send:async()=>{sends++;sent=true;return {mid:'wamid.v3-regression'};}});
  assert.equal(sends,1);assert.equal(result.status,'VERIFIED');assert.equal((await store.load()).value.clarifications.at(-1).provider_message_id,'wamid.v3-regression');

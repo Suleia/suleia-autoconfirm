@@ -24,6 +24,7 @@ export function decorateConversationV3(legacy,input,{previous=null,env={},releas
  if(!capability){
   if(isLive&&legacy?.kind==='CLARIFY'&&legacy.reason==='PAYMENT_OR_PRICE_NEEDS_CONFIRMATION')return block('V3_VERIFIED_PAYMENT_INFORMATION_REQUIRED');
   if(isLive&&legacy?.kind==='CLARIFY'&&care.next_best_action==='DELEGATE')return block('V3_DELEGATED_TO_EXISTING_OWNER');
+  if(isLive&&legacy?.kind==='CLARIFY')return block('V3_CONTEXT_DOES_NOT_AUTHORIZE_QUESTION');
   return {plan:legacy,care};
  }
  const released=capability==='CONTEXTUAL_CLARIFICATION'?env.CONVERSATION_V3_CLARIFICATION_ENABLED==='true':env.CONVERSATION_V3_STATUS_REPLY_ENABLED==='true';
@@ -38,7 +39,7 @@ export function decorateConversationV3(legacy,input,{previous=null,env={},releas
  if(!Number.isFinite(age)||age<3600000||age>=24*3600000)return block('EXISTING_REPLY_WINDOW_REQUIRED');
  if(!care.proposed_response)return block('VERIFIED_RESPONSE_CONTENT_UNAVAILABLE');
  const latest=input.messages.filter(isCustomerInteraction).sort((a,b)=>messageTimestamp(a)-messageTimestamp(b)).at(-1);
- const plan={eligible:true,kind:'CLARIFY',reason:`CONVERSATION_V3_${capability}_${care.conversation_version}`,orderId:care.dropea_order_id,issueId:care.active_issue_id,conversationId:care.conversation_reference,messageAt:care.latest_customer_at,messageId:String(latest?.id||''),content:care.proposed_response,care_plan:care,care_capability:capability};
+ const plan={eligible:true,kind:'CLARIFY',reason:`CONVERSATION_V3_${capability}_${care.conversation_version}`,orderId:care.dropea_order_id,issueId:care.active_issue_id,conversationId:care.conversation_reference,orderCreatedAt:care.order_created_at,messageAt:care.latest_customer_at,messageId:String(latest?.id||''),content:care.proposed_response,care_plan:care,care_capability:capability};
  plan.hash=hash([plan.orderId,plan.issueId,care.case_hash,plan.content]);
  if(isLive){
   const gate=evaluateLiveCapabilityGate(releaseReport,{capability,admission,caseKey:`${care.canonical_order_id}:${care.active_issue_id}`,conversationId:care.conversation_reference,inputHash:care.input_hash,authorizationRef});
