@@ -57,7 +57,7 @@ export function extractCustomerFacts(event,{question=null,offerVerified=false,in
   }
   if(/no quiero (?:el )?descuento|rechazo (?:el )?descuento/.test(t)){
     put('REJECTS_DISCOUNT',true);put('ACCEPTS_DISCOUNT',false);
-    if(/pero (?:si )?quiero (?:el|mi) pedido/.test(t)){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('CANCEL_INTENT',false);}
+    if(/pero (?:si )?quiero (?:el|mi) pedido/.test(t)||/pero si (?:el|mi) pedido[.! ]*$/.test(t)){put('WANTS_ORDER',true);put('WANTS_RETURN',false);put('CANCEL_INTENT',false);}
   }
   if(/nadie ha venido|no se ha pasado nadie|no han intentado entregarlo|sigo esperando|no me ha llegado/.test(t)&&!facts.get('WANTS_RETURN')?.value){
     put('REPORTS_NO_DELIVERY_ATTEMPT',true);put('WANTS_ORDER',true);put('REQUESTS_REDELIVERY',true);put('WANTS_RETURN',false);put('CANCEL_INTENT',false);

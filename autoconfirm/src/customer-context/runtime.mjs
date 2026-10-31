@@ -1,6 +1,7 @@
 import {compileCustomerCase} from './case-compiler.mjs';
 import {createCustomerCareStore} from '../customer-care/store.mjs';
-import {carePolicyFor} from '../customer-care/runtime.mjs';
+import {carePolicyFor,followCustomerCare} from '../customer-care/runtime.mjs';
+import {readDropeaV2ReturnIssueState} from '../clients/dropea-v2-incidents.mjs';
 import {resolutionCandidate} from '../workflows/incident-resolution-plan.mjs';
 import {findSubscriberInIndexForExactOrder} from '../clients/chatby.mjs';
 
@@ -29,18 +30,20 @@ export function shadowComparison(v2,v3){
 }
 export function conversationV3Metrics(cases){
   const facts=cases.flatMap(c=>c.fact_ledger||[]),count=cases.length;
+  const ownQuestions=cases.flatMap(c=>c.clarifications||[]).filter(q=>q.source==='CUSTOMER_CARE_EXISTING_SENDER'&&['PROVIDER_ACCEPTED','ANSWERED'].includes(q.status)&&q.provider_message_id);
+  const ownInformation=cases.flatMap(c=>c.timeline||[]).filter(e=>e.kind==='INFORMATION_RESPONSE'&&e.source==='V3_EXISTING_SENDER'&&e.status==='PROVIDER_ACCEPTED'&&e.provider_message_id);
   return {cohort:'CURRENT_EXACT_ORDER_V3_CASES',cases:count,messages_processed:cases.reduce((n,c)=>n+Object.keys(c.event_versions||{}).length,0),
     facts_extracted:facts.length,facts_superseded:facts.filter(f=>f.status==='SUPERSEDED').length,
     semantic_fallback_rate:0,semantic_enabled:false,high_confidence_facts:facts.filter(f=>f.confidence>=.9).length,low_confidence_facts:facts.filter(f=>f.confidence<.9).length,
     ambiguous_rate:count?cases.filter(c=>c.unresolved?.length).length/count:null,
-    clarifications_sent:0,repeated_clarifications_blocked:cases.filter(c=>c.reason==='WAITING_CUSTOMER').length,
+    clarifications_sent:ownQuestions.length,v3_messages_sent:ownQuestions.length+ownInformation.length,v3_status_replies:ownInformation.length,repeated_clarifications_blocked:cases.filter(c=>c.reason==='WAITING_CUSTOMER').length,
     historical_clarifications:cases.reduce((n,c)=>n+(c.clarifications||[]).length,0),average_clarifications_per_case:count?cases.reduce((n,c)=>n+(c.clarifications||[]).length,0)/count:null,
     customer_reply_resolution_rate:null,stale_plans_prevented:0,change_of_mind_detected:cases.filter(c=>c.change_of_mind_detected>0).length,
     human_escalation_rate:count?cases.filter(c=>c.next_best_action==='HUMAN_REVIEW').length/count:null,
     verified_action_rate:null,delivery_after_recovery:null,return_after_recovery:null,
     comparison:Object.fromEntries(['SAME_DECISION','V3_MORE_SPECIFIC','V3_AVOIDS_CLARIFICATION','V3_DIFFERENT_ROUTE','V3_HUMAN_REVIEW','V3_CONFLICT'].map(k=>[k,cases.filter(c=>c.shadow_comparison===k).length]))};
 }
-export async function observeConversationV3(items,{env=process.env,store=createCustomerCareStore({prefix:'conversation_v3'}),now=Date.now(),policyFor=carePolicyFor}={}){
+export async function observeConversationV3(items,{env=process.env,store=createCustomerCareStore({prefix:'conversation_v3'}),now=Date.now(),policyFor=carePolicyFor,readCurrent=readDropeaV2ReturnIssueState}={}){
   if(!conversationV3Flags(env).enabled)return {enabled:false};
   const cases=[];let failures=0;
   for(const item of items){try{
@@ -55,8 +58,16 @@ export async function observeConversationV3(items,{env=process.env,store=createC
     if(!compiled.input_hash){failures++;continue;}
     compiled.candidate=resolutionCandidate({...input,conversationContext:compiled});
     compiled.shadow_comparison=shadowComparison(resolutionCandidate(input),compiled);
-    compiled.mode='SHADOW';compiled.provider_writes=0;
+    compiled.mode=conversationV3Flags(env).mode==='LIVE'?'LIVE':'SHADOW';compiled.provider_writes=0;
     await store.save(compiled,prior);item.incident.conversationIntelligenceV3=compiled;cases.push(compiled);
   }catch{failures++;}}
-  return {enabled:true,mode:'SHADOW',provider_writes:0,failures,metrics:conversationV3Metrics(cases)};
+  let followed=0;
+  if(conversationV3Flags(env).mode==='LIVE'&&store.listOpen){
+    try{const active=new Set(items.map(i=>`${i.order?.orderId}:${i.incident?.incidenceId}`));
+      for(const previous of(await store.listOpen()).filter(r=>r.value.active_issue_id&&!active.has(`${r.value.dropea_order_id}:${r.value.active_issue_id}`)).slice(0,3)){
+        try{await followCustomerCare(previous,items,{readCurrent,store,now});followed++;}catch{failures++;}
+      }
+    }catch{failures++;}
+  }
+  return {enabled:true,mode:conversationV3Flags(env).mode==='LIVE'?'LIVE':'SHADOW',provider_writes:0,failures,followed,metrics:conversationV3Metrics(cases)};
 }

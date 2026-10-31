@@ -40,6 +40,7 @@ export function routeCustomerCase(state,policy={}){
  const unanswered=state.clarifications.filter(c=>!c.answered_at&&['ATTEMPTING','PROVIDER_ACCEPTED','DELIVERY_UNVERIFIED'].includes(c.status));
  if(unanswered.length)return result('WAITING_CUSTOMER',null,'ONE_ACTIVE_CLARIFICATION',{active_question_hash:unanswered.at(-1).message_hash});
  const intents=state.latest_customer_intents;
+ if(policy.liveVerifiedContext&&state.discount_response==='ACCEPTED'&&!policy.discountAppliedVerified)return result('DELEGATE','DISCOUNT_ACCEPT','ACCEPTED_DISCOUNT_AWAITING_VERIFIED_CURRENT_AMOUNT');
  if(intents.some(i=>['REPORTS_DAMAGE','REPORTS_MISSING_ITEM','REPORTS_WRONG_PRODUCT'].includes(i)))return result('HUMAN_REVIEW',null,'PRODUCT_INCIDENT_REQUIRES_SPECIALIST');
  if(intents.includes('ASKS_PAYMENT')){
   if(!policy.paymentVerified||state.amount_due===null||!state.allowed_payment_methods.length)return result('HUMAN_REVIEW',null,'VERIFIED_PAYMENT_INFORMATION_REQUIRED');
@@ -54,7 +55,7 @@ export function routeCustomerCase(state,policy={}){
   if(!faq?.text||!faq?.source||faq.verified!==true)return result('HUMAN_REVIEW',null,'VERIFIED_PRODUCT_SOURCE_REQUIRED');
   return result('RESPOND','STATUS_REPLY','VERIFIED_FAQ',{response_type:'FAQ'});
  }
- if(state.discount_response==='ACCEPTED')return result('DELEGATE','DISCOUNT_ACCEPT','CURRENT_OFFER_ACCEPTED');
+ if(state.discount_response==='ACCEPTED'&&!(policy.liveVerifiedContext&&policy.discountAppliedVerified))return result('DELEGATE','DISCOUNT_ACCEPT','CURRENT_OFFER_ACCEPTED');
  if(state.address_change_requested||state.agency_requested){return result('DELEGATE',state.address_change_requested?'ADDRESS':'AGENCY','EXISTING_SPECIALIST_OWNER',{missing_slots:requiredMissingSlots(state,policy)});}
  if(state.wants_order===true&&['PENDING','PENDING_CONFIRMATION','PENDING_DROPSHIPPER'].includes(state.current_order_state))return result('DELEGATE','CONFIRM_ORDER','CONFIRM_INTENT_EXISTING_OWNER');
  const missing=requiredMissingSlots(state,policy);
@@ -75,12 +76,12 @@ export function responseForPlan(state,plan,policy={}){
   if(state.payment_information_sent&&state.payment_information_signature===signature&&!state.latest_customer_intents.includes('ASKS_PAYMENT'))return null;
   const amount=new Intl.NumberFormat('es-ES',{style:'currency',currency:'EUR'}).format(state.amount_due);
   const methods=state.allowed_payment_methods.map(m=>({CASH:'en efectivo',CARD:'con tarjeta'})[m]).join(' o ');
-  return `El importe pendiente es de ${amount} y podrá abonarlo al recibirlo ${methods}.`;
+  return `El importe del pedido es de ${amount} y podrá abonarlo al recibirlo ${methods}.`;
  }
  if(plan.response_type==='FAQ')return policy.verifiedFaq?.verified===true?policy.verifiedFaq.text:null;
  if(plan.response_type==='ORDER_STATUS'){
-  const status={PREPARED:'El pedido figura preparado.',IN_TRANSIT:'El pedido está en tránsito.',ERROR:'El pedido tiene una incidencia de entrega.',INCIDENCE:'El pedido tiene una incidencia de entrega.',DELIVERED:'El pedido figura entregado.',RETURNED:'El pedido figura devuelto.'}[state.current_order_state];
-  return status?status+(state.last_verified_action?.status==='VERIFIED'&&state.last_verified_action.action==='REDELIVERY'?' Hemos solicitado una nueva entrega.':''):null;
+  const status={PENDING:'El pedido está pendiente de confirmación.',PREPARING:'El pedido está en preparación.',PREPARED:'El pedido figura preparado.',OUT_FOR_DELIVERY:'El pedido figura en reparto.',IN_TRANSIT:'El pedido está en tránsito.',ERROR:'El pedido tiene una incidencia de entrega.',INCIDENCE:'El pedido tiene una incidencia de entrega.',DELIVERED:'El pedido figura entregado.',RETURNED:'El pedido figura devuelto.',CANCELLED:'El pedido figura cancelado.'}[policy.providerReadVerified&&policy.verifiedOrderState||state.current_order_state];
+  return status?status+(state.last_verified_action?.status==='VERIFIED'&&['REDELIVERY','RETRY_DELIVERY'].includes(state.last_verified_action.action)?' Hemos solicitado una nueva entrega.':'')+(state.latest_customer_intents.includes('ASKS_DELIVERY_DATE')?' No tenemos todavía una fecha de entrega confirmada por la empresa de transporte.':''):null;
  }
  const missing=plan.missing_slots;
  if(missing.length===1){

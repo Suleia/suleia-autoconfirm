@@ -40,9 +40,10 @@ export async function followCustomerCare(previous,currentItems,{readCurrent=read
  const read=await readCurrent({orderId:old.dropea_order_id,incidenceId:old.active_issue_id},{includeOrder:true});
  if(String(read.order?.orderId)!==old.dropea_order_id||String((read.issue?.raw||read.issue)?.id)!==old.active_issue_id)throw Error('CARE_FOLLOWUP_IDENTITY');
  const next=currentItems.find(i=>String(i.order?.orderId)===old.dropea_order_id&&String(i.incident?.incidenceId)!==old.active_issue_id);
- caseState.current_order_state=read.order.status;caseState.updated_at=new Date(now).toISOString();
+ const providerState=read.order.status==='FINISH'&&['DELIVERED','RETURNED','CANCELLED'].includes(read.order.raw?.sub_status)?read.order.raw.sub_status:read.order.status;
+ caseState.current_order_state=providerState;caseState.updated_at=new Date(now).toISOString();
  if(next){caseState.status='HUMAN_REVIEW';caseState.next_best_action='HUMAN_REVIEW';caseState.reason='NEW_INCIDENT';caseState.linked_next_issue_id=String(next.incident.incidenceId);}
- else if(['DELIVERED','RETURNED','CANCELLED'].includes(read.order.status)){caseState.status='CLOSED';caseState.logistics_outcome=read.order.status;caseState.next_best_action='WAITING_PROVIDER';caseState.reason='PROVIDER_OUTCOME_VERIFIED';caseState.waiting_for_provider=false;caseState.waiting_for_customer=false;}
+ else if(['DELIVERED','RETURNED','CANCELLED'].includes(providerState)){caseState.status='CLOSED';caseState.logistics_outcome=providerState;caseState.next_best_action='WAITING_PROVIDER';caseState.reason='PROVIDER_OUTCOME_VERIFIED';caseState.waiting_for_provider=false;caseState.waiting_for_customer=false;}
  else {caseState.status='WAITING_PROVIDER';caseState.next_best_action='WAITING_PROVIDER';caseState.reason='PROVIDER_OUTCOME_PENDING';caseState.waiting_for_provider=true;}
  caseState.timeline=[...caseState.timeline,{kind:'PROVIDER_FOLLOWUP',at:caseState.updated_at,outcome:caseState.logistics_outcome||'PENDING',provider_issue_status:(read.issue?.raw||read.issue).status}].slice(-100);
  await store.save(caseState,previous);return caseState;
