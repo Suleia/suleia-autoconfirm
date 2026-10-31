@@ -207,6 +207,13 @@ test('SHADOW observer persists comparison without any sender or provider writer'
  const result=await observeConversationV3(items,{env:{CONVERSATION_V3_ENABLED:'true'},now,policyFor:i=>i.policy,store:{load:async()=>null,save:async c=>{saves++;assert.equal(c.mode,'SHADOW');}}});
  assert.equal(result.failures,0);assert.equal(saves,1);assert.equal(result.provider_writes,0);
 });
+test('SHADOW read failure preserves valid memory and reports failure rather than a successful empty context',async()=>{
+ const item=input(['Quiero el pedido el sábado por la tarde']);item.incident.chatbyReadVerified=false;
+ const previous=compile(['Quiero el pedido el sábado por la tarde']);const frozen=structuredClone(previous);let writes=0;
+ const result=await observeConversationV3([item],{env:{CONVERSATION_V3_ENABLED:'true'},now,policyFor:i=>i.policy,store:{load:async()=>({value:previous}),save:async()=>{writes++;}}});
+ assert.equal(result.failures,1);assert.equal(result.metrics.cases,0);assert.equal(result.provider_writes,0);assert.equal(writes,0);assert.deepEqual(previous,frozen);
+ assert.equal(item.incident.conversationIntelligenceV3,undefined);
+});
 test('300 synthetic cases cannot satisfy the genuinely sourced reviewed release gate',()=>{
  const failed=evaluateConversationRelease({real_cases:0,reviewed_real_cases:0,synthetic_cases:1000});assert.equal(failed.allowed,false);
  const good={real_cases:300,reviewed_real_cases:300,provenance_verified:true,wrong_irreversible_route:0,wrong_order_binding:0,repeated_clarification:0,blind_retry:null,owner_routing:1,explicit_return_recall:1,explicit_order_recall:1,date_window_accuracy:.99,current_replay_verified:true,executor_reconciliation_contract_verified:true,unknown_execution_no_blind_retry_tests:true};assert.equal(evaluateConversationRelease(good).allowed,true);

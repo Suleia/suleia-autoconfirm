@@ -38,6 +38,10 @@ export async function observeConversationV3(items,{env=process.env,store=createC
     const prior=await store.load(identity);
     const input={...item,now,policy:policyFor(item),binding:{verified:item.incident.chatbyReadVerified===true&&item.incident.chatbyOrderAssociation==='EXACT_ORDER',orderId:String(item.order?.orderId),issueId:String(item.incident.incidenceId),conversationId:item.incident.chatbyUserNs}};
     const compiled=compileCustomerCase(input,prior?.value);
+    // A failed/incomplete provider read is not a successfully observed case.
+    // Keep the last valid projection and report the failed observation instead
+    // of replacing memory with an empty, unverified context.
+    if(!compiled.input_hash){failures++;continue;}
     compiled.candidate=resolutionCandidate({...input,conversationContext:compiled});
     compiled.shadow_comparison=shadowComparison(resolutionCandidate(input),compiled);
     compiled.mode='SHADOW';compiled.provider_writes=0;
