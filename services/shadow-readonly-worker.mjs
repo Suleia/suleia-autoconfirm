@@ -32,6 +32,7 @@ const dropeaClients = dropeaStores.map((store) => ({ store, client: createDropea
 }) }));
 const operationsProjector = new OperationsProjector(repository.pool);
 let running = false, lastResult = null, lastError = null;
+let incidentContextObservation = null;
 // Ephemeral process-local cache only: it is never logged, persisted or exposed
 // through health/API responses.
 const chatbySubscriberCache = {};
@@ -98,6 +99,18 @@ async function run() {
       const pickup=await syncGlsPickupObservations({source,projector:operationsProjector});
       audit({event:'gls_pickup_observation_sync',projected:pickup.projected});
     }catch{audit({event:'gls_pickup_observation_unavailable'});}
+    // Project current incident context before historical ingestion. This is
+    // the existing read-model stage, executed once, with no operational writer.
+    let incidentDiscountSignals;
+    try {
+      incidentDiscountSignals=dropeaStores.length
+        ? await syncRenderIncidentDiscountSignals({source,projector:operationsProjector,pageSize:config.pageSize,hmacKey:config.hashKey,maxPages:Number(process.env.INCIDENT_DISCOUNT_SIGNAL_MAX_PAGES||20)})
+        : {ok:true,skipped:true,reason:'dropea_disabled',actions_executed:0,production_writes:0};
+      incidentContextObservation={ok:incidentDiscountSignals.ok,observed_at:new Date().toISOString()};
+    } catch {
+      incidentDiscountSignals={ok:false,actions_executed:0,production_writes:0};
+      incidentContextObservation={ok:false,observed_at:new Date().toISOString(),error:'INCIDENT_CONTEXT_PROJECTION_UNAVAILABLE'};
+    }
     const legacy = await syncShadow({ source, repository, hashKey: config.hashKey, pageSize: config.pageSize, audit });
     const dropeaResults = [];
     for (const { store, client } of dropeaClients) {
@@ -153,12 +166,6 @@ async function run() {
           source, projector: operationsProjector, stores: dropeaStores,
           pageSize: config.pageSize,
           maxPages: Number(process.env.CHATBY_OPERATIONAL_SIGNAL_MAX_PAGES || 20)
-        })
-      : { ok: true, skipped: true, reason: 'dropea_disabled', actions_executed: 0, production_writes: 0 };
-    const incidentDiscountSignals = dropeaStores.length
-      ? await syncRenderIncidentDiscountSignals({
-          source, projector: operationsProjector, pageSize: config.pageSize, hmacKey:config.hashKey,
-          maxPages: Number(process.env.INCIDENT_DISCOUNT_SIGNAL_MAX_PAGES || 20)
         })
       : { ok: true, skipped: true, reason: 'dropea_disabled', actions_executed: 0, production_writes: 0 };
     const incidents = await syncIncidentSimulations({
@@ -222,7 +229,7 @@ const server = http.createServer(async (req, res) => {
     const health = applyAbsentReadHealth(shadowWorkerHealth({ lastResult, lastError, running }),
       {running:absentRunning,lastResult:absentLastResult,lastError:absentLastError,retryNotBefore:absentRetryNotBefore});
     res.statusCode = health.statusCode;
-    res.end(JSON.stringify(health.body)); return;
+    res.end(JSON.stringify({...health.body,incident_context_observation:incidentContextObservation})); return;
   }
   res.statusCode = 404; res.end(JSON.stringify({ ok: false, error: 'not_found' }));
 });

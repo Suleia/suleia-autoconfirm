@@ -5,6 +5,9 @@ import { syncChatbyReadOnly, chatbyReadOnlyInternals } from './readonly-sync.mjs
 
 const key = 'chatby-readonly-test-key-that-is-long-enough';
 const exactHash = crypto.createHmac('sha256', key).update('ORDER-EXACT').digest('hex');
+test('general observation also makes one GET on a long provider throttle, without retrying at the old 60-second cap',async()=>{
+ let calls=0;await assert.rejects(syncChatbyReadOnly({pool:{query:async()=>({rows:[]})},projector:{},token:'synthetic',hmacKey:key,minRequestIntervalMs:0,retryBaseMs:0,fetchImpl:async()=>{calls++;return new Response('{}',{status:429,headers:{'retry-after':'235'}});}}),e=>e.code==='CHATBY_SUBSCRIBERS_HTTP_429'&&e.retryNotBefore>Date.now()+230000);assert.equal(calls,1);
+});
 
 test('private display retains the actual initial notification outside the last ten outbound messages',()=>{
   const start=Date.parse('2026-09-18T09:00:00Z');

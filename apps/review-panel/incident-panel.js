@@ -35,6 +35,18 @@ const IncidentPanel=(()=>{
         ['Acción operativa',c.operational_action||'NONE'],['Respuesta al cliente',c.customer_reply_action||'NONE'],
         ['Confianza por dato',Object.entries(c.confidence||{}).map(([k,v])=>`${k}: ${Math.round(v*100)}%`).join(' · ')||'Por verificar'],
         ['Motivos de la decisión',(c.decision_reason_codes||[]).join(' · ')||c.reason||'Por verificar']
+        ,['Preguntas del cliente pendientes',(c.pending_question_types||[]).join(' · ')||'Ninguna registrada'],
+        ['Cuestiones respondidas con recibo',(c.answered_question_types||[]).join(' · ')||'Ninguna verificada'],
+        ['Hechos del proveedor/sistema',(c.verified_fact_types||[]).join(' · ')||'Sin evidencia registrada'],
+        ['Datos ambiguos',[...(c.ambiguous_fact_types||[]),...(c.unresolved||[])].join(' · ')||'Ninguno registrado'],
+        ['Producto',c.product?[c.product.name,c.product.units?c.product.units+' unidad(es)':null].filter(Boolean).join(' · '):'Identidad o fuente por verificar'],
+        ['Importe verificado en la lectura',Number.isSafeInteger(c.observed_verified_amount_cents)?(c.observed_verified_amount_cents/100).toLocaleString('es-ES',{style:'currency',currency:'EUR'})+' · '+incidentDate(c.amount_verified_at):'Pendiente de lectura verificada'],
+        ['Descuento',c.discount_state||'Sin aplicación verificada'],
+        ['Última respuesta contextual',c.last_contextual_outbound?[c.last_contextual_outbound.type,c.last_contextual_outbound.sender,incidentDate(c.last_contextual_outbound.at),c.last_contextual_outbound.readback_verified?'Lectura posterior verificada':'Sin verificación posterior'].filter(Boolean).join(' · '):'Sin recibo contextual verificado'],
+        ['Repeticiones bloqueadas registradas',String(c.blocked_duplicate_findings||0)],
+        ['Calidad / reconciliación',[c.interpretation_quality,c.reconciliation_state].filter(Boolean).join(' · ')||'Por verificar']
+        ,['Último contexto observado',incidentDate(c.updated_at)],
+        ['Lectura actual',c.source_state==='RETAINED_AFTER_SOURCE_GAP'?'No disponible: se conserva el contexto anterior, sin autorizar acciones':'Consultar fecha y calidad de la observación']
       ]:[]),
       ['Esperando a',c.waiting_for_customer?'Cliente':c.waiting_for_provider?'Proveedor':'Workflow responsable'],
       ['Última acción verificada',c.last_verified_action?.action||'Ninguna'],['Motivo',c.reason||'Por verificar']
