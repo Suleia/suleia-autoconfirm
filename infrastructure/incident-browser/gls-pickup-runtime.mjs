@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {createGlsDirectory,readGlsTracking,collectGlsPickupIncidents} from './gls-pickup-source.mjs';
-import {canonicalPickup,pickupPlan,matchingPickupMessage,pickupPhone} from './gls-pickup-policy.mjs';
+import {canonicalPickup,pickupPlan,matchingPickupMessage,existingPickupNotice,pickupPhone} from './gls-pickup-policy.mjs';
 import {PICKUP_TEMPLATE,PICKUP_OWNER,pickupTemplateStatus} from '../../autoconfirm/src/workflows/gls-pickup-template.mjs';
 import {compileCustomerCase} from '../../autoconfirm/src/customer-context/case-compiler.mjs';
 import {extractWamid,isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
@@ -117,7 +117,8 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    const plan=pickupPlan(await readInput(fresh,tracking,sub,messages,template));
    if(!plan.eligible){report.cases.push({...item,...plan});continue;}
    report.metrics.pickup_notice_1_eligible++;
-   const old=matchingPickupMessage(messages,plan,{attemptedAt:tracking.availability_at});
+   const currentEpisodeHistory=history=>history.filter(m=>!receipts.some(r=>r.status==='verified'&&r.order_id===plan.order_id&&r.raw?.plan?.tracking_id===plan.tracking_id&&r.raw?.plan?.episode_id!==plan.episode_id&&r.raw?.wamid===m.mid));
+   const old=existingPickupNotice(currentEpisodeHistory(messages),plan,{since:fresh.order.createdAt});
    if(old){report.cases.push({...item,state:'MANUAL_REVIEW',reason:'PREEXISTING_MESSAGE_REQUIRES_LEDGER_RECONCILIATION'});continue;}
    if(flags.mode==='SHADOW'){report.cases.push({...item,state:'READY_TO_NOTIFY',reason:'SHADOW_NO_SEND'});continue;}
    if(report.mode==='CANARY'){
@@ -137,7 +138,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
      const priorProof=await inspectPriorOrderReturn(incident);
      const latest=await readGlsTracking(context,{url:current.order.raw.tracking_url,tracking:String(current.order.raw.tracking_number),postal:String(current.order.raw.shipping_address?.postal_code||'')},trackingOptions);
      const p=pickupPlan(await readInput(current,latest,subscriber,history,status,receipt,priorProof));return {...p,fresh_expires_at:freshReadAt+60000};
-    },alreadySeen:async(readers,p)=>{const history=await readers.readMessages(p.conversation_id);if(digest(history)!==baseline)throw Error('PICKUP_NEW_CONVERSATION_EVENT');return !!matchingPickupMessage(history,p,{attemptedAt:tracking.availability_at});},
+    },alreadySeen:async(readers,p)=>{const history=await readers.readMessages(p.conversation_id);if(digest(history)!==baseline)throw Error('PICKUP_NEW_CONVERSATION_EVENT');return existingPickupNotice(currentEpisodeHistory(history),p,{since:fresh.order.createdAt});},
     readback:async(p,receipt)=>matchingPickupMessage(await getIncidentChatMessages(p.conversation_id),p,receipt)
    });
    report.cases.push({...item,...result,amount_cents:plan.amount_cents,tracking_url:plan.tracking.source_url,tracking_id:plan.tracking_id,episode_id:plan.episode_id,template_id:plan.template_id,meta_template_id:plan.meta_template_id});

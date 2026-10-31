@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {pickupParameters,PICKUP_TEMPLATE,PICKUP_LANGUAGE,PICKUP_BODY} from '../../autoconfirm/src/workflows/gls-pickup-template.mjs';
-import {extractWamid,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
+import {messageTimestamp,isCustomerInteraction} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
 import {glsDirectAgencyPhone,glsOpeningHoursVerified} from './gls-pickup-source.mjs';
 export const PICKUP_STATES=['PICKUP_DETECTED','PICKUP_ELIGIBILITY_CHECK','WAITING_FOR_PICKUP_AVAILABILITY','GLS_LOOKUP_PENDING','GLS_AGENCY_FOUND','GLS_AGENCY_CONFLICT','ORDER_DATA_VERIFIED','WAITING_COD_RECONCILIATION','TEMPLATE_PENDING_APPROVAL','READY_TO_NOTIFY','SEND_CLAIMED','SEND_UNKNOWN','SENT_PROVIDER_ACCEPTED','MESSAGE_VERIFIED','WAITING_CUSTOMER','CLOSED','MANUAL_REVIEW'];
 export const PICKUP_SEQUENCE=[{notice:1,enabled:true},{notice:2,enabled:false},{notice:3,enabled:false},{notice:4,enabled:false}];
@@ -51,6 +51,14 @@ export function matchingPickupMessage(messages,plan,{attemptedAt=plan.observed_a
  const matches=messages.filter(m=>{
   const p=m.payload||m.raw?.payload||{},mid=[m.mid,m.message_id,m.id,m.raw?.mid].find(id=>typeof id==='string'&&id.startsWith('wamid.')),at=messageTimestamp(m);
   const content=Object.entries(expected).every(([k,v])=>p.params?.[k]===v)||p.body===body;
-  return String(m.user_ns)===plan.conversation_id&&p.name===PICKUP_TEMPLATE&&(!p.lang||p.lang===PICKUP_LANGUAGE)&&Number.isFinite(at)&&at>=start&&!!mid&&(!wamid||mid===wamid)&&content;
+  return !isCustomerInteraction(m)&&String(m.user_ns)===plan.conversation_id&&p.name===PICKUP_TEMPLATE&&(!p.lang||p.lang===PICKUP_LANGUAGE)&&Number.isFinite(at)&&at>=start&&!!mid&&(!wamid||mid===wamid)&&content;
  });return matches.length===1?matches[0]:null;
+}
+export function existingPickupNotice(messages,plan,{since}={}){
+ const ref=plan.params['BODY_{{2}}'],url=plan.params['BODY_{{10}}'],escape=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+ return messages.some(m=>{
+  const p=m.payload||m.raw?.payload||{},mid=[m.mid,m.message_id,m.id,m.raw?.mid].find(id=>typeof id==='string'&&id.startsWith('wamid.'));
+  const scoped=p.params?.['BODY_{{2}}']===ref&&p.params?.['BODY_{{10}}']===url||typeof p.body==='string'&&new RegExp('\\b'+escape(ref)+'\\b').test(p.body)&&new RegExp(escape(url)+'(?=$|[\\s*<>])').test(p.body);
+  return !isCustomerInteraction(m)&&String(m.user_ns)===plan.conversation_id&&p.name===PICKUP_TEMPLATE&&!!mid&&messageTimestamp(m)>=Date.parse(since)&&scoped;
+ });
 }
