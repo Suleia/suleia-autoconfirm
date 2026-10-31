@@ -28,6 +28,11 @@ test('unaccepted or rejected offer uses only the actual undiscounted amount',()=
  const x=fixture([msg('¿Acepta el descuento de 5 €?',1,'out'),'No quiero el descuento pero sí el pedido','¿Cómo pago?']);x.policy=policy(x);
  const c=compileCustomerCase(x);assert.equal(c.discount_response,'REJECTED');assert.equal(c.wants_order,true);assert.equal(c.wants_return,false);assert.match(c.proposed_response,/29,99\s*€/);
 });
+test('an exact verified discount receipt blocks a conflicting quote even without acceptance in the latest message cluster',()=>{
+ const x=fixture(['¿Cómo pago?']),receipt={status:'verified',raw:{orderId:'90001',originalCents:2999,finalCents:2499,supportPlan:{conversationId:'fixture-live'}}};
+ x.policy=policy(x,{supportReceipt:receipt});const c=compileCustomerCase(x);assert.equal(x.policy.discountAmountConflict,true);assert.equal(c.amount_due,null);assert.equal(c.proposed_response,null);
+ x.order.orderAmount=x.order.raw.total_amount=24.99;x.policy=policy(x,{supportReceipt:receipt});assert.match(compileCustomerCase(x).proposed_response,/24,99/);
+});
 test('fresh read timestamps do not invalidate an otherwise identical revalidation; amount changes do',()=>{
  const x=fixture();x.policy=policy(x);const c=compileCustomerCase(x),y=structuredClone(x);y.now+=1000;y.freshProof.orderReadAt=y.freshProof.conversationReadAt=new Date(y.now).toISOString();y.policy=policy(y);
  const same=compileCustomerCase(y,c);assert.equal(c.case_hash,same.case_hash);
