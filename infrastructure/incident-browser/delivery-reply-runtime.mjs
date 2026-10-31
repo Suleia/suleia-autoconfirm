@@ -236,7 +236,9 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
   p0Events:report.cases.filter(c=>c.p0_code).map(c=>({code:c.p0_code,orderId:c.orderId,issueId:c.issueId})),
   rateLimitedCases:report.cases.filter(c=>c.reason==='PROVIDER_RATE_LIMIT_FAIL_CLOSED').length};
  await fs.writeFile('/state/delivery-reply-report.tmp',JSON.stringify(report),{mode:0o600});await fs.rename('/state/delivery-reply-report.tmp','/state/delivery-reply-report.json');
+ if(report.conversationV3)await fs.appendFile('/state/delivery-reply-audit.jsonl',JSON.stringify({at:report.completedAt,event:'CONVERSATION_V3_CYCLE_METRICS',...report.conversationV3})+'\n',{mode:0o600});
  await upsertRows('app_state',{key:'vps_incident_delivery_replies_v1',value:report,updated_at:report.completedAt},{onConflict:'key',timeoutMs:10000});
  return {mode:report.mode,observed:report.cases.length,solutions:report.solutions,messages:report.messages,
+  ...(report.conversationV3?{conversationV3:report.conversationV3}:{}),
   review:report.cases.filter(c=>['RECONCILE','REVIEW_REQUIRED'].includes(c.status)).length};
 }
