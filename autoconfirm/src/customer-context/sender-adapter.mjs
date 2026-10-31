@@ -15,7 +15,11 @@ export function decorateConversationV3(legacy,input,{previous=null,env={},releas
  const block=reason=>({plan:{eligible:false,reason,customerCare:care},care});
  if(isLive&&!input.policy?.liveVerifiedContext)return block('V3_FRESH_VERIFIED_PROVIDER_CONTEXT_REQUIRED');
  if(care.next_best_action==='WAITING_CUSTOMER'&&['WAITING_CUSTOMER','ONE_ACTIVE_CLARIFICATION'].includes(care.reason))return block('V3_WAITING_CUSTOMER');
- if(legacy?.eligible&&legacy.kind==='SOLUTION')return {plan:legacy,care};
+ if(legacy?.eligible&&legacy.kind==='SOLUTION'){
+  if(isLive&&(care.wants_return||care.cancel_intent||care.address_change_requested||care.agency_requested||care.discount_response==='ACCEPTED'))return block('V3_OPERATIONAL_CONTEXT_REQUIRES_EXISTING_SPECIALIST');
+  if(isLive&&(care.unresolved?.length||care.next_best_action==='HUMAN_REVIEW'))return block('V3_UNCERTAIN_OPERATIONAL_CONTEXT_REVIEW');
+  return {plan:legacy,care};
+ }
  const capability=care.customer_reply_action==='CLARIFY'?'CONTEXTUAL_CLARIFICATION':['STATUS_RESPONSE','ACKNOWLEDGE_REQUEST'].includes(care.customer_reply_action)?'STATUS_REPLY':null;
  if(!capability){
   if(isLive&&legacy?.kind==='CLARIFY'&&legacy.reason==='PAYMENT_OR_PRICE_NEEDS_CONFIRMATION')return block('V3_VERIFIED_PAYMENT_INFORMATION_REQUIRED');
