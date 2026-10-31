@@ -221,7 +221,7 @@ export async function runDeliveryReplyCycle(context,{deadlineAt=Date.now()+15*60
    }
    await fs.appendFile('/state/delivery-reply-audit.jsonl',JSON.stringify({at:new Date().toISOString(),...item,...result,reason:result.reason||plan.reason})+'\n',{mode:0o600});
    if(result.solutionAttempted&&result.status!=='VERIFIED')break;
-  }catch(e){report.cases.push({...item,status:'REVIEW_REQUIRED',reason:e.status===429||e.statusCode===429||e.code==='CHATBY_RATE_LIMITED'||/429|cooldown|rate.limit/i.test(e.message||'')?'PROVIDER_RATE_LIMIT_FAIL_CLOSED':typeof e.code==='string'&&/^[A-Z0-9_]+$/.test(e.code)?e.code:'DELIVERY_REPLY_READ_OR_EXECUTION_FAILED'});
+  }catch(e){report.cases.push({...item,status:'REVIEW_REQUIRED',reason:e.status===429||e.statusCode===429||e.code==='CHATBY_RATE_LIMITED'||/429|cooldown|rate.limit/i.test(e.message||'')?'PROVIDER_RATE_LIMIT_FAIL_CLOSED':typeof e.code==='string'&&/^[A-Z0-9_]+$/.test(e.code)?e.code:'DELIVERY_REPLY_READ_OR_EXECUTION_FAILED',diagnostic:{kind:['TypeError','ReferenceError','SyntaxError','Error'].includes(e.name)?e.name:'Error',frame:String(e.stack||'').match(/\/(?:app|autoconfirm)\/[A-Za-z0-9_./-]+\.mjs:\d+:\d+/)?.[0]||null}});
    try{await fs.access(stateFile);break;}catch{}
   }
  }
