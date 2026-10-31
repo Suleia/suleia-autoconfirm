@@ -8,10 +8,12 @@ import {extractCustomerFacts} from './fact-extractor.mjs';
 import {mergeFactLedger,materializeFacts} from './fact-ledger.mjs';
 import {requiredMissingInformation} from './missing-information.mjs';
 import {clarificationGuard} from './clarification-guard.mjs';
-import {composeSafeResponse} from './response-composer.mjs';
+import {composeSafeResponse,questionAnswerBundle} from './response-composer.mjs';
 import {contextualQuestion,remainingQuestion} from './question-context.mjs';
 import {recurringPreference} from './temporal-facts.mjs';
 import {stableCarePolicy} from './live-policy.mjs';
+import {reconcileConversationQuestions} from './conversation-obligations.mjs';
+import {verifiedProductKnowledge} from './product-knowledge.mjs';
 const branded=new WeakMap();
 const bindings={WANTS_ORDER:'wants_order',WANTS_RETURN:'wants_return',CANCEL_INTENT:'cancel_intent',DELIVERY_DATE:'delivery_date',DELIVERY_WINDOW:'delivery_window',TIME_FROM:'time_from',TIME_TO:'time_to',CALL_BEFORE_ARRIVAL:'call_before_arrival',REQUESTS_AGENCY:'agency_requested',REPORTS_NO_DELIVERY_ATTEMPT:'reports_no_delivery_attempt',ADDRESS:'address',POSTAL_CODE:'postal_code',ADDRESS_CHANGE_REQUESTED:'address_change_requested'};
 const timed=new Set(['TIME_FROM','TIME_TO']);
@@ -105,6 +107,8 @@ export function compileCustomerCase(input,previous=null){
   if(active.REJECTS_DISCOUNT?.value_json===true)state.discount_response='REJECTED';
   state.wants_return=state.wants_return===true;state.cancel_intent=state.cancel_intent===true;
   state.latest_customer_intents=[...new Set([...base.latest_customer_intents.filter(i=>!['AMBIGUOUS','WANTS_ORDER','WANTS_RETURN','ACCEPTS_DISCOUNT','REJECTS_DISCOUNT','REQUESTS_AGENCY'].includes(i)),...Object.values(active).filter(f=>f.value_json===true&&f.confidence>=.9&&f.authority==='CUSTOMER_DERIVED').map(f=>f.fact_type)])];
+  reconcileConversationQuestions(state,events,incoming,previous);
+  state.product_context=verifiedProductKnowledge(input.order,{now,questions:state.pending_customer_questions.map(q=>q.type),questionTexts:state.pending_customer_questions.map(q=>events.find(e=>e.source_event_hash===q.source_event_hash)?.text||'')});
   state.confidence=Object.values(active).filter(f=>f.authority==='CUSTOMER_DERIVED').reduce((min,f)=>Math.min(min,f.confidence),1);
   // Specific temporal uncertainty belongs to Missing Information, not a global
   // loss of the already-established desire/date/window.
@@ -115,7 +119,7 @@ export function compileCustomerCase(input,previous=null){
   if(state.wants_order===true&&state.wants_return)state.unresolved_interpretation.push('WANTS_ORDER_VS_RETURN');
   const intent=state.wants_return?'RETURN':state.address_change_requested?'ADDRESS':state.discount_response==='ACCEPTED'?'DISCOUNT_ACCEPT':state.latest_customer_intents.some(i=>i.startsWith('ASKS_'))?'STATUS_REPLY':'REDELIVERY';
   state.missing_information=requiredMissingInformation(state,intent);
-  const routed=routeCustomerCase(state,policy);
+  const routed=routeCustomerCase(state,{...policy,...(state.product_context?{verifiedFaq:state.product_context}:{})});
   if(active.DELIVERY_AVAILABILITY?.confidence>=.9&&state.has_current_reply&&state.wants_order&&!state.wants_return&&!policy.irreversibleAction&&!state.unresolved_interpretation.length&&['absent','rejected_goods'].includes(state.current_incident_type)&&(input.issue?.raw||input.issue)?.allowed_resolution_options?.includes('PROVIDE_SOLUTION')){
     Object.assign(routed,{next_best_action:'DELEGATE',capability:'REDELIVERY',owner:OWNERS.REDELIVERY,reason:'COMPOSITE_AVAILABILITY_EXISTING_SOLUTION_CONTRACT',missing_slots:[]});
   }
@@ -126,7 +130,7 @@ export function compileCustomerCase(input,previous=null){
     Object.assign(routed,{next_best_action:'RESPOND',capability:'CONTEXTUAL_CLARIFICATION',owner:OWNERS.CONTEXTUAL_CLARIFICATION,response_type:'CLARIFICATION',reason:'ONLY_REQUIRED_MISSING_FACT',missing_slots:state.missing_information});
   }else if(routed.capability==='CONTEXTUAL_CLARIFICATION')routed.missing_slots=state.missing_information;
   const guard=clarificationGuard(state);
-  if(routed.next_best_action==='RESPOND'&&!guard.allowed){Object.assign(routed,{next_best_action:'WAITING_CUSTOMER',capability:null,owner:'HUMAN',reason:guard.reason});state.findings.push(guard.finding);}
+  if(routed.next_best_action==='RESPOND'&&routed.capability==='CONTEXTUAL_CLARIFICATION'&&!guard.allowed){Object.assign(routed,{next_best_action:'WAITING_CUSTOMER',capability:null,owner:'HUMAN',reason:guard.reason});state.findings.push(guard.finding);}
   if((input.issue?.raw||input.issue)?.is_active===false){
     state.missing_information=[];
     Object.assign(routed,{next_best_action:'WAITING_PROVIDER',capability:null,owner:OWNERS.REDELIVERY,reason:'INACTIVE_ISSUE_REQUIRES_LOGISTICS_FOLLOWUP',missing_slots:[]});
@@ -150,6 +154,7 @@ export function compileCustomerCase(input,previous=null){
   compiled.based_on_input_hash=compiled.input_hash;
   compiled.based_on_conversation_version=compiled.conversation_version;
   compiled.proposed_response=composeSafeResponse(compiled);
+  compiled.response_question_fact_ids=compiled.proposed_response?questionAnswerBundle(compiled)?.answeredFactIds||[]:[];
   compiled.plan_hash=hash([routed,compiled.case_hash]);
   compiled.release_eligible=false; // Release requires the separately reviewed benchmark.
   compiled.v2_response=currentCustomerIntent(input);

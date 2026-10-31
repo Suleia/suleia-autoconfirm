@@ -1,5 +1,6 @@
 import {carePolicyFor} from '../customer-care/runtime.mjs';
 import {hash} from '../customer-care/context.mjs';
+import {verifiedProductKnowledge} from './product-knowledge.mjs';
 const cents=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0?Math.round(v*100):null;
 const fresh=(at,now)=>Number.isFinite(Date.parse(at))&&now-Date.parse(at)>=0&&now-Date.parse(at)<=60000;
 export function currentProviderState(order){
@@ -24,6 +25,7 @@ export function liveCarePolicy(input,{now=Date.now(),supportReceipt=null,payment
   amountDue:moneyVerified?current/100:null,amountReadAt:moneyVerified?proof.orderReadAt:null,
   allowedPaymentMethods:moneyVerified&&authorizationRef?paymentMethods.filter(m=>['CASH','CARD'].includes(m)):[],
   paymentContractSource:authorizationRef||null,discountAppliedVerified:applied,
+  verifiedProductKnowledge:verified?verifiedProductKnowledge(order,{now}):null,
   amountProofHash:moneyVerified?hash([order.orderId,current,raw.currency,raw.payment_method,applied]):null};
 }
 export function stableCarePolicy(policy){

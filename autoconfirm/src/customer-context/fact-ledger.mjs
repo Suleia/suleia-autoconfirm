@@ -62,7 +62,9 @@ export function mergeFactLedger(previous,incoming,{orderId,issueId,now,attemptKe
     if(input.type==='REPORTS_RECEIVED'&&input.value===true)for(const old of rows.filter(r=>r.status==='CURRENT'&&preferenceTypes.has(r.fact_type)&&r.source_event_at<fact.source_event_at&&r.authority===fact.authority)){
       old.status='SUPERSEDED';old.superseded_by=id;old.updated_at=created;
     }
-    if(instructionTypes.has(fact.fact_type))for(const old of rows.filter(r=>r.status==='CURRENT'&&r.fact_type.startsWith('ASKS_')&&r.source_event_at<fact.source_event_at&&r.authority===fact.authority)){
+    // A chosen delivery preference answers a delivery-date question only.
+    // It cannot answer a product, payment or status question on another topic.
+    if(preferenceTypes.has(fact.fact_type))for(const old of rows.filter(r=>r.status==='CURRENT'&&r.fact_type==='ASKS_DELIVERY_DATE'&&r.source_event_at<fact.source_event_at&&r.authority===fact.authority)){
       old.status='SUPERSEDED';old.superseded_by=id;old.updated_at=created;
     }
     if(fact.valid_until&&Date.parse(fact.valid_until)<=now)fact.status='EXPIRED';

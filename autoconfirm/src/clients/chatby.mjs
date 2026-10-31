@@ -556,7 +556,14 @@ export async function getChatMessages(userNs) {
 // Chatby's default excludes bot messages, including native incident templates.
 // Keep the confirmation reader unchanged; incident decisions need both sides.
 // The provider documents end_time, not page, for older message history.
-export async function getIncidentChatMessages(userNs) {
+const incidentHistoryInFlight=new Map();
+export function getIncidentChatMessages(userNs) {
+  const key=String(userNs);
+  if(incidentHistoryInFlight.has(key))return incidentHistoryInFlight.get(key);
+  const read=readIncidentChatMessages(userNs).finally(()=>incidentHistoryInFlight.delete(key));
+  incidentHistoryInFlight.set(key,read);return read;
+}
+async function readIncidentChatMessages(userNs) {
   const collected = new Map();
   let endTime = null;
   for (let page = 0; page < 10; page += 1) {

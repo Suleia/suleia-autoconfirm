@@ -38,7 +38,9 @@ export function routeCustomerCase(state,policy={}){
  if(state.wants_return||state.cancel_intent)return result('DELEGATE',state.current_order_state==='PENDING_CONFIRMATION'?'AUTO_CANCEL':'RETURN','CUSTOMER_EXPLICITLY_DECLINED');
  if(state.payment_constraint)return result('HUMAN_REVIEW',null,'CUSTOMER_PAYMENT_CONSTRAINT_REQUIRES_REVIEW');
  const unanswered=state.clarifications.filter(c=>!c.answered_at&&['ATTEMPTING','PROVIDER_ACCEPTED','DELIVERY_UNVERIFIED'].includes(c.status));
- if(unanswered.length)return result('WAITING_CUSTOMER',null,'ONE_ACTIVE_CLARIFICATION',{active_question_hash:unanswered.at(-1).message_hash});
+ // V3 may answer a verified customer question while retaining our outstanding
+ // logistics question. This does not permit another clarification or action.
+ if(unanswered.length&&!(state.version==='CONVERSATION_V3'&&state.pending_customer_questions?.length))return result('WAITING_CUSTOMER',null,'ONE_ACTIVE_CLARIFICATION',{active_question_hash:unanswered.at(-1).message_hash});
  const intents=state.latest_customer_intents;
  if(policy.liveVerifiedContext&&state.discount_response==='ACCEPTED'&&!policy.discountAppliedVerified)return result('DELEGATE','DISCOUNT_ACCEPT','ACCEPTED_DISCOUNT_AWAITING_VERIFIED_CURRENT_AMOUNT');
  if(intents.some(i=>['REPORTS_DAMAGE','REPORTS_MISSING_ITEM','REPORTS_WRONG_PRODUCT'].includes(i)))return result('HUMAN_REVIEW',null,'PRODUCT_INCIDENT_REQUIRES_SPECIALIST');
@@ -55,6 +57,7 @@ export function routeCustomerCase(state,policy={}){
   if(!faq?.text||!faq?.source||faq.verified!==true)return result('HUMAN_REVIEW',null,'VERIFIED_PRODUCT_SOURCE_REQUIRED');
   return result('RESPOND','STATUS_REPLY','VERIFIED_FAQ',{response_type:'FAQ'});
  }
+ if(unanswered.length)return result('WAITING_CUSTOMER',null,'ONE_ACTIVE_CLARIFICATION',{active_question_hash:unanswered.at(-1).message_hash});
  if(state.discount_response==='ACCEPTED'&&!(policy.liveVerifiedContext&&policy.discountAppliedVerified))return result('DELEGATE','DISCOUNT_ACCEPT','CURRENT_OFFER_ACCEPTED');
  if(state.address_change_requested||state.agency_requested){return result('DELEGATE',state.address_change_requested?'ADDRESS':'AGENCY','EXISTING_SPECIALIST_OWNER',{missing_slots:requiredMissingSlots(state,policy)});}
  if(state.wants_order===true&&['PENDING','PENDING_CONFIRMATION','PENDING_DROPSHIPPER'].includes(state.current_order_state))return result('DELEGATE','CONFIRM_ORDER','CONFIRM_INTENT_EXISTING_OWNER');
