@@ -2,9 +2,10 @@ import {contextualQuestion} from './question-context.mjs';
 import {fold} from '../customer-care/context.mjs';
 import {isCustomerInteraction,messageTimestamp,extractWamid} from '../workflows/incident-discount-policy.mjs';
 import {addressMessageText} from '../workflows/address-response-policy.mjs';
+import {deduplicatePayloadText} from './message-cluster.mjs';
 
 export function frustratedReply(text){
-  return /^(?:pues )?(?:es igual|me da igual|da igual|dejalo|dejadlo|olvidalo|olvidadlo|no me escrib(?:as|ais|an) mas|no me mand(?:es|eis|en) mas mensajes)[.! ]*$/.test(fold(text));
+  return /^(?:pues )?(?:es igual|me da igual|da igual|dejalo|dejadlo|olvidalo|olvidadlo|no me escrib(?:as|ais|an) mas|no me mand(?:es|eis|en) mas mensajes)[.! ]*$/.test(fold(deduplicatePayloadText(text)));
 }
 export function questionFamily(plan,content=plan.content){
   const slots=plan.care_plan?.missing_information||plan.care_plan?.missing_slots||[];
@@ -24,7 +25,8 @@ export function clarificationHistoryGuard(plan,content,messages,deliveries=[],{c
   // Any earlier automated clarification is a conservative handoff, including
   // another issue/reason or an unknown outcome. Never reset its reservation.
   if(prior)return {allowed:false,reason:'ORDER_ALREADY_HAS_AUTOMATED_CLARIFICATION'};
-  const own=deliveries.some(r=>r.template_name===currentKey&&String(r.order_id)===String(plan.orderId));
+  const own=deliveries.find(r=>r.template_name===currentKey&&String(r.order_id)===String(plan.orderId));
+  if(own&&['sent','already_seen'].includes(own.status))return {allowed:false,reason:'ORDER_ALREADY_HAS_AUTOMATED_CLARIFICATION'};
   if(own)return {allowed:true,family,reconcileOnly:true};
   const seen=messages.some(m=>{
     if(String(m.user_ns)!==plan.conversationId||isCustomerInteraction(m)||!extractWamid(m)||messageTimestamp(m)<created||m.payload?.name)return false;
