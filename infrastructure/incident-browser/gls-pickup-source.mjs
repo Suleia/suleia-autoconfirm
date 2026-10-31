@@ -66,17 +66,22 @@ export async function readGlsTracking(context,input,{saveDiagnostic=async()=>{},
   const response=await page.goto(url,{waitUntil:'domcontentloaded',timeout:15000});
   if(response?.status()===429){await onRateLimit(glsRetryUntil(response.headers()['retry-after']));throw Error('GLS_TRACKING_RATE_LIMITED');}
   const necessary=page.getByRole('button',{name:'Solo usar cookies necesarias',exact:true});
-  try{await necessary.waitFor({state:'visible',timeout:2000});await necessary.click({timeout:2000});}catch{}
+  try{await necessary.waitFor({state:'visible',timeout:2000});await necessary.click({timeout:2000});}catch{
+   try{await page.getByText('Solo usar cookies necesarias',{exact:true}).click({timeout:2000});}catch{}
+  }
   const accessibility=page.locator('flt-semantics-placeholder[aria-label="Enable accessibility"]');
   try{await accessibility.waitFor({state:'attached',timeout:8000});await accessibility.evaluate(element=>element.click());}catch{}
   try{await page.locator('flt-semantics[aria-label]').first().waitFor({state:'attached',timeout:8000});}catch{}
+  // Header semantics appear before the shipment query finishes. Reading that
+  // first frame would mistake the actual loading screen for missing data.
+  try{await page.locator('flt-semantics[aria-label^="Cargando"]').waitFor({state:'hidden',timeout:15000});}catch{}
   const body=await page.locator('body').innerText({timeout:2000});
   // Flutter paints text on a canvas; its live accessibility semantics carry
   // the same rendered labels. Read these labels, never provider internals.
   const semantics=await page.locator('flt-semantics[aria-label]').evaluateAll(nodes=>nodes.filter(n=>n.getAttribute('aria-hidden')!=='true').map(n=>n.getAttribute('aria-label')).filter(Boolean));
   const visible=[body,...semantics].join('\n');
   const result=parseGlsTracking(visible,{...input,url});
-  if(!result.verified||result.state==='READY'&&(!result.episode_id||!result.cod_cents))await saveDiagnostic({visible,at:new Date().toISOString(),tracking:input.tracking});
+  if(!result.verified||result.state==='READY'&&(!result.episode_id||!result.cod_cents))await saveDiagnostic({visible,at:new Date().toISOString(),tracking:input.tracking,ui:{semantics:semantics.length,loading:await page.locator('flt-semantics[aria-label^="Cargando"]').count(),cookieControl:await page.getByText('Solo usar cookies necesarias',{exact:true}).count()}});
   return result;
  }finally{await page.close();}
 }
