@@ -17,7 +17,7 @@ export function customerCareEnvironment(control){
 // association read. It never persists, releases a plan or authorizes a write.
 export function needsConversationV3Read(input){
  const care=compileCustomerCase({...input,policy:carePolicyFor(input),binding:{verified:true,orderId:String(input.order.orderId),issueId:String(input.incident.incidenceId),conversationId:input.incident.chatbyUserNs}});
- return care.has_current_reply&&(care.customer_reply_action==='CLARIFY'||care.operational_action==='RETRY_DELIVERY'||care.latest_customer_intents?.some(i=>['ASKS_STATUS','ASKS_DELIVERY_DATE','ASKS_PAYMENT'].includes(i)));
+ return care.has_current_reply&&(care.customer_reply_action==='CLARIFY'||care.operational_action==='RETRY_DELIVERY'||care.pending_customer_questions?.length>0);
 }
 export function verifyConversationV3Dispatch(plan,input,memory){
  const fail=code=>{throw Object.assign(Error(code),{notSent:true});};
@@ -30,7 +30,7 @@ export function verifyConversationV3Dispatch(plan,input,memory){
  const actual=readCompiledIntent(care,input);if(!actual||actual.status==='NOT_VERIFIABLE')fail('STALE_PLAN');
  if(memory?.dropea_order_id!==plan.orderId||memory?.active_issue_id!==plan.issueId||memory?.conversation_reference!==plan.conversationId)fail('V3_MEMORY_DISPATCH_IDENTITY_CHANGED');
  const messageHash=hash(plan.content);
- if((memory.clarifications||[]).some(q=>!q.answered_at&&['ATTEMPTING','PROVIDER_ACCEPTED','DELIVERY_UNVERIFIED'].includes(q.status)&&q.message_hash!==messageHash))fail('V3_OTHER_CLARIFICATION_ACTIVE');
+ if(plan.care_capability!=='STATUS_REPLY'&&(memory.clarifications||[]).some(q=>!q.answered_at&&['ATTEMPTING','PROVIDER_ACCEPTED','DELIVERY_UNVERIFIED'].includes(q.status)&&q.message_hash!==messageHash))fail('V3_OTHER_CLARIFICATION_ACTIVE');
  if(memory.pending_provider_response&&memory.pending_response_hash!==messageHash)fail('V3_OTHER_INFORMATION_RESPONSE_PENDING');
  return {expiresAt:Math.min(Date.parse(input.freshProof.orderReadAt),Date.parse(input.freshProof.conversationReadAt))+60000};
 }
@@ -85,8 +85,12 @@ export async function recordCustomerCareReceipt(plan,result,{store=null}={}){
    if(plan.care_plan.response_type==='ACKNOWLEDGE_REQUEST')state.acknowledged_action_hash=plan.care_plan.ack_action_hash;
    if(plan.care_plan.response_type==='PAYMENT_INFORMATION'){state.payment_information_sent=true;state.payment_information_signature=plan.care_plan.payment_signature;}
   }
-  state.status=state.pending_provider_response?'HUMAN_REVIEW':'OBSERVING';state.waiting_for_customer=false;
-  state.timeline=[...state.timeline,{kind:'INFORMATION_RESPONSE',source:result.status==='already_seen'?'EXISTING_SENDER':'V3_EXISTING_SENDER',at:state.updated_at,message_hash:messageHash,provider_message_id:mid,status}].slice(-100);
+  state.support_followup_required=plan.care_plan.product_context?.missingTopics||[];
+  state.status=state.pending_provider_response||state.support_followup_required.length?'HUMAN_REVIEW':'OBSERVING';state.waiting_for_customer=false;
+  state.timeline=[...state.timeline,{kind:'INFORMATION_RESPONSE',source:result.status==='already_seen'?'EXISTING_SENDER':'V3_EXISTING_SENDER',at:state.updated_at,message_hash:messageHash,provider_message_id:mid,status,
+   response_type:plan.care_plan.response_type,
+   readback_verified:result.raw?.readbackVerified===true&&result.raw?.providerReceipt===true,
+   answered_fact_ids:result.raw?.readbackVerified===true&&result.raw?.providerReceipt===true?plan.care_plan.response_question_fact_ids||[]:[]}].slice(-100);
   await store.save(state,previous);return;
  }
  const question={clarification_type:plan.care_plan.missing_slots.join('+')||plan.care_capability,missing_slots:plan.care_plan.missing_slots,message_hash:messageHash,sent_at:result.sentAt||result.attemptedAt,provider_message_id:mid,answered_at:null,answer_hash:null,status,source:result.status==='already_seen'?'EXISTING_SENDER':'CUSTOMER_CARE_EXISTING_SENDER',based_on_conversation_version:plan.care_plan.conversation_version};
