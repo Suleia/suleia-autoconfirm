@@ -12,6 +12,24 @@ export class SupabaseReadSource {
     this.sourceUrl = sourceUrl; this.sourceToken = sourceToken; this.fetchImpl = fetchImpl;
   }
 
+  async readGlsPickupNotice() {
+    const query=new URLSearchParams({select:'value,updated_at',key:'eq.gls_pickup_notice_v1',limit:'2'});
+    const response=await this.fetchImpl(`${this.sourceUrl}/rest/v1/app_state?${query}`,{method:'GET',redirect:'error',headers:{apikey:this.sourceToken,Authorization:`Bearer ${this.sourceToken}`,Accept:'application/json'},signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw Error('GLS_PICKUP_OBSERVATION_SOURCE_UNAVAILABLE');
+    const rows=await response.json();if(!Array.isArray(rows)||rows.length>1)throw Error('GLS_PICKUP_OBSERVATION_SOURCE_AMBIGUOUS');return rows[0]?.value||null;
+  }
+
+  async readGlsPickupIncidentRows(cases) {
+    if(!Array.isArray(cases)||cases.length>100||cases.some(c=>!/^\d{1,20}$/.test(String(c.issue_id))||!/^\d{1,20}$/.test(String(c.order_id))))throw Error('GLS_PICKUP_EXACT_IDENTITIES_REQUIRED');
+    if(!cases.length)return [];
+    const ids=[...new Set(cases.map(c=>String(c.issue_id)))];
+    const query=new URLSearchParams({select:'incidence_id,order_id,raw,updated_at',incidence_id:`in.(${ids.join(',')})`,limit:String(ids.length)});
+    const response=await this.fetchImpl(`${this.sourceUrl}/rest/v1/incidents?${query}`,{method:'GET',redirect:'error',headers:{apikey:this.sourceToken,Authorization:`Bearer ${this.sourceToken}`,Accept:'application/json'},signal:AbortSignal.timeout(8000)});
+    if(!response.ok)throw Error('GLS_PICKUP_EXACT_ROWS_UNAVAILABLE');
+    const rows=await response.json();if(!Array.isArray(rows)||rows.length>ids.length)throw Error('GLS_PICKUP_EXACT_ROWS_AMBIGUOUS');
+    return rows.filter(row=>cases.some(c=>String(c.issue_id)===String(row.incidence_id)&&String(c.order_id)===String(row.order_id)));
+  }
+
   async page(table, timestampField, { after = null, offset = 0, limit = 250 } = {}) {
     const query = new URLSearchParams({ select: '*', order: `${timestampField}.asc`, limit: String(limit), offset: String(offset) });
     if (after) query.set(timestampField, `gt.${after}`);
