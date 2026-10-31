@@ -55,7 +55,16 @@ export async function observeConversationV3(items,{env=process.env,store=createC
     // A failed/incomplete provider read is not a successfully observed case.
     // Keep the last valid projection and report the failed observation instead
     // of replacing memory with an empty, unverified context.
-    if(!compiled.input_hash){failures++;continue;}
+    if(!compiled.input_hash){
+      failures++;
+      const old=prior?.value;
+      if(old?.input_hash&&old.dropea_order_id===identity.canonical_order_id&&old.active_issue_id===identity.active_issue_id&&old.conversation_reference===item.incident.chatbyUserNs){
+        // Read-only panel projection, never a successful observation or an
+        // actionable context. Its original evidence timestamp stays intact.
+        item.incident.conversationIntelligenceV3Retained={...old,source_state:'RETAINED_AFTER_SOURCE_GAP',source_failed_at:new Date(now).toISOString(),release_eligible:false,operational_action:'NONE',customer_reply_action:'NONE',proposed_response:null,candidate:null};
+      }
+      continue;
+    }
     compiled.candidate=resolutionCandidate({...input,conversationContext:compiled});
     compiled.shadow_comparison=shadowComparison(resolutionCandidate(input),compiled);
     compiled.mode=conversationV3Flags(env).mode==='LIVE'?'LIVE':'SHADOW';compiled.provider_writes=0;

@@ -213,6 +213,13 @@ test('SHADOW read failure preserves valid memory and reports failure rather than
  const result=await observeConversationV3([item],{env:{CONVERSATION_V3_ENABLED:'true'},now,policyFor:i=>i.policy,store:{load:async()=>({value:previous}),save:async()=>{writes++;}}});
  assert.equal(result.failures,1);assert.equal(result.metrics.cases,0);assert.equal(result.provider_writes,0);assert.equal(writes,0);assert.deepEqual(previous,frozen);
  assert.equal(item.incident.conversationIntelligenceV3,undefined);
+ const retained=item.incident.conversationIntelligenceV3Retained;assert.equal(retained.source_state,'RETAINED_AFTER_SOURCE_GAP');assert.equal(retained.updated_at,previous.updated_at);assert.equal(retained.proposed_response,null);assert.equal(retained.operational_action,'NONE');assert.equal(retained.release_eligible,false);
+});
+test('a missing current read never projects retained memory from another order or conversation',async()=>{
+ for(const field of['dropea_order_id','active_issue_id','conversation_reference']){
+  const item=input(['Quiero el pedido']);item.incident.chatbyReadVerified=false;const old=compile(['Quiero el pedido']);old[field]='different';
+  const r=await observeConversationV3([item],{env:{CONVERSATION_V3_ENABLED:'true'},now,store:{load:async()=>({value:old}),save:async()=>{throw Error('MUST_NOT_SAVE');}}});assert.equal(r.failures,1);assert.equal(item.incident.conversationIntelligenceV3Retained,undefined);
+ }
 });
 test('native activity-window labels reuse only a fresh exact field and same-conversation proof',async()=>{
  const item=input(['Quiero el pedido']);item.order.customerPhone='600000001';item.incident.chatbyOrderAssociation='EXACT_ORDER_MERCHANDISE_LEDGER';
@@ -301,8 +308,8 @@ test('written dates and an explicit no-longer-needed refusal retain their meanin
  const c=compile(['Lo quiero para el día diez de noviembre']);assert.equal(c.delivery_date,'2026-11-10');assert.equal(c.wants_order,true);
  const d=compile(['Ya no necesito el pedido']);assert.equal(d.wants_return,true);assert.equal(d.wants_order,false);
 });
-test('a later explicit delivery instruction supersedes an old product question',()=>{
- const c=compile(['¿Qué producto es?','Quiero el pedido el sábado por la tarde']);assert.equal(c.operational_action,'RETRY_DELIVERY');assert.ok(c.fact_ledger.some(f=>f.fact_type==='ASKS_PRODUCT'&&f.status==='SUPERSEDED'));
+test('a later delivery instruction preserves unanswered product support for source verification',()=>{
+ const c=compile(['¿Qué producto es?','Quiero el pedido el sábado por la tarde']);assert.equal(c.current_facts.ASKS_PRODUCT.value_json,true);assert.ok(c.pending_customer_questions.some(q=>q.type==='ASKS_PRODUCT'));assert.equal(c.reason,'VERIFIED_PRODUCT_SOURCE_REQUIRED');
  const question=compile(['¿Qué producto es?']);assert.deepEqual(question.missing_information,[]);assert.equal(question.next_best_action,'HUMAN_REVIEW');
 });
 test('latest discount decision supersedes both sides of a previous acceptance/refusal',()=>{

@@ -11,6 +11,17 @@ const incident = { incidentType:'rejected_goods', issueStatus:'PENDING', chatbyR
 const evaluate = messages => incidentDiscountPolicy({incident,messages,now,discountTemplateName:'dropea_incidencia_descuento_5_v1'});
 function response(data) { return new Response(JSON.stringify({data}), {status:200}); }
 
+test('concurrent exact history reads share one request, but a later decision obtains a new read',async()=>{
+ const original=globalThis.fetch;let calls=0,release;
+ const blocked=new Promise(resolve=>{release=resolve;});
+ globalThis.fetch=async()=>{calls++;await blocked;return response([initial]);};
+ try{
+  const first=getIncidentChatMessages('same-exact-case'),second=getIncidentChatMessages('same-exact-case');
+  release();const [a,b]=await Promise.all([first,second]);assert.equal(calls,1);assert.equal(a,b);
+  await getIncidentChatMessages('same-exact-case');assert.equal(calls,2);
+ }finally{globalThis.fetch=original;}
+});
+
 test('native bot evidence unblocks a due discount while confirmation reader remains unchanged', async () => {
  const original=globalThis.fetch;
  globalThis.fetch=async url=>response(new URL(url).searchParams.get('include_bot')==='1'?[initial]:[]);
