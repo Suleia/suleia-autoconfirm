@@ -1,9 +1,11 @@
 import {createHash} from 'node:crypto';
 import {pickupParameters,PICKUP_TEMPLATE,PICKUP_LANGUAGE,PICKUP_BODY} from '../../autoconfirm/src/workflows/gls-pickup-template.mjs';
 import {extractWamid,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
+import {glsDirectAgencyPhone,glsOpeningHoursVerified} from './gls-pickup-source.mjs';
 export const PICKUP_STATES=['PICKUP_DETECTED','PICKUP_ELIGIBILITY_CHECK','WAITING_FOR_PICKUP_AVAILABILITY','GLS_LOOKUP_PENDING','GLS_AGENCY_FOUND','GLS_AGENCY_CONFLICT','ORDER_DATA_VERIFIED','WAITING_COD_RECONCILIATION','TEMPLATE_PENDING_APPROVAL','READY_TO_NOTIFY','SEND_CLAIMED','SEND_UNKNOWN','SENT_PROVIDER_ACCEPTED','MESSAGE_VERIFIED','WAITING_CUSTOMER','CLOSED','MANUAL_REVIEW'];
 export const PICKUP_SEQUENCE=[{notice:1,enabled:true},{notice:2,enabled:false},{notice:3,enabled:false},{notice:4,enabled:false}];
 const hash=x=>createHash('sha256').update(JSON.stringify(x)).digest('hex');
+export function pickupPhone(value){let n=String(value||'').replace(/\D/g,'').replace(/^00/,'');if(n.length===9)n='34'+n;return /^[1-9]\d{9,14}$/.test(n)?n:null;}
 export const canonicalPickup=r=>r?.issue?.raw?.type==='PICKUP_AT_AGENCY'&&r.issue.raw.carrier==='GLS'&&r.issue.raw.is_active===true&&['PENDING','MANAGING_WITH_CLIENT'].includes(r.issue.raw.status);
 export function pickupPlan(input){
  const {order,issue,tracking:t,agency:a,template,subscriber,care,supportReceipt,now=Date.now()}=input;
@@ -22,6 +24,8 @@ export function pickupPlan(input){
  if(!a||!['VERIFIED_DIRECTORY_ONLY','VERIFIED_TRACKING_ONLY'].includes(a.validation_status)||a.postal_code_searched!==postal||now-Date.parse(a.retrieved_at)>(a.validation_status==='VERIFIED_TRACKING_ONLY'?60000:24*3600000)||now<Date.parse(a.retrieved_at))return no('MISSING_VERIFIED_AGENCY_DATA');
  if(a.validation_status==='VERIFIED_TRACKING_ONLY'&&(input.allowTrackingFallback!==true||a.source_type!=='GLS_OFFICIAL_TRACKING_VISIBLE'||a.source_url!==o.tracking_url||t.agency!==a))return no('TRACKING_AGENCY_FALLBACK_NOT_VERIFIED');
  if(a.agency_code!==t.agency_code)return no('GLS_AGENCY_CONFLICT','GLS_AGENCY_CONFLICT');
+ if(!glsDirectAgencyPhone(a.phone))return no('DIRECT_AGENCY_PHONE_NOT_VERIFIED');
+ if(!glsOpeningHoursVerified(a.opening_hours))return no('MISSING_VERIFIED_AGENCY_DATA');
  if(!a.opening_hours||!a.phone||!a.city||!a.province||!a.address_line||!a.agency_name)return no('MISSING_VERIFIED_AGENCY_DATA');
  if(o.payment_method!=='COD'||o.currency!=='EUR'||!Number.isSafeInteger(t.cod_cents)||t.cod_cents<=0)return no('PICKUP_TEMPLATE_PAYMENT_INCOMPATIBLE');
  const total=Math.round(Number(o.total_amount)*100),accepted=care?.discount_response==='ACCEPTED'||care?.latest_customer_intents?.includes('ACCEPTS_DISCOUNT')||input.discountAccepted===true||!!supportReceipt;
@@ -29,7 +33,8 @@ export function pickupPlan(input){
  if(accepted&&(!supportReceipt||supportReceipt.status!=='verified'||Number(supportReceipt.raw?.finalCents)!==total||String(supportReceipt.order_id)!==id))return no('WAITING_COD_RECONCILIATION','WAITING_COD_RECONCILIATION');
  if(!input.exactSubscriber||input.whatsappVerified!==true||!subscriber?.user_ns||!subscriber.subscribed||subscriber.unsubscribed||subscriber.blocked||subscriber.is_blocked)return no('EXACT_SUBSCRIBER_AND_PERMISSION_REQUIRED');
  if(!care?.input_hash)return no('CUSTOMER_CARE_CONTEXT_NOT_VERIFIED');
- if(care?.has_current_reply&&(care.unresolved_interpretation?.length||care.unresolved?.length||care.cancel_intent||care.wants_return||!(care.latest_customer_intents||[]).length||(care.latest_customer_intents||[]).some(x=>!['WANTS_ORDER','REQUESTS_AGENCY','THANKS','GREETING','ACCEPTS_DISCOUNT'].includes(x))))return no('CUSTOMER_CARE_REVIEW_REQUIRED');
+ const compatible=['WANTS_ORDER','REQUESTS_AGENCY','THANKS','GREETING','ACCEPTS_DISCOUNT',...(care?.agency_requested===true?['PROVIDES_DATE','PROVIDES_TIME_WINDOW','PROVIDES_EXACT_TIME']:[])];
+ if(care?.has_current_reply&&(care.unresolved_interpretation?.length||care.unresolved?.length||care.cancel_intent||care.wants_return||!(care.latest_customer_intents||[]).length||(care.latest_customer_intents||[]).some(x=>!compatible.includes(x))))return no('CUSTOMER_CARE_REVIEW_REQUIRED');
  const items=o.line_items;if(!Array.isArray(items)||!items.length||items.some(p=>!p.product_name||!Number.isInteger(Number(p.quantity))||Number(p.quantity)<1))return no('ORDER_PRODUCTS_UNVERIFIED');
  if(!template?.approved)return no('EXACT_TEMPLATE_NOT_APPROVED','TEMPLATE_PENDING_APPROVAL');
  const values={customer_name:o.shipping_address.full_name,order_number:'ES'+id,products:items.map(p=>`${p.product_name} × ${p.quantity}`).join('; '),amount:(total/100).toLocaleString('es-ES',{style:'currency',currency:'EUR'}),agency_name:a.agency_name,address_line:a.address_line,locality:`${a.postal_code} ${a.city}, ${a.province}`,opening_hours:a.opening_hours,phone:a.phone,tracking_url:o.tracking_url};
@@ -42,7 +47,7 @@ export function matchingPickupMessage(messages,plan,{attemptedAt=plan.observed_a
  const expected=plan.params;
  const body=PICKUP_BODY.replace(/\{\{(\d+)\}\}/g,(_,n)=>expected[`BODY_{{${n}}}`]);
  const matches=messages.filter(m=>{
-  const p=m.payload||m.raw?.payload||{},mid=extractWamid(m),at=messageTimestamp(m);
+  const p=m.payload||m.raw?.payload||{},mid=[m.mid,m.message_id,m.id,m.raw?.mid].find(id=>typeof id==='string'&&id.startsWith('wamid.')),at=messageTimestamp(m);
   const content=Object.entries(expected).every(([k,v])=>p.params?.[k]===v)||p.body===body;
   return String(m.user_ns)===plan.conversation_id&&p.name===PICKUP_TEMPLATE&&(!p.lang||p.lang===PICKUP_LANGUAGE)&&Number.isFinite(at)&&at>=start&&!!mid&&(!wamid||mid===wamid)&&content;
  });return matches.length===1?matches[0]:null;

@@ -82,6 +82,13 @@ async function runProbe(context){
 
 export async function probeSessions(context){
  try{
+  const input=JSON.parse(await fs.readFile('/state/probe-processing.json','utf8'));
+  if(input.glsPickupInspection===true){try{
+   const age=Date.now()-(await fs.stat('/state/probe-processing.json')).mtimeMs;if(age<0||age>60000)throw Error('GLS_INSPECTION_REQUEST_EXPIRED');
+   const {inspectGlsPickup}=await import('./gls-pickup-probe.mjs');return await inspectGlsPickup(context,input);
+  }finally{await fs.unlink('/state/probe-processing.json');}}
+ }catch(error){if(error.code!=='ENOENT')throw error;}
+ try{
   const result=await runProbe(context);
   const fixture=await context.newPage();
   try{

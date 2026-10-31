@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {createGlsDirectory,readGlsTracking,collectGlsPickupIncidents} from './gls-pickup-source.mjs';
-import {canonicalPickup,pickupPlan,matchingPickupMessage} from './gls-pickup-policy.mjs';
+import {canonicalPickup,pickupPlan,matchingPickupMessage,pickupPhone} from './gls-pickup-policy.mjs';
 import {PICKUP_TEMPLATE,PICKUP_OWNER,pickupTemplateStatus} from '../../autoconfirm/src/workflows/gls-pickup-template.mjs';
 import {compileCustomerCase} from '../../autoconfirm/src/customer-context/case-compiler.mjs';
 import {extractWamid,isCustomerInteraction,messageTimestamp} from '../../autoconfirm/src/workflows/incident-discount-policy.mjs';
@@ -28,13 +28,15 @@ export async function executePickupNotice(plan,deps){
  await deps.finish(plan,wamid?'provider_accepted':'send_unknown',{plan,attemptedAt,owner:PICKUP_OWNER,wamid,post_attempts_max:1});
  let proof=null;try{proof=await deps.readback(plan,{attemptedAt,wamid});}catch{}
  if(!extractWamid(proof))return {state:wamid?'SENT_PROVIDER_ACCEPTED':'SEND_UNKNOWN',reason:'HISTORY_READBACK_PENDING',provider_accepted:!!wamid};
- await deps.finish(plan,'verified',{plan,attemptedAt,owner:PICKUP_OWNER,wamid:extractWamid(proof),readback_verified:true,post_attempts_max:1});
- return {state:'MESSAGE_VERIFIED',reason:'EXACT_TEMPLATE_MESSAGE_VERIFIED',provider_accepted:true,verified:true,wamid:extractWamid(proof)};
+ const sent_at=new Date(messageTimestamp(proof)).toISOString();
+ await deps.finish(plan,'verified',{plan,attemptedAt,owner:PICKUP_OWNER,wamid:extractWamid(proof),sent_at,readback_verified:true,post_attempts_max:1});
+ return {state:'MESSAGE_VERIFIED',reason:'EXACT_TEMPLATE_MESSAGE_VERIFIED',provider_accepted:true,verified:true,wamid:extractWamid(proof),sent_at};
 }
 export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={}){
  await(await import('./worker.mjs')).loadProviderEnv();
  const {selectRows,upsertRows}=await import('../../autoconfirm/src/clients/supabase.mjs');
- const {readDropeaV2ReturnIssueState}=await import('../../autoconfirm/src/clients/dropea-v2-incidents.mjs');
+ const nativeClient=await import('../../autoconfirm/src/clients/dropea-v2-incidents.mjs');
+ const readDropeaV2ReturnIssueState=(i,options={})=>nativeClient.readDropeaV2ReturnIssueState(i,{...options,clientFactory:c=>{if(Date.now()>=deadlineAt)throw Error('PICKUP_NATIVE_READ_BUDGET_EXHAUSTED');return nativeClient.createDropeaV2IncidentClient({...c,maxReadRetries:1,timeoutMs:Math.max(1,Math.min(8000,deadlineAt-Date.now()))});}});
  const {getIncidentChatMessages,getIncidentSubscriberInfo,findSubscriberInIndexForExactOrder,listExactWhatsappTemplates,sendWhatsappTemplate}=await import('../../autoconfirm/src/clients/chatby.mjs');
  const {getTemplateDelivery,claimTemplateDelivery,finishTemplateDelivery}=await import('../../autoconfirm/src/db/supabase-store.mjs');
  const {inspectPriorOrderReturn}=await import('../../autoconfirm/src/workflows/incident-order-return-guard.mjs');
@@ -47,12 +49,12 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
  async function reconcile(row){
   const p=row.raw?.plan;if(!p)return {state:'MANUAL_REVIEW',reason:'CLAIM_WITHOUT_EXACT_PAYLOAD',duplicate_prevented:true};
   if(row.status==='verified'){
-   let customer_replied=false;try{customer_replied=(await getIncidentChatMessages(p.conversation_id)).some(m=>String(m.user_ns)===p.conversation_id&&isCustomerInteraction(m)&&messageTimestamp(m)>Date.parse(row.raw.attemptedAt));}catch{}
-   return {state:customer_replied?'MESSAGE_VERIFIED':'WAITING_CUSTOMER',reason:customer_replied?'EXISTING_CUSTOMER_CARE_OWNS_REPLY':'ALREADY_VERIFIED',verified:true,already_sent:true,customer_replied,wamid:row.raw.wamid};
+   let customer_replied=false;try{customer_replied=!!row.raw.sent_at&&(await getIncidentChatMessages(p.conversation_id)).some(m=>String(m.user_ns)===p.conversation_id&&isCustomerInteraction(m)&&messageTimestamp(m)>Date.parse(row.raw.sent_at));}catch{}
+   return {state:customer_replied?'MESSAGE_VERIFIED':'WAITING_CUSTOMER',reason:customer_replied?'EXISTING_CUSTOMER_CARE_OWNS_REPLY':'ALREADY_VERIFIED',verified:true,already_sent:true,customer_replied,wamid:row.raw.wamid,sent_at:row.raw.sent_at||null};
   }
   if(row.status==='not_sent')return {state:'MANUAL_REVIEW',reason:'PROVEN_ZERO_POST_CLAIM_RETAINED',duplicate_prevented:true};
   let proof;try{proof=matchingPickupMessage(await getIncidentChatMessages(p.conversation_id),p,{attemptedAt:row.raw.attemptedAt,wamid:row.raw.wamid});}catch{}
-  if(proof){await finish(p,'verified',{...row.raw,readback_verified:true,wamid:extractWamid(proof),reconciled_at:new Date().toISOString()});return {state:'MESSAGE_VERIFIED',verified:true,already_sent:true,wamid:extractWamid(proof)};}
+  if(proof){const sent_at=new Date(messageTimestamp(proof)).toISOString();await finish(p,'verified',{...row.raw,readback_verified:true,wamid:extractWamid(proof),sent_at,reconciled_at:new Date().toISOString()});return {state:'MESSAGE_VERIFIED',verified:true,already_sent:true,wamid:extractWamid(proof),sent_at};}
   return {state:row.status==='provider_accepted'?'SENT_PROVIDER_ACCEPTED':'SEND_UNKNOWN',reason:'READ_ONLY_RECONCILIATION_REQUIRED',duplicate_prevented:true};
  }
  let cache={};try{cache=JSON.parse(await fs.readFile('/state/gls-agency-cache.json','utf8'));}catch(e){if(e.code!=='ENOENT')throw e;}
@@ -102,8 +104,8 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    const supportReceipt=await getTemplateDelivery({storeId:'suleia',orderId:base.order.orderId,templateName:'accepted_discount_support_v1'});
    const prior=await inspectPriorOrderReturn(incident);
    const readInput=async(current,t,sub,messages,status,receipt=supportReceipt,priorProof=prior)=>{
-    const digits=s=>String(s||'').replace(/\D/g,'').slice(-9),phone=digits(current.order.customerPhone);
-    const exact=!!phone&&sub.user_ns===incident.chatbyUserNs&&digits(sub.phone||sub.user_id)===phone&&findSubscriberInIndexForExactOrder({byPhone:new Map([[phone,[sub]]])},{phone:current.order.customerPhone,orderId:current.order.orderId})?.user_ns===sub.user_ns;
+    const phone=pickupPhone(current.order.customerPhone);
+    const exact=!!phone&&sub.user_ns===incident.chatbyUserNs&&pickupPhone(sub.phone||sub.user_id)===phone&&findSubscriberInIndexForExactOrder({byPhone:new Map([[phone.slice(-9),[sub]]])},{phone:current.order.customerPhone,orderId:current.order.orderId})?.user_ns===sub.user_ns;
     const scoped={...incident,chatbyReadVerified:true,chatbyOrderAssociation:exact?'EXACT_ORDER':null};
     const care=compileCustomerCase({...current,incident:scoped,messages,binding:{verified:exact,orderId:current.order.orderId,issueId:incident.incidenceId,conversationId:sub.user_ns}});
     return {...current,priorReturn:priorProof.verified||priorProof.blocked,otherActiveIssue:base.otherActiveIssue,tracking:t,agency:agency?.validation_status==='VERIFIED_TRACKING_ONLY'?t.agency:agency,allowTrackingFallback:flags.allowVerifiedTrackingFallback===true,template:status,subscriber:sub,care,exactSubscriber:exact,whatsappVerified:messages.some(m=>String(m.user_ns)===sub.user_ns&&!!extractWamid(m)),supportReceipt:receipt,discountAccepted:incident.incidentDiscountResponseStatus==='DISCOUNT_ACCEPTED'};
@@ -112,7 +114,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
    const plan=pickupPlan(await readInput(fresh,tracking,sub,messages,template));
    if(!plan.eligible){report.cases.push({...item,...plan});continue;}
    report.metrics.pickup_notice_1_eligible++;
-   const old=matchingPickupMessage(messages,plan,{attemptedAt:fresh.order.createdAt});
+   const old=matchingPickupMessage(messages,plan,{attemptedAt:tracking.availability_at});
    if(old){report.cases.push({...item,state:'MANUAL_REVIEW',reason:'PREEXISTING_MESSAGE_REQUIRES_LEDGER_RECONCILIATION'});continue;}
    if(flags.mode==='SHADOW'){report.cases.push({...item,state:'READY_TO_NOTIFY',reason:'SHADOW_NO_SEND'});continue;}
    if(report.mode==='CANARY'){
@@ -132,7 +134,7 @@ export async function runGlsPickupCycle(context,{deadlineAt=Date.now()+240000}={
      const priorProof=await inspectPriorOrderReturn(incident);
      const latest=await readGlsTracking(context,{url:current.order.raw.tracking_url,tracking:String(current.order.raw.tracking_number),postal:String(current.order.raw.shipping_address?.postal_code||'')},trackingOptions);
      const p=pickupPlan(await readInput(current,latest,subscriber,history,status,receipt,priorProof));return {...p,fresh_expires_at:freshReadAt+60000};
-    },alreadySeen:async(readers,p)=>!!matchingPickupMessage(await readers.readMessages(p.conversation_id),p,{attemptedAt:fresh.order.createdAt}),
+    },alreadySeen:async(readers,p)=>{const history=await readers.readMessages(p.conversation_id);if(digest(history)!==baseline)throw Error('PICKUP_NEW_CONVERSATION_EVENT');return !!matchingPickupMessage(history,p,{attemptedAt:tracking.availability_at});},
     readback:async(p,receipt)=>matchingPickupMessage(await getIncidentChatMessages(p.conversation_id),p,receipt)
    });
    report.cases.push({...item,...result,amount_cents:plan.amount_cents,tracking_url:plan.tracking.source_url,tracking_id:plan.tracking_id,episode_id:plan.episode_id,template_id:plan.template_id,meta_template_id:plan.meta_template_id});

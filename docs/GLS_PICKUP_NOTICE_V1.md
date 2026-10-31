@@ -46,6 +46,13 @@ fallback only when that exact fresh tracking UI supplies the complete agency,
 hours, direct phone, READY event identity and COD. A directory/tracking conflict
 cannot use fallback. Provider Retry-After deadlines persist in the existing
 private cache and prevent new GLS requests until they expire.
+GLS publishes 910806229 as a general/central contact; it is never accepted as
+a verified direct agency phone. Real written hours such as “De 9 a 14 y de
+16 a 19” are preserved. Missing hours or direct contact block that case.
+Only necessary Cookiebot consent and Flutter's accessibility activation may
+be clicked. Pickup/redelivery actions are never clicked. The existing typed
+read-only probe queue can inspect one exact active GLS order/issue, with a
+short-lived request, no arbitrary URL and no customer/logistics writes.
 
 Eligibility requires exact canonical `PICKUP_AT_AGENCY`, active native issue,
 same shipment/current destination, READY tracking, matching agency, current
